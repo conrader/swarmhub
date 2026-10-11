@@ -15,13 +15,16 @@ Requirements: macOS 14+, Xcode 16.2, Swift 6.
 
 ## What works
 
-- Create and edit bots with a name, persona, and backend; bots and messages are saved atomically as JSON in Application Support.
-- Fast `LazyVStack` chat rendering, native Markdown via `AttributedString`, streaming updates, code blocks, stop, Enter to send, and Shift+Enter for a newline.
+- A three-column, system-native chat layout with five demo agents, searchable/collapsible sidebar, unread badges, contextual rename/settings/delete actions, and an account settings entry.
+- Create and edit agents with an avatar preview, name, title, description, persona, notifications, and backend; agents and messages are saved atomically as JSON in Application Support.
+- Fast `LazyVStack` chat rendering, native Markdown, code blocks, reactions, streaming updates, stop, Enter to send, and Shift+Enter for a newline.
+- Inline approval, draft-email, option, and attachment widgets. The composer includes attachment, voice, and send/stop controls.
+- A per-agent info pane with a noVNC computer preview, routines, live status toggles, and sub-agent tasks. `Cmd+Shift+I` toggles it.
+- A `Cmd+K` command palette for jumping to an agent, opening Settings, or creating an agent.
 - A backend-neutral `AgentBackend` protocol covering messages/events, sessions, cancellation, approvals, and connection tests.
 - A working Mock backend with token streaming, progress, a sub-agent lifecycle, and a draft-before-send email approval.
 - A Hermes SSE adapter, Bearer authentication, tool progress parsing, Keychain API-key storage, and a health check.
-- Collapsible sub-agent inspector and a noVNC `WKWebView` computer tab.
-- Settings for Hermes, OpenClaw, noVNC, connection testing, and system-following appearance.
+- Settings tabs for General, Computer, and Updates, including Follow System/Light/Dark appearance, five accent choices, language, notifications, Hermes, OpenClaw, and noVNC configuration.
 
 There are no external package dependencies.
 
@@ -66,17 +69,22 @@ Measured on the supplied Mac with a clean process launch and the Xcode 16.2 comp
 AGENTAPP_BENCHMARK=1 /usr/bin/time -l .build/debug/AgentApp
 ```
 
-Result: **0.36 s cold process initialization** and **8.9 MB peak resident memory at app initialization**. This benchmark exits immediately after app-state initialization; it does not claim first-frame timing. The app also prints its initialization memory on normal launches.
+Current result after the visual pass: **0.01 s process initialization** with a warm OS filesystem cache and **12.0 MB peak resident memory at app initialization**. The previous cold process measurement was 0.36 s. This benchmark exits immediately after app-state initialization; it does not claim first-frame timing. The app also prints initialization memory on normal launches.
 
-## Screenshot
+## Screenshots
 
-An actual screenshot could not be captured in the managed build session because it has no WindowServer/display access (`screencapture` returned `could not create image from display`). On a logged-in desktop, run the Mock backend and capture it with:
+![AgentApp light appearance](docs/screenshot.png)
+
+![AgentApp dark appearance](docs/screenshot-dark.png)
+
+The managed session has no WindowServer/display access, so the repository includes a deterministic off-screen renderer for the actual SwiftUI hierarchy. Recreate both captures with:
 
 ```bash
-./scripts/run.sh &
-sleep 2
-screencapture -x docs/screenshot.png
+AGENTAPP_APPEARANCE=Light AGENTAPP_SNAPSHOT="$PWD/docs/screenshot.png" .build/debug/AgentApp
+AGENTAPP_APPEARANCE=Dark AGENTAPP_SNAPSHOT="$PWD/docs/screenshot-dark.png" .build/debug/AgentApp
 ```
+
+The normal interactive app does not invoke this renderer.
 
 ## Next steps
 
