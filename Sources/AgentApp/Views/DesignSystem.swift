@@ -1,6 +1,40 @@
 import AppKit
 import SwiftUI
 
+enum AppTheme {
+    static let defaultPreference = "Dark"
+
+    static func colorScheme(for preference: String) -> ColorScheme? {
+        switch preference {
+        case "Light": .light
+        case "System": nil
+        default: .dark
+        }
+    }
+}
+
+enum AppColor {
+    static let sidebar = adaptive(light: 0xF2F2F4, dark: 0x0E0E10)
+    static let chat = adaptive(light: 0xFFFFFF, dark: 0x141416)
+    static let panel = adaptive(light: 0xF8F8FA, dark: 0x19191C)
+    static let card = adaptive(light: 0xFFFFFF, dark: 0x1D1D20)
+    static let raised = adaptive(light: 0xF0F0F3, dark: 0x232327)
+    static let separator = adaptive(light: 0xD9D9DE, dark: 0x2C2C30)
+    static let selection = adaptive(light: 0xE3E3E7, dark: 0x29292D)
+
+    private static func adaptive(light: UInt32, dark: UInt32) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let value = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(
+                srgbRed: CGFloat((value >> 16) & 0xff) / 255,
+                green: CGFloat((value >> 8) & 0xff) / 255,
+                blue: CGFloat(value & 0xff) / 255,
+                alpha: 1
+            )
+        })
+    }
+}
+
 struct AvatarImage: View {
     let name: BotAvatarName
     var body: some View {
@@ -69,7 +103,9 @@ struct BotAvatar: View {
     var body: some View {
         AvatarImage(name: bot.avatarName)
             .scaledToFill().frame(width: size, height: size).clipShape(Circle())
-            .overlay(Circle().stroke(.primary.opacity(0.08), lineWidth: 0.5))
+            .background(AppColor.raised, in: Circle())
+            .overlay(Circle().stroke(AppColor.separator, lineWidth: 0.75))
+            .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
     }
 }
 

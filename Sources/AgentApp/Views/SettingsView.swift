@@ -4,20 +4,20 @@ import UserNotifications
 struct SettingsView: View {
     private enum Pane: String, CaseIterable, Identifiable { case account = "Account", appearance = "Appearance", notifications = "Notifications", computers = "Computers", review = "Auto-review", usage = "Usage", updates = "Updates"; var id: String { rawValue }; var icon: String { switch self { case .account: "person.crop.circle"; case .appearance: "paintpalette"; case .notifications: "bell"; case .computers: "desktopcomputer"; case .review: "checkmark.shield"; case .usage: "chart.bar"; case .updates: "arrow.triangle.2.circlepath" } } }
     @State private var pane = Pane.account
-    @AppStorage("appearance") private var appearance = "System"; @AppStorage("accent") private var accent = "Graphite"; @AppStorage("notifications") private var notifications = true
+    @AppStorage("appearance") private var appearance = AppTheme.defaultPreference; @AppStorage("accent") private var accent = "Graphite"; @AppStorage("notifications") private var notifications = true
     @AppStorage("hermesBaseURL") private var hermesURL = AppConstants.defaultHermesURL; @AppStorage("openClawURL") private var openClawURL = "ws://127.0.0.1:18789"
     @AppStorage("noVNCURL") private var noVNCURL = ""; @AppStorage("autoReview") private var autoReview = false
     @State private var apiKey = ""; @State private var testResult = ""; @State private var testing = false
     var body: some View {
         NavigationSplitView { List(Pane.allCases, selection: $pane) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }.navigationSplitViewColumnWidth(170) } detail: { Form { content }.formStyle(.grouped).navigationTitle(pane.rawValue) }
-            .frame(width: 720, height: 500).preferredColorScheme(appearance == "Light" ? .light : appearance == "Dark" ? .dark : nil).onAppear { apiKey = KeychainStore.get(account: "hermes") }
+            .frame(width: 720, height: 500).background(AppColor.panel).onAppear { apiKey = KeychainStore.get(account: "hermes") }
     }
     @ViewBuilder private var content: some View {
         switch pane {
         case .account:
             LabeledContent("Name", value: "Konrad"); LabeledContent("Workspace", value: "Personal"); Button("Manage account…") { }.disabled(true); Text("TODO: account management requires a workspace identity provider.").font(.caption).foregroundStyle(.secondary)
         case .appearance:
-            Picker("Theme", selection: $appearance) { Text("Follow System").tag("System"); Text("Light").tag("Light"); Text("Dark").tag("Dark") }.pickerStyle(.segmented)
+            Picker("Theme", selection: $appearance) { Text("Dark").tag("Dark"); Text("Light").tag("Light"); Text("System").tag("System") }.pickerStyle(.segmented)
             Picker("Accent", selection: $accent) { ForEach(["Graphite", "Blue", "Purple", "Orange"], id: \.self) { Text($0) } }
         case .notifications:
             Toggle("New messages", isOn: $notifications).onChange(of: notifications) { _, enabled in if enabled { UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in } } }

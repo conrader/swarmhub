@@ -25,7 +25,7 @@ struct SidebarView: View {
                 HStack(spacing: 9) { Image(systemName: "person.crop.circle.fill").font(.system(size: 25)).foregroundStyle(.secondary); Text("Konrad").font(.system(size: 13, weight: .medium)); Spacer() }
                     .contentShape(Rectangle()).padding(.horizontal, 12).padding(.vertical, 10)
             }.buttonStyle(.plain)
-        }.background(.bar)
+        }.background(AppColor.sidebar)
         .alert("Delete \(botToDelete?.name ?? "bot")?", isPresented: Binding(get: { botToDelete != nil }, set: { if !$0 { botToDelete = nil } })) {
             Button("Cancel", role: .cancel) { botToDelete = nil }
             Button("Delete", role: .destructive) { if let botToDelete { store.delete(botToDelete) }; botToDelete = nil }
@@ -39,7 +39,7 @@ struct SidebarView: View {
                 Text(bot.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
                 Spacer(minLength: 5)
                 if bot.unreadCount > 0 { Circle().fill(.primary.opacity(0.72)).frame(width: 6, height: 6) }
-            }.padding(.horizontal, 7).frame(height: 40).contentShape(RoundedRectangle(cornerRadius: 7)).background(selection == bot ? Color.primary.opacity(0.075) : .clear, in: RoundedRectangle(cornerRadius: 7))
+            }.padding(.horizontal, 7).frame(height: 40).contentShape(RoundedRectangle(cornerRadius: 7)).background(selection == bot ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 7))
         }.buttonStyle(.plain).contextMenu {
             Button("Edit", systemImage: "pencil") { store.editingBot = bot }
             Button(bot.isHidden ? "Show in Sidebar" : "Hide from Sidebar", systemImage: bot.isHidden ? "eye" : "eye.slash") { bot.isHidden.toggle(); store.save() }

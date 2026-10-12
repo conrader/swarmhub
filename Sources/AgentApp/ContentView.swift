@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var store: AppStore
-    @AppStorage("appearance") private var appearance = "System"
     var body: some View {
         NavigationSplitView {
             SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: 176, ideal: 196, max: 224)
@@ -13,7 +12,7 @@ struct ContentView: View {
                     if store.showInfo { Divider(); InfoPanel(bot: bot) }
                 }
             } else { ContentUnavailableView("Choose an agent", systemImage: "bubble.left.and.bubble.right", description: Text("Select an agent from the sidebar to begin.")) }
-        }.navigationSplitViewStyle(.balanced).tint(.primary).preferredColorScheme(scheme)
+        }.navigationSplitViewStyle(.balanced).tint(.primary).background(AppColor.chat)
         .sheet(isPresented: $store.showingNewBot) { BotEditorView(bot: nil) }
         .sheet(item: $store.editingBot) { BotEditorView(bot: $0) }
         .onReceive(NotificationCenter.default.publisher(for: .toggleInfo)) { _ in store.showInfo.toggle() }
@@ -22,7 +21,6 @@ struct ContentView: View {
         .sheet(isPresented: $store.showingCommandPalette) { CommandPaletteView() }
         .alert("Backend Error", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) { Button("OK") { store.errorMessage = nil } } message: { Text(store.errorMessage ?? "") }
     }
-    private var scheme: ColorScheme? { appearance == "Light" ? .light : appearance == "Dark" ? .dark : nil }
 }
 
 private struct CommandPaletteView: View {
@@ -37,7 +35,7 @@ private struct CommandPaletteView: View {
                 action("Open Settings", icon: "gearshape") { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) }
                 ForEach(store.bots.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { bot in action(bot.name, icon: "message") { store.selectedBot = bot } }
             }.padding(8) }
-        }.frame(width: 480, height: 380)
+        }.frame(width: 480, height: 380).background(AppColor.panel)
     }
     private func action(_ title: String, icon: String, perform: @escaping () -> Void) -> some View { Button { perform(); dismiss() } label: { HStack { Image(systemName: icon).frame(width: 24); Text(title); Spacer() }.padding(9).contentShape(Rectangle()) }.buttonStyle(.plain) }
 }

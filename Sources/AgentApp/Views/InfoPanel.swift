@@ -18,11 +18,11 @@ struct InfoPanel: View {
                 Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
                     .buttonStyle(.plain).help("Close")
             }.padding(.horizontal, 14).frame(height: 54)
-            Divider().opacity(0.5)
+            Rectangle().fill(AppColor.separator).frame(height: 0.5)
             HStack(spacing: 3) { ForEach(PanelTab.allCases, id: \.self) { item in Button(item.rawValue) { tab = item }.font(.system(size: 10, weight: tab == item ? .semibold : .regular)).buttonStyle(.plain).padding(.horizontal, 6).frame(height: 26).background(tab == item ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6)) } }.padding(8)
-            Divider().opacity(0.5)
+            Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView { panelContent.padding(14).frame(maxWidth: .infinity, alignment: .leading) }
-        }.frame(minWidth: 300, idealWidth: 330, maxWidth: 380).background(.background)
+        }.frame(minWidth: 300, idealWidth: 330, maxWidth: 380).background(AppColor.panel)
             .sheet(isPresented: $computerPresented) { ComputerView().frame(minWidth: 1000, minHeight: 680) }
             .sheet(isPresented: $showingRoutineEditor) { RoutineEditor(bot: bot) }
     }
@@ -55,5 +55,5 @@ struct InfoPanel: View {
 }
 
 private struct FlowLayout: View { let items: [String]; var body: some View { VStack(alignment: .leading, spacing: 6) { ForEach(items, id: \.self) { Text($0).font(.caption).padding(.horizontal, 9).padding(.vertical, 5).background(.primary.opacity(0.06), in: Capsule()) } } } }
-private struct RoutineRow: View { @State var routine: BotRoutine; let update: (BotRoutine) -> Void; var body: some View { VStack(alignment: .leading, spacing: 5) { HStack { Text(routine.name).fontWeight(.medium); Spacer(); Toggle("", isOn: $routine.isEnabled).labelsHidden().controlSize(.small).onChange(of: routine.isEnabled) { _, _ in update(routine) } }; Text(routine.schedule).font(.caption).foregroundStyle(.secondary); Text("Last run: \(routine.lastRun)").font(.caption2).foregroundStyle(.tertiary) }.padding(10).background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9)) } }
+private struct RoutineRow: View { @State var routine: BotRoutine; let update: (BotRoutine) -> Void; var body: some View { VStack(alignment: .leading, spacing: 5) { HStack { Text(routine.name).fontWeight(.medium); Spacer(); Toggle("", isOn: $routine.isEnabled).labelsHidden().controlSize(.small).onChange(of: routine.isEnabled) { _, _ in update(routine) } }; Text(routine.schedule).font(.caption).foregroundStyle(.secondary); Text("Last run: \(routine.lastRun)").font(.caption2).foregroundStyle(.tertiary) }.padding(10).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 9)) } }
 private struct RoutineEditor: View { @EnvironmentObject var store: AppStore; @Environment(\.dismiss) var dismiss; let bot: Bot; @State var name = ""; @State var schedule = "Every weekday at 9:00"; var body: some View { VStack(alignment: .leading, spacing: 16) { Text("New routine").font(.title2.bold()); TextField("Name", text: $name); TextField("Schedule or trigger", text: $schedule); Text("TODO: backend scheduling is mocked locally.").font(.caption).foregroundStyle(.secondary); HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Create") { store.routines[bot.id, default: []].append(.init(name: name, schedule: schedule)); dismiss() }.buttonStyle(.borderedProminent).disabled(name.isEmpty) } }.padding(22).frame(width: 420) } }

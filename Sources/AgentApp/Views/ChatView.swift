@@ -8,8 +8,8 @@ struct ChatView: View {
                 BotAvatar(bot: bot, size: 30)
                 Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)) }.buttonStyle(.plain)
                 Spacer()
-            }.padding(.horizontal, 20).frame(height: 54).background(.background)
-            Divider().opacity(0.5)
+            }.padding(.horizontal, 20).frame(height: 54).background(AppColor.chat)
+            Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -20,13 +20,13 @@ struct ChatView: View {
                         }
                         Color.clear.frame(height: 1).id("bottom")
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity)
-                }.background(.background)
+                }.background(AppColor.chat)
                 .onChange(of: bot.messages.last?.content) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: bot.messages.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             }
             if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
-            ComposerView(text: $draft, isStreaming: store.isStreaming, send: send).background(.background)
-        }
+            ComposerView(text: $draft, isStreaming: store.isStreaming, send: send).background(AppColor.chat)
+        }.background(AppColor.chat)
     }
     private func send() { let value = draft; guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; draft = ""; store.send(text: value) }
 }

@@ -4,6 +4,7 @@ import SwiftUI
 
 @main struct AgentAppMain: App {
     @StateObject private var store: AppStore
+    @AppStorage("appearance") private var appearance = AppTheme.defaultPreference
     init() {
         if let appearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"] { UserDefaults.standard.set(appearance, forKey: "appearance") }
         let appStore = AppStore()
@@ -15,7 +16,10 @@ import SwiftUI
     }
     var body: some Scene {
         WindowGroup(AppConstants.name) {
-            ContentView().environmentObject(store).frame(minWidth: 980, minHeight: 620)
+            ContentView()
+                .environmentObject(store)
+                .preferredColorScheme(AppTheme.colorScheme(for: appearance))
+                .frame(minWidth: 980, minHeight: 620)
         }
             .defaultSize(width: 1120, height: 760)
             .commands {
@@ -25,6 +29,9 @@ import SwiftUI
                     Button("Toggle Agent Info") { NotificationCenter.default.post(name: .toggleInfo, object: nil) }.keyboardShortcut("i", modifiers: [.command, .shift])
                 }
             }
-        Settings { SettingsView() }
+        Settings {
+            SettingsView()
+                .preferredColorScheme(AppTheme.colorScheme(for: appearance))
+        }
     }
 }

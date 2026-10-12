@@ -84,15 +84,12 @@ Current result after the parity pass: **0.01 s warm process launch** and **12.1 
 
 ## Screenshots
 
-![AgentApp light appearance](docs/screenshot.png)
+![AgentApp default dark appearance](docs/screenshot.png)
 
-![AgentApp dark appearance](docs/screenshot-dark.png)
-
-The managed session has no WindowServer/display access, so the repository includes a deterministic off-screen renderer for the actual SwiftUI hierarchy. Recreate both captures with:
+The managed session has no WindowServer/display access, so the repository includes a deterministic off-screen renderer for the actual SwiftUI hierarchy. Recreate the default capture with:
 
 ```bash
-AGENTAPP_APPEARANCE=Light AGENTAPP_SNAPSHOT="$PWD/docs/screenshot.png" .build/debug/AgentApp
-AGENTAPP_APPEARANCE=Dark AGENTAPP_SNAPSHOT="$PWD/docs/screenshot-dark.png" .build/debug/AgentApp
+AGENTAPP_APPEARANCE=Dark AGENTAPP_SNAPSHOT="$PWD/docs/screenshot.png" .build/debug/AgentApp
 ```
 
 The normal interactive app does not invoke this renderer.
