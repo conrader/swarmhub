@@ -15,7 +15,7 @@ struct ChatView: View {
                     LazyVStack(spacing: 0) {
                         Color.clear.frame(height: 20)
                         ForEach(Array(bot.messages.enumerated()), id: \.element.id) { index, message in
-                            MessageView(message: message).id(message.id)
+                            MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } }, reply: { store.replyTo = message }).id(message.id)
                             if index == 1 { ForEach(store.approvals) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) } }
                         }
                         Color.clear.frame(height: 1).id("bottom")
@@ -24,6 +24,7 @@ struct ChatView: View {
                 .onChange(of: bot.messages.last?.content) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: bot.messages.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             }
+            if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
             ComposerView(text: $draft, isStreaming: store.isStreaming, send: send).background(.background)
         }
     }

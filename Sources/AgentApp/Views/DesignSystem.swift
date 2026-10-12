@@ -4,11 +4,50 @@ import SwiftUI
 struct AvatarImage: View {
     let name: BotAvatarName
     var body: some View {
+        if name.isFlatFace {
+            FlatBotFace(name: name)
+        } else {
 #if SWIFT_PACKAGE
-        Image(name.rawValue, bundle: .module).resizable()
+            Image(name.rawValue, bundle: .module).resizable()
 #else
-        Image(nsImage: AvatarAssets.image(named: name.rawValue)).resizable()
+            Image(nsImage: AvatarAssets.image(named: name.rawValue)).resizable()
 #endif
+        }
+    }
+}
+
+/// Original vector bot faces. They intentionally use only SwiftUI geometry and
+/// system rendering so no third-party artwork, font, or extracted asset is shipped.
+struct FlatBotFace: View {
+    let name: BotAvatarName
+    private var palette: (Color, Color) {
+        switch name {
+        case .faceCoral: (.init(red: 0.95, green: 0.48, blue: 0.42), .init(red: 0.45, green: 0.16, blue: 0.16))
+        case .faceSky: (.init(red: 0.48, green: 0.75, blue: 0.94), .init(red: 0.12, green: 0.27, blue: 0.42))
+        case .faceMint: (.init(red: 0.48, green: 0.82, blue: 0.67), .init(red: 0.10, green: 0.34, blue: 0.23))
+        case .faceSun: (.init(red: 0.96, green: 0.76, blue: 0.35), .init(red: 0.40, green: 0.25, blue: 0.08))
+        case .faceLilac: (.init(red: 0.70, green: 0.60, blue: 0.91), .init(red: 0.27, green: 0.18, blue: 0.42))
+        case .faceRose: (.init(red: 0.94, green: 0.62, blue: 0.72), .init(red: 0.43, green: 0.17, blue: 0.28))
+        case .faceOcean: (.init(red: 0.33, green: 0.70, blue: 0.72), .init(red: 0.07, green: 0.30, blue: 0.32))
+        case .faceLime: (.init(red: 0.70, green: 0.82, blue: 0.43), .init(red: 0.26, green: 0.34, blue: 0.08))
+        case .facePeach: (.init(red: 0.96, green: 0.67, blue: 0.48), .init(red: 0.44, green: 0.22, blue: 0.10))
+        case .faceBlue: (.init(red: 0.39, green: 0.58, blue: 0.89), .init(red: 0.09, green: 0.20, blue: 0.42))
+        case .facePlum: (.init(red: 0.69, green: 0.45, blue: 0.69), .init(red: 0.31, green: 0.12, blue: 0.31))
+        default: (.init(red: 0.80, green: 0.71, blue: 0.56), .init(red: 0.32, green: 0.25, blue: 0.16))
+        }
+    }
+    var body: some View {
+        Canvas { context, size in
+            let inset = size.width * 0.10
+            let head = CGRect(x: inset, y: size.height * 0.17, width: size.width - inset * 2, height: size.height * 0.68)
+            context.fill(Path(roundedRect: head, cornerRadius: size.width * 0.25), with: .color(palette.0))
+            let antenna = Path(CGRect(x: size.width * 0.47, y: size.height * 0.06, width: size.width * 0.06, height: size.height * 0.15))
+            context.fill(antenna, with: .color(palette.1.opacity(0.7)))
+            context.fill(Path(ellipseIn: CGRect(x: size.width * 0.42, y: size.height * 0.03, width: size.width * 0.16, height: size.width * 0.16)), with: .color(palette.0))
+            for x in [0.34, 0.62] { context.fill(Path(ellipseIn: CGRect(x: size.width * x, y: size.height * 0.43, width: size.width * 0.075, height: size.width * 0.075)), with: .color(palette.1)) }
+            var mouth = Path(); mouth.move(to: CGPoint(x: size.width * 0.43, y: size.height * 0.64)); mouth.addQuadCurve(to: CGPoint(x: size.width * 0.57, y: size.height * 0.64), control: CGPoint(x: size.width * 0.50, y: size.height * 0.72))
+            context.stroke(mouth, with: .color(palette.1), lineWidth: max(1.2, size.width * 0.045))
+        }.aspectRatio(1, contentMode: .fit)
     }
 }
 
@@ -45,4 +84,5 @@ struct NeutralPrimaryButtonStyle: ButtonStyle {
 extension Notification.Name {
     static let toggleInfo = Notification.Name("AgentApp.toggleInfo")
     static let newBot = Notification.Name("AgentApp.newBot")
+    static let commandPalette = Notification.Name("AgentApp.commandPalette")
 }

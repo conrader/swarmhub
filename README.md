@@ -13,20 +13,29 @@ Requirements: macOS 14+, Xcode 16.2, Swift 6.
 
 `scripts/build.sh` normally delegates to `swift build`. It also contains a direct Xcode 16.2 compiler fallback because the current host's `xcrun` crashes while loading `CoreDevice.framework`. The fallback was used to verify this prototype.
 
-## What works
+## Feature parity
 
-- A calm two-pane layout by default: a narrow material sidebar and a centred, 720-point chat column. The slim info pane opens from the bot name or with `Cmd+Shift+I`.
-- Plain bot rows with 28-point static clay avatars, names, unread dots, subtle selection, a top add button, and a bottom account entry for Settings.
-- Nine original PNG avatars are packaged as SwiftPM resources. Demo bots use them, and the bot editor includes an avatar picker.
-- Assistant responses are unboxed text; user messages use a soft neutral bubble. Approval, email, option, and attachment content uses restrained bordered cards.
-- A single rounded composer provides attach and send controls, Enter to send, and Shift+Enter for a newline.
-- Create and edit bots with name, avatar, title, description, persona, and backend; bots and messages are saved atomically as JSON in Application Support.
-- Fast `LazyVStack` chat rendering, native Markdown, code blocks, streaming updates, approvals, and backend cancellation support.
-- The optional info pane contains the noVNC preview and opens it in a large sheet. noVNC is not exposed elsewhere.
-- A backend-neutral `AgentBackend` protocol covering messages/events, sessions, cancellation, approvals, and connection tests.
-- A working Mock backend with token streaming, progress, a sub-agent lifecycle, and a draft-before-send email approval.
-- A Hermes SSE adapter, Bearer authentication, tool progress parsing, Keychain API-key storage, and a health check.
-- Simple General, Computer, and Updates settings tabs cover appearance, notifications, backend endpoints/credentials, and noVNC configuration.
+This pass recreates the product structure and interaction patterns with original SwiftUI code, SF Symbols, and original assets. It does not ship extracted artwork, fonts, icons, strings, or other assets from Grok Bot.
+
+| Area | Status | Notes |
+|---|---|---|
+| Three-column layout | Done | Bot sidebar, centred chat, and an open-by-default right panel; `Cmd+Shift+I` collapses it. |
+| Bot sidebar | Done | Groups, round avatars, unread dots, new bot, hidden chats, account/settings, and context actions. |
+| Original bot faces | Done | 12 flat vector faces drawn with SwiftUI `Canvas`; nine existing clay PNGs remain selectable. |
+| Core chat | Done | Plain assistant text, user bubbles, Markdown/code, streaming, cancellation, and lazy rendering. |
+| Replies and tapbacks | Done | Reply context and emoji reactions are persisted with messages. |
+| Inline content | Done | Options, draft email with Send, approvals, file/image cards, link pills, and voice memo UI. |
+| Composer | Done | File picker, send, Enter, and Shift+Enter. Backend attachment upload is still adapter-dependent. |
+| Overview | Done | Identity, description, memory summary, and skills. |
+| Routines | Stubbed | Create, pause, schedule/trigger, and last-run UI use local mock data; backend scheduling is TODO. |
+| Media | Done | Grid sourced from attachment and image messages in the active chat. |
+| Computer | Done | Configurable noVNC view, expanded view, and take-over entry point. |
+| Members | Stubbed | Local owner/agent display; workspace membership provider is TODO. |
+| Settings | Done / stubbed | Seven requested sections exist. Account, policy sync, metering, and updater services are explicit stubs. |
+| Quick switcher | Done | `Cmd+K` jumps to bots, creates a bot, or opens Settings. |
+| Notifications | Done | macOS notifications with global and per-bot controls. |
+| Hermes | Partial | SSE chat, auth, progress parsing, Keychain storage, and health check work; Runs API features remain TODO. |
+| OpenClaw | Stubbed | Protocol/configuration exist; authenticated WebSocket RPC remains TODO. |
 
 There are no external package dependencies.
 
@@ -71,7 +80,7 @@ Measured on the supplied Mac with a clean process launch and the Xcode 16.2 comp
 AGENTAPP_BENCHMARK=1 /usr/bin/time -l .build/debug/AgentApp
 ```
 
-Current result after the simplification pass: **0.38 s for the first measured process launch**, **0.01 s for each of two immediately repeated warm launches**, and **12.0 MB peak resident memory at app initialization** (subsequent runs reported 11.9 MB). This benchmark exits immediately after app-state initialization; it does not claim first-frame timing. The app also prints initialization memory on normal launches.
+Current result after the parity pass: **0.01 s warm process launch** and **12.1 MB peak resident memory at app initialization** (snapshot launches reported 12.2 MB). This benchmark exits immediately after app-state initialization; it does not claim first-frame timing. The app also prints initialization memory on normal launches.
 
 ## Screenshots
 
@@ -91,6 +100,6 @@ The normal interactive app does not invoke this renderer.
 ## Next steps
 
 1. Implement OpenClaw's authenticated WebSocket handshake and RPC/event mapping.
-2. Upgrade Hermes from Chat Completions to its Runs API for reconnectable sessions, cancellation, and real approval resolution.
-3. Move long histories to paged SQLite storage and add a repeatable 5,000-message scrolling benchmark.
-4. Add attachment/image input, session switching, accessibility/UI tests, app signing, and a real app icon.
+2. Upgrade Hermes to its Runs API for reconnectable sessions, attachment upload, scheduling, and real approval resolution.
+3. Connect members, account identity, auto-review policy, usage metering, and update services.
+4. Move long histories to paged SQLite and add accessibility/UI tests, app signing, and a real app icon.

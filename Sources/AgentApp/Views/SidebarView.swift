@@ -13,7 +13,13 @@ struct SidebarView: View {
                     .buttonStyle(.plain).help("New bot")
             }.padding(.horizontal, 13).padding(.top, 12).padding(.bottom, 9)
             ScrollView {
-                LazyVStack(spacing: 2) { ForEach(store.bots) { bot in row(bot) } }.padding(.horizontal, 8)
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    sectionLabel("MY BOTS")
+                    ForEach(store.bots.filter { !$0.isHidden }) { bot in row(bot) }
+                    sectionLabel("WORKSPACE")
+                    Button { store.showingHiddenBots.toggle() } label: { Label("Hidden chats", systemImage: "eye.slash").font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 9).frame(height: 34) }.buttonStyle(.plain)
+                    if store.showingHiddenBots { ForEach(store.bots.filter(\.isHidden)) { bot in row(bot) } }
+                }.padding(.horizontal, 8)
             }
             SettingsLink {
                 HStack(spacing: 9) { Image(systemName: "person.crop.circle.fill").font(.system(size: 25)).foregroundStyle(.secondary); Text("Konrad").font(.system(size: 13, weight: .medium)); Spacer() }
@@ -25,6 +31,7 @@ struct SidebarView: View {
             Button("Delete", role: .destructive) { if let botToDelete { store.delete(botToDelete) }; botToDelete = nil }
         } message: { Text("Its local conversation history will be removed. This can’t be undone.") }
     }
+    private func sectionLabel(_ value: String) -> some View { Text(value).font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary).padding(.horizontal, 9).padding(.top, 12).padding(.bottom, 4) }
     private func row(_ bot: Bot) -> some View {
         Button { selection = bot; bot.unreadCount = 0 } label: {
             HStack(spacing: 9) {
@@ -35,6 +42,8 @@ struct SidebarView: View {
             }.padding(.horizontal, 7).frame(height: 40).contentShape(RoundedRectangle(cornerRadius: 7)).background(selection == bot ? Color.primary.opacity(0.075) : .clear, in: RoundedRectangle(cornerRadius: 7))
         }.buttonStyle(.plain).contextMenu {
             Button("Edit", systemImage: "pencil") { store.editingBot = bot }
+            Button(bot.isHidden ? "Show in Sidebar" : "Hide from Sidebar", systemImage: bot.isHidden ? "eye" : "eye.slash") { bot.isHidden.toggle(); store.save() }
+            Button(bot.notificationsEnabled ? "Mute Notifications" : "Enable Notifications", systemImage: bot.notificationsEnabled ? "bell.slash" : "bell") { bot.notificationsEnabled.toggle(); store.save() }
             Divider(); Button("Delete", systemImage: "trash", role: .destructive) { botToDelete = bot }
         }
     }

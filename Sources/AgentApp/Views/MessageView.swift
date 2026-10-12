@@ -2,10 +2,19 @@ import SwiftUI
 
 struct MessageView: View {
     @ObservedObject var message: ChatMessage
+    let repliedMessage: ChatMessage?; let reply: () -> Void
+    @State private var showingReactions = false
+    init(message: ChatMessage, repliedMessage: ChatMessage? = nil, reply: @escaping () -> Void = {}) { self.message = message; self.repliedMessage = repliedMessage; self.reply = reply }
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == .user { Spacer(minLength: 110) }
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) { content }
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {
+                if let repliedMessage { HStack(spacing: 5) { Rectangle().fill(.secondary.opacity(0.35)).frame(width: 2, height: 24); Text(repliedMessage.content).lineLimit(1) }.font(.caption).foregroundStyle(.secondary) }
+                content
+                if !message.reactions.isEmpty { HStack(spacing: 3) { ForEach(message.reactions, id: \.self) { Text($0).font(.caption).padding(4).background(.background, in: Capsule()).overlay(Capsule().stroke(.primary.opacity(0.1))) } } }
+                HStack(spacing: 10) { Button { showingReactions.toggle() } label: { Image(systemName: "face.smiling") }; Button(action: reply) { Image(systemName: "arrowshape.turn.up.left") } }.buttonStyle(.plain).foregroundStyle(.tertiary).font(.caption).opacity(message.role == .system ? 0 : 1)
+                    .popover(isPresented: $showingReactions) { HStack { ForEach(["👍", "❤️", "😂", "‼️", "?"], id: \.self) { emoji in Button(emoji) { if !message.reactions.contains(emoji) { message.reactions.append(emoji) }; showingReactions = false }.buttonStyle(.plain) } }.padding(10) }
+            }
             if message.role != .user { Spacer(minLength: 80) }
         }.padding(.horizontal, 28).padding(.vertical, 10)
     }
@@ -15,6 +24,9 @@ struct MessageView: View {
         case .draftEmail: DraftEmailCard(message: message)
         case .options: OptionCard(message: message)
         case .attachment: AttachmentCard(message: message)
+        case .image: ImageCard(message: message)
+        case .links: LinkPills(message: message)
+        case .voiceMemo: VoiceMemoCard(message: message)
         case .text:
             if message.role == .system {
                 Label(message.content, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
@@ -29,6 +41,10 @@ struct MessageView: View {
     }
     private var markdown: AttributedString { (try? AttributedString(markdown: message.content, options: .init(interpretedSyntax: .full))) ?? AttributedString(message.content) }
 }
+
+private struct VoiceMemoCard: View { let message: ChatMessage; @State private var playing = false; var body: some View { HStack(spacing: 12) { Button { playing.toggle() } label: { Image(systemName: playing ? "pause.fill" : "play.fill").frame(width: 28, height: 28).background(.primary, in: Circle()).foregroundStyle(.background) }.buttonStyle(.plain); HStack(spacing: 3) { ForEach(0..<18, id: \.self) { index in Capsule().fill(.secondary.opacity(0.55)).frame(width: 2, height: CGFloat(5 + (index * 7) % 17)) } }; Text(message.metadata["duration"] ?? "0:00").font(.caption).foregroundStyle(.secondary) }.padding(10).background(.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 16)) } }
+private struct LinkPills: View { let message: ChatMessage; var body: some View { HStack { ForEach((message.metadata["links"] ?? "").components(separatedBy: "|"), id: \.self) { label in Button { } label: { Label(label, systemImage: "link").font(.caption) }.buttonStyle(.bordered) } } } }
+private struct ImageCard: View { let message: ChatMessage; var body: some View { RoundedRectangle(cornerRadius: 12).fill(.primary.opacity(0.06)).frame(width: 320, height: 190).overlay(VStack { Image(systemName: "photo").font(.largeTitle); Text(message.metadata["name"] ?? "Image").font(.caption) }.foregroundStyle(.secondary)) } }
 
 private struct MarkdownContent: View {
     let text: String

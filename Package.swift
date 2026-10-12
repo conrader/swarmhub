@@ -9,7 +9,7 @@ let package = Package(
         .executableTarget(
             name: "AgentApp",
             path: ".",
-            exclude: ["Tests", "scripts", "docs", "README.md", "BRIEF.md", "BRIEF-visual.md", "BRIEF-simplify.md"],
+            exclude: ["Tests", "scripts", "docs", "README.md", "BRIEF.md", "BRIEF-visual.md", "BRIEF-simplify.md", "BRIEF-parity.md"],
             sources: ["Sources/AgentApp"],
             resources: [.copy("Resources/Avatars")]
         ),
