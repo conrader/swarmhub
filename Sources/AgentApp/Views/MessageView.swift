@@ -1,21 +1,13 @@
 import SwiftUI
 
 struct MessageView: View {
-    @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage
-    @State private var hovering = false
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == .user { Spacer(minLength: 110) }
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {
-                content
-                HStack(spacing: 5) {
-                    ForEach(message.reactions, id: \.self) { emoji in Text(emoji).font(.caption).padding(.horizontal, 7).padding(.vertical, 3).background(.background, in: Capsule()).overlay(Capsule().stroke(.quaternary)) }
-                    if hovering { reactionMenu.transition(.opacity.combined(with: .scale)) }
-                }
-            }
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) { content }
             if message.role != .user { Spacer(minLength: 80) }
-        }.padding(.horizontal, 28).padding(.vertical, 8).onHover { hovering = $0 }
+        }.padding(.horizontal, 28).padding(.vertical, 10)
     }
 
     @ViewBuilder private var content: some View {
@@ -28,17 +20,12 @@ struct MessageView: View {
                 Label(message.content, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
             } else if message.role == .user {
                 Text(markdown).textSelection(.enabled).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                    .background(Color.primary.opacity(0.075), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             } else {
                 MarkdownContent(text: message.content)
                 if message.isStreaming { ProgressView().controlSize(.mini) }
             }
         }
-    }
-    private var reactionMenu: some View {
-        Menu { ForEach(["👍", "❤️", "✨", "😂"], id: \.self) { emoji in Button(emoji) { store.addReaction(emoji, to: message) } } } label: {
-            Image(systemName: "face.smiling").font(.caption).foregroundStyle(.secondary).frame(width: 25, height: 22).background(.quaternary.opacity(0.7), in: Capsule())
-        }.menuStyle(.borderlessButton).fixedSize()
     }
     private var markdown: AttributedString { (try? AttributedString(markdown: message.content, options: .init(interpretedSyntax: .full))) ?? AttributedString(message.content) }
 }
@@ -85,18 +72,17 @@ private struct MarkdownContent: View {
 }
 
 private struct DraftEmailCard: View {
-    let message: ChatMessage; @State private var sent = false; @State private var editing = false
+    let message: ChatMessage; @State private var sent = false
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Label(sent ? "Email sent" : "Email draft", systemImage: sent ? "checkmark.circle.fill" : "envelope").font(.callout.weight(.semibold)).padding(14)
+            Text(sent ? "Email sent" : "Email draft").font(.callout.weight(.semibold)).padding(14)
             Divider()
             VStack(alignment: .leading, spacing: 7) {
                 LabeledContent("To") { Text(message.metadata["to"] ?? "") }; LabeledContent("Subject") { Text(message.metadata["subject"] ?? "").fontWeight(.medium) }
                 Divider(); Text(message.metadata["body"] ?? "").font(.caption).lineSpacing(2).foregroundStyle(.secondary).lineLimit(4).fixedSize(horizontal: false, vertical: true)
             }.font(.caption).padding(12)
-            Divider(); HStack { Button("Edit", systemImage: "pencil") { editing.toggle() }; Spacer(); Button { sent = true } label: { Label(sent ? "Sent" : "Send", systemImage: sent ? "checkmark" : "paperplane.fill").foregroundStyle(.white).padding(.horizontal, 11).padding(.vertical, 5).background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).disabled(sent) }.padding(10)
-        }.frame(maxWidth: 500).background(.background, in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(.quaternary)).shadow(color: .black.opacity(0.04), radius: 10, y: 3)
-        .alert("Edit draft", isPresented: $editing) { Button("Done") {} } message: { Text("Draft editing is represented by this prototype action.") }
+            Divider(); HStack { Spacer(); Button(sent ? "Sent" : "Send") { sent = true }.buttonStyle(NeutralPrimaryButtonStyle()).disabled(sent) }.padding(10)
+        }.frame(maxWidth: 500).background(.background, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(.primary.opacity(0.14), lineWidth: 0.5))
     }
 }
 
@@ -105,7 +91,7 @@ private struct OptionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             Text(message.content).font(.callout.weight(.semibold)); FlowButtons(options: (message.metadata["options"] ?? "").components(separatedBy: "|"), selected: $selected)
-        }.padding(14).frame(maxWidth: 500, alignment: .leading).background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.accentColor.opacity(0.18)))
+        }.padding(14).frame(maxWidth: 500, alignment: .leading).background(.background, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(.primary.opacity(0.14), lineWidth: 0.5))
     }
 }
 
@@ -116,7 +102,7 @@ private struct FlowButtons: View {
             ForEach(options, id: \.self) { option in
                 Button(option) { selected = option }
                     .buttonStyle(.bordered)
-                    .tint(selected == option ? Color.accentColor : .secondary)
+                    .tint(selected == option ? .primary : .secondary)
             }
         }
     }
@@ -124,5 +110,5 @@ private struct FlowButtons: View {
 
 private struct AttachmentCard: View {
     let message: ChatMessage
-    var body: some View { HStack { Image(systemName: "doc.fill").font(.title2).foregroundStyle(Color.accentColor); VStack(alignment: .leading) { Text(message.metadata["name"] ?? "Attachment").fontWeight(.medium); Text(message.metadata["size"] ?? "File").font(.caption).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "arrow.down.circle") }.padding(12).frame(maxWidth: 380).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12)) }
+    var body: some View { HStack { Image(systemName: "doc").font(.title2).foregroundStyle(.secondary); VStack(alignment: .leading) { Text(message.metadata["name"] ?? "Attachment").fontWeight(.medium); Text(message.metadata["size"] ?? "File").font(.caption).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "arrow.down.circle") }.padding(12).frame(maxWidth: 380).background(.background, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(.primary.opacity(0.14), lineWidth: 0.5)) }
 }

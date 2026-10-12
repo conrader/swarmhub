@@ -15,16 +15,18 @@ Requirements: macOS 14+, Xcode 16.2, Swift 6.
 
 ## What works
 
-- A three-column, system-native chat layout with five demo agents, searchable/collapsible sidebar, unread badges, contextual rename/settings/delete actions, and an account settings entry.
-- Create and edit agents with an avatar preview, name, title, description, persona, notifications, and backend; agents and messages are saved atomically as JSON in Application Support.
-- Fast `LazyVStack` chat rendering, native Markdown, code blocks, reactions, streaming updates, stop, Enter to send, and Shift+Enter for a newline.
-- Inline approval, draft-email, option, and attachment widgets. The composer includes attachment, voice, and send/stop controls.
-- A per-agent info pane with a noVNC computer preview, routines, live status toggles, and sub-agent tasks. `Cmd+Shift+I` toggles it.
-- A `Cmd+K` command palette for jumping to an agent, opening Settings, or creating an agent.
+- A calm two-pane layout by default: a narrow material sidebar and a centred, 720-point chat column. The slim info pane opens from the bot name or with `Cmd+Shift+I`.
+- Plain bot rows with 28-point static clay avatars, names, unread dots, subtle selection, a top add button, and a bottom account entry for Settings.
+- Nine original PNG avatars are packaged as SwiftPM resources. Demo bots use them, and the bot editor includes an avatar picker.
+- Assistant responses are unboxed text; user messages use a soft neutral bubble. Approval, email, option, and attachment content uses restrained bordered cards.
+- A single rounded composer provides attach and send controls, Enter to send, and Shift+Enter for a newline.
+- Create and edit bots with name, avatar, title, description, persona, and backend; bots and messages are saved atomically as JSON in Application Support.
+- Fast `LazyVStack` chat rendering, native Markdown, code blocks, streaming updates, approvals, and backend cancellation support.
+- The optional info pane contains the noVNC preview and opens it in a large sheet. noVNC is not exposed elsewhere.
 - A backend-neutral `AgentBackend` protocol covering messages/events, sessions, cancellation, approvals, and connection tests.
 - A working Mock backend with token streaming, progress, a sub-agent lifecycle, and a draft-before-send email approval.
 - A Hermes SSE adapter, Bearer authentication, tool progress parsing, Keychain API-key storage, and a health check.
-- Settings tabs for General, Computer, and Updates, including Follow System/Light/Dark appearance, five accent choices, language, notifications, Hermes, OpenClaw, and noVNC configuration.
+- Simple General, Computer, and Updates settings tabs cover appearance, notifications, backend endpoints/credentials, and noVNC configuration.
 
 There are no external package dependencies.
 
@@ -69,7 +71,7 @@ Measured on the supplied Mac with a clean process launch and the Xcode 16.2 comp
 AGENTAPP_BENCHMARK=1 /usr/bin/time -l .build/debug/AgentApp
 ```
 
-Current result after the visual pass: **0.01 s process initialization** with a warm OS filesystem cache and **12.0 MB peak resident memory at app initialization**. The previous cold process measurement was 0.36 s. This benchmark exits immediately after app-state initialization; it does not claim first-frame timing. The app also prints initialization memory on normal launches.
+Current result after the simplification pass: **0.38 s for the first measured process launch**, **0.01 s for each of two immediately repeated warm launches**, and **12.0 MB peak resident memory at app initialization** (subsequent runs reported 11.9 MB). This benchmark exits immediately after app-state initialization; it does not claim first-frame timing. The app also prints initialization memory on normal launches.
 
 ## Screenshots
 

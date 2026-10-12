@@ -15,13 +15,12 @@ import SwiftUI
     }
     var body: some Scene {
         WindowGroup(AppConstants.name) {
-            ContentView().environmentObject(store).frame(minWidth: 1040, minHeight: 680)
+            ContentView().environmentObject(store).frame(minWidth: 820, minHeight: 620)
         }
-            .defaultSize(width: 1360, height: 850)
+            .defaultSize(width: 1120, height: 760)
             .commands {
                 CommandGroup(after: .newItem) { Button("New Agent") { NotificationCenter.default.post(name: .newBot, object: nil) }.keyboardShortcut("n") }
                 CommandMenu("Navigate") {
-                    Button("Command Palette…") { NotificationCenter.default.post(name: .showPalette, object: nil) }.keyboardShortcut("k")
                     Button("Toggle Agent Info") { NotificationCenter.default.post(name: .toggleInfo, object: nil) }.keyboardShortcut("i", modifiers: [.command, .shift])
                 }
             }

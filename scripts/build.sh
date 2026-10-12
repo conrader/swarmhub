@@ -16,4 +16,7 @@ else
     -swift-version 6 -target arm64-apple-macosx14.0 -sdk "$SDK" \
     -module-cache-path /tmp/agentapp-module-cache -module-name AgentApp \
     -o .build/debug/AgentApp $(find Sources/AgentApp -name '*.swift' -print)
+  mkdir -p .build/debug/AgentApp.resources
+  rm -rf .build/debug/AgentApp.resources/Avatars
+  cp -R Resources/Avatars .build/debug/AgentApp.resources/Avatars
 fi

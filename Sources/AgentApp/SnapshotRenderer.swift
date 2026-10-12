@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor enum SnapshotRenderer {
     static func capture(store: AppStore, to path: String) {
-        let size = NSSize(width: 1360, height: 850)
+        let size = NSSize(width: 1120, height: 760)
         let scheme: ColorScheme = UserDefaults.standard.string(forKey: "appearance") == "Dark" ? .dark : .light
         let view = NSHostingView(rootView: ContentView().environmentObject(store).environment(\.colorScheme, scheme).frame(width: size.width, height: size.height))
         view.frame = NSRect(origin: .zero, size: size)

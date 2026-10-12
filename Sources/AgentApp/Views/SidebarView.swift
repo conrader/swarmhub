@@ -3,48 +3,38 @@ import SwiftUI
 struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
     @Binding var selection: Bot?
-    @State private var search = ""; @State private var agentsExpanded = true; @State private var botToDelete: Bot?
-    private var filtered: [Bot] { search.isEmpty ? store.bots : store.bots.filter { $0.name.localizedCaseInsensitiveContains(search) || $0.lastMessageSnippet.localizedCaseInsensitiveContains(search) } }
+    @State private var botToDelete: Bot?
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(AppConstants.name).font(.system(size: 19, weight: .semibold)); Spacer()
-                Button { store.showingNewBot = true } label: { Image(systemName: "square.and.pencil").font(.system(size: 15, weight: .semibold)).frame(width: 28, height: 28) }
-                    .buttonStyle(.plain).background(.primary.opacity(0.06), in: Circle()).help("New bot")
-            }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
-            HStack(spacing: 7) { Image(systemName: "magnifyingglass").foregroundStyle(.tertiary); TextField("Search", text: $search).textFieldStyle(.plain) }
-                .padding(.horizontal, 10).frame(height: 34).background(.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 10)).padding(.horizontal, 12).padding(.bottom, 13)
+                Text(AppConstants.name).font(.system(size: 14, weight: .semibold)); Spacer()
+                Button { store.showingNewBot = true } label: { Image(systemName: "plus").font(.system(size: 12, weight: .medium)).frame(width: 24, height: 24) }
+                    .buttonStyle(.plain).help("New bot")
+            }.padding(.horizontal, 13).padding(.top, 12).padding(.bottom, 9)
             ScrollView {
-                DisclosureGroup(isExpanded: $agentsExpanded) {
-                    LazyVStack(spacing: 3) { ForEach(filtered) { bot in row(bot) } }.padding(.top, 5)
-                } label: { Text("Agents").font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase).tracking(0.7) }
-                .padding(.horizontal, 10)
+                LazyVStack(spacing: 2) { ForEach(store.bots) { bot in row(bot) } }.padding(.horizontal, 8)
             }
-            Divider().opacity(0.55)
             SettingsLink {
-                HStack(spacing: 10) {
-                    ZStack { Circle().fill(.quaternary); Image(systemName: "person.fill").foregroundStyle(.secondary) }.frame(width: 32, height: 32)
-                    VStack(alignment: .leading, spacing: 1) { Text("Konrad").font(.callout.weight(.medium)); Text("Account & settings").font(.caption2).foregroundStyle(.secondary) }
-                    Spacer(); Image(systemName: "ellipsis").foregroundStyle(.tertiary)
-                }.contentShape(Rectangle()).padding(.horizontal, 13).padding(.vertical, 11)
+                HStack(spacing: 9) { Image(systemName: "person.crop.circle.fill").font(.system(size: 25)).foregroundStyle(.secondary); Text("Konrad").font(.system(size: 13, weight: .medium)); Spacer() }
+                    .contentShape(Rectangle()).padding(.horizontal, 12).padding(.vertical, 10)
             }.buttonStyle(.plain)
-        }.background(.ultraThinMaterial)
+        }.background(.bar)
         .alert("Delete \(botToDelete?.name ?? "bot")?", isPresented: Binding(get: { botToDelete != nil }, set: { if !$0 { botToDelete = nil } })) {
             Button("Cancel", role: .cancel) { botToDelete = nil }
             Button("Delete", role: .destructive) { if let botToDelete { store.delete(botToDelete) }; botToDelete = nil }
         } message: { Text("Its local conversation history will be removed. This can’t be undone.") }
     }
     private func row(_ bot: Bot) -> some View {
-        Button { withAnimation(.easeOut(duration: 0.16)) { selection = bot; bot.unreadCount = 0 } } label: {
-            HStack(spacing: 10) {
-                BotAvatar(bot: bot, size: 38)
-                VStack(alignment: .leading, spacing: 3) { Text(bot.name).font(.callout.weight(.semibold)).foregroundStyle(.primary).lineLimit(1); Text(bot.lastMessageSnippet).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+        Button { selection = bot; bot.unreadCount = 0 } label: {
+            HStack(spacing: 9) {
+                BotAvatar(bot: bot, size: 28)
+                Text(bot.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
                 Spacer(minLength: 5)
-                if bot.unreadCount > 0 { Text("\(bot.unreadCount)").font(.caption2.bold()).foregroundStyle(.white).frame(minWidth: 18, minHeight: 18).background(Color.accentColor, in: Capsule()) }
-            }.padding(.horizontal, 8).padding(.vertical, 7).contentShape(RoundedRectangle(cornerRadius: 11)).background(selection == bot ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 11))
+                if bot.unreadCount > 0 { Circle().fill(.primary.opacity(0.72)).frame(width: 6, height: 6) }
+            }.padding(.horizontal, 7).frame(height: 40).contentShape(RoundedRectangle(cornerRadius: 7)).background(selection == bot ? Color.primary.opacity(0.075) : .clear, in: RoundedRectangle(cornerRadius: 7))
         }.buttonStyle(.plain).contextMenu {
-            Button("Rename", systemImage: "pencil") { store.editingBot = bot }; Button("Settings", systemImage: "gearshape") { store.editingBot = bot }
+            Button("Edit", systemImage: "pencil") { store.editingBot = bot }
             Divider(); Button("Delete", systemImage: "trash", role: .destructive) { botToDelete = bot }
         }
     }
