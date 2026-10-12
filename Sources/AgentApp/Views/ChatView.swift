@@ -25,8 +25,8 @@ struct ChatView: View {
                 .onChange(of: bot.messages.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             }
             if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
-            ComposerView(text: $draft, isStreaming: store.isStreaming, send: send).background(AppColor.chat)
+            ComposerView(text: $draft, isStreaming: store.isStreaming, send: send, stop: store.stop).background(AppColor.chat)
         }.background(AppColor.chat)
     }
-    private func send() { let value = draft; guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; draft = ""; store.send(text: value) }
+    private func send() { let value = draft; guard !store.isStreaming, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; draft = ""; store.send(text: value) }
 }

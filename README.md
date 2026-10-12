@@ -20,22 +20,23 @@ This pass recreates the product structure and interaction patterns with original
 | Area | Status | Notes |
 |---|---|---|
 | Three-column layout | Done | Bot sidebar, centred chat, and an open-by-default right panel; `Cmd+Shift+I` collapses it. |
-| Bot sidebar | Done | Groups, round avatars, unread dots, new bot, hidden chats, account/settings, and context actions. |
-| Original bot faces | Done | 12 flat vector faces drawn with SwiftUI `Canvas`; nine existing clay PNGs remain selectable. |
-| Core chat | Done | Plain assistant text, user bubbles, Markdown/code, streaming, cancellation, and lazy rendering. |
-| Replies and tapbacks | Done | Reply context and emoji reactions are persisted with messages. |
-| Inline content | Done | Options, draft email with Send, approvals, file/image cards, link pills, and voice memo UI. |
-| Composer | Done | File picker, send, Enter, and Shift+Enter. Backend attachment upload is still adapter-dependent. |
+| Bot sidebar | Partial | Round avatars, unread dots, new/hidden bots, account/settings, and context actions work; labels are fixed sections rather than user-defined groups. |
+| Original bot faces | Partial | 12 colour variants are drawn with SwiftUI `Canvas`; nine original DMT-generated clay PNGs are also selectable. |
+| Core chat | Partial | Text, user bubbles, basic Markdown/code, streaming, Stop/cancellation, and lazy rendering work; Markdown coverage and code-copy interaction are limited. |
+| Replies and tapbacks | Partial | Reply context and emoji reactions are stored on messages, but replies are display-only and reaction edits are not saved immediately. |
+| Inline content | Stub | Cards are local visual prototypes. Options, links, voice, images, and attachments do not perform backend actions; draft-email Send is explicitly disabled. |
+| Composer | Stub | Text send, Enter/Shift+Enter, Stop, and a file picker exist; selected files are only inserted as attachment text and are not uploaded. |
 | Overview | Done | Identity, description, memory summary, and skills. |
-| Routines | Stubbed | Create, pause, schedule/trigger, and last-run UI use local mock data; backend scheduling is TODO. |
-| Media | Done | Grid sourced from attachment and image messages in the active chat. |
-| Computer | Done | Configurable noVNC view, expanded view, and take-over entry point. |
-| Members | Stubbed | Local owner/agent display; workspace membership provider is TODO. |
-| Settings | Done / stubbed | Seven requested sections exist. Account, policy sync, metering, and updater services are explicit stubs. |
-| Quick switcher | Done | `Cmd+K` jumps to bots, creates a bot, or opens Settings. |
-| Notifications | Done | macOS notifications with global and per-bot controls. |
-| Hermes | Partial | SSE chat, auth, progress parsing, Keychain storage, and health check work; Runs API features remain TODO. |
-| OpenClaw | Stubbed | Protocol/configuration exist; authenticated WebSocket RPC remains TODO. |
+| Routines | Stub | Create, pause, schedule/trigger, and last-run UI use local mock data; backend scheduling is TODO. |
+| Media | Partial | A grid is sourced from attachment/image messages, but it uses placeholders and items do not open. |
+| Computer | Partial | Configurable noVNC preview and expanded sheet exist; view-only and take-over modes are not distinct. |
+| Members | Stub | Local owner/agent display; workspace membership provider is TODO. |
+| Settings | Partial | Seven sections exist. Accent is not applied; account, policy sync, metering, and updater services are stubs. |
+| Quick switcher | Partial | `Cmd+K` jumps to bots and creates a bot; Settings uses a compatibility selector and keyboard selection is not implemented. |
+| Notifications | Partial | Global (off by default) and per-bot controls exist. Delivery is bundle-safe and unavailable from the bare SwiftPM executable. |
+| Hermes | Partial | SSE chat, auth, Keychain storage, and health check work; progress events are parsed but not displayed, and Runs API features remain TODO. |
+| OpenClaw | Stub | Protocol/configuration exist; authenticated WebSocket RPC remains TODO. |
+| Sub-agents | Stub | Event types exist, but incoming sub-agent events are not displayed and there is no panel yet. |
 
 There are no external package dependencies.
 

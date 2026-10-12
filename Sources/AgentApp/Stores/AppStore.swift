@@ -11,15 +11,33 @@ import UserNotifications
     @Published var routines: [UUID: [BotRoutine]] = [:]
     @Published var editingBot: Bot?; @Published var errorMessage: String?
     private var streamTask: Task<Void, Never>?; private let fileURL: URL
+    private var streamingBotID: UUID?; private var streamingAssistant: ChatMessage?
+    private var persistenceEnabled = true
 
-    init() {
+    init(demoMode: Bool = false) {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appending(path: "AgentApp", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true); fileURL = directory.appending(path: "store.json")
-        if let data = try? Data(contentsOf: fileURL), let decoded = try? JSONDecoder().decode([Bot].self, from: data) { bots = decoded }
-        if bots.count < 4 { loadDemoData() }; selectedBot = bots.first; loadDemoActivity()
+        if demoMode {
+            persistenceEnabled = false
+            loadDemoData(includeActivity: true)
+        } else if FileManager.default.fileExists(atPath: fileURL.path) {
+            do {
+                bots = try JSONDecoder().decode([Bot].self, from: Data(contentsOf: fileURL))
+            } catch {
+                persistenceEnabled = false
+                let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
+                let backup = fileURL.deletingLastPathComponent().appending(path: "store.json.corrupt-\(stamp)")
+                do { try FileManager.default.moveItem(at: fileURL, to: backup) }
+                catch { errorMessage = "Could not read or back up store.json: \(error.localizedDescription)" }
+                if errorMessage == nil { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent); saving is disabled for this launch." }
+            }
+        } else {
+            loadDemoData(persist: true)
+        }
+        selectedBot = bots.first
     }
 
-    func loadDemoData() {
+    func loadDemoData(persist: Bool = false, includeActivity: Bool = false) {
         let conversation = [
             ChatMessage(role: .user, content: "Can you review today’s launch plan and prepare the client update?"),
             ChatMessage(role: .assistant, content: "## Launch check-in\n\nThe release is **ready**. Two items are worth calling out:\n\n- Desktop QA passed on macOS 14 and 15\n- The support playbook needs one final approval\n\n```swift\nlet rollout = Release(stage: .ready, risk: .low)\n```"),
@@ -36,7 +54,9 @@ import UserNotifications
             Bot(name: "Patch", title: "Engineering agent", description: "Builds, reviews, and tests product changes.", avatarName: .faceMint, skills: ["Code", "Testing"], messages: [ChatMessage(role: .assistant, content: "The CI run is green. I left a summary in the release branch.")]),
             Bot(name: "Scout", title: "Travel and logistics", description: "Handles itineraries, bookings, and practical details.", avatarName: .faceSun, unreadCount: 1, messages: [ChatMessage(role: .assistant, content: "I found three quiet hotels near the venue with flexible cancellation.")]),
             Bot(name: "Nova", title: "Creative studio", description: "Develops concepts, copy, and visual directions.", avatarName: .faceLilac, messages: [ChatMessage(role: .assistant, content: "The new onboarding directions are ready whenever you want to review them.")])
-        ]; save()
+        ]
+        if includeActivity { loadDemoActivity() }
+        if persist { save() }
     }
     private func loadDemoActivity() {
         approvals = [.init(id: UUID(), title: "Publish release notes", summary: "Atlas wants to publish the reviewed release notes to the client workspace.", draft: nil)]
@@ -44,41 +64,57 @@ import UserNotifications
     }
     func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName); bots.insert(bot, at: 0); selectedBot = bot; save() }
     func delete(_ bot: Bot) { bots.removeAll { $0.id == bot.id }; if selectedBot == bot { selectedBot = bots.first }; save() }
-    func save() { guard let data = try? JSONEncoder().encode(bots) else { return }; try? data.write(to: fileURL, options: .atomic) }
+    func save() { guard persistenceEnabled, let data = try? JSONEncoder().encode(bots) else { return }; try? data.write(to: fileURL, options: .atomic) }
     func send(text: String) {
-        guard let bot = selectedBot, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !isStreaming, streamTask == nil, let bot = selectedBot, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let activeBackend: any AgentBackend
+        do { activeBackend = try backend(for: bot) }
+        catch { errorMessage = error.localizedDescription; return }
         bot.messages.append(ChatMessage(role: .user, content: text, replyToID: replyTo?.id)); replyTo = nil; let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true); bot.messages.append(assistant)
-        objectWillChange.send(); save(); isStreaming = true
-        let history = bot.messages.filter { $0.id != assistant.id }.map { (role: $0.role.rawValue, content: $0.content) }; let backend = backend(for: bot)
+        objectWillChange.send(); save(); isStreaming = true; streamingBotID = bot.id; streamingAssistant = assistant
+        let history = bot.messages.filter { $0.id != assistant.id }.map { (role: $0.role.rawValue, content: $0.content) }
         streamTask = Task { [weak self] in
             guard let self else { return }
+            var failed = false
             do {
-                let stream = try await backend.send(.init(sessionID: bot.id.uuidString, systemPrompt: bot.persona, messages: history))
+                let stream = try await activeBackend.send(.init(sessionID: bot.id.uuidString, systemPrompt: bot.persona, messages: history))
                 for try await event in stream { guard !Task.isCancelled else { break }; switch event {
                 case .token(let token): assistant.content += token; objectWillChange.send()
                 case .status, .subAgent: break
                 case .approval(let request): approvals.append(request)
                 case .completed: break
-                case .failed(let value): errorMessage = value
+                case .failed(let value): errorMessage = value; failed = true
                 } }
-            } catch { errorMessage = error.localizedDescription }
-            assistant.isStreaming = false; isStreaming = false; save(); notifyIfNeeded(bot: bot, message: assistant.content)
+            } catch is CancellationError {
+                // User-initiated cancellation is not an error and must not notify.
+            } catch { errorMessage = error.localizedDescription; failed = true }
+            let cancelled = Task.isCancelled
+            assistant.isStreaming = false; isStreaming = false; streamTask = nil; streamingBotID = nil; streamingAssistant = nil; save()
+            if !cancelled && !failed && !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { notifyIfNeeded(bot: bot, message: assistant.content) }
         }
     }
     private func notifyIfNeeded(bot: Bot, message: String) {
-        guard bot.notificationsEnabled, UserDefaults.standard.object(forKey: "notifications") as? Bool ?? true, !NSApp.isActive else { return }
+        guard Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), !NSApp.isActive else { return }
         let content = UNMutableNotificationContent(); content.title = bot.name; content.body = String(message.prefix(140)); content.sound = .default
         UNUserNotificationCenter.current().add(.init(identifier: UUID().uuidString, content: content, trigger: nil))
     }
-    func stop() { streamTask?.cancel(); streamTask = nil; isStreaming = false; if let bot = selectedBot { Task { await backend(for: bot).cancel(sessionID: bot.id.uuidString) } }; save() }
+    func stop() {
+        guard isStreaming else { return }
+        let bot = streamingBotID.flatMap { id in bots.first { $0.id == id } }
+        streamTask?.cancel(); streamingAssistant?.isStreaming = false
+        if let bot, let activeBackend = try? backend(for: bot) { Task { await activeBackend.cancel(sessionID: bot.id.uuidString) } }
+        save()
+    }
     func decide(_ approval: ApprovalRequest, approved: Bool) {
         approvals.removeAll { $0.id == approval.id }; guard let bot = selectedBot else { return }
         bot.messages.append(ChatMessage(role: .system, content: approved ? "Approved: \(approval.title)" : "Declined: \(approval.title)")); objectWillChange.send(); save()
-        Task { try? await backend(for: bot).resolveApproval(id: approval.id, approved: approved) }
+        if let approvalBackend = try? backend(for: bot) { Task { try? await approvalBackend.resolveApproval(id: approval.id, approved: approved) } }
     }
-    func backend(for bot: Bot) -> any AgentBackend { switch bot.backend {
-    case .mock: MockBackend()
-    case .hermes: HermesBackend(baseURL: URL(string: UserDefaults.standard.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL)!, apiKey: KeychainStore.get(account: "hermes"))
-    case .openClaw: OpenClawBackend(gatewayURL: URL(string: UserDefaults.standard.string(forKey: "openClawURL") ?? ""))
+    func backend(for bot: Bot) throws -> any AgentBackend { switch bot.backend {
+    case .mock: return MockBackend()
+    case .hermes:
+        guard let baseURL = HermesBackend.validatedBaseURL(UserDefaults.standard.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL) else { throw BackendError.invalidURL }
+        return HermesBackend(baseURL: baseURL, apiKey: KeychainStore.get(account: "hermes"))
+    case .openClaw: return OpenClawBackend(gatewayURL: URL(string: UserDefaults.standard.string(forKey: "openClawURL") ?? ""))
     } }
 }

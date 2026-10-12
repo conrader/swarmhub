@@ -5,10 +5,10 @@ import SwiftUI
 @main struct AgentAppMain: App {
     @StateObject private var store: AppStore
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference
+    private let snapshotAppearance: String?
     init() {
-        if let appearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"] { UserDefaults.standard.set(appearance, forKey: "appearance") }
-        let appStore = AppStore()
-        if ProcessInfo.processInfo.environment["AGENTAPP_SNAPSHOT"] != nil { appStore.loadDemoData() }
+        snapshotAppearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"]
+        let appStore = AppStore(demoMode: ProcessInfo.processInfo.environment["AGENTAPP_SNAPSHOT"] != nil)
         _store = StateObject(wrappedValue: appStore)
         PerformanceMetrics.reportReady()
         if ProcessInfo.processInfo.environment["AGENTAPP_BENCHMARK"] == "1" { exit(0) }
@@ -18,7 +18,7 @@ import SwiftUI
         WindowGroup(AppConstants.name) {
             ContentView()
                 .environmentObject(store)
-                .preferredColorScheme(AppTheme.colorScheme(for: appearance))
+                .preferredColorScheme(AppTheme.colorScheme(for: snapshotAppearance ?? appearance))
                 .frame(minWidth: 980, minHeight: 620)
         }
             .defaultSize(width: 1120, height: 760)

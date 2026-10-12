@@ -88,16 +88,16 @@ private struct MarkdownContent: View {
 }
 
 private struct DraftEmailCard: View {
-    let message: ChatMessage; @State private var sent = false
+    let message: ChatMessage
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(sent ? "Email sent" : "Email draft").font(.callout.weight(.semibold)).padding(14)
+            Text("Email draft (preview only)").font(.callout.weight(.semibold)).padding(14)
             Divider()
             VStack(alignment: .leading, spacing: 7) {
                 LabeledContent("To") { Text(message.metadata["to"] ?? "") }; LabeledContent("Subject") { Text(message.metadata["subject"] ?? "").fontWeight(.medium) }
                 Divider(); Text(message.metadata["body"] ?? "").font(.caption).lineSpacing(2).foregroundStyle(.secondary).lineLimit(4).fixedSize(horizontal: false, vertical: true)
             }.font(.caption).padding(12)
-            Divider(); HStack { Spacer(); Button(sent ? "Sent" : "Send") { sent = true }.buttonStyle(NeutralPrimaryButtonStyle()).disabled(sent) }.padding(10)
+            Divider(); HStack { Text("Sending is not implemented.").font(.caption).foregroundStyle(.secondary); Spacer(); Button("Send (stub)") { }.buttonStyle(NeutralPrimaryButtonStyle()).disabled(true) }.padding(10)
         }.frame(maxWidth: 500).background(AppColor.card, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(AppColor.separator, lineWidth: 0.5))
     }
 }

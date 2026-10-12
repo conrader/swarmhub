@@ -5,8 +5,15 @@ struct HermesBackend: AgentBackend {
     let baseURL: URL
     let apiKey: String
 
+    static func validatedBaseURL(_ value: String) -> URL? {
+        guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              url.host != nil else { return nil }
+        return url
+    }
+
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
-        let url = chatURL
+        guard let url = chatURL else { throw BackendError.invalidURL }
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -53,9 +60,9 @@ struct HermesBackend: AgentBackend {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw BackendError.unavailable("Hermes health check failed") }
         return "Hermes is healthy"
     }
-    private var chatURL: URL {
+    private var chatURL: URL? {
         let clean = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return URL(string: clean.hasSuffix("/v1") ? clean + "/chat/completions" : clean + "/v1/chat/completions")!
+        return URL(string: clean.hasSuffix("/v1") ? clean + "/chat/completions" : clean + "/v1/chat/completions")
     }
     private var rootURL: URL {
         let text = baseURL.absoluteString.replacingOccurrences(of: "/v1/?$", with: "/", options: .regularExpression)
