@@ -2,7 +2,7 @@
 
 Goals (Konrad, 2026-10-13): build the whole app with all Grok Bot functionalities; first milestone: Torvli
 ready and working on the Mac with every Grok bot as it was made on Grok, including its history.
-Order therefore: P0 → P1 → **P6** → install + live check → P2 → P3 → P4 → P5 → P7 → P8.
+Order therefore: P0 → P1 → **P6** → install + live check → P2 → P3 → P4 → P5 → P7 → P8 → P9 (after Konrad accepts it).
 Grok Bot is Cursor's hosted Mac agent app; Torvli reproduces its features on the user's own
 Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `grok-<slug>`
 (SOUL, skills, imported history), served at `https://konrad.agenthut.net/p/grok-<slug>/`.
@@ -39,12 +39,16 @@ Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `gr
 | P6 | Grok import | Exporter reads the Grok Bot app cache on the Mac (latest 62–200 entries per conversation, roster) into `agentapp-bot-bundle/v1`; app import (UI + headless CLI) with read-only history archive, avatar mapping, `grok-<slug>` binding; keys CLI; install to ~/Applications | local; `/p/grok-<slug>/` |
 | P7 | Settings & polish | Usage (session token counts), Updates (GitHub releases of conrader/torvli), Computers (noVNC URL per bot; take-over opens it), Account; README feature table brought up to date | `/api/sessions` fields |
 | P8 | Acceptance | MacBook build + full suite green; every endpoint the app uses verified against Konrad's box from OVH; Konrad does the last-hop UI check with his keys in the Keychain | live box (read-only probes) |
+| P9 | History on the box | Grok history (6,843 messages, seq 1 onward) written into each `grok-*` profile's `state.db` as `grok-import` archive sessions (one per day) through the box's own `SessionDB`, so bots can `session_search` it and clients can list it; Torvli shows one archive per bot. Canary on Rapper, backups, rollback (`briefs/P9.md`) | per-profile `state.db` (no API exists to append messages) |
 
 ## Out of scope (no Hermes API, or not part of Grok Bot)
 - Telegram/WhatsApp channels (not native to Grok Bot; handled by sb tooling).
 - Marketplace plugins/connectors, box VM provisioning, creating profiles or editing SOUL/memory
-  on the server (stock Hermes exposes no write API; `memory_write_api` and `admin_config_rw` are false).
+  on the server (stock Hermes exposes no write API; `memory_write_api` and `admin_config_rw` are false). The one
+  exception is P9's archive sessions, written through the box's own `SessionDB` once Konrad accepts it.
 
 ## Server-side changes this plan needs (reversible, on Konrad's box)
 - nginx on `konrad.agenthut.net`: `/v1/` and `/api/sessions` are done (2026-10-13);
   `/p/grok-` already forwards every sub-path. Add `/api/jobs` and `/api/model` for the default profile in P2/P3.
+- P9: `grok-import` archive sessions in each `grok-*` profile's `state.db` (backups in `/root/grok-import-backup-<ts>/`;
+  `--rollback` removes only `grok-import` sessions).
