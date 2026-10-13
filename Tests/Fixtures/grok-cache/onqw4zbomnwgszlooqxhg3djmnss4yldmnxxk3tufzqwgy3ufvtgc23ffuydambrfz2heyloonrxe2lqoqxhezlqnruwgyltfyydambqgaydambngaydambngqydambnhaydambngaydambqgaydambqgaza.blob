@@ -1,0 +1,29 @@
+{
+ "schemaVersion": 1,
+ "value": {
+  "entries": [
+   {
+    "kind": "message",
+    "id": "f1",
+    "seq": 1,
+    "role": "user",
+    "content": "Synthetic question",
+    "timestampMs": 1760000002000,
+    "isStreaming": false,
+    "requestId": "r1",
+    "clientNonce": "n1"
+   },
+   {
+    "kind": "send-message",
+    "id": "f2",
+    "seq": 2,
+    "timestampMs": 1760000003000,
+    "requestId": "r2",
+    "message": {
+     "type": "text",
+     "content": "Synthetic answer"
+    }
+   }
+  ]
+ }
+}

@@ -1,0 +1,90 @@
+{
+ "schemaVersion": 4,
+ "value": {
+  "rows": [
+   {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "name": "Jarvis",
+    "title": "",
+    "description": "Synthetic orchestrator. api_key=FAKEFAKE1234",
+    "avatarShape": "blob",
+    "avatarColor": "black",
+    "avatarPhoto": null,
+    "isGroup": false,
+    "memberIds": [],
+    "createdAt": 1760000000000,
+    "harness": "temporal",
+    "isHiddenFromSidebar": false,
+    "notifyOnUpdatesEnabled": true,
+    "path": "/fake/path/00000000-0000-4000-8000-000000000001",
+    "lastEntry": {
+     "kind": "text",
+     "text": "fake preview"
+    }
+   },
+   {
+    "id": "00000000-0000-4000-8000-000000000002",
+    "name": "Finance Controller",
+    "title": "",
+    "description": "Synthetic finance bot.",
+    "avatarShape": "gem",
+    "avatarColor": "yellow",
+    "avatarPhoto": null,
+    "isGroup": false,
+    "memberIds": [],
+    "createdAt": 1760000000000,
+    "harness": "temporal",
+    "isHiddenFromSidebar": false,
+    "notifyOnUpdatesEnabled": true,
+    "path": "/fake/path/00000000-0000-4000-8000-000000000002",
+    "lastEntry": {
+     "kind": "text",
+     "text": "fake preview"
+    }
+   },
+   {
+    "id": "00000000-0000-4000-8000-000000000003",
+    "name": "Plain Bot",
+    "title": "",
+    "description": "",
+    "avatarShape": "",
+    "avatarColor": "",
+    "avatarPhoto": null,
+    "isGroup": false,
+    "memberIds": [],
+    "createdAt": 1760000000000,
+    "harness": "temporal",
+    "isHiddenFromSidebar": false,
+    "notifyOnUpdatesEnabled": true,
+    "path": "/fake/path/00000000-0000-4000-8000-000000000003",
+    "lastEntry": {
+     "kind": "text",
+     "text": "fake preview"
+    }
+   },
+   {
+    "id": "00000000-0000-4000-8000-000000000004",
+    "name": "Konrad, Jarvis, Plain Bot",
+    "title": "",
+    "description": "",
+    "avatarShape": "",
+    "avatarColor": "",
+    "avatarPhoto": null,
+    "isGroup": true,
+    "memberIds": [
+     "00000000-0000-4000-8000-000000000001",
+     "00000000-0000-4000-8000-000000000003"
+    ],
+    "createdAt": 1760000000000,
+    "harness": "temporal",
+    "isHiddenFromSidebar": false,
+    "notifyOnUpdatesEnabled": true,
+    "path": "/fake/path/00000000-0000-4000-8000-000000000004",
+    "lastEntry": {
+     "kind": "text",
+     "text": "fake preview"
+    }
+   }
+  ]
+ }
+}

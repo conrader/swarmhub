@@ -1,0 +1,98 @@
+{
+ "format": "agentapp-bot-bundle/v1",
+ "source_id": "00000000-0000-4000-8000-000000000004",
+ "slug": "konrad-jarvis-plain-bot",
+ "name": "Konrad, Jarvis, Plain Bot",
+ "description": "",
+ "title": "",
+ "avatar": {
+  "shape": null,
+  "colour": null
+ },
+ "instructions": null,
+ "instructions_source": null,
+ "profile": null,
+ "is_group": true,
+ "members": [
+  {
+   "source_id": "00000000-0000-4000-8000-000000000001",
+   "name": "Jarvis",
+   "profile": "grok-jarvis"
+  },
+  {
+   "source_id": "00000000-0000-4000-8000-000000000003",
+   "name": "Plain Bot",
+   "profile": "grok-plain-bot"
+  }
+ ],
+ "memory_facts": [],
+ "routines": [],
+ "skills": [],
+ "messages": [
+  {
+   "id": "g1",
+   "seq": 1,
+   "timestamp": "2025-10-09T08:53:22.000Z",
+   "thread": null,
+   "reply_to": null,
+   "attachments": [],
+   "hidden": false,
+   "channel": "chat",
+   "to": null,
+   "role": "user",
+   "author": null,
+   "text": "Hi both (synthetic)"
+  },
+  {
+   "id": "g2",
+   "seq": 2,
+   "timestamp": "2025-10-09T08:53:23.000Z",
+   "thread": null,
+   "reply_to": null,
+   "attachments": [],
+   "hidden": false,
+   "channel": "chat",
+   "to": null,
+   "role": "assistant",
+   "text": "Jarvis here",
+   "author": "Jarvis"
+  },
+  {
+   "id": "g3",
+   "seq": 3,
+   "timestamp": "2025-10-09T08:53:24.000Z",
+   "thread": null,
+   "reply_to": null,
+   "attachments": [],
+   "hidden": false,
+   "channel": "chat",
+   "to": null,
+   "role": "assistant",
+   "text": "Plain here",
+   "author": "Plain Bot"
+  }
+ ],
+ "events": [],
+ "source": {
+  "created_at_ms": 1760000000000,
+  "harness": "temporal",
+  "notify_on_agent_updates": true,
+  "hidden_from_sidebar": false
+ },
+ "limitations": [
+  "The Grok Bot app cache holds only the latest entries of each conversation; older history stays on Grok's servers."
+ ],
+ "statistics": {
+  "transcript_rows": 3,
+  "messages": 3,
+  "events": 0,
+  "tool_entries_dropped": 0,
+  "events_dropped": 0,
+  "cards_dropped": 0,
+  "hidden_messages": 0
+ },
+ "redactions": {
+  "total": 0,
+  "counts": {}
+ }
+}

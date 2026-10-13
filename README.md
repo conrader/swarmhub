@@ -60,6 +60,7 @@ This pass recreates the product structure and interaction patterns with original
 | Notifications | Partial | Global (off by default) and per-bot controls exist. Delivery is bundle-safe and unavailable from the bare SwiftPM executable. |
 | Hermes | Partial | v0.21.7 Sessions/SSE chat, capped non-destructive paged history merging, per-run immediate local Stop plus background run Stop, per-bot ask/rules/reviewer approvals with local audit, internal tool status handling, Keychain auth, health checks, and configured profiles are implemented. A failed or timed-out server Stop is reported beside the stopped turn without changing a newer run. Approval is disabled when Hermes supplies no command text. 0.16–0.20.x uses Chat Completions without Sessions calls. Native and legacy fixtures previously passed outside the managed sandbox; this pass records its rerun under `docs/approvals-fix4-*.log`. Provider-backed reviewer behavior remains unverified. |
 | Hermes profiles | Partial | Each bot is bound to one Hermes profile (`/p/<profile>/`) with its own Keychain key; Settings → "Add bots from box" takes `profile=key` lines, probes each profile and names new bots from the slug (`grok-jarvis` → Jarvis). A profile whose `/v1/models` id differs from its name (gateway `multiplex_profiles` off) is rejected and never routed to. |
+| Grok Bot import | Partial | `scripts/export-grokbot.py` reads the local Grok Bot app cache (latest 62–200 entries per conversation plus the roster) into `agentapp-bot-bundle/v1` under `~/Documents/Torvli Grok Export/`; the app imports it from the import sheet or headless with `AgentApp --import-grok <folder>`. Each bot is bound to `grok-<slug>` at `https://konrad.agenthut.net/v1` (key from Keychain `hermes.grok-<slug>`; a missing key shows "Add key"), gets an own avatar/accent from Grok's shape/colour words, and a read-only, searchable "Grok history" archive stored per bot in `grok-history/` next to store.json. Re-import updates in place. The group conversation is an archived read-only chat (no group chats yet). `AgentApp --import-keys <file>` loads `profile=key` lines from a 0600 file into the Keychain and deletes the file. Older history that only Grok's servers hold is not exported. |
 | OpenClaw | Stub | Protocol/configuration exist; authenticated WebSocket RPC remains TODO. |
 | Sub-agents | Stub | Inline lifecycle cards are supported if emitted, but the checked v0.21.7 HTTP session stream does not emit `subagent.start`/`subagent.complete`. Child transcript drill-down and controls are not implemented. |
 
@@ -111,6 +112,7 @@ Sources/AgentApp/
 ├── Backends/     protocol plus Mock, Hermes and OpenClaw adapters
 ├── Stores/       app state, atomic local persistence and Keychain
 ├── TemplateImport/ reusable parsing, sanitizing and mapping pipeline
+├── GrokImport/   bot-bundle loader, Grok history archive, avatar table, headless CLI
 └── Views/        sidebar, chat, composer, approvals, desktop and settings
 ```
 

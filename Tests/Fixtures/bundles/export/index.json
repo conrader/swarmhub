@@ -1,0 +1,52 @@
+{
+ "format": "agentapp-bot-bundle/v1",
+ "generator": "export-grokbot.py",
+ "source": "grok-bot-app-cache",
+ "bots": [
+  {
+   "source_id": "00000000-0000-4000-8000-000000000001",
+   "name": "Jarvis",
+   "bundle": "jarvis-00000000-0000-4000-8000-000000000001/bundle.json",
+   "profile": "grok-jarvis",
+   "is_group": false,
+   "messages": 8,
+   "events": 1,
+   "redactions": 2
+  },
+  {
+   "source_id": "00000000-0000-4000-8000-000000000002",
+   "name": "Finance Controller",
+   "bundle": "finance-controller-00000000-0000-4000-8000-000000000002/bundle.json",
+   "profile": "grok-finance-controller",
+   "is_group": false,
+   "messages": 2,
+   "events": 0,
+   "redactions": 0
+  },
+  {
+   "source_id": "00000000-0000-4000-8000-000000000003",
+   "name": "Plain Bot",
+   "bundle": "plain-bot-00000000-0000-4000-8000-000000000003/bundle.json",
+   "profile": "grok-plain-bot",
+   "is_group": false,
+   "messages": 0,
+   "events": 0,
+   "redactions": 0
+  },
+  {
+   "source_id": "00000000-0000-4000-8000-000000000004",
+   "name": "Konrad, Jarvis, Plain Bot",
+   "bundle": "konrad-jarvis-plain-bot-00000000-0000-4000-8000-000000000004/bundle.json",
+   "profile": null,
+   "is_group": true,
+   "messages": 3,
+   "events": 0,
+   "redactions": 0
+  }
+ ],
+ "skills": [],
+ "skill_redactions": {
+  "total": 0,
+  "counts": {}
+ }
+}

@@ -1,0 +1,44 @@
+{
+ "format": "agentapp-bot-bundle/v1",
+ "source_id": "00000000-0000-4000-8000-000000000003",
+ "slug": "plain-bot",
+ "name": "Plain Bot",
+ "description": "",
+ "title": "",
+ "avatar": {
+  "shape": null,
+  "colour": null
+ },
+ "instructions": null,
+ "instructions_source": null,
+ "profile": "grok-plain-bot",
+ "is_group": false,
+ "members": [],
+ "memory_facts": [],
+ "routines": [],
+ "skills": [],
+ "messages": [],
+ "events": [],
+ "source": {
+  "created_at_ms": 1760000000000,
+  "harness": "temporal",
+  "notify_on_agent_updates": true,
+  "hidden_from_sidebar": false
+ },
+ "limitations": [
+  "The Grok Bot app cache holds only the latest entries of each conversation; older history stays on Grok's servers."
+ ],
+ "statistics": {
+  "transcript_rows": 0,
+  "messages": 0,
+  "events": 0,
+  "tool_entries_dropped": 0,
+  "events_dropped": 0,
+  "cards_dropped": 0,
+  "hidden_messages": 0
+ },
+ "redactions": {
+  "total": 0,
+  "counts": {}
+ }
+}
