@@ -22,6 +22,7 @@ cp -R "$ROOT_DIR/Resources/Avatars" "$APP_DIR/Contents/Resources/Avatars"
 cp "$ROOT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 {
   echo "source_sha=$(git -C "$ROOT_DIR" rev-parse HEAD)"
+  echo "version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Resources/Info.plist")"
   echo "dirty=$([[ -n "$DIRTY_SUFFIX" ]] && echo true || echo false)"
   echo "dirty_summary_sha256=$DIRTY_SUMMARY_SHA"
   if [[ -n "$DIRTY_SUMMARY" ]]; then

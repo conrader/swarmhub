@@ -18,6 +18,8 @@ extension HeadlessCommands {
         var runSteer: Bool? = nil; var sessionFork: Bool? = nil
         /// Read-only `GET /api/jobs` summary (routines); never counts as a failure.
         var routines: String? = nil
+        /// Read-only `GET /api/sessions` usage summary (Settings → Usage); never counts as a failure.
+        var usage: String? = nil
         var problem: String? = nil
         var ok: Bool { key == .present && problem == nil && modelMatches }
     }
@@ -35,6 +37,7 @@ extension HeadlessCommands {
         func flag(_ value: Bool?) -> String { value.map { String($0) } ?? "n/a" }
         var text = "\(check.name) | \(check.profile) | key: \(key) | models: \(models) | caps: session_chat_streaming=\(flag(check.sessionChatStreaming)), jobs=\(flag(check.jobs)), run_steer=\(flag(check.runSteer)), session_fork=\(flag(check.sessionFork))"
         if let routines = check.routines { text += " | routines: \(routines)" }
+        if let usage = check.usage { text += " | usage: \(usage)" }
         if check.modelID != nil, let problem = check.problem { text += " | error: \(problem)" }
         return text
     }
@@ -70,6 +73,7 @@ extension HeadlessCommands {
             check.jobs = jobsFlag(features)
             check.runSteer = features["run_steer"] as? Bool; check.sessionFork = features["session_fork"] as? Bool
             check.routines = await routinesSummary(HermesJobsClient(backend: backend))
+            check.usage = await usageSummary(backend)
         } catch {
             let reason = error.localizedDescription
             check.problem = backend.apiKey.isEmpty ? reason : reason.replacingOccurrences(of: backend.apiKey, with: "[key]")
@@ -85,6 +89,15 @@ extension HeadlessCommands {
             return "\(jobs.count)" + (paused > 0 ? " (\(paused) paused)" : "")
         } catch HermesJobsError.noJobsAPI { return "no jobs API" }
         catch { return "error: " + BotInfoCache.describe(error, key: client.backend.apiKey) }
+    }
+
+    /// "12 sessions, 340 messages, 1.2M in / 80.1k out (7 d: 3 sessions)" or "error: …".
+    static func usageSummary(_ backend: HermesBackend, now: Date = .now) async -> String {
+        do {
+            let read = try await backend.usageSessions()
+            let all = UsageTotals.of(read.sessions, window: .all, now: now), week = UsageTotals.of(read.sessions, window: .week, now: now)
+            return "\(all.sessions)\(read.truncated ? "+" : "") sessions, \(all.messages) messages, \(ProfileUsage.compact(all.inputTokens)) in / \(ProfileUsage.compact(all.outputTokens)) out (7 d: \(week.sessions) sessions)"
+        } catch { return "error: " + BotInfoCache.describe(error, key: backend.apiKey) }
     }
 
     static func checkBots(store: AppStore, chat: (name: String, text: String)?, chatTimeout: Duration = .seconds(300), output: (String) -> Void) async -> Int32 {

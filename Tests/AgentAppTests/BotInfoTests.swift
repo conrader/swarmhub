@@ -111,6 +111,8 @@ private func botInfoHandler(capabilities: [String: Any]?, modelOptionsStatus: In
     #expect(BotCapabilitiesView.filtered(skills, query: "tide").map(\.name) == ["tide-check"])
     #expect(BotCapabilitiesView.filtered(skills, query: "FINANCE").map(\.name) == ["ledger"])
     #expect(BotCapabilitiesView.filtered(skills, query: "  ").count == 3)
+    let retired = skills + [HermesSkill(name: "old-tool", description: "Superseded", category: ".collision-retired")]
+    #expect(BotCapabilitiesView.grouped(retired).map(\.category) == ["productivity", "finance", nil], "dot-categories are hidden")
 }
 
 @Test @MainActor func botInfoUsesProfilePrefixAndProfileKey() async {
