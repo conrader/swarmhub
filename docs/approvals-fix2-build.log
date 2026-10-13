@@ -1,0 +1,2 @@
+$ ./scripts/build.sh
+xcrun is unavailable; using the Xcode 16.2 compiler directly.

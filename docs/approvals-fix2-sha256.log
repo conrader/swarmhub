@@ -1,0 +1,2 @@
+$ shasum -a 256 /Users/konradsierzputowski/code/agentapp/dist/AgentApp-6b76da361e60-dirty-arm64.zip
+93c478717ecbaa33684cf9c76882b358ce4353f8596368386be0de476ecf29c0  /Users/konradsierzputowski/code/agentapp/dist/AgentApp-6b76da361e60-dirty-arm64.zip

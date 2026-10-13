@@ -4,6 +4,11 @@ import AppKit
 import UserNotifications
 
 private enum ReviewerResult: Sendable { case decision(String), nestedApproval(ApprovalRequest), timeout }
+private actor ReviewerStopTargetBox {
+    private var target: StopTarget?
+    func capture(_ value: StopTarget) { if target == nil { target = value } }
+    func value() -> StopTarget? { target }
+}
 
 @MainActor final class AppStore: ObservableObject {
     @Published var bots: [Bot] = []; @Published var selectedBot: Bot?; @Published var isStreaming = false
@@ -306,8 +311,16 @@ private enum ReviewerResult: Sendable { case decision(String), nestedApproval(Ap
             guard let reviewerID = bot.reviewerBotID, reviewerID != bot.id, let reviewer = bots.first(where: { $0.id == reviewerID }) else {
                 askUser(approval, bot: bot, reason: "Reviewer is missing or would review itself."); return
             }
-            if ApprovalRule.reviewerMustEscalate(action: approval.actionKind, command: approval.command ?? approval.summary) {
-                askUser(approval, bot: bot, reason: "Send, delete, or destructive operations always require user review.", decidedBy: "reviewer:\(reviewer.id.uuidString)")
+            guard approval.hasKnownCommand, let command = approval.command else {
+                askUser(approval, bot: bot, reason: "Reviewer cannot assess an unknown or display-only command."); return
+            }
+            let action = approval.actionKind.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "command" : approval.actionKind
+            if let rule = bot.approvalRules.first(where: { $0.matches(action: action, command: command) }), rule.outcome != .allow {
+                askUser(approval, bot: bot, reason: "Owner rule \(rule.name) requires user review.", decidedBy: "rule:\(rule.id.uuidString)")
+                return
+            }
+            if ApprovalRule.commandRequiresUserReview(command) || ApprovalRule.reviewerMustEscalate(action: action, command: command) {
+                askUser(approval, bot: bot, reason: "Unsafe, destructive, or unparseable operations always require user review.")
                 return
             }
             do {
@@ -334,16 +347,24 @@ private enum ReviewerResult: Sendable { case decision(String), nestedApproval(Ap
         ---END \(boundary)---
         Reply with exactly approve, deny, or escalate.
         """
-        let reviewerSessionID = "agentapp_reviewer_\(reviewer.id.uuidString.lowercased())_owner_\(owner.id.uuidString.lowercased())_approval_\(approval.id.uuidString.lowercased())"
+        let reviewerSessionID = "agentapp_review_\(approval.id.uuidString.lowercased())"
         let reviewerPersona = reviewer.persona
-        if try await reviewerBackend.sessionTransport() == .nativeSessions {
-            _ = try await reviewerBackend.createSession(title: "Review for \(owner.name)", systemPrompt: reviewerPersona, id: reviewerSessionID)
-        }
+        let ownerName = owner.name
+        let stopTargetBox = ReviewerStopTargetBox()
         return try await withThrowingTaskGroup(of: ReviewerResult.self) { group in
             group.addTask {
+                if try await reviewerBackend.sessionTransport() == .nativeSessions {
+                    _ = try await reviewerBackend.createSession(title: "Review for \(ownerName)", systemPrompt: reviewerPersona, id: reviewerSessionID)
+                }
                 let stream = try await reviewerBackend.send(.init(sessionID: reviewerSessionID, systemPrompt: reviewerPersona, messages: [(role: "user", content: prompt)]))
-                var answer = ""
-                for try await event in stream { switch event { case .token(let value): answer += value; case .approval(let nested): return .nestedApproval(nested); case .failed(let value): throw BackendError.unavailable(value); default: break } }
+                var answer = ""; var completed = false
+                for try await event in stream {
+                    if await stopTargetBox.value() == nil, let target = try? await reviewerBackend.stopTarget(sessionID: reviewerSessionID), case .serverRun = target {
+                        await stopTargetBox.capture(target)
+                    }
+                    switch event { case .token(let value): answer += value; case .approval(let nested): return .nestedApproval(nested); case .failed(let value): throw BackendError.unavailable(value); case .completed: completed = true; default: break }
+                }
+                guard completed else { throw BackendError.unavailable("Reviewer stream ended without completion.") }
                 let normalized = answer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return .decision(["approve", "deny", "escalate"].contains(normalized) ? normalized : "escalate")
             }
@@ -354,20 +375,25 @@ private enum ReviewerResult: Sendable { case decision(String), nestedApproval(Ap
                 case .decision(let decision): group.cancelAll(); return decision
                 case .nestedApproval(let nested):
                     try? await reviewerBackend.resolveApproval(nested, approved: false)
-                    await stopReviewerRun(backend: reviewerBackend, sessionID: reviewerSessionID)
+                    await stopReviewerRun(backend: reviewerBackend, sessionID: reviewerSessionID, capturedTarget: await stopTargetBox.value())
                     group.cancelAll(); return "escalate"
                 case .timeout:
-                    await stopReviewerRun(backend: reviewerBackend, sessionID: reviewerSessionID)
+                    await stopReviewerRun(backend: reviewerBackend, sessionID: reviewerSessionID, capturedTarget: await stopTargetBox.value())
                     group.cancelAll(); throw BackendError.unavailable("Reviewer timed out.")
                 }
             } catch {
-                await stopReviewerRun(backend: reviewerBackend, sessionID: reviewerSessionID)
+                // This task is intentionally unstructured so owner cancellation cannot
+                // cancel the server-side cleanup request along with the reviewer stream.
+                Task { await self.stopReviewerRun(backend: reviewerBackend, sessionID: reviewerSessionID, capturedTarget: await stopTargetBox.value()) }
                 group.cancelAll(); throw error
             }
         }
     }
-    private func stopReviewerRun(backend: any AgentBackend, sessionID: String) async {
-        guard let target = try? await backend.stopTarget(sessionID: sessionID) else { return }
+    private func stopReviewerRun(backend: any AgentBackend, sessionID: String, capturedTarget: StopTarget?) async {
+        let target: StopTarget
+        if let capturedTarget { target = capturedTarget }
+        else if let liveTarget = try? await backend.stopTarget(sessionID: sessionID) { target = liveTarget }
+        else { return }
         _ = try? await backend.requestStop(target)
     }
     private func askUser(_ approval: ApprovalRequest, bot: Bot, reason: String, decidedBy: String = "system") {

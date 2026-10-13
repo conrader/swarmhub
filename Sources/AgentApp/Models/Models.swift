@@ -23,10 +23,10 @@ struct ApprovalRule: Identifiable, Codable, Equatable {
         [
             ApprovalRule(name: "Ask before deletes", actionPattern: "*", commandPattern: "rm *", outcome: .ask),
             ApprovalRule(name: "Ask before sends", actionPattern: "*", commandPattern: "send *", outcome: .ask),
-            ApprovalRule(name: "Allow Git inspection", actionPattern: "command", commandPattern: "git status*", outcome: .allow),
+            ApprovalRule(name: "Allow Git status", actionPattern: "command", commandPattern: "git status", outcome: .allow),
+            ApprovalRule(name: "Allow Git status options", actionPattern: "command", commandPattern: "git status *", outcome: .allow),
             ApprovalRule(name: "Allow directory listing", actionPattern: "command", commandPattern: "ls *", outcome: .allow),
-            ApprovalRule(name: "Allow file reads", actionPattern: "command", commandPattern: "cat *", outcome: .allow),
-            ApprovalRule(name: "Allow reads (extended action kinds)", actionPattern: "read*", commandPattern: "*", outcome: .allow)
+            ApprovalRule(name: "Allow file reads", actionPattern: "command", commandPattern: "cat *", outcome: .allow)
         ]
     }
     func matches(action: String, command: String) -> Bool {
@@ -44,14 +44,47 @@ struct ApprovalRule: Identifiable, Codable, Equatable {
     }
 
     static func commandRequiresUserReview(_ command: String) -> Bool {
-        command.contains(where: { ";&|`><\n\r".contains($0) }) || command.contains("$(")
+        let lowercased = command.lowercased()
+        let redactionMarkers = ["...", "***", "[redacted]", "<redacted>", "«redacted"]
+        if redactionMarkers.contains(where: lowercased.contains) { return true }
+
+        // Automatic approval is deliberately ASCII-only. Check scalars rather than
+        // Characters: CRLF and Unicode prepend/combining sequences can be one grapheme.
+        let safePunctuation = " ._/:=,@%+-"
+        guard !command.isEmpty, command.unicodeScalars.allSatisfy({ scalar in
+            scalar.isASCII && (CharacterSet.alphanumerics.contains(scalar) || safePunctuation.unicodeScalars.contains(scalar))
+        }) else { return true }
+
+        let tokens = command.lowercased().split(separator: " ").map(String.init)
+        guard let executable = tokens.first?.split(separator: "/").last.map(String.init) else { return true }
+        let dangerousPrograms: Set<String> = ["awk", "bash", "curl", "dd", "env", "find", "mkfs", "mv", "perl", "python", "python3", "scp", "sh", "ssh", "xargs"]
+        let dangerousArguments: Set<String> = ["-c", "-d", "-delete", "-e", "-exec", "-execdir", "-f", "-t", "--data", "--data-ascii", "--data-binary", "--data-raw", "--exec", "--upload-file", "--upload-pack"]
+        if dangerousPrograms.contains(executable) { return true }
+        if executable == "git" {
+            let safeSubcommands: Set<String> = ["branch", "diff", "log", "show", "status"]
+            guard tokens.count > 1, safeSubcommands.contains(tokens[1]) else { return true }
+            if tokens.contains(where: { $0 == "--output" || $0.hasPrefix("--output=") }) { return true }
+        }
+        if tokens.dropFirst().contains(where: { token in
+            dangerousArguments.contains(token) || token.hasPrefix("--data=") || token.hasPrefix("--upload-pack=") ||
+                (executable == "rg" && (token == "--pre" || token.hasPrefix("--pre=")))
+        }) { return true }
+        return false
     }
 
     static func reviewerMustEscalate(action: String, command: String) -> Bool {
         let action = action.lowercased()
         if action.contains("send") || action.contains("delete") || action.contains("destruct") { return true }
-        let words = command.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "_" && $0 != "-" }
-        return words.contains(where: { ["send", "delete", "remove", "rm", "rmdir", "shred"].contains(String($0)) })
+        let normalized = command.lowercased().filter { !["'", "\"", "\\"].contains($0) }
+        let words = normalized.split { !$0.isLetter && !$0.isNumber && $0 != "_" && $0 != "-" }.map(String.init)
+        guard let executable = words.first?.split(separator: "/").last.map(String.init) else { return true }
+        let reviewablePrograms: Set<String> = ["cat", "git", "grep", "head", "ls", "pwd", "rg", "stat", "tail", "wc"]
+        if !reviewablePrograms.contains(executable) { return true }
+        let destructive: Set<String> = ["-delete", "dd", "delete", "mkfs", "mv", "remove", "rm", "rmdir", "send", "shred", "truncate", "unlink"]
+        if words.contains(where: destructive.contains) { return true }
+        if words.first == "curl", words.dropFirst().contains(where: { ["-d", "-t", "--data", "--data-ascii", "--data-binary", "--data-raw", "--upload-file"].contains($0) || $0.hasPrefix("--data=") }) { return true }
+        if words.first == "find", words.contains(where: { ["-delete", "-exec", "-execdir"].contains($0) }) { return true }
+        return normalized.contains(">") || normalized.contains("git push") || normalized.contains("git reset --hard") || normalized.contains("git clean -")
     }
 }
 enum ApprovalAuditOutcome: String, Codable { case requested, approved, denied, asked }

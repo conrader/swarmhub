@@ -36,7 +36,7 @@ struct BotEditorView: View {
                             }.padding(.vertical, 4)
                         }
                         Button("Add rule") { approvalRules.append(.init(name: "New rule", actionPattern: "*", commandPattern: "*", outcome: .ask)) }
-                        Text("First match wins. Patterns are case-insensitive and support * and ?. Allow rules never cross shell separators, substitutions, redirects, or newlines; those always ask you. No match asks you.").font(.caption).foregroundStyle(.secondary)
+                        Text("First match wins. Patterns are case-insensitive and support * and ?. Allow rules accept only conservative ASCII commands and reject a short list of known-dangerous programs/options, shell syntax, quotes, escapes, newlines, and redaction markers. Broad wildcards can expose extra files. No match asks you.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Section("Instructions") { TextEditor(text: $persona).frame(height: 90) }

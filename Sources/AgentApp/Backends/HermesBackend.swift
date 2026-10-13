@@ -267,14 +267,16 @@ struct HermesBackend: AgentBackend {
                 }
                 return nil
             }
-            // A real command is authoritative; display_command is only a final fallback.
-            let commandSource = firstNonempty("command") ?? firstNonempty("display_command")
-            let command = commandSource?.0
-            let identity = commandSource?.1 ?? json
+            // Only the raw command may drive automation. A display string can be
+            // shortened or redacted, so retain it solely as user-facing summary text.
+            let rawCommandSource = firstNonempty("command")
+            let displayCommandSource = firstNonempty("display_command")
+            let command = rawCommandSource?.0
+            let identity = rawCommandSource?.1 ?? displayCommandSource?.1 ?? json
             let runID = (identity["run_id"] as? String) ?? (json["run_id"] as? String)
             let requestID = (identity["request_id"] as? String) ?? (json["request_id"] as? String)
             let actionKind = firstNonempty("action_kind")?.0 ?? firstNonempty("tool_name")?.0 ?? firstNonempty("action")?.0 ?? "command"
-            continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command ?? "Command unknown", draft: nil, command: command, runID: runID, requestID: requestID, actionKind: actionKind)))
+            continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command ?? displayCommandSource?.0 ?? "Command unknown", draft: nil, command: command, runID: runID, requestID: requestID, actionKind: actionKind)))
         case "run.completed": continuation.yield(.completed)
         case "run.cancelled": continuation.yield(.completed)
         case "run.failed", "error": continuation.yield(.failed(json["error"] as? String ?? json["message"] as? String ?? "Hermes run failed."))

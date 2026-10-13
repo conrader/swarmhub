@@ -71,11 +71,12 @@ private struct FixtureReviewerBackend: AgentBackend {
                 } else {
                     policyBot.approvalMode = .reviewer; policyBot.reviewerBotID = reviewer.id
                     await policyStore.routeApproval(scoped, for: policyBot, backend: backend)
-                    guard policyStore.approvals.contains(where: { $0.id == scoped.id }) else { throw BackendError.unavailable("Fixture reviewer did not escalate.") }
+                    guard policyStore.approvals.contains(where: { $0.id == scoped.id }) else { throw BackendError.unavailable("Fixture destructive floor did not escalate.") }
+                    guard policyBot.approvalAudit.contains(where: { $0.approvalID == scoped.id && $0.outcome == .asked && $0.decidedBy == "system" }) else { throw BackendError.unavailable("Fixture destructive-floor audit attribution was incorrect.") }
                     policyStore.decide(scoped, approved: false)
                     for _ in 0..<100 where policyStore.approvals.contains(where: { $0.id == scoped.id }) { try await Task.sleep(for: .milliseconds(10)) }
                     guard !policyStore.approvals.contains(where: { $0.id == scoped.id }) else { throw BackendError.unavailable("Escalated fixture approval was not resolved by the user path.") }
-                    print("Hermes integration: reviewer-escalated request=\(request.requestID ?? "missing")")
+                    print("Hermes integration: destructive-floor-escalated request=\(request.requestID ?? "missing")")
                 }
                 approvalResolved = approvalCount >= 2
                 if approvalCount == 2, env["HERMES_TEST_CANCEL"] == "1" { stopRequested = try await backend.cancel(sessionID: id) == .requested }

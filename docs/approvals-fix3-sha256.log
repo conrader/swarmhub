@@ -1,0 +1,2 @@
+$ shasum -a 256 dist/AgentApp-6b76da361e60-dirty-arm64.zip
+968c16849899a5f4283a02ffe8d8c15005b7ccd25845c9f3c5da10baf2489fa4  dist/AgentApp-6b76da361e60-dirty-arm64.zip

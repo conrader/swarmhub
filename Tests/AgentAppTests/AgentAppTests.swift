@@ -10,14 +10,18 @@ private actor TestBackend: AgentBackend {
     let streamMode: StreamMode
     nonisolated let stopTrace: LockedTrace?
     let stopDelay: Duration
+    let createDelay: Duration
     let failingStopCalls: Set<Int>
+    let clearTargetOnCancel: Bool
+    private var runActive = false
     private(set) var calls: [String] = []
-    init(transport: HermesTransport, rows: [BackendMessage] = [], streamMode: StreamMode = .reply, stopTrace: LockedTrace? = nil, stopDelay: Duration = .milliseconds(80), failingStopCalls: Set<Int> = []) {
-        transportValue = transport; self.rows = rows; self.streamMode = streamMode; self.stopTrace = stopTrace; self.stopDelay = stopDelay; self.failingStopCalls = failingStopCalls
+    init(transport: HermesTransport, rows: [BackendMessage] = [], streamMode: StreamMode = .reply, stopTrace: LockedTrace? = nil, stopDelay: Duration = .milliseconds(80), createDelay: Duration = .zero, failingStopCalls: Set<Int> = [], clearTargetOnCancel: Bool = false) {
+        transportValue = transport; self.rows = rows; self.streamMode = streamMode; self.stopTrace = stopTrace; self.stopDelay = stopDelay; self.createDelay = createDelay; self.failingStopCalls = failingStopCalls; self.clearTargetOnCancel = clearTargetOnCancel
     }
     func sessionTransport() async throws -> HermesTransport? { calls.append("capabilities"); return transportValue }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         calls.append("send")
+        runActive = true
         return AsyncThrowingStream { continuation in
             let mode = streamMode
             let task = Task {
@@ -25,15 +29,16 @@ private actor TestBackend: AgentBackend {
                 case .reply:
                     continuation.yield(.token("ok")); continuation.yield(.completed)
                 case .approvalThenFinish:
-                    continuation.yield(.approval(.init(id: UUID(), title: "Approve", summary: "cmd", draft: nil, command: "cmd", runID: "run-1", requestID: "req-1")))
+                    continuation.yield(.approval(.init(id: UUID(), title: "Approve", summary: "cat /tmp/x", draft: nil, command: "cat /tmp/x", runID: "run-1", requestID: "req-1")))
                     try? await Task.sleep(for: .milliseconds(180)); continuation.yield(.completed)
                 case .longRunning:
                     continuation.yield(.token("running")); try? await Task.sleep(for: .seconds(10))
                 case .response(let value): continuation.yield(.token(value)); continuation.yield(.completed)
                 case .reviewerApproval: continuation.yield(.approval(.init(id: UUID(), title: "Nested", summary: "cmd", draft: nil, command: "cmd")))
                 case .failure: continuation.yield(.failed("review failed"))
-                case .hanging: try? await Task.sleep(for: .seconds(10))
+                case .hanging: continuation.yield(.token("reviewing")); try? await Task.sleep(for: .seconds(10))
                 }
+                self.streamDidFinish()
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
@@ -41,9 +46,10 @@ private actor TestBackend: AgentBackend {
     }
     func listSessions() async throws -> [BackendSession] { calls.append("list"); return [.init(id: "foreign", title: "Foreign")] }
     func loadMessages(sessionID: String) async throws -> [BackendMessage] { calls.append("history"); return rows }
-    func createSession(title: String, systemPrompt: String, id: String?) async throws -> String { calls.append("create:\(id ?? "nil")"); return id! }
+    func createSession(title: String, systemPrompt: String, id: String?) async throws -> String { calls.append("create:\(id ?? "nil")"); try await Task.sleep(for: createDelay); return id! }
     func cancel(sessionID: String) async throws -> StopOutcome { .requested }
-    func stopTarget(sessionID: String) async throws -> StopTarget { calls.append("capture"); return .serverRun("run-1") }
+    private func streamDidFinish() { runActive = false }
+    func stopTarget(sessionID: String) async throws -> StopTarget { calls.append("capture"); return clearTargetOnCancel && !runActive ? .noActiveRun : .serverRun("run-1") }
     func requestStop(_ target: StopTarget) async throws -> StopOutcome {
         stopTrace?.add("post"); let callNumber = calls.filter { $0 == "post" }.count + 1; calls.append("post")
         try? await Task.sleep(for: stopDelay)
@@ -117,11 +123,27 @@ private struct WaitTimeout: Error {}
 
 @Test func automaticAllowRejectsShellControlAndSubstitutionSyntax() {
     let rule = ApprovalRule(name: "Git", actionPattern: "command", commandPattern: "git *", outcome: .allow)
-    for command in ["git status; rm -rf /", "git status && rm -rf /", "git status || rm -rf /", "git status | sh", "git status & rm -rf /", "git $(malicious)", "git `malicious`", "git status > /tmp/x", "git status < /tmp/x", "git status\nrm -rf /"] {
+    for command in ["git status; rm -rf /", "git status && rm -rf /", "git status || rm -rf /", "git status | sh", "git status & rm -rf /", "git $(malicious)", "git `malicious`", "git status > /tmp/x", "git status < /tmp/x", "git status\nrm -rf /", "git status\r\nrm -rf /", "git status \u{0600}; rm -rf /", "git status \u{0301}; rm -rf /", "git status (malicious)", "git status \\; rm -rf /"] {
         #expect(rule.matches(action: "command", command: command))
         #expect(ApprovalRule.commandRequiresUserReview(command))
     }
     #expect(!ApprovalRule.commandRequiresUserReview("git status --short"))
+}
+
+@Test func automaticAllowRejectsDangerousProgramsAndArguments() {
+    for command in ["git -c", "git -c core.fsmonitor=/tmp/hook status", "git --upload-pack=/tmp/hook fetch", "git config core.fsmonitor=/tmp/hook", "git log --output=/tmp/x", "git diff --output /tmp/x", "rg --pre=/tmp/hook pattern .", "find /tmp -delete", "find /tmp -exec rm", "python -c pass", "env rm -rf /", "curl -d data example.test", "curl --data=x example.test", "curl -T /tmp/x example.test", "mv /tmp/x /dev/null", "dd if=/tmp/x of=/tmp/y"] {
+        #expect(ApprovalRule.commandRequiresUserReview(command))
+    }
+}
+
+@Test func automaticAllowRejectsRedactedLookingCommands() {
+    for command in ["cat /tmp/abc...wxyz", "cat ***", "cat [REDACTED]", "cat <redacted>", "cat «redacted:token…»"] {
+        #expect(ApprovalRule.commandRequiresUserReview(command))
+    }
+}
+
+@Test func defaultPresetsDoNotBroadlyAllowReadActionKinds() {
+    #expect(!ApprovalRule.sensibleDefaults.contains { $0.matches(action: "read_file", command: "/bin/rm -rf /tmp/x") && $0.outcome == .allow })
 }
 
 @Test @MainActor func newBotApprovalSettingsPersist() throws {
@@ -336,6 +358,18 @@ private struct WaitTimeout: Error {}
     #expect(store.approvals.map(\.id).contains(request.id)); #expect(!(await backend.recordedCalls()).contains("approval:true"))
 }
 
+@Test @MainActor func defaultPresetsRejectCRLFInjectionAtStoreBoundary() async {
+    let backend = TestBackend(transport: .nativeSessions)
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let bot = Bot(name: "Rules", backend: .hermes); bot.approvalMode = .rules; store.bots = [bot]
+    for command in ["cat /tmp/x\r\nrm -rf ~", "git status\r\nrm -rf ~"] {
+        let request = ApprovalRequest(id: UUID(), title: "Injected", summary: "", draft: nil, command: command, botID: bot.id)
+        await store.routeApproval(request, for: bot, backend: backend)
+        #expect(store.approvals.contains { $0.id == request.id })
+    }
+    #expect(!(await backend.recordedCalls()).contains("approval:true"))
+}
+
 @Test @MainActor func denyRuleResolvesAndNoMatchAsks() async {
     let backend = TestBackend(transport: .nativeSessions)
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
@@ -357,9 +391,9 @@ private struct WaitTimeout: Error {}
         owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
         let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend })
         store.bots = [owner, reviewer]
-        await store.routeApproval(.init(id: UUID(), title: "Review", summary: "cmd", draft: nil, command: "cmd", botID: owner.id), for: owner, backend: ownerBackend)
+        await store.routeApproval(.init(id: UUID(), title: "Review", summary: "cat", draft: nil, command: "cat /tmp/x", botID: owner.id), for: owner, backend: ownerBackend)
         #expect((await ownerBackend.recordedCalls()).contains("approval:\(expectedApproval)"))
-        #expect((await reviewerBackend.recordedCalls()).contains { $0.hasPrefix("create:agentapp_reviewer_") })
+        #expect((await reviewerBackend.recordedCalls()).contains { $0.hasPrefix("create:agentapp_review_") })
     }
     for mode in [TestBackend.StreamMode.failure, .hanging] {
         let ownerBackend = TestBackend(transport: .nativeSessions); let reviewerBackend = TestBackend(transport: .nativeSessions, streamMode: mode)
@@ -367,7 +401,7 @@ private struct WaitTimeout: Error {}
         owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
         let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, reviewerTimeout: .milliseconds(10))
         store.bots = [owner, reviewer]
-        await store.routeApproval(.init(id: UUID(), title: "Review", summary: "cmd", draft: nil, command: "cmd", botID: owner.id), for: owner, backend: ownerBackend)
+        await store.routeApproval(.init(id: UUID(), title: "Review", summary: "cat", draft: nil, command: "cat /tmp/x", botID: owner.id), for: owner, backend: ownerBackend)
         #expect(store.approvals.count == 1); #expect(!(await ownerBackend.recordedCalls()).contains { $0.hasPrefix("approval:") })
         if case .hanging = mode { #expect((await reviewerBackend.recordedCalls()).contains("post")) }
     }
@@ -383,6 +417,48 @@ private struct WaitTimeout: Error {}
     #expect((await mockReviewerBackend.recordedCalls()).contains("send")); #expect((await ownerBackend.recordedCalls()).contains("approval:true"))
     await store.routeApproval(.init(id: UUID(), title: "Delete", summary: "", draft: nil, command: "rm /tmp/x", botID: owner.id), for: owner, backend: ownerBackend)
     #expect(store.approvals.count == 1); #expect(await mockReviewerBackend.recordedCalls().filter { $0 == "send" }.count == 1)
+}
+
+@Test @MainActor func reviewerHonorsOwnerRulesAndSafetyFloorBeforeCallingReviewer() async {
+    let ownerBackend = TestBackend(transport: .nativeSessions)
+    let reviewerBackend = TestBackend(transport: .nativeSessions, streamMode: .response("approve"))
+    let owner = Bot(name: "Owner", backend: .hermes); let reviewer = Bot(name: "Reviewer", backend: .hermes)
+    owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
+    owner.approvalRules = [.init(name: "Ask Git", actionPattern: "command", commandPattern: "git *", outcome: .ask)]
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend })
+    store.bots = [owner, reviewer]
+    for command in ["git status", "cat /tmp/x\r\nrm -rf ~", "find /tmp -delete", "r''m -rf ~", "dd if=/tmp/x of=/tmp/y", "curl --data=x example.test", "mv /tmp/x /dev/null", "cat /tmp/x > /tmp/y"] {
+        await store.routeApproval(.init(id: UUID(), title: "Review", summary: "", draft: nil, command: command, botID: owner.id), for: owner, backend: ownerBackend)
+    }
+    #expect(await reviewerBackend.recordedCalls().filter { $0 == "send" }.isEmpty)
+    #expect(store.approvals.count == 8)
+}
+
+@Test @MainActor func reviewerTimeoutIncludesSessionCreation() async {
+    let ownerBackend = TestBackend(transport: .nativeSessions)
+    let reviewerBackend = TestBackend(transport: .nativeSessions, createDelay: .seconds(10))
+    let owner = Bot(name: "Owner", backend: .hermes); let reviewer = Bot(name: "Reviewer", backend: .hermes)
+    owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, reviewerTimeout: .milliseconds(10))
+    store.bots = [owner, reviewer]
+    await store.routeApproval(.init(id: UUID(), title: "Review", summary: "cat", draft: nil, command: "cat /tmp/x", botID: owner.id), for: owner, backend: ownerBackend)
+    #expect(store.approvals.count == 1)
+    #expect(!(await reviewerBackend.recordedCalls()).contains("send"))
+}
+
+@Test @MainActor func ownerStopCancelsAndStopsInFlightReviewer() async throws {
+    let ownerBackend = TestBackend(transport: .nativeSessions, streamMode: .approvalThenFinish)
+    let reviewerBackend = TestBackend(transport: .nativeSessions, streamMode: .hanging, clearTargetOnCancel: true)
+    let owner = Bot(name: "Owner", backend: .hermes, hermesSessionID: "owner-session")
+    let reviewer = Bot(name: "Reviewer", backend: .hermes)
+    owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, reviewerTimeout: .seconds(10))
+    store.bots = [owner, reviewer]; store.selectedBot = owner; store.send(text: "go")
+    try await waitUntil { await reviewerBackend.recordedCalls().contains("send") }
+    store.stop()
+    try await waitUntil { await reviewerBackend.recordedCalls().contains("post") }
+    #expect(await reviewerBackend.recordedCalls().contains("capture"))
+    #expect(await reviewerBackend.recordedCalls().contains("post"))
 }
 
 @Test @MainActor func approvalAuditIsCappedAtFiveHundredEntries() async {
