@@ -2,7 +2,9 @@
 """Export the local Grok Bot app cache to an agentapp-bot-bundle/v1 folder.
 
 Reads `~/Library/Application Support/Grok Bot/sand-client-persistence/*.blob` (read-only) and writes
-`~/Documents/Torvli Grok Export/` (dirs 0700, files 0600). Python 3 stdlib only; no network.
+`~/Documents/Torvli Grok Export/` (dirs 0700, files 0600). Python 3 stdlib only. No network unless
+`--fetch-server-history`, which pages each conversation's older history from Grok's servers with read-only
+RPCs (scripts/grokbot_server.py) and merges it with the cache by seq.
 Only counts are printed; message text never leaves the export files.
 """
 import argparse
@@ -15,6 +17,9 @@ import shutil
 import sys
 import tempfile
 from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import grokbot_server  # noqa: E402
 
 FORMAT = "agentapp-bot-bundle/v1"
 DEFAULT_CACHE = "~/Library/Application Support/Grok Bot/sand-client-persistence"
@@ -212,7 +217,7 @@ def avatar_value(value):
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-def build_bundle(row, entries, names, slugs):
+def build_bundle(row, entries, names, slugs, history=None):
     redact = Redactor()
     stats = {"transcript_rows": len(entries), "messages": 0, "events": 0, "tool_entries_dropped": 0,
              "events_dropped": 0, "cards_dropped": 0, "hidden_messages": 0}
@@ -225,7 +230,13 @@ def build_bundle(row, entries, names, slugs):
     profile = None if is_group else "grok-" + slugs[row["id"]]
     members = [{"source_id": mid, "name": redact(names.get(mid, "Unknown bot")),
                 "profile": ("grok-" + slugs[mid]) if mid in slugs else None} for mid in row.get("memberIds") or []]
-    limitations = ["The Grok Bot app cache holds only the latest entries of each conversation; older history stays on Grok's servers."]
+    if history is None:
+        limitations = ["The Grok Bot app cache holds only the latest entries of each conversation; older history stays on Grok's servers."]
+    else:
+        stats["server_history"] = history
+        gaps = history["coverage"]["gaps"]
+        limitations = [] if not gaps else ["Grok's server returned no entries for seq %s." % ", ".join(
+            "%d" % a if a == b else "%d-%d" % (a, b) for a, b in gaps[:20]) + (" (and %d more gaps)" % (len(gaps) - 20) if len(gaps) > 20 else "")]
     if stats["cards_dropped"]:
         limitations.append("Interactive cards (secret requests, connectors, forms, approvals) were not exported.")
     if stats["events_dropped"]:
@@ -253,9 +264,42 @@ def write_json(path, value):
         handle.write("\n")
 
 
-def export(cache_dir, out_dir):
+def fetch_server_history(rows, transcripts, client, log=print):
+    """Pages every conversation back to seq 1 from its oldest cached seq; returns merged transcripts + per-bot history."""
+    merged, history = {}, {}
+    for row in rows:
+        cached = transcripts.get(row["id"], [])
+        seqs = [e["seq"] for e in cached if isinstance(e, dict) and isinstance(e.get("seq"), int)]
+        before = min(seqs) if seqs else None
+        fetched, stats = grokbot_server.fetch_older(client, row["id"], before)
+        merged[row["id"]] = grokbot_server.merge_entries([e for e in cached if isinstance(e, dict)], fetched)
+        cov = grokbot_server.coverage(merged[row["id"]])
+        history[row["id"]] = {"fetched": len(fetched), "cached": len(seqs), "coverage": cov, "requests": stats}
+        log("%-24s fetched=%5d seq %s..%s gaps=%d" % ((row.get("name") or "bot")[:24], len(fetched), cov["min"], cov["max"], len(cov["gaps"])))
+    return merged, history
+
+
+def load_credentials(secrets_path):
+    """One Keychain read per run; the password and derived key stay in this function."""
+    key = grokbot_server.safe_storage_key(grokbot_server.keychain_password())
+    return grokbot_server.read_credentials(secrets_path, key)
+
+
+def make_client(base_url, secrets_path):
+    token, machine_id, team_id = load_credentials(secrets_path)
+    if grokbot_server.token_expired(token):
+        raise grokbot_server.HistoryError("the Grok Bot access token has expired; open Grok Bot once to refresh it (no refresh is attempted here)")
+    headers = grokbot_server.request_headers(token, machine_id, team_id, grokbot_server.client_version())
+    return grokbot_server.Client(base_url, headers)
+
+
+def export(cache_dir, out_dir, server=None):
+    """`server`: optional callable (rows, transcripts) -> (merged transcripts, per-bot history)."""
     roster, transcripts = load_cache(cache_dir)
     rows = [r for r in roster if isinstance(r, dict) and isinstance(r.get("id"), str)]
+    history = {}
+    if server is not None:
+        transcripts, history = server(rows, transcripts)
     names = {r["id"]: r.get("name") or "Grok bot" for r in rows}
     slugs = {r["id"]: profile_slug(r.get("name") or "") for r in rows if not r.get("isGroup")}
     parent = os.path.dirname(os.path.abspath(out_dir))
@@ -263,18 +307,20 @@ def export(cache_dir, out_dir):
     tmp = tempfile.mkdtemp(prefix=".torvli-grok-export-", dir=parent)
     os.chmod(tmp, 0o700)
     try:
-        index = {"format": FORMAT, "generator": "export-grokbot.py", "source": "grok-bot-app-cache",
+        index = {"format": FORMAT, "generator": "export-grokbot.py",
+                 "source": "grok-bot-app-cache+server-history" if server is not None else "grok-bot-app-cache",
                  "bots": [], "skills": [], "skill_redactions": {"total": 0, "counts": {}}}
         report = {"bots": {}}
         for row in rows:
-            bundle = build_bundle(row, transcripts.get(row["id"], []), names, slugs)
+            bundle = build_bundle(row, transcripts.get(row["id"], []), names, slugs, history.get(row["id"]) if server is not None else None)
             directory = "%s-%s" % (slugify(row.get("name") or "bot"), row["id"])
             os.mkdir(os.path.join(tmp, directory), 0o700)
             write_json(os.path.join(tmp, directory, "bundle.json"), bundle)
             index["bots"].append({"source_id": row["id"], "name": bundle["name"], "bundle": directory + "/bundle.json",
                                   "profile": bundle["profile"], "is_group": bundle["is_group"],
                                   "messages": len(bundle["messages"]), "events": len(bundle["events"]),
-                                  "redactions": bundle["redactions"]["total"]})
+                                  "redactions": bundle["redactions"]["total"],
+                                  **({"seq_coverage": history[row["id"]]["coverage"]} if row["id"] in history else {})})
             report["bots"][row["id"]] = {"redactions": bundle["redactions"], "statistics": bundle["statistics"]}
         write_json(os.path.join(tmp, "index.json"), index)
         write_json(os.path.join(tmp, "redaction-report.json"), report)
@@ -295,8 +341,20 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cache", default=os.path.expanduser(DEFAULT_CACHE))
     parser.add_argument("--out", default=os.path.expanduser(DEFAULT_OUT))
+    parser.add_argument("--fetch-server-history", action="store_true",
+                        help="also page each conversation's older history from Grok's servers (read-only; one Keychain prompt)")
+    parser.add_argument("--base-url", default=os.environ.get("CURSOR_API_BASE_URL") or grokbot_server.BASE_URL, help=argparse.SUPPRESS)
+    parser.add_argument("--secrets", default=grokbot_server.SECRETS, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    index = export(args.cache, args.out)
+    server = None
+    if args.fetch_server_history:
+        def server(rows, transcripts):
+            return fetch_server_history(rows, transcripts, make_client(args.base_url, args.secrets))
+    try:
+        index = export(args.cache, args.out, server)
+    except grokbot_server.HistoryError as error:
+        print("stopped: %s (export left unchanged)" % error, file=sys.stderr)
+        return 2
     for bot in index["bots"]:
         print("%-24s profile=%-26s messages=%4d events=%d redactions=%d" % (
             bot["name"][:24], bot["profile"] or "(group)", bot["messages"], bot["events"], bot["redactions"]))
