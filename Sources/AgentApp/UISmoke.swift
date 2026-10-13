@@ -22,6 +22,7 @@ import Foundation
         var overview: Duration = .seconds(20)
         var routines: Duration = .seconds(15)
         var avatars = AvatarSmoke.Budget()
+        var layout: Duration = .seconds(5)
     }
 
     static func reportPath(arguments: [String] = CommandLine.arguments) -> String? {
@@ -71,6 +72,7 @@ import Foundation
             report["routines"] = routines(store.routines.state(for: bot.id), errors: &errors)
         }
         report["avatars"] = await AvatarSmoke.collect(store: store, bot: bot, budget: budget.avatars)
+        report["chrome"] = await UISmokeChrome.collect(window: window(), budget: budget.layout)
         if let message = store.errorMessage { errors.append("alert: \(message)") }
         report["errors"] = errors
         report["source"] = Bundle.main.url(forResource: "SOURCE", withExtension: "txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) }?
