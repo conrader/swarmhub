@@ -22,17 +22,15 @@ enum KeychainStore {
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let rows = result as? [[String: Any]] else { return [] }
         return rows.compactMap { $0[kSecAttrAccount as String] as? String }.filter { $0.hasPrefix(prefix) }
     }
-    static func replaceNamedHermesKeys(_ text: String) {
-        var values: [String: String] = [:]
-        for entry in text.split(separator: ",", omittingEmptySubsequences: true) {
-            let pair = entry.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            guard pair.count == 2 else { continue }
-            let name = pair[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = pair[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty { values[name] = key }
-        }
-        let desired = Set(values.keys.map { "hermes.\($0)" })
-        for account in accounts(prefix: "hermes.") where !desired.contains(account) { set("", account: account) }
-        for (name, key) in values { set(key, account: "hermes.\(name)") }
-    }
+}
+
+/// Where Hermes API keys live. The app uses the Keychain; tests inject an in-memory store.
+protocol HermesKeyStore: Sendable {
+    func key(for account: String) -> String
+    func setKey(_ value: String, for account: String)
+}
+
+struct KeychainHermesKeyStore: HermesKeyStore {
+    func key(for account: String) -> String { KeychainStore.get(account: account) }
+    func setKey(_ value: String, for account: String) { KeychainStore.set(value, account: account) }
 }

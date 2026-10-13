@@ -92,7 +92,7 @@ struct TemplateImportView: View {
             isLoading = false
         }
     }
-    private func prepare(_ data: Data) throws { plan = TemplateImportMapper.makePlan(from: try GrokTemplateParser.parse(data), hermesConfigured: AppStore.hasHermesConfiguration); errorMessage = nil }
+    private func prepare(_ data: Data) throws { plan = store.makeImportPlan(from: try GrokTemplateParser.parse(data)); errorMessage = nil }
     private func reviewBlock(_ title: String, _ content: String) -> some View {
         VStack(alignment: .leading, spacing: 5) { Text(title).font(.caption.bold()).foregroundStyle(.secondary); Text(content.isEmpty ? "Not provided" : content).font(.callout).textSelection(.enabled) }
             .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 9))

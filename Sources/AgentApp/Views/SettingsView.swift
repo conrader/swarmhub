@@ -9,13 +9,11 @@ struct SettingsView: View {
     @AppStorage("hermesBaseURL") private var hermesURL = AppConstants.defaultHermesURL; @AppStorage("openClawURL") private var openClawURL = "ws://127.0.0.1:18789"
     @AppStorage("hermesProfiles") private var hermesProfiles = ""
     @AppStorage("noVNCURL") private var noVNCURL = ""
-    @State private var apiKey = ""; @State private var profileKeys = ""; @State private var testResult = ""; @State private var testing = false
+    @State private var apiKey = ""; @State private var testResult = ""; @State private var testing = false
+    @State private var boxPaste = ""; @State private var addResults: [HermesBotAddResult] = []; @State private var adding = false
     var body: some View {
         NavigationSplitView { List(Pane.allCases, selection: $pane) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }.navigationSplitViewColumnWidth(170) } detail: { Form { content }.formStyle(.grouped).navigationTitle(pane.rawValue) }
-            .frame(width: 720, height: 500).background(AppColor.panel).onAppear {
-                apiKey = KeychainStore.get(account: "hermes")
-                profileKeys = KeychainStore.accounts(prefix: "hermes.").sorted().map { account in "\(account.dropFirst("hermes.".count))=\(KeychainStore.get(account: account))" }.joined(separator: ", ")
-            }
+            .frame(width: 720, height: 500).background(AppColor.panel).onAppear { apiKey = KeychainStore.get(account: "hermes") }
     }
     @ViewBuilder private var content: some View {
         switch pane {
@@ -36,10 +34,14 @@ struct SettingsView: View {
                 TextField("Base URL", text: $hermesURL)
                 SecureField("Default profile API key", text: $apiKey).onChange(of: apiKey) { _, value in KeychainStore.set(value, account: "hermes") }
                 TextField("Named profiles (comma-separated)", text: $hermesProfiles)
-                SecureField("Named keys (profile=key, comma-separated)", text: $profileKeys)
-                Button("Save named keys") { KeychainStore.replaceNamedHermesKeys(profileKeys); testResult = "Named profile keys saved." }
                 Text("Hermes does not expose profile enumeration on its API-key server. Add named multiplex profiles here; each requires its own key.").font(.caption).foregroundStyle(.secondary)
                 HStack { Button("Test & Discover") { testHermes() }.disabled(testing); if testing { ProgressView().controlSize(.small) }; Text(testResult).font(.caption).foregroundStyle(.secondary) }
+            }
+            Section("Add bots from box") {
+                TextEditor(text: $boxPaste).font(.system(.callout, design: .monospaced)).frame(minHeight: 64)
+                Text("One profile=key per line (commas also work). Keys are saved to the Keychain, each profile is checked, and new bots are named from the profile slug.").font(.caption).foregroundStyle(.secondary)
+                HStack { Button("Add bots") { addBots() }.disabled(adding || boxPaste.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty); if adding { ProgressView().controlSize(.small) } }
+                ForEach(addResults) { result in Text("\(result.label): \(result.summary)").font(.caption).foregroundStyle(.secondary) }
             }
             Section("OpenClaw") { TextField("Gateway URL", text: $openClawURL); Text("TODO: authenticated WebSocket RPC transport.").font(.caption).foregroundStyle(.secondary) }
             Section("Virtual desktop") { TextField("noVNC URL", text: $noVNCURL) }
@@ -52,6 +54,10 @@ struct SettingsView: View {
             LabeledContent("Version", value: "Prototype"); Text("You’re up to date").foregroundStyle(.secondary); Button("Check for Updates") { }
         }
     }
+    private func addBots() {
+        adding = true; let text = boxPaste; boxPaste = ""
+        Task { addResults = await store.addBotsFromBox(text); adding = false }
+    }
     private func testHermes() {
         testing = true; testResult = ""
         Task {
@@ -59,9 +65,10 @@ struct SettingsView: View {
                 guard let baseURL = HermesBackend.validatedBaseURL(hermesURL) else { throw BackendError.invalidURL }
                 let backend = HermesBackend(baseURL: baseURL, apiKey: apiKey)
                 let status = try await backend.testConnection()
-                await store.refreshHermesAgents()
-                let count = store.bots.filter { $0.backend == .hermes }.count
-                testResult = "\(status); \(count) profile(s) available"
+                let probes = await store.refreshHermesAgents()
+                let available = probes.filter { $0.status.reason == nil }.count
+                let problems = probes.compactMap { probe in probe.status.reason.map { "\(probe.id): \($0)" } }
+                testResult = (["\(status); \(available) profile(s) available"] + problems).joined(separator: "\n")
             } catch { testResult = error.localizedDescription }
             testing = false
         }

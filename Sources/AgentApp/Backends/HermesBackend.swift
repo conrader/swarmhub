@@ -22,6 +22,19 @@ enum HermesTransport: Sendable, Equatable { case nativeSessions, legacyChatCompl
 
 struct HermesAgentProfile: Sendable, Equatable { let id: String; let name: String; let model: String }
 
+enum HermesProfileStatus: Sendable, Equatable {
+    case available(HermesAgentProfile), prefixIgnored, unavailable(String)
+    var reason: String? {
+        switch self {
+        case .available: nil
+        case .prefixIgnored: HermesBackend.multiplexOffMessage
+        case .unavailable(let value): value
+        }
+    }
+}
+
+struct HermesProfileProbe: Sendable, Equatable { let id: String; let status: HermesProfileStatus }
+
 struct HermesBackend: AgentBackend {
     let kind = BackendKind.hermes
     let baseURL: URL
@@ -174,18 +187,37 @@ struct HermesBackend: AgentBackend {
         }
     }
 
-    func discoverProfiles(named names: [String] = []) async throws -> [HermesAgentProfile] {
-        var result: [HermesAgentProfile] = []
-        for candidate in ["default"] + names.filter({ $0 != "default" }) {
-            let key = candidate == "default" ? apiKey : KeychainStore.get(account: "hermes.\(candidate)")
+    static let multiplexOffMessage = "Server ignored the profile prefix — enable gateway.multiplex_profiles"
+
+    func discoverProfiles(named names: [String] = [], keyFor: @escaping @Sendable (String) -> String = { KeychainStore.get(account: "hermes.\($0)") }) async throws -> [HermesAgentProfile] {
+        let probes = await probeProfiles(named: names, keyFor: keyFor)
+        if let first = probes.first, first.id == "default", case .unavailable(let reason) = first.status { throw BackendError.unavailable(reason) }
+        return probes.compactMap { if case .available(let profile) = $0.status { profile } else { nil } }
+    }
+
+    /// Probes `default` plus each named profile via `/p/<profile>/v1/models`. With multiplexing off the
+    /// gateway ignores the prefix and answers as the default agent, so a named profile only counts as
+    /// available when the advertised model id equals the profile name. Reasons never contain keys.
+    func probeProfiles(named names: [String], keyFor: @escaping @Sendable (String) -> String) async -> [HermesProfileProbe] {
+        var result: [HermesProfileProbe] = []
+        var seen: Set<String> = []
+        for candidate in ["default"] + names where seen.insert(candidate).inserted {
+            let key = candidate == "default" ? apiKey : keyFor(candidate)
+            guard candidate == "default" || HermesKeyPaste.isValidProfileName(candidate) else { result.append(.init(id: candidate, status: .unavailable("Invalid profile name."))); continue }
+            guard candidate == "default" || !key.isEmpty else { result.append(.init(id: candidate, status: .unavailable("No API key saved for this profile."))); continue }
             let backend = HermesBackend(baseURL: baseURL, apiKey: key, profile: candidate, session: session)
             do {
                 let json = try await backend.jsonRequest(path: "v1/models")
-                guard let first = (json["data"] as? [[String: Any]])?.first else { continue }
+                guard let first = (json["data"] as? [[String: Any]])?.first else { result.append(.init(id: candidate, status: .unavailable("Server listed no models."))); continue }
                 let model = first["id"] as? String ?? "hermes-agent"
-                result.append(.init(id: candidate, name: candidate == "default" ? model : candidate, model: model))
-            } catch let error where candidate == "default" { throw error }
-            catch { continue }
+                if candidate != "default" && model != candidate { result.append(.init(id: candidate, status: .prefixIgnored)); continue }
+                result.append(.init(id: candidate, status: .available(.init(id: candidate, name: candidate == "default" ? model : HermesProfileNaming.botName(forProfile: candidate), model: model))))
+            } catch {
+                let reason: String
+                if case BackendError.http(let code, _) = error { reason = code == 401 || code == 403 ? "HTTP \(code): the server rejected this key." : "HTTP \(code)." }
+                else { reason = error.localizedDescription }
+                result.append(.init(id: candidate, status: .unavailable(key.isEmpty ? reason : reason.replacingOccurrences(of: key, with: "[key]"))))
+            }
         }
         return result
     }

@@ -17,6 +17,9 @@ private actor ReviewerStopTargetBox {
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false; @Published var replyTo: ChatMessage?
     @Published var editingBot: Bot?; @Published var errorMessage: String?
+    /// Profiles whose `/p/<profile>/` prefix the server ignored (multiplexing off). Never routed to.
+    @Published var prefixIgnoredHermesProfiles: Set<String> = []
+    let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     private var streamTask: Task<Void, Never>?; private let fileURL: URL
     private var streamingBotID: UUID?; private var streamingAssistant: ChatMessage?
     private var historyLoadTokens: [UUID: UUID] = [:]
@@ -27,7 +30,8 @@ private actor ReviewerStopTargetBox {
     private let didCancelLocalStream: (() -> Void)?
     private let reviewerTimeout: Duration
 
-    init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15)) {
+    init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = .shared) {
+        self.keyStore = keyStore; self.defaults = defaults; self.hermesSession = hermesSession
         self.backendFactory = backendFactory
         self.didCancelLocalStream = didCancelLocalStream
         self.reviewerTimeout = reviewerTimeout
@@ -68,31 +72,18 @@ private actor ReviewerStopTargetBox {
                 catch { errorMessage = "Could not read or back up store.json: \(error.localizedDescription)" }
                 if errorMessage == nil { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent); saving is disabled for this launch." }
             }
-            if Self.hasHermesConfiguration { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
-        } else if Self.hasHermesConfiguration {
+            if hermesConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
+        } else if hermesConfigured {
             let bot = Bot(name: "Hermes", title: "Hermes Agent", description: "Default Hermes profile", backend: .hermes, avatarName: .faceCoral, hermesProfile: "default")
             bots = [bot]; save()
         } else {
             loadDemoData(persist: true)
         }
         selectedBot = bots.first
-        if !demoMode, autoConfigureHermes, Self.hasHermesConfiguration { Task { await refreshHermesAgents() } }
+        if !demoMode, autoConfigureHermes, hermesConfigured { Task { await refreshHermesAgents() } }
     }
 
     static var hasHermesConfiguration: Bool { UserDefaults.standard.object(forKey: "hermesBaseURL") != nil || !KeychainStore.get(account: "hermes").isEmpty }
-
-    func refreshHermesAgents() async {
-        guard let baseURL = HermesBackend.validatedBaseURL(UserDefaults.standard.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL) else { errorMessage = BackendError.invalidURL.localizedDescription; return }
-        let names = (UserDefaults.standard.string(forKey: "hermesProfiles") ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        do {
-            let profiles = try await HermesBackend(baseURL: baseURL, apiKey: KeychainStore.get(account: "hermes")).discoverProfiles(named: names)
-            for profile in profiles where !bots.contains(where: { $0.backend == .hermes && ($0.hermesProfile ?? "default") == profile.id }) {
-                bots.append(Bot(name: profile.name, title: "Hermes profile", description: "Hermes profile: \(profile.id)", backend: .hermes, avatarName: BotAvatarName.allCases[bots.count % BotAvatarName.allCases.count], hermesProfile: profile.id))
-            }
-            if selectedBot == nil { selectedBot = bots.first }
-            save()
-        } catch { errorMessage = error.localizedDescription }
-    }
 
     func loadHermesHistory(for bot: Bot) {
         guard bot.backend == .hermes, !isStreaming else { return }
@@ -192,12 +183,12 @@ private actor ReviewerStopTargetBox {
         let memories = manifest.memories.map { "\($0.name): \($0.value)" }
         let bot = Bot(
             name: manifest.name, title: manifest.title, description: manifest.description,
-            persona: manifest.instructions, backend: Self.hasHermesConfiguration ? .hermes : .mock,
+            persona: manifest.instructions, backend: hermesConfigured ? .hermes : .mock,
             avatarName: plan.avatarName, memorySummary: memories.joined(separator: "\n"),
             skills: manifest.skills.map(\.name), importedMemories: memories,
             importedSkills: manifest.skills, requestedConnectorIDs: plan.mappedConnectorIDs,
             gettingStartedSkill: manifest.gettingStartedSkill, routines: plan.routines,
-            hermesProfile: Self.hasHermesConfiguration ? "default" : nil
+            hermesProfile: hermesConfigured ? (plan.hermesProfile ?? "default") : nil
         )
         // Imported data remains inert: connectors require grants, cron routines and the
         // first-conversation skill remain disabled, and no server mutation occurs here.
@@ -450,14 +441,15 @@ private actor ReviewerStopTargetBox {
         objectWillChange.send(); save()
     }
     func backend(for bot: Bot) throws -> any AgentBackend {
+        if bot.backend == .hermes, let profile = bot.hermesProfile, prefixIgnoredHermesProfiles.contains(profile) { throw BackendError.unavailable("\(profile): \(HermesBackend.multiplexOffMessage)") }
         if let backendFactory { return try backendFactory(bot) }
         switch bot.backend {
     case .mock: return MockBackend()
     case .hermes:
-        guard let baseURL = HermesBackend.validatedBaseURL(UserDefaults.standard.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL) else { throw BackendError.invalidURL }
+        guard let baseURL = HermesBackend.validatedBaseURL(defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL) else { throw BackendError.invalidURL }
         let profile = bot.hermesProfile ?? "default"
-        let key = profile == "default" ? KeychainStore.get(account: "hermes") : KeychainStore.get(account: "hermes.\(profile)")
-        return HermesBackend(baseURL: baseURL, apiKey: key, profile: profile)
+        let key = keyStore.key(for: profile == "default" ? "hermes" : "hermes.\(profile)")
+        return HermesBackend(baseURL: baseURL, apiKey: key, profile: profile, session: hermesSession)
     case .openClaw: return OpenClawBackend(gatewayURL: URL(string: UserDefaults.standard.string(forKey: "openClawURL") ?? ""))
     } }
 }
