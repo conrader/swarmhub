@@ -16,7 +16,7 @@ private func serverError(_ work: () async throws -> Void) async -> GrokServerErr
     do { try await work(); return nil } catch let error as GrokServerError { return error } catch { return nil }
 }
 
-@Test func rpcHeadersIdentifyTorvliAndKeepTheProtocolHeaders() async throws {
+@Test func rpcHeadersIdentifyTheAppAndKeepTheProtocolHeaders() async throws {
     let fake = smallFake()
     let client = fake.client()
     _ = try await client.listEntries(agentID: agent, limit: 2, beforeSeq: nil)
@@ -24,7 +24,7 @@ private func serverError(_ work: () async throws -> Void) async -> GrokServerErr
     let posts = fake.requests.filter { $0.method == "POST" }
     #expect(posts.count == 2)
     let h = posts[0].headers
-    #expect(h["user-agent"] == "Torvli/1.4.0")
+    #expect(h["user-agent"] == "\(AppConstants.name)/1.4.0")
     #expect(h["x-cursor-client-version"] == "0.70.2")
     #expect(h["authorization"] == "Bearer \(GrokFixtureSecrets.token)")
     #expect(h["content-type"] == "application/proto")
@@ -47,7 +47,7 @@ private func serverError(_ work: () async throws -> Void) async -> GrokServerErr
 }
 
 @Test func userAgentDriftIsRecordedAndVersionsAreSanitised() throws {
-    #expect(GrokProtocol.userAgent(appVersion: "1.2.3") == "Torvli/1.2.3")
+    #expect(GrokProtocol.userAgent(appVersion: "1.2.3") == "\(AppConstants.name)/1.2.3")
     #expect(GrokRequestHeaders.appVersion(fromShortVersion: "1.2.3") == "1.2.3")
     #expect(GrokRequestHeaders.appVersion(fromShortVersion: "development build") == "dev")
     #expect(GrokRequestHeaders.appVersion(fromShortVersion: nil) == "dev")

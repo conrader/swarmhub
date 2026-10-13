@@ -16,11 +16,11 @@ private func encoded<T: Encodable>(_ value: T) throws -> String {
 
 // MARK: Resolve
 
-@Test func conversationResolvesBotThenOptOutThenTorvliDefaultThenBox() {
+@Test func conversationResolvesBotThenOptOutThenAppDefaultThenBox() {
     let withDefault = ModelDefaults(conversation: alpha)
     let cases: [(ModelSetting, ModelDefaults?, ResolvedModel)] = [
         (.inherit, nil, .init(choice: nil, source: .boxDefault)),
-        (.inherit, withDefault, .init(choice: alpha, source: .torvliDefault)),
+        (.inherit, withDefault, .init(choice: alpha, source: .appDefault)),
         (.box, nil, .init(choice: nil, source: .boxDefault)),
         (.box, withDefault, .init(choice: nil, source: .boxDefault)),
         (.choice(beta), nil, .init(choice: beta, source: .bot)),
@@ -37,7 +37,7 @@ private func encoded<T: Encodable>(_ value: T) throws -> String {
     let cases: [(ModelSetting, ModelSetting, ModelDefaults?, ResolvedModel)] = [
         (.inherit, .inherit, nil, .init(choice: nil, source: .sameAsConversation)),
         (.inherit, .inherit, conversationOnly, .init(choice: alpha, source: .sameAsConversation)),
-        (.inherit, .inherit, both, .init(choice: coder, source: .torvliDefault)),
+        (.inherit, .inherit, both, .init(choice: coder, source: .appDefault)),
         (.choice(beta), .box, both, .init(choice: beta, source: .sameAsConversation)),
         (.box, .box, both, .init(choice: nil, source: .sameAsConversation)),
         (.inherit, .choice(beta), both, .init(choice: beta, source: .bot)),
@@ -77,9 +77,9 @@ private func encoded<T: Encodable>(_ value: T) throws -> String {
 
 @Test func reasonStringsArePinned() {
     let expected: [(ModelRoleReason, String)] = [
-        (.noLock, "This box can't switch a chat's model, so Torvli can't apply a model here."),
-        (.noList, "This box doesn't list its models, so Torvli can't check a choice before using it."),
-        (.noRow, "This box can't report a chat's model, so Torvli can't tell whether the chat is new."),
+        (.noLock, "This box can't switch a chat's model, so \(AppConstants.name) can't apply a model here."),
+        (.noList, "This box doesn't list its models, so \(AppConstants.name) can't check a choice before using it."),
+        (.noRow, "This box can't report a chat's model, so \(AppConstants.name) can't tell whether the chat is new."),
         (.legacy, "This box only has the older chat API, which has no per-chat model."),
         (.noFork, "Coding threads need conversation forks, which this box doesn't offer."),
         (.notOffered("model-coder"), "model-coder isn't offered by this bot's profile."),
@@ -89,8 +89,8 @@ private func encoded<T: Encodable>(_ value: T) throws -> String {
         (.openClaw, "Managed in OpenClaw."),
     ]
     for (reason, text) in expected { #expect(reason.text == text) }
-    #expect(ModelRolesModel.caption == "Torvli remembers these choices and applies them when it starts a chat. It does not change your box's own settings.")
-    #expect(ModelRolesModel.conversationHelp == "Used for chats, group chats and threads Torvli starts.")
+    #expect(ModelRolesModel.caption == "\(AppConstants.name) remembers these choices and applies them when it starts a chat. It does not change your box's own settings.")
+    #expect(ModelRolesModel.conversationHelp == "Used for chats, group chats and threads \(AppConstants.name) starts.")
     #expect(ModelRolesModel.codingHelp == "Used for coding threads. Sub-agents use whatever the box sets.")
 }
 

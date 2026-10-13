@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-// P13 Part B: the Conversation role applied when Torvli starts a chat. Every test runs against the 0.20.5- and
+// P13 Part B: the Conversation role applied when the app starts a chat. Every test runs against the 0.20.5- and
 // the 0.21.x-shaped catalog. Synthetic gateway (`E2EServer` via `applyStore`); no real names.
 
 private let alpha = ModelChoice(provider: "lab-one", model: "model-alpha")!
@@ -41,7 +41,7 @@ private func notes(_ bot: Bot) -> [String] { bot.messages.filter { $0.role == .s
     #expect(dmt.hermesModelLock == nil && !lines(state).contains { $0.contains("grok-dmt/api/model/options") }, "an opt-out is inert")
     #expect(achilles.hermesModelLock?.model == "model-alpha" && achilles.hermesModelLock?.origin == .torvliDefault)
     #expect(store.modelRolesSummary(for: jarvis).hasPrefix("Jarvis: roles conversation relay/model-1 (this bot)"))
-    #expect(store.modelRolesSummary(for: achilles).hasPrefix("Achilles: roles conversation model-alpha (Torvli default)"))
+    #expect(store.modelRolesSummary(for: achilles).hasPrefix("Achilles: roles conversation model-alpha (\(AppConstants.name) default)"))
 }
 
 @Test(arguments: CatalogShape.allCases) @MainActor func refusedDefaultSendsOnTheBoxDefaultWithANote(shape: CatalogShape) async throws {
@@ -49,7 +49,7 @@ private func notes(_ bot: Bot) -> [String] { bot.messages.filter { $0.role == .s
     store.modelDefaults.conversation = beta
     state.with { $0.lockStatus = 409 }
     try await sendAndWait(store, jarvis, "hi E2E-DEFAULT")
-    let note = "Torvli's default model model-beta was not applied: Hermes cannot route model-beta for this chat and will not fall back to the default. This chat runs on the box default."
+    let note = "\(AppConstants.name)'s default model model-beta was not applied: Hermes cannot route model-beta for this chat and will not fall back to the default. This chat runs on the box default."
     #expect(notes(jarvis) == [note])
     #expect(store.botInfo.info(for: jarvis.id)?.modelError == note)
     #expect(jarvis.hermesModelLock == nil && jarvis.hermesSessionID == sessionOf(jarvis))

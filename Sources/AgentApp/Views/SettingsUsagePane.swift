@@ -80,7 +80,7 @@ struct SettingsUpdatesPane: View {
                 Text(status.message).foregroundStyle(.secondary)
                 if case .newer(let release) = status, let page = release.pageURL { Link("Open \(release.name ?? release.tag) on GitHub", destination: page) }
             }
-            Text("Checks github.com/conrader/torvli releases only when you press the button. Nothing is downloaded or installed.").font(.caption).foregroundStyle(.secondary)
+            Text("Checks github.com/\(AppConstants.releasesRepo) releases only when you press the button. Nothing is downloaded or installed.").font(.caption).foregroundStyle(.secondary)
         }
         AcknowledgementsSection()
     }

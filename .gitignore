@@ -2,6 +2,8 @@
 dist/
 *.xcuserstate
 # Real Grok Bot exports are private: never inside the repo.
+SwarmHub Grok Export/
+.swarmhub-grok-export-*
 Torvli Grok Export/
 .torvli-grok-export-*
 /out/

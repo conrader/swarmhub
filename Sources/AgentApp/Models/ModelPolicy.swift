@@ -24,7 +24,7 @@ struct ModelChoice: Codable, Sendable, Equatable, Hashable {
     }
 }
 
-/// One role's setting on a bot: follow the Torvli default, opt out of it (box default / same as conversation), or a pair.
+/// One role's setting on a bot: follow the app-wide default, opt out of it (box default / same as conversation), or a pair.
 enum ModelSetting: Codable, Sendable, Equatable {
     case inherit, box, choice(ModelChoice)
 
@@ -63,7 +63,7 @@ struct BotModelSettings: Codable, Sendable, Equatable {
     }
 }
 
-/// The Torvli-wide defaults, local to this install. Empty (inert) until Konrad sets them.
+/// The app-wide defaults, local to this install. Empty (inert) until Konrad sets them.
 struct ModelDefaults: Codable, Sendable, Equatable {
     var conversation: ModelChoice?
     var coding: ModelChoice?
@@ -79,8 +79,17 @@ struct ModelDefaults: Codable, Sendable, Equatable {
 }
 
 /// Where a resolved value came from, in the words the UI shows.
-enum ModelSource: String, Sendable, Equatable {
-    case bot = "this bot", torvliDefault = "Torvli default", boxDefault = "box default", sameAsConversation = "same as conversation"
+enum ModelSource: Sendable, Equatable {
+    case bot, appDefault, boxDefault, sameAsConversation
+
+    var label: String {
+        switch self {
+        case .bot: "this bot"
+        case .appDefault: "\(AppConstants.name) default"
+        case .boxDefault: "box default"
+        case .sameAsConversation: "same as conversation"
+        }
+    }
 }
 
 /// `choice == nil` means "whatever the box uses" (its default, or for Coding the conversation's resolution).
@@ -88,8 +97,8 @@ struct ResolvedModel: Sendable, Equatable { let choice: ModelChoice?; let source
 
 enum ModelPolicy {
     /// Per role, resolved when applied and never copied into the bot. Conversation: the bot's choice; else the box
-    /// default if the bot opted out; else the Torvli default; else the box default. Coding: the bot's choice; else the
-    /// conversation's value if the bot opted out; else the Torvli Coding default; else the conversation's value.
+    /// default if the bot opted out; else the app-wide default; else the box default. Coding: the bot's choice; else the
+    /// conversation's value if the bot opted out; else the app-wide Coding default; else the conversation's value.
     static func resolve(role: ModelRole, settings: BotModelSettings?, defaults: ModelDefaults?) -> ResolvedModel {
         let settings = settings ?? .init(), defaults = defaults ?? .init()
         switch role {
@@ -97,14 +106,14 @@ enum ModelPolicy {
             switch settings.conversation {
             case .choice(let choice): return .init(choice: choice, source: .bot)
             case .box: return .init(choice: nil, source: .boxDefault)
-            case .inherit: return defaults.conversation.map { .init(choice: $0, source: .torvliDefault) } ?? .init(choice: nil, source: .boxDefault)
+            case .inherit: return defaults.conversation.map { .init(choice: $0, source: .appDefault) } ?? .init(choice: nil, source: .boxDefault)
             }
         case .coding:
             let conversation = resolve(role: .conversation, settings: settings, defaults: defaults).choice
             switch settings.coding {
             case .choice(let choice): return .init(choice: choice, source: .bot)
             case .box: return .init(choice: conversation, source: .sameAsConversation)
-            case .inherit: return defaults.coding.map { .init(choice: $0, source: .torvliDefault) } ?? .init(choice: conversation, source: .sameAsConversation)
+            case .inherit: return defaults.coding.map { .init(choice: $0, source: .appDefault) } ?? .init(choice: conversation, source: .sameAsConversation)
             }
         }
     }
@@ -116,9 +125,9 @@ enum ModelRoleReason: Sendable, Equatable {
 
     var text: String {
         switch self {
-        case .noLock: "This box can't switch a chat's model, so Torvli can't apply a model here."
-        case .noList: "This box doesn't list its models, so Torvli can't check a choice before using it."
-        case .noRow: "This box can't report a chat's model, so Torvli can't tell whether the chat is new."
+        case .noLock: "This box can't switch a chat's model, so \(AppConstants.name) can't apply a model here."
+        case .noList: "This box doesn't list its models, so \(AppConstants.name) can't check a choice before using it."
+        case .noRow: "This box can't report a chat's model, so \(AppConstants.name) can't tell whether the chat is new."
         case .legacy: "This box only has the older chat API, which has no per-chat model."
         case .noFork: "Coding threads need conversation forks, which this box doesn't offer."
         case .notOffered(let model): "\(model) isn't offered by this bot's profile."
@@ -129,7 +138,7 @@ enum ModelRoleReason: Sendable, Equatable {
         }
     }
 
-    /// Why Torvli could not apply a model to this bot's chats, from what its profile reported; nil when it can (or
+    /// Why the app could not apply a model to this bot's chats, from what its profile reported; nil when it can (or
     /// nothing is loaded yet). Same gates as the apply path: native sessions, the lock, a loaded list, the session row.
     static func blocker(_ info: BotServerInfo?) -> ModelRoleReason? {
         guard let info, info.fetchedAt != nil else { return nil }

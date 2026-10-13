@@ -31,7 +31,7 @@ extension AppStore {
             bots.append(Bot(name: profile.name, title: "Hermes profile", description: "Hermes profile: \(profile.id)", backend: .hermes, hermesProfile: profile.id))
         }
         if let first = probes.first, first.id == "default", case .unavailable(let reason) = first.status { errorMessage = reason }
-        if selectedBot == nil { selectedBot = bots.first }
+        if selectedBot == nil, selectedGroup == nil { selectVisibleChat() }
         save()
         return probes
     }

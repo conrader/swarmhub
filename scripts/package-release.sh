@@ -11,8 +11,10 @@ if [[ -n "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal)" ]];
 fi
 DIRTY_SUMMARY="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal)"
 DIRTY_SUMMARY_SHA="$(printf '%s' "$DIRTY_SUMMARY" | shasum -a 256 | awk '{print $1}')"
-APP_DIR="$ROOT_DIR/dist/Torvli.app"
-ZIP_PATH="$ROOT_DIR/dist/Torvli-${SOURCE_SHA}${DIRTY_SUFFIX}-arm64.zip"
+# The bundle is named after CFBundleName (AppConstants.name; a test keeps them equal), so a rename touches no script.
+APP_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$ROOT_DIR/Resources/Info.plist")"
+APP_DIR="$ROOT_DIR/dist/$APP_NAME.app"
+ZIP_PATH="$ROOT_DIR/dist/$APP_NAME-${SOURCE_SHA}${DIRTY_SUFFIX}-arm64.zip"
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
@@ -34,7 +36,8 @@ cp "$ROOT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 chmod 755 "$APP_DIR/Contents/MacOS/AgentApp"
 
 # Stable signing keeps the app the same to the Keychain across rebuilds; ad-hoc makes every build a stranger.
-SIGN_ID="${TORVLI_SIGN_IDENTITY:-}"
+# SWARMHUB_SIGN_IDENTITY picks the identity (TORVLI_SIGN_IDENTITY is still read); default: the first Apple Development one.
+SIGN_ID="${SWARMHUB_SIGN_IDENTITY:-${TORVLI_SIGN_IDENTITY:-}}"
 if [[ -z "$SIGN_ID" ]]; then
   SIGN_ID="$(/usr/bin/security find-identity -v -p codesigning | awk -F'"' '/"Apple Development: / {print $2; exit}')"
 fi

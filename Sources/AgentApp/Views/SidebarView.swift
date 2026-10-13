@@ -66,7 +66,7 @@ private struct BotRow: View {
         }.buttonStyle(.plain).contextMenu {
             Button("Edit", systemImage: "pencil") { store.editingBot = bot }
             if !bot.isUnread { Button("Mark as Unread", systemImage: "circle.fill") { store.markUnread(bot) } }
-            Button(bot.isHidden ? "Show in Sidebar" : "Hide from Sidebar", systemImage: bot.isHidden ? "eye" : "eye.slash") { bot.isHidden.toggle(); store.save() }
+            Button(bot.isHidden ? "Show in Sidebar" : "Hide from Sidebar", systemImage: bot.isHidden ? "eye" : "eye.slash") { store.setHidden(bot, !bot.isHidden) }
             Button(bot.notificationsEnabled ? "Mute Notifications" : "Enable Notifications", systemImage: bot.notificationsEnabled ? "bell.slash" : "bell") { bot.notificationsEnabled.toggle(); store.save() }
             Divider(); Button("Delete", systemImage: "trash", role: .destructive) { botToDelete = bot }
         }
@@ -93,7 +93,7 @@ private struct GroupRow: View {
                 .onHover { hovering = $0 }
         }.buttonStyle(.plain).contextMenu {
             if !group.isUnread { Button("Mark as Unread", systemImage: "circle.fill") { store.markUnread(group) } }
-            Button(group.isHidden ? "Show in Sidebar" : "Hide from Sidebar", systemImage: group.isHidden ? "eye" : "eye.slash") { group.isHidden.toggle(); store.save() }
+            Button(group.isHidden ? "Show in Sidebar" : "Hide from Sidebar", systemImage: group.isHidden ? "eye" : "eye.slash") { store.setHidden(group, !group.isHidden) }
             Button(group.isMuted ? "Enable Notifications" : "Mute Notifications", systemImage: group.isMuted ? "bell" : "bell.slash") { group.isMuted.toggle(); store.save() }
             Divider(); Button("Delete Group", systemImage: "trash", role: .destructive) { botToDelete = group }
         }

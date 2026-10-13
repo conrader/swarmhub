@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Import a Grok export (agentapp-bot-bundle/v1) into ONE Hermes profile's state.db via SessionDB.import_sessions.
 
+--bundle-dir is a copy of the export folder from the Mac: `~/Documents/SwarmHub Grok Export`, or the older
+`~/Documents/Torvli Grok Export` when the new one does not exist (exports made before the rename to SwarmHub).
+
 Counts, session ids and titles are printed; message content, tokens and secrets never are.
 Run on the box only as the hermes user (see briefs/P9.md). Preflight is skipped by --skip-preflight (tests only).
 """

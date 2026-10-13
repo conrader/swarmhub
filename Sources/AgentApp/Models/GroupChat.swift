@@ -54,7 +54,7 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
 struct StoreFile: Codable {
     static let currentVersion = 2
     var version = StoreFile.currentVersion; var bots: [Bot]; var groups: [GroupChat]
-    /// P13 Torvli-wide model defaults; absent (nil) while empty, so an unconfigured store encodes as before.
+    /// P13 app-wide model defaults; absent (nil) while empty, so an unconfigured store encodes as before.
     var modelDefaults: ModelDefaults?
 
     init(bots: [Bot], groups: [GroupChat], modelDefaults: ModelDefaults? = nil) { self.bots = bots; self.groups = groups; self.modelDefaults = modelDefaults }

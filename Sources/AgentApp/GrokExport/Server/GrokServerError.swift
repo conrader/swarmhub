@@ -53,14 +53,14 @@ struct GrokServerError: Error, Sendable, Equatable, CustomStringConvertible, Loc
     var errorDescription: String? {
         switch reason {
         case .signInInvalid: return "Grok's service no longer accepts this sign-in."
-        case .protocolChanged: return "Grok's service answered in a format Torvli does not know."
+        case .protocolChanged: return "Grok's service answered in a format \(AppConstants.name) does not know."
         case .rejected: return "Grok's service refused the request (HTTP \(httpStatus ?? 0))."
         case .unavailable: return "Grok's service is unavailable (HTTP \(httpStatus ?? 0)). Try again later."
         case .network: return "The network connection to Grok's service failed."
-        case .redirectRefused: return "Grok's service redirected the request; Torvli does not follow redirects."
-        case .tooLarge: return "Grok's service sent a larger answer than Torvli accepts."
-        case .blobURLRejected: return "Grok's service named a download address Torvli does not contact."
-        case .requestCeiling: return "Torvli stopped after \(GrokProtocol.maxRequestsPerRun) requests in one run."
+        case .redirectRefused: return "Grok's service redirected the request; \(AppConstants.name) does not follow redirects."
+        case .tooLarge: return "Grok's service sent a larger answer than \(AppConstants.name) accepts."
+        case .blobURLRejected: return "Grok's service named a download address \(AppConstants.name) does not contact."
+        case .requestCeiling: return "\(AppConstants.name) stopped after \(GrokProtocol.maxRequestsPerRun) requests in one run."
         }
     }
 

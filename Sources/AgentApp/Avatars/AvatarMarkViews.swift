@@ -1,7 +1,7 @@
 import SwiftUI
 @preconcurrency import BotAvatarsKit
 
-/// One mark in one of two layers: a Torvli-owned still drawing, or the kit's live view while it idles or works.
+/// One mark in one of two layers: an app-owned still drawing, or the kit's live view while it idles or works.
 /// Both come from the same body, colour and size; switching cross-fades for 0.2 s (none under Reduce Motion).
 struct AvatarMarkView: View {
     let shape: String; let colour: AvatarColour; let size: CGFloat; let mode: AvatarMotionMode; let seed: String

@@ -47,13 +47,14 @@ extension AppStore {
 
     func deleteGroup(_ group: GroupChat) {
         grokHistory.remove(group.id); groups.removeAll { $0.id == group.id }
-        if selectedGroup?.id == group.id { selectedGroup = nil }
+        if selectedGroup?.id == group.id { selectVisibleChat() }
         objectWillChange.send(); save()
     }
 
-    func open(_ group: GroupChat) {
+    func open(_ group: GroupChat, remember: Bool = true) {
         if selectedGroup?.id != group.id { replyTo = nil }
         selectedGroup = group; openThreadID = nil
+        if remember { rememberSelection(group: group) }
         if group.isUnread { group.unreadCount = 0; group.manualUnread = false; save() }
     }
 
@@ -87,7 +88,7 @@ extension AppStore {
             if !groups.contains(where: { $0.id == group.id }) { groups.append(group); migrated.append(group) }
         }
         bots.removeAll(where: \.isReadOnlyArchive)
-        if selectedBot.map({ bot in !bots.contains(bot) }) == true { selectedBot = bots.first { !$0.isHidden } }
+        if selectedBot.map({ bot in !bots.contains(bot) }) == true { selectVisibleChat() }
         migratedGroupNames = migrated.map(\.name)
         return migrated
     }

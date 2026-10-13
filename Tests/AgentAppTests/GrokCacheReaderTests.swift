@@ -114,7 +114,7 @@ private final class FlakyReads: @unchecked Sendable {
     let denied = NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
     #expect(GrokCacheReader.mapped(denied, missing: .notFound) == .folderUnreadable)
     #expect(GrokCacheReader.mapped(NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError), missing: .notFound) == .notFound)
-    #expect(GrokCacheError.folderUnreadable.localizedDescription == "Torvli cannot read Grok Bot's folder.")
+    #expect(GrokCacheError.folderUnreadable.localizedDescription == "\(AppConstants.name) cannot read Grok Bot's folder.")
 }
 
 @Test func grokExportSourcesNeverLog() throws {

@@ -24,7 +24,7 @@ import Testing
 @MainActor @Test func chromeReadsWindowFactsFromASyntheticWindow() {
     let window = chromeWindow()
     let facts = ChromeFacts.window(window, windows: [window])
-    #expect(facts["title"] as? String == "Torvli")
+    #expect(facts["title"] as? String == AppConstants.name)
     #expect(facts["title_visibility"] as? String == "hidden")
     #expect(facts["titlebar_transparent"] as? Bool == true)
     #expect((facts["style_mask"] as? [String])?.contains("fullSizeContentView") == true)
@@ -76,7 +76,7 @@ private func greenFacts() -> [String: Any] {
     func r(_ x: Double, _ y: Double, _ w: Double, _ h: Double) -> [String: Double] { ["x": x, "y": y, "width": w, "height": h] }
     let content: [String: Any] = ["kind": "app_content", "class": "NSHostingView"]
     return [
-        "window": ["title": "Torvli", "title_visibility": "hidden", "titlebar_transparent": true, "style_mask": ["titled", "fullSizeContentView"],
+        "window": ["title": AppConstants.name, "title_visibility": "hidden", "titlebar_transparent": true, "style_mask": ["titled", "fullSizeContentView"],
                    "is_movable": true, "movable_by_background": false, "main_window_lookup": "title"],
         "bar": ["reserved_top": 28.0, "toolbar": ["present": false, "item_frames": [[String: Any]]()]],
         "traffic_lights": ["count": 3, "any_hidden": false, "min_x": 7.0, "max_x": 61.0,
@@ -182,6 +182,6 @@ private final class _NSGlassEffectLookalike: NSView {}
     let (store, _, _) = e2eStore()
     #expect(store.sidebarHidden == false)
     #expect(RightColumnMechanism.current.rawValue == "inspector" || RightColumnMechanism.current.rawValue == "transition")
-    #expect(UISmokeChrome.fullScreenRequested(arguments: ["Torvli", "--ui-smoke", "x"]) == false)
-    #expect(UISmokeChrome.fullScreenRequested(arguments: ["Torvli", "--ui-smoke", "x", "--ui-smoke-fullscreen"]))
+    #expect(UISmokeChrome.fullScreenRequested(arguments: [AppConstants.name, "--ui-smoke", "x"]) == false)
+    #expect(UISmokeChrome.fullScreenRequested(arguments: [AppConstants.name, "--ui-smoke", "x", "--ui-smoke-fullscreen"]))
 }

@@ -28,10 +28,19 @@ GROUP = "00000000-0000-4000-8000-000000000004"
 class ExportTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.out = os.path.join(self.tmp, "Torvli Grok Export")
+        self.out = os.path.join(self.tmp, "SwarmHub Grok Export")
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
+
+    def test_default_out_prefers_swarmhub_and_falls_back_to_the_torvli_folder(self):
+        docs = os.path.join(self.tmp, "Documents")
+        new, old = os.path.join(docs, "SwarmHub Grok Export"), os.path.join(docs, "Torvli Grok Export")
+        self.assertEqual(exporter.default_out(self.tmp), new)
+        os.makedirs(old)
+        self.assertEqual(exporter.default_out(self.tmp), old)
+        os.makedirs(new)
+        self.assertEqual(exporter.default_out(self.tmp), new)
 
     def run_export(self):
         with contextlib.redirect_stdout(io.StringIO()) as printed:

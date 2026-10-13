@@ -84,7 +84,7 @@ import Testing
     let claw = Bot(name: "Claw", backend: .openClaw); store.bots.append(claw)
     await store.loadModelRoles()
     #expect(store.modelRolesRow(for: jarvis).blocked == .noLock)
-    #expect(store.modelRolesSummary(for: jarvis).hasSuffix("| This box can't switch a chat's model, so Torvli can't apply a model here."))
+    #expect(store.modelRolesSummary(for: jarvis).hasSuffix("| This box can't switch a chat's model, so \(AppConstants.name) can't apply a model here."))
     let clawRow = store.modelRolesRow(for: claw)
     #expect(clawRow.isOpenClaw && clawRow.conversation == nil)
     #expect(store.modelRolesSummary(for: claw) == "Claw: roles Managed in OpenClaw.")
@@ -98,7 +98,7 @@ import Testing
 @Test func roleFixtureNamesNeverReachSources() throws {
     let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appending(path: "Sources")
     let files = try #require(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)).compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
-    // No provider or model names of any real box either: Torvli ships no model.
+    // No provider or model names of any real box either: the app ships no model.
     let banned = roleFixtureNames + ["gpt-", "openai-codex", "-sol", "-terra", "-luna", "claude-", "anthropic/"]
     for file in files {
         let text = try String(contentsOf: file, encoding: .utf8)

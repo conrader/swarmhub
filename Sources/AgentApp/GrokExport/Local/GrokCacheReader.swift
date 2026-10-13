@@ -13,12 +13,12 @@ enum GrokCacheError: Error, Equatable, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notFound: "Grok Bot's data folder was not found on this Mac."
-        case .folderUnreadable: "Torvli cannot read Grok Bot's folder."
-        case .symlinked: "Grok Bot's cache folder is a link; Torvli reads only the real folder."
+        case .folderUnreadable: "\(AppConstants.name) cannot read Grok Bot's folder."
+        case .symlinked: "Grok Bot's cache folder is a link; \(AppConstants.name) reads only the real folder."
         case .noRoster: "Grok Bot's cache has no bot list yet. Open Grok Bot once and sign in."
         case .blobUnreadable: "A Grok Bot cache file could not be read (Grok Bot may be writing it). Try again in a moment."
-        case .unrecognisedShape: "Torvli cannot read this version of Grok Bot's data."
-        case .needsAccountChoice(let accounts): "Grok Bot's cache holds \(accounts) accounts; Torvli imports one Grok account at a time."
+        case .unrecognisedShape: "\(AppConstants.name) cannot read this version of Grok Bot's data."
+        case .needsAccountChoice(let accounts): "Grok Bot's cache holds \(accounts) accounts; \(AppConstants.name) imports one Grok account at a time."
         case .accountMismatch: "Grok Bot's cache does not belong to the signed-in account."
         }
     }

@@ -13,7 +13,7 @@ import Foundation
     static var forcedWorking: UUID?
 }
 
-/// `Torvli --ui-smoke <report.json>`: the normal app with its window on screen. Once the first Grok bot's chat has
+/// `SwarmHub --ui-smoke <report.json>`: the normal app with its window on screen. Once the first Grok bot's chat has
 /// rendered, the app writes a JSON report about its own state (no screenshots, no automation) and keeps running.
 @MainActor enum UISmoke {
     struct Budget {
@@ -34,20 +34,25 @@ import Foundation
         Task { @MainActor in
             let report = await collect(store: store)
             do { try write(report, to: URL(fileURLWithPath: path)) }
-            catch { NSLog("Torvli ui-smoke: cannot write %@: %@", path, error.localizedDescription) }
+            catch { NSLog("%@ ui-smoke: cannot write %@: %@", AppConstants.name, path, error.localizedDescription) }
         }
     }
 
     static func collect(store: AppStore, budget: Budget = .init(), window: @escaping @MainActor () -> NSWindow? = { mainWindow() }) async -> [String: Any] {
         var errors: [String] = []
+        var report: [String: Any] = ["launch_selection": launchSelection(store, errors: &errors)]
         let bot = store.bots.first { $0.grokSourceID != nil && !$0.isReadOnlyArchive && !$0.isHidden } ?? store.bots.first { !$0.isHidden }
-        if let bot { store.open(bot); store.showInfo = true } else { errors.append("no bot to select") }
+        if let bot { store.open(bot, remember: false); store.showInfo = true } else { errors.append("no bot to select") }
 
         let windowShown = await HeadlessE2E.wait(budget.window, poll: .milliseconds(100)) { window()?.isVisible == true }
         if !windowShown { errors.append("main window not visible within \(budget.window)") }
-        var report: [String: Any] = ["window_visible": window()?.isVisible == true, "window_unoccluded": window()?.occlusionState.contains(.visible) == true]
+        report["window_visible"] = window()?.isVisible == true; report["window_unoccluded"] = window()?.occlusionState.contains(.visible) == true
         if let frame = window()?.frame { report["window_frame"] = ["x": frame.origin.x, "y": frame.origin.y, "width": frame.width, "height": frame.height] }
         report["window_on_screen"] = window()?.screen != nil
+        let info = Bundle.main.infoDictionary ?? [:]
+        report["app"] = ["name": AppConstants.name, "window_title": window()?.title ?? NSNull(), "bundle_name": info["CFBundleName"] ?? NSNull(),
+                         "bundle_display_name": info["CFBundleDisplayName"] ?? NSNull(), "bundle_id": Bundle.main.bundleIdentifier ?? NSNull()]
+        if let title = window()?.title, title != AppConstants.name { errors.append("window title is \(title), not \(AppConstants.name)") }
 
         report["sidebar_rows"] = ["bots": store.bots.filter { !$0.isHidden }.count, "groups": store.groups.filter { !$0.isHidden }.count,
                                   "total": store.bots.filter { !$0.isHidden }.count + store.groups.filter { !$0.isHidden }.count]
@@ -57,6 +62,8 @@ import Foundation
             report["selected_bot"] = ["name": bot.name, "profile": bot.hermesProfile ?? "default", "chat_rendered": rendered, "is_selected": store.selectedBot?.id == bot.id]
 
             let archived = store.grokHistory.messages(for: bot.id).count
+            // The header sits in the chat's lazy stack and can appear a frame after the chat; launch may already show this bot.
+            if bot.grokHistoryCount > 0 { _ = await HeadlessE2E.wait(budget.layout, poll: .milliseconds(100)) { UISmokeProbe.historyHeaders[bot.id] != nil } }
             let shown = UISmokeProbe.historyHeaders[bot.id]
             report["grok_history"] = ["header_shown": shown != nil, "header_count": shown.map { $0 as Any } ?? NSNull(), "expected_count": bot.grokHistoryCount,
                                       "archive_messages": archived, "matches": shown == bot.grokHistoryCount && archived == bot.grokHistoryCount]
@@ -81,6 +88,17 @@ import Foundation
             .split(separator: "\n").first.map(String.init) ?? "unknown"
         report["written_at"] = ISO8601DateFormatter().string(from: .now)
         return report
+    }
+
+    /// The chat the app opened at launch, before the smoke opens its own: never a hidden or demo bot (P18 item 9).
+    static func launchSelection(_ store: AppStore, errors: inout [String]) -> [String: Any] {
+        if let group = store.selectedGroup {
+            if group.isHidden { errors.append("launch selected hidden group \(group.name)") }
+            return ["kind": "group", "name": group.name, "hidden": group.isHidden, "demo": false]
+        }
+        guard let bot = store.selectedBot else { return ["kind": "none"] }
+        if bot.isHidden || bot.isDemo { errors.append("launch selected \(bot.isDemo ? "demo" : "hidden") bot \(bot.name)") }
+        return ["kind": "bot", "name": bot.name, "hidden": bot.isHidden, "demo": bot.isDemo]
     }
 
     static func overview(_ info: BotServerInfo?, errors: inout [String]) -> [String: Any] {

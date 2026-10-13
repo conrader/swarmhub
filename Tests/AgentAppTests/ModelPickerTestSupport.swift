@@ -3,7 +3,7 @@ import Foundation
 
 // Synthetic `/api/model/options` payloads shaped like Hermes `build_model_options_payload` (v2026.8.19 = 0.20.5 and
 // v0.21.7): supplier rows with `slug`, `name`, `is_current`, `models`, `authenticated`, `source`, `aliases`, plus the
-// keys Torvli must never read (`key_env`, `auth_type`, `api_url`, `warning`, `usage`, `pricing`), which carry sentinels.
+// keys the app must never read (`key_env`, `auth_type`, `api_url`, `warning`, `usage`, `pricing`), which carry sentinels.
 
 enum CatalogShape: CaseIterable, Sendable { case v0205, v0217 }
 

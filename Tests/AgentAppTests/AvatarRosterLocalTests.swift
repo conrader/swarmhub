@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-private let exportFolder = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Documents/Torvli Grok Export")
+private let exportFolder = AppConstants.grokExportFolder()
 
 /// Local-only (skipped without Konrad's export): each real bundle's effective look against the brief's table, by name.
 /// No id is printed or stored; only names and words are compared.

@@ -32,7 +32,7 @@ enum AvatarColour: String, CaseIterable, Sendable {
     func hex(dark: Bool) -> String { self == .black && dark ? "#FFFFFF" : hex }
 }
 
-/// What a bot shows: a mark (a valid shape word and one of the 11 colours) or a classic Torvli avatar.
+/// What a bot shows: a mark (a valid shape word and one of the 11 colours) or a classic app avatar.
 enum AvatarLook: Equatable, Sendable {
     case mark(shape: String, colour: AvatarColour)
     case classic(BotAvatarName)

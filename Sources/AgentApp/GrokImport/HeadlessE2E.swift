@@ -5,10 +5,10 @@ import Security
 /// `AppStore` calls the UI makes (send, steer, reply in thread, model switch, group send, Routines refresh).
 /// It runs in a throwaway store holding copies of Jarvis, DMT and Achilles (profile, server and persona only),
 /// so the real store, the bots' existing chats and the imported groups are never opened for writing. Every
-/// session it creates is new and named `torvli-selftest-…`; every message starts with `preamble`.
+/// session it creates is new and named `swarmhub-selftest-…` (`AppConstants.selfTestPrefix`); every message starts with `preamble`.
 @MainActor enum HeadlessE2E {
-    static let preamble = "[Torvli self-test — reply briefly, take no actions]"
-    static let namespace = "torvli-selftest-"
+    static let preamble = "[\(AppConstants.name) self-test — reply briefly, take no actions]"
+    static let namespace = AppConstants.selfTestPrefix
 
     struct Step: Equatable {
         let id: String; let name: String; var passed: Bool; var detail: String
@@ -252,7 +252,7 @@ import Security
     static func expect(_ turn: Turn, _ token: String, id: String, name: String) -> Step {
         let session = "session \(turn.session ?? "-")"
         if let error = turn.error { return .init(id: id, name: name, passed: false, detail: "\(session) | \(error)") }
-        let ok = turn.reply.contains(token) && (turn.session?.hasPrefix(namespace) ?? false)
+        let ok = turn.reply.contains(token) && (turn.session.map(AppConstants.isSelfTestSession) ?? false)
         return .init(id: id, name: name, passed: ok, detail: "\(session) | reply: \(snippet(turn.reply))")
     }
 

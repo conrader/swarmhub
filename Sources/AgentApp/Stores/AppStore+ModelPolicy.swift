@@ -3,8 +3,8 @@ import Foundation
 /// A per-bot Conversation override the box refused: the send stops with this plain error (P13 D3).
 struct ModelRefusal: LocalizedError { let text: String; var errorDescription: String? { text } }
 
-/// P13 Part B: applies the resolved Conversation model when Torvli starts a chat (main chat or group member).
-/// Inert until configured: with no Torvli default and no bot override nothing extra is requested.
+/// P13 Part B: applies the resolved Conversation model when the app starts a chat (main chat or group member).
+/// Inert until configured: with no app-wide default and no bot override nothing extra is requested.
 extension AppStore {
     var storeFile: StoreFile { StoreFile(bots: bots, groups: groups, modelDefaults: modelDefaults.isEmpty ? nil : modelDefaults) }
 
@@ -47,7 +47,7 @@ extension AppStore {
     /// D3: an override stops the send; a default is skipped with one note and `modelError`.
     private func skipModel(_ choice: ModelChoice, origin: LockOrigin, bot: Bot, reason: String, note: (String) -> Void) throws {
         if origin == .bot { throw ModelRefusal(text: "\(choice.model), this bot's model, was not applied: \(reason) Nothing was sent.") }
-        let text = "Torvli's default model \(choice.model) was not applied: \(reason) This chat runs on the box default."
+        let text = "\(AppConstants.name)'s default model \(choice.model) was not applied: \(reason) This chat runs on the box default."
         note(text)
         botInfo.finishSwitch(botID: bot.id, error: text)
     }
@@ -78,7 +78,7 @@ extension AppStore {
         guard let provider = resolved.choice?.provider ?? options?.defaultProvider?.slug, let model = resolved.choice?.model ?? options?.model else {
             botInfo.finishSwitch(botID: bot.id, error: ModelRoleReason.noList.text); return
         }
-        let origin: LockOrigin? = switch resolved.source { case .bot: .bot; case .torvliDefault: .torvliDefault; default: bot.modelSettings?.conversation == .box ? .bot : nil }
+        let origin: LockOrigin? = switch resolved.source { case .bot: .bot; case .appDefault: .torvliDefault; default: bot.modelSettings?.conversation == .box ? .bot : nil }
         await switchModel(for: bot, provider: provider, model: model, origin: origin)
     }
 }

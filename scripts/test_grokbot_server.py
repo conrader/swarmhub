@@ -252,7 +252,7 @@ class FetchTests(unittest.TestCase):
 
     def test_exporter_merges_cache_and_reports_coverage_without_leaking_secrets(self):
         cache = os.path.join(self.tmp, "cache")
-        out = os.path.join(self.tmp, "Torvli Grok Export")
+        out = os.path.join(self.tmp, "SwarmHub Grok Export")
         rows = [{"id": ALPHA, "name": "Alpha"}, {"id": BETA, "name": "Beta"}]
         write_cache(cache, rows, {ALPHA: [entry(s, "cached %d" % s) for s in range(1150, 1201)], BETA: []})
         original = exporter.load_credentials
@@ -289,7 +289,7 @@ class FetchTests(unittest.TestCase):
 
     def test_stop_leaves_previous_export_untouched(self):
         cache = os.path.join(self.tmp, "cache")
-        out = os.path.join(self.tmp, "Torvli Grok Export")
+        out = os.path.join(self.tmp, "SwarmHub Grok Export")
         write_cache(cache, [{"id": ALPHA, "name": "Alpha"}], {ALPHA: []})
         os.makedirs(out)
         open(os.path.join(out, "marker"), "w").close()

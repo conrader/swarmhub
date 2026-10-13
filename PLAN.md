@@ -1,4 +1,4 @@
-# Torvli — Grok Bot parity plan
+# SwarmHub (formerly Torvli) — Grok Bot parity plan
 
 Goals (Konrad, 2026-10-13): build the whole app with all Grok Bot functionalities; first milestone: Torvli
 ready and working on the Mac with every Grok bot as it was made on Grok, including its history.

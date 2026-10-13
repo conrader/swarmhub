@@ -20,8 +20,8 @@ enum GrokImportError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .persistenceDisabled: "Torvli cannot save right now (its store could not be read at launch), so nothing was imported."
-        case .saveFailed: "Torvli could not save its store after the import; the history archives were written but the bots were not saved."
+        case .persistenceDisabled: "\(AppConstants.name) cannot save right now (its store could not be read at launch), so nothing was imported."
+        case .saveFailed: "\(AppConstants.name) could not save its store after the import; the history archives were written but the bots were not saved."
         }
     }
 }
@@ -131,7 +131,7 @@ extension AppStore {
     private func finishGrokImport(_ rows: [GrokImportRow]) throws {
         // The demo bots step aside once real bots exist; they stay under Hidden chats.
         if !rows.isEmpty { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
-        if selectedBot == nil || selectedBot?.isHidden == true { selectedBot = bots.first { !$0.isHidden } }
+        if (selectedBot == nil && selectedGroup == nil) || selectedBot?.isHidden == true { selectVisibleChat() }
         objectWillChange.send()
         try saveThrowing()
     }

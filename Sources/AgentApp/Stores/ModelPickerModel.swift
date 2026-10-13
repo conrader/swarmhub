@@ -103,7 +103,7 @@ struct ModelPickerModel: Equatable, Sendable {
             notes.append(.init(text: "\(defaultSupplier.name), the default supplier, needs a new sign-in on the box.", isWarning: true))
         }
         if !groups.contains(where: { $0.items.contains { $0.disabledReason == nil } }) {
-            notes.append(.init(text: "No supplier on the box can serve a model right now. Provider keys live on the box; Torvli never holds them."))
+            notes.append(.init(text: "No supplier on the box can serve a model right now. Provider keys live on the box; \(AppConstants.name) never holds them."))
         }
         if !info.canLockSessionModel { switchBlockedReason = "Read-only: this server cannot switch a chat's model." }
         else if sessionID == nil { switchBlockedReason = "Send a message first; the model is chosen per chat." }

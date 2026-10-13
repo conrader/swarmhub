@@ -83,8 +83,8 @@ private func sessionRows(now: Date) -> [[String: Any]] {
 }
 
 @Test func updateStatusFromLatestRelease() {
-    let newer = ReleaseInfo.parse(["tag_name": "v0.5.0", "name": "Torvli 0.5", "html_url": "https://github.com/conrader/torvli/releases/tag/v0.5.0"])!
-    #expect(newer.pageURL?.absoluteString == "https://github.com/conrader/torvli/releases/tag/v0.5.0")
+    let newer = ReleaseInfo.parse(["tag_name": "v0.5.0", "name": "\(AppConstants.name) 0.5", "html_url": "https://github.com/\(AppConstants.releasesRepo)/releases/tag/v0.5.0"])!
+    #expect(newer.pageURL?.absoluteString == "https://github.com/\(AppConstants.releasesRepo)/releases/tag/v0.5.0")
     #expect(UpdateStatus.evaluate(current: "0.4.0", latest: newer) == .newer(newer))
     #expect(UpdateStatus.evaluate(current: "0.5.0", latest: newer) == .upToDate("v0.5.0"))
     #expect(UpdateStatus.evaluate(current: "0.6.0", latest: newer) == .upToDate("v0.5.0"))
