@@ -43,14 +43,23 @@ struct SidebarView: View {
         } message: { Text("The group’s local transcript is removed; its bots and their own chats stay.") }
     }
     private func sectionLabel(_ value: String) -> some View { Text(value).font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary).padding(.horizontal, 9).padding(.top, 12).padding(.bottom, 4) }
-    private func row(_ bot: Bot) -> some View {
+    private func row(_ bot: Bot) -> some View { BotRow(bot: bot, selected: selection == bot && store.selectedGroup == nil, botToDelete: $botToDelete) }
+}
+
+/// A bot in the sidebar: its mark (still unless working or hovered), name and unread dot, plus the context actions.
+private struct BotRow: View {
+    @EnvironmentObject private var store: AppStore
+    let bot: Bot; let selected: Bool; @Binding var botToDelete: Bot?
+    @State private var hovering = false
+    var body: some View {
         Button { store.open(bot) } label: {
             HStack(spacing: 9) {
-                BotAvatar(bot: bot, size: 28)
+                BotAvatar(bot: bot, size: 28, motion: .list, isWorking: store.isWorking(bot), isHovered: hovering, probe: "sidebar")
                 Text(bot.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
                 Spacer(minLength: 5)
                 if bot.isUnread { Circle().fill(.primary.opacity(0.72)).frame(width: 6, height: 6) }
-            }.padding(.horizontal, 7).frame(height: 40).contentShape(RoundedRectangle(cornerRadius: 7)).background(selection == bot && store.selectedGroup == nil ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 7))
+            }.padding(.horizontal, 7).frame(height: 40).contentShape(RoundedRectangle(cornerRadius: 7)).background(selected ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 7))
+                .onHover { hovering = $0 }
         }.buttonStyle(.plain).contextMenu {
             Button("Edit", systemImage: "pencil") { store.editingBot = bot }
             if !bot.isUnread { Button("Mark as Unread", systemImage: "circle.fill") { store.markUnread(bot) } }
@@ -65,16 +74,20 @@ struct SidebarView: View {
 private struct GroupRow: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var group: GroupChat; @Binding var botToDelete: GroupChat?
+    @State private var hovering = false
     var body: some View {
+        let selected = store.selectedGroup?.id == group.id
         Button { store.open(group) } label: {
             HStack(spacing: 9) {
-                GroupAvatarStack(members: store.members(of: group), size: 28)
+                GroupAvatarStack(group: group, members: store.members(of: group), size: 28, isHovered: hovering,
+                                 halo: selected ? AppColor.selection : AppColor.sidebar, probe: "group:\(group.id)")
                 Text(group.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
                 Spacer(minLength: 5)
                 if group.isMuted { Image(systemName: "bell.slash").font(.system(size: 9)).foregroundStyle(.tertiary) }
                 if group.isUnread { Circle().fill(.primary.opacity(0.72)).frame(width: 6, height: 6) }
             }.padding(.horizontal, 7).frame(height: 40).contentShape(RoundedRectangle(cornerRadius: 7))
-                .background(store.selectedGroup?.id == group.id ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 7))
+                .background(selected ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 7))
+                .onHover { hovering = $0 }
         }.buttonStyle(.plain).contextMenu {
             if !group.isUnread { Button("Mark as Unread", systemImage: "circle.fill") { store.markUnread(group) } }
             Button(group.isHidden ? "Show in Sidebar" : "Hide from Sidebar", systemImage: group.isHidden ? "eye" : "eye.slash") { group.isHidden.toggle(); store.save() }

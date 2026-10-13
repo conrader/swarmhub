@@ -27,7 +27,7 @@ struct InfoPanel: View {
         switch tab {
         case .overview:
             VStack(alignment: .leading, spacing: 18) {
-                HStack(spacing: 12) { BotAvatar(bot: bot, size: 52); VStack(alignment: .leading) { Text(bot.name).font(.headline); Text(bot.title).foregroundStyle(.secondary) } }
+                HStack(spacing: 12) { BotAvatar(bot: bot, size: 52, motion: .focus, isWorking: store.isWorking(bot), probe: "overview"); VStack(alignment: .leading) { Text(bot.name).font(.headline); Text(bot.title).foregroundStyle(.secondary) } }
                 Text(bot.botDescription.isEmpty ? "No description yet." : bot.botDescription).foregroundStyle(.secondary)
                 infoSection("Memory", text: bot.memorySummary.isEmpty ? "Memory will appear as this bot learns your preferences." : bot.memorySummary)
                 BotCapabilitiesView(bot: bot, cache: store.botInfo)

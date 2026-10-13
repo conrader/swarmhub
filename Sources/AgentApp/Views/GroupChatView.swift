@@ -10,7 +10,7 @@ struct GroupChatView: View {
         let members = store.members(of: group)
         VStack(spacing: 0) {
             HStack(spacing: 11) {
-                GroupAvatarStack(members: members, size: 28)
+                GroupAvatarStack(group: group, members: members, size: 28, halo: AppColor.chat, probe: "group_header:\(group.id)")
                 Button { store.showInfo.toggle() } label: { Text(group.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
                 Text(members.isEmpty ? "No bots yet" : ([GroupRouting.userName] + members.map(\.name)).joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
@@ -78,19 +78,5 @@ private struct GroupMessageRow: View {
             }
             MessageView(message: message, repliedMessage: repliedMessage, reply: { store.replyTo = message })
         }
-    }
-}
-
-/// Up to three overlapping member avatars (sidebar rows and the group header).
-struct GroupAvatarStack: View {
-    let members: [Bot]; var size: CGFloat = 28
-    var body: some View {
-        let shown = Array(members.prefix(3)); let small = shown.count > 1 ? size * 0.68 : size
-        ZStack(alignment: .topLeading) {
-            if shown.isEmpty { Circle().fill(AppColor.raised).overlay(Image(systemName: "person.3").font(.system(size: size * 0.35))) }
-            ForEach(Array(shown.enumerated()), id: \.element.id) { index, bot in
-                BotAvatar(bot: bot, size: small).offset(x: CGFloat(index) * (size - small) / CGFloat(max(shown.count - 1, 1)), y: index.isMultiple(of: 2) ? 0 : size - small)
-            }
-        }.frame(width: size, height: size, alignment: .topLeading)
     }
 }

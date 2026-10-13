@@ -84,7 +84,7 @@ import UserNotifications
             }
             if hermesConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
         } else if hermesConfigured {
-            let bot = Bot(name: "Hermes", title: "Hermes Agent", description: "Default Hermes profile", backend: .hermes, avatarName: .faceCoral, hermesProfile: "default")
+            let bot = Bot(name: "Hermes", title: "Hermes Agent", description: "Default Hermes profile", backend: .hermes, hermesProfile: "default")
             bots = [bot]; save()
         } else {
             loadDemoData(persist: true)
@@ -96,7 +96,7 @@ import UserNotifications
 
     static var hasHermesConfiguration: Bool { UserDefaults.standard.object(forKey: "hermesBaseURL") != nil || !KeychainStore.get(account: "hermes").isEmpty }
 
-    func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID); bots.insert(bot, at: 0); selectedBot = bot; save() }
+    func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID); avatar.apply(to: bot); bots.insert(bot, at: 0); selectedBot = bot; save() }
     @discardableResult func importTemplate(_ plan: TemplateImportPlan) -> Bot {
         let manifest = plan.manifest
         let memories = manifest.memories.map { "\($0.name): \($0.value)" }

@@ -6,6 +6,11 @@ import Foundation
     static var renderedChats: Set<UUID> = []
     /// Archive id → message count shown in its "Grok history" header.
     static var historyHeaders: [UUID: Int] = [:]
+    /// P15: "<place>|<bot id>" → what that rendered avatar shows (`AvatarFacts`), and how many live kit views exist.
+    static var avatarFacts: [String: [String: Any]] = [:]
+    static var liveAvatarViews = 0
+    /// P15: a bot `AppStore.isWorking` reports as working, for the smoke's display-link probe only.
+    static var forcedWorking: UUID?
 }
 
 /// `Torvli --ui-smoke <report.json>`: the normal app with its window on screen. Once the first Grok bot's chat has
@@ -16,6 +21,7 @@ import Foundation
         var chat: Duration = .seconds(20)
         var overview: Duration = .seconds(20)
         var routines: Duration = .seconds(15)
+        var avatars = AvatarSmoke.Budget()
     }
 
     static func reportPath(arguments: [String] = CommandLine.arguments) -> String? {
@@ -64,6 +70,7 @@ import Foundation
             _ = await HeadlessE2E.wait(budget.routines, poll: .milliseconds(200)) { store.routines.state(for: bot.id).jobs != .loading }
             report["routines"] = routines(store.routines.state(for: bot.id), errors: &errors)
         }
+        report["avatars"] = await AvatarSmoke.collect(store: store, bot: bot, budget: budget.avatars)
         if let message = store.errorMessage { errors.append("alert: \(message)") }
         report["errors"] = errors
         report["source"] = Bundle.main.url(forResource: "SOURCE", withExtension: "txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) }?

@@ -29,6 +29,7 @@ import Security
     /// A copy that talks to the same profile with the same key, but has no messages and no session.
     static func copy(_ bot: Bot, name: String? = nil) -> Bot {
         let copy = Bot(name: name ?? bot.name, title: bot.title, persona: bot.persona, backend: .hermes, avatarName: bot.avatarName, hermesProfile: bot.hermesProfile)
+        copy.avatarMark = bot.avatarMark
         copy.hermesBaseURL = bot.hermesBaseURL
         return copy
     }

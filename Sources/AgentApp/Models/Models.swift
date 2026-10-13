@@ -149,6 +149,10 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     let id: UUID; @Published var name: String; @Published var title: String; @Published var botDescription: String
     @Published var persona: String; @Published var backend: BackendKind; @Published var unreadCount: Int
     @Published var avatarName: BotAvatarName
+    /// P15: Grok's shape/colour words (nil = the classic `avatarName`); additive, so a rollback still opens the store.
+    @Published var avatarMark: AvatarMark? = nil
+    /// Transient: the mark was recovered by `AvatarMigration` at decode and is not saved yet.
+    var avatarMarkMigrated = false
     @Published var isHidden: Bool; @Published var notificationsEnabled: Bool
     @Published var memorySummary: String; @Published var skills: [String]
     @Published var importedMemories: [String]; @Published var importedSkills: [ImportedTemplateSkill]
@@ -172,14 +176,16 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     @Published var modelSettings: BotModelSettings? = nil
     var isReadOnlyArchive: Bool { archivedMembers != nil }
     let createdAt: Date; @Published var messages: [ChatMessage]
-    init(name: String, title: String = "Personal agent", description: String = "", persona: String = "You are a thoughtful, capable assistant.", backend: BackendKind = .mock, avatarName: BotAvatarName = .faceCoral, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, memorySummary: String = "", skills: [String] = [], importedMemories: [String] = [], importedSkills: [ImportedTemplateSkill] = [], requestedConnectorIDs: [String] = [], gettingStartedSkill: ImportedTemplateSkill? = nil, routines: [BotRoutine] = [], messages: [ChatMessage] = [], hermesProfile: String? = nil, hermesSessionID: String? = nil, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, isDemo: Bool = false) {
+    init(name: String, title: String = "Personal agent", description: String = "", persona: String = "You are a thoughtful, capable assistant.", backend: BackendKind = .mock, avatarName: BotAvatarName? = nil, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, memorySummary: String = "", skills: [String] = [], importedMemories: [String] = [], importedSkills: [ImportedTemplateSkill] = [], requestedConnectorIDs: [String] = [], gettingStartedSkill: ImportedTemplateSkill? = nil, routines: [BotRoutine] = [], messages: [ChatMessage] = [], hermesProfile: String? = nil, hermesSessionID: String? = nil, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, isDemo: Bool = false) {
         id = UUID(); self.name = name; self.title = title; botDescription = description; self.persona = persona; self.backend = backend
-        self.avatarName = avatarName; self.unreadCount = unreadCount; self.isHidden = isHidden; self.notificationsEnabled = notificationsEnabled
+        self.avatarName = avatarName ?? .faceCoral; self.unreadCount = unreadCount; self.isHidden = isHidden; self.notificationsEnabled = notificationsEnabled
         self.memorySummary = memorySummary; self.skills = skills; self.importedMemories = importedMemories; self.importedSkills = importedSkills; self.requestedConnectorIDs = requestedConnectorIDs; self.gettingStartedSkill = gettingStartedSkill; self.routines = routines; self.hermesProfile = hermesProfile; self.hermesSessionID = hermesSessionID; self.approvalMode = approvalMode; self.approvalRules = approvalRules; self.reviewerBotID = reviewerBotID; approvalAudit = []; self.isDemo = isDemo; hermesBaseURL = nil; accentColor = nil; grokSourceID = nil; grokHistoryCount = 0; archivedMembers = nil; computerURL = nil; hermesModelLock = nil; routineRunMarks = [:]; threads = []; manualUnread = false; createdAt = .now; self.messages = messages
+        // No explicit classic choice: the bot gets its derived mark (avatarName keeps the legacy default for older builds).
+        avatarMark = avatarName == nil ? GrokDefaultLook.mark(for: id.uuidString.lowercased()) : nil
     }
     static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -204,6 +210,11 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         modelSettings = (try? c.decodeIfPresent(BotModelSettings.self, forKey: .modelSettings)) ?? nil
         threads = try c.decodeIfPresent([ChatThread].self, forKey: .threads) ?? []; manualUnread = try c.decodeIfPresent(Bool.self, forKey: .manualUnread) ?? false
         createdAt = try c.decode(Date.self, forKey: .createdAt); messages = try c.decode([ChatMessage].self, forKey: .messages)
+        // A malformed mark must not cost the store; a missing one may be recovered from what the P6 importer wrote.
+        avatarMark = (try? c.decodeIfPresent(AvatarMark.self, forKey: .avatarMark)) ?? nil
+        if avatarMark == nil, let migrated = AvatarMigration.mark(avatarName: avatarName, accentColor: accentColor, grokSourceID: grokSourceID) {
+            avatarMark = migrated; avatarMarkMigrated = true
+        }
     }
     private static func looksLikeLegacyDemo(name: String, backend: BackendKind) -> Bool {
         backend == .mock && ["Atlas", "Mira", "Patch", "Scout", "Nova"].contains(name)
@@ -220,6 +231,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         try c.encode(routineRunMarks, forKey: .routineRunMarks)
         try c.encode(threads, forKey: .threads); try c.encode(manualUnread, forKey: .manualUnread)
         if let modelSettings, !modelSettings.isEmpty { try c.encode(modelSettings, forKey: .modelSettings) }
+        try c.encodeIfPresent(avatarMark, forKey: .avatarMark)
     }
 }
 

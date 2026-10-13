@@ -32,7 +32,7 @@ import Foundation
             let rows = try store.importGrokExport(at: URL(fileURLWithPath: path))
             for row in rows {
                 let source = "\(row.sourceShape ?? "-")/\(row.sourceColour ?? "-")"
-                output("\(row.name) | \(row.profile ?? "group") | history \(row.historyCount) | avatar \(source) -> \(row.avatar.rawValue) accent \(row.accent ?? "default") | \(row.created ? "added" : "updated")")
+                output("\(row.name) | \(row.profile ?? "group") | history \(row.historyCount) | avatar \(source) -> \(row.mark.shape)/\(row.mark.colour) | \(row.created ? "added" : "updated")")
             }
             output("Imported \(rows.count) bots into \(store.fileURL.path)")
             return 0

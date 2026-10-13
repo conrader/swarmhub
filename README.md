@@ -39,13 +39,13 @@ Requirements: macOS 14+, Xcode 16.2, Swift 6.
 
 ## Feature parity
 
-This pass recreates the product structure and interaction patterns with original SwiftUI code, SF Symbols, and original assets. It does not ship extracted artwork, fonts, icons, strings, or other assets from Grok Bot.
+This pass recreates the product structure and interaction patterns with original SwiftUI code, SF Symbols, and original assets, plus one vendored MIT library (BotAvatarsKit, see Credits) that draws the bot marks. It does not ship extracted artwork, fonts, icons, strings, or other assets from Grok Bot.
 
 | Area | Status | Notes |
 |---|---|---|
 | Three-column layout | Done | Bot sidebar, centred chat, and an open-by-default right panel (Overview, Routines, Media, Computer, Members); `Cmd+Shift+I` collapses it. Dark by default. |
-| Bot sidebar | Done | Round avatars, unread dots, hidden bots, settings, and context actions (Mark as Unread — a manual flag kept in store.json that clears when the chat is opened — Hide, Mute, Delete). Sections are fixed (bots, groups), not user-defined folders. |
-| Bot faces | Done | 12 colour variants drawn with SwiftUI `Canvas` plus nine original clay PNGs; Grok imports map Grok's shape/colour words to these and an accent ring. No Grok artwork is shipped. |
+| Bot sidebar | Done | Bot marks (still unless the bot is working or the row is hovered), unread dots, hidden bots, settings, and context actions (Mark as Unread — a manual flag kept in store.json that clears when the chat is opened — Hide, Mute, Delete). Sections are fixed (bots, groups), not user-defined folders. |
+| Bot marks | Done | Each bot is a BotAvatarsKit mark in one of Grok's shapes and 11 colours: the stored Grok words, else derived from the bot's id with Grok's default-look rule (our own code). Gem, leaf, shield and cylinder are approximated (hexagon, drop, alien head, pill). Groups show a cluster of up to four member marks. Motion by context: list rows still unless working or hovered, the open bot's header/Overview and welcome views idle gently, a working bot hops; Settings → Appearance → Avatar motion (By context, Calm everywhere, Off); macOS Reduce Motion always wins. The 12 flat faces and nine clay PNGs remain as "Classic" in the editor. Bots imported before P15 get their mark at load (lazy, additive; `avatarName` untouched). No Grok artwork is shipped. |
 | Core chat | Done | Text, user bubbles, Markdown/code (with Copy), streaming, Stop (local cancel plus Hermes `/v1/runs/{id}/stop`). **Steer:** while a turn streams and the server reports `run_steer`, Send posts to `POST /v1/runs/{run_id}/steer` and shows a dashed "Steered the running turn" bubble (a refusal marks it "Steer not delivered"); without `run_steer` only Stop is available while a turn runs. Markdown coverage is limited (`## ` headings, `- ` lists, inline styles, fenced code, images). |
 | Replies and tapbacks | Done | Quote replies. **Reply in thread** forks the bot's session (`POST /api/sessions/{id}/fork` with `{"id": "agentapp_thread_<uuid>"}`) into a sub-conversation shown as "N replies"; the fork carries the whole transcript as it stood (Hermes has no fork-at-message). Hidden without `session_fork`. Tapbacks (👍 ❤️ 😂 ‼️ ?) are saved per message, local only. |
 | Inline content | Done | Assistant Markdown becomes our own cards: question-with-options, draft (Send posts "Send it" to the bot; Copy), link pills for bare URLs, inline images (http(s) or `data:image/…`). See "Card syntax" below. |
@@ -144,15 +144,21 @@ OpenClaw is an explicit partial adapter. Its documented Gateway is a WebSocket R
 
 Sources: [Gateway protocol](https://docs.openclaw.ai/gateway/protocol), [WebChat methods](https://docs.openclaw.ai/web/webchat).
 
+## Credits
+
+Bot avatars use [BotAvatarsKit](https://github.com/Jakubantalik/Libraries.dev/tree/main/packages/bot-avatars) by Jakub Antalik (Libraries.dev, MIT), vendored at a pinned commit in `Vendor/BotAvatarsKit`; see `THIRD-PARTY-NOTICES.md` and Settings → Updates → Acknowledgements.
+
 ## Architecture
 
 ```text
+Vendor/BotAvatarsKit/  pinned MIT BotAvatarsKit (Swift 5 target, macOS patches in VENDORED.md)
 Sources/AgentApp/
 ├── Models/       bot, message, approval, sub-agent and event types
 ├── Backends/     protocol plus Mock, Hermes and OpenClaw adapters
 ├── Stores/       app state, atomic local persistence and Keychain
 ├── TemplateImport/ reusable parsing, sanitizing and mapping pipeline
 ├── GrokImport/   bot-bundle loader, Grok history archive, avatar table, headless CLI
+├── Avatars/      bot marks: Grok words, default-look rule, migration, kit body map, motion, still/live views
 └── Views/        sidebar, chat, composer, approvals, desktop and settings
 ```
 

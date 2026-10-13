@@ -75,19 +75,19 @@ private func inApp(_ server: String? = nil, refresh: Bool = false) -> GrokImport
     let jarvis = try #require(store.bots.first { $0.grokSourceID == jarvisID })
     jarvis.name = "My Jarvis"; jarvis.persona = "local persona"
     jarvis.hermesProfile = "custom"; jarvis.hermesBaseURL = "https://other.test/v1"
-    jarvis.avatarName = .fox
+    jarvis.avatarName = .fox; jarvis.avatarMark = nil // P15: a classic pick clears the mark
     var bundles = try native()
     bundles[0].messages.append(.init(id: "j99", seq: 99, role: "user", author: nil, text: "new synthetic line",
                                      timestamp: nil, hidden: false, channel: "chat", to: nil))
     let rows = try await store.importGrokBundles(bundles, policy: inApp(server))
     #expect(rows.allSatisfy { !$0.created } && store.bots.filter { $0.grokSourceID != nil }.count == 3)
-    #expect(jarvis.name == "My Jarvis" && jarvis.persona == "local persona" && jarvis.avatarName == .fox)
+    #expect(jarvis.name == "My Jarvis" && jarvis.persona == "local persona" && jarvis.avatarName == .fox && jarvis.avatarMark == nil)
     #expect(jarvis.hermesProfile == "custom" && jarvis.hermesBaseURL == "https://other.test/v1" && jarvis.grokHistoryCount == 10)
     store.groups[0].name = "Renamed group"
     try await store.importGrokBundles(bundles, policy: inApp(server))
     #expect(store.groups[0].name == "Renamed group")
     try await store.importGrokBundles(bundles, policy: inApp(server, refresh: true))
-    #expect(jarvis.name == "Jarvis" && jarvis.persona.contains("[REDACTED]") && jarvis.avatarName == .blob)
+    #expect(jarvis.name == "Jarvis" && jarvis.persona.contains("[REDACTED]") && jarvis.avatarMark == AvatarMark(shape: "blob", colour: "black"))
     #expect(jarvis.hermesProfile == "custom" && jarvis.hermesBaseURL == "https://other.test/v1" && jarvis.grokHistoryCount == 10)
     #expect(store.groups[0].name == "Konrad, Jarvis, Plain Bot")
 }
@@ -99,7 +99,7 @@ private func inApp(_ server: String? = nil, refresh: Bool = false) -> GrokImport
     store.bots.append(existing)
     let rows = try await store.importGrokBundles(try native(), policy: inApp(server))
     #expect(rows.first { $0.name == "Jarvis" }?.created == false)
-    #expect(existing.grokSourceID == jarvisID && existing.name == "Jarvis" && existing.avatarName == .blob)
+    #expect(existing.grokSourceID == jarvisID && existing.name == "Jarvis" && existing.avatarMark == AvatarMark(shape: "blob", colour: "black"))
     #expect(existing.hermesProfile == "jarvis" && existing.hermesBaseURL == "https://own.test/v1")
     #expect(store.bots.filter { $0.name == "Jarvis" }.count == 1)
 }

@@ -35,7 +35,7 @@ struct GroupInfoPanel: View {
             }
             ForEach(members) { bot in
                 HStack(spacing: 10) {
-                    BotAvatar(bot: bot, size: 30)
+                    BotAvatar(bot: bot, size: 30, motion: .list, isWorking: store.isWorking(bot, in: group))
                     VStack(alignment: .leading) { Text(bot.name); Text(profileLabel(bot)).font(.caption).foregroundStyle(.secondary) }
                     Spacer()
                     Button { store.removeMember(bot.id, from: group) } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain).foregroundStyle(.secondary)
@@ -71,7 +71,7 @@ struct NewGroupSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(bots) { bot in
                         Toggle(isOn: Binding(get: { picked.contains(bot.id) }, set: { if $0 { picked.insert(bot.id) } else { picked.remove(bot.id) } })) {
-                            HStack(spacing: 8) { BotAvatar(bot: bot, size: 22); Text(bot.name) }
+                            HStack(spacing: 8) { BotAvatar(bot: bot, size: 22, motion: .list, isWorking: store.isWorking(bot)); Text(bot.name) }
                         }.toggleStyle(.checkbox)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)

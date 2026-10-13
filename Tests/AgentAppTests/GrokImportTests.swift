@@ -18,12 +18,13 @@ private let jarvisID = "00000000-0000-4000-8000-000000000001"
     let jarvis = try #require(store.bots.first { $0.grokSourceID == jarvisID })
     #expect(jarvis.name == "Jarvis" && jarvis.backend == .hermes && jarvis.hermesProfile == "grok-jarvis")
     #expect(jarvis.hermesBaseURL == "https://konrad.agenthut.net/v1")
-    #expect(jarvis.avatarName == .blob && jarvis.accentColor == GrokAvatarMap.accents["black"])
+    // P15: import stores the mark and no longer writes avatarName/accentColor.
+    #expect(jarvis.avatarMark == AvatarMark(shape: "blob", colour: "black") && jarvis.accentColor == nil)
     #expect(jarvis.persona.contains("[REDACTED]") && !jarvis.persona.contains("FAKEFAKE"))
     #expect(jarvis.grokHistoryCount == 9) // 8 messages + 1 rename line
     #expect(jarvis.messages.isEmpty)
     let finance = try #require(store.bots.first { $0.name == "Finance Controller" })
-    #expect(finance.hermesProfile == "grok-finance-controller" && finance.avatarName == .planet)
+    #expect(finance.hermesProfile == "grok-finance-controller" && finance.avatarMark == AvatarMark(shape: "gem", colour: "yellow"))
     let plain = try #require(store.bots.first { $0.name == "Plain Bot" })
     let group = try #require(store.groups.first { $0.name == "Konrad, Jarvis, Plain Bot" })
     #expect(group.memberIDs == [jarvis.id, plain.id] && group.grokHistoryCount == 3 && store.grokHistory.messages(for: group.id).count == 3)
@@ -88,14 +89,16 @@ private let jarvisID = "00000000-0000-4000-8000-000000000001"
     #expect(throws: GrokBundleError.unsafePath("../outside.json")) { try GrokBundleLoader.load(from: folder) }
 }
 
-@Test func grokAvatarTableUsesOwnAssets() {
-    for (shape, expected) in [("blob", BotAvatarName.blob), ("cylinder", .coffee), ("shield", .robot), ("gem", .planet), ("hex", .bubble), ("leaf", .pebble)] {
-        #expect(GrokAvatarMap.map(shape: shape, colour: "green", sourceID: "x").avatar == expected)
+/// P15: the map returns the effective mark (stored words when valid, case-sensitive, else derived from the id).
+@Test func grokAvatarMapKeepsValidWordsAndDerivesTheRest() {
+    for shape in ["blob", "cylinder", "shield", "gem", "hex", "leaf", "star"] {
+        #expect(GrokAvatarMap.map(shape: shape, colour: "green", sourceID: "x") == AvatarMark(shape: shape, colour: "green"))
     }
-    #expect(GrokAvatarMap.map(shape: nil, colour: "violet", sourceID: "x") == (.faceLilac, "#8E6CD8"))
-    #expect(GrokAvatarMap.map(shape: "star", colour: "pink", sourceID: "x").accent == nil)
-    let fallback = GrokAvatarMap.map(shape: nil, colour: nil, sourceID: jarvisID)
-    #expect(fallback.avatar.isFlatFace && fallback == GrokAvatarMap.map(shape: nil, colour: nil, sourceID: jarvisID))
+    let derived = GrokDefaultLook.mark(for: "x")
+    #expect(GrokAvatarMap.map(shape: nil, colour: "violet", sourceID: "x") == AvatarMark(shape: derived.shape, colour: "violet"))
+    #expect(GrokAvatarMap.map(shape: "star", colour: "pink", sourceID: "x") == AvatarMark(shape: "star", colour: derived.colour))
+    #expect(GrokAvatarMap.map(shape: "Blob", colour: "Black", sourceID: "x") == derived)
+    #expect(GrokAvatarMap.map(shape: nil, colour: nil, sourceID: jarvisID) == GrokDefaultLook.mark(for: jarvisID))
     #expect(Set(GrokAvatarMap.accents.keys) == Set(GrokAvatarMap.colourFaces.keys))
 }
 
