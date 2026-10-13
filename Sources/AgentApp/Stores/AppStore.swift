@@ -88,7 +88,7 @@ import UserNotifications
             loadDemoData(persist: true)
         }
         selectedBot = bots.first
-        if !demoMode, autoConfigureHermes, hermesConfigured { Task { await refreshHermesAgents() } }
+        if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
         botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad
     }
 
