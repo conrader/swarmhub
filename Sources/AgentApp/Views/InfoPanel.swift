@@ -55,8 +55,7 @@ struct InfoPanel: View {
         case .routines:
             RoutinesView(bot: bot, cache: store.routines)
         case .media:
-            LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 10) { ForEach(bot.messages.filter { [.attachment, .image].contains($0.presentation) }) { message in RoundedRectangle(cornerRadius: 10).fill(.primary.opacity(0.05)).frame(height: 105).overlay(VStack { Image(systemName: message.presentation == .image ? "photo" : "doc").font(.title); Text(message.metadata["name"] ?? "Chat media").font(.caption).lineLimit(1) }) } }
-            if !bot.messages.contains(where: { [.attachment, .image].contains($0.presentation) }) { Text("Files and images shared in this chat will appear here.").foregroundStyle(.secondary) }
+            MediaTabView(bot: bot)
         case .computer:
             VStack(spacing: 12) { ComputerView().frame(height: 220).clipShape(RoundedRectangle(cornerRadius: 10)); HStack { Button("Open") { computerPresented = true }; Spacer(); Button("Take over") { computerPresented = true }.buttonStyle(.borderedProminent) } }
         case .members:

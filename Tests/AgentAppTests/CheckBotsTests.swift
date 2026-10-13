@@ -29,9 +29,9 @@ private func checkBotsServer() -> (host: String, session: URLSession) {
 
 @MainActor @Test func checkBotsLineFormat() {
     let ok = HeadlessCommands.BotCheck(name: "Jarvis", profile: "grok-jarvis", key: .present, modelID: "grok-jarvis", modelMatches: true, sessionChatStreaming: true, jobs: false)
-    #expect(HeadlessCommands.line(ok) == "Jarvis | grok-jarvis | key: present | models: grok-jarvis (match) | caps: session_chat_streaming=true, jobs=false")
+    #expect(HeadlessCommands.line(ok) == "Jarvis | grok-jarvis | key: present | models: grok-jarvis (match) | caps: session_chat_streaming=true, jobs=false, run_steer=n/a, session_fork=n/a")
     let missing = HeadlessCommands.BotCheck(name: "Vised", profile: "grok-vised", key: .missing, problem: "no key")
-    #expect(HeadlessCommands.line(missing) == "Vised | grok-vised | key: missing | models: - (no key) | caps: session_chat_streaming=n/a, jobs=n/a")
+    #expect(HeadlessCommands.line(missing) == "Vised | grok-vised | key: missing | models: - (no key) | caps: session_chat_streaming=n/a, jobs=n/a, run_steer=n/a, session_fork=n/a")
     #expect(!missing.ok && ok.ok)
     #expect(HeadlessCommands.jobsFlag(["jobs_api": true]) == true && HeadlessCommands.jobsFlag([:]) == nil)
 }
@@ -43,9 +43,9 @@ private func checkBotsServer() -> (host: String, session: URLSession) {
     let code = await HeadlessCommands.checkBots(store: store, chat: nil, output: { lines.append($0) })
     #expect(code == 1)
     #expect(lines == [
-        "Jarvis | grok-jarvis | key: present | models: grok-jarvis (match) | caps: session_chat_streaming=true, jobs=false | routines: 2 (1 paused)",
-        "Doc | grok-doc | key: present | models: hermes-agent (MISMATCH) | caps: session_chat_streaming=true, jobs=false | routines: no jobs API",
-        "Vised | grok-vised | key: missing | models: - (no key) | caps: session_chat_streaming=n/a, jobs=n/a",
+        "Jarvis | grok-jarvis | key: present | models: grok-jarvis (match) | caps: session_chat_streaming=true, jobs=false, run_steer=n/a, session_fork=n/a | routines: 2 (1 paused)",
+        "Doc | grok-doc | key: present | models: hermes-agent (MISMATCH) | caps: session_chat_streaming=true, jobs=false, run_steer=n/a, session_fork=n/a | routines: no jobs API",
+        "Vised | grok-vised | key: missing | models: - (no key) | caps: session_chat_streaming=n/a, jobs=n/a, run_steer=n/a, session_fork=n/a",
         "Checked 3 Hermes bots: 1 OK, 2 failed",
     ])
     #expect(!lines.joined().contains("fixture-"))

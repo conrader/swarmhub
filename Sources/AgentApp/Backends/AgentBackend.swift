@@ -4,6 +4,8 @@ struct AgentRequest: Sendable {
     let sessionID: String
     let systemPrompt: String
     let messages: [(role: String, content: String)]
+    /// `data:image/...` URLs sent as image parts with the last user message.
+    var images: [String] = []
 }
 
 protocol AgentBackend: Sendable {
@@ -19,10 +21,19 @@ protocol AgentBackend: Sendable {
     func resolveApproval(id: UUID, approved: Bool) async throws
     func resolveApproval(_ approval: ApprovalRequest, approved: Bool) async throws
     func testConnection() async throws -> String
+    /// Feature flags the server reports as true at `/v1/capabilities` (empty when it has none).
+    func features() async throws -> Set<String>
+    /// Adds guidance to the session's running turn (`run_steer`).
+    func steer(sessionID: String, text: String) async throws
+    /// Branches the session (`session_fork`) and returns the new session id.
+    func forkSession(sessionID: String, id: String?) async throws -> String
 }
 
 extension AgentBackend {
     func sessionTransport() async throws -> HermesTransport? { nil }
+    func features() async throws -> Set<String> { [] }
+    func steer(sessionID: String, text: String) async throws { throw BackendError.unavailable("This backend cannot steer a running turn.") }
+    func forkSession(sessionID: String, id: String?) async throws -> String { throw BackendError.unavailable("This backend cannot fork a conversation.") }
     func loadMessages(sessionID: String) async throws -> [BackendMessage] { [] }
     func createSession(title: String, systemPrompt: String, id: String? = nil) async throws -> String { id ?? UUID().uuidString }
     func resolveApproval(_ approval: ApprovalRequest, approved: Bool) async throws { try await resolveApproval(id: approval.id, approved: approved) }

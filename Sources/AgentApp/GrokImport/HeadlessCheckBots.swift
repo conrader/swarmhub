@@ -14,6 +14,8 @@ extension HeadlessCommands {
         var modelMatches = false
         var sessionChatStreaming: Bool? = nil
         var jobs: Bool? = nil
+        /// P4 chat features: steer a running turn, fork a session for threaded replies.
+        var runSteer: Bool? = nil; var sessionFork: Bool? = nil
         /// Read-only `GET /api/jobs` summary (routines); never counts as a failure.
         var routines: String? = nil
         var problem: String? = nil
@@ -31,7 +33,7 @@ extension HeadlessCommands {
         if let id = check.modelID { models = "\(id) (\(check.modelMatches ? "match" : "MISMATCH"))" }
         else { models = "- (\(check.problem ?? "not checked"))" }
         func flag(_ value: Bool?) -> String { value.map { String($0) } ?? "n/a" }
-        var text = "\(check.name) | \(check.profile) | key: \(key) | models: \(models) | caps: session_chat_streaming=\(flag(check.sessionChatStreaming)), jobs=\(flag(check.jobs))"
+        var text = "\(check.name) | \(check.profile) | key: \(key) | models: \(models) | caps: session_chat_streaming=\(flag(check.sessionChatStreaming)), jobs=\(flag(check.jobs)), run_steer=\(flag(check.runSteer)), session_fork=\(flag(check.sessionFork))"
         if let routines = check.routines { text += " | routines: \(routines)" }
         if check.modelID != nil, let problem = check.problem { text += " | error: \(problem)" }
         return text
@@ -66,6 +68,7 @@ extension HeadlessCommands {
             let features = (try await backend.jsonRequest(path: "v1/capabilities"))["features"] as? [String: Any] ?? [:]
             check.sessionChatStreaming = features["session_chat_streaming"] as? Bool
             check.jobs = jobsFlag(features)
+            check.runSteer = features["run_steer"] as? Bool; check.sessionFork = features["session_fork"] as? Bool
             check.routines = await routinesSummary(HermesJobsClient(backend: backend))
         } catch {
             let reason = error.localizedDescription

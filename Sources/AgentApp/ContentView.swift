@@ -35,7 +35,7 @@ private struct CommandPaletteView: View {
             ScrollView { VStack(spacing: 4) {
                 action("New agent", icon: "plus") { store.showingNewBot = true }
                 action("Open Settings", icon: "gearshape") { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) }
-                ForEach(store.bots.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { bot in action(bot.name, icon: "message") { store.selectedBot = bot } }
+                ForEach(store.bots.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { bot in action(bot.name, icon: "message") { store.open(bot) } }
             }.padding(8) }
         }.frame(width: 480, height: 380).background(AppColor.panel)
     }
