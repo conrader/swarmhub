@@ -265,13 +265,13 @@ def write_json(path, value):
 
 
 def fetch_server_history(rows, transcripts, client, log=print):
-    """Pages every conversation back to seq 1 from its oldest cached seq; returns merged transcripts + per-bot history."""
+    """Pages every conversation from its newest entry back to seq 1 (this also fills gaps inside the cached range);
+    the cached entry wins on a seq collision. Returns merged transcripts + per-bot history."""
     merged, history = {}, {}
     for row in rows:
         cached = transcripts.get(row["id"], [])
         seqs = [e["seq"] for e in cached if isinstance(e, dict) and isinstance(e.get("seq"), int)]
-        before = min(seqs) if seqs else None
-        fetched, stats = grokbot_server.fetch_older(client, row["id"], before)
+        fetched, stats = grokbot_server.fetch_older(client, row["id"])
         merged[row["id"]] = grokbot_server.merge_entries([e for e in cached if isinstance(e, dict)], fetched)
         cov = grokbot_server.coverage(merged[row["id"]])
         history[row["id"]] = {"fetched": len(fetched), "cached": len(seqs), "coverage": cov, "requests": stats}
