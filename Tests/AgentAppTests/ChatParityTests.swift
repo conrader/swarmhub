@@ -8,7 +8,7 @@ import Testing
 @Test func steerPostsInputToTheRunningRun() async throws {
     let (host, backend) = ChatParityServer.serve(features: ["session_chat_streaming": true, "run_steer": true]) { request, _ in
         switch request.url!.path {
-        case "/api/sessions/steer-s1/chat/stream": return .sse([("assistant.delta", ["run_id": "run_abc", "delta": "Hi"])], holdOpen: .seconds(3))
+        case "/api/sessions/steer-s1/chat/stream": return .sse([("assistant.delta", ["run_id": "run_abc", "delta": "Hi"])], holdOpen: waitCeiling)
         case "/v1/runs/run_abc/steer": return .json(200, ["object": "hermes.run.steer", "run_id": "run_abc", "accepted": true])
         default: return .json(404, ["error": "no route"])
         }
@@ -34,7 +34,7 @@ import Testing
     #expect(store.send(text: "first"))
     try await waitUntil { store.steerAvailable }
     #expect(store.send(text: "  also check the logs "))
-    try await waitUntil { await steering.recorded().contains("steer:session-main:also check the logs") }
+    try await steering.calls.wait { $0.contains("steer:session-main:also check the logs") }
     let bubble = try #require(bot.messages.last)
     #expect(bubble.role == .user && bubble.isSteer && bubble.content == "also check the logs")
     #expect(await steering.recorded().filter { $0.hasPrefix("send:") }.count == 1)
@@ -43,8 +43,9 @@ import Testing
     let plain = ChatParityBackend(flags: [])
     let (other, otherBot) = parityStore(plain)
     #expect(other.send(text: "first"))
-    try await waitUntil { await plain.recorded().contains { $0.hasPrefix("send:") } }
-    try await Task.sleep(for: .milliseconds(50))
+    try await plain.calls.wait { $0.contains { $0.hasPrefix("send:") } }
+    // The first token is read only after `steerAvailable` is settled for this run.
+    try await waitUntil { otherBot.messages.last?.content == "working" }
     let count = otherBot.messages.count
     #expect(!other.steerAvailable)
     #expect(!other.send(text: "nudge"))
@@ -85,7 +86,8 @@ import Testing
     #expect(await backend.recorded().contains("fork:session-main:\(thread.hermesSessionID!)"))
 
     #expect(store.send(text: "Tell me more about the second"))
-    try await waitUntil { await backend.recorded().contains("send:\(thread.hermesSessionID!):Tell me more about the second") }
+    let threadSend = "send:\(thread.hermesSessionID!):Tell me more about the second"
+    try await backend.calls.wait { $0.contains(threadSend) }
     #expect(bot.messages.count == 2 && thread.messages.first?.content == "Tell me more about the second")
     store.stop(); try await waitUntil { store.isIdle }
 
@@ -143,7 +145,7 @@ import Testing
     let image = try #require(store.prepareAttachment(imageData: syntheticImage(width: 40, height: 30, alpha: false), name: "shot.png"))
     let file = ChatAttachment(id: UUID(), kind: .text, name: "notes.md", mimeType: "text/markdown", byteCount: 5, text: "hello")
     #expect(store.send(text: "", attachments: [image, file]))
-    try await waitUntil { await !backend.images().isEmpty }
+    try await backend.calls.wait { $0.contains { $0.hasPrefix("send:") } }
     let sent = try #require(await backend.images().first)
     #expect(sent.count == 1 && sent[0].hasPrefix("data:image/png;base64,"))
     #expect(await backend.recorded().first { $0.hasPrefix("send:") } == "send:session-main:File: notes.md\n```\nhello\n```")

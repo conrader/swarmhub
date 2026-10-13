@@ -42,7 +42,7 @@ import Testing
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
     let bot = Bot(name: "Unowned", backend: .hermes); store.bots = [bot]
     store.loadHermesHistory(for: bot)
-    try await waitUntil { await backend.recordedCalls() == ["capabilities"] }
+    try await backend.calls.wait { $0 == ["capabilities"] }
     #expect(await backend.recordedCalls() == ["capabilities"])
     #expect(bot.hermesSessionID == nil)
 }

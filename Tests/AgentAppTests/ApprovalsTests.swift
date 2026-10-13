@@ -86,7 +86,8 @@ import Testing
     let bot = Bot(name: "Rules", backend: .hermes, hermesSessionID: "s1")
     bot.approvalMode = .rules; bot.approvalRules = [.init(name: "Test allow", actionPattern: "command", commandPattern: "cat /tmp/x", outcome: .allow)]
     store.bots = [bot]; store.selectedBot = bot; store.send(text: "go")
-    try await waitUntil { await backend.recordedCalls().contains("approval:true") }
+    try await backend.calls.wait { $0.contains("approval:true") }
+    try await waitUntil { bot.approvalAudit.map(\.outcome).contains(.approved) }
     #expect(store.approvals.isEmpty)
     #expect(bot.approvalAudit.map(\.outcome).contains(.requested)); #expect(bot.approvalAudit.map(\.outcome).contains(.approved))
     store.save()
@@ -202,9 +203,9 @@ import Testing
     owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, reviewerTimeout: .seconds(10))
     store.bots = [owner, reviewer]; store.selectedBot = owner; store.send(text: "go")
-    try await waitUntil { await reviewerBackend.recordedCalls().contains("send") }
+    try await reviewerBackend.calls.wait { $0.contains("send") }
     store.stop()
-    try await waitUntil { await reviewerBackend.recordedCalls().contains("post") }
+    try await reviewerBackend.calls.wait { $0.contains("post") }
     #expect(await reviewerBackend.recordedCalls().contains("capture"))
     #expect(await reviewerBackend.recordedCalls().contains("post:run-1"))
 }
@@ -263,6 +264,7 @@ import Testing
     try await waitUntil { store.approvals.count == 1 }
     #expect(store.approvals.count == 1); #expect(store.approvals.first?.botID == first.id)
     #expect(store.approvals.first?.profile == "research"); #expect(store.approvals.first?.sessionID == "s1")
+    backend.finishRun()
     try await waitUntil { store.approvals.isEmpty }; #expect(store.approvals.isEmpty)
 }
 

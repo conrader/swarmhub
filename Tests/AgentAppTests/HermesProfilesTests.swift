@@ -133,7 +133,7 @@ import Testing
 @Test @MainActor func launchProbesGlobalServerWhenConfiguredOrUsedByABot() async throws {
     let (explicit, host) = try launchStore(globalURL: "https://HOST/v1", botURL: "https://box.test/v1")
     #expect(explicit.launchProbesGlobalHermes)
-    try await waitUntil { !MockHermesProtocol.recorded(host).isEmpty }
+    try await MockHermesProtocol.log(host).wait { !$0.isEmpty }
     let (implicit, _) = try launchStore(globalURL: nil, botURL: nil)
     #expect(implicit.launchProbesGlobalHermes)
 }

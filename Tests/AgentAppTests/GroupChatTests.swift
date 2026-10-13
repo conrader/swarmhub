@@ -7,7 +7,7 @@ import Testing
 actor GroupBackend: AgentBackend {
     nonisolated let kind = BackendKind.hermes
     let name: String; let hang: Bool
-    private(set) var created: [String] = []; private(set) var sent: [(session: String, text: String)] = []; private(set) var stops = 0
+    private(set) var created: [String] = []; nonisolated let sent = AwaitableLog<(session: String, text: String)>(); private(set) var stops = 0
     init(name: String, hang: Bool = false) { self.name = name; self.hang = hang }
     func sessionTransport() async throws -> HermesTransport? { .nativeSessions }
     func createSession(title: String, systemPrompt: String, id: String?) async throws -> String { created.append(id ?? "nil"); return id ?? "s" }
@@ -17,7 +17,7 @@ actor GroupBackend: AgentBackend {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 continuation.yield(.token(hang ? "thinking" : "\(name) says hi"))
-                if hang { try? await Task.sleep(for: .seconds(10)) } else { continuation.yield(.completed) }
+                if hang { await hangUntilCancelled() } else { continuation.yield(.completed) }
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
@@ -30,7 +30,7 @@ actor GroupBackend: AgentBackend {
     func resolveApproval(id: UUID, approved: Bool) async throws {}
     func testConnection() async throws -> String { "ok" }
     func sessions() -> [String] { created }
-    func turns() -> [(session: String, text: String)] { sent }
+    func turns() -> [(session: String, text: String)] { sent.all }
     func stopCount() -> Int { stops }
 }
 
@@ -121,7 +121,7 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
 @MainActor @Test func stopStopsTheAnsweringBotAndSkipsTheRest() async throws {
     let (store, bots, backends, group) = groupStore(["DMT", "Achilles", "Jarvis"], hanging: ["Achilles"])
     store.send(text: "go", to: group)
-    try await waitUntil { await backends[bots[1].id]!.turns().count == 1 }
+    try await backends[bots[1].id]!.sent.wait { $0.count == 1 }
     #expect(store.streamingBotID == bots[1].id && group.hermesSessionID == GroupRouting.sessionID(group: group.id, bot: bots[1].id))
     store.stop()
     try await waitUntil { store.isIdle && !store.isStreaming }

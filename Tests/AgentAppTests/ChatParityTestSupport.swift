@@ -55,15 +55,15 @@ extension ChatParityServer.Reply {
 actor ChatParityBackend: AgentBackend {
     nonisolated let kind = BackendKind.hermes
     let flags: Set<String>
-    private(set) var calls: [String] = []
+    nonisolated let calls = AwaitableLog<String>()
     private(set) var sentImages: [[String]] = []
     init(flags: Set<String>) { self.flags = flags }
     func sessionTransport() async throws -> HermesTransport? { .nativeSessions }
     func features() async throws -> Set<String> { flags }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
-        calls.append("send:\(request.sessionID):\(request.messages.last?.content ?? "")"); sentImages.append(request.images)
+        sentImages.append(request.images); calls.append("send:\(request.sessionID):\(request.messages.last?.content ?? "")")
         return AsyncThrowingStream { continuation in
-            let task = Task { continuation.yield(.token("working")); try? await Task.sleep(for: .seconds(10)); continuation.finish() }
+            let task = Task { continuation.yield(.token("working")); await hangUntilCancelled(); continuation.finish() }
             continuation.onTermination = { _ in task.cancel() }
         }
     }
@@ -81,7 +81,7 @@ actor ChatParityBackend: AgentBackend {
     func stopTarget(sessionID: String) async throws -> StopTarget { .noActiveRun }
     func resolveApproval(id: UUID, approved: Bool) async throws {}
     func testConnection() async throws -> String { "ok" }
-    func recorded() -> [String] { calls }
+    func recorded() -> [String] { calls.all }
     func images() -> [[String]] { sentImages }
 }
 

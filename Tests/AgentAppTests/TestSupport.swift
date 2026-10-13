@@ -14,7 +14,7 @@ actor TestBackend: AgentBackend {
     let failingStopCalls: Set<Int>
     let clearTargetOnCancel: Bool
     private var runActive = false
-    private(set) var calls: [String] = []
+    nonisolated let calls = AwaitableLog<String>()
     init(transport: HermesTransport, rows: [BackendMessage] = [], streamMode: StreamMode = .reply, stopTrace: LockedTrace? = nil, stopDelay: Duration = .milliseconds(80), createDelay: Duration = .zero, failingStopCalls: Set<Int> = [], clearTargetOnCancel: Bool = false) {
         transportValue = transport; self.rows = rows; self.streamMode = streamMode; self.stopTrace = stopTrace; self.stopDelay = stopDelay; self.createDelay = createDelay; self.failingStopCalls = failingStopCalls; self.clearTargetOnCancel = clearTargetOnCancel
     }
@@ -30,13 +30,14 @@ actor TestBackend: AgentBackend {
                     continuation.yield(.token("ok")); continuation.yield(.completed)
                 case .approvalThenFinish:
                     continuation.yield(.approval(.init(id: UUID(), title: "Approve", summary: "cat /tmp/x", draft: nil, command: "cat /tmp/x", runID: "run-1", requestID: "req-1")))
-                    try? await Task.sleep(for: .milliseconds(180)); continuation.yield(.completed)
+                    // Like a Hermes run, it goes on only once the approval is answered (or the test ends the run).
+                    try? await calls.wait { $0.contains { $0.hasPrefix("approval:") || $0 == "finish-run" } }; continuation.yield(.completed)
                 case .longRunning:
-                    continuation.yield(.token("running")); try? await Task.sleep(for: .seconds(10))
+                    continuation.yield(.token("running")); await hangUntilCancelled()
                 case .response(let value): continuation.yield(.token(value)); continuation.yield(.completed)
                 case .reviewerApproval: continuation.yield(.approval(.init(id: UUID(), title: "Nested", summary: "cmd", draft: nil, command: "cmd")))
                 case .failure: continuation.yield(.failed("review failed"))
-                case .hanging: continuation.yield(.token("reviewing")); try? await Task.sleep(for: .seconds(10))
+                case .hanging: continuation.yield(.token("reviewing")); await hangUntilCancelled()
                 }
                 self.streamDidFinish()
                 continuation.finish()
@@ -51,7 +52,7 @@ actor TestBackend: AgentBackend {
     private func streamDidFinish() { runActive = false }
     func stopTarget(sessionID: String) async throws -> StopTarget { calls.append("capture"); return clearTargetOnCancel && !runActive ? .noActiveRun : .serverRun("run-1") }
     func requestStop(_ target: StopTarget) async throws -> StopOutcome {
-        stopTrace?.add("post"); let callNumber = calls.filter { $0 == "post" }.count + 1; calls.append("post")
+        stopTrace?.add("post"); let callNumber = calls.all.filter { $0 == "post" }.count + 1; calls.append("post")
         switch target {
         case .serverRun(let runID): calls.append("post:\(runID)")
         case .disconnectedLegacy: calls.append("post:legacy")
@@ -64,7 +65,9 @@ actor TestBackend: AgentBackend {
     func resolveApproval(id: UUID, approved: Bool) async throws {}
     func resolveApproval(_ approval: ApprovalRequest, approved: Bool) async throws { calls.append("approval:\(approved)") }
     func testConnection() async throws -> String { "ok" }
-    func recordedCalls() -> [String] { calls }
+    func recordedCalls() -> [String] { calls.all }
+    /// Ends an `.approvalThenFinish` run whose approval nobody answered.
+    nonisolated func finishRun() { calls.append("finish-run") }
 }
 
 final class LockedTrace: @unchecked Sendable {
@@ -79,13 +82,52 @@ func temporaryStore(_ name: String = UUID().uuidString) -> URL {
 
 struct WaitTimeout: Error {}
 
-@MainActor func waitUntil(timeout: Duration = .seconds(2), _ condition: @escaping @MainActor () async -> Bool) async throws {
+/// Hang ceiling for every test wait. Waits end on the awaited state or event, never on a timer; this only
+/// bounds a real hang. Under the parallel run other tests block the main thread for seconds, so it is generous.
+let waitCeiling: Duration = .seconds(30)
+
+/// Waits for store state that has no event to await. The condition is always checked after the last
+/// suspension, so a main thread blocked past the ceiling cannot turn a satisfied condition into a timeout;
+/// between checks it sleeps instead of spinning, leaving the main actor to the work being waited for.
+@MainActor func waitUntil(timeout: Duration = waitCeiling, _ condition: @escaping @MainActor () async -> Bool) async throws {
     let clock = ContinuousClock(); let deadline = clock.now.advanced(by: timeout)
-    while clock.now < deadline {
-        if await condition() { return }
-        await Task.yield()
+    while !(await condition()) {
+        guard clock.now < deadline else { throw WaitTimeout() }
+        try await Task.sleep(for: .milliseconds(2))
     }
-    throw WaitTimeout()
+}
+
+/// A mock turn that is still working: it ends when the run is cancelled (Stop), never on a timer.
+func hangUntilCancelled() async { try? await Task.sleep(for: .seconds(86_400)) }
+
+/// What a mock records, awaitable: `wait { $0.contains("send") }` resumes on the append that satisfies it
+/// (no polling). The ceiling only bounds a real hang.
+final class AwaitableLog<Element: Sendable>: @unchecked Sendable {
+    private typealias Waiter = (matches: @Sendable ([Element]) -> Bool, continuation: CheckedContinuation<Void, Error>)
+    private let lock = NSLock(); private var values: [Element] = []; private var waiters: [UUID: Waiter] = [:]
+    var all: [Element] { lock.withLock { values } }
+    func append(_ value: Element) {
+        let ready: [Waiter] = lock.withLock {
+            values.append(value)
+            return waiters.filter { $0.value.matches(values) }.compactMap { waiters.removeValue(forKey: $0.key) }
+        }
+        ready.forEach { $0.continuation.resume() }
+    }
+    func wait(ceiling: Duration = waitCeiling, until matches: @escaping @Sendable ([Element]) -> Bool) async throws {
+        let id = UUID()
+        let timer = Task { [weak self] in try await Task.sleep(for: ceiling); self?.fail(id, WaitTimeout()) }
+        defer { timer.cancel() }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let satisfied = lock.withLock { () -> Bool in
+                    if matches(values) { return true }
+                    waiters[id] = (matches, continuation); return false
+                }
+                if satisfied { continuation.resume() } else if Task.isCancelled { fail(id, CancellationError()) }
+            }
+        } onCancel: { fail(id, CancellationError()) }
+    }
+    private func fail(_ id: UUID, _ error: Error) { lock.withLock { waiters.removeValue(forKey: id) }?.continuation.resume(throwing: error) }
 }
 
 final class InMemoryKeyStore: HermesKeyStore, @unchecked Sendable {
@@ -107,7 +149,7 @@ final class MockHermesProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) -> (Int, Any)
     private static let lock = NSLock()
     nonisolated(unsafe) private static var handlers: [String: Handler] = [:]
-    nonisolated(unsafe) private static var requests: [String: [URLRequest]] = [:]
+    nonisolated(unsafe) private static var requests: [String: AwaitableLog<URLRequest>] = [:]
 
     static func serve(_ handler: @escaping Handler) -> (host: String, session: URLSession) {
         let host = "hermes-\(UUID().uuidString.lowercased()).test"
@@ -115,13 +157,18 @@ final class MockHermesProtocol: URLProtocol, @unchecked Sendable {
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [MockHermesProtocol.self]
         return (host, URLSession(configuration: configuration))
     }
-    static func recorded(_ host: String) -> [URLRequest] { lock.lock(); defer { lock.unlock() }; return requests[host] ?? [] }
+    static func recorded(_ host: String) -> [URLRequest] { log(host).all }
+    static func log(_ host: String) -> AwaitableLog<URLRequest> {
+        lock.lock(); defer { lock.unlock() }
+        if let log = requests[host] { return log }
+        let log = AwaitableLog<URLRequest>(); requests[host] = log; return log
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let host = request.url?.host ?? ""
-        Self.lock.lock(); let handler = Self.handlers[host]; Self.requests[host, default: []].append(request); Self.lock.unlock()
+        Self.lock.lock(); let handler = Self.handlers[host]; Self.lock.unlock(); Self.log(host).append(request)
         let (status, body) = handler?(request) ?? (404, ["error": "no route"])
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
