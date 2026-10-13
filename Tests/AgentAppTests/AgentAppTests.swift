@@ -539,7 +539,7 @@ private struct WaitTimeout: Error {}
     let backend = TestBackend(transport: .nativeSessions, streamMode: .approvalThenFinish)
     let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { _ in backend })
     let bot = Bot(name: "Rules", backend: .hermes, hermesSessionID: "s1")
-    bot.approvalMode = .rules; bot.approvalRules = [.init(name: "Test allow", actionPattern: "command", commandPattern: "cmd", outcome: .allow)]
+    bot.approvalMode = .rules; bot.approvalRules = [.init(name: "Test allow", actionPattern: "command", commandPattern: "cat /tmp/x", outcome: .allow)]
     store.bots = [bot]; store.selectedBot = bot; store.send(text: "go")
     try await waitUntil { await backend.recordedCalls().contains("approval:true") }
     #expect(store.approvals.isEmpty)
@@ -547,7 +547,7 @@ private struct WaitTimeout: Error {}
     store.save()
     let restored = AppStore(storeURL: url, autoConfigureHermes: false)
     let audit = try #require(restored.bots.first?.approvalAudit)
-    #expect(audit.count >= 2); #expect(!String(data: try JSONEncoder().encode(audit), encoding: .utf8)!.contains("cmd"))
+    #expect(audit.count >= 2); #expect(!String(data: try JSONEncoder().encode(audit), encoding: .utf8)!.contains("/tmp/x"))
 }
 
 @Test @MainActor func unsafeAllowRuleFallsBackToAsk() async {
