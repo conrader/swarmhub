@@ -109,7 +109,9 @@ private struct FixtureReviewerBackend: AgentBackend {
                 .frame(minWidth: 980, minHeight: 620)
         }
             .defaultSize(width: 1120, height: 760)
+            .windowStyle(.hiddenTitleBar)
             .commands {
+                CommandGroup(replacing: .sidebar) { Button("Toggle Sidebar") { NotificationCenter.default.post(name: .toggleSidebar, object: nil) }.keyboardShortcut("s", modifiers: [.control, .command]) }
                 CommandGroup(after: .newItem) { Button("New Agent") { NotificationCenter.default.post(name: .newBot, object: nil) }.keyboardShortcut("n") }
                 CommandMenu("Navigate") {
                     Button("Quick Switcher") { NotificationCenter.default.post(name: .commandPalette, object: nil) }.keyboardShortcut("k")

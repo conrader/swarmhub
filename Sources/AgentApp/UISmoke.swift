@@ -72,7 +72,9 @@ import Foundation
             report["routines"] = routines(store.routines.state(for: bot.id), errors: &errors)
         }
         report["avatars"] = await AvatarSmoke.collect(store: store, bot: bot, budget: budget.avatars)
-        report["chrome"] = await UISmokeChrome.collect(window: window(), budget: budget.layout)
+        let chrome = await UISmokeChrome.collect(window: window(), store: store, budget: budget.layout)
+        report["chrome"] = chrome
+        errors += (chrome["errors"] as? [String] ?? []) + ((chrome["fullscreen"] as? [String: Any])?["errors"] as? [String] ?? [])
         if let message = store.errorMessage { errors.append("alert: \(message)") }
         report["errors"] = errors
         report["source"] = Bundle.main.url(forResource: "SOURCE", withExtension: "txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) }?
