@@ -36,7 +36,7 @@ import Security
             var tokenShapeOK: Bool; var tokenSegments: Int; var expSecondsFromNow: Int64
             var machineIDLength: Int; var teamIDNumeric: Bool; var accountBinding: String
         }
-        struct LiveStep: Codable { var httpStatus: Int; var networkProtocol: String; var bytesStartGzip: Bool; var rowsDecoded: Int; var newestSeq: Int64 }
+        struct LiveStep: Codable, Sendable { var httpStatus: Int; var networkProtocol: String; var bytesStartGzip: Bool; var rowsDecoded: Int; var newestSeq: Int64 }
     }
 
     static func run(reportPath: URL) -> Int32 {
@@ -84,12 +84,14 @@ import Security
 
         // (f)/(g) the one live RPC and the honest-UA probe. Guarded by the flag so cache-only builds never compile it out.
         if GrokProtocol.serverHistoryEnabled, let secretsData, let agentID = fewestEntriesAgentID() {
-            let semaphore = DispatchSemaphore(value: 0)
-            Task {
-                await liveSteps(agentID: agentID, secretsData: secretsData, report: &report)
-                semaphore.signal()
+            // Off the main actor (HeadlessGrokLive is nonisolated, run in Task.detached): this thread blocks below.
+            let version = report.version
+            if let outcome = HeadlessGrokLive.blockingRun({
+                await HeadlessGrokLive.liveSteps(agentID: agentID, secretsData: secretsData, version: version)
+            }) {
+                report.stepF_live = outcome.stepF
+                report.stepG_honestUA = outcome.stepG
             }
-            semaphore.wait()
             flush()
         }
         return 0
@@ -144,60 +146,6 @@ import Security
         let binding = accountBindingDescription(activeAccountID: encrypted.activeAccountID)
         return .init(tokenShapeOK: GrokCredentials.tokenSegmentsValid(token), tokenSegments: segments,
                      expSecondsFromNow: exp, machineIDLength: machineLen, teamIDNumeric: teamNumeric, accountBinding: binding)
-    }
-
-    private static func liveSteps(agentID: String, secretsData: Data, report: inout Report) async {
-        // Decrypt afresh for the live call; the key and token live only in this scope.
-        guard let encrypted = try? GrokSecretsFile.encryptedAccount(data: secretsData) else { return }
-        var password = (try? GrokKeychain().readPassword()) ?? []
-        defer { GrokSafeStorage.zero(&password) }
-        guard !password.isEmpty, var key = try? GrokSafeStorage.deriveKey(password: password) else { return }
-        defer { GrokSafeStorage.zero(&key) }
-        guard let creds = try? GrokCredentials.decrypt(from: encrypted, key: key, now: Date()) else { return }
-        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
-        let body = GrokProtobuf.encodeListRequest(agentID: agentID, limit: 2)
-
-        if let result = try? await liveRPC(body: body, creds: creds, nowMs: nowMs, version: report.version, honestUA: false) {
-            report.stepF_live = result
-        }
-        if let honest = try? await liveRPC(body: body, creds: creds, nowMs: nowMs, version: report.version, honestUA: true) {
-            report.stepG_honestUA = honest.httpStatus
-        }
-    }
-
-    private static func liveRPC(body: [UInt8], creds: GrokCredentials, nowMs: Int64, version: String, honestUA: Bool) async throws -> Report.LiveStep {
-        var request = URLRequest(url: GrokProtocol.url(for: .listTranscriptEntries))
-        request.httpMethod = "POST"
-        request.httpBody = Data(body)
-        request.timeoutInterval = GrokProtocol.requestTimeout
-        for (name, value) in GrokRequestHeaders.rpcHeaders(token: creds.token.reveal(), machineID: creds.machineID.reveal(),
-                                                           teamID: creds.teamID, version: version, nowMs: nowMs) {
-            request.setValue(value, forHTTPHeaderField: name)
-        }
-        request.setValue(GrokProtocol.contentType, forHTTPHeaderField: "content-type")
-        request.setValue(GrokProtocol.connectProtocolVersion, forHTTPHeaderField: "connect-protocol-version")
-        request.setValue(GrokProtocol.connectTimeoutMs, forHTTPHeaderField: "connect-timeout-ms")
-        request.setValue("gzip", forHTTPHeaderField: "accept-encoding")
-        request.setValue(UUID().uuidString, forHTTPHeaderField: "x-request-id")
-        if honestUA { request.setValue("Torvli/\(version)", forHTTPHeaderField: "user-agent") }
-
-        let config = URLSessionConfiguration.ephemeral
-        let session = URLSession(configuration: config)
-        defer { session.finishTasksAndInvalidate() }
-        let (data, response) = try await session.data(for: request)
-        let http = response as? HTTPURLResponse
-        let bytes = [UInt8](data)
-        let gzip = bytes.count >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b
-        var rows = 0
-        var newest: Int64 = 0
-        if let decoded = try? GrokProtobuf.decodeListResponse(bytes) {
-            rows = decoded.count
-            newest = decoded.map(\.seq).max() ?? 0
-        }
-        let metrics = (response as? HTTPURLResponse).flatMap { _ in "" } ?? ""
-        _ = metrics
-        return .init(httpStatus: http?.statusCode ?? -1, networkProtocol: protocolName(from: response),
-                     bytesStartGzip: gzip, rowsDecoded: rows, newestSeq: newest)
     }
 
     // MARK: Helpers
@@ -271,11 +219,6 @@ import Security
             if bits >= 8 { bits -= 8; out.append(UInt8((value >> bits) & 0xFF)) }
         }
         return String(bytes: out, encoding: .utf8)
-    }
-
-    private static func protocolName(from response: URLResponse) -> String {
-        // networkProtocolName is only exposed via URLSessionTaskMetrics; the spike records "" when unknown.
-        ""
     }
 
     private static func osStatus(from error: GrokKeychainError) -> OSStatus {
