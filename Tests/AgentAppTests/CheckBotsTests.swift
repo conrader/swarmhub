@@ -10,6 +10,8 @@ private func checkBotsServer() -> (host: String, session: URLSession) {
         switch parts[2...].joined(separator: "/") {
         case "v1/models": return (200, ["data": [["id": parts[1] == "grok-jarvis" ? "grok-jarvis" : "hermes-agent"]]])
         case "v1/capabilities": return (200, ["features": ["session_chat_streaming": true, "jobs": false, "run_stop": true]])
+        case "api/jobs" where parts[1] == "grok-jarvis":
+            return (200, ["jobs": [jobPayload(id: "0123456789ab", name: "Morning"), jobPayload(id: "0123456789ac", name: "Night", enabled: false)]])
         default: return (404, ["error": "no route"])
         }
     }
@@ -41,14 +43,14 @@ private func checkBotsServer() -> (host: String, session: URLSession) {
     let code = await HeadlessCommands.checkBots(store: store, chat: nil, output: { lines.append($0) })
     #expect(code == 1)
     #expect(lines == [
-        "Jarvis | grok-jarvis | key: present | models: grok-jarvis (match) | caps: session_chat_streaming=true, jobs=false",
-        "Doc | grok-doc | key: present | models: hermes-agent (MISMATCH) | caps: session_chat_streaming=true, jobs=false",
+        "Jarvis | grok-jarvis | key: present | models: grok-jarvis (match) | caps: session_chat_streaming=true, jobs=false | routines: 2 (1 paused)",
+        "Doc | grok-doc | key: present | models: hermes-agent (MISMATCH) | caps: session_chat_streaming=true, jobs=false | routines: no jobs API",
         "Vised | grok-vised | key: missing | models: - (no key) | caps: session_chat_streaming=n/a, jobs=n/a",
         "Checked 3 Hermes bots: 1 OK, 2 failed",
     ])
     #expect(!lines.joined().contains("fixture-"))
     let paths = MockHermesProtocol.recorded(host).map { "\($0.httpMethod ?? "") \($0.url!.path)" }
-    #expect(paths == ["GET /p/grok-jarvis/v1/models", "GET /p/grok-jarvis/v1/capabilities", "GET /p/grok-doc/v1/models", "GET /p/grok-doc/v1/capabilities"])
+    #expect(paths == ["GET /p/grok-jarvis/v1/models", "GET /p/grok-jarvis/v1/capabilities", "GET /p/grok-jarvis/api/jobs", "GET /p/grok-doc/v1/models", "GET /p/grok-doc/v1/capabilities", "GET /p/grok-doc/api/jobs"], "jobs are only listed")
     #expect(MockHermesProtocol.recorded(host).allSatisfy { $0.value(forHTTPHeaderField: "Authorization")?.hasPrefix("Bearer fixture-") == true })
 }
 

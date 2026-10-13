@@ -14,6 +14,8 @@ extension HeadlessCommands {
         var modelMatches = false
         var sessionChatStreaming: Bool? = nil
         var jobs: Bool? = nil
+        /// Read-only `GET /api/jobs` summary (routines); never counts as a failure.
+        var routines: String? = nil
         var problem: String? = nil
         var ok: Bool { key == .present && problem == nil && modelMatches }
     }
@@ -30,6 +32,7 @@ extension HeadlessCommands {
         else { models = "- (\(check.problem ?? "not checked"))" }
         func flag(_ value: Bool?) -> String { value.map { String($0) } ?? "n/a" }
         var text = "\(check.name) | \(check.profile) | key: \(key) | models: \(models) | caps: session_chat_streaming=\(flag(check.sessionChatStreaming)), jobs=\(flag(check.jobs))"
+        if let routines = check.routines { text += " | routines: \(routines)" }
         if check.modelID != nil, let problem = check.problem { text += " | error: \(problem)" }
         return text
     }
@@ -63,11 +66,22 @@ extension HeadlessCommands {
             let features = (try await backend.jsonRequest(path: "v1/capabilities"))["features"] as? [String: Any] ?? [:]
             check.sessionChatStreaming = features["session_chat_streaming"] as? Bool
             check.jobs = jobsFlag(features)
+            check.routines = await routinesSummary(HermesJobsClient(backend: backend))
         } catch {
             let reason = error.localizedDescription
             check.problem = backend.apiKey.isEmpty ? reason : reason.replacingOccurrences(of: backend.apiKey, with: "[key]")
         }
         return check
+    }
+
+    /// "3 (1 paused)", "no jobs API" or "error: …" — list only; nothing is created, run or changed.
+    static func routinesSummary(_ client: HermesJobsClient) async -> String {
+        do {
+            let jobs = try await client.list()
+            let paused = jobs.filter(\.isPaused).count
+            return "\(jobs.count)" + (paused > 0 ? " (\(paused) paused)" : "")
+        } catch HermesJobsError.noJobsAPI { return "no jobs API" }
+        catch { return "error: " + BotInfoCache.describe(error, key: client.backend.apiKey) }
     }
 
     static func checkBots(store: AppStore, chat: (name: String, text: String)?, chatTimeout: Duration = .seconds(300), output: (String) -> Void) async -> Int32 {

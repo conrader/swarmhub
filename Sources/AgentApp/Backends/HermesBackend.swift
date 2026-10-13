@@ -317,12 +317,17 @@ struct HermesBackend: AgentBackend {
     }
 
     func jsonRequest(path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> [String: Any] {
+        let (data, response) = try await rawRequest(path: path, method: method, body: body, timeout: timeout); try validate(response, data: data)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw BackendError.unavailable("Hermes returned invalid JSON.") }
+        return json
+    }
+
+    /// Authenticated, profile-prefixed request whose status the caller inspects (e.g. a 424 body that still names the saved job).
+    func rawRequest(path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> (Data, URLResponse) {
         var request = try makeRequest(path: path, method: method)
         if let timeout { request.timeoutInterval = timeout }
         if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
-        let (data, response) = try await session.data(for: request); try validate(response, data: data)
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw BackendError.unavailable("Hermes returned invalid JSON.") }
-        return json
+        return try await session.data(for: request)
     }
 
     private func makeRequest(path: String, method: String) throws -> URLRequest {
@@ -340,7 +345,7 @@ struct HermesBackend: AgentBackend {
         return URL(string: root + prefix + "/" + path)
     }
 
-    private func validate(_ response: URLResponse, data: Data = Data()) throws {
+    func validate(_ response: URLResponse, data: Data = Data()) throws {
         guard let http = response as? HTTPURLResponse else { throw BackendError.unavailable("Hermes returned no HTTP response.") }
         guard (200..<300).contains(http.statusCode) else {
             let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]; let nested = json?["error"] as? [String: Any]
