@@ -150,7 +150,7 @@ struct HermesJobsClient: Sendable {
 
     static func latestRunSession(_ rows: [[String: Any]], job: HermesJob, finishedAt: Date?) -> [String: Any]? {
         let base = String(job.name.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(60)).trimmingCharacters(in: .whitespaces)
-        let matches = rows.filter { row in
+        let matches = GrokServerArchive.excludingArchives(rows).filter { row in
             let id = row["id"] as? String ?? "", title = row["title"] as? String ?? ""
             if id.hasPrefix("cron_\(job.id)_") || title == "cron \(job.id)" || title.hasPrefix("cron \(job.id) ") { return true }
             return !base.isEmpty && (row["source"] as? String ?? "cron") == "cron" && title.hasPrefix("\(base) · ")

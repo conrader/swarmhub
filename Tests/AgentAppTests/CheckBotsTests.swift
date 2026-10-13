@@ -15,6 +15,7 @@ private func checkBotsServer() -> (host: String, session: URLSession) {
             return (200, ["object": "list", "has_more": false, "data": [
                 ["id": "s1", "started_at": now - 3_600, "message_count": 4, "input_tokens": 1_500, "output_tokens": 300],
                 ["id": "s2", "started_at": now - 30 * 86_400, "message_count": 2, "input_tokens": 500, "output_tokens": 200],
+                ["id": "grok-import-0a1b2c3d-20261013", "source": "grok-import", "started_at": now - 600, "message_count": 400, "input_tokens": 9, "output_tokens": 9],
             ]])
         case "api/sessions": return (200, ["object": "list", "has_more": false, "data": [] as [Any]])
         case "api/jobs" where parts[1] == "grok-jarvis":

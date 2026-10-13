@@ -107,7 +107,7 @@ struct HermesBackend: AgentBackend {
         guard try await transport() == .nativeSessions else { return [] }
         let json = try await jsonRequest(path: "api/sessions?source=api_server&limit=100&offset=0")
         let rows = (json["data"] as? [[String: Any]]) ?? (json["sessions"] as? [[String: Any]]) ?? []
-        return rows.compactMap { row in
+        return GrokServerArchive.excludingArchives(rows).compactMap { row in
             guard let id = row["id"] as? String else { return nil }
             return BackendSession(id: id, title: (row["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (row["preview"] as? String) ?? "Hermes session")
         }

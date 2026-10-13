@@ -23,7 +23,7 @@ struct ChatView: View {
                         if let thread {
                             ThreadTranscript(thread: thread, parent: bot.messages.first { $0.id == thread.parentMessageID }) { proxy.scrollTo("bottom", anchor: .bottom) }
                         } else {
-                            if bot.grokSourceID != nil { GrokHistoryView(bot: bot, expanded: historyExpanded) }
+                            if GrokServerArchive.choice(hasLocalArchive: bot.grokSourceID != nil) == .local { GrokHistoryView(bot: bot, expanded: historyExpanded) }
                             ForEach(bot.messages) { message in
                                 MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
                                             thread: bot.thread(for: message.id), canThread: store.canFork(bot),
