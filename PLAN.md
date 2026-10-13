@@ -9,11 +9,16 @@ Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `gr
 
 ## Standing constraints (from BRIEF*.md and SPEC-6.1)
 - Copy Grok Bot's look and match its features with our own code and assets only. No Grok images,
-  icons, fonts, prompts or tool definitions.
-- No animations; dark theme by default; fast and light; no built-in model.
+  icons, fonts, prompts or tool definitions. Exception (P15, accepted 2026-10-13): the vendored, pinned MIT
+  BotAvatarsKit (Jakub Antalik, Libraries.dev) under `Vendor/`, credited in `THIRD-PARTY-NOTICES.md`.
+- No animations, except avatar motion by context (P15): list rows stay still unless that bot is working or hovered;
+  the open bot's large mark and showcase views idle gently; a working bot hops everywhere; Settings → Appearance →
+  Avatar motion can choose Calm everywhere or Off; macOS Reduce Motion is always honoured.
+  Dark theme by default; fast and light; no built-in model.
 - Never import or store secrets outside the Keychain. Imported routines start disabled.
 - Tests use synthetic fixtures only and never call Konrad's servers.
 - Files ≤500 lines, split by function (`AgentAppTests.swift` is already 734 lines and gets split in P1).
+  `Vendor/` is exempt (the gate scans `Sources/` and `Tests/`).
 - Pick features by what the server reports at `/v1/capabilities` (and by route presence),
   never by version number. The box runs Hermes 0.20.5 and may move to 0.21.x.
 
@@ -44,6 +49,7 @@ Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `gr
 | P11 | Model from the box's supplier | Overview picker mirrors `/api/model/options` per profile, grouped and labelled by supplier, default first, reasons for every state; enhances P3 (`briefs/P11.md`) | `/api/model/options`, `/api/sessions/{id}/model` |
 | P12 | Connect OpenClaw | Finish `OpenClawBackend`: Gateway WebSocket v4 handshake + device pairing (A), streaming chat/steer/history (B), approvals/threads/attachments (C) (`briefs/P12.md`) | OpenClaw Gateway WS RPC |
 | P13 | Model roles (proposed) | Two roles with a Torvli-wide default and a per-bot override (override > Torvli default > box default): Conversation (client-side, via the session lock) and Coding (a client-side "coding thread" fork + the box-side sub-agent model `delegation.*`, which no API can set). Read-only display first; box canary P13.0 before any config write. Awaits Konrad's D1–D5 (`briefs/P13.md`) | `/api/sessions` create/lock/fork; profile `delegation.*` (box-side) |
+| P15 | Bot marks | Bot avatars become BotAvatarsKit marks in Grok's shapes and 11 colours (stored words, else derived from the id like Grok), group clusters, motion by context with Settings → Appearance → Avatar motion (By context, Calm everywhere, Off) and Reduce Motion; lazy additive migration of imported bots (`briefs/P15.md`) | local |
 
 ## Out of scope (no Hermes API, or not part of Grok Bot)
 - Telegram/WhatsApp channels (not native to Grok Bot; handled by sb tooling).

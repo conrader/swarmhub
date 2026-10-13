@@ -82,6 +82,7 @@ struct SettingsUpdatesPane: View {
             }
             Text("Checks github.com/conrader/torvli releases only when you press the button. Nothing is downloaded or installed.").font(.caption).foregroundStyle(.secondary)
         }
+        AcknowledgementsSection()
     }
 
     private func check() {

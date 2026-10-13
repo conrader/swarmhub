@@ -144,6 +144,10 @@ OpenClaw is an explicit partial adapter. Its documented Gateway is a WebSocket R
 
 Sources: [Gateway protocol](https://docs.openclaw.ai/gateway/protocol), [WebChat methods](https://docs.openclaw.ai/web/webchat).
 
+## Credits
+
+Bot avatars use [BotAvatarsKit](https://github.com/Jakubantalik/Libraries.dev/tree/main/packages/bot-avatars) by Jakub Antalik (Libraries.dev, MIT), vendored at a pinned commit in `Vendor/BotAvatarsKit`; see `THIRD-PARTY-NOTICES.md` and Settings → Updates → Acknowledgements.
+
 ## Architecture
 
 ```text
