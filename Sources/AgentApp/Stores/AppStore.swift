@@ -19,12 +19,17 @@ private actor ReviewerStopTargetBox {
     @Published var editingBot: Bot?; @Published var errorMessage: String?
     /// Profiles whose `/p/<profile>/` prefix the server ignored (multiplexing off). Never routed to.
     @Published var prefixIgnoredHermesProfiles: Set<String> = []
+    /// P4 chat: per-bot `/v1/capabilities` flags, the open thread of the selected bot, whether the running
+    /// turn takes steer messages, and a message the transcript should scroll to (Media tab).
+    @Published var botFeatures: [UUID: Set<String>] = [:]; @Published var openThreadID: UUID?
+    @Published var steerAvailable = false; @Published var scrollTarget: UUID?
+    private(set) lazy var attachmentEncoder = AttachmentEncoder(directory: fileURL.deletingLastPathComponent().appending(path: "attachments", directoryHint: .isDirectory))
     let botInfo = BotInfoCache()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     private var streamTask: Task<Void, Never>?; let fileURL: URL
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
-    private var streamingBotID: UUID?; private var streamingAssistant: ChatMessage?
+    var streamingBotID: UUID?; private var streamingAssistant: ChatMessage?; var streamingConversation: (any Conversation)?
     private var historyLoadTokens: [UUID: UUID] = [:]
     private var activeStreamToken: UUID?
     private var stopInProgressForStream: UUID?
@@ -91,6 +96,7 @@ private actor ReviewerStopTargetBox {
 
     func loadHermesHistory(for bot: Bot) {
         guard bot.backend == .hermes, !isStreaming, !needsKey(bot) else { return }
+        refreshFeatures(for: bot)
         let token = UUID(); historyLoadTokens[bot.id] = token
         let originalMessageIDs = bot.messages.map(\.id)
         let originalSessionID = bot.hermesSessionID
@@ -113,7 +119,7 @@ private actor ReviewerStopTargetBox {
     static func mergeHermesHistory(local: [ChatMessage], server: [BackendMessage]) -> [ChatMessage]? {
         guard !server.isEmpty else { return local.isEmpty ? [] : nil }
         let remoteTurns = server.enumerated().filter { ["user", "assistant"].contains($0.element.role) }
-        let localTurns = local.filter { [MessageRole.user, .assistant].contains($0.role) && $0.presentation == .text && !$0.content.isEmpty }
+        let localTurns = local.filter { [MessageRole.user, .assistant].contains($0.role) && $0.presentation == .text && !$0.content.isEmpty && !$0.isSteer }
         if localTurns.isEmpty {
             return local + server.compactMap { Self.chatMessage($0) }
         }
@@ -134,7 +140,7 @@ private actor ReviewerStopTargetBox {
                 for start in stride(from: remoteTurns.count - count, through: 0, by: -1) {
                     let candidate = remoteTurns[start..<(start + count)]
                     if zip(suffix, candidate).allSatisfy({ local, remote in
-                        local.role.rawValue == remote.element.role && local.content == remote.element.content
+                        local.role.rawValue == remote.element.role && Self.comparable(local.outgoingText) == Self.comparable(remote.element.content)
                     }) {
                         matchedServerEnd = candidate.last!.offset
                         break
@@ -146,6 +152,11 @@ private actor ReviewerStopTargetBox {
         guard let end = matchedServerEnd else { return nil }
         let additions = server.dropFirst(end + 1).compactMap { Self.chatMessage($0) }
         return local + additions
+    }
+
+    /// Server rows render image parts as `[Image: …]` lines; local messages keep images as attachments.
+    static func comparable(_ content: String) -> String {
+        content.components(separatedBy: "\n").filter { !($0.hasPrefix("[Image: ") && $0.hasSuffix("]")) }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func chatMessage(_ row: BackendMessage) -> ChatMessage? {
@@ -202,32 +213,37 @@ private actor ReviewerStopTargetBox {
     }
     func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; if selectedBot == bot { selectedBot = bots.first }; save() }
     func save() { guard persistenceEnabled, let data = try? JSONEncoder().encode(bots) else { return }; try? data.write(to: fileURL, options: .atomic) }
-    @discardableResult func send(text: String) -> Bool {
-        guard !isStreaming, streamTask == nil, let bot = selectedBot, !bot.isReadOnlyArchive, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        let activeBackend: any AgentBackend
-        do { activeBackend = try backend(for: bot) }
+    /// Sends into the open thread or the main chat. While a turn streams, the text steers it when the
+    /// server has `run_steer`; otherwise sending stays disabled until the turn ends.
+    @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
+        guard let bot = selectedBot, !bot.isReadOnlyArchive, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
+        guard !isStreaming, streamTask == nil else { return steer(text: text, attachments: attachments, bot: bot) }
+        let activeBackend: any AgentBackend; let images: [String]
+        do { activeBackend = try backend(for: bot); images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) }
         catch { errorMessage = error.localizedDescription; return false }
+        let conversation: any Conversation = openThread(in: bot) ?? bot
         historyLoadTokens[bot.id] = nil
-        bot.messages.append(ChatMessage(role: .user, content: text, replyToID: replyTo?.id)); replyTo = nil; let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true); bot.messages.append(assistant)
-        objectWillChange.send(); save(); isStreaming = true; streamingBotID = bot.id; streamingAssistant = assistant
+        conversation.messages.append(ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)); replyTo = nil; let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true); conversation.messages.append(assistant)
+        objectWillChange.send(); save(); isStreaming = true; streamingBotID = bot.id; streamingAssistant = assistant; streamingConversation = conversation
         let streamToken = UUID(); activeStreamToken = streamToken
-        let history = bot.messages.filter { $0.id != assistant.id }.map { (role: $0.role.rawValue, content: $0.content) }
+        let history = conversation.messages.filter { $0.id != assistant.id && !$0.isSteer }.map { (role: $0.role.rawValue, content: $0.outgoingText) }
         streamTask = Task { [weak self] in
             guard let self else { return }
             var failed = false
             do {
-                if bot.hermesSessionID == nil, try await activeBackend.sessionTransport() == .nativeSessions {
-                    bot.hermesSessionID = try await activeBackend.createSession(title: bot.name, systemPrompt: bot.persona, id: "agentapp_\(bot.id.uuidString.lowercased())")
+                if conversation.hermesSessionID == nil, conversation === bot, try await activeBackend.sessionTransport() == .nativeSessions {
+                    conversation.hermesSessionID = try await activeBackend.createSession(title: bot.name, systemPrompt: bot.persona, id: "agentapp_\(bot.id.uuidString.lowercased())")
                     save()
                 }
-                let sessionID = bot.hermesSessionID ?? bot.id.uuidString
-                let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: bot.persona, messages: history))
+                let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
+                let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: bot.persona, messages: history, images: images))
+                if activeStreamToken == streamToken { steerAvailable = (try? await activeBackend.features())?.contains("run_steer") == true }
                 for try await event in stream { guard !Task.isCancelled else { break }; switch event {
                 case .token(let token): assistant.content += token; objectWillChange.send()
                 case .status(let value): if assistant.content.isEmpty { assistant.metadata["status"] = value }
                 case .subAgent(let task):
                     subAgentTasks[bot.id, default: []].append(task)
-                    bot.messages.append(ChatMessage(role: .assistant, content: task.title, presentation: .delegation, metadata: ["detail": task.detail, "status": task.status.rawValue]))
+                    conversation.messages.append(ChatMessage(role: .assistant, content: task.title, presentation: .delegation, metadata: ["detail": task.detail, "status": task.status.rawValue]))
                 case .approval(var request):
                     request.botID = bot.id; request.profile = bot.hermesProfile ?? "default"; request.sessionID = sessionID
                     await routeApproval(request, for: bot, backend: activeBackend)
@@ -240,14 +256,14 @@ private actor ReviewerStopTargetBox {
                 // URLSession reports cancellation this way when Stop lands during setup/first turn.
             } catch { errorMessage = error.localizedDescription; failed = true }
             let cancelled = Task.isCancelled
-            let abandoned = approvals.filter { $0.botID == bot.id && ($0.sessionID == nil || $0.sessionID == (bot.hermesSessionID ?? bot.id.uuidString)) }
+            let abandoned = approvals.filter { $0.botID == bot.id && ($0.sessionID == nil || $0.sessionID == (conversation.hermesSessionID ?? bot.id.uuidString)) }
             for approval in abandoned {
                 appendAudit(to: bot, approval: approval, outcome: .denied, decidedBy: "system", reason: cancelled ? "Run stopped; pending approval was cancelled." : "Run ended; pending approval was cancelled.")
             }
             approvals.removeAll { abandoned.map(\.id).contains($0.id) }
             assistant.isStreaming = false
             if activeStreamToken == streamToken {
-                isStreaming = false; streamTask = nil; activeStreamToken = nil; streamingBotID = nil; streamingAssistant = nil
+                isStreaming = false; streamTask = nil; activeStreamToken = nil; streamingBotID = nil; streamingAssistant = nil; streamingConversation = nil; steerAvailable = false
             }
             save()
             if !cancelled && !failed && !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { notifyIfNeeded(bot: bot, message: assistant.content) }
@@ -264,7 +280,7 @@ private actor ReviewerStopTargetBox {
         guard isStreaming, let streamToken = activeStreamToken, stopInProgressForStream != streamToken else { return }
         stopInProgressForStream = streamToken
         let bot = streamingBotID.flatMap { id in bots.first { $0.id == id } }
-        streamingAssistant?.isStreaming = false
+        streamingAssistant?.isStreaming = false; steerAvailable = false
         guard let bot, let activeBackend = try? backend(for: bot) else {
             streamTask?.cancel(); isStreaming = false
             if stopInProgressForStream == streamToken { stopInProgressForStream = nil }
@@ -272,10 +288,11 @@ private actor ReviewerStopTargetBox {
         }
         let taskToCancel = streamTask
         let stoppedAssistantID = streamingAssistant?.id
+        let conversation: any Conversation = streamingConversation ?? bot
         Task {
             do {
                 // Capture the run before cancelling the SSE task, whose termination clears it.
-                let target = try await activeBackend.stopTarget(sessionID: bot.hermesSessionID ?? bot.id.uuidString)
+                let target = try await activeBackend.stopTarget(sessionID: conversation.hermesSessionID ?? bot.id.uuidString)
                 taskToCancel?.cancel()
                 didCancelLocalStream?()
                 if activeStreamToken == streamToken { isStreaming = false }
@@ -287,16 +304,16 @@ private actor ReviewerStopTargetBox {
                 case .noActiveRun: feedback = "Stopped locally before Hermes supplied a run ID."
                 }
                 let message = ChatMessage(role: .system, content: feedback)
-                if let stoppedAssistantID, let index = bot.messages.firstIndex(where: { $0.id == stoppedAssistantID }) {
-                    bot.messages.insert(message, at: index + 1)
-                } else { bot.messages.append(message) }
+                if let stoppedAssistantID, let index = conversation.messages.firstIndex(where: { $0.id == stoppedAssistantID }) {
+                    conversation.messages.insert(message, at: index + 1)
+                } else { conversation.messages.append(message) }
                 objectWillChange.send()
             } catch {
                 taskToCancel?.cancel()
                 let message = ChatMessage(role: .system, content: "Hermes Stop failed: \(error.localizedDescription)")
-                if let stoppedAssistantID, let index = bot.messages.firstIndex(where: { $0.id == stoppedAssistantID }) {
-                    bot.messages.insert(message, at: index + 1)
-                } else { bot.messages.append(message) }
+                if let stoppedAssistantID, let index = conversation.messages.firstIndex(where: { $0.id == stoppedAssistantID }) {
+                    conversation.messages.insert(message, at: index + 1)
+                } else { conversation.messages.append(message) }
                 objectWillChange.send()
                 if activeStreamToken == streamToken {
                     isStreaming = false

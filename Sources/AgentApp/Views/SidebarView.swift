@@ -35,15 +35,16 @@ struct SidebarView: View {
     }
     private func sectionLabel(_ value: String) -> some View { Text(value).font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary).padding(.horizontal, 9).padding(.top, 12).padding(.bottom, 4) }
     private func row(_ bot: Bot) -> some View {
-        Button { selection = bot; bot.unreadCount = 0; store.loadHermesHistory(for: bot) } label: {
+        Button { store.open(bot) } label: {
             HStack(spacing: 9) {
                 BotAvatar(bot: bot, size: 28)
                 Text(bot.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
                 Spacer(minLength: 5)
-                if bot.unreadCount > 0 { Circle().fill(.primary.opacity(0.72)).frame(width: 6, height: 6) }
+                if bot.isUnread { Circle().fill(.primary.opacity(0.72)).frame(width: 6, height: 6) }
             }.padding(.horizontal, 7).frame(height: 40).contentShape(RoundedRectangle(cornerRadius: 7)).background(selection == bot ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 7))
         }.buttonStyle(.plain).contextMenu {
             Button("Edit", systemImage: "pencil") { store.editingBot = bot }
+            if !bot.isUnread { Button("Mark as Unread", systemImage: "circle.fill") { store.markUnread(bot) } }
             Button(bot.isHidden ? "Show in Sidebar" : "Hide from Sidebar", systemImage: bot.isHidden ? "eye" : "eye.slash") { bot.isHidden.toggle(); store.save() }
             Button(bot.notificationsEnabled ? "Mute Notifications" : "Enable Notifications", systemImage: bot.notificationsEnabled ? "bell.slash" : "bell") { bot.notificationsEnabled.toggle(); store.save() }
             Divider(); Button("Delete", systemImage: "trash", role: .destructive) { botToDelete = bot }

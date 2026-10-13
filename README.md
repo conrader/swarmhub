@@ -44,16 +44,16 @@ This pass recreates the product structure and interaction patterns with original
 | Area | Status | Notes |
 |---|---|---|
 | Three-column layout | Done | Bot sidebar, centred chat, and an open-by-default right panel; `Cmd+Shift+I` collapses it. |
-| Bot sidebar | Partial | Round avatars, unread dots, new/hidden bots, account/settings, and context actions work; labels are fixed sections rather than user-defined groups. |
+| Bot sidebar | Partial | Round avatars, unread dots, new/hidden bots, account/settings, and context actions work, including **Mark as Unread** (a manual flag kept in store.json that survives restarts and clears when the chat is opened); labels are fixed sections rather than user-defined groups. |
 | Original bot faces | Partial | 12 colour variants are drawn with SwiftUI `Canvas`; nine original DMT-generated clay PNGs are also selectable. |
-| Core chat | Partial | Text, user bubbles, basic Markdown/code, streaming, Stop/cancellation, and lazy rendering work; Markdown coverage and code-copy interaction are limited. |
-| Replies and tapbacks | Partial | Reply context and emoji reactions are stored on messages, but replies are display-only and reaction edits are not saved immediately. |
-| Inline content | Stub | Cards are local visual prototypes. Options, links, voice, images, and attachments do not perform backend actions; draft-email Send is explicitly disabled. |
-| Composer | Stub | Text send, Enter/Shift+Enter, Stop, and a file picker exist; selected files are only inserted as attachment text and are not uploaded. |
+| Core chat | Partial | Text, user bubbles, basic Markdown/code (with Copy), streaming, Stop/cancellation, and lazy rendering work. **Steer:** while a turn streams and the server reports `run_steer`, Send (or Enter) posts the text to `POST /v1/runs/{run_id}/steer` as `{"input": text}` and shows it as a dashed "Steered the running turn" bubble; a refusal (e.g. 409 once the run stops taking input) marks the bubble "Steer not delivered" with the reason. Without `run_steer` sending stays disabled while a turn runs (Stop only), as before. Markdown coverage is limited. |
+| Replies and tapbacks | Done | Quote replies as before. **Reply in thread** on an assistant message forks the bot's session (`POST /api/sessions/{id}/fork` with `{"id": "agentapp_thread_<uuid>"}`) and opens the thread as a sub-conversation of the same bot, shown under the source message as "N replies"; the composer then sends into the fork. Hermes has no "fork at message" parameter: the fork carries the whole transcript as it stood when the thread was opened, and Hermes marks the source session `branched` (it keeps working). The action is hidden without `session_fork`. Tapbacks (👍 ❤️ 😂 ‼️ ?) toggle on/off and are saved per message in store.json at once (local only, never sent). |
+| Inline content | Done | Assistant Markdown is parsed into our own cards: question-with-options, draft (Send posts "Send it" to the bot; Copy copies it), link pills under paragraphs with bare URLs, and inline Markdown images (http(s) or `data:image/…`, click to preview). Picks and sends are remembered on the message. Syntax: see "Card syntax" below. The demo-only voice/attachment/links cards remain local prototypes. |
+| Composer | Done | Paperclip (multiple files), drag-and-drop onto the chat, and Cmd+V paste of files or images. Images (PNG/JPEG/GIF/WebP) are downscaled to ≤2048 px on the long edge and re-encoded until the `data:image/…` URL is ≤5 MB, stored under `attachments/` next to store.json, and sent as `image_url` content parts — as the `input` part list on the session stream (`_session_chat_user_message` → `_normalize_multimodal_content`) or as the last user message's content parts on Chat Completions. Text files ≤200 KB (UTF-8, no NUL bytes) are sent inline as `File: <name>` plus a fenced block; anything else is refused with a clear message. Bubbles show thumbnails/file chips; click to preview. |
 | Overview | Done | Identity, description and memory summary; for Hermes bots the profile's real skills (`/p/<profile>/v1/skills`: name, one-line description, grouped by category, searchable above 12) and toolsets (`/v1/toolsets`: label, description, On/Off/Needs setup), cached per bot for the app session with a refresh button and explicit empty/unavailable/error states. Locally imported template skills are listed separately as "Imported (not on server)". |
 | Model per chat | Done | Overview shows the chat's model (confirmed lock for this session, else the session row's `model`, else the server default from `/api/model/options`) and a picker of credentialed providers → models with the current one checked. Choosing one sends `POST /api/sessions/{id}/model` with `{model, provider}` only (no credentials); a 409 (unroutable, Hermes refuses a silent fallback) is shown and nothing is stored. The confirmed lock is remembered per session. The picker is hidden when `model_options` is false or the route 404s, and read-only without `session_model_lock`. |
 | Routines | Done | Backed by the profile's Hermes cron jobs (`/p/<profile>/api/jobs*`, profile key): list (paused included) with name, human schedule, state, last/next run as relative times and last error; add/edit sheet (hourly, daily/weekdays at HH:MM, weekly on a day at HH:MM, or raw cron / `every 30m` text; prompt); pause/resume toggle (optimistic, reconciled with the server's job), Run now, Delete with an inline confirm. Run now on a paused routine pauses it again after that run (Hermes re-enables a job it runs). Completion inbox: while the app runs each Hermes bot's jobs are polled at most every 60 s (backing off on errors); when a job's `last_run_at` advances its run session (`cron_<job id>_…`, from `/api/sessions?source=cron`) is read and a "Routine finished" card (name, status, first ~600 characters, error) lands in the chat, marks it unread and notifies under the usual rules. The last seen run per job is kept in store.json, so a run is carded once. A server without `/api/jobs` shows "This Hermes server has no jobs API" and the local list stays read-only. Imported routines stay local ("Imported — not on server") until "Create on server", which creates them paused (create, then pause; deleted again if the pause fails). `--check-bots` lists each bot's jobs (read-only). |
-| Media | Partial | A grid is sourced from attachment/image messages, but it uses placeholders and items do not open. |
+| Media | Done | Lists every attachment, inline image and link (Markdown links and bare URLs, not code) in the bot's chat and its threads, newest first, with thumbnails; clicking an item jumps to its message (opening the thread if needed); links also open in the browser. |
 | Computer | Partial | Configurable noVNC preview and expanded sheet exist; view-only and take-over modes are not distinct. |
 | Members | Stub | Local owner/agent display; workspace membership provider is TODO. |
 | Settings | Partial | Seven sections exist. Accent is not applied; account, policy sync, metering, and updater services are stubs. |
@@ -66,6 +66,37 @@ This pass recreates the product structure and interaction patterns with original
 | Sub-agents | Stub | Inline lifecycle cards are supported if emitted, but the checked v0.21.7 HTTP session stream does not emit `subagent.start`/`subagent.complete`. Child transcript drill-down and controls are not implemented. |
 
 There are no external package dependencies.
+
+## Card syntax
+
+Assistant replies (for example from a SOUL prompt) can use these Markdown conventions; Torvli renders them as cards and every other client still shows readable Markdown.
+
+| Card | Syntax | Behaviour |
+|---|---|---|
+| Question with options | A fenced block with info string `choices`: non-list lines form the question, list lines (`- `, `* `, `+ `, `1. `, `1) `) are the options. Needs ≥2 options, else it stays a code block. | Clicking an option sends it as the user's reply; the card then shows the pick. |
+| Trailing options | `<!-- choices -->` on its own line, followed by a numbered list (`1. ` / `1) `) that ends the message (≥2 items). An unmarked list stays ordinary Markdown. | Same as above; the text before the marker stays as prose. |
+| Draft | A fenced block with info string `draft`; optional leading `to:` and `subject:` header lines (case-insensitive), one blank line, then the body. | **Send** posts "Send it" to the bot (the bot does the sending, under its approval policy); **Copy** copies the draft. |
+| Link pills | Any bare `http(s)://` URL in prose (not inside a Markdown link, `<…>` or inline code). | A pill per URL under the paragraph; opens in the browser. |
+| Image | `![alt](https://…)` or `![alt](data:image/png;base64,…)`. Other schemes stay text. | Shown inline; click to preview. |
+
+Example:
+
+````markdown
+I drafted the reply.
+
+```draft
+to: Maya <maya@example.com>
+subject: Launch update
+
+Hi Maya, the rollout is ready for review.
+```
+
+```choices
+When should I send it?
+- Now
+- Tomorrow 9:00
+```
+````
 
 ## Grok Bot template import
 

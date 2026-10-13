@@ -13,9 +13,9 @@ private actor HermesRunRegistry {
 
 private actor HermesCapabilityRegistry {
     static let shared = HermesCapabilityRegistry()
-    private var values: [String: Bool] = [:]
-    func value(for key: String) -> Bool? { values[key] }
-    func set(_ value: Bool, for key: String) { values[key] = value }
+    private var values: [String: Set<String>] = [:]
+    func value(for key: String) -> Set<String>? { values[key] }
+    func set(_ value: Set<String>, for key: String) { values[key] = value }
 }
 
 enum HermesTransport: Sendable, Equatable { case nativeSessions, legacyChatCompletions }
@@ -54,20 +54,47 @@ struct HermesBackend: AgentBackend {
     }
 
     func transport() async throws -> HermesTransport {
+        try await features().contains("session_chat_streaming") ? .nativeSessions : .legacyChatCompletions
+    }
+
+    /// True `/v1/capabilities` feature flags, cached per server and profile; a 404 means none.
+    func features() async throws -> Set<String> {
         let cacheKey = "\(baseURL.absoluteString)|\(profile)"
-        if let cached = await HermesCapabilityRegistry.shared.value(for: cacheKey) {
-            return cached ? .nativeSessions : .legacyChatCompletions
-        }
-        let native: Bool
+        if let cached = await HermesCapabilityRegistry.shared.value(for: cacheKey) { return cached }
+        let flags: Set<String>
         do {
-            let json = try await jsonRequest(path: "v1/capabilities")
-            let features = json["features"] as? [String: Any]
-            native = (features?["session_chat_streaming"] as? Bool) == true
+            let features = try await jsonRequest(path: "v1/capabilities")["features"] as? [String: Any] ?? [:]
+            flags = Set(features.compactMap { ($0.value as? Bool) == true ? $0.key : nil })
         } catch BackendError.http(let code, _) where code == 404 {
-            native = false
+            flags = []
         }
-        await HermesCapabilityRegistry.shared.set(native, for: cacheKey)
-        return native ? .nativeSessions : .legacyChatCompletions
+        await HermesCapabilityRegistry.shared.set(flags, for: cacheKey)
+        return flags
+    }
+
+    /// `POST /v1/runs/{run_id}/steer` with `{"input": text}`; Hermes answers 409 when the run no longer takes input.
+    func steer(sessionID: String, text: String) async throws {
+        guard try await features().contains("run_steer") else { throw BackendError.unavailable("This Hermes server cannot steer a running turn.") }
+        guard let runID = await HermesRunRegistry.shared.get(sessionID) else { throw BackendError.unavailable("Hermes has not reported a run for this turn yet.") }
+        let json = try await jsonRequest(path: "v1/runs/\(runID)/steer", method: "POST", body: ["input": text], timeout: 8)
+        if (json["accepted"] as? Bool) == false { throw BackendError.unavailable("Hermes did not accept the steer message.") }
+    }
+
+    /// `POST /api/sessions/{id}/fork` with an optional `id`; Hermes copies the whole transcript into the new
+    /// session, marks the source as branched (it stays usable) and returns `{"session": {"id": …}}`.
+    func forkSession(sessionID: String, id: String?) async throws -> String {
+        guard try await features().contains("session_fork") else { throw BackendError.unavailable("This Hermes server cannot fork a conversation.") }
+        let escaped = sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionID
+        let json = try await jsonRequest(path: "api/sessions/\(escaped)/fork", method: "POST", body: id.map { ["id": $0] } ?? [:])
+        guard let session = json["session"] as? [String: Any], let forkID = session["id"] as? String else { throw BackendError.unavailable("Hermes returned no fork session ID.") }
+        return forkID
+    }
+
+    /// Text plus `image_url` parts (the Chat Completions shape both Hermes endpoints normalise); plain text without images.
+    static func contentParts(text: String, images: [String]) -> Any {
+        guard !images.isEmpty else { return text }
+        let textPart: [[String: Any]] = text.isEmpty ? [] : [["type": "text", "text": text]]
+        return textPart + images.map { ["type": "image_url", "image_url": ["url": $0]] }
     }
     func sessionTransport() async throws -> HermesTransport? { try await transport() }
 
@@ -226,7 +253,7 @@ struct HermesBackend: AgentBackend {
         let escaped = request.sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? request.sessionID
         var urlRequest = try makeRequest(path: "api/sessions/\(escaped)/chat/stream", method: "POST")
         let input = request.messages.last(where: { $0.role == "user" })?.content ?? ""
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: ["input": input, "instructions": request.systemPrompt])
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: ["input": Self.contentParts(text: input, images: request.images), "instructions": request.systemPrompt])
         return sseStream(urlRequest, sessionID: request.sessionID, legacy: false)
     }
 
@@ -234,8 +261,11 @@ struct HermesBackend: AgentBackend {
         var urlRequest = try makeRequest(path: "v1/chat/completions", method: "POST")
         urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         urlRequest.setValue(request.sessionID, forHTTPHeaderField: "X-Hermes-Session-Id")
-        var messages = [["role": "system", "content": request.systemPrompt]]
+        var messages: [[String: Any]] = [["role": "system", "content": request.systemPrompt]]
         messages.append(contentsOf: request.messages.map { ["role": $0.role, "content": $0.content] })
+        if !request.images.isEmpty, let last = messages.lastIndex(where: { $0["role"] as? String == "user" }) {
+            messages[last]["content"] = Self.contentParts(text: messages[last]["content"] as? String ?? "", images: request.images)
+        }
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: ["model": "hermes-agent", "stream": true, "messages": messages])
         return sseStream(urlRequest, sessionID: request.sessionID, legacy: true)
     }
