@@ -5,6 +5,7 @@ import SwiftUI
 /// `AgentApp --render-snapshot <dir> [--bot "<name>"]...` renders the real UI from the saved store without
 /// showing a window: `main.png` (first Grok bot selected), and per bot `<slug>.png` (Grok history expanded)
 /// plus `info-<slug>.png` (its right panel). Dark, 1280×800 points at scale 2. Nothing is saved to the store.
+/// The only network calls are read-only GETs for each named bot's Overview (capabilities, skills, toolsets, model).
 @MainActor enum HeadlessSnapshot {
     static let size = NSSize(width: 1280, height: 800)
     static let infoSize = NSSize(width: 360, height: 800)
@@ -19,16 +20,16 @@ import SwiftUI
             names.append(arguments[index + 1])
         }
         let directory = URL(fileURLWithPath: (arguments[flag + 1] as NSString).expandingTildeInPath, isDirectory: true)
-        // Same store location and decoding as the app; no Hermes refresh, so nothing goes over the network.
+        // Same store location and decoding as the app; no Hermes history refresh.
         SecKeychainSetUserInteractionAllowed(false)
         let store = AppStore(autoConfigureHermes: false)
         var code: Int32?
-        Task { @MainActor in code = await render(store: store, to: directory, botNames: names, output: { print($0); fflush(stdout) }) }
+        Task { @MainActor in code = await render(store: store, to: directory, botNames: names, loadOverview: true, output: { print($0); fflush(stdout) }) }
         while code == nil { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
         return code!
     }
 
-    static func render(store: AppStore, to directory: URL, botNames: [String], output: (String) -> Void) async -> Int32 {
+    static func render(store: AppStore, to directory: URL, botNames: [String], loadOverview: Bool = false, output: (String) -> Void) async -> Int32 {
         if let repo = enclosingRepository(of: directory) { output("Refused: \(directory.path) is inside the repository \(repo.path)."); return 2 }
         var bots: [Bot] = []
         for name in botNames {
@@ -44,8 +45,10 @@ import SwiftUI
         defer { store.selectedBot = previousSelection; store.showInfo = previousInfo }
         store.showInfo = true
         let firstGrokBot = store.bots.first { $0.grokSourceID != nil && !$0.isReadOnlyArchive && !$0.isHidden } ?? store.bots.first
+        if loadOverview, let firstGrokBot, !bots.contains(firstGrokBot) { await store.loadServerInfo(for: firstGrokBot) }
         var shots: [(file: String, selected: Bot?, render: () async -> Data?)] = [("main.png", firstGrokBot, { await SnapshotRenderer.contentPNG(store: store, size: size) })]
         for bot in bots {
+            if loadOverview { await store.loadServerInfo(for: bot); output(overviewSummary(store: store, bot: bot)) }
             shots.append(("\(slug(bot.name)).png", bot, { await SnapshotRenderer.contentPNG(store: store, size: size, historyExpanded: true) }))
             shots.append(("info-\(slug(bot.name)).png", bot, { await SnapshotRenderer.png(InfoPanel(bot: bot).environmentObject(store), size: infoSize) }))
         }
@@ -61,6 +64,20 @@ import SwiftUI
             } catch { output("\(url.path): \(error.localizedDescription)"); failures += 1 }
         }
         return failures == 0 ? 0 : 1
+    }
+
+    static func overviewSummary(store: AppStore, bot: Bot) -> String {
+        guard let info = store.botInfo.info(for: bot.id) else { return "\(bot.name): Overview has no server info (not a Hermes bot)" }
+        func describe<T>(_ value: Loadable<[T]>) -> String {
+            switch value {
+            case .loaded(let items): "\(items.count)"
+            case .loading: "loading"
+            case .unavailable(let reason), .failed(let reason): "n/a (\(reason))"
+            }
+        }
+        let model = store.currentModel(for: bot).map { "\($0.model) (\($0.source))" } ?? "unknown"
+        let picker = info.showsModelPicker ? (info.canLockSessionModel ? "picker on" : "picker read-only") : "picker hidden"
+        return "\(bot.name): Overview skills \(describe(info.skills)), toolsets \(describe(info.toolsets)), model \(model), \(picker)"
     }
 
     static func slug(_ name: String) -> String {

@@ -1,0 +1,134 @@
+import Foundation
+
+/// What `/v1/capabilities` advertises. Features are picked by flag and endpoint presence, never by version.
+struct HermesCapabilities: Sendable, Equatable {
+    var features: [String: Bool] = [:]
+    var endpoints: Set<String> = []
+    /// The virtual model alias the gateway advertises (e.g. `hermes-agent`, or the profile name when multiplexed).
+    var model: String?
+
+    /// A flag set to `false` turns the feature off. Without the flag, a listed endpoint (or no endpoint list at
+    /// all) means "try it"; the caller still hides the feature when the route 404s.
+    func supports(_ flag: String, endpoint: String) -> Bool {
+        if let value = features[flag] { return value }
+        return endpoints.isEmpty || endpoints.contains(endpoint)
+    }
+    var skills: Bool { supports("skills_api", endpoint: "skills") }
+    /// `/v1/toolsets` has no flag of its own; it ships alongside `skills_api` and is listed under `endpoints`.
+    var toolsets: Bool { endpoints.isEmpty ? features["skills_api"] != false : endpoints.contains("toolsets") }
+    var modelOptions: Bool { supports("model_options", endpoint: "model_options") }
+    var sessionModelLock: Bool { supports("session_model_lock", endpoint: "session_model_lock") }
+
+    static func parse(_ json: [String: Any]) -> HermesCapabilities {
+        let features = (json["features"] as? [String: Any] ?? [:]).compactMapValues { $0 as? Bool }
+        let endpoints = Set((json["endpoints"] as? [String: Any] ?? [:]).keys)
+        return .init(features: features, endpoints: endpoints, model: json["model"] as? String)
+    }
+}
+
+struct HermesSkill: Sendable, Equatable, Identifiable {
+    var id: String { name }
+    let name: String; let description: String; let category: String?
+
+    static func parseList(_ json: [String: Any]) -> [HermesSkill] {
+        ((json["data"] as? [[String: Any]]) ?? []).compactMap { row in
+            guard let name = (row["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
+            let category = (row["category"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return .init(name: name, description: oneLine(row["description"] as? String ?? ""), category: category)
+        }
+    }
+
+    static func oneLine(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+    }
+}
+
+struct HermesToolset: Sendable, Equatable, Identifiable {
+    var id: String { name }
+    let name: String; let label: String; let description: String
+    let enabled: Bool?; let configured: Bool?; let tools: [String]
+
+    static func parseList(_ json: [String: Any]) -> [HermesToolset] {
+        ((json["data"] as? [[String: Any]]) ?? []).compactMap { row in
+            guard let name = row["name"] as? String, !name.isEmpty else { return nil }
+            let label = (row["label"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? name
+            return .init(name: name, label: label, description: HermesSkill.oneLine(row["description"] as? String ?? ""),
+                         enabled: row["enabled"] as? Bool, configured: row["configured"] as? Bool, tools: row["tools"] as? [String] ?? [])
+        }
+    }
+}
+
+struct HermesModelProvider: Sendable, Equatable, Identifiable {
+    var id: String { slug }
+    let slug: String; let name: String; let models: [String]; let isCurrent: Bool
+    /// `false` for catalogue rows the box has no credentials for; such rows are not offered.
+    let authenticated: Bool?
+}
+
+struct HermesModelOptions: Sendable, Equatable {
+    let providers: [HermesModelProvider]
+    /// The gateway's configured default.
+    let model: String?; let provider: String?
+
+    /// Providers a chat can actually be switched to (credentials present, at least one model).
+    var selectable: [HermesModelProvider] { providers.filter { $0.authenticated != false && !$0.models.isEmpty } }
+
+    static func parse(_ json: [String: Any]) -> HermesModelOptions {
+        let rows = (json["providers"] as? [[String: Any]]) ?? []
+        let providers: [HermesModelProvider] = rows.compactMap { row in
+            guard let slug = row["slug"] as? String, !slug.isEmpty else { return nil }
+            let models: [String] = ((row["models"] as? [Any]) ?? []).compactMap { item in
+                if let id = item as? String { return id }
+                guard let object = item as? [String: Any] else { return nil }
+                return (object["id"] ?? object["name"]) as? String
+            }.filter { !$0.isEmpty }
+            return .init(slug: slug, name: (row["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? slug, models: models,
+                         isCurrent: row["is_current"] as? Bool ?? false, authenticated: row["authenticated"] as? Bool)
+        }
+        return .init(providers: providers, model: (json["model"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                     provider: (json["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+    }
+}
+
+/// A chat's confirmed model lock as acknowledged by `POST /api/sessions/{id}/model`.
+struct HermesModelLock: Codable, Sendable, Equatable { let sessionID: String; let provider: String; let model: String }
+
+extension HermesBackend {
+    /// `nil` when the server has no `/v1/capabilities` (old gateway): every optional feature is then hidden.
+    func capabilities() async throws -> HermesCapabilities? {
+        do { return HermesCapabilities.parse(try await jsonRequest(path: "v1/capabilities")) }
+        catch BackendError.http(404, _) { return nil }
+    }
+
+    func skills() async throws -> [HermesSkill] { HermesSkill.parseList(try await jsonRequest(path: "v1/skills")) }
+    func toolsets() async throws -> [HermesToolset] { HermesToolset.parseList(try await jsonRequest(path: "v1/toolsets")) }
+    func modelOptions() async throws -> HermesModelOptions { HermesModelOptions.parse(try await jsonRequest(path: "api/model/options")) }
+
+    /// The `model` stored on the session row (`GET /api/sessions/{id}` → `session.model`).
+    func sessionModel(sessionID: String) async throws -> String? {
+        let json = try await jsonRequest(path: "api/sessions/\(Self.escapedPath(sessionID))")
+        return ((json["session"] as? [String: Any])?["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Locks the session to `provider`/`model`. The body carries ids only — the server resolves credentials from its
+    /// own config. Hermes forces `require_model_lock`, answers 409 when the pair cannot be routed (it refuses a silent
+    /// fallback to the global default) and 400 when neither is given.
+    func lockSessionModel(sessionID: String, provider: String, model: String) async throws -> HermesModelLock {
+        let json = try await jsonRequest(path: "api/sessions/\(Self.escapedPath(sessionID))/model", method: "POST", body: Self.modelLockBody(provider: provider, model: model))
+        let runtime = json["runtime"] as? [String: Any] ?? [:]
+        guard (runtime["model_lock"] as? String ?? "accepted") == "accepted" else { throw BackendError.unavailable("Hermes did not accept the model change.") }
+        let acceptedModel = (runtime["model"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? model
+        let acceptedProvider = (runtime["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? provider
+        return .init(sessionID: sessionID, provider: acceptedProvider, model: acceptedModel)
+    }
+
+    static func modelLockBody(provider: String, model: String) -> [String: Any] {
+        var body: [String: Any] = ["model": model]
+        if !provider.isEmpty { body["provider"] = provider }
+        return body
+    }
+
+    static func escapedPath(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? value
+    }
+}
