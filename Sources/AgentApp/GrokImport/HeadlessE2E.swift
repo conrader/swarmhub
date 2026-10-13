@@ -272,7 +272,7 @@ import Security
         return true
     }
 
-    static func sameModel(_ a: String, _ b: String) -> Bool { a == b || a.hasSuffix("/" + b) || b.hasSuffix("/" + a) }
+    static func sameModel(_ a: String, _ b: String) -> Bool { HermesModelOptions.sameModel(a, b) }
     static func oneLine(_ text: String) -> String { text.split(whereSeparator: \.isNewline).joined(separator: " ⏎ ").trimmingCharacters(in: .whitespaces) }
     static func snippet(_ text: String) -> String { text.isEmpty ? "(empty)" : text.count > 160 ? String(text.prefix(160)) + "…" : text }
 }

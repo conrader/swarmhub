@@ -5,7 +5,8 @@ import SwiftUI
 /// `AgentApp --render-snapshot <dir> [--bot "<name>"]...` renders the real UI from the saved store without
 /// showing a window: `main.png` (first Grok bot selected), and per bot `<slug>.png` (Grok history expanded)
 /// plus `info-<slug>.png` (its right panel). Dark, 1280×800 points at scale 2. Nothing is saved to the store.
-/// The only network calls are read-only GETs for each named bot's Overview (capabilities, skills, toolsets, model).
+/// The only network calls are read-only GETs for each named bot's Overview (capabilities, skills, toolsets, model);
+/// each named bot also gets one model-menu line from the same `ModelPickerModel` the Overview draws.
 @MainActor enum HeadlessSnapshot {
     static let size = NSSize(width: 1280, height: 800)
     static let infoSize = NSSize(width: 360, height: 800)
@@ -48,7 +49,7 @@ import SwiftUI
         if loadOverview, let firstGrokBot, !bots.contains(firstGrokBot) { await store.loadServerInfo(for: firstGrokBot) }
         var shots: [(file: String, selected: Bot?, render: () async -> Data?)] = [("main.png", firstGrokBot, { await SnapshotRenderer.contentPNG(store: store, size: size) })]
         for bot in bots {
-            if loadOverview { await store.loadServerInfo(for: bot); output(overviewSummary(store: store, bot: bot)) }
+            if loadOverview { await store.loadServerInfo(for: bot); output(overviewSummary(store: store, bot: bot)); output(store.modelMenuSummary(for: bot)) }
             shots.append(("\(slug(bot.name)).png", bot, { await SnapshotRenderer.contentPNG(store: store, size: size, historyExpanded: true) }))
             shots.append(("info-\(slug(bot.name)).png", bot, { await SnapshotRenderer.png(InfoPanel(bot: bot).environmentObject(store), size: infoSize) }))
         }

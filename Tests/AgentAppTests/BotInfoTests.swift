@@ -206,7 +206,10 @@ private func botInfoHandler(capabilities: [String: Any]?, modelOptionsStatus: In
 @Test func currentModelPrefersSessionLockThenSessionThenDefault() {
     let options = HermesModelOptions.parse(modelOptionsPayload())
     let lock = HermesModelLock(sessionID: "s1", provider: "router", model: "m-lock")
-    #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s1", sessionModel: "m-row", aliases: [], options: options)?.model == "m-lock")
+    // P11: the session row beats a local lock when it reports a different concrete model (changed from another client).
+    #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s1", sessionModel: "m-row", aliases: [], options: options) == .init(model: "m-row", provider: nil, source: "this chat"))
+    #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s1", sessionModel: "vendor/m-lock", aliases: [], options: options)?.model == "m-lock")
+    #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s1", sessionModel: nil, aliases: [], options: options)?.model == "m-lock")
     #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s9", sessionModel: "m-row", aliases: [], options: options) == .init(model: "m-row", provider: nil, source: "this chat"))
     #expect(BotInfoCache.currentModel(lock: nil, sessionID: "s1", sessionModel: "hermes-agent", aliases: ["hermes-agent"], options: options)?.source == "server default")
     #expect(BotInfoCache.currentModel(lock: nil, sessionID: nil, sessionModel: nil, aliases: [], options: nil) == nil)
