@@ -50,7 +50,8 @@ This pass recreates the product structure and interaction patterns with original
 | Replies and tapbacks | Partial | Reply context and emoji reactions are stored on messages, but replies are display-only and reaction edits are not saved immediately. |
 | Inline content | Stub | Cards are local visual prototypes. Options, links, voice, images, and attachments do not perform backend actions; draft-email Send is explicitly disabled. |
 | Composer | Stub | Text send, Enter/Shift+Enter, Stop, and a file picker exist; selected files are only inserted as attachment text and are not uploaded. |
-| Overview | Done | Identity, description, memory summary, and skills. |
+| Overview | Done | Identity, description and memory summary; for Hermes bots the profile's real skills (`/p/<profile>/v1/skills`: name, one-line description, grouped by category, searchable above 12) and toolsets (`/v1/toolsets`: label, description, On/Off/Needs setup), cached per bot for the app session with a refresh button and explicit empty/unavailable/error states. Locally imported template skills are listed separately as "Imported (not on server)". |
+| Model per chat | Done | Overview shows the chat's model (confirmed lock for this session, else the session row's `model`, else the server default from `/api/model/options`) and a picker of credentialed providers → models with the current one checked. Choosing one sends `POST /api/sessions/{id}/model` with `{model, provider}` only (no credentials); a 409 (unroutable, Hermes refuses a silent fallback) is shown and nothing is stored. The confirmed lock is remembered per session. The picker is hidden when `model_options` is false or the route 404s, and read-only without `session_model_lock`. |
 | Routines | Stub | Create, pause, schedule/trigger, and last-run UI use local mock data; backend scheduling is TODO. |
 | Media | Partial | A grid is sourced from attachment/image messages, but it uses placeholders and items do not open. |
 | Computer | Partial | Configurable noVNC preview and expanded sheet exist; view-only and take-over modes are not distinct. |
@@ -91,6 +92,7 @@ Checked against Hermes Agent v0.21.7 (`v2026.9.24`) tagged source and a throwawa
 - Enable the server with `API_SERVER_ENABLED=true` and set `API_SERVER_KEY` in `~/.hermes/.env`.
 - Start it with `hermes gateway run`; its documented default is `http://127.0.0.1:8642`.
 - AgentApp uses `/v1/capabilities`, native `/api/sessions/*` resources and session SSE, plus `/v1/runs/{id}/stop` and `/approval`.
+- The Overview reads `/v1/skills`, `/v1/toolsets` and `/api/model/options` and switches a chat's model with `POST /api/sessions/{id}/model`, each only when `/v1/capabilities` advertises it (`skills_api`, the `toolsets` endpoint, `model_options`, `session_model_lock`) and the route answers; same shapes on 0.20.5 (`v2026.8.19`) and 0.21.x.
 - Connection testing calls authenticated `/health/detailed` and displays the server version.
 - Older servers without capabilities fall back to OpenAI-compatible `POST /v1/chat/completions` SSE before any unsupported Sessions call.
 

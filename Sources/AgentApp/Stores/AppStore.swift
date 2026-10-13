@@ -19,6 +19,7 @@ private actor ReviewerStopTargetBox {
     @Published var editingBot: Bot?; @Published var errorMessage: String?
     /// Profiles whose `/p/<profile>/` prefix the server ignored (multiplexing off). Never routed to.
     @Published var prefixIgnoredHermesProfiles: Set<String> = []
+    let botInfo = BotInfoCache()
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     private var streamTask: Task<Void, Never>?; let fileURL: URL
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
@@ -82,6 +83,7 @@ private actor ReviewerStopTargetBox {
         }
         selectedBot = bots.first
         if !demoMode, autoConfigureHermes, hermesConfigured { Task { await refreshHermesAgents() } }
+        botInfo.autoLoad = !demoMode && autoConfigureHermes
     }
 
     static var hasHermesConfiguration: Bool { UserDefaults.standard.object(forKey: "hermesBaseURL") != nil || !KeychainStore.get(account: "hermes").isEmpty }

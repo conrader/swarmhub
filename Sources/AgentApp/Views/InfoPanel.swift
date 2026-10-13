@@ -34,7 +34,7 @@ struct InfoPanel: View {
                 HStack(spacing: 12) { BotAvatar(bot: bot, size: 52); VStack(alignment: .leading) { Text(bot.name).font(.headline); Text(bot.title).foregroundStyle(.secondary) } }
                 Text(bot.botDescription.isEmpty ? "No description yet." : bot.botDescription).foregroundStyle(.secondary)
                 infoSection("Memory", text: bot.memorySummary.isEmpty ? "Memory will appear as this bot learns your preferences." : bot.memorySummary)
-                VStack(alignment: .leading, spacing: 8) { Text("Skills").font(.headline); FlowLayout(items: bot.skills.isEmpty ? ["No skills configured"] : bot.skills) }
+                BotCapabilitiesView(bot: bot, cache: store.botInfo)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack { Text("Approval policy").font(.headline); Spacer(); Text(bot.approvalMode.rawValue).font(.caption).foregroundStyle(.secondary) }
                     ForEach(bot.approvalAudit.suffix(20).reversed()) { entry in
@@ -72,6 +72,5 @@ struct InfoPanel: View {
     private func member(_ name: String, role: String) -> some View { HStack { Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(.secondary); VStack(alignment: .leading) { Text(name); Text(role).font(.caption).foregroundStyle(.secondary) } } }
 }
 
-private struct FlowLayout: View { let items: [String]; var body: some View { VStack(alignment: .leading, spacing: 6) { ForEach(items, id: \.self) { Text($0).font(.caption).padding(.horizontal, 9).padding(.vertical, 5).background(.primary.opacity(0.06), in: Capsule()) } } } }
 private struct RoutineRow: View { @State var routine: BotRoutine; let update: (BotRoutine) -> Void; var body: some View { VStack(alignment: .leading, spacing: 5) { HStack { Text(routine.name).fontWeight(.medium); Spacer(); Toggle("", isOn: $routine.isEnabled).labelsHidden().controlSize(.small).onChange(of: routine.isEnabled) { _, _ in update(routine) } }; Text(routine.schedule).font(.caption).foregroundStyle(.secondary); Text("Last run: \(routine.lastRun)").font(.caption2).foregroundStyle(.tertiary) }.padding(10).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 9)) } }
 private struct RoutineEditor: View { @EnvironmentObject var store: AppStore; @Environment(\.dismiss) var dismiss; let bot: Bot; @State var name = ""; @State var schedule = "Every weekday at 9:00"; var body: some View { VStack(alignment: .leading, spacing: 16) { Text("New routine").font(.title2.bold()); TextField("Name", text: $name); TextField("Schedule or trigger", text: $schedule); Text("TODO: backend scheduling is mocked locally.").font(.caption).foregroundStyle(.secondary); HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Create") { bot.routines.append(.init(name: name, schedule: schedule)); store.save(); dismiss() }.buttonStyle(.borderedProminent).disabled(name.isEmpty) } }.padding(22).frame(width: 420) } }

@@ -148,7 +148,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     @Published var importedMemories: [String]; @Published var importedSkills: [ImportedTemplateSkill]
     @Published var requestedConnectorIDs: [String]; @Published var gettingStartedSkill: ImportedTemplateSkill?
     @Published var routines: [BotRoutine]
-    @Published var hermesProfile: String?; @Published var hermesSessionID: String?
+    @Published var hermesProfile: String?; @Published var hermesSessionID: String?; @Published var hermesModelLock: HermesModelLock?
     @Published var approvalMode: ApprovalMode; @Published var approvalRules: [ApprovalRule]; @Published var reviewerBotID: UUID?
     @Published var approvalAudit: [ApprovalAuditEntry]
     @Published var isDemo: Bool
@@ -161,11 +161,11 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     init(name: String, title: String = "Personal agent", description: String = "", persona: String = "You are a thoughtful, capable assistant.", backend: BackendKind = .mock, avatarName: BotAvatarName = .faceCoral, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, memorySummary: String = "", skills: [String] = [], importedMemories: [String] = [], importedSkills: [ImportedTemplateSkill] = [], requestedConnectorIDs: [String] = [], gettingStartedSkill: ImportedTemplateSkill? = nil, routines: [BotRoutine] = [], messages: [ChatMessage] = [], hermesProfile: String? = nil, hermesSessionID: String? = nil, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, isDemo: Bool = false) {
         id = UUID(); self.name = name; self.title = title; botDescription = description; self.persona = persona; self.backend = backend
         self.avatarName = avatarName; self.unreadCount = unreadCount; self.isHidden = isHidden; self.notificationsEnabled = notificationsEnabled
-        self.memorySummary = memorySummary; self.skills = skills; self.importedMemories = importedMemories; self.importedSkills = importedSkills; self.requestedConnectorIDs = requestedConnectorIDs; self.gettingStartedSkill = gettingStartedSkill; self.routines = routines; self.hermesProfile = hermesProfile; self.hermesSessionID = hermesSessionID; self.approvalMode = approvalMode; self.approvalRules = approvalRules; self.reviewerBotID = reviewerBotID; approvalAudit = []; self.isDemo = isDemo; hermesBaseURL = nil; accentColor = nil; grokSourceID = nil; grokHistoryCount = 0; archivedMembers = nil; createdAt = .now; self.messages = messages
+        self.memorySummary = memorySummary; self.skills = skills; self.importedMemories = importedMemories; self.importedSkills = importedSkills; self.requestedConnectorIDs = requestedConnectorIDs; self.gettingStartedSkill = gettingStartedSkill; self.routines = routines; self.hermesProfile = hermesProfile; self.hermesSessionID = hermesSessionID; self.approvalMode = approvalMode; self.approvalRules = approvalRules; self.reviewerBotID = reviewerBotID; approvalAudit = []; self.isDemo = isDemo; hermesBaseURL = nil; accentColor = nil; grokSourceID = nil; grokHistoryCount = 0; archivedMembers = nil; hermesModelLock = nil; createdAt = .now; self.messages = messages
     }
     static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, createdAt, messages }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, hermesModelLock, createdAt, messages }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -185,7 +185,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         isDemo = try c.decodeIfPresent(Bool.self, forKey: .isDemo) ?? Bot.looksLikeLegacyDemo(name: decodedName, backend: decodedBackend)
         hermesBaseURL = try c.decodeIfPresent(String.self, forKey: .hermesBaseURL); accentColor = try c.decodeIfPresent(String.self, forKey: .accentColor)
         grokSourceID = try c.decodeIfPresent(String.self, forKey: .grokSourceID); grokHistoryCount = try c.decodeIfPresent(Int.self, forKey: .grokHistoryCount) ?? 0
-        archivedMembers = try c.decodeIfPresent([String].self, forKey: .archivedMembers)
+        archivedMembers = try c.decodeIfPresent([String].self, forKey: .archivedMembers); hermesModelLock = try c.decodeIfPresent(HermesModelLock.self, forKey: .hermesModelLock)
         createdAt = try c.decode(Date.self, forKey: .createdAt); messages = try c.decode([ChatMessage].self, forKey: .messages)
     }
     private static func looksLikeLegacyDemo(name: String, backend: BackendKind) -> Bool {
@@ -199,7 +199,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         try c.encode(importedMemories, forKey: .importedMemories); try c.encode(importedSkills, forKey: .importedSkills); try c.encode(requestedConnectorIDs, forKey: .requestedConnectorIDs); try c.encodeIfPresent(gettingStartedSkill, forKey: .gettingStartedSkill); try c.encode(routines, forKey: .routines)
         try c.encodeIfPresent(hermesProfile, forKey: .hermesProfile); try c.encodeIfPresent(hermesSessionID, forKey: .hermesSessionID); try c.encode(approvalMode, forKey: .approvalMode); try c.encode(approvalRules, forKey: .approvalRules); try c.encodeIfPresent(reviewerBotID, forKey: .reviewerBotID); try c.encode(approvalAudit, forKey: .approvalAudit); try c.encode(isDemo, forKey: .isDemo)
         try c.encodeIfPresent(hermesBaseURL, forKey: .hermesBaseURL); try c.encodeIfPresent(accentColor, forKey: .accentColor); try c.encodeIfPresent(grokSourceID, forKey: .grokSourceID)
-        try c.encode(grokHistoryCount, forKey: .grokHistoryCount); try c.encodeIfPresent(archivedMembers, forKey: .archivedMembers)
+        try c.encode(grokHistoryCount, forKey: .grokHistoryCount); try c.encodeIfPresent(archivedMembers, forKey: .archivedMembers); try c.encodeIfPresent(hermesModelLock, forKey: .hermesModelLock)
     }
 }
 
