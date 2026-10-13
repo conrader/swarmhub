@@ -3,7 +3,7 @@ import UserNotifications
 
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
-    private enum Pane: String, CaseIterable, Identifiable { case account = "Account", appearance = "Appearance", notifications = "Notifications", computers = "Computers", review = "Auto-review", usage = "Usage", updates = "Updates"; var id: String { rawValue }; var icon: String { switch self { case .account: "person.crop.circle"; case .appearance: "paintpalette"; case .notifications: "bell"; case .computers: "desktopcomputer"; case .review: "checkmark.shield"; case .usage: "chart.bar"; case .updates: "arrow.triangle.2.circlepath" } } }
+    private enum Pane: String, CaseIterable, Identifiable { case account = "Account", appearance = "Appearance", notifications = "Notifications", computers = "Computers", review = "Auto-review", models = "Models", usage = "Usage", updates = "Updates"; var id: String { rawValue }; var icon: String { switch self { case .account: "person.crop.circle"; case .appearance: "paintpalette"; case .notifications: "bell"; case .computers: "desktopcomputer"; case .review: "checkmark.shield"; case .models: "cpu"; case .usage: "chart.bar"; case .updates: "arrow.triangle.2.circlepath" } } }
     @State private var pane = Pane.account
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference; @AppStorage("accent") private var accent = AppTheme.defaultAccent; @AppStorage("notifications") private var notifications = false
     var body: some View {
@@ -46,6 +46,7 @@ struct SettingsView: View {
                     }
                 }
             }
+        case .models: SettingsModelsPane(cache: store.botInfo)
         case .usage: SettingsUsagePane()
         case .updates: SettingsUpdatesPane()
         }
