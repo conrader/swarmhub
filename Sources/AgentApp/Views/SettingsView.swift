@@ -29,7 +29,7 @@ struct SettingsView: View {
                 guard enabled, Bundle.main.bundleIdentifier != nil else { return }
                 UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
             }
-            if Bundle.main.bundleIdentifier == nil { Text("Notifications require running AgentApp from an application bundle.").font(.caption).foregroundStyle(.secondary) }
+            if Bundle.main.bundleIdentifier == nil { Text("Notifications require running " + AppConstants.name + " from an application bundle.").font(.caption).foregroundStyle(.secondary) }
             Text("Each bot can be muted from its context menu or settings.").font(.caption).foregroundStyle(.secondary)
         case .computers:
             Section("Hermes Agent") {

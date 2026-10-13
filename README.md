@@ -1,6 +1,6 @@
-# AgentApp
+# Torvli
 
-A native macOS prototype for chatting with user-owned agent harnesses. There is no built-in model. The working name is defined once in `AppConstants.name` so it can be renamed later.
+A native macOS prototype for chatting with user-owned agent harnesses. There is no built-in model. The user-facing name is defined once in `AppConstants.name`; the Swift package, module and executable keep the original `AgentApp` codename, and the bundle identifier and Keychain service stay `com.konrad.agentapp` so existing settings and keys carry over.
 
 ## Build and run
 

@@ -11,8 +11,8 @@ if [[ -n "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal)" ]];
 fi
 DIRTY_SUMMARY="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal)"
 DIRTY_SUMMARY_SHA="$(printf '%s' "$DIRTY_SUMMARY" | shasum -a 256 | awk '{print $1}')"
-APP_DIR="$ROOT_DIR/dist/AgentApp.app"
-ZIP_PATH="$ROOT_DIR/dist/AgentApp-${SOURCE_SHA}${DIRTY_SUFFIX}-arm64.zip"
+APP_DIR="$ROOT_DIR/dist/Torvli.app"
+ZIP_PATH="$ROOT_DIR/dist/Torvli-${SOURCE_SHA}${DIRTY_SUFFIX}-arm64.zip"
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
