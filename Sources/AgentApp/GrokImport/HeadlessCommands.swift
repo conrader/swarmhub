@@ -8,6 +8,7 @@ import Foundation
 ///   AgentApp --render-snapshot <dir> [--bot "<name>"]...         (see HeadlessSnapshot.swift)
 ///   AgentApp --migrate-store                                      (see HeadlessGroups.swift)
 ///   AgentApp --e2e                       (live self-test in throwaway sessions; see HeadlessE2E.swift)
+///   AgentApp --grok-spike <report.json>  (throwaway P10.0 go/no-go harness; see HeadlessGrok.swift)
 @MainActor enum HeadlessCommands {
     /// Returns an exit code when a headless command was requested, otherwise nil.
     static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Int32? {
@@ -15,6 +16,7 @@ import Foundation
         if arguments.contains("--render-snapshot") { return HeadlessSnapshot.run(arguments: arguments) }
         if arguments.contains("--migrate-store") { return migrateStore() }
         if arguments.contains("--e2e") { return HeadlessE2E.run(arguments: arguments) }
+        if let code = HeadlessGrok.runIfRequested(arguments: arguments) { return code }
         guard let flagIndex = arguments.firstIndex(where: { $0 == "--import-grok" || $0 == "--import-keys" }) else { return nil }
         guard arguments.indices.contains(flagIndex + 1) else { print("Usage: AgentApp --import-grok <folder> | --import-keys <file>"); return 64 }
         let path = (arguments[flagIndex + 1] as NSString).expandingTildeInPath
