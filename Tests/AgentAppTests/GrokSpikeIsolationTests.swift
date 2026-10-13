@@ -19,7 +19,7 @@ import Testing
         // Empty secrets fail at the first guard, before any Keychain read or network call; the point is that
         // entering and leaving liveSteps never needs the main actor.
         let outcome = try #require(HeadlessGrokLive.blockingRun(timeout: Self.soon()) {
-            await HeadlessGrokLive.liveSteps(agentID: "agent", secretsData: Data(), version: "0.0.0")
+            await HeadlessGrokLive.liveSteps(agentID: "agent", secretsData: Data(), key: [], version: "0.0.0")
         })
         #expect(outcome.stepF == nil)
         #expect(outcome.stepG == nil)

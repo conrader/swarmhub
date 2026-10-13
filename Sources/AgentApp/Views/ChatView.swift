@@ -44,6 +44,8 @@ struct ChatView: View {
             if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
             if bot.isReadOnlyArchive {
                 Text("Read-only archive imported from Grok Bot.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity).background(AppColor.chat)
+            } else if bot.isGrokHistoryOnly {
+                HistoryOnlyBanner().frame(maxWidth: .infinity).background(AppColor.chat)
             } else if store.needsKey(bot) {
                 AddKeyBanner(bot: bot).frame(maxWidth: .infinity).background(AppColor.chat)
             } else {
@@ -54,7 +56,7 @@ struct ChatView: View {
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in
                 let files = urls.filter(\.isFileURL)
-                guard !files.isEmpty, !bot.isReadOnlyArchive else { return false }
+                guard !files.isEmpty, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly else { return false }
                 attach(files); return true
             }
             .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); store.refreshFeatures(for: bot) }

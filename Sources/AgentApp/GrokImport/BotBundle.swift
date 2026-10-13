@@ -1,16 +1,27 @@
 import Foundation
 
-/// `agentapp-bot-bundle/v1` as written by `scripts/export-grokbot.py` (spec: docs/agentapp-bot-bundle-v1.md).
-struct GrokBotBundle: Decodable, Equatable {
-    struct Avatar: Decodable, Equatable { var shape: String?; var colour: String? }
-    struct Member: Decodable, Equatable { var sourceId: String; var name: String; var profile: String? }
-    struct Message: Decodable, Equatable {
+/// `agentapp-bot-bundle/v1` as written by `scripts/export-grokbot.py` (spec: docs/agentapp-bot-bundle-v1.md) or built in
+/// memory by `GrokBundleBuilder`. Lenient: every field added after P6 is optional, so older bundles still decode.
+struct GrokBotBundle: Decodable, Equatable, Sendable {
+    struct Avatar: Decodable, Equatable, Sendable { var shape: String?; var colour: String? }
+    struct Member: Decodable, Equatable, Sendable { var sourceId: String; var name: String; var profile: String? }
+    struct Attachment: Decodable, Equatable, Sendable { var file: String; var available: Bool? }
+    struct Message: Decodable, Equatable, Sendable {
         var id: String; var seq: Int64; var role: String; var author: String?; var text: String
         var timestamp: String?; var hidden: Bool?; var channel: String?; var to: String?
+        var attachments: [Attachment]?; var replyTo: String?; var thread: String?
     }
-    struct Event: Decodable, Equatable {
-        struct Payload: Decodable, Equatable { var type: String; var from: String?; var to: String? }
+    struct Event: Decodable, Equatable, Sendable {
+        struct Payload: Decodable, Equatable, Sendable { var type: String; var from: String?; var to: String? }
         var id: String; var seq: Int64; var timestampMs: Int64?; var event: Payload
+    }
+    struct Source: Decodable, Equatable, Sendable {
+        var hiddenFromSidebar: Bool?; var createdAtMs: Int64?; var harness: String?; var notifyOnAgentUpdates: Bool?
+    }
+    /// Counts only; unknown keys (`server_history`) are ignored.
+    struct Statistics: Decodable, Equatable, Sendable {
+        var transcriptRows: Int?; var messages: Int?; var events: Int?; var toolEntriesDropped: Int?
+        var eventsDropped: Int?; var cardsDropped: Int?; var hiddenMessages: Int?
     }
     var format: String
     var sourceId: String
@@ -25,6 +36,9 @@ struct GrokBotBundle: Decodable, Equatable {
     var members: [Member]?
     var messages: [Message]
     var events: [Event]
+    var source: Source?
+    var limitations: [String]?
+    var statistics: Statistics?
 }
 
 enum GrokBundleError: LocalizedError, Equatable {

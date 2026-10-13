@@ -24,14 +24,10 @@ enum HeadlessGrokLive {
         return box.get()
     }
 
-    static func liveSteps(agentID: String, secretsData: Data, version: String) async -> Outcome {
+    /// `key` is the one derived in step (e); this never reads the Keychain (one read per run). The caller zeroes it.
+    static func liveSteps(agentID: String, secretsData: Data, key: [UInt8], version: String) async -> Outcome {
         var outcome = Outcome()
-        // Decrypt afresh for the live call; the key and token live only in this scope.
-        guard let encrypted = try? GrokSecretsFile.encryptedAccount(data: secretsData) else { return outcome }
-        var password = (try? GrokKeychain().readPassword()) ?? []
-        defer { GrokSafeStorage.zero(&password) }
-        guard !password.isEmpty, var key = try? GrokSafeStorage.deriveKey(password: password) else { return outcome }
-        defer { GrokSafeStorage.zero(&key) }
+        guard !key.isEmpty, let encrypted = try? GrokSecretsFile.encryptedAccount(data: secretsData) else { return outcome }
         guard let creds = try? GrokCredentials.decrypt(from: encrypted, key: key, now: Date()) else { return outcome }
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         let body = GrokProtobuf.encodeListRequest(agentID: agentID, limit: 2)

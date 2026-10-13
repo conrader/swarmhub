@@ -92,3 +92,17 @@ struct AddKeyBanner: View {
     }
     private func save() { store.saveKey(key, for: bot); key = ""; adding = false }
 }
+
+/// Shown instead of the composer for a Grok-imported bot with no Hermes profile (`Bot.isGrokHistoryOnly`).
+struct HistoryOnlyBanner: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "archivebox").foregroundStyle(.secondary)
+            Text("History only — not connected to a Hermes profile yet").font(.system(size: 12)).foregroundStyle(.secondary)
+            Spacer()
+            SettingsLink { Text("Open Settings") }
+        }
+        .padding(12).frame(maxWidth: 720).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 24).padding(.vertical, 12)
+    }
+}

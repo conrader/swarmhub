@@ -118,7 +118,7 @@ import UserNotifications
     /// Sends into the open thread or the main chat. While a turn streams, the text steers it when the
     /// server has `run_steer`; otherwise sending stays disabled until the turn ends.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
-        guard let bot = selectedBot, !bot.isReadOnlyArchive, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
+        guard let bot = selectedBot, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         guard !isStreaming, streamTask == nil else { return steer(text: text, attachments: attachments, bot: bot) }
         let activeBackend: any AgentBackend; let images: [String]
         do { activeBackend = try backend(for: bot); images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) }
@@ -228,6 +228,7 @@ import UserNotifications
     }
     func backend(for bot: Bot) throws -> any AgentBackend {
         if bot.backend == .hermes, let profile = bot.hermesProfile, prefixIgnoredHermesProfiles.contains(profile) { throw BackendError.unavailable("\(profile): \(HermesBackend.multiplexOffMessage)") }
+        if bot.isGrokHistoryOnly { throw BackendError.unavailable("History only — not connected to a Hermes profile yet.") }
         if let backendFactory { return try backendFactory(bot) }
         switch bot.backend {
     case .mock: return MockBackend()

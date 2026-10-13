@@ -9,6 +9,7 @@ import Foundation
 ///   AgentApp --migrate-store                                      (see HeadlessGroups.swift)
 ///   AgentApp --e2e                       (live self-test in throwaway sessions; see HeadlessE2E.swift)
 ///   AgentApp --grok-spike <report.json>  (throwaway P10.0 go/no-go harness; see HeadlessGrok.swift)
+///   AgentApp --grok-parity <python export folder> [--cache <folder>]   (see HeadlessGrokParity.swift)
 @MainActor enum HeadlessCommands {
     /// Returns an exit code when a headless command was requested, otherwise nil.
     static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Int32? {
