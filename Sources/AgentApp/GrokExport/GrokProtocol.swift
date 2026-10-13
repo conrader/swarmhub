@@ -56,7 +56,7 @@ enum GrokProtocol {
         case listTranscriptEntries = "ListGrokBotTranscriptEntries"
         case presignReads = "PresignSandBoxStoreReads"
     }
-    static func url(for method: Method) -> URL { baseURL.appending(path: "\(service)/\(method.rawValue)") }
+    static func url(for method: Method, base: URL = baseURL) -> URL { base.appending(path: "\(service)/\(method.rawValue)") }
     static let contentType = "application/proto"
     static let connectProtocolVersion = "1"
     static let connectTimeoutMs = "15000"
@@ -65,13 +65,25 @@ enum GrokProtocol {
     static let minRequestInterval: Duration = .milliseconds(500)
     static let maxPagesPerBot = 400
     static let maxRequestsPerRun = 2000
+    /// Response caps: a larger body is refused unread (`tooLarge`), never truncated.
+    static let maxRPCResponseBytes = 32 << 20
+    static let maxBlobResponseBytes = 16 << 20
+    /// Decision D2: network errors and HTTP 502/503/504 only, at most 3 retries, after 1, 2 and 4 s, each paced.
+    static let retryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4)]
+    static let retriedStatuses: Set<Int> = [502, 503, 504]
+    /// Connect error codes that mean the interface moved (`protocolChanged`, never retried).
+    static let protocolChangedCodes: Set<String> = ["not_found", "unimplemented"]
     /// A presigned blob is fetched from `blobs/<hash>`.
     static let blobPathPrefix = "blobs/"
 
     // MARK: Client headers (`getSandBackendClientHeaders` + `o_e` in main-app.cjs)
-    static func userAgent(version: String) -> String {
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Sand/\(version) Safari/537.36"
-    }
+    /// Drift: changed 2026-10-13, Konrad approved. Torvli identifies itself honestly as `Torvli/<Torvli app version>`
+    /// instead of Grok Bot's Electron user-agent (`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36
+    /// (KHTML, like Gecko) Sand/<version> Safari/537.36`, from `o_e` in main-app.cjs). P10.0 step (g) showed the server
+    /// accepts it (HTTP 200, docs/P10-spike-findings.md). Every other header below is still the one Grok Bot sends.
+    static func userAgent(appVersion: String) -> String { "Torvli/\(appVersion)" }
+    /// The user-agent version when Torvli's own version is not a plain dotted version (a bare SwiftPM build).
+    static let appVersionFallback = "dev"
     static let clientHeaders: [(String, String)] = [
         ("x-cursor-client-type", "sand"), ("x-sand-box-namespace", "prod"),
         ("x-cursor-client-os", "darwin"), ("x-cursor-client-source", "sand-desktop"), ("x-ghost-mode", "true"),
