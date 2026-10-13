@@ -96,11 +96,13 @@ struct GrokCredentials: Sendable {
             if (1...GrokProtocol.machineIDMaxLength).contains(decrypted.count) { machineID = decrypted }
         }
 
+        // The team id is optional (Konrad's account has none selected, docs/P10-spike-findings.md carry 2): absent,
+        // empty, undecryptable or non-numeric all mean "no team header", never a failed sign-in.
         var teamID: String?
-        if let encryptedTeam = encrypted.teamID {
-            let decrypted = try GrokSafeStorage.decryptText(encryptedTeam, key: key)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if let numeric = Int(decrypted), numeric > 0 { teamID = decrypted }
+        if let encryptedTeam = encrypted.teamID, !encryptedTeam.isEmpty,
+           let decrypted = try? GrokSafeStorage.decryptText(encryptedTeam, key: key).trimmingCharacters(in: .whitespacesAndNewlines),
+           let numeric = Int(decrypted), numeric > 0 {
+            teamID = decrypted
         }
         return GrokCredentials(token: SecretBytes(token), machineID: SecretBytes(machineID), teamID: teamID)
     }

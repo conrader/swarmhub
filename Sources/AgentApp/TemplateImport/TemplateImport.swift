@@ -82,7 +82,8 @@ enum GrokTemplateParser {
         "token", "secret", "password", "passwd", "credential", "privatekey", "apikey", "authorization", "cookie",
         "auth", "bearer", "jwt", "passphrase", "pwd", "accesskey", "awsaccesskeyid", "sessionkey", "webhookurl", "dsn", "connectionstring"
     ]
-    private static let secretValuePatterns = [
+    /// Internal so the Grok importer can share it (`GrokRedactor` precompiles it once); the order is `GrokRedactor.categories`.
+    static let secretValuePatterns = [
         #"(?s)-----BEGIN ([A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?)-----.*?(?:-----END \1-----[^\r\n]*(?:\r?\n|\z)|\z)"#,
         #"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}"#,
         #"\b(sk|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_-]{12,}\b"#,

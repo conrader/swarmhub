@@ -5,6 +5,27 @@ struct GrokImportRow: Equatable {
     var sourceShape: String?; var sourceColour: String?; var isGroup: Bool; var created: Bool
 }
 
+/// How an import treats bots that already exist (briefs/P10.md P10a 1).
+enum GrokImportPolicy: Sendable, Equatable {
+    /// `--import-grok` as since P6: every bot is (re)written from the bundle, on `grokHermesBaseURL`.
+    case legacyFileImport
+    /// The in-app flow: new bots take `serverURL` (the Settings server, nil when none is set); linked bots get history
+    /// only unless `refreshIdentity`; profiles are bound by `grokBindingProfile`.
+    case inApp(serverURL: String?, refreshIdentity: Bool)
+}
+
+enum GrokImportError: LocalizedError, Equatable {
+    case persistenceDisabled
+    case saveFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .persistenceDisabled: "Torvli cannot save right now (its store could not be read at launch), so nothing was imported."
+        case .saveFailed: "Torvli could not save its store after the import; the history archives were written but the bots were not saved."
+        }
+    }
+}
+
 extension AppStore {
     static let grokHermesBaseURL = "https://konrad.agenthut.net/v1"
 
@@ -26,54 +47,126 @@ extension AppStore {
 
     /// Imports (or re-imports) Grok Bot bundles. Bots are matched by `source_id`, then by an unclaimed bot
     /// on the same Hermes profile, so repeated imports never duplicate bots or history lines.
-    @discardableResult func importGrokBundles(_ bundles: [GrokBotBundle]) throws -> [GrokImportRow] {
-        let clean = { (text: String) in GrokTemplateParser.redactSecrets(text, replacement: "[REDACTED]").text.trimmingCharacters(in: .whitespacesAndNewlines) }
+    @discardableResult func importGrokBundles(_ bundles: [GrokBotBundle],
+                                              policy: GrokImportPolicy = .legacyFileImport) throws -> [GrokImportRow] {
+        try beginGrokImport()
         var rows: [GrokImportRow] = []
-        migrateArchivedGroups()
-        // Bots first, so a group's members resolve to the bots imported in this run.
-        for bundle in bundles.filter({ !($0.isGroup ?? false) }) + bundles.filter({ $0.isGroup ?? false }) {
-            if bundle.isGroup ?? false { rows.append(try importGrokGroup(bundle, clean: clean)); continue }
-            let profile = [bundle.profile, bundle.slug.map { "grok-\($0)" }].compactMap { $0 }.first(where: HermesKeyPaste.isValidProfileName)
-            let existing = bots.first { $0.grokSourceID == bundle.sourceId }
-                ?? profile.flatMap { profile in bots.first { $0.grokSourceID == nil && $0.backend == .hermes && $0.hermesProfile == profile } }
-            let bot = existing ?? Bot(name: "")
-            let mapped = GrokAvatarMap.map(shape: bundle.avatar?.shape, colour: bundle.avatar?.colour, sourceID: bundle.sourceId)
-            let description = clean(bundle.description ?? "")
-            bot.name = clean(bundle.name).isEmpty ? "Grok bot" : clean(bundle.name)
-            bot.title = clean(bundle.title ?? "").isEmpty ? "Imported from Grok Bot" : clean(bundle.title ?? "")
-            bot.botDescription = description
-            let instructions = clean(bundle.instructions ?? description)
-            if !instructions.isEmpty { bot.persona = instructions }
-            bot.avatarName = mapped.avatar; bot.accentColor = mapped.accent; bot.grokSourceID = bundle.sourceId
-            bot.backend = .hermes; bot.hermesProfile = profile; bot.hermesBaseURL = Self.grokHermesBaseURL; bot.archivedMembers = nil
-            bot.isDemo = false
-            bot.grokHistoryCount = try grokHistory.merge(ArchivedMessage.from(bundle), sourceID: bundle.sourceId, for: bot.id)
-            if existing == nil { bots.append(bot) }
-            rows.append(.init(name: bot.name, profile: bot.hermesProfile, historyCount: bot.grokHistoryCount, avatar: mapped.avatar, accent: mapped.accent,
-                              sourceShape: bundle.avatar?.shape, sourceColour: bundle.avatar?.colour, isGroup: false, created: existing == nil))
-        }
-        // The demo bots step aside once real bots exist; they stay under Hidden chats.
-        if !rows.isEmpty { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
-        if selectedBot == nil || selectedBot?.isHidden == true { selectedBot = bots.first { !$0.isHidden } }
-        objectWillChange.send(); save()
+        do {
+            for prepared in Self.ordered(bundles).map(PreparedGrokBundle.init) {
+                let target = grokTarget(for: prepared, policy: policy)
+                let count = try grokHistory.merge(prepared.lines, sourceID: prepared.bundle.sourceId, for: target.id)
+                rows.append(apply(prepared, to: target, historyCount: count, policy: policy))
+            }
+        } catch { try? finishGrokImport(rows); throw error }
+        try finishGrokImport(rows)
         return rows
     }
 
-    /// A Grok group becomes a P5 group (matched by `source_id`); members are set when it is first created,
-    /// so later re-imports keep membership edits. Its history is the group's read-only archive.
-    private func importGrokGroup(_ bundle: GrokBotBundle, clean: (String) -> String) throws -> GrokImportRow {
-        let existing = groups.first { $0.grokSourceID == bundle.sourceId }
-        let group = existing ?? GroupChat(name: "", memberIDs: resolveMembers((bundle.members ?? []).map { (clean($0.name), $0.sourceId) }))
-        group.name = clean(bundle.name).isEmpty ? defaultGroupName(group.memberIDs) : clean(bundle.name)
-        group.grokSourceID = bundle.sourceId
-        group.grokHistoryCount = try grokHistory.merge(ArchivedMessage.from(bundle), sourceID: bundle.sourceId, for: group.id)
-        if existing == nil { groups.append(group) }
-        let mapped = GrokAvatarMap.map(shape: bundle.avatar?.shape, colour: bundle.avatar?.colour, sourceID: bundle.sourceId)
-        return GrokImportRow(name: group.name, profile: nil, historyCount: group.grokHistoryCount, avatar: mapped.avatar, accent: mapped.accent,
-                             sourceShape: bundle.avatar?.shape, sourceColour: bundle.avatar?.colour, isGroup: true, created: existing == nil)
+    /// The same import with the redaction and archive work off the main actor, yielding between bundles.
+    /// `timing` (tests) records how long each synchronous main-actor stretch of the import took.
+    @discardableResult func importGrokBundles(_ bundles: [GrokBotBundle], policy: GrokImportPolicy,
+                                              timing: GrokImportTiming? = nil) async throws -> [GrokImportRow] {
+        var stretch = timing?.start()
+        try beginGrokImport()
+        var rows: [GrokImportRow] = []
+        do {
+            for bundle in Self.ordered(bundles) {
+                timing?.end(&stretch)
+                let prepared = await Task.detached(priority: .userInitiated) { PreparedGrokBundle(bundle) }.value
+                stretch = timing?.start()
+                let target = grokTarget(for: prepared, policy: policy)
+                timing?.end(&stretch)
+                let count = try await grokHistory.mergeInBackground(prepared.lines, sourceID: prepared.bundle.sourceId, for: target.id)
+                stretch = timing?.start()
+                rows.append(apply(prepared, to: target, historyCount: count, policy: policy))
+                timing?.end(&stretch)
+                await Task.yield()
+                stretch = timing?.start()
+            }
+        } catch { try? finishGrokImport(rows); throw error }
+        try finishGrokImport(rows)
+        timing?.end(&stretch)
+        return rows
     }
 
     @discardableResult func importGrokExport(at url: URL) throws -> [GrokImportRow] {
         try importGrokBundles(GrokBundleLoader.load(from: url))
+    }
+
+    /// Binds every Grok-imported Hermes bot that has no profile yet (fill-only: never replaces a profile).
+    /// Returns the bots that were bound.
+    @discardableResult func bindUnboundGrokBots() -> [Bot] {
+        let serverSet = defaults.string(forKey: "hermesBaseURL") != nil
+        var bound: [Bot] = []
+        for bot in bots where bot.isGrokHistoryOnly {
+            let slug = GrokNaming.profileSlug(bot.name)
+            let candidates = Self.grokCandidates(profile: GrokNaming.profile(forName: bot.name), slug: slug.isEmpty ? nil : slug)
+            guard let profile = grokBindingProfile(candidates, for: bot, serverSet: serverSet) else { continue }
+            bot.hermesProfile = profile
+            bound.append(bot)
+        }
+        if !bound.isEmpty { objectWillChange.send(); save() }
+        return bound
+    }
+
+    /// Writes `store.json`, surfacing a failure (the plain `save()` ignores it).
+    func saveThrowing() throws {
+        guard persistenceEnabled else { throw GrokImportError.persistenceDisabled }
+        do { try JSONEncoder().encode(StoreFile(bots: bots, groups: groups)).write(to: fileURL, options: .atomic) }
+        catch { throw GrokImportError.saveFailed }
+    }
+
+    // MARK: Steps
+
+    /// Bots first, so a group's members resolve to the bots imported in this run.
+    private static func ordered(_ bundles: [GrokBotBundle]) -> [GrokBotBundle] {
+        bundles.filter { !($0.isGroup ?? false) } + bundles.filter { $0.isGroup ?? false }
+    }
+
+    private func beginGrokImport() throws {
+        guard persistenceEnabled else { throw GrokImportError.persistenceDisabled }
+        migrateArchivedGroups()
+    }
+
+    private func finishGrokImport(_ rows: [GrokImportRow]) throws {
+        // The demo bots step aside once real bots exist; they stay under Hidden chats.
+        if !rows.isEmpty { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
+        if selectedBot == nil || selectedBot?.isHidden == true { selectedBot = bots.first { !$0.isHidden } }
+        objectWillChange.send()
+        try saveThrowing()
+    }
+}
+
+/// The main-actor stretches of one in-app import (P10a target: each one under 100 ms for a 3,000-message bot).
+@MainActor final class GrokImportTiming {
+    private let clock = ContinuousClock()
+    private(set) var stretches: [Duration] = []
+    var longest: Duration { stretches.max() ?? .zero }
+    var total: Duration { stretches.reduce(.zero, +) }
+
+    func start() -> ContinuousClock.Instant { clock.now }
+    func end(_ start: inout ContinuousClock.Instant?) {
+        if let begun = start { stretches.append(clock.now - begun) }
+        start = nil
+    }
+}
+
+/// A bundle with every text field through the secret filter and its archive lines built: pure, so it can run off the
+/// main actor. The importer's second pass over already-redacted bundles is idempotent.
+struct PreparedGrokBundle: Sendable {
+    let bundle: GrokBotBundle
+    let name: String, title: String, description: String, instructions: String
+    let members: [(name: String, sourceID: String)]
+    let lines: [ArchivedMessage]
+
+    init(_ bundle: GrokBotBundle) {
+        let clean = { (text: String) in
+            GrokTemplateParser.redactSecrets(text, replacement: "[REDACTED]").text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        self.bundle = bundle
+        name = clean(bundle.name); title = clean(bundle.title ?? ""); description = clean(bundle.description ?? "")
+        instructions = clean(bundle.instructions ?? bundle.description ?? "")
+        members = (bundle.members ?? []).map { (clean($0.name), $0.sourceId) }
+        lines = ArchivedMessage.from(bundle)
     }
 }

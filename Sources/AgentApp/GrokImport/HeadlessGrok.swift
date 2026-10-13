@@ -9,6 +9,7 @@ import Security
 /// `open -n`, with Konrad at the Mac. This file never prints secrets and never logs message text.
 @MainActor enum HeadlessGrok {
     static func runIfRequested(arguments: [String]) -> Int32? {
+        if arguments.contains("--grok-parity") { return GrokParity.run(arguments: arguments, output: { print($0) }) }
         guard let flag = arguments.firstIndex(of: "--grok-spike") else { return nil }
         guard arguments.indices.contains(flag + 1) else { print("Usage: AgentApp --grok-spike <report.json>"); return 64 }
         let path = (arguments[flag + 1] as NSString).expandingTildeInPath
@@ -75,19 +76,22 @@ import Security
         report.stepD_read = .init(osStatus: readStatus, ms: ms(since: start), byteCount: password.count)
         flush()
 
-        // (e) derive, decrypt three values, shapes only.
-        if !password.isEmpty, let secretsData {
-            report.stepE_decrypt = decryptStep(password: &password, secretsData: secretsData)
-        }
+        // (e) derive the key once (the Keychain bytes are zeroed right after), decrypt three values, shapes only.
+        // The same key serves (f)/(g): one Keychain read per run (docs/P10-spike-findings.md, carry 1).
+        var key = password.isEmpty ? [] : ((try? GrokSafeStorage.deriveKey(password: password)) ?? [])
         GrokSafeStorage.zero(&password)
+        defer { GrokSafeStorage.zero(&key) }
+        if !key.isEmpty, let secretsData {
+            report.stepE_decrypt = decryptStep(key: key, secretsData: secretsData)
+        }
         flush()
 
         // (f)/(g) the one live RPC and the honest-UA probe. Guarded by the flag so cache-only builds never compile it out.
-        if GrokProtocol.serverHistoryEnabled, let secretsData, let agentID = fewestEntriesAgentID() {
+        if GrokProtocol.serverHistoryEnabled, !key.isEmpty, let secretsData, let agentID = fewestEntriesAgentID() {
             // Off the main actor (HeadlessGrokLive is nonisolated, run in Task.detached): this thread blocks below.
-            let version = report.version
+            let version = report.version, liveKey = key
             if let outcome = HeadlessGrokLive.blockingRun({
-                await HeadlessGrokLive.liveSteps(agentID: agentID, secretsData: secretsData, version: version)
+                await HeadlessGrokLive.liveSteps(agentID: agentID, secretsData: secretsData, key: liveKey, version: version)
             }) {
                 report.stepF_live = outcome.stepF
                 report.stepG_honestUA = outcome.stepG
@@ -128,11 +132,9 @@ import Security
         return .init(readable: readable, errno: errnoValue, ms: ms(since: start), blobCount: blobs.count, rosterRows: rosterRows)
     }
 
-    private static func decryptStep(password: inout [UInt8], secretsData: Data) -> Report.DecryptStep? {
+    private static func decryptStep(key: [UInt8], secretsData: Data) -> Report.DecryptStep? {
         guard let encrypted = try? GrokSecretsFile.encryptedAccount(data: secretsData) else { return nil }
-        var key = (try? GrokSafeStorage.deriveKey(password: password)) ?? []
-        defer { GrokSafeStorage.zero(&key) }
-        guard !key.isEmpty, let token = try? GrokSafeStorage.decryptText(encrypted.accessToken, key: key) else { return nil }
+        guard let token = try? GrokSafeStorage.decryptText(encrypted.accessToken, key: key) else { return nil }
         let segments = token.split(separator: ".", omittingEmptySubsequences: false).count
         let exp = jwtExpSecondsFromNow(token)
         var machineLen = 0

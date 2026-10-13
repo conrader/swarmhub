@@ -181,3 +181,15 @@ private func jwt(exp: Double?) -> String {
                                                    accessToken: try encryptForTest(jwt(exp: 1), key: key), teamID: nil, machineID: nil)
     #expect(throws: GrokCredentialsError.tokenExpired) { _ = try GrokCredentials.decrypt(from: expired, key: key, now: Date()) }
 }
+
+@Test func teamIDIsOptional() throws {
+    // P10.0 carry 2: an account with no team selected is valid; an undecryptable team value is dropped, not fatal.
+    let key = try GrokSafeStorage.deriveKey(password: Array("synthetic-pass".utf8))
+    let token = jwt(exp: Date().timeIntervalSince1970 + 3600)
+    for team in [nil, "", "djEwbm90LWEtcmVhbC12YWx1ZQ==", try encryptForTest("not-numeric", key: key)] as [String?] {
+        let account = GrokSecretsFile.EncryptedAccount(activeAccountID: "a", accessToken: try encryptForTest(token, key: key),
+                                                       teamID: team, machineID: nil)
+        let creds = try GrokCredentials.decrypt(from: account, key: key, now: Date())
+        #expect(creds.teamID == nil && creds.token.reveal() == token)
+    }
+}
