@@ -2,6 +2,11 @@ import Foundation
 
 extension AppStore {
     var hermesConfigured: Bool { defaults.object(forKey: "hermesBaseURL") != nil || !keyStore.key(for: "hermes").isEmpty }
+    /// Launch probes the global server only if its URL was set explicitly or a Hermes bot routes through it;
+    /// bots with their own `hermesBaseURL` never make the unset default (`127.0.0.1:8642`) worth an alert.
+    var launchProbesGlobalHermes: Bool {
+        defaults.object(forKey: "hermesBaseURL") != nil || bots.contains { $0.backend == .hermes && $0.hermesBaseURL == nil }
+    }
 
     var namedHermesProfiles: [String] {
         get { (defaults.string(forKey: "hermesProfiles") ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }

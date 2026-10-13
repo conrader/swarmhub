@@ -111,3 +111,29 @@ import Testing
         #expect(store.importTemplate(plan).hermesProfile == "default")
     }
 }
+
+@MainActor private func launchStore(globalURL: String?, botURL: String?) throws -> (AppStore, String) {
+    let (host, session) = MockHermesProtocol.serve(hermesModelsHandler(multiplex: true, served: []))
+    let defaults = isolatedDefaults(); if let globalURL { defaults.set(globalURL.replacingOccurrences(of: "HOST", with: host), forKey: "hermesBaseURL") }
+    let url = temporaryStore(); try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let bot = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis"); bot.hermesBaseURL = botURL
+    try JSONEncoder().encode(StoreFile(bots: [bot], groups: [])).write(to: url)
+    let store = AppStore(storeURL: url, autoConfigureHermes: true, keyStore: InMemoryKeyStore(["hermes": "default-key"]), defaults: defaults, hermesSession: session)
+    return (store, host)
+}
+
+@Test @MainActor func launchSkipsGlobalProbeWhenOnlyPerBotServersAreUsed() async throws {
+    let (store, _) = try launchStore(globalURL: nil, botURL: "https://box.test/v1")
+    #expect(store.hermesConfigured); #expect(!store.launchProbesGlobalHermes)
+    for _ in 0..<50 { await Task.yield() }
+    #expect(store.errorMessage == nil)
+    #expect(store.bots.count == 1)
+}
+
+@Test @MainActor func launchProbesGlobalServerWhenConfiguredOrUsedByABot() async throws {
+    let (explicit, host) = try launchStore(globalURL: "https://HOST/v1", botURL: "https://box.test/v1")
+    #expect(explicit.launchProbesGlobalHermes)
+    try await waitUntil { !MockHermesProtocol.recorded(host).isEmpty }
+    let (implicit, _) = try launchStore(globalURL: nil, botURL: nil)
+    #expect(implicit.launchProbesGlobalHermes)
+}
