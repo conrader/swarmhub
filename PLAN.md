@@ -1,6 +1,8 @@
 # Torvli — Grok Bot parity plan
 
-Goal (Konrad, 2026-10-13): build the whole app with all Grok Bot functionalities.
+Goals (Konrad, 2026-10-13): build the whole app with all Grok Bot functionalities; first milestone: Torvli
+ready and working on the Mac with every Grok bot as it was made on Grok, including its history.
+Order therefore: P0 → P1 → **P6** → install + live check → P2 → P3 → P4 → P5 → P7 → P8.
 Grok Bot is Cursor's hosted Mac agent app; Torvli reproduces its features on the user's own
 Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `grok-<slug>`
 (SOUL, skills, imported history), served at `https://konrad.agenthut.net/p/grok-<slug>/`.
@@ -34,7 +36,7 @@ Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `gr
 | P3 | Skills, tools, model | Overview shows the bot's real skills and toolsets; per-chat model picker | `/v1/skills`, `/v1/toolsets`, `/api/model/options`, `/api/sessions/{id}/model` |
 | P4 | Chat parity | Steer a running turn; fork/branch a conversation (threaded replies); attachments and images; inline cards (question with options, draft with Send, link pills, images); persisted tapbacks; manual unread; Media tab built from the transcript | `/v1/runs/{id}/steer`, `/api/sessions/{id}/fork`, session stream input |
 | P5 | Members & group chats | Group threads with several bots; @mention routing; each bot keeps its own session; Members tab | client-side over P1 sessions |
-| P6 | Bundle import | `agentapp-bot-bundle/v1` multi-bot import with read-only transcripts, routines disabled, secrets filtered | local |
+| P6 | Grok import | Exporter reads the Grok Bot app cache on the Mac (latest 62–200 entries per conversation, roster) into `agentapp-bot-bundle/v1`; app import (UI + headless CLI) with read-only history archive, avatar mapping, `grok-<slug>` binding; keys CLI; install to ~/Applications | local; `/p/grok-<slug>/` |
 | P7 | Settings & polish | Usage (session token counts), Updates (GitHub releases of conrader/torvli), Computers (noVNC URL per bot; take-over opens it), Account; README feature table brought up to date | `/api/sessions` fields |
 | P8 | Acceptance | MacBook build + full suite green; every endpoint the app uses verified against Konrad's box from OVH; Konrad does the last-hop UI check with his keys in the Keychain | live box (read-only probes) |
 
