@@ -121,3 +121,63 @@ private func encoded<T: Encodable>(_ value: T) throws -> String {
     #expect(ModelPickerModel.offers(options, ModelChoice(provider: "lab-paid", model: "free-b")!))
     #expect(!ModelPickerModel.offers(options, ModelChoice(provider: "lab-two", model: "model-z")!), "skeleton")
 }
+
+// MARK: Persistence (Part B)
+
+private func sortedJSON<T: Encodable>(_ value: T) throws -> Data {
+    let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys; return try encoder.encode(value)
+}
+
+@Test func storeDefaultsRoundTripAndOldStoresLoadEmpty() throws {
+    let bot = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis")
+    let file = StoreFile(bots: [bot], groups: [], modelDefaults: .init(conversation: alpha))
+    let decoded = try StoreFile.decode(JSONEncoder().encode(file))
+    #expect(decoded.modelDefaults == ModelDefaults(conversation: alpha) && decoded.version == 2)
+    #expect(try StoreFile.decode(JSONEncoder().encode([bot])).modelDefaults == nil, "a v1 bare-array store has no defaults")
+    #expect(try !String(decoding: JSONEncoder().encode(StoreFile(bots: [bot], groups: [])), as: UTF8.self).contains("modelDefaults"))
+    #expect(try StoreFile.decode(Data(#"{"version":2,"bots":[],"groups":[],"modelDefaults":{"conversation":{"provider":"","model":"x"}}}"#.utf8)).modelDefaults == ModelDefaults())
+    let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appending(path: "Fixtures")
+    for name in ["legacy_store_routines_without_prompt.json", "legacy_store_without_template_import_fields.json"] {
+        let store = try StoreFile.decode(Data(contentsOf: fixtures.appending(path: name)))
+        #expect(!store.bots.isEmpty && store.modelDefaults == nil && store.bots.allSatisfy { $0.modelSettings == nil }, "\(name)")
+    }
+}
+
+@Test func untouchedBotsEncodeByteIdentically() throws {
+    let bot = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis", hermesSessionID: "s1")
+    bot.hermesModelLock = .init(sessionID: "s1", provider: "lab-one", model: "model-beta")
+    let before = try sortedJSON(bot)
+    #expect(!String(decoding: before, as: UTF8.self).contains("modelSettings") && !String(decoding: before, as: UTF8.self).contains("origin"))
+    bot.modelSettings = .init(conversation: .choice(beta))
+    let configured = try sortedJSON(bot)
+    #expect(try JSONDecoder().decode(Bot.self, from: configured).modelSettings == BotModelSettings(conversation: .choice(beta)))
+    bot.modelSettings = .init()
+    #expect(try sortedJSON(bot) == before, "an all-inherit setting is not written")
+    bot.modelSettings = nil
+    #expect(try sortedJSON(bot) == before)
+    #expect(try JSONDecoder().decode(Bot.self, from: before).modelSettings == nil)
+}
+
+@Test func lockOriginAndThreadFieldsRoundTrip() throws {
+    let lock = HermesModelLock(sessionID: "s1", provider: "lab-one", model: "model-beta", origin: .torvliDefault)
+    #expect(try JSONDecoder().decode(HermesModelLock.self, from: JSONEncoder().encode(lock)) == lock)
+    #expect(try decode(HermesModelLock.self, #"{"sessionID":"s1","provider":"lab-one","model":"model-beta","origin":"galaxy"}"#).origin == nil)
+    #expect(try decode(HermesModelLock.self, #"{"sessionID":"s1","provider":"lab-one","model":"model-beta"}"#) == HermesModelLock(sessionID: "s1", provider: "lab-one", model: "model-beta"))
+    let thread = ChatThread(parentMessageID: UUID(), parentSessionID: "s1", hermesSessionID: "t1")
+    let plain = try sortedJSON(thread)
+    #expect(!String(decoding: plain, as: UTF8.self).contains("role") && !String(decoding: plain, as: UTF8.self).contains("modelLock"))
+    thread.role = .coding; thread.modelLock = .init(sessionID: "t1", provider: "lab-coder", model: "model-coder", origin: .coding)
+    let decoded = try JSONDecoder().decode(ChatThread.self, from: JSONEncoder().encode(thread))
+    #expect(decoded.role == .coding && decoded.modelLock == thread.modelLock)
+    #expect(try JSONDecoder().decode(ChatThread.self, from: plain).role == nil)
+}
+
+@Test @MainActor func appStoreKeepsDefaultsAcrossLaunches() throws {
+    let url = temporaryStore()
+    let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: isolatedDefaults())
+    store.modelDefaults.conversation = alpha; store.save()
+    let text = try String(contentsOf: url, encoding: .utf8)
+    for name in catalogSentinels + ["Lab One"] { #expect(!text.contains(name)) }
+    let reopened = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: isolatedDefaults())
+    #expect(reopened.modelDefaults == ModelDefaults(conversation: alpha))
+}

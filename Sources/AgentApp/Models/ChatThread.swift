@@ -17,22 +17,26 @@ extension Bot: Conversation {
 final class ChatThread: ObservableObject, Identifiable, Codable, Conversation {
     let id: UUID; let parentMessageID: UUID; let parentSessionID: String?; let createdAt: Date
     @Published var hermesSessionID: String?; @Published var messages: [ChatMessage]
+    /// P13: the role a thread was opened for and the lock Torvli recorded on its fork (Part D sets them).
+    var role: ModelRole?; var modelLock: HermesModelLock?
     init(id: UUID = UUID(), parentMessageID: UUID, parentSessionID: String?, hermesSessionID: String?, messages: [ChatMessage] = [], createdAt: Date = .now) {
         self.id = id; self.parentMessageID = parentMessageID; self.parentSessionID = parentSessionID
         self.hermesSessionID = hermesSessionID; self.messages = messages; self.createdAt = createdAt
     }
     var replyCount: Int { messages.filter { $0.role != .system && !$0.content.isEmpty }.count }
-    enum CodingKeys: CodingKey { case id, parentMessageID, parentSessionID, createdAt, hermesSessionID, messages }
+    enum CodingKeys: CodingKey { case id, parentMessageID, parentSessionID, createdAt, hermesSessionID, messages, role, modelLock }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); parentMessageID = try c.decode(UUID.self, forKey: .parentMessageID)
         parentSessionID = try c.decodeIfPresent(String.self, forKey: .parentSessionID); createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .now
         hermesSessionID = try c.decodeIfPresent(String.self, forKey: .hermesSessionID); messages = try c.decodeIfPresent([ChatMessage].self, forKey: .messages) ?? []
+        role = (try? c.decodeIfPresent(ModelRole.self, forKey: .role)) ?? nil; modelLock = (try? c.decodeIfPresent(HermesModelLock.self, forKey: .modelLock)) ?? nil
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id); try c.encode(parentMessageID, forKey: .parentMessageID); try c.encodeIfPresent(parentSessionID, forKey: .parentSessionID)
         try c.encode(createdAt, forKey: .createdAt); try c.encodeIfPresent(hermesSessionID, forKey: .hermesSessionID); try c.encode(messages, forKey: .messages)
+        try c.encodeIfPresent(role, forKey: .role); try c.encodeIfPresent(modelLock, forKey: .modelLock)
     }
 }
 

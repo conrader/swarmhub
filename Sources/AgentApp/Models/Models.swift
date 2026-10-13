@@ -168,6 +168,8 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     @Published var grokHistoryCount: Int; @Published var archivedMembers: [String]?
     /// The bot's web desktop (noVNC) for the Computer tab; validated by `ComputerURL`.
     @Published var computerURL: String?
+    /// P13 per-bot model roles; nil while every role inherits, so untouched bots encode byte-identically.
+    @Published var modelSettings: BotModelSettings? = nil
     var isReadOnlyArchive: Bool { archivedMembers != nil }
     let createdAt: Date; @Published var messages: [ChatMessage]
     init(name: String, title: String = "Personal agent", description: String = "", persona: String = "You are a thoughtful, capable assistant.", backend: BackendKind = .mock, avatarName: BotAvatarName = .faceCoral, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, memorySummary: String = "", skills: [String] = [], importedMemories: [String] = [], importedSkills: [ImportedTemplateSkill] = [], requestedConnectorIDs: [String] = [], gettingStartedSkill: ImportedTemplateSkill? = nil, routines: [BotRoutine] = [], messages: [ChatMessage] = [], hermesProfile: String? = nil, hermesSessionID: String? = nil, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, isDemo: Bool = false) {
@@ -177,7 +179,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     }
     static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -199,6 +201,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         grokSourceID = try c.decodeIfPresent(String.self, forKey: .grokSourceID); grokHistoryCount = try c.decodeIfPresent(Int.self, forKey: .grokHistoryCount) ?? 0
         archivedMembers = try c.decodeIfPresent([String].self, forKey: .archivedMembers); computerURL = try c.decodeIfPresent(String.self, forKey: .computerURL); hermesModelLock = try c.decodeIfPresent(HermesModelLock.self, forKey: .hermesModelLock)
         routineRunMarks = try c.decodeIfPresent([String: String].self, forKey: .routineRunMarks) ?? [:]
+        modelSettings = (try? c.decodeIfPresent(BotModelSettings.self, forKey: .modelSettings)) ?? nil
         threads = try c.decodeIfPresent([ChatThread].self, forKey: .threads) ?? []; manualUnread = try c.decodeIfPresent(Bool.self, forKey: .manualUnread) ?? false
         createdAt = try c.decode(Date.self, forKey: .createdAt); messages = try c.decode([ChatMessage].self, forKey: .messages)
     }
@@ -216,6 +219,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         try c.encode(grokHistoryCount, forKey: .grokHistoryCount); try c.encodeIfPresent(archivedMembers, forKey: .archivedMembers); try c.encodeIfPresent(computerURL, forKey: .computerURL); try c.encodeIfPresent(hermesModelLock, forKey: .hermesModelLock)
         try c.encode(routineRunMarks, forKey: .routineRunMarks)
         try c.encode(threads, forKey: .threads); try c.encode(manualUnread, forKey: .manualUnread)
+        if let modelSettings, !modelSettings.isEmpty { try c.encode(modelSettings, forKey: .modelSettings) }
     }
 }
 

@@ -6,6 +6,7 @@ struct ModelRolesReadout: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     @ObservedObject var cache: BotInfoCache
+    @State private var confirming = false
 
     var body: some View {
         let row = store.modelRolesRow(for: bot)
@@ -17,7 +18,15 @@ struct ModelRolesReadout: View {
             if row.delegationListed {
                 Text(row.delegation == false ? ModelRoleReason.subAgentsOff.text : "Delegation toolset: \(row.subAgents).").font(.caption2).foregroundStyle(.tertiary)
             }
-            if let mismatch = row.mismatch { Text(mismatch).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
+            if let mismatch = row.mismatch {
+                Text(mismatch).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+                if let note = row.switchNote { Text(note).font(.caption2).foregroundStyle(.secondary) }
+                Button("Switch this chat") { confirming = true }.controlSize(.small).disabled(!row.canSwitch)
+                    .confirmationDialog("Switch this chat?", isPresented: $confirming) {
+                        Button("Switch this chat") { Task { await store.switchChatToRoleModel(for: bot) } }
+                    } message: { Text([row.switchNote, ModelRoleReason.permanent.text].compactMap { $0 }.joined(separator: " ")) }
+                if let blocked = row.blocked { Text(blocked.text).font(.caption2).foregroundStyle(.secondary) }
+            }
         }
     }
 }

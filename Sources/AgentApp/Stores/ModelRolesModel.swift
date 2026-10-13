@@ -38,6 +38,9 @@ struct ModelRolesModel: Equatable, Sendable {
         var blocked: ModelRoleReason?
         /// "This chat runs A; this bot's default is B." when the main chat runs something else than it resolves to.
         var mismatch: String?
+        /// The mismatch can be fixed with one lock ("Switch this chat"); `switchNote` says when that pins the box default.
+        var canSwitch = false
+        var switchNote: String?
         var loadError: String?
         var subAgents: String {
             guard delegationListed else { return "not listed" }
@@ -66,6 +69,8 @@ struct ModelRolesModel: Equatable, Sendable {
         if let runs = input.current, runs.source != "server default", let wanted = conversation.choice?.model ?? options?.model,
            !HermesModelOptions.sameModel(runs.model, wanted) {
             row.mismatch = "This chat runs \(runs.model); this bot's default is \(wanted)."
+            row.canSwitch = row.blocked == nil && input.info?.isSwitchingModel != true
+            if conversation.choice == nil, input.isLocked { row.switchNote = "Hermes can't unpin a chat; this pins it to the box's current default (\(wanted))." }
         }
         return row
     }

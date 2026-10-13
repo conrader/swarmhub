@@ -34,7 +34,7 @@ extension AppStore {
 
     /// Locks the bot's current Hermes session to `provider`/`model` via `POST /api/sessions/{id}/model`, then reads
     /// the session back. Only a model the loaded list offers under that supplier, and not disabled, is sent.
-    func switchModel(for bot: Bot, provider: String, model: String) async {
+    func switchModel(for bot: Bot, provider: String, model: String, origin: LockOrigin? = nil) async {
         guard let sessionID = bot.hermesSessionID else { botInfo.finishSwitch(botID: bot.id, error: "Send a message first; the model is set per chat session."); return }
         guard botInfo.info(for: bot.id)?.canLockSessionModel == true else { botInfo.finishSwitch(botID: bot.id, error: "This server cannot switch a chat's model."); return }
         let picker = modelPicker(for: bot)
@@ -48,10 +48,7 @@ extension AppStore {
         do {
             guard let backend = try backend(for: bot) as? HermesBackend else { throw BackendError.unavailable("This bot is not on Hermes.") }
             key = backend.apiKey
-            let lock = try await backend.lockSessionModel(sessionID: sessionID, provider: item.supplierSlug, model: item.model)
-            bot.hermesModelLock = lock
-            save()
-            botInfo.setSessionModel(botID: bot.id, sessionID: sessionID, model: lock.model)
+            try await lockModel(backend, bot: bot, sessionID: sessionID, provider: item.supplierSlug, model: item.model, origin: origin)
             if botInfo.info(for: bot.id)?.capabilities?.features["session_resources"] != false,
                let readBack = try? await backend.sessionModel(sessionID: sessionID), bot.hermesSessionID == sessionID {
                 botInfo.setSessionModel(botID: bot.id, sessionID: sessionID, model: readBack)

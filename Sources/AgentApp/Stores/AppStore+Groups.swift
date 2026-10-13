@@ -139,7 +139,11 @@ extension AppStore {
         var failed = false
         do {
             if group.session(for: bot.id) == nil, try await activeBackend.sessionTransport() == .nativeSessions {
-                group.hermesSessionID = try await activeBackend.createSession(title: "\(group.name) · \(bot.name)", systemPrompt: bot.persona, id: wanted)
+                let note = { [unowned self] (text: String) in insertNote(text, in: group, before: assistant) }
+                let plan = try await prepareModel(for: bot, backend: activeBackend, note: note)
+                let created = try await activeBackend.createSession(title: "\(group.name) · \(bot.name)", systemPrompt: bot.persona, id: wanted)
+                if let plan { try await applyModel(plan, bot: bot, sessionID: created, record: false, note: note) }
+                group.hermesSessionID = created
                 save()
             }
             try Task.checkCancellation()
@@ -158,6 +162,7 @@ extension AppStore {
             } }
         } catch is CancellationError {
         } catch let error as URLError where error.code == .cancelled && Task.isCancelled {
+        } catch let refusal as ModelRefusal { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(refusal.text)")); failed = true
         } catch { errorMessage = "\(bot.name): \(error.localizedDescription)"; failed = true }
         let cancelled = Task.isCancelled || run.stopped
         let session = group.session(for: bot.id) ?? wanted

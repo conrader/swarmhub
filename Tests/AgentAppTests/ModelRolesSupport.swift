@@ -37,3 +37,37 @@ func rolesHandler(_ server: PickerServer, delegation: [String: Bool]) -> MockHer
 }
 
 func rolePaths(_ host: String) -> [String] { MockHermesProtocol.recorded(host).map { "\($0.httpMethod ?? "GET") \($0.url!.path)" } }
+
+// MARK: Apply (Part B)
+
+let applyFeatures: [String: Bool] = ["session_chat_streaming": true, "model_options": true, "session_model_lock": true, "session_fork": true, "skills_api": false]
+let applyKeys = ["grok-jarvis": "jarvis-key-77", "grok-dmt": "dmt-key-88", "grok-achilles": "achilles-key-99"]
+
+/// A stateful synthetic gateway (`E2EServer`: create, session rows, lock with a status switch, chat stream) serving
+/// `catalogPayload(shape)`, and Jarvis, DMT and Achilles on `grok-*` profiles, each with its own key.
+@MainActor func applyStore(_ shape: CatalogShape, features: [String: Bool] = applyFeatures) -> (store: AppStore, jarvis: Bot, dmt: Bot, achilles: Bot, state: E2EServer.State, url: URL) {
+    let server = E2EServer.serve(features: features)
+    server.state.with { $0.catalog = catalogPayload(shape) }
+    let defaults = isolatedDefaults(); defaults.set("https://\(server.host)", forKey: "hermesBaseURL")
+    var keys = ["hermes": "default-key-55"]
+    for (profile, key) in applyKeys { keys["hermes.\(profile)"] = key }
+    let url = temporaryStore()
+    let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(keys), defaults: defaults, hermesSession: server.session)
+    let jarvis = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis")
+    let dmt = Bot(name: "DMT", backend: .hermes, hermesProfile: "grok-dmt")
+    let achilles = Bot(name: "Achilles", backend: .hermes, hermesProfile: "grok-achilles")
+    store.bots = [jarvis, dmt, achilles]; store.groups = []
+    return (store, jarvis, dmt, achilles, server.state, url)
+}
+
+/// Sends `text` from `bot`'s main chat and waits until the turn has ended.
+@MainActor func sendAndWait(_ store: AppStore, _ bot: Bot, _ text: String) async throws {
+    store.selectedBot = bot; store.selectedGroup = nil
+    precondition(store.send(text: text), "send refused")
+    try await waitUntil { store.isIdle }
+}
+
+func lines(_ state: E2EServer.State, from mark: Int = 0) -> [String] { state.requests().dropFirst(mark).map { "\($0.method) \($0.path)" } }
+func lockPosts(_ state: E2EServer.State) -> [(path: String, body: [String: Any])] {
+    state.requests().filter { $0.method == "POST" && $0.path.hasSuffix("/model") }.map { ($0.path, $0.body ?? [:]) }
+}

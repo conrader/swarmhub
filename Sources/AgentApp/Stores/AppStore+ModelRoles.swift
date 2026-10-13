@@ -14,9 +14,8 @@ extension AppStore {
                      defaults: modelDefaultsForRoles, current: current, isLocked: locked)
     }
 
-    /// Part A displays only: every bot reads "box default" until role settings exist.
-    func modelSettings(for bot: Bot) -> BotModelSettings? { nil }
-    var modelDefaultsForRoles: ModelDefaults? { nil }
+    func modelSettings(for bot: Bot) -> BotModelSettings? { bot.modelSettings }
+    var modelDefaultsForRoles: ModelDefaults? { modelDefaults }
 
     func modelRoles() -> ModelRolesModel { ModelRolesModel(modelRoleBots.map(modelRolesInput)) }
     func modelRolesRow(for bot: Bot) -> ModelRolesModel.Row { ModelRolesModel.row(modelRolesInput(for: bot)) }

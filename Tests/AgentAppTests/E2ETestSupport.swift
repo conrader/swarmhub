@@ -11,6 +11,12 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         var log: [(method: String, path: String, body: [String: Any]?)] = []
         var sessionModels: [String: String] = [:]
         var steeredRuns: Set<String> = []
+        /// P13: the lock answer (a refusal echoes the caller's bearer key), ids `POST /api/sessions` reports as
+        /// existing (409), and a catalog replacing the one-supplier default.
+        var lockStatus = 200
+        var existingSessions: Set<String> = []
+        var catalog: [String: Any]?
+        var optionsStatus = 200
         private let steerSignal = NSCondition()
         init(features: [String: Bool]) { self.features = features }
         func with<T>(_ body: (State) -> T) -> T { lock.lock(); defer { lock.unlock() }; return body(self) }
@@ -54,6 +60,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         case ("GET", ["v1", "capabilities"]): send(200, ["features": state.with { $0.features }, "model": "hermes-agent"])
         case ("POST", ["api", "sessions"]):
             let id = body?["id"] as? String ?? UUID().uuidString
+            guard !state.with({ $0.existingSessions.contains(id) }) else { return send(409, ["error": ["message": "Session already exists", "code": "session_exists"]]) }
             send(201, ["session": ["id": id]])
         case ("GET", let path) where path.count == 4 && path[0...1] == ["api", "sessions"] && path[3] == "messages": send(200, ["data": []])
         case ("GET", let path) where path.count == 3 && path[0...1] == ["api", "sessions"]:
@@ -62,10 +69,16 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
             guard state.with({ $0.features["session_fork"] == true }) else { return send(404, ["error": "no route"]) }
             send(200, ["session": ["id": body?["id"] as? String ?? "fork"]])
         case ("POST", let path) where path.count == 4 && path[0...1] == ["api", "sessions"] && path[3] == "model":
-            let model = body?["model"] as? String ?? ""
+            let model = body?["model"] as? String ?? "", status = state.with { $0.lockStatus }
+            guard status == 200 else {
+                return send(status, ["error": ["message": "cannot route for \(request.value(forHTTPHeaderField: "Authorization") ?? "")", "code": "model_lock_unavailable"]])
+            }
             state.with { $0.sessionModels[path[2]] = model }
             send(200, ["runtime": ["model_lock": "accepted", "model": model, "provider": body?["provider"] as? String ?? ""]])
         case ("GET", ["api", "model", "options"]):
+            let optionsStatus = state.with { $0.optionsStatus }
+            guard optionsStatus == 200 else { return send(optionsStatus, ["error": "no route"]) }
+            if let catalog = state.with({ $0.catalog }) { return send(200, catalog) }
             send(200, ["model": "model-a", "provider": "prov", "providers": [["slug": "prov", "name": "Prov", "models": ["model-a", "model-b"], "authenticated": true]]])
         case ("GET", ["api", "jobs"]): send(200, ["jobs": [["id": "job-1", "name": "Daily brief", "schedule": "0 8 * * *", "enabled": true]]])
         case ("POST", let path) where path.count == 4 && path[0...1] == ["v1", "runs"] && path[3] == "steer":

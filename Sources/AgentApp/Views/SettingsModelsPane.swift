@@ -6,6 +6,8 @@ struct SettingsModelsPane: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var cache: BotInfoCache
     @State private var loading = false; @State private var loadedAt: Date?
+    /// The bot whose profile list feeds the pickers (a view preference, not stored).
+    @State private var referenceID: UUID?
 
     var body: some View {
         let model = store.modelRoles()
@@ -20,7 +22,7 @@ struct SettingsModelsPane: View {
             }
         }
         Section("All bots") {
-            roleDefault("Conversation model", value: "Box default", help: ModelRolesModel.conversationHelp)
+            conversationDefault(model)
             roleDefault("Coding model", value: "Same as conversation", help: ModelRolesModel.codingHelp)
         }
         if model.rows.isEmpty {
@@ -35,6 +37,27 @@ struct SettingsModelsPane: View {
             boxLine("Compaction", nil, note: ModelRoleReason.boxOnly.text)
             boxLine("Routines", nil, note: ModelRoleReason.boxOnly.text)
         }
+    }
+
+    @ViewBuilder private func conversationDefault(_ model: ModelRolesModel) -> some View {
+        let loaded = model.hermesRows.filter { cache.info(for: $0.id)?.modelOptions.value != nil }
+        let reference = store.bots.first { $0.id == (referenceID ?? loaded.first?.id) }
+        if !loaded.isEmpty {
+            Picker("Models from", selection: Binding(get: { reference?.id }, set: { referenceID = $0 })) {
+                ForEach(loaded) { row in Text(row.name).tag(row.id as UUID?) }
+            }
+        }
+        HStack {
+            Text("Conversation model")
+            Spacer()
+            RoleModelMenu(label: store.modelDefaults.conversation?.model ?? "Box default", leading: [("Box default", .box)],
+                          picker: reference.map { store.modelPicker(for: $0) }) { setting in
+                if case .choice(let choice) = setting { store.modelDefaults.conversation = choice } else { store.modelDefaults.conversation = nil }
+                store.save()
+            }
+        }
+        Text(ModelRolesModel.conversationHelp + (loaded.isEmpty ? " Press Load to list the box's models." : "") + " " + ModelRoleReason.permanent.text)
+            .font(.caption).foregroundStyle(.secondary)
     }
 
     private func roleDefault(_ title: String, value: String, help: String) -> some View {
