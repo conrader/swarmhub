@@ -46,8 +46,10 @@ enum HeadlessGrokLive {
         request.httpMethod = "POST"
         request.httpBody = Data(body)
         request.timeoutInterval = GrokProtocol.requestTimeout
+        let appVersion = GrokRequestHeaders.appVersion(fromShortVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
         for (name, value) in GrokRequestHeaders.rpcHeaders(token: creds.token.reveal(), machineID: creds.machineID.reveal(),
-                                                           teamID: creds.teamID, version: version, nowMs: nowMs) {
+                                                           teamID: creds.teamID, clientVersion: version, appVersion: appVersion,
+                                                           nowMs: nowMs) {
             request.setValue(value, forHTTPHeaderField: name)
         }
         request.setValue(GrokProtocol.contentType, forHTTPHeaderField: "content-type")
