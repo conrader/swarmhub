@@ -253,7 +253,7 @@ private actor ReviewerStopTargetBox {
     }
     var isIdle: Bool { streamTask == nil }
     private func notifyIfNeeded(bot: Bot, message: String) {
-        guard Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), !NSApp.isActive else { return }
+        guard Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
         let content = UNMutableNotificationContent(); content.title = bot.name; content.body = String(message.prefix(140)); content.sound = .default
         UNUserNotificationCenter.current().add(.init(identifier: UUID().uuidString, content: content, trigger: nil))
     }

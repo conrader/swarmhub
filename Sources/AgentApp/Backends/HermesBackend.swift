@@ -316,7 +316,7 @@ struct HermesBackend: AgentBackend {
         }
     }
 
-    private func jsonRequest(path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> [String: Any] {
+    func jsonRequest(path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> [String: Any] {
         var request = try makeRequest(path: path, method: method)
         if let timeout { request.timeoutInterval = timeout }
         if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
