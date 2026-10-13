@@ -135,6 +135,7 @@ extension Color {
 
 extension Notification.Name {
     static let toggleInfo = Notification.Name("AgentApp.toggleInfo")
+    static let toggleSidebar = Notification.Name("AgentApp.toggleSidebar")
     static let newBot = Notification.Name("AgentApp.newBot")
     static let commandPalette = Notification.Name("AgentApp.commandPalette")
 }

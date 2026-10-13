@@ -15,7 +15,7 @@ struct InfoPanel: View {
                 Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24) }.buttonStyle(.plain).help("Bot settings")
                 Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
                     .buttonStyle(.plain).help("Close")
-            }.padding(.horizontal, 14).frame(height: 54)
+            }.padding(.horizontal, 14).frame(height: 54).windowDragStrip(probe: "details_header")
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             HStack(spacing: 3) { ForEach(PanelTab.allCases, id: \.self) { item in Button(item.rawValue) { tab = item }.font(.system(size: 10, weight: tab == item ? .semibold : .regular)).buttonStyle(.plain).padding(.horizontal, 6).frame(height: 26).background(tab == item ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6)) } }.padding(8)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)

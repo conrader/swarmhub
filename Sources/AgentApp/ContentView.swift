@@ -4,20 +4,20 @@ struct ContentView: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: Binding(get: { store.sidebarHidden ? .detailOnly : .all }, set: { store.sidebarHidden = $0 == .detailOnly })) {
             SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: 176, ideal: 196, max: 224)
+                .toolbar(removing: .sidebarToggle).ignoresSafeArea(.container, edges: .top)
         } detail: {
-            if let group = store.selectedGroup {
-                HStack(spacing: 0) {
-                    GroupChatView(group: group).frame(minWidth: 500)
-                    if store.showInfo { Divider(); GroupInfoPanel(group: group) }
+            Group {
+                if let group = store.selectedGroup {
+                    GroupChatView(group: group).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
+                } else if let bot = store.selectedBot {
+                    ChatView(bot: bot).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
+                } else {
+                    ContentUnavailableView("Choose an agent", systemImage: "bubble.left.and.bubble.right", description: Text("Select an agent from the sidebar to begin."))
+                        .overlay(alignment: .top) { if store.sidebarHidden { WindowDragArea().frame(height: ChromeMetrics.titleRow).chromeProbe("empty_strip") } }
                 }
-            } else if let bot = store.selectedBot {
-                HStack(spacing: 0) {
-                    ChatView(bot: bot).frame(minWidth: 500)
-                    if store.showInfo { Divider(); InfoPanel(bot: bot) }
-                }
-            } else { ContentUnavailableView("Choose an agent", systemImage: "bubble.left.and.bubble.right", description: Text("Select an agent from the sidebar to begin.")) }
+            }.ignoresSafeArea(.container, edges: .top)
         }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
         .task { store.startRoutinePolling() }
         .sheet(isPresented: $store.showingNewBot) { BotEditorView(bot: nil) }
@@ -25,6 +25,7 @@ struct ContentView: View {
         .sheet(isPresented: $store.showingNewGroup) { NewGroupSheet(preselected: store.selectedGroup == nil ? Set(store.selectedBot.map { [$0.id] } ?? []) : []) }
         .sheet(item: $store.editingBot) { BotEditorView(bot: $0) }
         .onReceive(NotificationCenter.default.publisher(for: .toggleInfo)) { _ in store.showInfo.toggle() }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in store.sidebarHidden.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: .newBot)) { _ in store.showingNewBot = true }
         .onReceive(NotificationCenter.default.publisher(for: .commandPalette)) { _ in store.showingCommandPalette = true }
         .sheet(isPresented: $store.showingCommandPalette) { CommandPaletteView() }
@@ -41,6 +42,7 @@ private struct CommandPaletteView: View {
             Divider()
             ScrollView { VStack(spacing: 4) {
                 action("New agent", icon: "plus") { store.showingNewBot = true }
+                action("Toggle sidebar", icon: "sidebar.left") { store.sidebarHidden.toggle() }
                 action("Open Settings", icon: "gearshape") { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) }
                 ForEach(store.bots.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { bot in action(bot.name, icon: "message") { store.open(bot) } }
                 ForEach(store.groups.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { group in action(group.name, icon: "person.3") { store.open(group) } }

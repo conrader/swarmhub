@@ -13,7 +13,8 @@ Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `gr
   BotAvatarsKit (Jakub Antalik, Libraries.dev) under `Vendor/`, credited in `THIRD-PARTY-NOTICES.md`.
 - No animations, except avatar motion by context (P15): list rows stay still unless that bot is working or hovered;
   the open bot's large mark and showcase views idle gently; a working bot hops everywhere; Settings → Appearance →
-  Avatar motion can choose Calm everywhere or Off; macOS Reduce Motion is always honoured.
+  Avatar motion can choose Calm everywhere or Off; macOS Reduce Motion is always honoured. Also allowed (P14): sidebar and
+  right-column open/close (system split-view / inspector slide; none under Reduce Motion).
   Dark theme by default; fast and light; no built-in model.
 - Never import or store secrets outside the Keychain. Imported routines start disabled.
 - Tests use synthetic fixtures only and never call Konrad's servers.

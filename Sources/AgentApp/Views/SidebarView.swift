@@ -7,13 +7,16 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(AppConstants.name).font(.system(size: 14, weight: .semibold)); Spacer()
+            HStack(spacing: 4) {
+                Spacer(minLength: ChromeMetrics.lightsClearance)
+                HideSidebarButton()
                 Button { store.showingTemplateImport = true } label: { Image(systemName: "square.and.arrow.down").font(.system(size: 12, weight: .medium)).frame(width: 24, height: 24) }
                     .buttonStyle(.plain).help("Import template")
+                    .accessibilityLabel("Import template").chromeProbe("import_template")
                 Button { store.showingNewBot = true } label: { Image(systemName: "plus").font(.system(size: 12, weight: .medium)).frame(width: 24, height: 24) }
                     .buttonStyle(.plain).help("New bot")
-            }.padding(.horizontal, 13).padding(.top, 12).padding(.bottom, 9)
+                    .accessibilityLabel("New bot").chromeProbe("new_bot")
+            }.padding(.trailing, 10).frame(height: ChromeMetrics.titleRow).windowDragStrip(probe: "sidebar_row")
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     sectionLabel("MY BOTS")
@@ -27,7 +30,7 @@ struct SidebarView: View {
                         ForEach(store.groups.filter(\.isHidden)) { group in GroupRow(group: group, botToDelete: $groupToDelete) }
                     }
                 }.padding(.horizontal, 8)
-            }
+            }.chromeProbe("sidebar_list")
             SettingsLink {
                 HStack(spacing: 9) { Image(systemName: "person.crop.circle.fill").font(.system(size: 25)).foregroundStyle(.secondary); Text("Konrad").font(.system(size: 13, weight: .medium)); Spacer() }
                     .contentShape(Rectangle()).padding(.horizontal, 12).padding(.vertical, 10)
