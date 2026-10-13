@@ -89,7 +89,7 @@ struct BotCapabilitiesView: View {
                         if groups.count > 1 || group.category != nil { Text(group.category ?? "Other").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 2) }
                         ForEach(group.skills) { skill in row(skill.name, detail: skill.description) }
                     }
-                    if groups.isEmpty { note("No skills match “\(query)”.") }
+                    if groups.isEmpty { note(query.trimmingCharacters(in: .whitespaces).isEmpty ? "No skills to show." : "No skills match “\(query)”.") }
                 }
             }
         }
@@ -101,10 +101,11 @@ struct BotCapabilitiesView: View {
         return skills.filter { $0.name.localizedCaseInsensitiveContains(needle) || $0.description.localizedCaseInsensitiveContains(needle) || ($0.category?.localizedCaseInsensitiveContains(needle) ?? false) }
     }
 
-    /// Groups by category in first-seen order; uncategorised skills come last.
+    /// Groups by category in first-seen order; uncategorised skills come last. Categories whose name starts
+    /// with "." (retired/internal, e.g. `.collision-retired`) are hidden with their skills.
     nonisolated static func grouped(_ skills: [HermesSkill]) -> [(category: String?, skills: [HermesSkill])] {
         var order: [String?] = []; var buckets: [String?: [HermesSkill]] = [:]
-        for skill in skills {
+        for skill in skills where !(skill.category?.hasPrefix(".") ?? false) {
             if buckets[skill.category] == nil { order.append(skill.category) }
             buckets[skill.category, default: []].append(skill)
         }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var store: AppStore
+    @AppStorage("accent") private var accent = AppTheme.defaultAccent
     var body: some View {
         NavigationSplitView {
             SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: 176, ideal: 196, max: 224)
@@ -17,7 +18,7 @@ struct ContentView: View {
                     if store.showInfo { Divider(); InfoPanel(bot: bot) }
                 }
             } else { ContentUnavailableView("Choose an agent", systemImage: "bubble.left.and.bubble.right", description: Text("Select an agent from the sidebar to begin.")) }
-        }.navigationSplitViewStyle(.balanced).tint(.primary).background(AppColor.chat)
+        }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
         .task { store.startRoutinePolling() }
         .sheet(isPresented: $store.showingNewBot) { BotEditorView(bot: nil) }
         .sheet(isPresented: $store.showingTemplateImport) { TemplateImportView() }

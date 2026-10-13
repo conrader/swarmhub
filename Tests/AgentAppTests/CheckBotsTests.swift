@@ -10,6 +10,13 @@ private func checkBotsServer() -> (host: String, session: URLSession) {
         switch parts[2...].joined(separator: "/") {
         case "v1/models": return (200, ["data": [["id": parts[1] == "grok-jarvis" ? "grok-jarvis" : "hermes-agent"]]])
         case "v1/capabilities": return (200, ["features": ["session_chat_streaming": true, "jobs": false, "run_stop": true]])
+        case "api/sessions" where parts[1] == "grok-jarvis":
+            let now = Date().timeIntervalSince1970
+            return (200, ["object": "list", "has_more": false, "data": [
+                ["id": "s1", "started_at": now - 3_600, "message_count": 4, "input_tokens": 1_500, "output_tokens": 300],
+                ["id": "s2", "started_at": now - 30 * 86_400, "message_count": 2, "input_tokens": 500, "output_tokens": 200],
+            ]])
+        case "api/sessions": return (200, ["object": "list", "has_more": false, "data": [] as [Any]])
         case "api/jobs" where parts[1] == "grok-jarvis":
             return (200, ["jobs": [jobPayload(id: "0123456789ab", name: "Morning"), jobPayload(id: "0123456789ac", name: "Night", enabled: false)]])
         default: return (404, ["error": "no route"])
@@ -43,14 +50,14 @@ private func checkBotsServer() -> (host: String, session: URLSession) {
     let code = await HeadlessCommands.checkBots(store: store, chat: nil, output: { lines.append($0) })
     #expect(code == 1)
     #expect(lines == [
-        "Jarvis | grok-jarvis | key: present | models: grok-jarvis (match) | caps: session_chat_streaming=true, jobs=false, run_steer=n/a, session_fork=n/a | routines: 2 (1 paused)",
-        "Doc | grok-doc | key: present | models: hermes-agent (MISMATCH) | caps: session_chat_streaming=true, jobs=false, run_steer=n/a, session_fork=n/a | routines: no jobs API",
+        "Jarvis | grok-jarvis | key: present | models: grok-jarvis (match) | caps: session_chat_streaming=true, jobs=false, run_steer=n/a, session_fork=n/a | routines: 2 (1 paused) | usage: 2 sessions, 6 messages, 2.0k in / 500 out (7 d: 1 sessions)",
+        "Doc | grok-doc | key: present | models: hermes-agent (MISMATCH) | caps: session_chat_streaming=true, jobs=false, run_steer=n/a, session_fork=n/a | routines: no jobs API | usage: 0 sessions, 0 messages, 0 in / 0 out (7 d: 0 sessions)",
         "Vised | grok-vised | key: missing | models: - (no key) | caps: session_chat_streaming=n/a, jobs=n/a, run_steer=n/a, session_fork=n/a",
         "Checked 3 Hermes bots: 1 OK, 2 failed",
     ])
     #expect(!lines.joined().contains("fixture-"))
     let paths = MockHermesProtocol.recorded(host).map { "\($0.httpMethod ?? "") \($0.url!.path)" }
-    #expect(paths == ["GET /p/grok-jarvis/v1/models", "GET /p/grok-jarvis/v1/capabilities", "GET /p/grok-jarvis/api/jobs", "GET /p/grok-doc/v1/models", "GET /p/grok-doc/v1/capabilities", "GET /p/grok-doc/api/jobs"], "jobs are only listed")
+    #expect(paths == ["GET /p/grok-jarvis/v1/models", "GET /p/grok-jarvis/v1/capabilities", "GET /p/grok-jarvis/api/jobs", "GET /p/grok-jarvis/v1/capabilities", "GET /p/grok-jarvis/api/sessions", "GET /p/grok-doc/v1/models", "GET /p/grok-doc/v1/capabilities", "GET /p/grok-doc/api/jobs", "GET /p/grok-doc/v1/capabilities", "GET /p/grok-doc/api/sessions"], "jobs and sessions are only listed")
     #expect(MockHermesProtocol.recorded(host).allSatisfy { $0.value(forHTTPHeaderField: "Authorization")?.hasPrefix("Bearer fixture-") == true })
 }
 

@@ -3,6 +3,21 @@ import SwiftUI
 
 enum AppTheme {
     static let defaultPreference = "Dark"
+    static let defaultAccent = "Graphite"
+    static let accentNames = ["Graphite", "Blue", "Purple", "Pink", "Orange", "Green", "Teal"]
+
+    /// The app-wide tint; Graphite (and anything unknown) follows the primary text colour.
+    static func accentColor(for name: String) -> Color {
+        switch name {
+        case "Blue": .blue
+        case "Purple": .purple
+        case "Pink": .pink
+        case "Orange": .orange
+        case "Green": .green
+        case "Teal": .teal
+        default: .primary
+        }
+    }
 
     static func colorScheme(for preference: String) -> ColorScheme? {
         switch preference {

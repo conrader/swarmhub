@@ -14,6 +14,7 @@ private struct FixtureReviewerBackend: AgentBackend {
 @main struct AgentAppMain: App {
     @StateObject private var store: AppStore
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference
+    @AppStorage("accent") private var accent = AppTheme.defaultAccent
     private let snapshotAppearance: String?
     init() {
         if let code = HeadlessCommands.runIfRequested() { exit(code) }
@@ -114,6 +115,14 @@ private struct FixtureReviewerBackend: AgentBackend {
                     Button("Toggle Agent Info") { NotificationCenter.default.post(name: .toggleInfo, object: nil) }.keyboardShortcut("i", modifiers: [.command, .shift])
                 }
             }
+        WindowGroup("Computer", id: ComputerWindow.id, for: UUID.self) { $botID in
+            ComputerWindow(botID: botID)
+                .environmentObject(store)
+                .preferredColorScheme(AppTheme.colorScheme(for: appearance))
+                .tint(AppTheme.accentColor(for: accent))
+                .frame(minWidth: 800, minHeight: 560)
+        }
+            .defaultSize(width: 1280, height: 820)
         Settings {
             SettingsView()
                 .environmentObject(store)

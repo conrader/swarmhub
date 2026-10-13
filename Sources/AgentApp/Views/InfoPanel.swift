@@ -3,7 +3,6 @@ import SwiftUI
 struct InfoPanel: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
-    @State private var computerPresented = false
     @State private var tab = PanelTab.overview
 
     private enum PanelTab: String, CaseIterable { case overview = "Overview", routines = "Routines", media = "Media", computer = "Computer", members = "Members" }
@@ -22,7 +21,6 @@ struct InfoPanel: View {
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView { panelContent.padding(14).frame(maxWidth: .infinity, alignment: .leading) }
         }.frame(minWidth: 300, idealWidth: 330, maxWidth: 380).background(AppColor.panel)
-            .sheet(isPresented: $computerPresented) { ComputerView().frame(minWidth: 1000, minHeight: 680) }
     }
 
     @ViewBuilder private var panelContent: some View {
@@ -57,7 +55,7 @@ struct InfoPanel: View {
         case .media:
             MediaTabView(bot: bot)
         case .computer:
-            VStack(spacing: 12) { ComputerView().frame(height: 220).clipShape(RoundedRectangle(cornerRadius: 10)); HStack { Button("Open") { computerPresented = true }; Spacer(); Button("Take over") { computerPresented = true }.buttonStyle(.borderedProminent) } }
+            ComputerTab(bot: bot)
         case .members:
             VStack(alignment: .leading, spacing: 12) {
                 Text("Members").font(.headline); member(GroupRouting.userName, role: "Owner"); member(bot.name, role: "Agent")
