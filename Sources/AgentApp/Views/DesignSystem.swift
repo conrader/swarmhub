@@ -41,11 +41,7 @@ struct AvatarImage: View {
         if name.isFlatFace {
             FlatBotFace(name: name)
         } else {
-#if SWIFT_PACKAGE
-            Image(name.rawValue, bundle: .module).resizable()
-#else
             Image(nsImage: AvatarAssets.image(named: name.rawValue)).resizable()
-#endif
         }
     }
 }
@@ -85,19 +81,25 @@ struct FlatBotFace: View {
     }
 }
 
-#if !SWIFT_PACKAGE
-private enum AvatarAssets {
+/// Avatar PNGs: the installed app's Resources/Avatars, the SwiftPM resource bundle next to the binary,
+/// or the checkout when run from the package root (tests). `Image(_:bundle: .module)` cannot see them because
+/// they are copied as a folder, and `Bundle.module` traps when the bundle is absent.
+@MainActor private enum AvatarAssets {
+    private static var cache: [String: NSImage] = [:]
     static func image(named name: String) -> NSImage {
+        if let cached = cache[name] { return cached }
         let executable = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
         let candidates = [
             Bundle.main.resourceURL?.appending(path: "Avatars/\(name).png"),
+            executable.appending(path: "AgentApp_AgentApp.bundle/Avatars/\(name).png"),
             executable.appending(path: "AgentApp.resources/Avatars/\(name).png"),
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appending(path: "Resources/Avatars/\(name).png")
         ].compactMap { $0 }
-        return candidates.lazy.compactMap(NSImage.init(contentsOf:)).first ?? NSImage(size: NSSize(width: 28, height: 28))
+        guard let image = candidates.lazy.compactMap(NSImage.init(contentsOf:)).first else { return NSImage(size: NSSize(width: 28, height: 28)) }
+        cache[name] = image
+        return image
     }
 }
-#endif
 
 struct BotAvatar: View {
     let bot: Bot; var size: CGFloat = 38

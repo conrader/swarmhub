@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft = ""
+    @Environment(\.grokHistoryExpanded) private var historyExpanded
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 11) {
@@ -15,7 +16,7 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         Color.clear.frame(height: 20)
-                        if bot.grokSourceID != nil { GrokHistoryView(bot: bot) }
+                        if bot.grokSourceID != nil { GrokHistoryView(bot: bot, expanded: historyExpanded) }
                         ForEach(Array(bot.messages.enumerated()), id: \.element.id) { index, message in
                             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } }, reply: { store.replyTo = message }).id(message.id)
                         }

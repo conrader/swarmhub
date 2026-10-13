@@ -5,8 +5,10 @@ import SwiftUI
 struct GrokHistoryView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
-    @State private var expanded = false
+    @State private var expanded: Bool
     @State private var query = ""
+
+    init(bot: Bot, expanded: Bool = false) { _bot = ObservedObject(wrappedValue: bot); _expanded = State(initialValue: expanded) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -32,6 +34,12 @@ struct GrokHistoryView: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppColor.separator, lineWidth: 0.5))
         .padding(.horizontal, 24).padding(.bottom, 12)
     }
+}
+
+private struct GrokHistoryExpandedKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    /// Opens the Grok history archive on first appearance (used by headless snapshots).
+    var grokHistoryExpanded: Bool { get { self[GrokHistoryExpandedKey.self] } set { self[GrokHistoryExpandedKey.self] = newValue } }
 }
 
 private struct ArchivedMessageRow: View {

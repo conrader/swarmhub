@@ -5,10 +5,12 @@ import Foundation
 ///   AgentApp --import-grok "<export folder | index.json | bundle.json>"
 ///   AgentApp --import-keys <file>      (lines `profile=key`; file must be 0600 and owned by the user)
 ///   AgentApp --check-bots [--chat "<bot name>" "<text>"]   (see HeadlessCheckBots.swift)
+///   AgentApp --render-snapshot <dir> [--bot "<name>"]...         (see HeadlessSnapshot.swift)
 @MainActor enum HeadlessCommands {
     /// Returns an exit code when a headless command was requested, otherwise nil.
     static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Int32? {
         if arguments.contains("--check-bots") { return runCheckBots(arguments: arguments) }
+        if arguments.contains("--render-snapshot") { return HeadlessSnapshot.run(arguments: arguments) }
         guard let flagIndex = arguments.firstIndex(where: { $0 == "--import-grok" || $0 == "--import-keys" }) else { return nil }
         guard arguments.indices.contains(flagIndex + 1) else { print("Usage: AgentApp --import-grok <folder> | --import-keys <file>"); return 64 }
         let path = (arguments[flagIndex + 1] as NSString).expandingTildeInPath
