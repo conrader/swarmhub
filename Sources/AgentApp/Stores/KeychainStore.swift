@@ -16,6 +16,11 @@ enum KeychainStore {
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return "" }
         return String(decoding: data, as: UTF8.self)
     }
+    /// Whether an item exists, from its attributes only, so no access prompt can appear.
+    static func exists(account: String) -> Bool {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+    }
     static func accounts(prefix: String) -> [String] {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitAll]
         var result: CFTypeRef?
@@ -28,9 +33,15 @@ enum KeychainStore {
 protocol HermesKeyStore: Sendable {
     func key(for account: String) -> String
     func setKey(_ value: String, for account: String)
+    func hasKey(for account: String) -> Bool
+}
+
+extension HermesKeyStore {
+    func hasKey(for account: String) -> Bool { !key(for: account).isEmpty }
 }
 
 struct KeychainHermesKeyStore: HermesKeyStore {
     func key(for account: String) -> String { KeychainStore.get(account: account) }
     func setKey(_ value: String, for account: String) { KeychainStore.set(value, account: account) }
+    func hasKey(for account: String) -> Bool { KeychainStore.exists(account: account) }
 }
