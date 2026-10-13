@@ -28,7 +28,7 @@ extension AppStore {
             guard case .available(let profile) = probe.status else { continue }
             prefixIgnoredHermesProfiles.remove(profile.id)
             guard !bots.contains(where: { $0.backend == .hermes && ($0.hermesProfile ?? "default") == profile.id }) else { continue }
-            bots.append(Bot(name: profile.name, title: "Hermes profile", description: "Hermes profile: \(profile.id)", backend: .hermes, avatarName: BotAvatarName.allCases[bots.count % BotAvatarName.allCases.count], hermesProfile: profile.id))
+            bots.append(Bot(name: profile.name, title: "Hermes profile", description: "Hermes profile: \(profile.id)", backend: .hermes, hermesProfile: profile.id))
         }
         if let first = probes.first, first.id == "default", case .unavailable(let reason) = first.status { errorMessage = reason }
         if selectedBot == nil { selectedBot = bots.first }

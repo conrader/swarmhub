@@ -79,7 +79,7 @@ extension AppStore {
                 if policy != .legacyFileImport { group.isHidden = bundle.source?.hiddenFromSidebar ?? false }
                 groups.append(group)
             }
-            return GrokImportRow(name: group.name, profile: nil, historyCount: historyCount, avatar: mapped.avatar, accent: mapped.accent,
+            return GrokImportRow(name: group.name, profile: nil, historyCount: historyCount, mark: mapped,
                                  sourceShape: bundle.avatar?.shape, sourceColour: bundle.avatar?.colour, isGroup: true, created: created)
         case .bot(let bot, let kind):
             switch (policy, kind) {
@@ -101,8 +101,8 @@ extension AppStore {
             bot.grokSourceID = bundle.sourceId
             bot.grokHistoryCount = historyCount
             if kind == .new { bots.append(bot) }
-            return GrokImportRow(name: bot.name, profile: bot.hermesProfile, historyCount: historyCount, avatar: mapped.avatar,
-                                 accent: mapped.accent, sourceShape: bundle.avatar?.shape, sourceColour: bundle.avatar?.colour,
+            return GrokImportRow(name: bot.name, profile: bot.hermesProfile, historyCount: historyCount, mark: mapped,
+                                 sourceShape: bundle.avatar?.shape, sourceColour: bundle.avatar?.colour,
                                  isGroup: false, created: kind == .new)
         }
     }
@@ -112,11 +112,11 @@ extension AppStore {
         [bundle.profile, bundle.slug.map { "grok-\($0)" }].compactMap { $0 }.first(where: HermesKeyPaste.isValidProfileName)
     }
 
-    private func applyIdentity(_ prepared: PreparedGrokBundle, mapped: (avatar: BotAvatarName, accent: String?), to bot: Bot) {
+    private func applyIdentity(_ prepared: PreparedGrokBundle, mapped: AvatarMark, to bot: Bot) {
         bot.name = prepared.name.isEmpty ? "Grok bot" : prepared.name
         bot.title = prepared.title.isEmpty ? "Imported from Grok Bot" : prepared.title
         bot.botDescription = prepared.description
         if !prepared.instructions.isEmpty { bot.persona = prepared.instructions }
-        bot.avatarName = mapped.avatar; bot.accentColor = mapped.accent
+        bot.avatarMark = mapped; bot.avatarMarkMigrated = false
     }
 }

@@ -84,7 +84,7 @@ import UserNotifications
             }
             if hermesConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
         } else if hermesConfigured {
-            let bot = Bot(name: "Hermes", title: "Hermes Agent", description: "Default Hermes profile", backend: .hermes, avatarName: .faceCoral, hermesProfile: "default")
+            let bot = Bot(name: "Hermes", title: "Hermes Agent", description: "Default Hermes profile", backend: .hermes, hermesProfile: "default")
             bots = [bot]; save()
         } else {
             loadDemoData(persist: true)

@@ -11,10 +11,9 @@ struct GrokImportPreview: View {
                 ForEach(bundles, id: \.sourceId) { bundle in
                     let mapped = GrokAvatarMap.map(shape: bundle.avatar?.shape, colour: bundle.avatar?.colour, sourceID: bundle.sourceId)
                     HStack(spacing: 10) {
-                        AvatarImage(name: mapped.avatar).frame(width: 30, height: 30).clipShape(Circle())
-                            .overlay(Circle().stroke(mapped.accent.flatMap(Color.init(hex:)) ?? AppColor.separator, lineWidth: 1.5))
+                        Circle().fill(Color(hex: AvatarColour(rawValue: mapped.colour)?.hex ?? "") ?? .gray).frame(width: 30, height: 30)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(bundle.name).fontWeight(.medium)
+                            Text(bundle.name).fontWeight(.medium) + Text("  \(mapped.shape)/\(mapped.colour)").font(.caption).foregroundColor(.secondary)
                             Text((bundle.isGroup ?? false) ? "Archived group · \((bundle.members ?? []).map(\.name).joined(separator: ", "))" : (bundle.profile ?? "no profile")).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()

@@ -1,7 +1,7 @@
 import Foundation
 
 struct GrokImportRow: Equatable {
-    var name: String; var profile: String?; var historyCount: Int; var avatar: BotAvatarName; var accent: String?
+    var name: String; var profile: String?; var historyCount: Int; var mark: AvatarMark
     var sourceShape: String?; var sourceColour: String?; var isGroup: Bool; var created: Bool
 }
 
