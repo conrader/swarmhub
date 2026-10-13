@@ -102,8 +102,11 @@ enum SubAgentStatus: String, Codable { case queued, running, completed, failed }
 struct SubAgentTask: Identifiable, Codable, Sendable { let id: UUID; var title: String; var detail: String; var status: SubAgentStatus }
 struct ApprovalRequest: Identifiable, Codable, Sendable {
     let id: UUID; let title: String; let summary: String; let draft: String?
+    var command: String? = nil
     var runID: String? = nil; var requestID: String? = nil
     var botID: UUID? = nil; var profile: String? = nil; var sessionID: String? = nil
+
+    var hasKnownCommand: Bool { !(command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) }
 }
 struct BackendSession: Identifiable, Sendable { let id: String; let title: String }
 struct BackendMessage: Sendable, Equatable {

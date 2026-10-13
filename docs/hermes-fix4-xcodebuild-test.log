@@ -1,0 +1,3 @@
+Error loading required libraries. If there is an ongoing installation please wait for it to complete. Otherwise reinstall. (dlopen(@rpath/libxcodebuildLoader.dylib, 0x0001): Symbol not found: _XPCTypeBool
+  Referenced from: <6A4DB321-2742-38A5-9557-146EE0FE957F> /Library/Developer/PrivateFrameworks/CoreDevice.framework/Versions/A/CoreDevice
+  Expected in:     <781B8B5D-634D-3B6B-82FB-9080774ECF61> /Library/Apple/System/Library/PrivateFrameworks/Mercury.framework/Versions/A/Mercury)

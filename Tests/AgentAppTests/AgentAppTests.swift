@@ -10,9 +10,10 @@ private actor TestBackend: AgentBackend {
     let streamMode: StreamMode
     nonisolated let stopTrace: LockedTrace?
     let stopDelay: Duration
+    let failingStopCalls: Set<Int>
     private(set) var calls: [String] = []
-    init(transport: HermesTransport, rows: [BackendMessage] = [], streamMode: StreamMode = .reply, stopTrace: LockedTrace? = nil, stopDelay: Duration = .milliseconds(80)) {
-        transportValue = transport; self.rows = rows; self.streamMode = streamMode; self.stopTrace = stopTrace; self.stopDelay = stopDelay
+    init(transport: HermesTransport, rows: [BackendMessage] = [], streamMode: StreamMode = .reply, stopTrace: LockedTrace? = nil, stopDelay: Duration = .milliseconds(80), failingStopCalls: Set<Int> = []) {
+        transportValue = transport; self.rows = rows; self.streamMode = streamMode; self.stopTrace = stopTrace; self.stopDelay = stopDelay; self.failingStopCalls = failingStopCalls
     }
     func sessionTransport() async throws -> HermesTransport? { calls.append("capabilities"); return transportValue }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
@@ -24,7 +25,7 @@ private actor TestBackend: AgentBackend {
                 case .reply:
                     continuation.yield(.token("ok")); continuation.yield(.completed)
                 case .approvalThenFinish:
-                    continuation.yield(.approval(.init(id: UUID(), title: "Approve", summary: "cmd", draft: nil, runID: "run-1", requestID: "req-1")))
+                    continuation.yield(.approval(.init(id: UUID(), title: "Approve", summary: "cmd", draft: nil, command: "cmd", runID: "run-1", requestID: "req-1")))
                     try? await Task.sleep(for: .milliseconds(180)); continuation.yield(.completed)
                 case .longRunning:
                     continuation.yield(.token("running")); try? await Task.sleep(for: .seconds(10))
@@ -40,8 +41,9 @@ private actor TestBackend: AgentBackend {
     func cancel(sessionID: String) async throws -> StopOutcome { .requested }
     func stopTarget(sessionID: String) async throws -> StopTarget { calls.append("capture"); return .serverRun("run-1") }
     func requestStop(_ target: StopTarget) async throws -> StopOutcome {
-        stopTrace?.add("post"); calls.append("post")
+        stopTrace?.add("post"); let callNumber = calls.filter { $0 == "post" }.count + 1; calls.append("post")
         try? await Task.sleep(for: stopDelay)
+        if failingStopCalls.contains(callNumber) { calls.append("post-failed"); throw BackendError.unavailable("old stop failed") }
         return .requested
     }
     func resolveApproval(id: UUID, approved: Bool) async throws {}
@@ -58,6 +60,17 @@ private final class LockedTrace: @unchecked Sendable {
 
 private func temporaryStore(_ name: String = UUID().uuidString) -> URL {
     FileManager.default.temporaryDirectory.appending(path: "AgentAppTests-\(name)/store.json")
+}
+
+private struct WaitTimeout: Error {}
+
+@MainActor private func waitUntil(timeout: Duration = .seconds(2), _ condition: @escaping @MainActor () async -> Bool) async throws {
+    let clock = ContinuousClock(); let deadline = clock.now.advanced(by: timeout)
+    while clock.now < deadline {
+        if await condition() { return }
+        await Task.yield()
+    }
+    throw WaitTimeout()
 }
 
 @Test func backendKindsAreStable() {
@@ -78,13 +91,15 @@ private func temporaryStore(_ name: String = UUID().uuidString) -> URL {
 
 @Test func approvalKeepsHermesRunIdentity() throws {
     let botID = UUID()
-    let value = ApprovalRequest(id: UUID(), title: "Approve", summary: "command", draft: nil, runID: "run-1", requestID: "req-1", botID: botID, profile: "research", sessionID: "session-1")
+    let value = ApprovalRequest(id: UUID(), title: "Approve", summary: "command", draft: nil, command: "command", runID: "run-1", requestID: "req-1", botID: botID, profile: "research", sessionID: "session-1")
     let restored = try JSONDecoder().decode(ApprovalRequest.self, from: JSONEncoder().encode(value))
     #expect(restored.runID == "run-1")
     #expect(restored.requestID == "req-1")
     #expect(restored.botID == botID)
     #expect(restored.profile == "research")
     #expect(restored.sessionID == "session-1")
+    #expect(restored.hasKnownCommand)
+    #expect(!ApprovalRequest(id: UUID(), title: "Unknown", summary: "Command unknown", draft: nil).hasKnownCommand)
 }
 
 @Test func hermesRejectsRemotePlaintextAPIKeys() {
@@ -100,7 +115,7 @@ private func temporaryStore(_ name: String = UUID().uuidString) -> URL {
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
     let bot = Bot(name: "Legacy", backend: .hermes); store.bots = [bot]; store.selectedBot = bot
     store.send(text: "hello")
-    try await Task.sleep(for: .milliseconds(80))
+    try await waitUntil { !store.isStreaming }
     let calls = await backend.recordedCalls()
     #expect(calls.contains("send")); #expect(!calls.contains("create")); #expect(!calls.contains("list")); #expect(!calls.contains("history"))
     #expect(bot.hermesSessionID == nil)
@@ -111,7 +126,7 @@ private func temporaryStore(_ name: String = UUID().uuidString) -> URL {
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
     let bot = Bot(name: "Unowned", backend: .hermes); store.bots = [bot]
     store.loadHermesHistory(for: bot)
-    try await Task.sleep(for: .milliseconds(50))
+    try await waitUntil { await backend.recordedCalls() == ["capabilities"] }
     #expect(await backend.recordedCalls() == ["capabilities"])
     #expect(bot.hermesSessionID == nil)
 }
@@ -147,6 +162,20 @@ private func temporaryStore(_ name: String = UUID().uuidString) -> URL {
     #expect(HermesBackend.normalizedContent(["text": "one object"]) == "one object")
 }
 
+@Test func historyPagingStopsAtTheConfiguredCap() async {
+    let trace = LockedTrace()
+    do {
+        _ = try await HermesBackend.loadMessagePages(pageSize: 2, maximumPages: 3) { offset, _ in
+            trace.add(String(offset))
+            return ([BackendMessage(role: "user", content: "row-\(offset)"), BackendMessage(role: "assistant", content: "row-\(offset + 1)")], 2)
+        }
+        Issue.record("Expected the paging safety limit to throw")
+    } catch {
+        #expect(error.localizedDescription.contains("6-row paging safety limit"))
+    }
+    #expect(trace.read() == ["0", "2", "4"])
+}
+
 @Test @MainActor func historyMergeUsesLatestFullTurnPairOverlap() {
     let local = [ChatMessage(role: .user, content: "repeat"), ChatMessage(role: .assistant, content: "ok")]
     let server = [
@@ -159,14 +188,23 @@ private func temporaryStore(_ name: String = UUID().uuidString) -> URL {
     #expect(AppStore.mergeHermesHistory(local: local, server: [.init(role: "assistant", content: "ok")]) == nil)
 }
 
+@Test @MainActor func divergentHistoryAddsAQuietNote() async throws {
+    let backend = TestBackend(transport: .nativeSessions, rows: [.init(role: "user", content: "different")])
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let bot = Bot(name: "History", backend: .hermes, messages: [ChatMessage(role: .user, content: "local"), ChatMessage(role: .assistant, content: "partial")], hermesSessionID: "history-1")
+    store.bots = [bot]; store.selectedBot = bot; store.loadHermesHistory(for: bot)
+    try await waitUntil { bot.messages.last?.content.contains("was not merged") == true }
+    #expect(bot.messages.last?.role == .system)
+}
+
 @Test @MainActor func stopCapturesThenCancelsThenPostsOnlyOnce() async throws {
     let trace = LockedTrace()
     let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning, stopTrace: trace)
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, didCancelLocalStream: { trace.add("cancel") })
     let bot = Bot(name: "Stop", backend: .hermes, hermesSessionID: "session-1"); store.bots = [bot]; store.selectedBot = bot
-    store.send(text: "go"); try await Task.sleep(for: .milliseconds(60))
+    store.send(text: "go"); try await waitUntil { await backend.recordedCalls().contains("send") }
     store.stop(); store.stop()
-    try await Task.sleep(for: .milliseconds(200))
+    try await waitUntil { await backend.recordedCalls().filter { $0 == "post" }.count == 1 && !store.isStreaming }
     let stopCalls = await backend.recordedCalls().filter { ["capture", "post"].contains($0) }
     #expect(stopCalls == ["capture", "post"]); #expect(trace.read() == ["cancel", "post"])
     #expect(bot.messages.filter { $0.role == .system && $0.content.contains("Stop requested") }.count == 1)
@@ -178,13 +216,29 @@ private func temporaryStore(_ name: String = UUID().uuidString) -> URL {
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, didCancelLocalStream: { trace.add("cancel") })
     let bot = Bot(name: "Stop twice", backend: .hermes, hermesSessionID: "session-2"); store.bots = [bot]; store.selectedBot = bot
 
-    store.send(text: "first"); try await Task.sleep(for: .milliseconds(60)); store.stop()
-    try await Task.sleep(for: .milliseconds(80))
-    store.send(text: "second"); try await Task.sleep(for: .milliseconds(60)); store.stop()
-    try await Task.sleep(for: .milliseconds(500))
+    store.send(text: "first"); try await waitUntil { await backend.recordedCalls().contains("send") }; store.stop()
+    try await waitUntil { !store.isStreaming }
+    store.send(text: "second"); try await waitUntil { await backend.recordedCalls().filter { $0 == "send" }.count == 2 }; store.stop()
+    try await waitUntil { await backend.recordedCalls().filter { $0 == "post" }.count == 2 && !store.isStreaming }
 
     #expect(trace.read() == ["cancel", "post", "cancel", "post"])
     #expect(await backend.recordedCalls().filter { $0 == "post" }.count == 2)
+}
+
+@Test @MainActor func failedOldStopDoesNotClearOrReportAgainstNewerRun() async throws {
+    let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning, stopDelay: .milliseconds(300), failingStopCalls: [1])
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let bot = Bot(name: "Stop race", backend: .hermes, hermesSessionID: "session-race"); store.bots = [bot]; store.selectedBot = bot
+
+    store.send(text: "first"); try await waitUntil { await backend.recordedCalls().contains("send") }; store.stop()
+    try await waitUntil { !store.isStreaming }
+    store.send(text: "second"); try await waitUntil { await backend.recordedCalls().filter { $0 == "send" }.count == 2 }
+    try await waitUntil { await backend.recordedCalls().contains("post-failed") }
+
+    #expect(store.isStreaming)
+    #expect(store.errorMessage == nil)
+    store.stop()
+    try await waitUntil { !store.isStreaming }
 }
 
 @Test @MainActor func approvalIsScopedAndClearedAtRunEnd() async throws {
@@ -193,10 +247,10 @@ private func temporaryStore(_ name: String = UUID().uuidString) -> URL {
     let first = Bot(name: "First", backend: .hermes, hermesProfile: "research", hermesSessionID: "s1")
     let second = Bot(name: "Second", backend: .hermes, hermesSessionID: "s2")
     store.bots = [first, second]; store.selectedBot = first; store.send(text: "go")
-    try await Task.sleep(for: .milliseconds(60))
+    try await waitUntil { store.approvals.count == 1 }
     #expect(store.approvals.count == 1); #expect(store.approvals.first?.botID == first.id)
     #expect(store.approvals.first?.profile == "research"); #expect(store.approvals.first?.sessionID == "s1")
-    try await Task.sleep(for: .milliseconds(200)); #expect(store.approvals.isEmpty)
+    try await waitUntil { store.approvals.isEmpty }; #expect(store.approvals.isEmpty)
 }
 
 @Test @MainActor func legacyDemoBotsAreMigratedAndHiddenWhenHermesConfigured() throws {

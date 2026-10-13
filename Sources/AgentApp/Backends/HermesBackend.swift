@@ -2,10 +2,13 @@ import Foundation
 
 private actor HermesRunRegistry {
     static let shared = HermesRunRegistry()
-    private var runs: [String: String] = [:]
-    func set(_ runID: String, for sessionID: String) { runs[sessionID] = runID }
-    func get(_ sessionID: String) -> String? { runs[sessionID] }
-    func clear(_ sessionID: String) { runs.removeValue(forKey: sessionID) }
+    private var runs: [String: (token: UUID, runID: String)] = [:]
+    func set(_ runID: String, for sessionID: String, token: UUID) { runs[sessionID] = (token, runID) }
+    func get(_ sessionID: String) -> String? { runs[sessionID]?.runID }
+    func clear(_ sessionID: String, token: UUID) {
+        guard runs[sessionID]?.token == token else { return }
+        runs.removeValue(forKey: sessionID)
+    }
 }
 
 private actor HermesCapabilityRegistry {
@@ -73,16 +76,21 @@ struct HermesBackend: AgentBackend {
     func loadMessages(sessionID: String) async throws -> [BackendMessage] {
         let escaped = sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionID
         guard try await transport() == .nativeSessions else { return [] }
-        var result: [BackendMessage] = []
-        var offset = 0
-        let maximumPages = 100
-        for page in 0..<maximumPages {
-            let json = try await jsonRequest(path: "api/sessions/\(escaped)/messages?order=oldest&limit=500&offset=\(offset)&inline_images=false")
+        return try await Self.loadMessagePages { offset, limit in
+            let json = try await jsonRequest(path: "api/sessions/\(escaped)/messages?order=oldest&limit=\(limit)&offset=\(offset)&inline_images=false")
             guard let rows = json["data"] as? [[String: Any]] else { throw BackendError.unavailable("Hermes returned an invalid messages page.") }
-            result.append(contentsOf: rows.compactMap(Self.parseMessage))
-            if rows.count < 500 { return result }
-            offset += rows.count
-            if page == maximumPages - 1 { throw BackendError.unavailable("Hermes message history exceeded the 50,000-row paging safety limit.") }
+            return (rows.compactMap(Self.parseMessage), rows.count)
+        }
+    }
+
+    static func loadMessagePages(pageSize: Int = 500, maximumPages: Int = 100, fetch: (Int, Int) async throws -> ([BackendMessage], Int)) async throws -> [BackendMessage] {
+        var result: [BackendMessage] = []; var offset = 0
+        for page in 0..<maximumPages {
+            let (messages, rawCount) = try await fetch(offset, pageSize)
+            result.append(contentsOf: messages)
+            if rawCount < pageSize { return result }
+            offset += rawCount
+            if page == maximumPages - 1 { throw BackendError.unavailable("Hermes message history exceeded the \(pageSize * maximumPages)-row paging safety limit.") }
         }
         return result
     }
@@ -111,7 +119,7 @@ struct HermesBackend: AgentBackend {
     func requestStop(_ target: StopTarget) async throws -> StopOutcome {
         switch target {
         case .serverRun(let runID):
-            _ = try await jsonRequest(path: "v1/runs/\(runID)/stop", method: "POST", body: [:])
+            _ = try await jsonRequest(path: "v1/runs/\(runID)/stop", method: "POST", body: [:], timeout: 8)
             return .requested
         case .disconnectedLegacy: return .disconnectedLegacy
         case .noActiveRun: return .noActiveRun
@@ -202,6 +210,7 @@ struct HermesBackend: AgentBackend {
 
     private func sseStream(_ request: URLRequest, sessionID: String, legacy: Bool) -> AsyncThrowingStream<AgentEvent, Error> {
         AsyncThrowingStream { continuation in
+            let streamToken = UUID()
             let task = Task {
                 do {
                     let (bytes, response) = try await session.bytes(for: request); try validate(response)
@@ -213,16 +222,16 @@ struct HermesBackend: AgentBackend {
                         let text = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
                         if text == "[DONE]" { continuation.yield(.completed); break }
                         guard let data = text.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-                        if let runID = json["run_id"] as? String { await HermesRunRegistry.shared.set(runID, for: sessionID) }
+                        if let runID = json["run_id"] as? String { await HermesRunRegistry.shared.set(runID, for: sessionID, token: streamToken) }
                         if legacy { parseLegacy(eventName, json, continuation) } else { parseNative(eventName, json, continuation, emittedAssistantDelta: &emittedAssistantDelta) }
                         eventName = "message"
                     }
-                    await HermesRunRegistry.shared.clear(sessionID); continuation.finish()
-                } catch is CancellationError { await HermesRunRegistry.shared.clear(sessionID); continuation.finish() }
+                    await HermesRunRegistry.shared.clear(sessionID, token: streamToken); continuation.finish()
+                } catch is CancellationError { await HermesRunRegistry.shared.clear(sessionID, token: streamToken); continuation.finish() }
                 catch {
                     // URLSession commonly reports task cancellation as URLError.cancelled rather
                     // than CancellationError. Any terminal stream error must release the run ID.
-                    await HermesRunRegistry.shared.clear(sessionID)
+                    await HermesRunRegistry.shared.clear(sessionID, token: streamToken)
                     if let urlError = error as? URLError, urlError.code == .cancelled { continuation.finish() }
                     else { continuation.finish(throwing: error) }
                 }
@@ -244,7 +253,9 @@ struct HermesBackend: AgentBackend {
         case "subagent.start": continuation.yield(.subAgent(.init(id: UUID(), title: json["task"] as? String ?? json["label"] as? String ?? "Delegated task", detail: json["profile"] as? String ?? "", status: .running)))
         case "subagent.complete": continuation.yield(.subAgent(.init(id: UUID(), title: json["task"] as? String ?? "Delegated task", detail: json["summary"] as? String ?? "", status: (json["status"] as? String) == "completed" ? .completed : .failed)))
         case "assistant.completed": if !emittedAssistantDelta, let content = json["content"] as? String, !content.isEmpty { continuation.yield(.token(content)) }
-        case "approval.request": continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: json["command"] as? String ?? "A tool action is waiting for your decision.", draft: nil, runID: json["run_id"] as? String, requestID: json["request_id"] as? String)))
+        case "approval.request":
+            let command = (json["command"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command?.isEmpty == false ? command! : "Command unknown", draft: nil, command: command?.isEmpty == false ? command : nil, runID: json["run_id"] as? String, requestID: json["request_id"] as? String)))
         case "run.completed": continuation.yield(.completed)
         case "run.cancelled": continuation.yield(.completed)
         case "run.failed", "error": continuation.yield(.failed(json["error"] as? String ?? json["message"] as? String ?? "Hermes run failed."))
@@ -252,8 +263,9 @@ struct HermesBackend: AgentBackend {
         }
     }
 
-    private func jsonRequest(path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> [String: Any] {
+    private func jsonRequest(path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> [String: Any] {
         var request = try makeRequest(path: path, method: method)
+        if let timeout { request.timeoutInterval = timeout }
         if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
         let (data, response) = try await session.data(for: request); try validate(response, data: data)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw BackendError.unavailable("Hermes returned invalid JSON.") }

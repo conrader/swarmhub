@@ -77,7 +77,11 @@ import UserNotifications
                 guard let sessionID = bot.hermesSessionID else { return }
                 let rows = try await activeBackend.loadMessages(sessionID: sessionID)
                 guard historyLoadTokens[bot.id] == token, !isStreaming, bot.hermesSessionID == originalSessionID, bot.messages.map(\.id) == originalMessageIDs else { return }
-                guard let merged = Self.mergeHermesHistory(local: bot.messages, server: rows) else { return }
+                guard let merged = Self.mergeHermesHistory(local: bot.messages, server: rows) else {
+                    let note = "Hermes history was not merged because it diverges from this local conversation."
+                    if bot.messages.last?.content != note { bot.messages.append(ChatMessage(role: .system, content: note)); objectWillChange.send(); save() }
+                    return
+                }
                 bot.messages = merged; objectWillChange.send(); save()
             } catch { errorMessage = error.localizedDescription }
         }
@@ -149,7 +153,7 @@ import UserNotifications
     }
     private func loadDemoActivity() {
         if let id = bots.first?.id {
-            approvals = [.init(id: UUID(), title: "Publish release notes", summary: "Atlas wants to publish the reviewed release notes to the client workspace.", draft: nil, botID: id)]
+            approvals = [.init(id: UUID(), title: "Publish release notes", summary: "Atlas wants to publish the reviewed release notes to the client workspace.", draft: nil, command: "Publish the reviewed release notes", botID: id)]
             routines[id] = [.init(name: "Morning brief", schedule: "Weekdays at 8:30", lastRun: "Today, 8:31"), .init(name: "Launch monitor", schedule: "When CI completes", lastRun: "Yesterday", isEnabled: false)]
         }
     }
@@ -188,6 +192,8 @@ import UserNotifications
                 } }
             } catch is CancellationError {
                 // User-initiated cancellation is not an error and must not notify.
+            } catch let error as URLError where error.code == .cancelled {
+                // URLSession reports cancellation this way when Stop lands during setup/first turn.
             } catch { errorMessage = error.localizedDescription; failed = true }
             let cancelled = Task.isCancelled
             approvals.removeAll { $0.botID == bot.id && ($0.sessionID == nil || $0.sessionID == (bot.hermesSessionID ?? bot.id.uuidString)) }
@@ -215,6 +221,7 @@ import UserNotifications
             return
         }
         let taskToCancel = streamTask
+        let stoppedAssistantID = streamingAssistant?.id
         Task {
             do {
                 // Capture the run before cancelling the SSE task, whose termination clears it.
@@ -229,11 +236,17 @@ import UserNotifications
                 case .disconnectedLegacy: feedback = "Stopped locally; this Hermes version has no run-control endpoint."
                 case .noActiveRun: feedback = "Stopped locally before Hermes supplied a run ID."
                 }
-                bot.messages.append(ChatMessage(role: .system, content: feedback)); objectWillChange.send()
+                let message = ChatMessage(role: .system, content: feedback)
+                if let stoppedAssistantID, let index = bot.messages.firstIndex(where: { $0.id == stoppedAssistantID }) {
+                    bot.messages.insert(message, at: index + 1)
+                } else { bot.messages.append(message) }
+                objectWillChange.send()
             } catch {
                 taskToCancel?.cancel()
-                if activeStreamToken == streamToken { isStreaming = false }
-                errorMessage = "Hermes Stop failed: \(error.localizedDescription)"
+                if activeStreamToken == streamToken {
+                    isStreaming = false
+                    errorMessage = "Hermes Stop failed: \(error.localizedDescription)"
+                }
             }
             if stopInProgressForStream == streamToken { stopInProgressForStream = nil }
             save()

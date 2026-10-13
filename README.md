@@ -13,6 +13,8 @@ Requirements: macOS 14+, Xcode 16.2, Swift 6.
 
 `scripts/build.sh` normally delegates to `swift build`. It also contains a direct Xcode 16.2 compiler fallback because the current host's `xcrun` crashes while loading `CoreDevice.framework`. The fallback verifies the production build, but it does not run SwiftPM tests.
 
+The Swift unit tests have never executed on this host. Both `swift test` and `xcodebuild test` fail before package compilation because Xcode 16.2's `CoreDevice.framework` requests `_XPCTypeBool`, which the installed macOS `Mercury.framework` does not export. The fourth-pass production build and a separate direct-compiler type-check of the test source passed; saved logs are in `docs/hermes-fix4-build.log`, `docs/hermes-fix4-swift-test.log`, `docs/hermes-fix4-xcodebuild-test.log`, and `docs/hermes-fix4-test-typecheck.log`. A later MacBook install must not be trusted until its test runner executes the suite successfully.
+
 ## Feature parity
 
 This pass recreates the product structure and interaction patterns with original SwiftUI code, SF Symbols, and original assets. It does not ship extracted artwork, fonts, icons, strings, or other assets from Grok Bot.
@@ -34,7 +36,7 @@ This pass recreates the product structure and interaction patterns with original
 | Settings | Partial | Seven sections exist. Accent is not applied; account, policy sync, metering, and updater services are stubs. |
 | Quick switcher | Partial | `Cmd+K` jumps to bots and creates a bot; Settings uses a compatibility selector and keyboard selection is not implemented. |
 | Notifications | Partial | Global (off by default) and per-bot controls exist. Delivery is bundle-safe and unavailable from the bare SwiftPM executable. |
-| Hermes | Partial | v0.21.7 Sessions/SSE chat, capped non-destructive paged history merging, per-run immediate local Stop plus background run Stop, approval wiring, internal tool status handling, Keychain auth, health checks, and configured profiles are implemented. Native/legacy fixtures exercise Stop, approval, and capability gating; the credential-free live gateway cannot produce a real paused approval or long model run. 0.16–0.20.x uses Chat Completions without Sessions calls. |
+| Hermes | Partial | v0.21.7 Sessions/SSE chat, capped non-destructive paged history merging, per-run immediate local Stop plus background run Stop, guarded approvals, internal tool status handling, Keychain auth, health checks, and configured profiles are implemented. Approval is disabled when Hermes supplies no command text. 0.16–0.20.x uses Chat Completions without Sessions calls. Fixture and live reruns are currently unverified because this managed sandbox forbids loopback listeners; see the saved logs. |
 | OpenClaw | Stub | Protocol/configuration exist; authenticated WebSocket RPC remains TODO. |
 | Sub-agents | Stub | Inline lifecycle cards are supported if emitted, but the checked v0.21.7 HTTP session stream does not emit `subagent.start`/`subagent.complete`. Child transcript drill-down and controls are not implemented. |
 

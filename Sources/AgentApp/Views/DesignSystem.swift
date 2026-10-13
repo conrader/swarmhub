@@ -90,9 +90,10 @@ private enum AvatarAssets {
     static func image(named name: String) -> NSImage {
         let executable = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
         let candidates = [
+            Bundle.main.resourceURL?.appending(path: "Avatars/\(name).png"),
             executable.appending(path: "AgentApp.resources/Avatars/\(name).png"),
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appending(path: "Resources/Avatars/\(name).png")
-        ]
+        ].compactMap { $0 }
         return candidates.lazy.compactMap(NSImage.init(contentsOf:)).first ?? NSImage(size: NSSize(width: 28, height: 28))
     }
 }

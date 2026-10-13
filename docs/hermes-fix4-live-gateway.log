@@ -1,0 +1,37 @@
+┌─────────────────────────────────────────────────────────┐
+│           ☤ Hermes Gateway Starting...                 │
+├─────────────────────────────────────────────────────────┤
+│  Messaging platforms + cron scheduler                    │
+│  Press Ctrl+C to stop                                   │
+└─────────────────────────────────────────────────────────┘
+
+2026-10-13 06:18:24,813 WARNING gateway.run: Host gateway lock could not be opened ([Errno 1] Operation not permitted: '/Users/konradsierzputowski/.local/state/hermes'); this gateway is not discoverable. No second gateway is implied — the lock directory itself is unusable.
+2026-10-13 06:18:24,815 WARNING gateway.control_socket: Gateway control socket failed to start (non-fatal): [Errno 1] Operation not permitted
+2026-10-13 06:18:24,932 ERROR gateway.platforms.api_server: [Api_Server] Could not bind 127.0.0.1:18642: [Errno 1] error while attempting to bind on address ('127.0.0.1', 18642): [errno 1] operation not permitted. Set a different port in config.yaml: platforms.api_server.port
+2026-10-13 06:18:24,935 WARNING gateway.run: ✗ api_server failed to connect
+2026-10-13 06:18:24,952 WARNING gateway.run: Gateway started with no connected platforms — 1 platform(s) queued for retry: api_server: failed to connect
+2026-10-13 06:18:24,954 WARNING gateway.run: No adapter could be created for any of the 1 configured platform(s). Check that required dependencies are installed and credentials are set. Gateway will continue for cron job execution; platforms whose plugin may still register are queued for background retry.
+2026-10-13 06:18:25,279 WARNING gateway.shutdown_watchdog: Loop tick socket unavailable — liveness probes will have no loop-scheduling witness and will not escalate on a stale heartbeat
+Traceback (most recent call last):
+  File "/private/tmp/hermes-v0.21.7-src/gateway/shutdown_watchdog.py", line 368, in loop_heartbeat_forever
+    tick_server = await asyncio.start_unix_server(_tick_socket_handler,
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                                  path=str(tick_socket_path))
+                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/streams.py", line 113, in start_unix_server
+    return await loop.create_unix_server(factory, path, **kwds)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/unix_events.py", line 311, in create_unix_server
+    sock.bind(path)
+    ~~~~~~~~~^^^^^^
+PermissionError: [Errno 1] Operation not permitted
+2026-10-13 06:18:25,375 WARNING agent.auxiliary_unavailable: Auxiliary Nous client unavailable: Nous Portal runtime credentials unavailable: Hermes is not logged into Nous Portal. Run `hermes model` to re-authenticate. (code: nous_auth_missing)
+2026-10-13 06:18:25,376 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-10-13 06:18:25,377 WARNING agent.auxiliary_client: resolve_provider_client: nous requested but Nous Portal not configured (run: hermes auth)
+2026-10-13 06:18:25,386 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-10-13 06:18:25,387 WARNING agent.auxiliary_client: resolve_provider_client: nous requested but Nous Portal not configured (run: hermes auth)
+2026-10-13 06:18:25,410 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-10-13 06:18:25,411 WARNING agent.auxiliary_client: resolve_provider_client: nous requested but Nous Portal not configured (run: hermes auth)
+2026-10-13 06:18:25,420 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).
+2026-10-13 06:18:25,420 WARNING agent.auxiliary_client: resolve_provider_client: nous requested but Nous Portal not configured (run: hermes auth)
+2026-10-13 06:18:38,089 WARNING gateway.run: Shutdown context: signal=SIGINT under_systemd=no parent_pid=29993 parent_name=? loadavg_1m=2.65
