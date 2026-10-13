@@ -14,57 +14,15 @@ struct BotCapabilitiesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             if isHermes {
-                modelSection
+                ModelSectionView(bot: bot, cache: cache)
                 skillsSection
                 toolsetsSection
             }
             importedSection
         }
-        .task(id: bot.id) { if cache.autoLoad { await store.loadServerInfo(for: bot) } }
-    }
-
-    // MARK: Model
-
-    @ViewBuilder private var modelSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack { Text("Model").font(.headline); Spacer(); refreshButton }
-            let current = store.currentModel(for: bot)
-            if let current {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(current.model).font(.callout.weight(.medium)).textSelection(.enabled)
-                    Text([current.provider, current.source].compactMap { $0 }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
-                }
-            } else if info?.isRefreshing ?? true {
-                Text("Checking…").font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text("The server did not report a model.").font(.caption).foregroundStyle(.secondary)
-            }
-            if let info, info.showsModelPicker, let options = info.modelOptions.value {
-                modelPicker(options, current: current, info: info)
-            }
-            if let error = info?.modelError { Text(error).font(.caption).foregroundStyle(.red) }
-        }
-    }
-
-    @ViewBuilder private func modelPicker(_ options: HermesModelOptions, current: CurrentModel?, info: BotServerInfo) -> some View {
-        let canSwitch = info.canLockSessionModel && bot.hermesSessionID != nil && !info.isSwitchingModel
-        Menu {
-            ForEach(options.selectable) { provider in
-                Section(provider.name) {
-                    ForEach(provider.models, id: \.self) { model in
-                        Button {
-                            Task { await store.switchModel(for: bot, provider: provider.slug, model: model) }
-                        } label: {
-                            if BotInfoCache.isCurrent(model, provider: provider.slug, current: current) { Label(model, systemImage: "checkmark") } else { Text(model) }
-                        }
-                    }
-                }
-            }
-        } label: { Text(info.isSwitchingModel ? "Switching…" : "Change model for this chat") }
-            .menuStyle(.borderlessButton).fixedSize().disabled(!canSwitch || options.selectable.isEmpty)
-        if !info.canLockSessionModel { note("This server cannot switch a chat's model.") }
-        else if bot.hermesSessionID == nil { note("Send a message first; the model is chosen per chat.") }
-        else if options.selectable.isEmpty { note("No provider on the server has credentials configured.") }
+        // Runs when the Overview appears and when the chat's session id changes (the first send creates it); the
+        // cache decides whether the entry is stale. Never polls.
+        .task(id: "\(bot.id)|\(bot.hermesSessionID ?? "")") { if cache.autoLoad { await store.loadServerInfo(for: bot) } }
     }
 
     // MARK: Skills
@@ -160,11 +118,6 @@ struct BotCapabilitiesView: View {
     }
 
     // MARK: Pieces
-
-    private var refreshButton: some View {
-        Button { Task { await store.loadServerInfo(for: bot, force: true) } } label: { Image(systemName: "arrow.clockwise").frame(width: 22, height: 22) }
-            .buttonStyle(.plain).help("Refresh skills, tools and model").disabled(info?.isRefreshing ?? false)
-    }
 
     private func row(_ title: String, detail: String, badge: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 2) {

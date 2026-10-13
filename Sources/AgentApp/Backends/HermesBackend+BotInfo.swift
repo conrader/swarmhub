@@ -58,38 +58,6 @@ struct HermesToolset: Sendable, Equatable, Identifiable {
     }
 }
 
-struct HermesModelProvider: Sendable, Equatable, Identifiable {
-    var id: String { slug }
-    let slug: String; let name: String; let models: [String]; let isCurrent: Bool
-    /// `false` for catalogue rows the box has no credentials for; such rows are not offered.
-    let authenticated: Bool?
-}
-
-struct HermesModelOptions: Sendable, Equatable {
-    let providers: [HermesModelProvider]
-    /// The gateway's configured default.
-    let model: String?; let provider: String?
-
-    /// Providers a chat can actually be switched to (credentials present, at least one model).
-    var selectable: [HermesModelProvider] { providers.filter { $0.authenticated != false && !$0.models.isEmpty } }
-
-    static func parse(_ json: [String: Any]) -> HermesModelOptions {
-        let rows = (json["providers"] as? [[String: Any]]) ?? []
-        let providers: [HermesModelProvider] = rows.compactMap { row in
-            guard let slug = row["slug"] as? String, !slug.isEmpty else { return nil }
-            let models: [String] = ((row["models"] as? [Any]) ?? []).compactMap { item in
-                if let id = item as? String { return id }
-                guard let object = item as? [String: Any] else { return nil }
-                return (object["id"] ?? object["name"]) as? String
-            }.filter { !$0.isEmpty }
-            return .init(slug: slug, name: (row["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? slug, models: models,
-                         isCurrent: row["is_current"] as? Bool ?? false, authenticated: row["authenticated"] as? Bool)
-        }
-        return .init(providers: providers, model: (json["model"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                     provider: (json["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 })
-    }
-}
-
 /// A chat's confirmed model lock as acknowledged by `POST /api/sessions/{id}/model`.
 struct HermesModelLock: Codable, Sendable, Equatable { let sessionID: String; let provider: String; let model: String }
 
