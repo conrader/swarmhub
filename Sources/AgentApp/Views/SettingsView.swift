@@ -8,7 +8,7 @@ struct SettingsView: View {
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference; @AppStorage("accent") private var accent = "Graphite"; @AppStorage("notifications") private var notifications = false
     @AppStorage("hermesBaseURL") private var hermesURL = AppConstants.defaultHermesURL; @AppStorage("openClawURL") private var openClawURL = "ws://127.0.0.1:18789"
     @AppStorage("hermesProfiles") private var hermesProfiles = ""
-    @AppStorage("noVNCURL") private var noVNCURL = ""; @AppStorage("autoReview") private var autoReview = false
+    @AppStorage("noVNCURL") private var noVNCURL = ""
     @State private var apiKey = ""; @State private var profileKeys = ""; @State private var testResult = ""; @State private var testing = false
     var body: some View {
         NavigationSplitView { List(Pane.allCases, selection: $pane) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }.navigationSplitViewColumnWidth(170) } detail: { Form { content }.formStyle(.grouped).navigationTitle(pane.rawValue) }
@@ -44,7 +44,8 @@ struct SettingsView: View {
             Section("OpenClaw") { TextField("Gateway URL", text: $openClawURL); Text("TODO: authenticated WebSocket RPC transport.").font(.caption).foregroundStyle(.secondary) }
             Section("Virtual desktop") { TextField("noVNC URL", text: $noVNCURL) }
         case .review:
-            Toggle("Review low-risk actions automatically", isOn: $autoReview); Text("High-impact actions still require explicit approval. TODO: backend policy synchronization.").font(.caption).foregroundStyle(.secondary)
+            Text("Approval policy is configured per bot.")
+            Text("Open a bot’s settings to choose Ask me, ordered allow/deny/ask rules, or another bot as reviewer. Approval history is visible in that bot’s Overview panel.").font(.caption).foregroundStyle(.secondary)
         case .usage:
             LabeledContent("Messages this month", value: "128"); LabeledContent("Backend cost", value: "Provided by your agent"); Text("TODO: pull usage metering from Hermes/OpenClaw when their APIs expose it.").font(.caption).foregroundStyle(.secondary)
         case .updates:

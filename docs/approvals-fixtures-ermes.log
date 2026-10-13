@@ -1,0 +1,16 @@
+Tue Oct 13 07:08:16 CEST 2026
+HEAD=751be1876d06d0ee89bfa5b769cf9ef56ca5c980 dirty approvals; binary .build/debug/AgentApp built after latest source edit
+[Performance] app initialized; peak resident memory 13.0 MB
+fixture: approval called request_id=req-auto choice=once
+fixture: approval called request_id=req-escalate choice=deny
+fixture: stop called
+Hermes integration: Hermes 0.21.7 (ok)
+Hermes integration: profiles=["default"]
+Hermes integration: auto-approved request=req-auto
+Hermes integration: reviewer-escalated request=req-escalate
+Hermes integration: listed=0 created=agentapp_integration_e1aaf901-0b7d-4ed9-8811-bc0668651650 events=["token", "subagent", "subagent", "approval", "approval", "completed"]
+[Performance] app initialized; peak resident memory 13.0 MB
+Hermes integration: Hermes 0.21.7 (ok)
+Hermes integration: profiles=["default"]
+Hermes integration: listed=0 created=agentapp_legacy_integration events=["token", "completed"]
+exit_status=0

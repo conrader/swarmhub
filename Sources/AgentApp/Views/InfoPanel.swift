@@ -35,6 +35,17 @@ struct InfoPanel: View {
                 Text(bot.botDescription.isEmpty ? "No description yet." : bot.botDescription).foregroundStyle(.secondary)
                 infoSection("Memory", text: bot.memorySummary.isEmpty ? "Memory will appear as this bot learns your preferences." : bot.memorySummary)
                 VStack(alignment: .leading, spacing: 8) { Text("Skills").font(.headline); FlowLayout(items: bot.skills.isEmpty ? ["No skills configured"] : bot.skills) }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack { Text("Approval policy").font(.headline); Spacer(); Text(bot.approvalMode.rawValue).font(.caption).foregroundStyle(.secondary) }
+                    ForEach(bot.approvalAudit.suffix(20).reversed()) { entry in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack { Text(entry.actionKind).font(.caption.weight(.semibold)); Spacer(); Text(entry.outcome.rawValue.capitalized).font(.caption).foregroundStyle(.secondary) }
+                            Text("\(entry.decidedBy) · \(entry.timestamp.formatted(date: .abbreviated, time: .shortened))").font(.caption2).foregroundStyle(.secondary)
+                            Text(entry.reason).font(.caption2).foregroundStyle(.secondary)
+                        }.padding(8).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    if bot.approvalAudit.isEmpty { Text("Approval requests and decisions will appear here. Command text and arguments are not stored in this audit.").font(.caption).foregroundStyle(.secondary) }
+                }
                 if bot.backend == .hermes {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Delegated tasks").font(.headline)

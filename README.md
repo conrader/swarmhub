@@ -15,6 +15,18 @@ Requirements: macOS 14+, Xcode 16.2, Swift 6.
 
 The Swift unit tests have never executed on this host. Both `swift test` and `xcodebuild test` fail before package compilation because Xcode 16.2's `CoreDevice.framework` requests `_XPCTypeBool`, which the installed macOS `Mercury.framework` does not export. Saved build and runner logs are under `docs/hermes-fix5-*.log`. A later MacBook install must not be trusted until its test runner executes the suite successfully.
 
+## Known issues
+
+- Dirty release archives identify the base commit and dirty summary, but remain less reproducible than a clean committed build.
+- Rules intentionally use first-match semantics; broad allow rules can shadow later deny/ask rules, so destructive ask/deny rules belong first.
+- Reviewer-bot decisions have not been verified with a provider-backed real Hermes run; the throwaway gateway has no model provider credentials.
+- Approval audit rows intentionally omit command text, show raw rule/reviewer UUIDs, and record Hermes' free-form action label. The fixture harness routes approvals directly and its shell script relies on process exit status rather than grepping each expected line.
+- The removed legacy `autoReview` preference may remain as a harmless stale UserDefaults key.
+- Parser compatibility edges remain low-risk maintenance work; legacy package excludes also produce SwiftPM warnings.
+- Keychain status reporting and per-keystroke writes, IPv6 loopback coverage, global streaming state, Hermes last-message-only sends, and some backend-specific wording remain limited.
+- `swift test` may still be blocked on this Mac by Xcode 16.2's `_XPCTypeBool` toolchain break; the latest result is saved under `docs/approvals-fix-*.log`.
+- The live throwaway Hermes reached profile discovery but reported version `unknown (degraded)` and had no configured model provider (`docs/hermes-fix6-live-ermes.log`).
+
 ## Feature parity
 
 This pass recreates the product structure and interaction patterns with original SwiftUI code, SF Symbols, and original assets. It does not ship extracted artwork, fonts, icons, strings, or other assets from Grok Bot.
@@ -36,7 +48,7 @@ This pass recreates the product structure and interaction patterns with original
 | Settings | Partial | Seven sections exist. Accent is not applied; account, policy sync, metering, and updater services are stubs. |
 | Quick switcher | Partial | `Cmd+K` jumps to bots and creates a bot; Settings uses a compatibility selector and keyboard selection is not implemented. |
 | Notifications | Partial | Global (off by default) and per-bot controls exist. Delivery is bundle-safe and unavailable from the bare SwiftPM executable. |
-| Hermes | Partial | v0.21.7 Sessions/SSE chat, capped non-destructive paged history merging, per-run immediate local Stop plus background run Stop, guarded approvals, internal tool status handling, Keychain auth, health checks, and configured profiles are implemented. A failed or timed-out server Stop is reported beside the stopped turn without changing a newer run. Approval is disabled when Hermes supplies no command text. 0.16–0.20.x uses Chat Completions without Sessions calls. Fixture and live reruns are currently unverified because this managed sandbox forbids loopback listeners; see the saved logs. |
+| Hermes | Partial | v0.21.7 Sessions/SSE chat, capped non-destructive paged history merging, per-run immediate local Stop plus background run Stop, per-bot ask/rules/reviewer approvals with local audit, internal tool status handling, Keychain auth, health checks, and configured profiles are implemented. A failed or timed-out server Stop is reported beside the stopped turn without changing a newer run. Approval is disabled when Hermes supplies no command text. 0.16–0.20.x uses Chat Completions without Sessions calls. Native and legacy fixtures previously passed outside the managed sandbox; this pass records its rerun under `docs/approvals-fix-*.log`. Provider-backed reviewer behavior remains unverified. |
 | OpenClaw | Stub | Protocol/configuration exist; authenticated WebSocket RPC remains TODO. |
 | Sub-agents | Stub | Inline lifecycle cards are supported if emitted, but the checked v0.21.7 HTTP session stream does not emit `subagent.start`/`subagent.complete`. Child transcript drill-down and controls are not implemented. |
 
@@ -101,5 +113,5 @@ The normal interactive app does not invoke this renderer.
 
 1. Implement OpenClaw's authenticated WebSocket handshake and RPC/event mapping.
 2. Add Hermes child-session drill-down/steer controls, attachments, scheduling, and reconnect-to-active-run support.
-3. Connect members, account identity, auto-review policy, usage metering, and update services.
+3. Connect members, account identity, usage metering, and update services.
 4. Move long histories to paged SQLite and add accessibility/UI tests, app signing, and a real app icon.

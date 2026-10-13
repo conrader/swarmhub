@@ -273,7 +273,8 @@ struct HermesBackend: AgentBackend {
             let identity = commandSource?.1 ?? json
             let runID = (identity["run_id"] as? String) ?? (json["run_id"] as? String)
             let requestID = (identity["request_id"] as? String) ?? (json["request_id"] as? String)
-            continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command ?? "Command unknown", draft: nil, command: command, runID: runID, requestID: requestID)))
+            let actionKind = firstNonempty("action_kind")?.0 ?? firstNonempty("tool_name")?.0 ?? firstNonempty("action")?.0 ?? "command"
+            continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command ?? "Command unknown", draft: nil, command: command, runID: runID, requestID: requestID, actionKind: actionKind)))
         case "run.completed": continuation.yield(.completed)
         case "run.cancelled": continuation.yield(.completed)
         case "run.failed", "error": continuation.yield(.failed(json["error"] as? String ?? json["message"] as? String ?? "Hermes run failed."))

@@ -2,6 +2,15 @@ import AppKit
 import Darwin
 import SwiftUI
 
+private struct FixtureReviewerBackend: AgentBackend {
+    let kind = BackendKind.mock
+    func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> { AsyncThrowingStream { continuation in continuation.yield(.token("escalate")); continuation.yield(.completed); continuation.finish() } }
+    func listSessions() async throws -> [BackendSession] { [] }
+    func cancel(sessionID: String) async throws -> StopOutcome { .disconnectedLegacy }
+    func resolveApproval(id: UUID, approved: Bool) async throws {}
+    func testConnection() async throws -> String { "fixture reviewer" }
+}
+
 @main struct AgentAppMain: App {
     @StateObject private var store: AppStore
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference
@@ -39,14 +48,37 @@ import SwiftUI
             }
             let stream = try await backend.send(.init(sessionID: id, systemPrompt: "Integration test", messages: [(role: "user", content: "Reply with echo")]))
             var kinds: [String] = []
-            var reply = ""; var approvalResolved = false; var stopRequested = false
+            var reply = ""; var approvalResolved = false; var stopRequested = false; var approvalCount = 0
+            let policyStore = AppStore(storeURL: storeURL.deletingLastPathComponent().appending(path: "policy-store.json"), autoConfigureHermes: false, backendFactory: { candidate -> any AgentBackend in
+                if candidate.name == "Fixture reviewer" { return FixtureReviewerBackend() }
+                return backend
+            })
+            let policyBot = Bot(name: "Fixture owner", backend: .hermes, hermesSessionID: id)
+            let reviewer = Bot(name: "Fixture reviewer", backend: .mock)
+            policyStore.bots = [policyBot, reviewer]
             for try await event in stream { switch event {
             case .token(let token): kinds.append("token"); reply += token
             case .status: kinds.append("status")
             case .subAgent: kinds.append("subagent")
             case .approval(let request):
-                kinds.append("approval"); try await backend.resolveApproval(request, approved: false); approvalResolved = true
-                if env["HERMES_TEST_CANCEL"] == "1" { stopRequested = try await backend.cancel(sessionID: id) == .requested }
+                kinds.append("approval"); approvalCount += 1
+                var scoped = request; scoped.botID = policyBot.id
+                if approvalCount == 1 {
+                    policyBot.approvalMode = .rules; policyBot.approvalRules = [.init(name: "Fixture read", actionPattern: "command", commandPattern: "cat /tmp/*", outcome: .allow)]
+                    await policyStore.routeApproval(scoped, for: policyBot, backend: backend)
+                    guard policyBot.approvalAudit.contains(where: { $0.approvalID == scoped.id && $0.outcome == .approved }) else { throw BackendError.unavailable("Fixture auto-approval did not resolve.") }
+                    print("Hermes integration: auto-approved request=\(request.requestID ?? "missing")")
+                } else {
+                    policyBot.approvalMode = .reviewer; policyBot.reviewerBotID = reviewer.id
+                    await policyStore.routeApproval(scoped, for: policyBot, backend: backend)
+                    guard policyStore.approvals.contains(where: { $0.id == scoped.id }) else { throw BackendError.unavailable("Fixture reviewer did not escalate.") }
+                    policyStore.decide(scoped, approved: false)
+                    for _ in 0..<100 where policyStore.approvals.contains(where: { $0.id == scoped.id }) { try await Task.sleep(for: .milliseconds(10)) }
+                    guard !policyStore.approvals.contains(where: { $0.id == scoped.id }) else { throw BackendError.unavailable("Escalated fixture approval was not resolved by the user path.") }
+                    print("Hermes integration: reviewer-escalated request=\(request.requestID ?? "missing")")
+                }
+                approvalResolved = approvalCount >= 2
+                if approvalCount == 2, env["HERMES_TEST_CANCEL"] == "1" { stopRequested = try await backend.cancel(sessionID: id) == .requested }
             case .completed: kinds.append("completed")
             case .failed(let message): throw BackendError.unavailable(message)
             } }

@@ -15,7 +15,7 @@ struct MockBackend: AgentBackend {
                     continuation.yield(.token(String(word) + " "))
                 }
                 continuation.yield(.subAgent(.init(id: taskID, title: "Research details", detail: "Found and summarized context", status: .completed)))
-                continuation.yield(.approval(.init(id: UUID(), title: "Send email?", summary: "An outgoing email needs your approval.", draft: "To: team@example.com\nSubject: Project update\n\nThe native prototype is ready for review.")))
+                continuation.yield(.approval(.init(id: UUID(), title: "Send email?", summary: "An outgoing email needs your approval.", draft: "To: team@example.com\nSubject: Project update\n\nThe native prototype is ready for review.", command: "send email", actionKind: "send_email")))
                 continuation.yield(.completed); continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }

@@ -4,7 +4,7 @@ import Testing
 
 private actor TestBackend: AgentBackend {
     nonisolated let kind = BackendKind.hermes
-    enum StreamMode { case reply, approvalThenFinish, longRunning }
+    enum StreamMode { case reply, approvalThenFinish, longRunning, response(String), reviewerApproval, failure, hanging }
     let transportValue: HermesTransport
     let rows: [BackendMessage]
     let streamMode: StreamMode
@@ -29,6 +29,10 @@ private actor TestBackend: AgentBackend {
                     try? await Task.sleep(for: .milliseconds(180)); continuation.yield(.completed)
                 case .longRunning:
                     continuation.yield(.token("running")); try? await Task.sleep(for: .seconds(10))
+                case .response(let value): continuation.yield(.token(value)); continuation.yield(.completed)
+                case .reviewerApproval: continuation.yield(.approval(.init(id: UUID(), title: "Nested", summary: "cmd", draft: nil, command: "cmd")))
+                case .failure: continuation.yield(.failed("review failed"))
+                case .hanging: try? await Task.sleep(for: .seconds(10))
                 }
                 continuation.finish()
             }
@@ -37,7 +41,7 @@ private actor TestBackend: AgentBackend {
     }
     func listSessions() async throws -> [BackendSession] { calls.append("list"); return [.init(id: "foreign", title: "Foreign")] }
     func loadMessages(sessionID: String) async throws -> [BackendMessage] { calls.append("history"); return rows }
-    func createSession(title: String, systemPrompt: String, id: String?) async throws -> String { calls.append("create"); return id! }
+    func createSession(title: String, systemPrompt: String, id: String?) async throws -> String { calls.append("create:\(id ?? "nil")"); return id! }
     func cancel(sessionID: String) async throws -> StopOutcome { .requested }
     func stopTarget(sessionID: String) async throws -> StopTarget { calls.append("capture"); return .serverRun("run-1") }
     func requestStop(_ target: StopTarget) async throws -> StopOutcome {
@@ -47,7 +51,7 @@ private actor TestBackend: AgentBackend {
         return .requested
     }
     func resolveApproval(id: UUID, approved: Bool) async throws {}
-    func resolveApproval(_ approval: ApprovalRequest, approved: Bool) async throws { calls.append("approval") }
+    func resolveApproval(_ approval: ApprovalRequest, approved: Bool) async throws { calls.append("approval:\(approved)") }
     func testConnection() async throws -> String { "ok" }
     func recordedCalls() -> [String] { calls }
 }
@@ -100,6 +104,36 @@ private struct WaitTimeout: Error {}
     #expect(restored.sessionID == "session-1")
     #expect(restored.hasKnownCommand)
     #expect(!ApprovalRequest(id: UUID(), title: "Unknown", summary: "Command unknown", draft: nil).hasKnownCommand)
+}
+
+@Test func approvalRulesMatchInOrderWithWildcards() {
+    let broad = ApprovalRule(name: "Broad", actionPattern: "read*", commandPattern: "*", outcome: .ask)
+    let narrow = ApprovalRule(name: "Narrow", actionPattern: "read_file", commandPattern: "*/Public/?otes.txt", outcome: .allow)
+    #expect(broad.matches(action: "READ_FILE", command: "/tmp/secret"))
+    #expect(narrow.matches(action: "read_file", command: "/Users/me/Public/Notes.txt"))
+    #expect(!narrow.matches(action: "delete_file", command: "/Users/me/Public/Notes.txt"))
+    #expect([broad, narrow].first { $0.matches(action: "read_file", command: "/Users/me/Public/Notes.txt") }?.id == broad.id)
+}
+
+@Test func automaticAllowRejectsShellControlAndSubstitutionSyntax() {
+    let rule = ApprovalRule(name: "Git", actionPattern: "command", commandPattern: "git *", outcome: .allow)
+    for command in ["git status; rm -rf /", "git status && rm -rf /", "git status || rm -rf /", "git status | sh", "git status & rm -rf /", "git $(malicious)", "git `malicious`", "git status > /tmp/x", "git status < /tmp/x", "git status\nrm -rf /"] {
+        #expect(rule.matches(action: "command", command: command))
+        #expect(ApprovalRule.commandRequiresUserReview(command))
+    }
+    #expect(!ApprovalRule.commandRequiresUserReview("git status --short"))
+}
+
+@Test @MainActor func newBotApprovalSettingsPersist() throws {
+    let url = temporaryStore()
+    let reviewer = Bot(name: "Reviewer")
+    let rules = [ApprovalRule(name: "Only status", actionPattern: "command", commandPattern: "git status", outcome: .allow)]
+    let store = AppStore(storeURL: url, autoConfigureHermes: false)
+    store.bots = [reviewer]
+    store.addBot(name: "New", persona: "Review carefully", backend: .hermes, avatarName: .faceSky, approvalMode: .reviewer, approvalRules: rules, reviewerBotID: reviewer.id)
+    let restored = AppStore(storeURL: url, autoConfigureHermes: false)
+    let bot = try #require(restored.bots.first { $0.name == "New" })
+    #expect(bot.approvalMode == .reviewer); #expect(bot.approvalRules == rules); #expect(bot.reviewerBotID == reviewer.id)
 }
 
 @Test func hermesRejectsRemotePlaintextAPIKeys() {
@@ -270,8 +304,130 @@ private struct WaitTimeout: Error {}
     store.decide(approval, approved: true)
     await Task.yield()
 
-    #expect(!(await backend.recordedCalls()).contains("approval"))
+    #expect(!(await backend.recordedCalls()).contains { $0.hasPrefix("approval:") })
     #expect(store.errorMessage?.contains("without command text") == true)
+}
+
+
+@Test @MainActor func ruleAutoApprovesAndAuditPersistsWithoutCommand() async throws {
+    let url = temporaryStore()
+    let backend = TestBackend(transport: .nativeSessions, streamMode: .approvalThenFinish)
+    let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { _ in backend })
+    let bot = Bot(name: "Rules", backend: .hermes, hermesSessionID: "s1")
+    bot.approvalMode = .rules; bot.approvalRules = [.init(name: "Test allow", actionPattern: "command", commandPattern: "cmd", outcome: .allow)]
+    store.bots = [bot]; store.selectedBot = bot; store.send(text: "go")
+    try await waitUntil { await backend.recordedCalls().contains("approval:true") }
+    #expect(store.approvals.isEmpty)
+    #expect(bot.approvalAudit.map(\.outcome).contains(.requested)); #expect(bot.approvalAudit.map(\.outcome).contains(.approved))
+    store.save()
+    let restored = AppStore(storeURL: url, autoConfigureHermes: false)
+    let audit = try #require(restored.bots.first?.approvalAudit)
+    #expect(audit.count >= 2); #expect(!String(data: try JSONEncoder().encode(audit), encoding: .utf8)!.contains("cmd"))
+}
+
+@Test @MainActor func unsafeAllowRuleFallsBackToAsk() async {
+    let backend = TestBackend(transport: .nativeSessions)
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let bot = Bot(name: "Rules", backend: .hermes); bot.approvalMode = .rules
+    bot.approvalRules = [.init(name: "Git", actionPattern: "command", commandPattern: "git *", outcome: .allow)]
+    store.bots = [bot]
+    let request = ApprovalRequest(id: UUID(), title: "Injected", summary: "", draft: nil, command: "git status; rm -rf /", botID: bot.id)
+    await store.routeApproval(request, for: bot, backend: backend)
+    #expect(store.approvals.map(\.id).contains(request.id)); #expect(!(await backend.recordedCalls()).contains("approval:true"))
+}
+
+@Test @MainActor func denyRuleResolvesAndNoMatchAsks() async {
+    let backend = TestBackend(transport: .nativeSessions)
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let bot = Bot(name: "Rules", backend: .hermes); bot.approvalMode = .rules
+    bot.approvalRules = [.init(name: "Deny rm", actionPattern: "command", commandPattern: "rm *", outcome: .deny)]
+    store.bots = [bot]
+    let denied = ApprovalRequest(id: UUID(), title: "Delete", summary: "", draft: nil, command: "rm /tmp/x", botID: bot.id)
+    await store.routeApproval(denied, for: bot, backend: backend)
+    let unmatched = ApprovalRequest(id: UUID(), title: "Other", summary: "", draft: nil, command: "git status", botID: bot.id)
+    await store.routeApproval(unmatched, for: bot, backend: backend)
+    #expect((await backend.recordedCalls()).contains("approval:false")); #expect(store.approvals.map(\.id).contains(unmatched.id))
+}
+
+@Test @MainActor func reviewerApproveDenyErrorAndTimeoutRoutesSafely() async {
+    for (mode, expectedApproval) in [(TestBackend.StreamMode.response("approve"), true), (.response("deny"), false)] {
+        let ownerBackend = TestBackend(transport: .nativeSessions)
+        let reviewerBackend = TestBackend(transport: .nativeSessions, streamMode: mode)
+        let owner = Bot(name: "Owner", backend: .hermes); let reviewer = Bot(name: "Reviewer", backend: .hermes)
+        owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
+        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend })
+        store.bots = [owner, reviewer]
+        await store.routeApproval(.init(id: UUID(), title: "Review", summary: "cmd", draft: nil, command: "cmd", botID: owner.id), for: owner, backend: ownerBackend)
+        #expect((await ownerBackend.recordedCalls()).contains("approval:\(expectedApproval)"))
+        #expect((await reviewerBackend.recordedCalls()).contains { $0.hasPrefix("create:agentapp_reviewer_") })
+    }
+    for mode in [TestBackend.StreamMode.failure, .hanging] {
+        let ownerBackend = TestBackend(transport: .nativeSessions); let reviewerBackend = TestBackend(transport: .nativeSessions, streamMode: mode)
+        let owner = Bot(name: "Owner", backend: .hermes); let reviewer = Bot(name: "Reviewer", backend: .hermes)
+        owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
+        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, reviewerTimeout: .milliseconds(10))
+        store.bots = [owner, reviewer]
+        await store.routeApproval(.init(id: UUID(), title: "Review", summary: "cmd", draft: nil, command: "cmd", botID: owner.id), for: owner, backend: ownerBackend)
+        #expect(store.approvals.count == 1); #expect(!(await ownerBackend.recordedCalls()).contains { $0.hasPrefix("approval:") })
+        if case .hanging = mode { #expect((await reviewerBackend.recordedCalls()).contains("post")) }
+    }
+}
+
+@Test @MainActor func reviewerUsesMockRoutingAndDestructiveFloor() async {
+    let ownerBackend = TestBackend(transport: .nativeSessions); let mockReviewerBackend = TestBackend(transport: .nativeSessions, streamMode: .response("approve"))
+    let owner = Bot(name: "Owner", backend: .hermes); let reviewer = Bot(name: "Mock reviewer", backend: .mock)
+    owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.backend == .mock ? mockReviewerBackend : ownerBackend })
+    store.bots = [owner, reviewer]
+    await store.routeApproval(.init(id: UUID(), title: "Review", summary: "cmd", draft: nil, command: "cat /tmp/x", botID: owner.id), for: owner, backend: ownerBackend)
+    #expect((await mockReviewerBackend.recordedCalls()).contains("send")); #expect((await ownerBackend.recordedCalls()).contains("approval:true"))
+    await store.routeApproval(.init(id: UUID(), title: "Delete", summary: "", draft: nil, command: "rm /tmp/x", botID: owner.id), for: owner, backend: ownerBackend)
+    #expect(store.approvals.count == 1); #expect(await mockReviewerBackend.recordedCalls().filter { $0 == "send" }.count == 1)
+}
+
+@Test @MainActor func approvalAuditIsCappedAtFiveHundredEntries() async {
+    let backend = TestBackend(transport: .nativeSessions)
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let bot = Bot(name: "Audit", backend: .hermes); store.bots = [bot]
+    for index in 0..<260 {
+        await store.routeApproval(.init(id: UUID(), title: "\(index)", summary: "cmd", draft: nil, command: "cmd", botID: bot.id), for: bot, backend: backend)
+    }
+    #expect(bot.approvalAudit.count == 500)
+}
+
+@Test @MainActor func reviewerEscalationFallsBackToUser() async throws {
+    let ownerBackend = TestBackend(transport: .nativeSessions, streamMode: .approvalThenFinish)
+    let reviewerBackend = TestBackend(transport: .nativeSessions, streamMode: .response("escalate"))
+    let owner = Bot(name: "Owner", backend: .hermes, hermesSessionID: "owner")
+    let reviewer = Bot(name: "Reviewer", backend: .hermes, hermesSessionID: "reviewer")
+    owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend })
+    store.bots = [owner, reviewer]; store.selectedBot = owner; store.send(text: "go")
+    try await waitUntil { store.approvals.count == 1 }
+    #expect(owner.approvalAudit.contains { $0.outcome == .asked && $0.decidedBy == "reviewer:\(reviewer.id.uuidString)" })
+    #expect(!(await ownerBackend.recordedCalls()).contains("approval:true"))
+}
+
+@Test @MainActor func reviewerApprovalRequestEscalatesAndSelfReviewIsGuarded() async throws {
+    let ownerBackend = TestBackend(transport: .nativeSessions, streamMode: .approvalThenFinish)
+    let reviewerBackend = TestBackend(transport: .nativeSessions, streamMode: .reviewerApproval)
+    let owner = Bot(name: "Owner", backend: .hermes, hermesSessionID: "owner")
+    let reviewer = Bot(name: "Reviewer", backend: .hermes)
+    owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend })
+    store.bots = [owner, reviewer]; store.selectedBot = owner; store.send(text: "go")
+    try await waitUntil { store.approvals.count == 1 }
+    #expect(owner.approvalAudit.contains { $0.reason.contains("escalated") })
+    #expect(await reviewerBackend.recordedCalls().contains("approval:false"))
+    #expect(await reviewerBackend.recordedCalls().contains("post"))
+
+    let secondBackend = TestBackend(transport: .nativeSessions, streamMode: .approvalThenFinish)
+    let selfReview = Bot(name: "Self", backend: .hermes, hermesSessionID: "self"); selfReview.approvalMode = .reviewer; selfReview.reviewerBotID = selfReview.id
+    let secondStore = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in secondBackend })
+    secondStore.bots = [selfReview]; secondStore.selectedBot = selfReview; secondStore.send(text: "go")
+    try await waitUntil { secondStore.approvals.count == 1 }
+    #expect(selfReview.approvalAudit.contains { $0.reason.contains("review itself") })
+    #expect(await secondBackend.recordedCalls().filter { $0 == "send" }.count == 1)
 }
 
 @Test @MainActor func approvalIsScopedAndClearedAtRunEnd() async throws {

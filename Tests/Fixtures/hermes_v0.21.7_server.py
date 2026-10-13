@@ -32,8 +32,9 @@ async def messages(request):
     return web.json_response({"object":"list","data":[]})
 async def stop(_): print("fixture: stop called", flush=True); return web.json_response({"status":"stopping"})
 async def approval(request):
-    body = await request.json(); assert body == {"choice":"deny","request_id":"req-1"}
-    print("fixture: approval called", flush=True); return web.json_response({"object":"hermes.run.approval_response","resolved":1})
+    assert request.match_info["id"] == "run_fixture"
+    body = await request.json(); assert body in [{"choice":"once","request_id":"req-auto"}, {"choice":"deny","request_id":"req-escalate"}]
+    print(f"fixture: approval called request_id={body.get('request_id')} choice={body.get('choice')}", flush=True); return web.json_response({"object":"hermes.run.approval_response","resolved":1})
 
 async def stream(request):
     response = web.StreamResponse(headers={"Content-Type":"text/event-stream"}); await response.prepare(request)
@@ -42,7 +43,8 @@ async def stream(request):
         ("assistant.delta", {"run_id":"run_fixture","delta":"fixture reply"}),
         ("subagent.start", {"run_id":"run_fixture","task":"Research","profile":"research"}),
         ("subagent.complete", {"run_id":"run_fixture","task":"Research","status":"completed","summary":"done","child_session_id":"child-1","delegation_id":"deleg-1"}),
-        ("approval.request", {"run_id":"run_fixture","request_id":"req-1","description":"Run command?","command":"printf test","choices":["once","deny"]}),
+        ("approval.request", {"run_id":"run_fixture","request_id":"req-auto","description":"Read fixture?","command":"cat /tmp/fixture","choices":["once","deny"]}),
+        ("approval.request", {"run_id":"run_fixture","request_id":"req-escalate","description":"Send fixture?","command":"send fixture message","choices":["once","deny"]}),
         ("assistant.completed", {"run_id":"run_fixture","content":"fixture reply"}),
     ]
     for name, payload in events: await response.write(f"event: {name}\ndata: {json.dumps(payload)}\n\n".encode())

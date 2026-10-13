@@ -9,6 +9,60 @@ enum BackendKind: String, Codable, CaseIterable, Identifiable {
 enum MessageRole: String, Codable { case user, assistant, system }
 enum MessagePresentation: String, Codable { case text, draftEmail, options, attachment, image, links, voiceMemo, delegation }
 
+enum ApprovalMode: String, Codable, CaseIterable, Identifiable {
+    case ask = "Ask me", rules = "Auto-approve by rules", reviewer = "Reviewer bot"
+    var id: String { rawValue }
+}
+enum ApprovalRuleOutcome: String, Codable, CaseIterable, Identifiable {
+    case allow, deny, ask
+    var id: String { rawValue }
+}
+struct ApprovalRule: Identifiable, Codable, Equatable {
+    var id: UUID = UUID(); var name: String; var actionPattern: String; var commandPattern: String; var outcome: ApprovalRuleOutcome
+    static var sensibleDefaults: [ApprovalRule] {
+        [
+            ApprovalRule(name: "Ask before deletes", actionPattern: "*", commandPattern: "rm *", outcome: .ask),
+            ApprovalRule(name: "Ask before sends", actionPattern: "*", commandPattern: "send *", outcome: .ask),
+            ApprovalRule(name: "Allow Git inspection", actionPattern: "command", commandPattern: "git status*", outcome: .allow),
+            ApprovalRule(name: "Allow directory listing", actionPattern: "command", commandPattern: "ls *", outcome: .allow),
+            ApprovalRule(name: "Allow file reads", actionPattern: "command", commandPattern: "cat *", outcome: .allow),
+            ApprovalRule(name: "Allow reads (extended action kinds)", actionPattern: "read*", commandPattern: "*", outcome: .allow)
+        ]
+    }
+    func matches(action: String, command: String) -> Bool {
+        Self.glob(actionPattern, matches: action) && Self.glob(commandPattern, matches: command)
+    }
+    private static func glob(_ pattern: String, matches value: String) -> Bool {
+        let p = Array(pattern.lowercased()), v = Array(value.lowercased()); var row = Array(repeating: false, count: v.count + 1); row[0] = true
+        for token in p {
+            var next = Array(repeating: false, count: v.count + 1)
+            if token == "*" { next[0] = row[0]; if !v.isEmpty { for i in 1...v.count { next[i] = row[i] || next[i - 1] } } }
+            else if !v.isEmpty { for i in 1...v.count where row[i - 1] && (token == "?" || token == v[i - 1]) { next[i] = true } }
+            row = next
+        }
+        return row[v.count]
+    }
+
+    static func commandRequiresUserReview(_ command: String) -> Bool {
+        command.contains(where: { ";&|`><\n\r".contains($0) }) || command.contains("$(")
+    }
+
+    static func reviewerMustEscalate(action: String, command: String) -> Bool {
+        let action = action.lowercased()
+        if action.contains("send") || action.contains("delete") || action.contains("destruct") { return true }
+        let words = command.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "_" && $0 != "-" }
+        return words.contains(where: { ["send", "delete", "remove", "rm", "rmdir", "shred"].contains(String($0)) })
+    }
+}
+enum ApprovalAuditOutcome: String, Codable { case requested, approved, denied, asked }
+struct ApprovalAuditEntry: Identifiable, Codable {
+    let id: UUID; let approvalID: UUID; let timestamp: Date; let actionKind: String
+    var outcome: ApprovalAuditOutcome; var decidedBy: String; var reason: String
+    init(id: UUID = UUID(), approvalID: UUID, timestamp: Date = .now, actionKind: String, outcome: ApprovalAuditOutcome, decidedBy: String, reason: String) {
+        self.id = id; self.approvalID = approvalID; self.timestamp = timestamp; self.actionKind = actionKind; self.outcome = outcome; self.decidedBy = decidedBy; self.reason = reason
+    }
+}
+
 enum BotAvatarName: String, Codable, CaseIterable, Identifiable {
     case faceCoral, faceSky, faceMint, faceSun, faceLilac, faceRose
     case faceOcean, faceLime, facePeach, faceBlue, facePlum, faceSand
@@ -59,16 +113,18 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     @Published var isHidden: Bool; @Published var notificationsEnabled: Bool
     @Published var memorySummary: String; @Published var skills: [String]
     @Published var hermesProfile: String?; @Published var hermesSessionID: String?
+    @Published var approvalMode: ApprovalMode; @Published var approvalRules: [ApprovalRule]; @Published var reviewerBotID: UUID?
+    @Published var approvalAudit: [ApprovalAuditEntry]
     @Published var isDemo: Bool
     let createdAt: Date; @Published var messages: [ChatMessage]
-    init(name: String, title: String = "Personal agent", description: String = "", persona: String = "You are a thoughtful, capable assistant.", backend: BackendKind = .mock, avatarName: BotAvatarName = .faceCoral, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, memorySummary: String = "", skills: [String] = [], messages: [ChatMessage] = [], hermesProfile: String? = nil, hermesSessionID: String? = nil, isDemo: Bool = false) {
+    init(name: String, title: String = "Personal agent", description: String = "", persona: String = "You are a thoughtful, capable assistant.", backend: BackendKind = .mock, avatarName: BotAvatarName = .faceCoral, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, memorySummary: String = "", skills: [String] = [], messages: [ChatMessage] = [], hermesProfile: String? = nil, hermesSessionID: String? = nil, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, isDemo: Bool = false) {
         id = UUID(); self.name = name; self.title = title; botDescription = description; self.persona = persona; self.backend = backend
         self.avatarName = avatarName; self.unreadCount = unreadCount; self.isHidden = isHidden; self.notificationsEnabled = notificationsEnabled
-        self.memorySummary = memorySummary; self.skills = skills; self.hermesProfile = hermesProfile; self.hermesSessionID = hermesSessionID; self.isDemo = isDemo; createdAt = .now; self.messages = messages
+        self.memorySummary = memorySummary; self.skills = skills; self.hermesProfile = hermesProfile; self.hermesSessionID = hermesSessionID; self.approvalMode = approvalMode; self.approvalRules = approvalRules; self.reviewerBotID = reviewerBotID; approvalAudit = []; self.isDemo = isDemo; createdAt = .now; self.messages = messages
     }
     static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, hermesProfile, hermesSessionID, isDemo, createdAt, messages }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, createdAt, messages }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -78,6 +134,8 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         isHidden = try c.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false; notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
         memorySummary = try c.decodeIfPresent(String.self, forKey: .memorySummary) ?? ""; skills = try c.decodeIfPresent([String].self, forKey: .skills) ?? []
         hermesProfile = try c.decodeIfPresent(String.self, forKey: .hermesProfile); hermesSessionID = try c.decodeIfPresent(String.self, forKey: .hermesSessionID)
+        approvalMode = try c.decodeIfPresent(ApprovalMode.self, forKey: .approvalMode) ?? .ask; approvalRules = try c.decodeIfPresent([ApprovalRule].self, forKey: .approvalRules) ?? ApprovalRule.sensibleDefaults
+        reviewerBotID = try c.decodeIfPresent(UUID.self, forKey: .reviewerBotID); approvalAudit = try c.decodeIfPresent([ApprovalAuditEntry].self, forKey: .approvalAudit) ?? []
         isDemo = try c.decodeIfPresent(Bool.self, forKey: .isDemo) ?? Bot.looksLikeLegacyDemo(name: decodedName, backend: decodedBackend)
         createdAt = try c.decode(Date.self, forKey: .createdAt); messages = try c.decode([ChatMessage].self, forKey: .messages)
     }
@@ -89,7 +147,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         try c.encode(botDescription, forKey: .botDescription); try c.encode(persona, forKey: .persona); try c.encode(backend, forKey: .backend); try c.encode(avatarName, forKey: .avatarName)
         try c.encode(unreadCount, forKey: .unreadCount); try c.encode(createdAt, forKey: .createdAt); try c.encode(messages, forKey: .messages)
         try c.encode(isHidden, forKey: .isHidden); try c.encode(notificationsEnabled, forKey: .notificationsEnabled); try c.encode(memorySummary, forKey: .memorySummary); try c.encode(skills, forKey: .skills)
-        try c.encodeIfPresent(hermesProfile, forKey: .hermesProfile); try c.encodeIfPresent(hermesSessionID, forKey: .hermesSessionID); try c.encode(isDemo, forKey: .isDemo)
+        try c.encodeIfPresent(hermesProfile, forKey: .hermesProfile); try c.encodeIfPresent(hermesSessionID, forKey: .hermesSessionID); try c.encode(approvalMode, forKey: .approvalMode); try c.encode(approvalRules, forKey: .approvalRules); try c.encodeIfPresent(reviewerBotID, forKey: .reviewerBotID); try c.encode(approvalAudit, forKey: .approvalAudit); try c.encode(isDemo, forKey: .isDemo)
     }
 }
 
@@ -105,6 +163,7 @@ struct ApprovalRequest: Identifiable, Codable, Sendable {
     var command: String? = nil
     var runID: String? = nil; var requestID: String? = nil
     var botID: UUID? = nil; var profile: String? = nil; var sessionID: String? = nil
+    var actionKind: String = "command"
 
     var hasKnownCommand: Bool { !(command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) }
 }
