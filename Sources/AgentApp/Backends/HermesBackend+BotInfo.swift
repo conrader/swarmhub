@@ -58,8 +58,21 @@ struct HermesToolset: Sendable, Equatable, Identifiable {
     }
 }
 
+/// Who pinned a chat (P13); nil = picked by hand or before P13.
+enum LockOrigin: String, Codable, Sendable { case bot, torvliDefault, coding }
+
 /// A chat's confirmed model lock as acknowledged by `POST /api/sessions/{id}/model`.
-struct HermesModelLock: Codable, Sendable, Equatable { let sessionID: String; let provider: String; let model: String }
+struct HermesModelLock: Codable, Sendable, Equatable {
+    let sessionID: String; let provider: String; let model: String
+    var origin: LockOrigin? = nil
+    enum CodingKeys: CodingKey { case sessionID, provider, model, origin }
+    init(sessionID: String, provider: String, model: String, origin: LockOrigin? = nil) { self.sessionID = sessionID; self.provider = provider; self.model = model; self.origin = origin }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionID = try c.decode(String.self, forKey: .sessionID); provider = try c.decode(String.self, forKey: .provider); model = try c.decode(String.self, forKey: .model)
+        origin = (try? c.decodeIfPresent(LockOrigin.self, forKey: .origin)) ?? nil
+    }
+}
 
 extension HermesBackend {
     /// `nil` when the server has no `/v1/capabilities` (old gateway): every optional feature is then hidden.

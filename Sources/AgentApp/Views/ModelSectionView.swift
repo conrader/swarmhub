@@ -19,6 +19,7 @@ struct ModelSectionView: View {
             ForEach(Array(picker.notes.enumerated()), id: \.offset) { _, note in noteView(note) }
             if let error = info?.modelError { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
             if let footer = picker.footer { Text(footer).font(.caption2).foregroundStyle(.tertiary) }
+            ModelRolesReadout(bot: bot, cache: cache)
         }
     }
 

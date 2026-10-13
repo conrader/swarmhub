@@ -112,7 +112,7 @@ extension AppStore {
     /// Writes `store.json`, surfacing a failure (the plain `save()` ignores it).
     func saveThrowing() throws {
         guard persistenceEnabled else { throw GrokImportError.persistenceDisabled }
-        do { try JSONEncoder().encode(StoreFile(bots: bots, groups: groups)).write(to: fileURL, options: .atomic) }
+        do { try JSONEncoder().encode(storeFile).write(to: fileURL, options: .atomic) }
         catch { throw GrokImportError.saveFailed }
     }
 

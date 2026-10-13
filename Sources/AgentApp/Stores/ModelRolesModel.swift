@@ -1,0 +1,132 @@
+import Foundation
+
+/// Settings → Models, the Overview's role lines and the headless roles line, decided from what each bot's Hermes
+/// profile reported plus the local role settings. Pure: no SwiftUI, no network. Server strings render verbatim.
+struct ModelRolesModel: Equatable, Sendable {
+    static let caption = "Torvli remembers these choices and applies them when it starts a chat. It does not change your box's own settings."
+    static let conversationHelp = "Used for chats, group chats and threads Torvli starts."
+    static let codingHelp = "Used for coding threads. Sub-agents use whatever the box sets."
+
+    /// What the store knows about one bot; `current` is the model its main chat runs (P11's `currentModel`).
+    struct Input: Sendable {
+        let id: UUID; let name: String; let server: String; let profile: String
+        var isOpenClaw = false
+        var info: BotServerInfo?
+        var settings: BotModelSettings?
+        var defaults: ModelDefaults?
+        var current: CurrentModel?
+        var isLocked = false
+    }
+
+    struct RoleLine: Equatable, Sendable {
+        let role: ModelRole; let model: String; let supplier: String?; let source: ModelSource
+        var title: String { role == .conversation ? "Conversation" : "Coding threads" }
+        /// "<model> · <supplier> · <source>"; a Coding line that follows the conversation says only that.
+        var value: String { role == .coding && source == .sameAsConversation ? source.rawValue : [model, supplier, source.rawValue].compactMap { $0 }.joined(separator: " · ") }
+        var text: String { "\(title): \(value)" }
+        var accessibilityLabel: String { [title, model, supplier ?? "supplier unknown", source.rawValue].joined(separator: ", ") }
+    }
+
+    struct Row: Equatable, Sendable, Identifiable {
+        let id: UUID; let name: String; let server: String; let profile: String; let isOpenClaw: Bool
+        var conversation: RoleLine?; var coding: RoleLine?
+        /// The profile's `model.default` as `/api/model/options` reported it; nil until loaded.
+        var boxDefault: String?
+        /// `delegation` toolset: true on, false off, nil unknown or not listed.
+        var delegation: Bool?
+        var delegationListed = false
+        var blocked: ModelRoleReason?
+        /// "This chat runs A; this bot's default is B." when the main chat runs something else than it resolves to.
+        var mismatch: String?
+        /// The mismatch can be fixed with one lock ("Switch this chat"); `switchNote` says when that pins the box default.
+        var canSwitch = false
+        var switchNote: String?
+        var loadError: String?
+        var subAgents: String {
+            guard delegationListed else { return "not listed" }
+            return delegation.map { $0 ? "on" : "off" } ?? "unknown"
+        }
+    }
+
+    var rows: [Row]
+
+    init(_ inputs: [Input]) { rows = inputs.map(Self.row) }
+
+    static func row(_ input: Input) -> Row {
+        var row = Row(id: input.id, name: input.name, server: input.server, profile: input.profile, isOpenClaw: input.isOpenClaw)
+        guard !input.isOpenClaw else { return row }
+        let options = input.info?.modelOptions.value
+        row.boxDefault = options?.model
+        if case .loaded(let toolsets) = input.info?.toolsets, let delegation = toolsets.first(where: { $0.name == "delegation" }) {
+            row.delegationListed = true; row.delegation = delegation.enabled
+        }
+        if input.info?.lastLoadFailed == true, case .failed(let reason) = input.info?.modelOptions { row.loadError = reason }
+        row.blocked = ModelRoleReason.blocker(input.info)
+        let conversation = ModelPolicy.resolve(role: .conversation, settings: input.settings, defaults: input.defaults)
+        let coding = ModelPolicy.resolve(role: .coding, settings: input.settings, defaults: input.defaults)
+        row.conversation = line(.conversation, conversation, options: options, loaded: input.info?.fetchedAt != nil)
+        row.coding = line(.coding, coding, options: options, loaded: input.info?.fetchedAt != nil)
+        if let runs = input.current, runs.source != "server default", let wanted = conversation.choice?.model ?? options?.model,
+           !HermesModelOptions.sameModel(runs.model, wanted) {
+            row.mismatch = "This chat runs \(runs.model); this bot's default is \(wanted)."
+            row.canSwitch = row.blocked == nil && input.info?.isSwitchingModel != true
+            if conversation.choice == nil, input.isLocked { row.switchNote = "Hermes can't unpin a chat; this pins it to the box's current default (\(wanted))." }
+        }
+        return row
+    }
+
+    private static func line(_ role: ModelRole, _ resolved: ResolvedModel, options: HermesModelOptions?, loaded: Bool) -> RoleLine {
+        if let choice = resolved.choice {
+            let supplier = options?.providers.first { $0.answers(to: choice.provider) }?.name ?? choice.provider
+            return .init(role: role, model: choice.model, supplier: supplier, source: resolved.source)
+        }
+        let model = options?.model ?? (loaded ? "not reported" : "not loaded")
+        return .init(role: role, model: model, supplier: options?.model == nil ? nil : options?.defaultProvider?.name, source: resolved.source)
+    }
+
+    var hermesRows: [Row] { rows.filter { !$0.isOpenClaw } }
+
+    /// Rows grouped by server in first-seen order, as Settings → Usage groups profiles.
+    var servers: [(server: String, rows: [Row])] {
+        var order: [String] = [], groups: [String: [Row]] = [:]
+        for row in rows {
+            if groups[row.server] == nil { order.append(row.server) }
+            groups[row.server, default: []].append(row)
+        }
+        return order.map { ($0, groups[$0] ?? []) }
+    }
+
+    /// "box default: X on 16 of 16 bots" or "differs: X on 9, Y on 7" (plus how many are not loaded).
+    var fleetSummary: String {
+        let total = hermesRows.count
+        guard total > 0 else { return "no Hermes bots" }
+        var counts: [(model: String, count: Int)] = []
+        for model in hermesRows.compactMap(\.boxDefault) {
+            if let index = counts.firstIndex(where: { $0.model == model }) { counts[index].count += 1 } else { counts.append((model, 1)) }
+        }
+        let missing = total - counts.reduce(0) { $0 + $1.count }
+        if counts.isEmpty { return "box default: not loaded (press Load)" }
+        if counts.count == 1 { return "box default: \(counts[0].model) on \(counts[0].count) of \(total) bots" }
+        let parts = counts.sorted { $0.count > $1.count }.map { "\($0.model) on \($0.count)" }
+        return "differs: " + parts.joined(separator: ", ") + (missing > 0 ? ", not loaded on \(missing)" : "")
+    }
+
+    /// "Sub-agents on for N of M bots" from the `delegation` toolset, or why it is unknown.
+    var subAgentSummary: String {
+        let listed = hermesRows.filter(\.delegationListed)
+        guard !listed.isEmpty else { return "delegation toolset not loaded" }
+        return "delegation toolset on for \(listed.filter { $0.delegation == true }.count) of \(hermesRows.count) bots"
+    }
+
+    /// One line per bot for `--render-snapshot`: names and counts only.
+    static func headlessLine(_ row: Row) -> String {
+        guard !row.isOpenClaw else { return "\(row.name): roles \(ModelRoleReason.openClaw.text)" }
+        func describe(_ line: RoleLine?) -> String {
+            guard let line else { return "unknown" }
+            return line.role == .coding && line.source == .sameAsConversation ? line.source.rawValue : "\(line.model) (\(line.source.rawValue))"
+        }
+        var text = "\(row.name): roles conversation \(describe(row.conversation)) | coding threads \(describe(row.coding)) | sub-agents \(row.subAgents), set on the box"
+        if let blocked = row.blocked { text += " | \(blocked.text)" }
+        return text
+    }
+}

@@ -60,9 +60,11 @@ struct BotServerInfo: Equatable, Sendable {
         return info.lastLoadFailed || info.scope != scope || info.sessionID != sessionID || now().timeIntervalSince(fetchedAt) >= Self.maxAge
     }
 
-    func load(botID: UUID, sessionID: String?, using backend: HermesBackend, force: Bool = false) async {
+    /// `includeSkills: false` (Settings → Models) skips `/v1/skills`; an entry still without skills is then stale for
+    /// a full load, so the Overview fetches them when it opens.
+    func load(botID: UUID, sessionID: String?, using backend: HermesBackend, force: Bool = false, includeSkills: Bool = true) async {
         let scope = Self.scope(of: backend)
-        if !force, !isStale(botID: botID, sessionID: sessionID, scope: scope) { return }
+        if !force, !isStale(botID: botID, sessionID: sessionID, scope: scope), !(includeSkills && entries[botID]?.skills == .loading) { return }
         guard inFlight.insert(botID).inserted else { return }
         defer { inFlight.remove(botID) }
         var info = entries[botID] ?? BotServerInfo()
@@ -70,7 +72,7 @@ struct BotServerInfo: Equatable, Sendable {
         if !info.isSwitchingModel { info.modelError = nil }
         entries[botID] = info
         let generation = info.switchGeneration
-        let fetched = await Self.fetch(sessionID: sessionID, using: backend, previous: info)
+        let fetched = await Self.fetch(sessionID: sessionID, using: backend, previous: info, includeSkills: includeSkills)
         merge(fetched, botID: botID, generation: generation, scope: scope, sessionID: sessionID)
     }
 
@@ -86,7 +88,7 @@ struct BotServerInfo: Equatable, Sendable {
         entries[botID] = info
     }
 
-    nonisolated static func fetch(sessionID: String?, using backend: HermesBackend, previous: BotServerInfo = .init()) async -> BotServerInfo {
+    nonisolated static func fetch(sessionID: String?, using backend: HermesBackend, previous: BotServerInfo = .init(), includeSkills: Bool = true) async -> BotServerInfo {
         var info = previous
         info.isRefreshing = false; info.lastLoadFailed = false
         let capabilities: HermesCapabilities?
@@ -103,7 +105,8 @@ struct BotServerInfo: Equatable, Sendable {
             info.skills = .unavailable(reason); info.toolsets = .unavailable(reason); info.modelOptions = .unavailable(reason)
             return info
         }
-        async let skills = optional(capabilities.skills, "This server does not list its skills.", key: backend.apiKey) { try await backend.skills() }
+        let previousSkills = previous.skills
+        async let skills = includeSkills ? optional(capabilities.skills, "This server does not list its skills.", key: backend.apiKey) { try await backend.skills() } : previousSkills
         async let toolsets = optional(capabilities.toolsets, "This server does not list its toolsets.", key: backend.apiKey) { try await backend.toolsets() }
         async let options = optional(capabilities.modelOptions, "This server does not offer model options.", key: backend.apiKey) { try await backend.modelOptions() }
         (info.skills, info.toolsets, info.modelOptions) = await (skills, toolsets, options)

@@ -22,6 +22,8 @@ import UserNotifications
     var groupRun: GroupRun?; var migratedGroupNames: [String] = []
     private(set) lazy var attachmentEncoder = AttachmentEncoder(directory: fileURL.deletingLastPathComponent().appending(path: "attachments", directoryHint: .isDirectory))
     let botInfo = BotInfoCache()
+    /// P13 Torvli-wide model defaults (store.json, this install only); empty until set in Settings → Models.
+    @Published var modelDefaults = ModelDefaults()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     var streamTask: Task<Void, Never>?; let fileURL: URL
@@ -49,7 +51,7 @@ import UserNotifications
             loadDemoData(includeActivity: true)
         } else if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
-                let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups
+                let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
                 if !migrateArchivedGroups().isEmpty { save() }
                 var migratedLegacyApprovalRules = false
                 for bot in bots {
@@ -114,7 +116,7 @@ import UserNotifications
         bots.insert(bot, at: 0); selectedBot = bot; save(); return bot
     }
     func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { selectedBot = bots.first }; save() }
-    func save() { guard persistenceEnabled, let data = try? JSONEncoder().encode(StoreFile(bots: bots, groups: groups)) else { return }; try? data.write(to: fileURL, options: .atomic) }
+    func save() { guard persistenceEnabled, let data = try? JSONEncoder().encode(storeFile) else { return }; try? data.write(to: fileURL, options: .atomic) }
     /// Sends into the open thread or the main chat. While a turn streams, the text steers it when the
     /// server has `run_steer`; otherwise sending stays disabled until the turn ends.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
@@ -134,7 +136,11 @@ import UserNotifications
             var failed = false
             do {
                 if conversation.hermesSessionID == nil, conversation === bot, try await activeBackend.sessionTransport() == .nativeSessions {
-                    conversation.hermesSessionID = try await activeBackend.createSession(title: bot.name, systemPrompt: bot.persona, id: "\(sessionNamespace)agentapp_\(bot.id.uuidString.lowercased())")
+                    let note = { [unowned self] (text: String) in insertNote(text, in: bot, before: assistant) }
+                    let plan = try await prepareModel(for: bot, backend: activeBackend, note: note)
+                    let created = try await activeBackend.createSession(title: bot.name, systemPrompt: bot.persona, id: "\(sessionNamespace)agentapp_\(bot.id.uuidString.lowercased())")
+                    if let plan { try await applyModel(plan, bot: bot, sessionID: created, record: true, note: note) }
+                    conversation.hermesSessionID = created
                     save()
                 }
                 let sessionID = conversation.hermesSessionID ?? bot.id.uuidString

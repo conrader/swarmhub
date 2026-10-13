@@ -54,14 +54,17 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
 struct StoreFile: Codable {
     static let currentVersion = 2
     var version = StoreFile.currentVersion; var bots: [Bot]; var groups: [GroupChat]
+    /// P13 Torvli-wide model defaults; absent (nil) while empty, so an unconfigured store encodes as before.
+    var modelDefaults: ModelDefaults?
 
-    init(bots: [Bot], groups: [GroupChat]) { self.bots = bots; self.groups = groups }
+    init(bots: [Bot], groups: [GroupChat], modelDefaults: ModelDefaults? = nil) { self.bots = bots; self.groups = groups; self.modelDefaults = modelDefaults }
 
-    enum CodingKeys: CodingKey { case version, bots, groups }
+    enum CodingKeys: CodingKey { case version, bots, groups, modelDefaults }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
         bots = try c.decodeIfPresent([Bot].self, forKey: .bots) ?? []; groups = try c.decodeIfPresent([GroupChat].self, forKey: .groups) ?? []
+        modelDefaults = (try? c.decodeIfPresent(ModelDefaults.self, forKey: .modelDefaults)) ?? nil
     }
 
     static func decode(_ data: Data) throws -> StoreFile {
