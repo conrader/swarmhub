@@ -1,0 +1,5 @@
+xcrun is unavailable; using the Xcode 16.2 compiler directly.
+/Users/konradsierzputowski/code/agentapp/dist/AgentApp.app/Contents/MacOS/AgentApp: replacing existing signature
+/Users/konradsierzputowski/code/agentapp/dist/AgentApp.app: replacing existing signature
+/Users/konradsierzputowski/code/agentapp/dist/AgentApp-ad8504d06ea0-dirty-arm64.zip
+exit_status=0

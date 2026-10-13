@@ -52,6 +52,11 @@ private actor TestBackend: AgentBackend {
     func stopTarget(sessionID: String) async throws -> StopTarget { calls.append("capture"); return clearTargetOnCancel && !runActive ? .noActiveRun : .serverRun("run-1") }
     func requestStop(_ target: StopTarget) async throws -> StopOutcome {
         stopTrace?.add("post"); let callNumber = calls.filter { $0 == "post" }.count + 1; calls.append("post")
+        switch target {
+        case .serverRun(let runID): calls.append("post:\(runID)")
+        case .disconnectedLegacy: calls.append("post:legacy")
+        case .noActiveRun: calls.append("post:none")
+        }
         try? await Task.sleep(for: stopDelay)
         if failingStopCalls.contains(callNumber) { calls.append("post-failed"); throw BackendError.unavailable("old stop failed") }
         return .requested
@@ -144,6 +149,22 @@ private struct WaitTimeout: Error {}
 
 @Test func defaultPresetsDoNotBroadlyAllowReadActionKinds() {
     #expect(!ApprovalRule.sensibleDefaults.contains { $0.matches(action: "read_file", command: "/bin/rm -rf /tmp/x") && $0.outcome == .allow })
+}
+
+@Test @MainActor func storeLoadMigratesLegacyBroadReadAllowRule() async throws {
+    let url = temporaryStore(); try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let legacyRule = ApprovalRule(name: "Allow reads (extended action kinds)", actionPattern: "read*", commandPattern: "*", outcome: .allow)
+    let bot = Bot(name: "Legacy rules", backend: .hermes, approvalMode: .rules, approvalRules: [legacyRule])
+    try JSONEncoder().encode([bot]).write(to: url)
+    let backend = TestBackend(transport: .nativeSessions)
+    let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { _ in backend })
+    let restored = try #require(store.bots.first)
+
+    #expect(restored.approvalRules.isEmpty)
+    #expect(restored.approvalAudit.contains { $0.approvalID == legacyRule.id && $0.decidedBy == "system:migration" && $0.reason.contains("legacy broad read*/*") })
+    await store.routeApproval(.init(id: UUID(), title: "Remove", summary: "", draft: nil, command: "/bin/rm -rf /tmp/x", botID: restored.id, actionKind: "read_file"), for: restored, backend: backend)
+    #expect(store.approvals.count == 1)
+    #expect(!(await backend.recordedCalls()).contains("approval:true"))
 }
 
 @Test @MainActor func newBotApprovalSettingsPersist() throws {
@@ -458,7 +479,7 @@ private struct WaitTimeout: Error {}
     store.stop()
     try await waitUntil { await reviewerBackend.recordedCalls().contains("post") }
     #expect(await reviewerBackend.recordedCalls().contains("capture"))
-    #expect(await reviewerBackend.recordedCalls().contains("post"))
+    #expect(await reviewerBackend.recordedCalls().contains("post:run-1"))
 }
 
 @Test @MainActor func approvalAuditIsCappedAtFiveHundredEntries() async {

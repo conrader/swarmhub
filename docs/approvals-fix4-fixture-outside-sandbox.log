@@ -1,0 +1,13 @@
+[Performance] app initialized; peak resident memory 13.1 MB
+fixture: approval called request_id=req-auto choice=once
+fixture: approval called request_id=req-escalate choice=deny
+fixture: stop called
+Hermes integration: Hermes 0.21.7 (ok)
+Hermes integration: profiles=["default"]
+Hermes integration: auto-approved request=req-auto
+Hermes integration: destructive-floor-escalated request=req-escalate
+Hermes integration: listed=0 created=agentapp_integration_5d173a67-ec0a-49b2-840d-50f029fdac79 events=["token", "subagent", "subagent", "approval", "approval", "completed"]
+[Performance] app initialized; peak resident memory 13.1 MB
+Hermes integration: Hermes 0.21.7 (ok)
+Hermes integration: profiles=["default"]
+Hermes integration: listed=0 created=agentapp_legacy_integration events=["token", "completed"]

@@ -40,6 +40,27 @@ private actor ReviewerStopTargetBox {
         } else if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
                 bots = try JSONDecoder().decode([Bot].self, from: Data(contentsOf: fileURL))
+                var migratedLegacyApprovalRules = false
+                for bot in bots {
+                    let legacyRules = bot.approvalRules.filter {
+                        $0.actionPattern == "read*" && $0.commandPattern == "*" && $0.outcome == .allow
+                    }
+                    guard !legacyRules.isEmpty else { continue }
+                    let legacyRuleIDs = Set(legacyRules.map(\.id))
+                    bot.approvalRules.removeAll { legacyRuleIDs.contains($0.id) }
+                    for rule in legacyRules {
+                        bot.approvalAudit.append(.init(
+                            approvalID: rule.id,
+                            actionKind: rule.actionPattern,
+                            outcome: .denied,
+                            decidedBy: "system:migration",
+                            reason: "Migration removed legacy broad read*/* automatic-allow rule."
+                        ))
+                    }
+                    if bot.approvalAudit.count > 500 { bot.approvalAudit.removeFirst(bot.approvalAudit.count - 500) }
+                    migratedLegacyApprovalRules = true
+                }
+                if migratedLegacyApprovalRules { save() }
             } catch {
                 persistenceEnabled = false
                 let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")

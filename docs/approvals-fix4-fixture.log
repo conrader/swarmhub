@@ -1,0 +1,27 @@
+Traceback (most recent call last):
+  File "/Users/konradsierzputowski/code/agentapp/Tests/Fixtures/hermes_v0.21.7_server.py", line 68, in <module>
+    web.run_app(app, host='127.0.0.1', port=int(sys.argv[1] if len(sys.argv) > 1 else 18643), print=None)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/hermes-test/venv/lib/python3.14/site-packages/aiohttp/web.py", line 502, in run_app
+    loop.run_until_complete(main_task)
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/private/tmp/hermes-test/venv/lib/python3.14/site-packages/aiohttp/web.py", line 404, in _run_app
+    await site.start()
+  File "/private/tmp/hermes-test/venv/lib/python3.14/site-packages/aiohttp/web_runner.py", line 138, in start
+    self._server = await loop.create_server(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/base_events.py", line 1638, in create_server
+    raise OSError(err.errno, msg) from None
+PermissionError: [Errno 1] error while attempting to bind on address ('127.0.0.1', 18643): [errno 1] operation not permitted
+[Performance] app initialized; peak resident memory 13.3 MB
+2026-10-13 08:03:28.072 AgentApp[50558:15212120] Failure on line 688 in function id scheduleApplicationNotification(LSNotificationCode, NSWorkspaceNotificationCenter *): noErr == _LSModifyNotification(notificationID, 1, &code, 0, NULL, NULL, NULL)
+2026-10-13 08:03:28.465 AgentApp[50558:15212132] Connection Invalid error for service com.apple.hiservices-xpcservice.
+2026-10-13 08:03:28.465 AgentApp[50558:15212120] Error received in message reply handler: Connection invalid
+Hermes integration failed: The operation couldn’t be completed. Operation not permitted
+exit_status=1
