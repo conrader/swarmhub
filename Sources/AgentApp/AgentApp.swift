@@ -23,6 +23,7 @@ private struct FixtureReviewerBackend: AgentBackend {
         let integrationStoreURL = integration ? FileManager.default.temporaryDirectory.appending(path: "AgentApp-Hermes-\(UUID().uuidString)/store.json") : nil
         let appStore = AppStore(demoMode: ProcessInfo.processInfo.environment["AGENTAPP_SNAPSHOT"] != nil, storeURL: integrationStoreURL, autoConfigureHermes: !integration)
         _store = StateObject(wrappedValue: appStore)
+        if let path = UISmoke.reportPath() { UISmoke.start(store: appStore, path: path) }
         PerformanceMetrics.reportReady()
         if integration {
             Task { exit(await Self.runHermesIntegration(storeURL: integrationStoreURL!) ? 0 : 1) }

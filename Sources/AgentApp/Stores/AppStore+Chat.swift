@@ -31,7 +31,7 @@ extension AppStore {
         let message = ChatMessage(role: .user, content: value, metadata: ["steer": "sent"])
         conversation.messages.append(message); objectWillChange.send(); save()
         Task {
-            do { try await activeBackend.steer(sessionID: sessionID, text: value) }
+            do { try await activeBackend.steer(sessionID: sessionID, text: value); message.metadata["steer"] = "delivered" }
             catch {
                 message.metadata["steer"] = "failed"
                 conversation.messages.append(ChatMessage(role: .system, content: "Steer not delivered: \(error.localizedDescription)"))
@@ -54,7 +54,7 @@ extension AppStore {
         let threadID = UUID()
         Task {
             do {
-                let forkID = try await activeBackend.forkSession(sessionID: sessionID, id: "agentapp_thread_\(threadID.uuidString.lowercased())")
+                let forkID = try await activeBackend.forkSession(sessionID: sessionID, id: "\(sessionNamespace)agentapp_thread_\(threadID.uuidString.lowercased())")
                 guard bot.thread(for: message.id) == nil else { return }
                 bot.threads.append(ChatThread(id: threadID, parentMessageID: message.id, parentSessionID: sessionID, hermesSessionID: forkID))
                 if selectedBot?.id == bot.id { openThreadID = threadID }

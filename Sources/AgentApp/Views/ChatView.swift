@@ -57,7 +57,7 @@ struct ChatView: View {
                 guard !files.isEmpty, !bot.isReadOnlyArchive else { return false }
                 attach(files); return true
             }
-            .task(id: bot.id) { store.refreshFeatures(for: bot) }
+            .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); store.refreshFeatures(for: bot) }
     }
     private func attach(_ urls: [URL]) { pending += store.prepareAttachments(urls) }
     private func send() {
