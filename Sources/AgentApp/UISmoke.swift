@@ -62,6 +62,8 @@ import Foundation
             report["selected_bot"] = ["name": bot.name, "profile": bot.hermesProfile ?? "default", "chat_rendered": rendered, "is_selected": store.selectedBot?.id == bot.id]
 
             let archived = store.grokHistory.messages(for: bot.id).count
+            // The header sits in the chat's lazy stack and can appear a frame after the chat; launch may already show this bot.
+            if bot.grokHistoryCount > 0 { _ = await HeadlessE2E.wait(budget.layout, poll: .milliseconds(100)) { UISmokeProbe.historyHeaders[bot.id] != nil } }
             let shown = UISmokeProbe.historyHeaders[bot.id]
             report["grok_history"] = ["header_shown": shown != nil, "header_count": shown.map { $0 as Any } ?? NSNull(), "expected_count": bot.grokHistoryCount,
                                       "archive_messages": archived, "matches": shown == bot.grokHistoryCount && archived == bot.grokHistoryCount]
