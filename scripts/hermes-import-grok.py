@@ -12,7 +12,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-SRC = "/opt/hermes-core/releases/0.20.5/src"
+RELEASE = "/opt/hermes-core/releases/0.20.5"
+SRC = RELEASE + "/src"
+EXPECT_SOURCE_COMMIT = "fcbd1076a93841fa88855acce810e342a5b78101"
+EXPECT_CODE_SCHEMA_VERSION = 26  # the running 0.20.5 code; the DB files are at 31 (see preflight)
 ID_PREFIX = "grok-import-"
 SOURCE = "grok-import"
 FORMAT = "agentapp-bot-bundle/v1"
@@ -130,6 +133,24 @@ def preflight(db_path, hermes_uid=None):
     import hermes_state
     if not os.path.realpath(hermes_state.__file__).startswith(SRC + "/"):
         raise ImportError_("hermes_state is not from the pinned 0.20.5 src")
+    try:
+        with open(RELEASE + "/SOURCE_COMMIT", encoding="utf-8") as handle:
+            commit = handle.read().strip()
+    except OSError as exc:
+        raise ImportError_("cannot read SOURCE_COMMIT: %s" % type(exc).__name__)
+    if commit != EXPECT_SOURCE_COMMIT:
+        raise ImportError_("SOURCE_COMMIT %s != pinned 0.20.5" % commit[:12])
+    import hermes_state_common
+    if hermes_state_common.SCHEMA_VERSION != EXPECT_CODE_SCHEMA_VERSION:
+        raise ImportError_("code SCHEMA_VERSION %s != %d" % (
+            hermes_state_common.SCHEMA_VERSION, EXPECT_CODE_SCHEMA_VERSION))
+    home = os.environ.get("HERMES_HOME", "")
+    if not home or not os.path.isdir(home):
+        raise ImportError_("HERMES_HOME is not set to an existing profile dir")
+    if not os.path.isfile(os.path.join(home, "SOUL.md")):
+        raise ImportError_("SOUL.md missing in HERMES_HOME (refusing: SessionDB init may reseed it)")
+    if os.path.realpath(db_path) != os.path.realpath(os.path.join(home, "state.db")):
+        raise ImportError_("--db is not <HERMES_HOME>/state.db")
     if not os.path.isfile(db_path):
         raise ImportError_("db file missing")
     with open(db_path, "rb") as handle:
