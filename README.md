@@ -11,7 +11,7 @@ Requirements: macOS 14+, Xcode 16.2, Swift 6.
 ./scripts/run.sh
 ```
 
-`scripts/build.sh` normally delegates to `swift build`. It also contains a direct Xcode 16.2 compiler fallback because the current host's `xcrun` crashes while loading `CoreDevice.framework`. The fallback was used to verify this prototype.
+`scripts/build.sh` normally delegates to `swift build`. It also contains a direct Xcode 16.2 compiler fallback because the current host's `xcrun` crashes while loading `CoreDevice.framework`. The fallback verifies the production build, but it does not run SwiftPM tests.
 
 ## Feature parity
 
@@ -34,23 +34,23 @@ This pass recreates the product structure and interaction patterns with original
 | Settings | Partial | Seven sections exist. Accent is not applied; account, policy sync, metering, and updater services are stubs. |
 | Quick switcher | Partial | `Cmd+K` jumps to bots and creates a bot; Settings uses a compatibility selector and keyboard selection is not implemented. |
 | Notifications | Partial | Global (off by default) and per-bot controls exist. Delivery is bundle-safe and unavailable from the bare SwiftPM executable. |
-| Hermes | Partial | SSE chat, auth, Keychain storage, and health check work; progress events are parsed but not displayed, and Runs API features remain TODO. |
+| Hermes | Partial | v0.21.7 Sessions/SSE chat, capped non-destructive paged history merging, per-run immediate local Stop plus background run Stop, approval wiring, internal tool status handling, Keychain auth, health checks, and configured profiles are implemented. Native/legacy fixtures exercise Stop, approval, and capability gating; the credential-free live gateway cannot produce a real paused approval or long model run. 0.16–0.20.x uses Chat Completions without Sessions calls. |
 | OpenClaw | Stub | Protocol/configuration exist; authenticated WebSocket RPC remains TODO. |
-| Sub-agents | Stub | Event types exist, but incoming sub-agent events are not displayed and there is no panel yet. |
+| Sub-agents | Stub | Inline lifecycle cards are supported if emitted, but the checked v0.21.7 HTTP session stream does not emit `subagent.start`/`subagent.complete`. Child transcript drill-down and controls are not implemented. |
 
 There are no external package dependencies.
 
 ## Hermes Agent setup
 
-Verified against the public Hermes API-server documentation and repository plan on 2026-10-11:
+Checked against Hermes Agent v0.21.7 (`v2026.9.24`) tagged source and a throwaway gateway on 2026-10-13:
 
 - Enable the server with `API_SERVER_ENABLED=true` and set `API_SERVER_KEY` in `~/.hermes/.env`.
-- Start it with `hermes gateway`; its documented default is `http://127.0.0.1:8642`.
-- AgentApp defaults to `http://127.0.0.1:8642/v1` and sends `POST /v1/chat/completions` with `model: hermes-agent`, `stream: true`, and `Authorization: Bearer <key>`.
-- Streaming uses OpenAI-compatible SSE chunks. The adapter also recognizes Hermes' `event: hermes.tool.progress` extension.
-- Connection testing calls `/health`.
+- Start it with `hermes gateway run`; its documented default is `http://127.0.0.1:8642`.
+- AgentApp uses `/v1/capabilities`, native `/api/sessions/*` resources and session SSE, plus `/v1/runs/{id}/stop` and `/approval`.
+- Connection testing calls authenticated `/health/detailed` and displays the server version.
+- Older servers without capabilities fall back to OpenAI-compatible `POST /v1/chat/completions` SSE before any unsupported Sessions call.
 
-Sources: [Hermes API Server guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server), [Hermes API-server plan](https://github.com/hermes-agent-org/hermes/blob/main/.plans/openai-api-server.md).
+See [the integration note](docs/hermes-integration.md) and [captured v0.21.7 evidence](docs/hermes-v0.21.7-evidence.md) for source excerpts, a real-gateway transcript, and verification limits.
 
 Select **Hermes Agent** when editing a bot, then enter the base URL and key in Settings. Secrets are stored in macOS Keychain and never written to the repository or JSON store.
 
@@ -98,6 +98,6 @@ The normal interactive app does not invoke this renderer.
 ## Next steps
 
 1. Implement OpenClaw's authenticated WebSocket handshake and RPC/event mapping.
-2. Upgrade Hermes to its Runs API for reconnectable sessions, attachment upload, scheduling, and real approval resolution.
+2. Add Hermes child-session drill-down/steer controls, attachments, scheduling, and reconnect-to-active-run support.
 3. Connect members, account identity, auto-review policy, usage metering, and update services.
 4. Move long histories to paged SQLite and add accessibility/UI tests, app signing, and a real app icon.

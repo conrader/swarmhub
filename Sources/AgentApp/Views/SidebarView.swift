@@ -33,7 +33,7 @@ struct SidebarView: View {
     }
     private func sectionLabel(_ value: String) -> some View { Text(value).font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary).padding(.horizontal, 9).padding(.top, 12).padding(.bottom, 4) }
     private func row(_ bot: Bot) -> some View {
-        Button { selection = bot; bot.unreadCount = 0 } label: {
+        Button { selection = bot; bot.unreadCount = 0; store.loadHermesHistory(for: bot) } label: {
             HStack(spacing: 9) {
                 BotAvatar(bot: bot, size: 28)
                 Text(bot.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).lineLimit(1)

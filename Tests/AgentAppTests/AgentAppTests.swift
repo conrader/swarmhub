@@ -1,5 +1,64 @@
+import Foundation
 import Testing
 @testable import AgentApp
+
+private actor TestBackend: AgentBackend {
+    nonisolated let kind = BackendKind.hermes
+    enum StreamMode { case reply, approvalThenFinish, longRunning }
+    let transportValue: HermesTransport
+    let rows: [BackendMessage]
+    let streamMode: StreamMode
+    nonisolated let stopTrace: LockedTrace?
+    let stopDelay: Duration
+    private(set) var calls: [String] = []
+    init(transport: HermesTransport, rows: [BackendMessage] = [], streamMode: StreamMode = .reply, stopTrace: LockedTrace? = nil, stopDelay: Duration = .milliseconds(80)) {
+        transportValue = transport; self.rows = rows; self.streamMode = streamMode; self.stopTrace = stopTrace; self.stopDelay = stopDelay
+    }
+    func sessionTransport() async throws -> HermesTransport? { calls.append("capabilities"); return transportValue }
+    func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
+        calls.append("send")
+        return AsyncThrowingStream { continuation in
+            let mode = streamMode
+            let task = Task {
+                switch mode {
+                case .reply:
+                    continuation.yield(.token("ok")); continuation.yield(.completed)
+                case .approvalThenFinish:
+                    continuation.yield(.approval(.init(id: UUID(), title: "Approve", summary: "cmd", draft: nil, runID: "run-1", requestID: "req-1")))
+                    try? await Task.sleep(for: .milliseconds(180)); continuation.yield(.completed)
+                case .longRunning:
+                    continuation.yield(.token("running")); try? await Task.sleep(for: .seconds(10))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+    func listSessions() async throws -> [BackendSession] { calls.append("list"); return [.init(id: "foreign", title: "Foreign")] }
+    func loadMessages(sessionID: String) async throws -> [BackendMessage] { calls.append("history"); return rows }
+    func createSession(title: String, systemPrompt: String, id: String?) async throws -> String { calls.append("create"); return id! }
+    func cancel(sessionID: String) async throws -> StopOutcome { .requested }
+    func stopTarget(sessionID: String) async throws -> StopTarget { calls.append("capture"); return .serverRun("run-1") }
+    func requestStop(_ target: StopTarget) async throws -> StopOutcome {
+        stopTrace?.add("post"); calls.append("post")
+        try? await Task.sleep(for: stopDelay)
+        return .requested
+    }
+    func resolveApproval(id: UUID, approved: Bool) async throws {}
+    func resolveApproval(_ approval: ApprovalRequest, approved: Bool) async throws { calls.append("approval") }
+    func testConnection() async throws -> String { "ok" }
+    func recordedCalls() -> [String] { calls }
+}
+
+private final class LockedTrace: @unchecked Sendable {
+    private let lock = NSLock(); private var values: [String] = []
+    func add(_ value: String) { lock.lock(); values.append(value); lock.unlock() }
+    func read() -> [String] { lock.lock(); defer { lock.unlock() }; return values }
+}
+
+private func temporaryStore(_ name: String = UUID().uuidString) -> URL {
+    FileManager.default.temporaryDirectory.appending(path: "AgentAppTests-\(name)/store.json")
+}
 
 @Test func backendKindsAreStable() {
     #expect(BackendKind.allCases.count == 3)
@@ -8,4 +67,146 @@ import Testing
 
 @Test func defaultHermesURLUsesV1() {
     #expect(AppConstants.defaultHermesURL.hasSuffix("/v1"))
+}
+
+@Test func hermesProfileAndSessionPersist() throws {
+    let bot = Bot(name: "research", backend: .hermes, hermesProfile: "research", hermesSessionID: "session-1")
+    let restored = try JSONDecoder().decode(Bot.self, from: JSONEncoder().encode(bot))
+    #expect(restored.hermesProfile == "research")
+    #expect(restored.hermesSessionID == "session-1")
+}
+
+@Test func approvalKeepsHermesRunIdentity() throws {
+    let botID = UUID()
+    let value = ApprovalRequest(id: UUID(), title: "Approve", summary: "command", draft: nil, runID: "run-1", requestID: "req-1", botID: botID, profile: "research", sessionID: "session-1")
+    let restored = try JSONDecoder().decode(ApprovalRequest.self, from: JSONEncoder().encode(value))
+    #expect(restored.runID == "run-1")
+    #expect(restored.requestID == "req-1")
+    #expect(restored.botID == botID)
+    #expect(restored.profile == "research")
+    #expect(restored.sessionID == "session-1")
+}
+
+@Test func hermesRejectsRemotePlaintextAPIKeys() {
+    #expect(HermesBackend.permitsAPIKey("secret", at: URL(string: "http://example.com/v1")!) == false)
+    #expect(HermesBackend.permitsAPIKey("secret", at: URL(string: "http://127.0.0.1:8642/v1")!))
+    #expect(HermesBackend.permitsAPIKey("secret", at: URL(string: "http://localhost:8642/v1")!))
+    #expect(HermesBackend.permitsAPIKey("secret", at: URL(string: "https://example.com/v1")!))
+    #expect(HermesBackend.permitsAPIKey("", at: URL(string: "http://example.com/v1")!))
+}
+
+@Test @MainActor func legacySendNeverCallsSessions() async throws {
+    let backend = TestBackend(transport: .legacyChatCompletions)
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let bot = Bot(name: "Legacy", backend: .hermes); store.bots = [bot]; store.selectedBot = bot
+    store.send(text: "hello")
+    try await Task.sleep(for: .milliseconds(80))
+    let calls = await backend.recordedCalls()
+    #expect(calls.contains("send")); #expect(!calls.contains("create")); #expect(!calls.contains("list")); #expect(!calls.contains("history"))
+    #expect(bot.hermesSessionID == nil)
+}
+
+@Test @MainActor func historyDoesNotAdoptForeignSession() async throws {
+    let backend = TestBackend(transport: .nativeSessions)
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let bot = Bot(name: "Unowned", backend: .hermes); store.bots = [bot]
+    store.loadHermesHistory(for: bot)
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(await backend.recordedCalls() == ["capabilities"])
+    #expect(bot.hermesSessionID == nil)
+}
+
+@Test @MainActor func historyMergeNeverShrinksAndPreservesLocalIdentity() {
+    let old = ChatMessage(role: .user, content: "pre-Hermes", reactions: ["👍"])
+    let localOnly = ChatMessage(role: .system, content: "Stop requested from Hermes.")
+    let user = ChatMessage(role: .user, content: "new turn", replyToID: old.id)
+    let assistant = ChatMessage(role: .assistant, content: "reply")
+    let local = [old, localOnly, user, assistant]
+    let server = [BackendMessage(role: "user", content: "new turn"), BackendMessage(role: "assistant", content: "reply"), BackendMessage(role: "user", content: "newer"), BackendMessage(role: "assistant", content: "answer")]
+    let merged = AppStore.mergeHermesHistory(local: local, server: server)
+    #expect(merged?.count == 6)
+    #expect(merged?.prefix(4).map(\.id) == local.map(\.id))
+    #expect(merged?[0].reactions == ["👍"]); #expect(merged?[2].replyToID == old.id)
+    #expect(AppStore.mergeHermesHistory(local: local, server: []) == nil)
+    #expect(AppStore.mergeHermesHistory(local: local, server: [.init(role: "user", content: "unrelated")]) == nil)
+}
+
+@Test @MainActor func historyMergeAcceptsMultimodalRowsWithoutReplacingLocalRows() {
+    let user = ChatMessage(role: .user, content: "question")
+    let merged = AppStore.mergeHermesHistory(local: [user], server: [
+        .init(role: "user", content: "question"), .init(role: "assistant", content: "text\n[Image: https://example.test/a.png]")
+    ])
+    #expect(merged?.count == 2); #expect(merged?.first?.id == user.id)
+}
+
+@Test func hermesContentNormalizationDropsNullAndUnsupportedJSON() {
+    #expect(HermesBackend.normalizedContent(NSNull()) == nil)
+    #expect(HermesBackend.normalizedContent(42) == nil)
+    #expect(HermesBackend.normalizedContent(true) == nil)
+    #expect(HermesBackend.normalizedContent(["unexpected": "value"]) == nil)
+    #expect(HermesBackend.normalizedContent(["text": "one object"]) == "one object")
+}
+
+@Test @MainActor func historyMergeUsesLatestFullTurnPairOverlap() {
+    let local = [ChatMessage(role: .user, content: "repeat"), ChatMessage(role: .assistant, content: "ok")]
+    let server = [
+        BackendMessage(role: "user", content: "repeat"), BackendMessage(role: "assistant", content: "ok"),
+        BackendMessage(role: "user", content: "repeat"), BackendMessage(role: "assistant", content: "ok"),
+        BackendMessage(role: "user", content: "new"), BackendMessage(role: "assistant", content: "answer")
+    ]
+    let merged = AppStore.mergeHermesHistory(local: local, server: server)
+    #expect(merged?.map(\.content) == ["repeat", "ok", "new", "answer"])
+    #expect(AppStore.mergeHermesHistory(local: local, server: [.init(role: "assistant", content: "ok")]) == nil)
+}
+
+@Test @MainActor func stopCapturesThenCancelsThenPostsOnlyOnce() async throws {
+    let trace = LockedTrace()
+    let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning, stopTrace: trace)
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, didCancelLocalStream: { trace.add("cancel") })
+    let bot = Bot(name: "Stop", backend: .hermes, hermesSessionID: "session-1"); store.bots = [bot]; store.selectedBot = bot
+    store.send(text: "go"); try await Task.sleep(for: .milliseconds(60))
+    store.stop(); store.stop()
+    try await Task.sleep(for: .milliseconds(200))
+    let stopCalls = await backend.recordedCalls().filter { ["capture", "post"].contains($0) }
+    #expect(stopCalls == ["capture", "post"]); #expect(trace.read() == ["cancel", "post"])
+    #expect(bot.messages.filter { $0.role == .system && $0.content.contains("Stop requested") }.count == 1)
+}
+
+@Test @MainActor func anOlderStopRequestDoesNotBlockStoppingTheNextRun() async throws {
+    let trace = LockedTrace()
+    let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning, stopTrace: trace, stopDelay: .milliseconds(400))
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, didCancelLocalStream: { trace.add("cancel") })
+    let bot = Bot(name: "Stop twice", backend: .hermes, hermesSessionID: "session-2"); store.bots = [bot]; store.selectedBot = bot
+
+    store.send(text: "first"); try await Task.sleep(for: .milliseconds(60)); store.stop()
+    try await Task.sleep(for: .milliseconds(80))
+    store.send(text: "second"); try await Task.sleep(for: .milliseconds(60)); store.stop()
+    try await Task.sleep(for: .milliseconds(500))
+
+    #expect(trace.read() == ["cancel", "post", "cancel", "post"])
+    #expect(await backend.recordedCalls().filter { $0 == "post" }.count == 2)
+}
+
+@Test @MainActor func approvalIsScopedAndClearedAtRunEnd() async throws {
+    let backend = TestBackend(transport: .nativeSessions, streamMode: .approvalThenFinish)
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let first = Bot(name: "First", backend: .hermes, hermesProfile: "research", hermesSessionID: "s1")
+    let second = Bot(name: "Second", backend: .hermes, hermesSessionID: "s2")
+    store.bots = [first, second]; store.selectedBot = first; store.send(text: "go")
+    try await Task.sleep(for: .milliseconds(60))
+    #expect(store.approvals.count == 1); #expect(store.approvals.first?.botID == first.id)
+    #expect(store.approvals.first?.profile == "research"); #expect(store.approvals.first?.sessionID == "s1")
+    try await Task.sleep(for: .milliseconds(200)); #expect(store.approvals.isEmpty)
+}
+
+@Test @MainActor func legacyDemoBotsAreMigratedAndHiddenWhenHermesConfigured() throws {
+    let key = "hermesBaseURL"; let previous = UserDefaults.standard.object(forKey: key)
+    defer { if let previous { UserDefaults.standard.set(previous, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) } }
+    UserDefaults.standard.set("http://127.0.0.1:8642/v1", forKey: key)
+    let url = temporaryStore(); try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let bot = Bot(name: "Atlas", backend: .mock)
+    var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode([bot])) as! [[String: Any]]
+    json[0].removeValue(forKey: "isDemo"); try JSONSerialization.data(withJSONObject: json).write(to: url)
+    let store = AppStore(storeURL: url, autoConfigureHermes: false)
+    #expect(store.bots.first?.isDemo == true); #expect(store.bots.first?.isHidden == true)
 }

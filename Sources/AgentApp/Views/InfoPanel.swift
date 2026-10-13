@@ -35,6 +35,13 @@ struct InfoPanel: View {
                 Text(bot.botDescription.isEmpty ? "No description yet." : bot.botDescription).foregroundStyle(.secondary)
                 infoSection("Memory", text: bot.memorySummary.isEmpty ? "Memory will appear as this bot learns your preferences." : bot.memorySummary)
                 VStack(alignment: .leading, spacing: 8) { Text("Skills").font(.headline); FlowLayout(items: bot.skills.isEmpty ? ["No skills configured"] : bot.skills) }
+                if bot.backend == .hermes {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Delegated tasks").font(.headline)
+                        ForEach(store.subAgentTasks[bot.id] ?? []) { task in HStack { Image(systemName: task.status == .completed ? "checkmark.circle" : "person.2"); VStack(alignment: .leading) { Text(task.title).font(.caption.weight(.medium)); Text(task.detail).font(.caption2).foregroundStyle(.secondary) }; Spacer(); Text(task.status.rawValue.capitalized).font(.caption2).foregroundStyle(.secondary) }.padding(8).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 8)) }
+                        if (store.subAgentTasks[bot.id] ?? []).isEmpty { Text("Delegated work will appear here while Hermes runs sub-agents.").font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
             }
         case .routines:
             VStack(alignment: .leading, spacing: 12) { HStack { Text("Routines").font(.headline); Spacer(); Button { showingRoutineEditor = true } label: { Image(systemName: "plus") } }

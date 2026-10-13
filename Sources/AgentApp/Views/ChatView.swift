@@ -16,8 +16,8 @@ struct ChatView: View {
                         Color.clear.frame(height: 20)
                         ForEach(Array(bot.messages.enumerated()), id: \.element.id) { index, message in
                             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } }, reply: { store.replyTo = message }).id(message.id)
-                            if index == 1 { ForEach(store.approvals) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) } }
                         }
+                        ForEach(store.approvals.filter { $0.botID == bot.id }) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
                         Color.clear.frame(height: 1).id("bottom")
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity)
                 }.background(AppColor.chat)

@@ -22,7 +22,7 @@ struct MockBackend: AgentBackend {
         }
     }
     func listSessions() async throws -> [BackendSession] { [] }
-    func cancel(sessionID: String) async {}
+    func cancel(sessionID: String) async throws -> StopOutcome { .disconnectedLegacy }
     func resolveApproval(id: UUID, approved: Bool) async throws {}
     func testConnection() async throws -> String { "Mock backend ready" }
 }

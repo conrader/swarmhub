@@ -15,7 +15,7 @@ struct BotEditorView: View {
                 Section("Instructions") { TextEditor(text: $persona).frame(height: 90) }
             }.formStyle(.grouped).padding(.horizontal, 8)
             Divider(); HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(name.trimmingCharacters(in: .whitespaces).isEmpty) }.padding(16)
-        }.frame(width: 500, height: 600).background(AppColor.panel).onAppear { if let bot { name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend; avatarName = bot.avatarName; hidden = bot.isHidden; notifications = bot.notificationsEnabled } }
+        }.frame(width: 500, height: 600).background(AppColor.panel).onAppear { if let bot { name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend; avatarName = bot.avatarName; hidden = bot.isHidden; notifications = bot.notificationsEnabled } else if AppStore.hasHermesConfiguration { backend = .hermes } }
     }
     private func save() { if let bot { bot.name = name; bot.title = title; bot.botDescription = details; bot.persona = persona; bot.backend = backend; bot.avatarName = avatarName; bot.isHidden = hidden; bot.notificationsEnabled = notifications; store.save() } else { store.addBot(name: name, persona: persona, backend: backend, avatarName: avatarName) }; dismiss() }
 }

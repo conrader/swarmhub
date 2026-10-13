@@ -2,15 +2,20 @@ import SwiftUI
 import UserNotifications
 
 struct SettingsView: View {
+    @EnvironmentObject private var store: AppStore
     private enum Pane: String, CaseIterable, Identifiable { case account = "Account", appearance = "Appearance", notifications = "Notifications", computers = "Computers", review = "Auto-review", usage = "Usage", updates = "Updates"; var id: String { rawValue }; var icon: String { switch self { case .account: "person.crop.circle"; case .appearance: "paintpalette"; case .notifications: "bell"; case .computers: "desktopcomputer"; case .review: "checkmark.shield"; case .usage: "chart.bar"; case .updates: "arrow.triangle.2.circlepath" } } }
     @State private var pane = Pane.account
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference; @AppStorage("accent") private var accent = "Graphite"; @AppStorage("notifications") private var notifications = false
     @AppStorage("hermesBaseURL") private var hermesURL = AppConstants.defaultHermesURL; @AppStorage("openClawURL") private var openClawURL = "ws://127.0.0.1:18789"
+    @AppStorage("hermesProfiles") private var hermesProfiles = ""
     @AppStorage("noVNCURL") private var noVNCURL = ""; @AppStorage("autoReview") private var autoReview = false
-    @State private var apiKey = ""; @State private var testResult = ""; @State private var testing = false
+    @State private var apiKey = ""; @State private var profileKeys = ""; @State private var testResult = ""; @State private var testing = false
     var body: some View {
         NavigationSplitView { List(Pane.allCases, selection: $pane) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }.navigationSplitViewColumnWidth(170) } detail: { Form { content }.formStyle(.grouped).navigationTitle(pane.rawValue) }
-            .frame(width: 720, height: 500).background(AppColor.panel).onAppear { apiKey = KeychainStore.get(account: "hermes") }
+            .frame(width: 720, height: 500).background(AppColor.panel).onAppear {
+                apiKey = KeychainStore.get(account: "hermes")
+                profileKeys = KeychainStore.accounts(prefix: "hermes.").sorted().map { account in "\(account.dropFirst("hermes.".count))=\(KeychainStore.get(account: account))" }.joined(separator: ", ")
+            }
     }
     @ViewBuilder private var content: some View {
         switch pane {
@@ -27,7 +32,15 @@ struct SettingsView: View {
             if Bundle.main.bundleIdentifier == nil { Text("Notifications require running AgentApp from an application bundle.").font(.caption).foregroundStyle(.secondary) }
             Text("Each bot can be muted from its context menu or settings.").font(.caption).foregroundStyle(.secondary)
         case .computers:
-            Section("Hermes Agent") { TextField("Base URL", text: $hermesURL); SecureField("API key", text: $apiKey).onChange(of: apiKey) { _, value in KeychainStore.set(value, account: "hermes") }; HStack { Button("Test Connection") { testHermes() }.disabled(testing); if testing { ProgressView().controlSize(.small) }; Text(testResult).font(.caption).foregroundStyle(.secondary) } }
+            Section("Hermes Agent") {
+                TextField("Base URL", text: $hermesURL)
+                SecureField("Default profile API key", text: $apiKey).onChange(of: apiKey) { _, value in KeychainStore.set(value, account: "hermes") }
+                TextField("Named profiles (comma-separated)", text: $hermesProfiles)
+                SecureField("Named keys (profile=key, comma-separated)", text: $profileKeys)
+                Button("Save named keys") { KeychainStore.replaceNamedHermesKeys(profileKeys); testResult = "Named profile keys saved." }
+                Text("Hermes does not expose profile enumeration on its API-key server. Add named multiplex profiles here; each requires its own key.").font(.caption).foregroundStyle(.secondary)
+                HStack { Button("Test & Discover") { testHermes() }.disabled(testing); if testing { ProgressView().controlSize(.small) }; Text(testResult).font(.caption).foregroundStyle(.secondary) }
+            }
             Section("OpenClaw") { TextField("Gateway URL", text: $openClawURL); Text("TODO: authenticated WebSocket RPC transport.").font(.caption).foregroundStyle(.secondary) }
             Section("Virtual desktop") { TextField("noVNC URL", text: $noVNCURL) }
         case .review:
@@ -43,7 +56,11 @@ struct SettingsView: View {
         Task {
             do {
                 guard let baseURL = HermesBackend.validatedBaseURL(hermesURL) else { throw BackendError.invalidURL }
-                testResult = try await HermesBackend(baseURL: baseURL, apiKey: apiKey).testConnection()
+                let backend = HermesBackend(baseURL: baseURL, apiKey: apiKey)
+                let status = try await backend.testConnection()
+                await store.refreshHermesAgents()
+                let count = store.bots.filter { $0.backend == .hermes }.count
+                testResult = "\(status); \(count) profile(s) available"
             } catch { testResult = error.localizedDescription }
             testing = false
         }
