@@ -212,4 +212,4 @@ Phase briefs live in `briefs/`; `PLAN.md` holds the table and the standing const
 | P17 | Model choices in bot settings come from the bot's own Hermes profile or OpenClaw gateway | Designing |
 | P13 C | Coding threads and the sub-agent model | Waiting for go |
 | P12 | Connect OpenClaw | Planned |
-| P21 | Simple settings (advanced options tucked away) and a managed Hermes bot from Ermes for people without their own box | Proposed |
+| P21 | Simple settings: everything difficult moved to Advanced; plain first-run "connect your box" | Designing |
