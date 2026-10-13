@@ -2,7 +2,7 @@ import Testing
 import SwiftUI
 @preconcurrency import BotAvatarsKit
 
-/// The vendored kit links into the test target and its Torvli patches are present.
+/// The vendored kit links into the test target and its app patches are present.
 @Suite struct KitLinkTests {
     @Test @MainActor func drawConfigBuildsAndClockReportsRunning() {
         var config = BotAvatarDrawConfig(type: .blob, color: BotColor("#1084FE"))

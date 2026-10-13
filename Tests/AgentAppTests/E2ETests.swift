@@ -17,10 +17,10 @@ import Testing
     #expect(steps[1].detail.contains("steer accepted (HTTP 2xx)") && steps[1].detail.contains("E2E-STEER"))
 
     let requests = state.requests()
-    // Every session created or forked is a new torvli-selftest- session; every message carries the preamble.
+    // Every session created or forked is a new AppConstants.selfTestPrefix session; every message carries the preamble.
     let created = requests.filter { $0.method == "POST" && ($0.path.hasSuffix("/api/sessions") || $0.path.hasSuffix("/fork")) }.compactMap { $0.body?["id"] as? String }
     #expect(created.count == 4, "a, b and the group create a session; c forks one")
-    #expect(created.allSatisfy { $0.hasPrefix("torvli-selftest-") })
+    #expect(created.allSatisfy { $0.hasPrefix(AppConstants.selfTestPrefix) })
     let inputs = requests.filter { $0.path.hasSuffix("/chat/stream") }.map { $0.body?["input"] as? String ?? "" }
     #expect(inputs.count == 5)
     #expect(inputs.allSatisfy { $0.contains(HeadlessE2E.preamble) })
@@ -89,7 +89,7 @@ import Testing
 }
 
 @MainActor @Test func uiSmokeReadsItsReportPath() {
-    #expect(UISmoke.reportPath(arguments: ["Torvli", "--ui-smoke", "~/x/ui.json"]) == ("~/x/ui.json" as NSString).expandingTildeInPath)
-    #expect(UISmoke.reportPath(arguments: ["Torvli", "--ui-smoke"]) == nil)
-    #expect(UISmoke.reportPath(arguments: ["Torvli"]) == nil)
+    #expect(UISmoke.reportPath(arguments: [AppConstants.name, "--ui-smoke", "~/x/ui.json"]) == ("~/x/ui.json" as NSString).expandingTildeInPath)
+    #expect(UISmoke.reportPath(arguments: [AppConstants.name, "--ui-smoke"]) == nil)
+    #expect(UISmoke.reportPath(arguments: [AppConstants.name]) == nil)
 }

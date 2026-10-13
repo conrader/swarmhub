@@ -170,6 +170,12 @@ final class MockHermesProtocol: URLProtocol, @unchecked Sendable {
         let host = request.url?.host ?? ""
         Self.lock.lock(); let handler = Self.handlers[host]; Self.lock.unlock(); Self.log(host).append(request)
         let (status, body) = handler?(request) ?? (404, ["error": "no route"])
+        // A 3xx with `["location": path or URL]` redirects; URLSession follows it like GitHub's renamed-repo redirect.
+        if (300..<400).contains(status), let location = (body as? [String: Any])?["location"] as? String, let target = URL(string: location, relativeTo: request.url)?.absoluteURL {
+            let redirect = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Location": target.absoluteString])!
+            var next = URLRequest(url: target); next.allHTTPHeaderFields = request.allHTTPHeaderFields
+            client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: redirect); return
+        }
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: (try? JSONSerialization.data(withJSONObject: body)) ?? Data())

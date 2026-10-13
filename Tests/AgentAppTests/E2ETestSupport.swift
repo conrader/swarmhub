@@ -133,7 +133,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
     let defaults = isolatedDefaults(); defaults.set("https://\(server.host)", forKey: "hermesBaseURL")
     let keys = InMemoryKeyStore(["hermes": "k", "hermes.grok-jarvis": "k", "hermes.grok-dmt": "k", "hermes.grok-achilles": "k"])
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults, hermesSession: server.session)
-    let bots = HeadlessE2E.Participants(jarvis: Bot(name: "Jarvis torvli-selftest-test", backend: .hermes, hermesProfile: "grok-jarvis"),
+    let bots = HeadlessE2E.Participants(jarvis: Bot(name: "Jarvis \(AppConstants.selfTestPrefix)test", backend: .hermes, hermesProfile: "grok-jarvis"),
                                         dmt: Bot(name: "DMT", backend: .hermes, hermesProfile: "grok-dmt"),
                                         achilles: Bot(name: "Achilles", backend: .hermes, hermesProfile: "grok-achilles"))
     store.bots = [bots.jarvis, bots.dmt, bots.achilles]; store.groups = []

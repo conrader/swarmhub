@@ -13,7 +13,7 @@ import Foundation
     static var forcedWorking: UUID?
 }
 
-/// `Torvli --ui-smoke <report.json>`: the normal app with its window on screen. Once the first Grok bot's chat has
+/// `SwarmHub --ui-smoke <report.json>`: the normal app with its window on screen. Once the first Grok bot's chat has
 /// rendered, the app writes a JSON report about its own state (no screenshots, no automation) and keeps running.
 @MainActor enum UISmoke {
     struct Budget {
@@ -34,7 +34,7 @@ import Foundation
         Task { @MainActor in
             let report = await collect(store: store)
             do { try write(report, to: URL(fileURLWithPath: path)) }
-            catch { NSLog("Torvli ui-smoke: cannot write %@: %@", path, error.localizedDescription) }
+            catch { NSLog("%@ ui-smoke: cannot write %@: %@", AppConstants.name, path, error.localizedDescription) }
         }
     }
 
@@ -49,6 +49,10 @@ import Foundation
         report["window_visible"] = window()?.isVisible == true; report["window_unoccluded"] = window()?.occlusionState.contains(.visible) == true
         if let frame = window()?.frame { report["window_frame"] = ["x": frame.origin.x, "y": frame.origin.y, "width": frame.width, "height": frame.height] }
         report["window_on_screen"] = window()?.screen != nil
+        let info = Bundle.main.infoDictionary ?? [:]
+        report["app"] = ["name": AppConstants.name, "window_title": window()?.title ?? NSNull(), "bundle_name": info["CFBundleName"] ?? NSNull(),
+                         "bundle_display_name": info["CFBundleDisplayName"] ?? NSNull(), "bundle_id": Bundle.main.bundleIdentifier ?? NSNull()]
+        if let title = window()?.title, title != AppConstants.name { errors.append("window title is \(title), not \(AppConstants.name)") }
 
         report["sidebar_rows"] = ["bots": store.bots.filter { !$0.isHidden }.count, "groups": store.groups.filter { !$0.isHidden }.count,
                                   "total": store.bots.filter { !$0.isHidden }.count + store.groups.filter { !$0.isHidden }.count]

@@ -20,8 +20,8 @@ enum GrokImportError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .persistenceDisabled: "Torvli cannot save right now (its store could not be read at launch), so nothing was imported."
-        case .saveFailed: "Torvli could not save its store after the import; the history archives were written but the bots were not saved."
+        case .persistenceDisabled: "\(AppConstants.name) cannot save right now (its store could not be read at launch), so nothing was imported."
+        case .saveFailed: "\(AppConstants.name) could not save its store after the import; the history archives were written but the bots were not saved."
         }
     }
 }

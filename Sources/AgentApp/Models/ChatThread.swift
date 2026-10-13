@@ -17,7 +17,7 @@ extension Bot: Conversation {
 final class ChatThread: ObservableObject, Identifiable, Codable, Conversation {
     let id: UUID; let parentMessageID: UUID; let parentSessionID: String?; let createdAt: Date
     @Published var hermesSessionID: String?; @Published var messages: [ChatMessage]
-    /// P13: the role a thread was opened for and the lock Torvli recorded on its fork (Part D sets them).
+    /// P13: the role a thread was opened for and the lock the app recorded on its fork (Part D sets them).
     var role: ModelRole?; var modelLock: HermesModelLock?
     init(id: UUID = UUID(), parentMessageID: UUID, parentSessionID: String?, hermesSessionID: String?, messages: [ChatMessage] = [], createdAt: Date = .now) {
         self.id = id; self.parentMessageID = parentMessageID; self.parentSessionID = parentSessionID

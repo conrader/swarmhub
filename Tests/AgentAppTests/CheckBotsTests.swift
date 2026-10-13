@@ -63,17 +63,17 @@ private func checkBotsServer() -> (host: String, session: URLSession) {
 }
 
 @MainActor @Test func checkBotsChatUsesTheComposerSendPath() async throws {
-    let backend = TestBackend(transport: .nativeSessions, streamMode: .response("Torvli OK"))
+    let backend = TestBackend(transport: .nativeSessions, streamMode: .response("\(AppConstants.name) OK"))
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let jarvis = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis")
     store.bots = [jarvis]
     var lines: [String] = []
-    let code = await HeadlessCommands.chatOnce(store: store, botName: "jarvis", text: "Reply with exactly: Torvli OK", timeout: waitCeiling, output: { lines.append($0) })
+    let code = await HeadlessCommands.chatOnce(store: store, botName: "jarvis", text: "Reply with exactly: \(AppConstants.name) OK", timeout: waitCeiling, output: { lines.append($0) })
     let session = "agentapp_\(jarvis.id.uuidString.lowercased())"
     #expect(code == 0)
-    #expect(lines == ["Chat Jarvis | session \(session) | reply: Torvli OK"])
+    #expect(lines == ["Chat Jarvis | session \(session) | reply: \(AppConstants.name) OK"])
     #expect(await backend.recordedCalls() == ["capabilities", "create:\(session)", "send"])
-    #expect(jarvis.messages.map(\.content) == ["Reply with exactly: Torvli OK", "Torvli OK"])
+    #expect(jarvis.messages.map(\.content) == ["Reply with exactly: \(AppConstants.name) OK", "\(AppConstants.name) OK"])
 
     var missing: [String] = []
     #expect(await HeadlessCommands.chatOnce(store: store, botName: "Nobody", text: "hi", timeout: .seconds(1), output: { missing.append($0) }) == 1)

@@ -8,8 +8,8 @@ TOOLCHAIN="$XCODE_DIR/Toolchains/XcodeDefault.xctoolchain"
 SDK="$XCODE_DIR/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
 cd "$ROOT_DIR"
 
-# TORVLI_FORCE_SWIFTC=1 takes the swiftc fallback even when xcrun works, so both paths can be checked.
-if [[ "${TORVLI_FORCE_SWIFTC:-}" != "1" ]] && /usr/bin/xcrun --sdk macosx --show-sdk-path >/dev/null 2>&1; then
+# SWARMHUB_FORCE_SWIFTC=1 (or the older TORVLI_FORCE_SWIFTC=1) takes the swiftc fallback even when xcrun works, so both paths can be checked.
+if [[ "${SWARMHUB_FORCE_SWIFTC:-${TORVLI_FORCE_SWIFTC:-}}" != "1" ]] && /usr/bin/xcrun --sdk macosx --show-sdk-path >/dev/null 2>&1; then
   swift build
 else
   echo "Using the swiftc fallback ($XCODE_DIR)."

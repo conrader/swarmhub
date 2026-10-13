@@ -2,7 +2,8 @@
 """Export the local Grok Bot app cache to an agentapp-bot-bundle/v1 folder.
 
 Reads `~/Library/Application Support/Grok Bot/sand-client-persistence/*.blob` (read-only) and writes
-`~/Documents/Torvli Grok Export/` (dirs 0700, files 0600). Python 3 stdlib only. No network unless
+`~/Documents/SwarmHub Grok Export/` (dirs 0700, files 0600; the older `~/Documents/Torvli Grok Export/` while the
+new one does not exist). Python 3 stdlib only. No network unless
 `--fetch-server-history`, which pages each conversation's older history from Grok's servers with read-only
 RPCs (scripts/grokbot_server.py) and merges it with the cache by seq.
 Only counts are printed; message text never leaves the export files.
@@ -23,7 +24,8 @@ import grokbot_server  # noqa: E402
 
 FORMAT = "agentapp-bot-bundle/v1"
 DEFAULT_CACHE = "~/Library/Application Support/Grok Bot/sand-client-persistence"
-DEFAULT_OUT = "~/Documents/Torvli Grok Export"
+DEFAULT_OUT = "~/Documents/SwarmHub Grok Export"
+PREVIOUS_OUT = "~/Documents/Torvli Grok Export"  # written before the rename to SwarmHub (P18)
 HIDDEN_MARKER = re.compile(r"\[GROK_BOT_HIDDEN[A-Z_]*\]")
 MARKER = "[REDACTED]"
 
@@ -304,7 +306,7 @@ def export(cache_dir, out_dir, server=None):
     slugs = {r["id"]: profile_slug(r.get("name") or "") for r in rows if not r.get("isGroup")}
     parent = os.path.dirname(os.path.abspath(out_dir))
     os.makedirs(parent, exist_ok=True)
-    tmp = tempfile.mkdtemp(prefix=".torvli-grok-export-", dir=parent)
+    tmp = tempfile.mkdtemp(prefix=".swarmhub-grok-export-", dir=parent)
     os.chmod(tmp, 0o700)
     try:
         index = {"format": FORMAT, "generator": "export-grokbot.py",
@@ -337,10 +339,17 @@ def export(cache_dir, out_dir, server=None):
     return index
 
 
+def default_out(home=None):
+    """The SwarmHub export folder; the older Torvli one while only that exists, so an export is never split in two."""
+    expand = (lambda path: path.replace("~", home, 1)) if home else os.path.expanduser
+    current, previous = expand(DEFAULT_OUT), expand(PREVIOUS_OUT)
+    return previous if not os.path.lexists(current) and os.path.isdir(previous) else current
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cache", default=os.path.expanduser(DEFAULT_CACHE))
-    parser.add_argument("--out", default=os.path.expanduser(DEFAULT_OUT))
+    parser.add_argument("--out", default=default_out(), help="default: %s (or %s if only that exists)" % (DEFAULT_OUT, PREVIOUS_OUT))
     parser.add_argument("--fetch-server-history", action="store_true",
                         help="also page each conversation's older history from Grok's servers (read-only; one Keychain prompt)")
     parser.add_argument("--base-url", default=os.environ.get("CURSOR_API_BASE_URL") or grokbot_server.BASE_URL, help=argparse.SUPPRESS)

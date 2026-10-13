@@ -1,6 +1,6 @@
 import Foundation
 
-/// Maps a Grok Bot avatar description (shape + colour words) to the mark Torvli stores. Only the words are read; no Grok
+/// Maps a Grok Bot avatar description (shape + colour words) to the mark the app stores. Only the words are read; no Grok
 /// artwork is copied or referenced. The P6 tables below are what the old importer wrote into `avatarName`/`accentColor`;
 /// they are kept, frozen, so `AvatarMigration` can recognise those bots.
 enum GrokAvatarMap {

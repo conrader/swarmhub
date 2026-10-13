@@ -59,6 +59,7 @@ struct HermesToolset: Sendable, Equatable, Identifiable {
 }
 
 /// Who pinned a chat (P13); nil = picked by hand or before P13.
+/// `torvliDefault` keeps its pre-P18 name: it is the stored raw value (store format unchanged); it means the app-wide default.
 enum LockOrigin: String, Codable, Sendable { case bot, torvliDefault, coding }
 
 /// A chat's confirmed model lock as acknowledged by `POST /api/sessions/{id}/model`.

@@ -23,7 +23,7 @@ enum GrokNaming {
         name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: " ", with: "-")
     }
 
-    /// The Hermes profile Torvli binds a Grok bot to: `grok-` + `profile_slug(name)` when that is a valid profile name,
+    /// The Hermes profile the app binds a Grok bot to: `grok-` + `profile_slug(name)` when that is a valid profile name,
     /// else `grok-` + `slugify(name)` (an empty name gives `grok-bot`).
     static func profile(forName name: String) -> String {
         let slug = profileSlug(name)

@@ -3,8 +3,8 @@ import Foundation
 /// Settings → Models, the Overview's role lines and the headless roles line, decided from what each bot's Hermes
 /// profile reported plus the local role settings. Pure: no SwiftUI, no network. Server strings render verbatim.
 struct ModelRolesModel: Equatable, Sendable {
-    static let caption = "Torvli remembers these choices and applies them when it starts a chat. It does not change your box's own settings."
-    static let conversationHelp = "Used for chats, group chats and threads Torvli starts."
+    static let caption = "\(AppConstants.name) remembers these choices and applies them when it starts a chat. It does not change your box's own settings."
+    static let conversationHelp = "Used for chats, group chats and threads \(AppConstants.name) starts."
     static let codingHelp = "Used for coding threads. Sub-agents use whatever the box sets."
 
     /// What the store knows about one bot; `current` is the model its main chat runs (P11's `currentModel`).
@@ -22,9 +22,9 @@ struct ModelRolesModel: Equatable, Sendable {
         let role: ModelRole; let model: String; let supplier: String?; let source: ModelSource
         var title: String { role == .conversation ? "Conversation" : "Coding threads" }
         /// "<model> · <supplier> · <source>"; a Coding line that follows the conversation says only that.
-        var value: String { role == .coding && source == .sameAsConversation ? source.rawValue : [model, supplier, source.rawValue].compactMap { $0 }.joined(separator: " · ") }
+        var value: String { role == .coding && source == .sameAsConversation ? source.label : [model, supplier, source.label].compactMap { $0 }.joined(separator: " · ") }
         var text: String { "\(title): \(value)" }
-        var accessibilityLabel: String { [title, model, supplier ?? "supplier unknown", source.rawValue].joined(separator: ", ") }
+        var accessibilityLabel: String { [title, model, supplier ?? "supplier unknown", source.label].joined(separator: ", ") }
     }
 
     struct Row: Equatable, Sendable, Identifiable {
@@ -123,7 +123,7 @@ struct ModelRolesModel: Equatable, Sendable {
         guard !row.isOpenClaw else { return "\(row.name): roles \(ModelRoleReason.openClaw.text)" }
         func describe(_ line: RoleLine?) -> String {
             guard let line else { return "unknown" }
-            return line.role == .coding && line.source == .sameAsConversation ? line.source.rawValue : "\(line.model) (\(line.source.rawValue))"
+            return line.role == .coding && line.source == .sameAsConversation ? line.source.label : "\(line.model) (\(line.source.label))"
         }
         var text = "\(row.name): roles conversation \(describe(row.conversation)) | coding threads \(describe(row.coding)) | sub-agents \(row.subAgents), set on the box"
         if let blocked = row.blocked { text += " | \(blocked.text)" }

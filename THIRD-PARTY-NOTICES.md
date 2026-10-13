@@ -1,6 +1,6 @@
 # Third-party notices
 
-Torvli includes the following third-party code.
+SwarmHub includes the following third-party code.
 
 ## BotAvatarsKit
 

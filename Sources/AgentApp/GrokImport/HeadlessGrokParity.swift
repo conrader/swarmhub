@@ -33,7 +33,7 @@ enum GrokParity {
         }
         var lines = native.map { bundle -> Line in
             guard let other = exported.removeValue(forKey: bundle.sourceID) else {
-                return Line(sourceID: bundle.sourceID, differences: [:], onlyIn: "Torvli")
+                return Line(sourceID: bundle.sourceID, differences: [:], onlyIn: AppConstants.name)
             }
             return Line(sourceID: bundle.sourceID, differences: differences(bundle.json, other), onlyIn: nil)
         }

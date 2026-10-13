@@ -1,6 +1,6 @@
 import Foundation
 
-/// Every value that couples Torvli to Grok Bot's private formats: the drift register.
+/// Every value that couples this app to Grok Bot's private formats: the drift register.
 /// Captured from Grok Bot 0.70.2 on 2026-10-13. Each value says where it was found; when Grok Bot changes one of them,
 /// this file is the only place to update, and `--grok-probe` (P10c) is how the change is noticed.
 enum GrokProtocol {
@@ -77,12 +77,14 @@ enum GrokProtocol {
     static let blobPathPrefix = "blobs/"
 
     // MARK: Client headers (`getSandBackendClientHeaders` + `o_e` in main-app.cjs)
-    /// Drift: changed 2026-10-13, Konrad approved. Torvli identifies itself honestly as `Torvli/<Torvli app version>`
+    /// Drift: 2026-10-13, renamed from Torvli/<version>, Konrad's rename (P18): the user-agent is `AppConstants.userAgent`,
+    /// `SwarmHub/<version>` today; P10c's live step re-confirms Grok accepts it.
+    /// Drift: changed 2026-10-13, Konrad approved. The app identifies itself honestly as `<app name>/<app version>`
     /// instead of Grok Bot's Electron user-agent (`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36
     /// (KHTML, like Gecko) Sand/<version> Safari/537.36`, from `o_e` in main-app.cjs). P10.0 step (g) showed the server
     /// accepts it (HTTP 200, docs/P10-spike-findings.md). Every other header below is still the one Grok Bot sends.
-    static func userAgent(appVersion: String) -> String { "Torvli/\(appVersion)" }
-    /// The user-agent version when Torvli's own version is not a plain dotted version (a bare SwiftPM build).
+    static func userAgent(appVersion: String) -> String { AppConstants.userAgent(version: appVersion) }
+    /// The user-agent version when the app's own version is not a plain dotted version (a bare SwiftPM build).
     static let appVersionFallback = "dev"
     static let clientHeaders: [(String, String)] = [
         ("x-cursor-client-type", "sand"), ("x-sand-box-namespace", "prod"),

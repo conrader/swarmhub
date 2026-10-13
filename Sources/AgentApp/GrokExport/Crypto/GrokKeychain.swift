@@ -40,12 +40,12 @@ enum GrokKeychainError: Error, Equatable, CustomStringConvertible {
     }
 }
 
-/// Reads the generic-password item `service="Grok Bot Safe Storage", account="Grok Bot Key"` from Torvli's
+/// Reads the generic-password item `service="Grok Bot Safe Storage", account="Grok Bot Key"` from the app's
 /// own process (never `/usr/bin/security`). The read runs on a private queue bridged by a continuation, so it
 /// is off the main actor and the cooperative pool while the dialog is up (Rule 3). Callers gate it behind the
 /// in-flight flag and the cheap checks.
 struct GrokKeychain: GrokPasswordProvider {
-    static let queue = DispatchQueue(label: "zone.dmt.torvli.grok-keychain")
+    static let queue = DispatchQueue(label: "com.konrad.agentapp.grok-keychain")
 
     private var baseQuery: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

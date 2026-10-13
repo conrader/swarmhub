@@ -39,7 +39,7 @@ enum AvatarMotion {
     }
 }
 
-/// The persisted preference (Torvli's UserDefaults), observed by every mark; `probeOverride` lets `--ui-smoke` try
+/// The persisted preference (the app's UserDefaults), observed by every mark; `probeOverride` lets `--ui-smoke` try
 /// Calm without touching the saved choice.
 @MainActor final class AvatarMotionSettings: ObservableObject {
     static let shared = AvatarMotionSettings()

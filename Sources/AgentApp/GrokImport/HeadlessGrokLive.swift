@@ -57,7 +57,7 @@ enum HeadlessGrokLive {
         request.setValue(GrokProtocol.connectTimeoutMs, forHTTPHeaderField: "connect-timeout-ms")
         request.setValue("gzip", forHTTPHeaderField: "accept-encoding")
         request.setValue(UUID().uuidString, forHTTPHeaderField: "x-request-id")
-        if honestUA { request.setValue("Torvli/\(version)", forHTTPHeaderField: "user-agent") }
+        if honestUA { request.setValue(GrokProtocol.userAgent(appVersion: version), forHTTPHeaderField: "user-agent") }
 
         // delegateQueue nil: URLSession makes its own serial queue, never the (blocked) main queue.
         let session = URLSession(configuration: .ephemeral, delegate: nil, delegateQueue: nil)

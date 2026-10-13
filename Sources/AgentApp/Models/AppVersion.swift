@@ -99,14 +99,23 @@ enum UpdateStatus: Equatable, Sendable {
     }
 }
 
-/// On-demand check of `GET https://api.github.com/repos/conrader/torvli/releases/latest`. Nothing is downloaded.
+/// On-demand check of `GET https://api.github.com/repos/<AppConstants.releasesRepo>/releases/latest`, falling back to the
+/// pre-rename repo on 404 (GitHub also redirects the old name after the rename). Nothing is downloaded.
 enum ReleaseChecker {
-    static let latestURL = URL(string: "https://api.github.com/repos/conrader/torvli/releases/latest")!
+    static let latestURLs = [AppConstants.releasesRepo, AppConstants.previousReleasesRepo].map { URL(string: "https://api.github.com/repos/\($0)/releases/latest")! }
 
-    static func check(current: String, session: URLSession = .shared) async -> UpdateStatus {
-        var request = URLRequest(url: latestURL, timeoutInterval: 15)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue(AppConstants.name, forHTTPHeaderField: "User-Agent")
+    static func check(current: String, session: URLSession = .shared, urls: [URL] = latestURLs) async -> UpdateStatus {
+        for url in urls {
+            var request = URLRequest(url: url, timeoutInterval: 15)
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            request.setValue(AppConstants.userAgent(version: GrokRequestHeaders.appVersion(fromShortVersion: current)), forHTTPHeaderField: "User-Agent")
+            let status = await fetch(request, current: current, session: session)
+            if status != .noReleases { return status }
+        }
+        return .noReleases
+    }
+
+    private static func fetch(_ request: URLRequest, current: String, session: URLSession) async -> UpdateStatus {
         do {
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0

@@ -24,7 +24,7 @@ import UserNotifications
     var groupRun: GroupRun?; var migratedGroupNames: [String] = []
     private(set) lazy var attachmentEncoder = AttachmentEncoder(directory: fileURL.deletingLastPathComponent().appending(path: "attachments", directoryHint: .isDirectory))
     let botInfo = BotInfoCache()
-    /// P13 Torvli-wide model defaults (store.json, this install only); empty until set in Settings → Models.
+    /// P13 app-wide model defaults (store.json, this install only); empty until set in Settings → Models.
     @Published var modelDefaults = ModelDefaults()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
@@ -32,7 +32,7 @@ import UserNotifications
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     var streamingBotID: UUID?; var streamingAssistant: ChatMessage?; var streamingConversation: (any Conversation)?
     var historyLoadTokens: [UUID: UUID] = [:]
-    /// Prepended to every session id the app creates (chat, thread, group); `--e2e` sets `torvli-selftest-`.
+    /// Prepended to every session id the app creates (chat, thread, group); `--e2e` sets `AppConstants.selfTestPrefix`.
     var sessionNamespace = ""
     var activeStreamToken: UUID?
     private var stopInProgressForStream: UUID?

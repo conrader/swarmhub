@@ -1,7 +1,7 @@
 import Foundation
 
 /// Builds the request headers Grok Bot sends (`getSandBackendClientHeaders` + `o_e` in main-app.cjs;
-/// port of `request_headers`), except the user-agent, which names Torvli (drift register in `GrokProtocol`).
+/// port of `request_headers`), except the user-agent, which names this app (`AppConstants.name`; drift register in `GrokProtocol`).
 /// The `Authorization` string is transient and cannot be wiped (Rule 6).
 /// Never set `Accept-Encoding` by hand (P10 traps): URLSession negotiates it and decodes the body itself.
 enum GrokRequestHeaders {
@@ -35,7 +35,7 @@ enum GrokRequestHeaders {
         return threeNumeric ? base : GrokProtocol.clientVersionFallback
     }
 
-    /// Torvli's own version for the user-agent: one to four dot-separated ASCII number groups, else `dev`.
+    /// The app's own version for the user-agent: one to four dot-separated ASCII number groups, else `dev`.
     static func appVersion(fromShortVersion raw: String?) -> String {
         guard let raw else { return GrokProtocol.appVersionFallback }
         let parts = raw.split(separator: ".", omittingEmptySubsequences: false)

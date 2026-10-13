@@ -153,7 +153,7 @@ private final class TestClock: @unchecked Sendable { var now = utc("2026-10-13T1
     #expect(noSession.showsMenu && !noSession.canSwitch); #expect(noSession.notes.contains { $0.text.hasPrefix("Send a message first") })
     let nothing = await picker { $0.set(catalog: ["model": "x", "provider": "lab-two", "providers": [["slug": "lab-two", "name": "Lab Two", "models": [String](), "authenticated": false, "source": "canonical"]]], for: "grok-jarvis") }
     #expect(nothing.showsMenu && nothing.groups.isEmpty && nothing.hiddenCount == 1)
-    #expect(nothing.notes.contains { $0.text.contains("Torvli never holds them") })
+    #expect(nothing.notes.contains { $0.text.contains("\(AppConstants.name) never holds them") })
 }
 
 // MARK: Requests

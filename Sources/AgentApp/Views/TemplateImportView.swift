@@ -59,12 +59,12 @@ struct TemplateImportView: View {
             Section("Share link") {
                 TextField("https://…/export.json", text: $shareLink)
                 Button(isLoading ? "Checking…" : "Load link") { loadLink() }.disabled(isLoading || shareLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Text("AgentApp accepts only a direct JSON response. It never scrapes a share page.").font(.caption).foregroundStyle(.secondary)
+                Text("\(AppConstants.name) accepts only a direct JSON response. It never scrapes a share page.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Exported file") { Button("Choose JSON file…") { choosingFile = true } }
             Section("Grok Bot export") {
                 Button("Choose export folder or bundle.json…") { choosingExport = true }
-                Text("Folder written by scripts/export-grokbot.py. Bots, avatars and a read-only Grok history are imported; importing again updates without duplicates.").font(.caption).foregroundStyle(.secondary)
+                Text("Folder written by scripts/export-grokbot.py (~/Documents/\(AppConstants.grokExportFolder().lastPathComponent)). Bots, avatars and a read-only Grok history are imported; importing again updates without duplicates.").font(.caption).foregroundStyle(.secondary)
             }
             if let errorMessage { Section { Label(errorMessage, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) } }
             Section { Text("Only import a template you own or are allowed to use. Credentials, tokens, passwords, private keys, and similar sensitive fields are rejected and never shown in the preview.").font(.caption).foregroundStyle(.secondary) }
@@ -74,6 +74,7 @@ struct TemplateImportView: View {
             let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do { grokBundles = try GrokBundleLoader.load(from: url); errorMessage = nil } catch { show(error) }
         }
+        .defaultFileDialogDirectory(AppConstants.grokExportFolder())
     }
 
     private func preview(_ plan: TemplateImportPlan) -> some View {
@@ -118,4 +119,11 @@ struct TemplateImportView: View {
     private func show(_ error: Error) { errorMessage = (error as? TemplateImportError)?.localizedDescription ?? (error as? GrokBundleError)?.localizedDescription ?? "The template could not be loaded. Export it as JSON and try the file instead." }
     private func icon(_ status: TemplateImportStatus) -> String { switch status { case .mapped: "checkmark.circle.fill"; case .converted: "arrow.triangle.2.circlepath.circle.fill"; case .skipped: "minus.circle.fill"; case .unsupported: "xmark.circle.fill" } }
     private func color(_ status: TemplateImportStatus) -> Color { switch status { case .mapped: .green; case .converted: .blue; case .skipped: .orange; case .unsupported: .red } }
+}
+
+private extension View {
+    /// Opens the export picker in the Grok export folder (the new name, else the pre-P18 one) where macOS supports it.
+    @ViewBuilder func defaultFileDialogDirectory(_ url: URL) -> some View {
+        if #available(macOS 15.0, *) { fileDialogDefaultDirectory(url) } else { self }
+    }
 }

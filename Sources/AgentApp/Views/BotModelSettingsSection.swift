@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A role picker: leading rows ("Box default", "Use Torvli default (…)") then P11's supplier groups from one
+/// A role picker: leading rows ("Box default", "Use <app name> default (…)") then P11's supplier groups from one
 /// profile's list. Unavailable models stay visible and disabled. Static menu, no animation.
 struct RoleModelMenu: View {
     let label: String
@@ -37,14 +37,14 @@ struct BotModelSettingsSection: View {
     @Binding var conversation: ModelSetting
 
     var body: some View {
-        let torvli = "Use Torvli default (\(store.modelDefaults.conversation?.model ?? "box default"))"
+        let appDefault = "Use \(AppConstants.name) default (\(store.modelDefaults.conversation?.model ?? "box default"))"
         Section("Models") {
             if let bot, bot.backend == .hermes, bot.hermesProfile != nil {
                 let options = cache.info(for: bot.id)?.modelOptions.value
                 HStack {
                     Text("Conversation model")
                     Spacer()
-                    RoleModelMenu(label: label(torvli), leading: [(torvli, .inherit), ("Box default", .box)],
+                    RoleModelMenu(label: label(appDefault), leading: [(appDefault, .inherit), ("Box default", .box)],
                                   picker: options == nil ? nil : store.modelPicker(for: bot)) { conversation = $0 }
                 }
                 if options == nil { Button("Load this bot's models") { Task { await store.loadServerInfo(for: bot, includeSkills: false) } } }
@@ -54,15 +54,15 @@ struct BotModelSettingsSection: View {
                 Text("\(ModelRolesModel.conversationHelp) Applied when a chat starts; a started chat keeps its model. \(ModelRoleReason.permanent.text)")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
-                LabeledContent("Conversation model", value: torvli)
+                LabeledContent("Conversation model", value: appDefault)
                 Text("Other choices appear once the bot is bound to a Hermes profile.").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
 
-    private func label(_ torvli: String) -> String {
+    private func label(_ appDefault: String) -> String {
         switch conversation {
-        case .inherit: torvli
+        case .inherit: appDefault
         case .box: "Box default"
         case .choice(let choice): choice.model
         }

@@ -57,7 +57,7 @@ enum ChromeGeometry {
         return names.filter { mask.contains($0.0) }.map(\.1)
     }
 
-    /// Which of `UISmoke.mainWindow()`'s two lookups finds this window: by title "Torvli", or the any-main fallback.
+    /// Which of `UISmoke.mainWindow()`'s two lookups finds this window: by title `AppConstants.name`, or the any-main fallback.
     static func lookup(_ window: NSWindow, in windows: [NSWindow]) -> String {
         if windows.first(where: { $0.isVisible && $0.title == AppConstants.name }) === window { return "title" }
         if windows.first(where: { $0.isVisible && $0.canBecomeMain }) === window { return "fallback" }
