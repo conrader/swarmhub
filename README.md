@@ -59,6 +59,7 @@ This pass recreates the product structure and interaction patterns with original
 | Quick switcher | Partial | `Cmd+K` jumps to bots and creates a bot; Settings uses a compatibility selector and keyboard selection is not implemented. |
 | Notifications | Partial | Global (off by default) and per-bot controls exist. Delivery is bundle-safe and unavailable from the bare SwiftPM executable. |
 | Hermes | Partial | v0.21.7 Sessions/SSE chat, capped non-destructive paged history merging, per-run immediate local Stop plus background run Stop, per-bot ask/rules/reviewer approvals with local audit, internal tool status handling, Keychain auth, health checks, and configured profiles are implemented. A failed or timed-out server Stop is reported beside the stopped turn without changing a newer run. Approval is disabled when Hermes supplies no command text. 0.16–0.20.x uses Chat Completions without Sessions calls. Native and legacy fixtures previously passed outside the managed sandbox; this pass records its rerun under `docs/approvals-fix4-*.log`. Provider-backed reviewer behavior remains unverified. |
+| Hermes profiles | Partial | Each bot is bound to one Hermes profile (`/p/<profile>/`) with its own Keychain key; Settings → "Add bots from box" takes `profile=key` lines, probes each profile and names new bots from the slug (`grok-jarvis` → Jarvis). A profile whose `/v1/models` id differs from its name (gateway `multiplex_profiles` off) is rejected and never routed to. |
 | OpenClaw | Stub | Protocol/configuration exist; authenticated WebSocket RPC remains TODO. |
 | Sub-agents | Stub | Inline lifecycle cards are supported if emitted, but the checked v0.21.7 HTTP session stream does not emit `subagent.start`/`subagent.complete`. Child transcript drill-down and controls are not implemented. |
 
@@ -72,7 +73,7 @@ The preview accounts for bot metadata, instructions, memories, Markdown skills, 
 
 Imported persona text becomes the Hermes session system prompt. Memories, Markdown skill sources, disabled cron definitions, and connector requests are persisted as inert bot configuration for later runtime provisioning. The Hermes API currently used by AgentApp does not expose safe skill/cron/profile installation, so the preview reports that limit; event triggers and unknown connector IDs are not carried over. Token-, key-, password-, credential-, authorization-, cookie-, private-key-, and common secret-shaped values are removed before mapping and never included in the report.
 
-Imported bots run on your shared default Hermes profile, so that profile's tools, memory, and skills apply.
+Imported bots run on your default Hermes profile, so that profile's tools, memory, and skills apply. A template with a slug `S` is bound instead to profile `grok-S` (or `S`) when a key for that profile is in the Keychain; the import report's "Hermes profile" row names the profile.
 
 ### Known limitations (template import)
 

@@ -34,6 +34,7 @@ struct ImportedTemplateManifest: Equatable {
     struct Routine: Equatable { var name: String; var prompt: String; var schedule: String?; var trigger: String? }
 
     var name = "Imported agent"
+    var slug: String?
     var title = "Imported template"
     var description = ""
     var avatar: String?
@@ -56,6 +57,7 @@ struct TemplateImportPlan {
     let avatarName: BotAvatarName
     let mappedConnectorIDs: [String]
     let routines: [BotRoutine]
+    var hermesProfile: String? = nil
 }
 
 enum TemplateImportError: LocalizedError {
@@ -112,6 +114,7 @@ enum GrokTemplateParser {
         result.name = suppliedName ?? suppliedTitle ?? result.name
         result.title = suppliedTitle ?? "Imported template"
         result.description = suppliedDescription ?? ""
+        result.slug = string(object, keys: ["slug", "botSlug", "bot_slug", "handle"])
         result.avatar = string(object, keys: ["avatar", "avatarUrl", "avatar_url", "icon"])
         result.instructions = suppliedInstructions ?? result.instructions
         result.memories = parseMemories(value(object, keys: ["selectedMemories", "selected_memories", "memories", "memory"]))
@@ -213,7 +216,7 @@ enum TemplateImportMapper {
     // IDs are inert requests. A connector still requires a separate owner authorization.
     static let connectorMap = ["google-drive": "google-drive", "googledrive": "google-drive", "slack": "slack", "notion": "notion", "dropbox": "dropbox"]
 
-    static func makePlan(from manifest: ImportedTemplateManifest, hermesConfigured: Bool = true) -> TemplateImportPlan {
+    static func makePlan(from manifest: ImportedTemplateManifest, hermesConfigured: Bool = true, hermesProfile: String? = nil) -> TemplateImportPlan {
         func metadataRow(_ name: String, provided: Bool, mappedReason: String) -> TemplateImportReportItem {
             .init(category: name == "Persona" ? "Instructions" : "Bot", name: name, status: provided ? .mapped : .skipped,
                   reason: provided ? mappedReason : "Not provided; default used.")
@@ -224,7 +227,10 @@ enum TemplateImportMapper {
             metadataRow("Description", provided: manifest.descriptionWasProvided, mappedReason: "Used as AgentApp bot metadata."),
             metadataRow("Persona", provided: manifest.instructionsWereProvided, mappedReason: "Used as the Hermes session system prompt.")
         ]
-        if hermesConfigured {
+        let boundProfile = hermesConfigured ? hermesProfile : nil
+        if let boundProfile {
+            report.append(.init(category: "Runtime", name: "Hermes profile", status: .mapped, reason: "Bound to Hermes profile \(boundProfile) (a key for it is in the Keychain); its tools, memory and skills apply."))
+        } else if hermesConfigured {
             report.append(.init(category: "Runtime", name: "Hermes profile", status: .converted, reason: "Runs on your default Hermes profile; its tools, memory and skills apply."))
         }
         var avatar: BotAvatarName = .faceCoral
@@ -259,7 +265,7 @@ enum TemplateImportMapper {
             let noun = manifest.rejectedSecretCount == 1 ? "field or value was" : "fields or values were"
             report.append(.init(category: "Security", name: "Sensitive values", status: .skipped, reason: "\(manifest.rejectedSecretCount) sensitive \(noun) removed before preview and storage."))
         }
-        return TemplateImportPlan(manifest: manifest, report: report, avatarName: avatar, mappedConnectorIDs: Array(Set(mappedConnectors)).sorted(), routines: routines)
+        return TemplateImportPlan(manifest: manifest, report: report, avatarName: avatar, mappedConnectorIDs: Array(Set(mappedConnectors)).sorted(), routines: routines, hermesProfile: boundProfile)
     }
 }
 
