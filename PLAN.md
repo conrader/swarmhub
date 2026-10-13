@@ -54,6 +54,7 @@ Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `gr
 | P20 | Sidebar like Grok Bot | 36 pt marks, two lines (name + latest message / Draft / Typing), flat list, round search and + buttons, user-initial bottom button (`briefs/P20.md`) | local store only |
 | P19 | PDF and document attachments | Hermes accepts no file parts (0.20.5 and 0.21.7), so PDFs are read on the Mac: PDFKit text split into <=60k-char parts, scanned pages as images or on-device OCR; fixes the silent 65,536-char truncation of today's text attachments (`briefs/P19.md`) | session chat text + image parts |
 | P15 | Bot marks | Bot avatars become BotAvatarsKit marks in Grok's shapes and 11 colours (stored words, else derived from the id like Grok), group clusters, motion by context with Settings → Appearance → Avatar motion (By context, Calm everywhere, Off) and Reduce Motion; lazy additive migration of imported bots (`briefs/P15.md`) | local |
+| P16 | No reply is lost (proposed) | A turn is finished only when the box closed the run; cut or unsent turns are stored as incomplete / not sent with a Retry button that reads the box first; replies finished while the Mac was away are fetched, never regenerated; group sessions reconciled from the box;  heals stores hurt by the old behaviour. Decisions D1–D5 with defaults. |
 
 ## Out of scope (no Hermes API, or not part of Grok Bot)
 - Telegram/WhatsApp channels (not native to Grok Bot; handled by sb tooling).
