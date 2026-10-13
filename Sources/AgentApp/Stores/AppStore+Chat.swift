@@ -91,9 +91,11 @@ extension AppStore {
     func markUnread(_ bot: Bot) { bot.manualUnread = true; objectWillChange.send(); save() }
 
     /// Selecting a chat clears both the automatic unread count and the manual flag.
-    func open(_ bot: Bot) {
+    /// `remember: false` (ui-smoke) leaves the chat restored at the next launch unchanged.
+    func open(_ bot: Bot, remember: Bool = true) {
         if selectedBot?.id != bot.id { openThreadID = nil }
         selectedBot = bot; selectedGroup = nil
+        if remember { rememberSelection(bot: bot) }
         if bot.unreadCount != 0 || bot.manualUnread { bot.unreadCount = 0; bot.manualUnread = false; save() }
         loadHermesHistory(for: bot)
     }

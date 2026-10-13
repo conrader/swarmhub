@@ -91,14 +91,14 @@ import UserNotifications
         } else {
             loadDemoData(persist: true)
         }
-        selectedBot = bots.first
+        selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
         botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad
     }
 
     static var hasHermesConfiguration: Bool { UserDefaults.standard.object(forKey: "hermesBaseURL") != nil || !KeychainStore.get(account: "hermes").isEmpty }
 
-    func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID); avatar.apply(to: bot); bots.insert(bot, at: 0); selectedBot = bot; save() }
+    func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID); avatar.apply(to: bot); bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save() }
     @discardableResult func importTemplate(_ plan: TemplateImportPlan) -> Bot {
         let manifest = plan.manifest
         let memories = manifest.memories.map { "\($0.name): \($0.value)" }
@@ -115,9 +115,9 @@ import UserNotifications
         // first-conversation skill remain disabled, and no server mutation occurs here.
         bot.routines.indices.forEach { bot.routines[$0].isEnabled = false }
         bot.gettingStartedSkill?.isEnabled = false
-        bots.insert(bot, at: 0); selectedBot = bot; save(); return bot
+        bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save(); return bot
     }
-    func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { selectedBot = bots.first }; save() }
+    func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }; save() }
     func save() { guard persistenceEnabled, let data = try? JSONEncoder().encode(storeFile) else { return }; try? data.write(to: fileURL, options: .atomic) }
     /// Sends into the open thread or the main chat. While a turn streams, the text steers it when the
     /// server has `run_steer`; otherwise sending stays disabled until the turn ends.
