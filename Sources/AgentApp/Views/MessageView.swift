@@ -28,6 +28,7 @@ struct MessageView: View {
         case .links: LinkPills(message: message)
         case .voiceMemo: VoiceMemoCard(message: message)
         case .delegation: DelegationCard(message: message)
+        case .routineResult: RoutineResultCard(message: message)
         case .text:
             if message.role == .system {
                 Label(message.content, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)

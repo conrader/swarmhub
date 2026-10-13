@@ -254,7 +254,7 @@ enum TemplateImportMapper {
         for routine in manifest.routines {
             if let schedule = routine.schedule {
                 routines.append(.init(name: routine.name, schedule: schedule, prompt: routine.prompt, isEnabled: false, importKind: .cron))
-                report.append(.init(category: "Routine", name: routine.name, status: .converted, reason: "Stored as a disabled cron routine; Hermes cron provisioning remains pending activation/runtime support."))
+                report.append(.init(category: "Routine", name: routine.name, status: .converted, reason: "Stored as a disabled routine; \"Create on server\" in the Routines tab creates it on Hermes, paused."))
             } else if routine.trigger != nil {
                 report.append(.init(category: "Routine", name: routine.name, status: .unsupported, reason: "Event triggers are not carried over."))
             } else {

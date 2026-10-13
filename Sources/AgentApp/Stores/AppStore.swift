@@ -20,6 +20,7 @@ private actor ReviewerStopTargetBox {
     /// Profiles whose `/p/<profile>/` prefix the server ignored (multiplexing off). Never routed to.
     @Published var prefixIgnoredHermesProfiles: Set<String> = []
     let botInfo = BotInfoCache()
+    let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     private var streamTask: Task<Void, Never>?; let fileURL: URL
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
@@ -83,7 +84,7 @@ private actor ReviewerStopTargetBox {
         }
         selectedBot = bots.first
         if !demoMode, autoConfigureHermes, hermesConfigured { Task { await refreshHermesAgents() } }
-        botInfo.autoLoad = !demoMode && autoConfigureHermes
+        botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad
     }
 
     static var hasHermesConfiguration: Bool { UserDefaults.standard.object(forKey: "hermesBaseURL") != nil || !KeychainStore.get(account: "hermes").isEmpty }
@@ -254,7 +255,7 @@ private actor ReviewerStopTargetBox {
         return true
     }
     var isIdle: Bool { streamTask == nil }
-    private func notifyIfNeeded(bot: Bot, message: String) {
+    func notifyIfNeeded(bot: Bot, message: String) {
         guard Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
         let content = UNMutableNotificationContent(); content.title = bot.name; content.body = String(message.prefix(140)); content.sound = .default
         UNUserNotificationCenter.current().add(.init(identifier: UUID().uuidString, content: content, trigger: nil))
