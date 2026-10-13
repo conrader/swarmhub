@@ -64,6 +64,24 @@ This pass recreates the product structure and interaction patterns with original
 
 There are no external package dependencies.
 
+## Grok Bot template import
+
+Use the import button beside **New bot** to preview and import one user-owned template from an exported JSON file or a pasted share link. A link is accepted only when its response is JSON; AgentApp does not scrape share pages and instead asks for an exported file. The parser tolerates missing and unknown fields and the bundled test fixture is entirely synthetic.
+
+The preview accounts for bot metadata, instructions, memories, Markdown skills, routines, connector IDs, the optional getting-started skill, and rejected sensitive data. Each item is labelled mapped, converted, skipped, or unsupported with a reason. No bot is created before confirmation. Imported cron routines and the getting-started skill remain disabled, and connector mappings are requests only—they do not grant access.
+
+Imported persona text becomes the Hermes session system prompt. Memories, Markdown skill sources, disabled cron definitions, and connector requests are persisted as inert bot configuration for later runtime provisioning. The Hermes API currently used by AgentApp does not expose safe skill/cron/profile installation, so the preview reports that limit; event triggers and unknown connector IDs are not carried over. Token-, key-, password-, credential-, authorization-, cookie-, private-key-, and common secret-shaped values are removed before mapping and never included in the report.
+
+Imported bots run on your shared default Hermes profile, so that profile's tools, memory, and skills apply.
+
+### Known limitations (template import)
+
+- Share-link loading still needs transport, redirect, timeout, and streaming-size hardening (L1).
+- Some malformed items are silently dropped, and schedule strings are not validated (L2–L3).
+- Imported configuration has no complete activation/provisioning UI yet (L5).
+- Future fields added to nested persisted types may require explicit decoding defaults (L6).
+- Remaining parser modularity and hygiene work is tracked in [the template-import review](docs/REVIEW-template-import.md).
+
 ## Hermes Agent setup
 
 Checked against Hermes Agent v0.21.7 (`v2026.9.24`) tagged source and a throwaway gateway on 2026-10-13:
@@ -91,6 +109,7 @@ Sources/AgentApp/
 ├── Models/       bot, message, approval, sub-agent and event types
 ├── Backends/     protocol plus Mock, Hermes and OpenClaw adapters
 ├── Stores/       app state, atomic local persistence and Keychain
+├── TemplateImport/ reusable parsing, sanitizing and mapping pipeline
 └── Views/        sidebar, chat, composer, approvals, desktop and settings
 ```
 

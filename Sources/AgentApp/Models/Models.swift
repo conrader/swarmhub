@@ -145,19 +145,22 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     @Published var avatarName: BotAvatarName
     @Published var isHidden: Bool; @Published var notificationsEnabled: Bool
     @Published var memorySummary: String; @Published var skills: [String]
+    @Published var importedMemories: [String]; @Published var importedSkills: [ImportedTemplateSkill]
+    @Published var requestedConnectorIDs: [String]; @Published var gettingStartedSkill: ImportedTemplateSkill?
+    @Published var routines: [BotRoutine]
     @Published var hermesProfile: String?; @Published var hermesSessionID: String?
     @Published var approvalMode: ApprovalMode; @Published var approvalRules: [ApprovalRule]; @Published var reviewerBotID: UUID?
     @Published var approvalAudit: [ApprovalAuditEntry]
     @Published var isDemo: Bool
     let createdAt: Date; @Published var messages: [ChatMessage]
-    init(name: String, title: String = "Personal agent", description: String = "", persona: String = "You are a thoughtful, capable assistant.", backend: BackendKind = .mock, avatarName: BotAvatarName = .faceCoral, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, memorySummary: String = "", skills: [String] = [], messages: [ChatMessage] = [], hermesProfile: String? = nil, hermesSessionID: String? = nil, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, isDemo: Bool = false) {
+    init(name: String, title: String = "Personal agent", description: String = "", persona: String = "You are a thoughtful, capable assistant.", backend: BackendKind = .mock, avatarName: BotAvatarName = .faceCoral, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, memorySummary: String = "", skills: [String] = [], importedMemories: [String] = [], importedSkills: [ImportedTemplateSkill] = [], requestedConnectorIDs: [String] = [], gettingStartedSkill: ImportedTemplateSkill? = nil, routines: [BotRoutine] = [], messages: [ChatMessage] = [], hermesProfile: String? = nil, hermesSessionID: String? = nil, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, isDemo: Bool = false) {
         id = UUID(); self.name = name; self.title = title; botDescription = description; self.persona = persona; self.backend = backend
         self.avatarName = avatarName; self.unreadCount = unreadCount; self.isHidden = isHidden; self.notificationsEnabled = notificationsEnabled
-        self.memorySummary = memorySummary; self.skills = skills; self.hermesProfile = hermesProfile; self.hermesSessionID = hermesSessionID; self.approvalMode = approvalMode; self.approvalRules = approvalRules; self.reviewerBotID = reviewerBotID; approvalAudit = []; self.isDemo = isDemo; createdAt = .now; self.messages = messages
+        self.memorySummary = memorySummary; self.skills = skills; self.importedMemories = importedMemories; self.importedSkills = importedSkills; self.requestedConnectorIDs = requestedConnectorIDs; self.gettingStartedSkill = gettingStartedSkill; self.routines = routines; self.hermesProfile = hermesProfile; self.hermesSessionID = hermesSessionID; self.approvalMode = approvalMode; self.approvalRules = approvalRules; self.reviewerBotID = reviewerBotID; approvalAudit = []; self.isDemo = isDemo; createdAt = .now; self.messages = messages
     }
     static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, createdAt, messages }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, createdAt, messages }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -166,6 +169,11 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         avatarName = try c.decodeIfPresent(BotAvatarName.self, forKey: .avatarName) ?? legacyAvatar; unreadCount = try c.decode(Int.self, forKey: .unreadCount)
         isHidden = try c.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false; notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
         memorySummary = try c.decodeIfPresent(String.self, forKey: .memorySummary) ?? ""; skills = try c.decodeIfPresent([String].self, forKey: .skills) ?? []
+        importedMemories = try c.decodeIfPresent([String].self, forKey: .importedMemories) ?? []
+        importedSkills = try c.decodeIfPresent([ImportedTemplateSkill].self, forKey: .importedSkills) ?? []
+        requestedConnectorIDs = try c.decodeIfPresent([String].self, forKey: .requestedConnectorIDs) ?? []
+        gettingStartedSkill = try c.decodeIfPresent(ImportedTemplateSkill.self, forKey: .gettingStartedSkill)
+        routines = try c.decodeIfPresent([BotRoutine].self, forKey: .routines) ?? []
         hermesProfile = try c.decodeIfPresent(String.self, forKey: .hermesProfile); hermesSessionID = try c.decodeIfPresent(String.self, forKey: .hermesSessionID)
         approvalMode = try c.decodeIfPresent(ApprovalMode.self, forKey: .approvalMode) ?? .ask; approvalRules = try c.decodeIfPresent([ApprovalRule].self, forKey: .approvalRules) ?? ApprovalRule.sensibleDefaults
         reviewerBotID = try c.decodeIfPresent(UUID.self, forKey: .reviewerBotID); approvalAudit = try c.decodeIfPresent([ApprovalAuditEntry].self, forKey: .approvalAudit) ?? []
@@ -180,13 +188,15 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         try c.encode(botDescription, forKey: .botDescription); try c.encode(persona, forKey: .persona); try c.encode(backend, forKey: .backend); try c.encode(avatarName, forKey: .avatarName)
         try c.encode(unreadCount, forKey: .unreadCount); try c.encode(createdAt, forKey: .createdAt); try c.encode(messages, forKey: .messages)
         try c.encode(isHidden, forKey: .isHidden); try c.encode(notificationsEnabled, forKey: .notificationsEnabled); try c.encode(memorySummary, forKey: .memorySummary); try c.encode(skills, forKey: .skills)
+        try c.encode(importedMemories, forKey: .importedMemories); try c.encode(importedSkills, forKey: .importedSkills); try c.encode(requestedConnectorIDs, forKey: .requestedConnectorIDs); try c.encodeIfPresent(gettingStartedSkill, forKey: .gettingStartedSkill); try c.encode(routines, forKey: .routines)
         try c.encodeIfPresent(hermesProfile, forKey: .hermesProfile); try c.encodeIfPresent(hermesSessionID, forKey: .hermesSessionID); try c.encode(approvalMode, forKey: .approvalMode); try c.encode(approvalRules, forKey: .approvalRules); try c.encodeIfPresent(reviewerBotID, forKey: .reviewerBotID); try c.encode(approvalAudit, forKey: .approvalAudit); try c.encode(isDemo, forKey: .isDemo)
     }
 }
 
+enum BotRoutineImportKind: String, Codable { case local, cron }
 struct BotRoutine: Identifiable, Codable {
-    let id: UUID; var name: String; var schedule: String; var lastRun: String; var isEnabled: Bool
-    init(id: UUID = UUID(), name: String, schedule: String, lastRun: String = "Never", isEnabled: Bool = true) { self.id = id; self.name = name; self.schedule = schedule; self.lastRun = lastRun; self.isEnabled = isEnabled }
+    let id: UUID; var name: String; var schedule: String; var prompt: String; var lastRun: String; var isEnabled: Bool; var importKind: BotRoutineImportKind
+    init(id: UUID = UUID(), name: String, schedule: String, prompt: String = "", lastRun: String = "Never", isEnabled: Bool = true, importKind: BotRoutineImportKind = .local) { self.id = id; self.name = name; self.schedule = schedule; self.prompt = prompt; self.lastRun = lastRun; self.isEnabled = isEnabled; self.importKind = importKind }
 }
 
 enum SubAgentStatus: String, Codable { case queued, running, completed, failed }

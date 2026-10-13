@@ -14,6 +14,7 @@ struct ContentView: View {
             } else { ContentUnavailableView("Choose an agent", systemImage: "bubble.left.and.bubble.right", description: Text("Select an agent from the sidebar to begin.")) }
         }.navigationSplitViewStyle(.balanced).tint(.primary).background(AppColor.chat)
         .sheet(isPresented: $store.showingNewBot) { BotEditorView(bot: nil) }
+        .sheet(isPresented: $store.showingTemplateImport) { TemplateImportView() }
         .sheet(item: $store.editingBot) { BotEditorView(bot: $0) }
         .onReceive(NotificationCenter.default.publisher(for: .toggleInfo)) { _ in store.showInfo.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: .newBot)) { _ in store.showingNewBot = true }

@@ -9,6 +9,8 @@ struct SidebarView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(AppConstants.name).font(.system(size: 14, weight: .semibold)); Spacer()
+                Button { store.showingTemplateImport = true } label: { Image(systemName: "square.and.arrow.down").font(.system(size: 12, weight: .medium)).frame(width: 24, height: 24) }
+                    .buttonStyle(.plain).help("Import template")
                 Button { store.showingNewBot = true } label: { Image(systemName: "plus").font(.system(size: 12, weight: .medium)).frame(width: 24, height: 24) }
                     .buttonStyle(.plain).help("New bot")
             }.padding(.horizontal, 13).padding(.top, 12).padding(.bottom, 9)

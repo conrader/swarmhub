@@ -1,0 +1,5 @@
+Narrow fix pass (Konrad approved, final round). Read docs/REVIEW-template-import-fix.md (or REVIEW-template-import-fix.md).
+1. HIGH: PEM/PGP private-key redaction must remove the WHOLE block from -----BEGIN ... PRIVATE KEY----- (or PGP PRIVATE KEY BLOCK) through the matching END line, or to end of text if END is missing. Apply in every place the secret filter runs (preview, store.json, Hermes system prompt / SOUL).
+2. Add a test with a realistic multi-line fake key body (several base64 lines) asserting the body is absent from the saved bot, the preview model and the Hermes persona; plus a test for a missing END.
+3. Optional LOWs if trivial: L-1 make the Basic-auth pattern require an actual "Basic <base64>" credential so normal words like "basic troubleshooting" survive; L-4 rename the preview title from "Instructions / SOUL" to "Instructions" and hide the Hermes profile row when Hermes is not configured.
+Build with swift build; run what tests you can. Package as before into dist/. Keep the change minimal. Write FIX2-NOTES.md.

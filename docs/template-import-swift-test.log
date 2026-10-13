@@ -1,0 +1,6 @@
+Error loading required libraries. If there is an ongoing installation please wait for it to complete. Otherwise reinstall. (dlopen(@rpath/libxcodebuildLoader.dylib, 0x0001): Symbol not found: _XPCTypeBool
+  Referenced from: <6A4DB321-2742-38A5-9557-146EE0FE957F> /Library/Developer/PrivateFrameworks/CoreDevice.framework/Versions/A/CoreDevice
+  Expected in:     <781B8B5D-634D-3B6B-82FB-9080774ECF61> /Library/Apple/System/Library/PrivateFrameworks/Mercury.framework/Versions/A/Mercury)
+sh: line 1: 52960 Abort trap: 6           /Applications/Xcode-16.2.0.app/Contents/Developer/usr/bin/xcodebuild -sdk macosx -find swift 2> /dev/null
+swift: error: sh -c '/Applications/Xcode-16.2.0.app/Contents/Developer/usr/bin/xcodebuild -sdk macosx -find swift 2> /dev/null' failed with exit code 34304: (null) (errno=No such file or directory)
+xcode-select: Failed to locate 'swift', and no install could be requested (perhaps no UI is present). Please install manually from 'developer.apple.com'.

@@ -1,0 +1,10 @@
+Sixth pass on the Hermes integration, per docs/REVIEW-hermes-fix5.md (Claude re-review of FIX5, verdict PASS-WITH-ISSUES; nothing blocks MacBook install, but fix the actionable LOWs first). Work only in this repo and against the throwaway Hermes on this Mac (never Konrad's servers). Never push, never commit, never run git add/commit (.git is read-only for you), never install anything outside this repo. Leave FIX5 changes uncommitted; keep building on them.
+
+Fix (from REVIEW-hermes-fix5.md):
+1. L3: HermesBackend approval parsing — empty top-level command must not short-circuit the fallback chain; also extract run_id and request_id from the same wrapped approval or data object used for the command, so Approve cannot be enabled then throw "no longer identifies its Hermes run". Prefer real command over display_command.
+2. L5: current-run Stop-failure test — replace force-unwraps with #require, and assert the note is inserted next to the stopped turn (not merely present somewhere / only appended).
+3. L6: if a cheap fix exists, preserve a draft typed just after Stop so it is not lost when feedback lands; otherwise document the remaining window honestly.
+4. L1 + L7 docs: hermes-integration.md must say the native fixture failed at bind and legacy never ran under set -e (not "both attempted"); MacBook checklist must say to copy the tree including .git (rsync/scp) because packaging needs it. L2: if Hermes source on this Mac has the emitting lines for top-level command, paste them into docs/hermes-v0.21.7-evidence.md; otherwise leave a TODO for the first real MacBook approval.
+5. L4 optional/cheap: if easy, put a short dirty summary (e.g. git status --porcelain hash or file list) into SOURCE.txt so a dirty zip is reproducible; do not invent a fake clean SHA.
+
+Then ./scripts/build.sh, try swift test again (save under docs/hermes-fix6-*.log; if still blocked by _XPCTypeBool, say so), retry fixture and live throwaway-Hermes checks (EPERM is acceptable — report honestly which fixtures actually ran), and package into dist/ without installing. Print a per-item summary (done / not done / unverified), the dist path and its SHA-256.

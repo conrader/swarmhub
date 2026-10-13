@@ -1,0 +1,24 @@
+{
+  "exportVersion": "synthetic-1",
+  "template": {
+    "name": "Garden Helper",
+    "title": "Synthetic planning bot",
+    "description": "A made-up fixture with no Grok content.",
+    "avatar": "faceMint",
+    "persona": "Help plan a fictional community garden.",
+    "selected_memories": [
+      { "name": "Convention", "fact": "Use metric units." },
+      { "name": "Role", "content": "The owner coordinates volunteers." }
+    ],
+    "skills": [
+      { "name": "Plot planner", "markdown": "# Plot planner\n\nSuggest synthetic crop rotations." }
+    ],
+    "routines": [
+      { "name": "Monday plan", "prompt": "Prepare the weekly garden checklist.", "cron": "0 8 * * 1" },
+      { "name": "Rain alert", "prompt": "Review watering.", "trigger": "weather.rain" }
+    ],
+    "plugin_ids": ["slack", "unknown.synthetic"],
+    "getting_started_skill": { "name": "First hello", "markdown": "Ask which fictional plot to plan." },
+    "future_field": { "ignored": true }
+  }
+}

@@ -1,0 +1,11 @@
+Third fix pass on the Hermes integration, per docs/REVIEW-hermes-fix2.md (Claude re-review of FIX2, verdict PASS-WITH-ISSUES). Work only in this repo and against the throwaway Hermes on this Mac (never Konrad's servers). Do not commit.
+
+Must fix before MacBook install (from REVIEW-hermes-fix2.md):
+1. F1 (MEDIUM): Tie the Stop guard to the run being stopped. `stopInProgress` must be per-run (capture the stream task / run id), not a global flag that lasts for the whole background POST (up to 60s). Pressing Stop on a later turn must still cancel that turn. A failed old stop POST must not clear `isStreaming` for a newer run. Optionally give the stop request a short timeout (5–10 s).
+2. F3 (LOW-MEDIUM): Treat JSON `null` content as empty. In `normalizedContent` / content parsing, return nil for NSNull and for non-string scalars/dicts except a single `{text}` object — never render the literal text `"<null>"`.
+3. F2 (LOW-MEDIUM): Strengthen history merge overlap. Require at least one full user→assistant pair when local history has two or more turns; prefer the **latest** matching window (not the earliest). Confirm `order=oldest` is accepted by hermes-agent v0.21.7 (api_server messages paging) with a real source quote in docs/hermes-v0.21.7-evidence.md, or sort rows by timestamp/id before merging. Cap the paging loop (no unbounded `while true`).
+4. Tests: Fix the Stop AppStore test so it asserts local cancel happens **before** the server stop request (ordering). Add coverage for null content and for multi-turn overlap preferring the latest window. Try hard to run `swift test` (DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer, xcodebuild test) without sudo or system changes; if still blocked by `_XPCTypeBool` / CoreDevice, say exactly why. Then repeat the manual native/legacy fixture checks and the live throwaway-Hermes check (auth/session/SSE; provider auth may still fail honestly).
+
+Also nice if cheap (not blockers): surface a quiet note when merge refuses for divergence; disable Approve or warn when approval event lacks command text; clear stale run id on URLError.cancelled.
+
+Build with ./scripts/build.sh. Update README and docs/hermes-integration.md honestly. Print a per-item summary (done / not done / unverified) at the end.

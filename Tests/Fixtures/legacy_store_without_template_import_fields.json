@@ -1,0 +1,22 @@
+[
+  {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "name": "Legacy fixture",
+    "title": "Legacy bot",
+    "botDescription": "Created before template import fields existed.",
+    "persona": "Legacy persona",
+    "backend": "Mock",
+    "avatarName": "faceCoral",
+    "unreadCount": 0,
+    "isHidden": false,
+    "notificationsEnabled": true,
+    "memorySummary": "",
+    "skills": [],
+    "approvalMode": "Ask me",
+    "approvalRules": [],
+    "approvalAudit": [],
+    "isDemo": false,
+    "createdAt": 0,
+    "messages": []
+  }
+]

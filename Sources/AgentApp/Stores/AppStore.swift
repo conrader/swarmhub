@@ -14,9 +14,8 @@ private actor ReviewerStopTargetBox {
     @Published var bots: [Bot] = []; @Published var selectedBot: Bot?; @Published var isStreaming = false
     @Published var approvals: [ApprovalRequest] = []
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
-    @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingCommandPalette = false
+    @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false; @Published var replyTo: ChatMessage?
-    @Published var routines: [UUID: [BotRoutine]] = [:]
     @Published var editingBot: Bot?; @Published var errorMessage: String?
     private var streamTask: Task<Void, Never>?; private let fileURL: URL
     private var streamingBotID: UUID?; private var streamingAssistant: ChatMessage?
@@ -184,10 +183,28 @@ private actor ReviewerStopTargetBox {
     private func loadDemoActivity() {
         if let id = bots.first?.id {
             approvals = [.init(id: UUID(), title: "Publish release notes", summary: "Atlas wants to publish the reviewed release notes to the client workspace.", draft: nil, command: "Publish the reviewed release notes", botID: id)]
-            routines[id] = [.init(name: "Morning brief", schedule: "Weekdays at 8:30", lastRun: "Today, 8:31"), .init(name: "Launch monitor", schedule: "When CI completes", lastRun: "Yesterday", isEnabled: false)]
+            bots[0].routines = [.init(name: "Morning brief", schedule: "Weekdays at 8:30", lastRun: "Today, 8:31"), .init(name: "Launch monitor", schedule: "When CI completes", lastRun: "Yesterday", isEnabled: false)]
         }
     }
     func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID); bots.insert(bot, at: 0); selectedBot = bot; save() }
+    @discardableResult func importTemplate(_ plan: TemplateImportPlan) -> Bot {
+        let manifest = plan.manifest
+        let memories = manifest.memories.map { "\($0.name): \($0.value)" }
+        let bot = Bot(
+            name: manifest.name, title: manifest.title, description: manifest.description,
+            persona: manifest.instructions, backend: Self.hasHermesConfiguration ? .hermes : .mock,
+            avatarName: plan.avatarName, memorySummary: memories.joined(separator: "\n"),
+            skills: manifest.skills.map(\.name), importedMemories: memories,
+            importedSkills: manifest.skills, requestedConnectorIDs: plan.mappedConnectorIDs,
+            gettingStartedSkill: manifest.gettingStartedSkill, routines: plan.routines,
+            hermesProfile: Self.hasHermesConfiguration ? "default" : nil
+        )
+        // Imported data remains inert: connectors require grants, cron routines and the
+        // first-conversation skill remain disabled, and no server mutation occurs here.
+        bot.routines.indices.forEach { bot.routines[$0].isEnabled = false }
+        bot.gettingStartedSkill?.isEnabled = false
+        bots.insert(bot, at: 0); selectedBot = bot; save(); return bot
+    }
     func delete(_ bot: Bot) { bots.removeAll { $0.id == bot.id }; if selectedBot == bot { selectedBot = bots.first }; save() }
     func save() { guard persistenceEnabled, let data = try? JSONEncoder().encode(bots) else { return }; try? data.write(to: fileURL, options: .atomic) }
     @discardableResult func send(text: String) -> Bool {
