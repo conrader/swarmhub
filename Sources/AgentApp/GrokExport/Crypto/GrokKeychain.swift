@@ -1,0 +1,85 @@
+import Foundation
+import Security
+
+/// Supplies the *Grok Bot Safe Storage* password bytes. The live implementation raises the one macOS
+/// Keychain Allow dialog; tests inject a fake so nothing reaches the real Keychain.
+protocol GrokPasswordProvider: Sendable {
+    /// An attributes-only probe: does the item exist, and does a metadata query return without a dialog?
+    /// Returns the OSStatus; the caller times it (500 ms or more suggests a dialog blocked it).
+    func probe() -> OSStatus
+    /// The one data read. May block on the macOS dialog. The caller zeroes the returned bytes.
+    func readPassword() throws -> [UInt8]
+}
+
+enum GrokKeychainError: Error, Equatable, CustomStringConvertible {
+    case denied(OSStatus)
+    case itemMissing
+    case keychainLocked
+    case interactionNotAllowed
+    case unexpected(OSStatus)
+
+    var description: String {
+        switch self {
+        case .denied(let status): return "Keychain read was denied (OSStatus \(status))"
+        case .itemMissing: return "the Grok Bot Safe Storage item is not in the Keychain"
+        case .keychainLocked: return "the login keychain is locked"
+        case .interactionNotAllowed: return "the Keychain cannot prompt in this context"
+        case .unexpected(let status): return "Keychain read failed (OSStatus \(status))"
+        }
+    }
+
+    /// Maps the OSStatus a `SecItemCopyMatching` returns to a specific error.
+    static func from(_ status: OSStatus) -> GrokKeychainError {
+        switch status {
+        case errSecItemNotFound: return .itemMissing
+        case errSecInteractionNotAllowed: return .interactionNotAllowed
+        case errSecAuthFailed, errSecUserCanceled: return .denied(status)
+        case -25308: return .keychainLocked // errSecInteractionRequired / locked keychain
+        default: return .unexpected(status)
+        }
+    }
+}
+
+/// Reads the generic-password item `service="Grok Bot Safe Storage", account="Grok Bot Key"` from Torvli's
+/// own process (never `/usr/bin/security`). The read runs on a private queue bridged by a continuation, so it
+/// is off the main actor and the cooperative pool while the dialog is up (Rule 3). Callers gate it behind the
+/// in-flight flag and the cheap checks.
+struct GrokKeychain: GrokPasswordProvider {
+    static let queue = DispatchQueue(label: "zone.dmt.torvli.grok-keychain")
+
+    private var baseQuery: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: GrokProtocol.keychainService,
+         kSecAttrAccount as String: GrokProtocol.keychainAccount]
+    }
+
+    func probe() -> OSStatus {
+        var query = baseQuery
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &result)
+    }
+
+    func readPassword() throws -> [UInt8] {
+        var query = baseQuery
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else { throw GrokKeychainError.from(status) }
+        guard let data = result as? Data else { throw GrokKeychainError.unexpected(errSecInternalError) }
+        return [UInt8](data)
+    }
+
+    /// Runs `readPassword` on the private queue and bridges it to async without blocking the main actor or the
+    /// cooperative pool. The call itself cannot be cancelled; the caller drops a late result after Cancel (Rule 3).
+    func readPasswordAsync() async throws -> [UInt8] {
+        try await withCheckedThrowingContinuation { continuation in
+            Self.queue.async {
+                do { continuation.resume(returning: try self.readPassword()) }
+                catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+}
