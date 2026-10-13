@@ -2,6 +2,8 @@
 
 A native macOS prototype for chatting with user-owned agent harnesses. There is no built-in model. The user-facing name is defined once in `AppConstants.name`; the Swift package, module and executable keep the original `AgentApp` codename, and the bundle identifier and Keychain service stay `com.konrad.agentapp` so existing settings and keys carry over.
 
+> **Renaming to SwarmHub.** The app is being renamed from Torvli to **SwarmHub** (phase P18, in progress): one constant, `SwarmHub.app`, and this repository moves to `conrader/swarmhub` (GitHub redirects the old links). Bots, history, settings and Keychain keys carry over because they are tied to the bundle id, not the name.
+
 ## Build and run
 
 Requirements: macOS 14+, Xcode 16.2, Swift 6.
@@ -68,6 +70,7 @@ This pass recreates the product structure and interaction patterns with original
 | Quick switcher | Partial | `Cmd+K` jumps to bots and groups, creates a bot, opens Settings; keyboard selection inside the list is not implemented. |
 | Hermes | Done | Bots bound to Hermes profiles (`/p/<profile>/`, own Keychain key each); features chosen from `/v1/capabilities` and route presence; Sessions + SSE chat on 0.20.5/0.21.x, Chat Completions fallback on older servers; paged, non-destructive history merge; ask/rules/reviewer approvals with a local audit. A profile whose `/v1/models` id differs from its name (multiplexing off) is rejected and never routed to. Provider-backed reviewer runs remain unverified. |
 | Grok Bot import | Done | `scripts/export-grokbot.py` reads the local Grok Bot cache (latest 62–200 entries per conversation plus the roster) into `agentapp-bot-bundle/v1` under `~/Documents/Torvli Grok Export/`; import from the sheet or `AgentApp --import-grok <folder>` binds each bot to `grok-<slug>`, maps avatar/accent and keeps a read-only, searchable "Imported from Grok Bot" archive per bot; re-import updates in place; the Grok group becomes a group chat. `AgentApp --import-keys <file>` loads keys from a 0600 file and deletes it. History older than the cache exists only on Grok's servers. |
+| App icon | Assets ready | The SwarmHub "Swarm" icon: a white lead mark with a small blue, orange and green swarm, lit and shaded in 3D on a dark macOS rounded square. Sources in `Resources/AppIcon/` (`SwarmHub-icon.svg`, a simpler `SwarmHub-icon-small.svg` for 16 and 32 px, and a rendered `AppIcon.iconset`). Our own drawing, not Grok artwork. Building the `.icns` into the app bundle comes with the SwarmHub packaging. |
 | Headless tools | Done | `--check-bots [--chat "<bot>" "<text>"]`, `--render-snapshot <dir> [--bot <name>]…`, `--import-grok`, `--import-keys`, `--migrate-store`. |
 | OpenClaw | Not started | URL setting and protocol boundary only; the authenticated WebSocket RPC transport is not implemented. |
 | Sub-agents | Partial | Inline lifecycle cards render if `subagent.*` events arrive, but the Hermes session stream does not emit them; no child transcript drill-down. |
@@ -192,4 +195,21 @@ The normal interactive app does not invoke this renderer.
 1. Implement OpenClaw's authenticated WebSocket handshake and RPC/event mapping.
 2. Add Hermes child-session drill-down/steer controls, attachments, scheduling, and reconnect-to-active-run support.
 3. Account identity (no workspace sign-in exists), cost figures in Usage, and downloadable releases for Updates.
-4. Move long histories to paged SQLite and add accessibility/UI tests, app signing, and a real app icon.
+4. Move long histories to paged SQLite and add accessibility/UI tests.
+
+## Roadmap
+
+Phase briefs live in `briefs/`; `PLAN.md` holds the table and the standing constraints.
+
+| Phase | What | State |
+|---|---|---|
+| P14 | No title bar; the right column slides like the sidebar | Merged |
+| P15 | Bot marks (BotAvatarsKit) with motion by context | Merged |
+| P18 | Rename to SwarmHub; launch never selects a hidden bot (the Atlas fix) | In progress |
+| P20 | Sidebar like Grok Bot: 36 pt marks, name plus latest message, flat list | Planned (after P18) |
+| P19 | PDF and document attachments, read on the Mac; fixes the silent 64K text truncation | Planned |
+| P16 | No reply is lost: truthful turns, reconcile from the box, Retry | Designing |
+| P17 | Model choices in bot settings come from the bot's own Hermes profile or OpenClaw gateway | Designing |
+| P13 C | Coding threads and the sub-agent model | Waiting for go |
+| P12 | Connect OpenClaw | Planned |
+| P21 | Simple settings (advanced options tucked away) and a managed Hermes bot from Ermes for people without their own box | Proposed |
