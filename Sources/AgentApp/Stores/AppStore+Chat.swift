@@ -22,9 +22,14 @@ extension AppStore {
         guard steerAvailable, streamingBotID == bot.id, let conversation = streamingConversation, conversation === currentConversation(of: bot) else { return false }
         guard attachments.isEmpty else { errorMessage = "Attachments can’t be added to a running turn; send them after it finishes."; return false }
         guard !value.isEmpty, let activeBackend = try? backend(for: bot) else { return false }
+        deliverSteer(value, into: conversation, sessionID: conversation.hermesSessionID ?? bot.id.uuidString, backend: activeBackend)
+        return true
+    }
+
+    /// Shows the steer bubble and posts it; a refusal marks the bubble and says why.
+    func deliverSteer(_ value: String, into conversation: any Conversation, sessionID: String, backend activeBackend: any AgentBackend) {
         let message = ChatMessage(role: .user, content: value, metadata: ["steer": "sent"])
         conversation.messages.append(message); objectWillChange.send(); save()
-        let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
         Task {
             do { try await activeBackend.steer(sessionID: sessionID, text: value) }
             catch {
@@ -33,7 +38,6 @@ extension AppStore {
                 objectWillChange.send(); save()
             }
         }
-        return true
     }
 
     // MARK: Threads
@@ -89,7 +93,7 @@ extension AppStore {
     /// Selecting a chat clears both the automatic unread count and the manual flag.
     func open(_ bot: Bot) {
         if selectedBot?.id != bot.id { openThreadID = nil }
-        selectedBot = bot
+        selectedBot = bot; selectedGroup = nil
         if bot.unreadCount != 0 || bot.manualUnread { bot.unreadCount = 0; bot.manualUnread = false; save() }
         loadHermesHistory(for: bot)
     }

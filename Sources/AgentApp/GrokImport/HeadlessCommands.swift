@@ -6,11 +6,13 @@ import Foundation
 ///   AgentApp --import-keys <file>      (lines `profile=key`; file must be 0600 and owned by the user)
 ///   AgentApp --check-bots [--chat "<bot name>" "<text>"]   (see HeadlessCheckBots.swift)
 ///   AgentApp --render-snapshot <dir> [--bot "<name>"]...         (see HeadlessSnapshot.swift)
+///   AgentApp --migrate-store                                      (see HeadlessGroups.swift)
 @MainActor enum HeadlessCommands {
     /// Returns an exit code when a headless command was requested, otherwise nil.
     static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Int32? {
         if arguments.contains("--check-bots") { return runCheckBots(arguments: arguments) }
         if arguments.contains("--render-snapshot") { return HeadlessSnapshot.run(arguments: arguments) }
+        if arguments.contains("--migrate-store") { return migrateStore() }
         guard let flagIndex = arguments.firstIndex(where: { $0 == "--import-grok" || $0 == "--import-keys" }) else { return nil }
         guard arguments.indices.contains(flagIndex + 1) else { print("Usage: AgentApp --import-grok <folder> | --import-keys <file>"); return 64 }
         let path = (arguments[flagIndex + 1] as NSString).expandingTildeInPath
@@ -25,7 +27,7 @@ import Foundation
             let rows = try store.importGrokExport(at: URL(fileURLWithPath: path))
             for row in rows {
                 let source = "\(row.sourceShape ?? "-")/\(row.sourceColour ?? "-")"
-                output("\(row.name) | \(row.profile ?? "archived group") | history \(row.historyCount) | avatar \(source) -> \(row.avatar.rawValue) accent \(row.accent ?? "default") | \(row.created ? "added" : "updated")")
+                output("\(row.name) | \(row.profile ?? "group") | history \(row.historyCount) | avatar \(source) -> \(row.avatar.rawValue) accent \(row.accent ?? "default") | \(row.created ? "added" : "updated")")
             }
             output("Imported \(rows.count) bots into \(store.fileURL.path)")
             return 0

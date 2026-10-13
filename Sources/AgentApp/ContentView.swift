@@ -6,7 +6,12 @@ struct ContentView: View {
         NavigationSplitView {
             SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: 176, ideal: 196, max: 224)
         } detail: {
-            if let bot = store.selectedBot {
+            if let group = store.selectedGroup {
+                HStack(spacing: 0) {
+                    GroupChatView(group: group).frame(minWidth: 500)
+                    if store.showInfo { Divider(); GroupInfoPanel(group: group) }
+                }
+            } else if let bot = store.selectedBot {
                 HStack(spacing: 0) {
                     ChatView(bot: bot).frame(minWidth: 500)
                     if store.showInfo { Divider(); InfoPanel(bot: bot) }
@@ -16,6 +21,7 @@ struct ContentView: View {
         .task { store.startRoutinePolling() }
         .sheet(isPresented: $store.showingNewBot) { BotEditorView(bot: nil) }
         .sheet(isPresented: $store.showingTemplateImport) { TemplateImportView() }
+        .sheet(isPresented: $store.showingNewGroup) { NewGroupSheet(preselected: store.selectedGroup == nil ? Set(store.selectedBot.map { [$0.id] } ?? []) : []) }
         .sheet(item: $store.editingBot) { BotEditorView(bot: $0) }
         .onReceive(NotificationCenter.default.publisher(for: .toggleInfo)) { _ in store.showInfo.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: .newBot)) { _ in store.showingNewBot = true }
@@ -36,6 +42,7 @@ private struct CommandPaletteView: View {
                 action("New agent", icon: "plus") { store.showingNewBot = true }
                 action("Open Settings", icon: "gearshape") { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) }
                 ForEach(store.bots.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { bot in action(bot.name, icon: "message") { store.open(bot) } }
+                ForEach(store.groups.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { group in action(group.name, icon: "person.3") { store.open(group) } }
             }.padding(8) }
         }.frame(width: 480, height: 380).background(AppColor.panel)
     }

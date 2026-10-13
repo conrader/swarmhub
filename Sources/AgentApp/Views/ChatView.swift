@@ -30,7 +30,7 @@ struct ChatView: View {
                                             reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) }).id(message.id)
                             }
                         }
-                        ForEach(store.approvals.filter { $0.botID == bot.id }) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
+                        ForEach(store.approvals.filter { $0.botID == bot.id && !($0.sessionID?.hasPrefix("group-") ?? false) }) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
                         Color.clear.frame(height: 1).id("bottom")
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity)
                 }.background(AppColor.chat)

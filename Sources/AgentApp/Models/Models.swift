@@ -116,11 +116,13 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
     let id: UUID; let role: MessageRole; @Published var content: String; let createdAt: Date
     @Published var isStreaming: Bool; var presentation: MessagePresentation; var metadata: [String: String]
     @Published var reactions: [String]; var replyToID: UUID?; var attachments: [ChatAttachment]
-    init(id: UUID = UUID(), role: MessageRole, content: String, createdAt: Date = .now, isStreaming: Bool = false, presentation: MessagePresentation = .text, metadata: [String: String] = [:], reactions: [String] = [], replyToID: UUID? = nil, attachments: [ChatAttachment] = []) {
+    /// Group chats: the bot that wrote an assistant message (nil = the user, or a one-bot chat).
+    var authorID: UUID?
+    init(id: UUID = UUID(), role: MessageRole, content: String, createdAt: Date = .now, isStreaming: Bool = false, presentation: MessagePresentation = .text, metadata: [String: String] = [:], reactions: [String] = [], replyToID: UUID? = nil, attachments: [ChatAttachment] = [], authorID: UUID? = nil) {
         self.id = id; self.role = role; self.content = content; self.createdAt = createdAt; self.isStreaming = isStreaming
-        self.presentation = presentation; self.metadata = metadata; self.reactions = reactions; self.replyToID = replyToID; self.attachments = attachments
+        self.presentation = presentation; self.metadata = metadata; self.reactions = reactions; self.replyToID = replyToID; self.attachments = attachments; self.authorID = authorID
     }
-    enum CodingKeys: CodingKey { case id, role, content, createdAt, presentation, metadata, reactions, replyToID, attachments }
+    enum CodingKeys: CodingKey { case id, role, content, createdAt, presentation, metadata, reactions, replyToID, attachments, authorID }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); role = try c.decode(MessageRole.self, forKey: .role)
@@ -130,6 +132,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         reactions = try c.decodeIfPresent([String].self, forKey: .reactions) ?? []
         replyToID = try c.decodeIfPresent(UUID.self, forKey: .replyToID)
         attachments = try c.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? []
+        authorID = try c.decodeIfPresent(UUID.self, forKey: .authorID)
         isStreaming = false
     }
     func encode(to encoder: Encoder) throws {
@@ -138,6 +141,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         try c.encode(metadata, forKey: .metadata)
         try c.encode(reactions, forKey: .reactions); try c.encodeIfPresent(replyToID, forKey: .replyToID)
         if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
+        try c.encodeIfPresent(authorID, forKey: .authorID)
     }
 }
 

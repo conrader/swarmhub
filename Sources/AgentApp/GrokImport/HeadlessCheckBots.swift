@@ -96,6 +96,7 @@ extension HeadlessCommands {
             output(line(check))
         }
         output("Checked \(bots.count) Hermes bots: \(bots.count - failures) OK, \(failures) failed")
+        groupLines(store).forEach(output)
         guard let chat else { return failures == 0 ? 0 : 1 }
         return await chatOnce(store: store, botName: chat.name, text: chat.text, timeout: chatTimeout, output: output)
     }

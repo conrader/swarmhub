@@ -59,7 +59,15 @@ struct InfoPanel: View {
         case .computer:
             VStack(spacing: 12) { ComputerView().frame(height: 220).clipShape(RoundedRectangle(cornerRadius: 10)); HStack { Button("Open") { computerPresented = true }; Spacer(); Button("Take over") { computerPresented = true }.buttonStyle(.borderedProminent) } }
         case .members:
-            VStack(alignment: .leading, spacing: 12) { Text("Members").font(.headline); member("Konrad", role: "Owner"); member(bot.name, role: "Agent"); Button("Invite member") { }.disabled(true); Text("TODO: connect workspace membership to the backend.").font(.caption).foregroundStyle(.tertiary) }
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Members").font(.headline); member(GroupRouting.userName, role: "Owner"); member(bot.name, role: "Agent")
+                let groups = store.groups.filter { $0.memberIDs.contains(bot.id) }
+                if !groups.isEmpty {
+                    Text("Groups").font(.headline).padding(.top, 6)
+                    ForEach(groups) { group in Button { store.open(group) } label: { Label(group.name, systemImage: "person.3") }.buttonStyle(.plain) }
+                }
+                Button("New group with \(bot.name)…") { store.showingNewGroup = true }.disabled(bot.isReadOnlyArchive)
+            }
         }
     }
     private func infoSection(_ title: String, text: String) -> some View { VStack(alignment: .leading, spacing: 6) { Text(title).font(.headline); Text(text).foregroundStyle(.secondary).lineSpacing(2) } }

@@ -1,0 +1,96 @@
+import SwiftUI
+
+/// A group's shared thread: the user's messages and each member's replies under its own avatar.
+struct GroupChatView: View {
+    @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
+    @State private var draft = ""; @State private var pending: [ChatAttachment] = []
+    @Environment(\.grokHistoryExpanded) private var historyExpanded
+
+    var body: some View {
+        let members = store.members(of: group)
+        VStack(spacing: 0) {
+            HStack(spacing: 11) {
+                GroupAvatarStack(members: members, size: 28)
+                Button { store.showInfo.toggle() } label: { Text(group.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
+                Text(members.isEmpty ? "No bots yet" : ([GroupRouting.userName] + members.map(\.name)).joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+            }.padding(.horizontal, 20).frame(height: 54).background(AppColor.chat)
+            Rectangle().fill(AppColor.separator).frame(height: 0.5)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        Color.clear.frame(height: 20)
+                        if group.grokSourceID != nil { GrokHistoryView(archiveID: group.id, count: group.grokHistoryCount, ownerName: group.name, expanded: historyExpanded) }
+                        if group.messages.isEmpty { Text("Message everyone, or address one bot with @name.").font(.caption).foregroundStyle(.secondary).padding(.vertical, 12) }
+                        ForEach(group.messages) { message in
+                            GroupMessageRow(message: message, author: message.authorID.flatMap { id in store.bots.first { $0.id == id } },
+                                            repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }).id(message.id)
+                        }
+                        ForEach(store.approvals.filter(isGroupApproval)) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
+                        Color.clear.frame(height: 1).id("bottom")
+                    }.frame(maxWidth: 720).frame(maxWidth: .infinity)
+                }.background(AppColor.chat)
+                .onChange(of: group.messages.last?.content) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+                .onChange(of: group.messages.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            if let reply = store.replyTo {
+                HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
+            }
+            ComposerView(text: $draft, attachments: $pending, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingConversation === group,
+                         send: send, stop: store.stop, attach: { pending += store.prepareAttachments($0) },
+                         pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { pending.append(item) } },
+                         mentionNames: members.map(\.name))
+                .background(AppColor.chat)
+        }.background(AppColor.chat)
+            .dropDestination(for: URL.self) { urls, _ in
+                let files = urls.filter(\.isFileURL)
+                guard !files.isEmpty else { return false }
+                pending += store.prepareAttachments(files); return true
+            }
+    }
+
+    private func isGroupApproval(_ request: ApprovalRequest) -> Bool {
+        guard let session = request.sessionID, let botID = request.botID else { return false }
+        return session == group.session(for: botID) || session == GroupRouting.sessionID(group: group.id, bot: botID)
+    }
+    private func authorName(_ message: ChatMessage) -> String {
+        message.role == .user ? "you" : message.authorID.flatMap { id in store.bots.first { $0.id == id }?.name } ?? "bot"
+    }
+    private func send() {
+        let value = draft; guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pending.isEmpty else { return }
+        let steering = store.isStreaming
+        if store.send(text: value, attachments: steering ? [] : pending, to: group) { draft = ""; if !steering { pending = [] } }
+    }
+}
+
+/// A member's reply carries its avatar and name; user and system lines render as in a one-bot chat.
+private struct GroupMessageRow: View {
+    @EnvironmentObject private var store: AppStore
+    let message: ChatMessage; let author: Bot?; let repliedMessage: ChatMessage?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if message.role == .assistant {
+                HStack(spacing: 7) {
+                    if let author { BotAvatar(bot: author, size: 22) } else { Image(systemName: "person.crop.circle.badge.questionmark").frame(width: 22, height: 22) }
+                    Text(author?.name ?? "Removed bot").font(.system(size: 12, weight: .semibold))
+                }.padding(.horizontal, 28).padding(.top, 8)
+            }
+            MessageView(message: message, repliedMessage: repliedMessage, reply: { store.replyTo = message })
+        }
+    }
+}
+
+/// Up to three overlapping member avatars (sidebar rows and the group header).
+struct GroupAvatarStack: View {
+    let members: [Bot]; var size: CGFloat = 28
+    var body: some View {
+        let shown = Array(members.prefix(3)); let small = shown.count > 1 ? size * 0.68 : size
+        ZStack(alignment: .topLeading) {
+            if shown.isEmpty { Circle().fill(AppColor.raised).overlay(Image(systemName: "person.3").font(.system(size: size * 0.35))) }
+            ForEach(Array(shown.enumerated()), id: \.element.id) { index, bot in
+                BotAvatar(bot: bot, size: small).offset(x: CGFloat(index) * (size - small) / CGFloat(max(shown.count - 1, 1)), y: index.isMultiple(of: 2) ? 0 : size - small)
+            }
+        }.frame(width: size, height: size, alignment: .topLeading)
+    }
+}
