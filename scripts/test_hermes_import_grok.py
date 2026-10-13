@@ -42,6 +42,7 @@ class FakeSessionDB:
     def delete_session(self, sid):
         self.deleted.append(sid)
         self.sessions.pop(sid, None)
+        return True
 
 
 def msg(seq, role, ts, text=None, author=None, to=None):
@@ -55,6 +56,9 @@ def bundle(messages, group=False, name="Rapper", profile="grok-rapper", sid=BOT)
 
 
 class Base(unittest.TestCase):
+    B = staticmethod(lambda: bundle([msg(1, "user", "2026-10-13T10:00:00Z"),
+                                     msg(2, "assistant", "2026-10-14T10:00:00Z")]))
+
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp)
@@ -130,8 +134,6 @@ class BuildTests(Base):
 
 
 class MainTests(Base):
-    B = staticmethod(lambda: bundle([msg(1, "user", "2026-10-13T10:00:00Z"), msg(2, "assistant", "2026-10-14T10:00:00Z")]))
-
     def test_dry_run_prints_no_content(self):
         code, out, err = self.run_main(self.B(), "--dry-run")
         self.assertEqual(code, 0)
@@ -192,6 +194,51 @@ class MainTests(Base):
         code, _, err = self.run_main(self.B(), "--dry-run", "--expect-count", "3")
         self.assertNotEqual(code, 0)
         self.assertIn("mismatch", err)
+
+
+class HardeningTests(Base):
+    def test_hermes_schema_version_reads_table_not_pragma(self):
+        import sqlite3
+        path = os.path.join(self.tmp, "s.db")
+        con = sqlite3.connect(path)
+        con.execute("CREATE TABLE schema_version (version INTEGER)")
+        con.execute("INSERT INTO schema_version VALUES (31)")
+        con.commit()
+        pragma = con.execute("PRAGMA schema_version").fetchone()[0]
+        con.close()
+        self.assertEqual(imp.hermes_schema_version(path), 31)
+        self.assertNotEqual(pragma, 31)  # the PRAGMA counter is NOT the Hermes version
+
+    def test_title_over_100_fails(self):
+        b = bundle([msg(1, "user", "2026-10-13T10:00:00Z")], name="X" * 120)
+        with self.assertRaises(imp.ImportError_):
+            imp.build_sessions(b)
+
+    def test_timestamp_carry_forward(self):
+        b = bundle([msg(1, "user", None, "a"), msg(2, "assistant", "2026-10-13T10:00:05Z", "b"),
+                    msg(3, "user", None, "c")])
+        ts = [m["timestamp"] for m in imp.build_sessions(b)[0][0]["messages"]]
+        self.assertEqual(ts[0], ts[1])  # leading untimed -> first valid
+        self.assertEqual(ts[2], ts[1])  # trailing untimed -> predecessor
+
+    def test_no_usable_timestamp_fails(self):
+        with self.assertRaises(imp.ImportError_):
+            imp.build_sessions(bundle([msg(1, "user", None, "a")]))
+
+    def test_naive_timestamp_treated_as_utc(self):
+        self.assertEqual(imp.parse_ts("2026-10-13T10:00:00"), imp.parse_ts("2026-10-13T10:00:00Z"))
+
+    def test_rollback_incomplete_fails(self):
+        db = FakeSessionDB([{"id": "grok-import-abcdef12-20261013"}])
+        db.delete_session = lambda sid: False
+        code, _, err = self.run_main(self.B(), "--rollback", db=db)
+        self.assertEqual(code, 1)
+        self.assertIn("incomplete", err)
+
+    def test_import_not_ok_fails(self):
+        db = FakeSessionDB()
+        db.import_sessions = lambda payload: {"ok": False, "errors": ["boom"], "imported": 0, "skipped": 0}
+        self.assertEqual(self.run_main(self.B(), "--apply", db=db)[0], 1)
 
 
 if __name__ == "__main__":

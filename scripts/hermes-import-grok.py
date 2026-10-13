@@ -22,6 +22,7 @@ FORMAT = "agentapp-bot-bundle/v1"
 TZ_NAME = "Europe/Warsaw"
 MAX_TITLE = 100
 MAX_MSGS_PER_CALL = 10000
+MAX_SESSION_BYTES = 5 * 1024 * 1024  # import_sessions per-session JSON limit
 
 
 class ImportError_(Exception):
@@ -41,9 +42,12 @@ def parse_ts(value):
     if not isinstance(value, str) or not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc).timestamp()
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:  # naive -> treat as UTC, never host-local
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).timestamp()
 
 
 def load_bundle(bundle_dir):
@@ -76,19 +80,19 @@ def build_sessions(bundle):
     id8 = bundle["source_id"][:8]
     group = bool(bundle.get("is_group"))
     rows = [m for m in bundle.get("messages") or [] if m.get("role") in ("user", "assistant")]
-    rows.sort(key=lambda m: m.get("seq", 0))
+    rows.sort(key=lambda m: m.get("seq") or 0)  # tolerate missing/None seq
     stamps = [parse_ts(m.get("timestamp")) for m in rows]
     valid = [t for t in stamps if t is not None]
     if rows and not valid:
         raise ImportError_("no message has a usable timestamp")
-    last = valid[0] if valid else None
-    for i, t in enumerate(stamps):  # an untimed message stays with its predecessor
-        if t is None:
-            stamps[i] = last
-        else:
+    carried = []  # guaranteed-float: an untimed message carries its predecessor's (leading ones the first valid)
+    last = valid[0] if valid else 0.0
+    for t in stamps:
+        if t is not None:
             last = t
+        carried.append(last)
     days = {}
-    for m, t in zip(rows, stamps):
+    for m, t in zip(rows, carried):
         day = datetime.fromtimestamp(t, tz).strftime("%Y%m%d")
         days.setdefault(day, []).append({"role": m["role"], "content": message_text(bundle, m), "timestamp": float(t)})
     name = bundle.get("name") or "Grok bot"
@@ -103,8 +107,11 @@ def build_sessions(bundle):
         if len(title) > MAX_TITLE:
             raise ImportError_("title longer than %d chars" % MAX_TITLE)
         sid = "%s%s%s-%s" % (ID_PREFIX, "group-" if group else "", id8, day)
-        sessions.append({"id": sid, "source": SOURCE, "title": title,
-                         "started_at": min(m["timestamp"] for m in msgs), "messages": msgs})
+        session = {"id": sid, "source": SOURCE, "title": title,
+                   "started_at": min(m["timestamp"] for m in msgs), "messages": msgs}
+        if len(json.dumps(session, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > MAX_SESSION_BYTES:
+            raise ImportError_("session %s exceeds the %d-byte import limit" % (sid, MAX_SESSION_BYTES))
+        sessions.append(session)
     titles = [s["title"] for s in sessions]
     if len(set(titles)) != len(titles):
         raise ImportError_("duplicate title in payload")
@@ -117,13 +124,30 @@ def get_session_db(db_path):
     return hermes_state.SessionDB(db_path=Path(db_path))
 
 
+def all_sessions(db):
+    """Every session in the DB (any source) — for id-exists and title-collision checks."""
+    return list(db.list_sessions_rich(limit=1000000, include_archived=True, include_hidden=True))
+
+
 def list_archive_sessions(db):
-    return list(db.list_sessions_rich(source=SOURCE, limit=100000, include_archived=True, include_hidden=True))
+    return list(db.list_sessions_rich(source=SOURCE, limit=1000000, include_archived=True, include_hidden=True))
 
 
-def preflight(db_path, hermes_uid=None):
-    """Box-only safety checks; not called by unit tests."""
+def hermes_schema_version(db_path):
+    """Read the Hermes schema_version TABLE (not SQLite's PRAGMA schema_version counter)."""
     import sqlite3
+    con = sqlite3.connect("file:%s?mode=ro" % db_path, uri=True)
+    try:
+        row = con.execute("SELECT version FROM schema_version").fetchone()
+    finally:
+        con.close()
+    if not row:
+        raise ImportError_("schema_version table is empty")
+    return row[0]
+
+
+def preflight(db_path, profile, hermes_uid=None):
+    """Box-only safety checks; not called by unit tests."""
     if hermes_uid is None:
         import pwd
         hermes_uid = pwd.getpwnam("hermes").pw_uid
@@ -131,7 +155,7 @@ def preflight(db_path, hermes_uid=None):
         raise ImportError_("not running as the hermes user")
     sys.path.insert(0, SRC)
     import hermes_state
-    if not os.path.realpath(hermes_state.__file__).startswith(SRC + "/"):
+    if not os.path.realpath(str(hermes_state.__file__ or "")).startswith(SRC + "/"):
         raise ImportError_("hermes_state is not from the pinned 0.20.5 src")
     try:
         with open(RELEASE + "/SOURCE_COMMIT", encoding="utf-8") as handle:
@@ -147,6 +171,8 @@ def preflight(db_path, hermes_uid=None):
     home = os.environ.get("HERMES_HOME", "")
     if not home or not os.path.isdir(home):
         raise ImportError_("HERMES_HOME is not set to an existing profile dir")
+    if os.path.basename(os.path.normpath(home)) != profile:
+        raise ImportError_("HERMES_HOME dir name != --profile (%s); profile/db/home must agree" % profile)
     if not os.path.isfile(os.path.join(home, "SOUL.md")):
         raise ImportError_("SOUL.md missing in HERMES_HOME (refusing: SessionDB init may reseed it)")
     if os.path.realpath(db_path) != os.path.realpath(os.path.join(home, "state.db")):
@@ -159,23 +185,20 @@ def preflight(db_path, hermes_uid=None):
     for suffix in ("-wal", "-shm", "-journal"):
         if os.path.exists(db_path + suffix):
             raise ImportError_("sidecar present: " + suffix)
-    con = sqlite3.connect("file:%s?mode=ro" % db_path, uri=True)
-    try:
-        version = con.execute("PRAGMA schema_version").fetchone()[0]
-    finally:
-        con.close()
+    version = hermes_schema_version(db_path)
     if version != 31:
         raise ImportError_("db schema_version %s != 31" % version)
     if shutil.disk_usage(os.path.dirname(os.path.abspath(db_path))).free <= 1 << 30:
         raise ImportError_("free space <= 1 GB")
 
 
-def do_apply(db, sessions, expected_profile_note=""):
-    existing_ids = set()
-    existing_titles = {}
-    for row in list_archive_sessions(db):
-        existing_ids.add(row.get("id"))
-        existing_titles[row.get("title")] = row.get("id")
+def do_apply(db, sessions):
+    existing = all_sessions(db)  # all sources, so a title clash with a non-archive session fails before any write
+    existing_ids = {row.get("id") for row in existing}
+    existing_titles = {row.get("title"): row.get("id") for row in existing}
+    clashes = [s["title"] for s in sessions if s["id"] not in existing_ids and s["title"] in existing_titles]
+    if clashes:
+        raise ImportError_("title already used by another session: %s" % clashes[0])
     imported = skipped = 0
     for s in sessions:
         if s["id"] in existing_ids:
@@ -199,10 +222,16 @@ def do_apply(db, sessions, expected_profile_note=""):
 
 def do_rollback(db):
     ids = [r["id"] for r in list_archive_sessions(db) if str(r.get("id", "")).startswith(ID_PREFIX)]
+    deleted = 0
     for sid in ids:
-        db.delete_session(sid)
-        print("deleted %s" % sid)
-    print("rolled back: deleted=%d" % len(ids))
+        if db.delete_session(sid):
+            deleted += 1
+            print("deleted %s" % sid)
+        else:
+            print("WARNING: not deleted (delete_session returned False) %s" % sid)
+    print("rolled back: deleted=%d of %d" % (deleted, len(ids)))
+    if deleted != len(ids):
+        raise ImportError_("rollback incomplete: %d of %d deleted" % (deleted, len(ids)))
 
 
 def parse_args(argv):
@@ -223,7 +252,7 @@ def main(argv=None, session_db_factory=get_session_db):
     args = parse_args(argv)
     try:
         if not args.dry_run and not args.skip_preflight:
-            preflight(args.db)
+            preflight(args.db, args.profile)
         if args.rollback:
             do_rollback(session_db_factory(args.db))
             return 0
