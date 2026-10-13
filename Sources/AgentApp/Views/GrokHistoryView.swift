@@ -36,6 +36,7 @@ struct GrokHistoryView: View {
         .padding(12).background(AppColor.panel.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppColor.separator, lineWidth: 0.5))
         .padding(.horizontal, 24).padding(.bottom, 12)
+        .task(id: archiveID) { UISmokeProbe.historyHeaders[archiveID] = count }
     }
 }
 

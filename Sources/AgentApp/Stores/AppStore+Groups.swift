@@ -135,7 +135,7 @@ extension AppStore {
         group.messages.append(assistant); group.activeMemberID = bot.id
         if activeStreamToken == token { streamingBotID = bot.id; streamingAssistant = assistant }
         objectWillChange.send()
-        let wanted = GroupRouting.sessionID(group: group.id, bot: bot.id)
+        let wanted = sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id)
         var failed = false
         do {
             if group.session(for: bot.id) == nil, try await activeBackend.sessionTransport() == .nativeSessions {
@@ -190,7 +190,7 @@ extension AppStore {
 
     /// Approval outcomes land in the chat the run belongs to: the group for `group-…` sessions, else the bot.
     func approvalConversation(_ approval: ApprovalRequest, bot: Bot) -> any Conversation {
-        guard let session = approval.sessionID, session.hasPrefix("group-") else { return bot }
+        guard let session = approval.sessionID, session.hasPrefix(sessionNamespace + "group-") else { return bot }
         return groups.first { group in session.hasPrefix("group-\(group.id.uuidString.lowercased())-") || group.sessions.values.contains(session) } ?? bot
     }
 

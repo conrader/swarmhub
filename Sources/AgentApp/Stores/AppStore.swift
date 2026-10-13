@@ -28,6 +28,8 @@ import UserNotifications
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     var streamingBotID: UUID?; var streamingAssistant: ChatMessage?; var streamingConversation: (any Conversation)?
     var historyLoadTokens: [UUID: UUID] = [:]
+    /// Prepended to every session id the app creates (chat, thread, group); `--e2e` sets `torvli-selftest-`.
+    var sessionNamespace = ""
     var activeStreamToken: UUID?
     private var stopInProgressForStream: UUID?
     private(set) var persistenceEnabled = true
@@ -132,7 +134,7 @@ import UserNotifications
             var failed = false
             do {
                 if conversation.hermesSessionID == nil, conversation === bot, try await activeBackend.sessionTransport() == .nativeSessions {
-                    conversation.hermesSessionID = try await activeBackend.createSession(title: bot.name, systemPrompt: bot.persona, id: "agentapp_\(bot.id.uuidString.lowercased())")
+                    conversation.hermesSessionID = try await activeBackend.createSession(title: bot.name, systemPrompt: bot.persona, id: "\(sessionNamespace)agentapp_\(bot.id.uuidString.lowercased())")
                     save()
                 }
                 let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
