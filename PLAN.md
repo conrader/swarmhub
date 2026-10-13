@@ -43,6 +43,7 @@ Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `gr
 | P10 | Grok import in-app (proposed) | One in-app flow replaces the exporter + `--import-grok`: native Swift port (no Python), one macOS Keychain prompt, read-only full-history fetch, existing importer; phased P10.0 (go/no-go) → P10a offline core → P10b fake-server → P10c command → P10d sheet → P10e live. Awaits Konrad's D1–D5 (`briefs/P10.md`) | Grok private RPC (read-only); local |
 | P11 | Model from the box's supplier | Overview picker mirrors `/api/model/options` per profile, grouped and labelled by supplier, default first, reasons for every state; enhances P3 (`briefs/P11.md`) | `/api/model/options`, `/api/sessions/{id}/model` |
 | P12 | Connect OpenClaw | Finish `OpenClawBackend`: Gateway WebSocket v4 handshake + device pairing (A), streaming chat/steer/history (B), approvals/threads/attachments (C) (`briefs/P12.md`) | OpenClaw Gateway WS RPC |
+| P13 | Model roles (proposed) | Two roles with a Torvli-wide default and a per-bot override (override > Torvli default > box default): Conversation (client-side, via the session lock) and Coding (a client-side "coding thread" fork + the box-side sub-agent model `delegation.*`, which no API can set). Read-only display first; box canary P13.0 before any config write. Awaits Konrad's D1–D5 (`briefs/P13.md`) | `/api/sessions` create/lock/fork; profile `delegation.*` (box-side) |
 
 ## Out of scope (no Hermes API, or not part of Grok Bot)
 - Telegram/WhatsApp channels (not native to Grok Bot; handled by sb tooling).
