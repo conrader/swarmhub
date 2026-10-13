@@ -36,6 +36,11 @@ struct BotAvatar: View {
         .onAppear { report(look, mode) }
         .onChange(of: mode) { _, next in report(look, next) }
         .onChange(of: look) { _, next in report(next, mode) }
+        .onChange(of: bot.id) { old, _ in
+            // The same view now shows another bot (ChatView keeps its identity across selections): drop the old fact.
+            if let probe { UISmokeProbe.avatarFacts.removeValue(forKey: "\(probe)|\(old)") }
+            report(look, mode)
+        }
         .onDisappear { if let probe { UISmokeProbe.avatarFacts.removeValue(forKey: "\(probe)|\(bot.id)") } }
     }
 
