@@ -20,13 +20,14 @@ private actor ReviewerStopTargetBox {
     /// Profiles whose `/p/<profile>/` prefix the server ignored (multiplexing off). Never routed to.
     @Published var prefixIgnoredHermesProfiles: Set<String> = []
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
-    private var streamTask: Task<Void, Never>?; private let fileURL: URL
+    private var streamTask: Task<Void, Never>?; let fileURL: URL
+    private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     private var streamingBotID: UUID?; private var streamingAssistant: ChatMessage?
     private var historyLoadTokens: [UUID: UUID] = [:]
     private var activeStreamToken: UUID?
     private var stopInProgressForStream: UUID?
-    private var persistenceEnabled = true
-    private let backendFactory: ((Bot) throws -> any AgentBackend)?
+    private(set) var persistenceEnabled = true
+    let backendFactory: ((Bot) throws -> any AgentBackend)?
     private let didCancelLocalStream: (() -> Void)?
     private let reviewerTimeout: Duration
 
@@ -86,7 +87,7 @@ private actor ReviewerStopTargetBox {
     static var hasHermesConfiguration: Bool { UserDefaults.standard.object(forKey: "hermesBaseURL") != nil || !KeychainStore.get(account: "hermes").isEmpty }
 
     func loadHermesHistory(for bot: Bot) {
-        guard bot.backend == .hermes, !isStreaming else { return }
+        guard bot.backend == .hermes, !isStreaming, !needsKey(bot) else { return }
         let token = UUID(); historyLoadTokens[bot.id] = token
         let originalMessageIDs = bot.messages.map(\.id)
         let originalSessionID = bot.hermesSessionID
@@ -196,10 +197,10 @@ private actor ReviewerStopTargetBox {
         bot.gettingStartedSkill?.isEnabled = false
         bots.insert(bot, at: 0); selectedBot = bot; save(); return bot
     }
-    func delete(_ bot: Bot) { bots.removeAll { $0.id == bot.id }; if selectedBot == bot { selectedBot = bots.first }; save() }
+    func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; if selectedBot == bot { selectedBot = bots.first }; save() }
     func save() { guard persistenceEnabled, let data = try? JSONEncoder().encode(bots) else { return }; try? data.write(to: fileURL, options: .atomic) }
     @discardableResult func send(text: String) -> Bool {
-        guard !isStreaming, streamTask == nil, let bot = selectedBot, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard !isStreaming, streamTask == nil, let bot = selectedBot, !bot.isReadOnlyArchive, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let activeBackend: any AgentBackend
         do { activeBackend = try backend(for: bot) }
         catch { errorMessage = error.localizedDescription; return false }
@@ -446,7 +447,7 @@ private actor ReviewerStopTargetBox {
         switch bot.backend {
     case .mock: return MockBackend()
     case .hermes:
-        guard let baseURL = HermesBackend.validatedBaseURL(defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL) else { throw BackendError.invalidURL }
+        guard let baseURL = HermesBackend.validatedBaseURL(bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL) else { throw BackendError.invalidURL }
         let profile = bot.hermesProfile ?? "default"
         let key = keyStore.key(for: profile == "default" ? "hermes" : "hermes.\(profile)")
         return HermesBackend(baseURL: baseURL, apiKey: key, profile: profile, session: hermesSession)

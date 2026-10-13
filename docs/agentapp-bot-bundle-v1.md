@@ -42,4 +42,22 @@ The literal `[REDACTED]` marker indicates a removed free-text match; treat it as
 
 Observed avatar shapes: `blob`, `cylinder`, `shield`, `gem`, `hex`, `leaf`; colours: `black`, `violet`, `blue`, `yellow`, `orange`, `green`. Empty source avatar values become null. Importers should preserve unknown future strings or display a fallback. The only v1 skill `basis` value is `"name mentioned in profile"`, an inferred relationship.
 
+## Additions for the Grok Bot app-cache exporter (P6, compatible)
+
+`scripts/export-grokbot.py` reads the Grok Bot Mac app cache (`~/Library/Application Support/Grok Bot/sand-client-persistence/*.blob`, base32 file names) instead of a box snapshot and writes the same layout to `~/Documents/Torvli Grok Export/` (atomic replace, dirs 0700, files 0600, counts-only console output). Unlike the snapshot exporter it maps transcript rows to messages. Fields added; importers that ignore unknown fields are unaffected:
+
+| Where | Field | Meaning |
+| --- | --- | --- |
+| index `bots[]` | `profile`, `is_group` | as in the bundle |
+| index | `generator`, `source` | `"export-grokbot.py"`, `"grok-bot-app-cache"` |
+| bundle | `profile` | String or null: Hermes profile `grok-<slug>` (roster name lowercased, spaces → `-`); null for groups |
+| bundle | `is_group`, `members` | Bool; `[{source_id, name, profile}]` for a group conversation, else empty |
+| bundle `source` | `hidden_from_sidebar` | Bool from the roster |
+| message | `hidden` | Bool: text carries a `[GROK_BOT_HIDDEN…]` marker; kept, but flagged |
+| message | `channel` | `"chat"` (user ↔ bot), `"agent"` (bot ↔ bot delegation), importer-generated `"event"` |
+| message | `to` | String or null: recipient bot name for `channel: "agent"` |
+| `statistics` | `events_dropped`, `cards_dropped`, `hidden_messages` | automation events, interactive cards (secret requests, connectors, forms, approvals), flagged lines |
+
+Mapping from cache entries: `message` role `user` without `fromAgent` → `user`; `send-message` (the bot's visible output: text, widget prompt + option labels, email draft, attachment name) → `assistant` with `author` (group members carry their own author); `message` with `toAgent`/`fromAgent` → `assistant`, `channel: "agent"`; `notice` → `system`; `event` `name-changed` → `events`; other events, interactive cards and any other entry kind (tool calls, reasoning, injected context) are dropped and counted. Attachments are `{file: "attachments/<safe name>", available: false}`; URLs are never exported. Every free-text field passes the secret filter ported from `GrokTemplateParser` and hits become `[REDACTED]`. The Swift importer refuses any `format` other than `agentapp-bot-bundle/v1`.
+
 A small synthetic bundle is at [docs/examples/bundle.json](docs/examples/bundle.json); its IDs, profile and lifecycle event are fake. No skill or attachment bytes are required by that example.

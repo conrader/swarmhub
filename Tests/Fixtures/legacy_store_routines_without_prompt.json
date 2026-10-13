@@ -1,0 +1,15 @@
+[
+  {
+    "id": "22222222-2222-2222-2222-222222222222",
+    "name": "Synthetic legacy bot",
+    "title": "Legacy",
+    "botDescription": "",
+    "persona": "Legacy persona",
+    "backend": "Mock",
+    "unreadCount": 0,
+    "notificationsEnabled": true,
+    "createdAt": 0,
+    "routines": [{ "id": "33333333-3333-3333-3333-333333333333", "name": "Morning", "schedule": "Weekdays", "isEnabled": true }],
+    "messages": [{ "id": "44444444-4444-4444-4444-444444444444", "role": "user", "content": "synthetic", "createdAt": 0, "metadata": {}, "presentation": "text", "reactions": [] }]
+  }
+]

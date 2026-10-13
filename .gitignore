@@ -1,4 +1,9 @@
 .build/
 dist/
 *.xcuserstate
+# Real Grok Bot exports are private: never inside the repo.
+Torvli Grok Export/
+.torvli-grok-export-*
+/out/
+__pycache__/
 .DS_Store

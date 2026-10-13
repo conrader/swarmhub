@@ -1,0 +1,67 @@
+{
+ "bots": {
+  "00000000-0000-4000-8000-000000000001": {
+   "redactions": {
+    "total": 2,
+    "counts": {
+     "bearer": 1,
+     "credential_assignment": 1
+    }
+   },
+   "statistics": {
+    "transcript_rows": 12,
+    "messages": 8,
+    "events": 1,
+    "tool_entries_dropped": 1,
+    "events_dropped": 1,
+    "cards_dropped": 1,
+    "hidden_messages": 1
+   }
+  },
+  "00000000-0000-4000-8000-000000000002": {
+   "redactions": {
+    "total": 0,
+    "counts": {}
+   },
+   "statistics": {
+    "transcript_rows": 2,
+    "messages": 2,
+    "events": 0,
+    "tool_entries_dropped": 0,
+    "events_dropped": 0,
+    "cards_dropped": 0,
+    "hidden_messages": 0
+   }
+  },
+  "00000000-0000-4000-8000-000000000003": {
+   "redactions": {
+    "total": 0,
+    "counts": {}
+   },
+   "statistics": {
+    "transcript_rows": 0,
+    "messages": 0,
+    "events": 0,
+    "tool_entries_dropped": 0,
+    "events_dropped": 0,
+    "cards_dropped": 0,
+    "hidden_messages": 0
+   }
+  },
+  "00000000-0000-4000-8000-000000000004": {
+   "redactions": {
+    "total": 0,
+    "counts": {}
+   },
+   "statistics": {
+    "transcript_rows": 3,
+    "messages": 3,
+    "events": 0,
+    "tool_entries_dropped": 0,
+    "events_dropped": 0,
+    "cards_dropped": 0,
+    "hidden_messages": 0
+   }
+  }
+ }
+}

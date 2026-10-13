@@ -1,0 +1,156 @@
+{
+ "schemaVersion": 1,
+ "value": {
+  "entries": [
+   {
+    "kind": "message",
+    "id": "j1",
+    "seq": 1,
+    "role": "user",
+    "content": "Hello Jarvis (synthetic)",
+    "timestampMs": 1760000002000,
+    "isStreaming": false,
+    "requestId": "r1",
+    "clientNonce": "n1"
+   },
+   {
+    "kind": "send-message",
+    "id": "j2",
+    "seq": 2,
+    "timestampMs": 1760000003000,
+    "requestId": "r2",
+    "message": {
+     "type": "text",
+     "content": "Hi! Use Bearer FAKETOKENVALUE1234 nowhere."
+    }
+   },
+   {
+    "kind": "message",
+    "id": "j3",
+    "seq": 3,
+    "role": "assistant",
+    "content": "Please check the ledger (synthetic)",
+    "timestampMs": 1760000004000,
+    "isStreaming": false,
+    "requestId": "r3",
+    "toAgent": {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "kind": "agent",
+     "name": "Finance Controller"
+    }
+   },
+   {
+    "kind": "message",
+    "id": "j4",
+    "seq": 4,
+    "role": "user",
+    "content": "Ledger checked (synthetic)",
+    "timestampMs": 1760000005000,
+    "isStreaming": false,
+    "requestId": "r4",
+    "fromAgent": {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "name": "Finance Controller"
+    },
+    "clientNonce": "n4"
+   },
+   {
+    "kind": "send-message",
+    "id": "j5",
+    "seq": 5,
+    "timestampMs": 1760000006000,
+    "requestId": "r5",
+    "message": {
+     "type": "widget",
+     "content": "",
+     "widget": {
+      "prompt": "Pick one",
+      "options": [
+       {
+        "label": "A",
+        "value": "a"
+       },
+       {
+        "label": "B",
+        "value": "b"
+       }
+      ]
+     }
+    }
+   },
+   {
+    "kind": "send-message",
+    "id": "j6",
+    "seq": 6,
+    "timestampMs": 1760000007000,
+    "requestId": "r6",
+    "message": {
+     "type": "secret-request",
+     "secretRequest": {
+      "label": "FAKE_KEY"
+     }
+    }
+   },
+   {
+    "kind": "event",
+    "id": "j7",
+    "seq": 7,
+    "timestampMs": 1760000008000,
+    "event": {
+     "type": "name-changed",
+     "from": "Jarv",
+     "to": "Jarvis"
+    }
+   },
+   {
+    "kind": "event",
+    "id": "j8",
+    "seq": 8,
+    "timestampMs": 1760000009000,
+    "event": {
+     "type": "automation-changed",
+     "action": "created",
+     "automationId": "a1",
+     "automationName": "Daily"
+    }
+   },
+   {
+    "kind": "notice",
+    "id": "j9",
+    "seq": 9,
+    "timestampMs": 1760000010000,
+    "text": "Synthetic notice"
+   },
+   {
+    "kind": "message",
+    "id": "j10",
+    "seq": 10,
+    "role": "user",
+    "content": "[GROK_BOT_HIDDEN_PROMPT] synthetic hidden instruction",
+    "timestampMs": 1760000011000,
+    "isStreaming": false,
+    "requestId": "r10",
+    "clientNonce": "n10"
+   },
+   {
+    "kind": "tool-call",
+    "id": "j11",
+    "seq": 11,
+    "timestampMs": 1760000012000,
+    "name": "shell"
+   },
+   {
+    "kind": "send-message",
+    "id": "j12",
+    "seq": 12,
+    "timestampMs": 1760000013000,
+    "requestId": "r12",
+    "message": {
+     "type": "attachment",
+     "file_name": "../report final.pdf",
+     "url": "https://example.invalid/x"
+    }
+   }
+  ]
+ }
+}

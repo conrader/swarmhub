@@ -1,0 +1,48 @@
+{
+ "schemaVersion": 1,
+ "value": {
+  "entries": [
+   {
+    "kind": "message",
+    "id": "g1",
+    "seq": 1,
+    "role": "user",
+    "content": "Hi both (synthetic)",
+    "timestampMs": 1760000002000,
+    "isStreaming": false,
+    "requestId": "r1",
+    "clientNonce": "n1"
+   },
+   {
+    "kind": "send-message",
+    "id": "g2",
+    "seq": 2,
+    "timestampMs": 1760000003000,
+    "requestId": "r2",
+    "message": {
+     "type": "text",
+     "content": "Jarvis here"
+    },
+    "author": {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "name": "Jarvis"
+    }
+   },
+   {
+    "kind": "send-message",
+    "id": "g3",
+    "seq": 3,
+    "timestampMs": 1760000004000,
+    "requestId": "r3",
+    "message": {
+     "type": "text",
+     "content": "Plain here"
+    },
+    "author": {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "name": "Plain Bot"
+    }
+   }
+  ]
+ }
+}

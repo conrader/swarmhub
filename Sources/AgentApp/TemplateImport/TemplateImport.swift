@@ -132,25 +132,9 @@ enum GrokTemplateParser {
     private static func sanitize(_ value: Any, key: String? = nil, rejected: inout Int) -> Any? {
         if let key, secretKeys.contains(where: { normalize(key).contains(normalize($0)) }) { rejected += 1; return nil }
         if let text = value as? String {
-            var redacted = text
-            let basicPattern = #"(?i)\bBasic\s+([A-Za-z0-9+/]{4,}={0,2})(?![A-Za-z0-9+/=])"#
-            if let expression = try? NSRegularExpression(pattern: basicPattern) {
-                for result in expression.matches(in: redacted, range: NSRange(redacted.startIndex..., in: redacted)).reversed() {
-                    guard let match = Range(result.range, in: redacted),
-                          let credentialRange = Range(result.range(at: 1), in: redacted),
-                          let decoded = Data(base64Encoded: String(redacted[credentialRange])),
-                          String(data: decoded, encoding: .utf8)?.contains(":") == true else { continue }
-                    redacted.replaceSubrange(match, with: "[removed]")
-                    rejected += 1
-                }
-            }
-            for pattern in secretValuePatterns {
-                while let range = redacted.range(of: pattern, options: .regularExpression) {
-                    redacted.replaceSubrange(range, with: "[removed]")
-                    rejected += 1
-                }
-            }
-            return redacted
+            let result = redactSecrets(text)
+            rejected += result.count
+            return result.text
         }
         if let object = value as? [String: Any] {
             var clean: [String: Any] = [:]
@@ -159,6 +143,32 @@ enum GrokTemplateParser {
         }
         if let array = value as? [Any] { return array.compactMap { sanitize($0, rejected: &rejected) } }
         return value
+    }
+
+    /// The shared secret filter: Basic credentials and every `secretValuePatterns` hit are replaced.
+    static func redactSecrets(_ text: String, replacement: String = "[removed]") -> (text: String, count: Int) {
+        var redacted = text; var count = 0
+        let basicPattern = #"(?i)\bBasic\s+([A-Za-z0-9+/]{4,}={0,2})(?![A-Za-z0-9+/=])"#
+        if let expression = try? NSRegularExpression(pattern: basicPattern) {
+            for result in expression.matches(in: redacted, range: NSRange(redacted.startIndex..., in: redacted)).reversed() {
+                guard let match = Range(result.range, in: redacted),
+                      let credentialRange = Range(result.range(at: 1), in: redacted),
+                      let decoded = Data(base64Encoded: String(redacted[credentialRange])),
+                      String(data: decoded, encoding: .utf8)?.contains(":") == true else { continue }
+                redacted.replaceSubrange(match, with: replacement)
+                count += 1
+            }
+        }
+        for pattern in secretValuePatterns {
+            var searchStart = redacted.startIndex
+            while let range = redacted.range(of: pattern, options: .regularExpression, range: searchStart..<redacted.endIndex) {
+                let offset = redacted.distance(from: redacted.startIndex, to: range.lowerBound) + replacement.count
+                redacted.replaceSubrange(range, with: replacement)
+                count += 1
+                searchStart = redacted.index(redacted.startIndex, offsetBy: offset, limitedBy: redacted.endIndex) ?? redacted.endIndex
+            }
+        }
+        return (redacted, count)
     }
 
     private static func parseMemories(_ raw: Any?) -> [ImportedTemplateManifest.Memory] {

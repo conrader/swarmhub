@@ -105,7 +105,7 @@ struct BotAvatar: View {
         AvatarImage(name: bot.avatarName)
             .scaledToFill().frame(width: size, height: size).clipShape(Circle())
             .background(AppColor.raised, in: Circle())
-            .overlay(Circle().stroke(AppColor.separator, lineWidth: 0.75))
+            .overlay(Circle().stroke(bot.accentColor.flatMap(Color.init(hex:)) ?? AppColor.separator, lineWidth: bot.accentColor == nil ? 0.75 : 1.5))
             .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
     }
 }
@@ -115,6 +115,15 @@ struct NeutralPrimaryButtonStyle: ButtonStyle {
         configuration.label.font(.system(size: 13, weight: .medium))
             .foregroundStyle(Color(nsColor: .textBackgroundColor)).padding(.horizontal, 12).padding(.vertical, 6)
             .background(Color.primary.opacity(configuration.isPressed ? 0.72 : 1), in: RoundedRectangle(cornerRadius: 7))
+    }
+}
+
+extension Color {
+    /// `#RRGGBB` → Color; nil for anything else.
+    init?(hex: String) {
+        let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard digits.count == 6, let value = UInt32(digits, radix: 16) else { return nil }
+        self.init(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
     }
 }
 

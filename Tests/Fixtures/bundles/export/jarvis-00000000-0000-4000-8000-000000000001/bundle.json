@@ -1,0 +1,178 @@
+{
+ "format": "agentapp-bot-bundle/v1",
+ "source_id": "00000000-0000-4000-8000-000000000001",
+ "slug": "jarvis",
+ "name": "Jarvis",
+ "description": "Synthetic orchestrator. [REDACTED]",
+ "title": "",
+ "avatar": {
+  "shape": "blob",
+  "colour": "black"
+ },
+ "instructions": "Synthetic orchestrator. [REDACTED]",
+ "instructions_source": "profile.description",
+ "profile": "grok-jarvis",
+ "is_group": false,
+ "members": [],
+ "memory_facts": [],
+ "routines": [],
+ "skills": [],
+ "messages": [
+  {
+   "id": "j1",
+   "seq": 1,
+   "timestamp": "2025-10-09T08:53:22.000Z",
+   "thread": null,
+   "reply_to": null,
+   "attachments": [],
+   "hidden": false,
+   "channel": "chat",
+   "to": null,
+   "role": "user",
+   "author": null,
+   "text": "Hello Jarvis (synthetic)"
+  },
+  {
+   "id": "j2",
+   "seq": 2,
+   "timestamp": "2025-10-09T08:53:23.000Z",
+   "thread": null,
+   "reply_to": null,
+   "attachments": [],
+   "hidden": false,
+   "channel": "chat",
+   "to": null,
+   "role": "assistant",
+   "text": "Hi! Use [REDACTED] nowhere.",
+   "author": "Jarvis"
+  },
+  {
+   "id": "j3",
+   "seq": 3,
+   "timestamp": "2025-10-09T08:53:24.000Z",
+   "thread": null,
+   "reply_to": null,
+   "attachments": [],
+   "hidden": false,
+   "channel": "agent",
+   "to": "Finance Controller",
+   "role": "assistant",
+   "author": "Jarvis",
+   "text": "Please check the ledger (synthetic)"
+  },
+  {
+   "id": "j4",
+   "seq": 4,
+   "timestamp": "2025-10-09T08:53:25.000Z",
+   "thread": null,
+   "reply_to": null,
+   "attachments": [],
+   "hidden": false,
+   "channel": "agent",
+   "to": "Jarvis",
+   "role": "assistant",
+   "text": "Ledger checked (synthetic)",
+   "author": "Finance Controller"
+  },
+  {
+   "id": "j5",
+   "seq": 5,
+   "timestamp": "2025-10-09T08:53:26.000Z",
+   "thread": null,
+   "reply_to": null,
+   "attachments": [],
+   "hidden": false,
+   "channel": "chat",
+   "to": null,
+   "role": "assistant",
+   "text": "Pick one\n• A\n• B",
+   "author": "Jarvis"
+  },
+  {
+   "id": "j9",
+   "seq": 9,
+   "timestamp": "2025-10-09T08:53:30.000Z",
+   "thread": null,
+   "reply_to": null,
+   "attachments": [],
+   "hidden": false,
+   "channel": "chat",
+   "to": null,
+   "role": "system",
+   "author": null,
+   "text": "Synthetic notice"
+  },
+  {
+   "id": "j10",
+   "seq": 10,
+   "timestamp": "2025-10-09T08:53:31.000Z",
+   "thread": null,
+   "reply_to": null,
+   "attachments": [],
+   "hidden": true,
+   "channel": "chat",
+   "to": null,
+   "role": "user",
+   "author": null,
+   "text": "[GROK_BOT_HIDDEN_PROMPT] synthetic hidden instruction"
+  },
+  {
+   "id": "j12",
+   "seq": 12,
+   "timestamp": "2025-10-09T08:53:33.000Z",
+   "thread": null,
+   "reply_to": null,
+   "attachments": [
+    {
+     "file": "attachments/report_final.pdf",
+     "available": false
+    }
+   ],
+   "hidden": false,
+   "channel": "chat",
+   "to": null,
+   "role": "assistant",
+   "text": "Attachment: report final.pdf",
+   "author": "Jarvis"
+  }
+ ],
+ "events": [
+  {
+   "id": "j7",
+   "seq": 7,
+   "timestamp_ms": 1760000008000,
+   "event": {
+    "type": "name-changed",
+    "from": "Jarv",
+    "to": "Jarvis"
+   }
+  }
+ ],
+ "source": {
+  "created_at_ms": 1760000000000,
+  "harness": "temporal",
+  "notify_on_agent_updates": true,
+  "hidden_from_sidebar": false
+ },
+ "limitations": [
+  "The Grok Bot app cache holds only the latest entries of each conversation; older history stays on Grok's servers.",
+  "Interactive cards (secret requests, connectors, forms, approvals) were not exported.",
+  "Automation lifecycle events were not exported."
+ ],
+ "statistics": {
+  "transcript_rows": 12,
+  "messages": 8,
+  "events": 1,
+  "tool_entries_dropped": 1,
+  "events_dropped": 1,
+  "cards_dropped": 1,
+  "hidden_messages": 1
+ },
+ "redactions": {
+  "total": 2,
+  "counts": {
+   "bearer": 1,
+   "credential_assignment": 1
+  }
+ }
+}
