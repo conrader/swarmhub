@@ -208,7 +208,7 @@ Phase briefs live in `briefs/`; `PLAN.md` holds the table and the standing const
 | P18 | Rename to SwarmHub; launch never selects a hidden bot (the Atlas fix) | In progress |
 | P20 | Sidebar like Grok Bot: 36 pt marks, name plus latest message, flat list | Planned (after P18) |
 | P19 | PDF and document attachments, read on the Mac; fixes the silent 64K text truncation | Planned |
-| P16 | No reply is lost: truthful turns, reconcile from the box, Retry | Designing |
+| P16 | No reply is lost: truthful turns, reconcile from the box, Retry | Planned (brief in `briefs/P16.md`) |
 | P17 | Model choices in bot settings come from the bot's own Hermes profile or OpenClaw gateway | Designing |
 | P13 C | Coding threads and the sub-agent model | Waiting for go |
 | P12 | Connect OpenClaw | Planned |
