@@ -21,6 +21,19 @@ Paths and line numbers below refer to tag `v2026.9.24`.
 - `gateway/platforms/api_server.py:3615-3699` creates a run ID for session chat and emits `run.started`, `assistant.delta`, tool events, `assistant.commentary`, `assistant.completed`, and terminal `run.<status>` events. It passes that same ID as `active_run_id`.
 - `gateway/platforms/api_server.py:4191-4205,4253-4254` registers the session-stream agent in `_active_run_agents[active_run_id]`.
 - `gateway/platforms/api_server.py:3743-3752` binds session-stream approvals to the run ID and emits `approval.request`.
+
+  The shared emitter at `gateway/platforms/api_server.py:113-126` copies the approval data into the event, redacts its top-level `command` in place, and then adds the run-event envelope. Thus `command`, `request_id`, and the envelope's `run_id` are all top-level fields:
+
+  ```python
+  event = dict(approval_data or {})
+  if "command" in event:
+      from gateway.run import _redact_approval_command
+      event["command"] = _redact_approval_command(event.get("command"))
+  event.update(_run_event(run_id, "approval.request", **fields, choices=_approval_event_choices(
+      smart_denied=bool(event.get("smart_denied")),
+      allow_session=event.get("allow_session") is not False,
+      allow_permanent=event.get("allow_permanent") is not False)))
+  ```
 - `gateway/platforms/api_server_runs.py:1165-1216` accepts approval choices `once`, `session`, `always`, or `deny`, optionally scoped by `request_id`, and resolves that exact run approval. AgentApp sends `{choice:"once"|"deny", request_id}`.
 - `gateway/platforms/api_server_runs.py:1253-1274` implements `POST /v1/runs/{run_id}/stop`, loads the active agent/task (including the active-agent fallback), interrupts it, and returns `{run_id,status:"stopping"}`. This reaches session-stream runs because of the registration above.
 - `gateway/platforms/api_server.py:2153-2159` only normalizes the persisted session `source` label (`desktop` is allowed; unknown values become `api_server`). `:3140-3168` uses it when inserting the session row. Tool selection is independently fixed to the API-server platform at `:2942-2969`; the session source is not used to alter tools, prompt, approval policy, or execution behavior. AgentApp now uses the truthful `api_server` label.

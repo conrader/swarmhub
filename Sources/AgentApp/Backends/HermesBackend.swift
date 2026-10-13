@@ -232,7 +232,7 @@ struct HermesBackend: AgentBackend {
                     // URLSession commonly reports task cancellation as URLError.cancelled rather
                     // than CancellationError. Any terminal stream error must release the run ID.
                     await HermesRunRegistry.shared.clear(sessionID, token: streamToken)
-                    if let urlError = error as? URLError, urlError.code == .cancelled { continuation.finish() }
+                    if let urlError = error as? URLError, urlError.code == .cancelled, Task.isCancelled { continuation.finish() }
                     else { continuation.finish(throwing: error) }
                 }
             }
@@ -254,8 +254,26 @@ struct HermesBackend: AgentBackend {
         case "subagent.complete": continuation.yield(.subAgent(.init(id: UUID(), title: json["task"] as? String ?? "Delegated task", detail: json["summary"] as? String ?? "", status: (json["status"] as? String) == "completed" ? .completed : .failed)))
         case "assistant.completed": if !emittedAssistantDelta, let content = json["content"] as? String, !content.isEmpty { continuation.yield(.token(content)) }
         case "approval.request":
-            let command = (json["command"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command?.isEmpty == false ? command! : "Command unknown", draft: nil, command: command?.isEmpty == false ? command : nil, runID: json["run_id"] as? String, requestID: json["request_id"] as? String)))
+            // v0.21.7 emits `command` at the top level. Pollable run status and some
+            // compatible gateways wrap the same approval object, so inspect those too.
+            let wrapped = [json["approval"], json["data"]].compactMap { $0 as? [String: Any] }
+            let sources = [json] + wrapped
+            func firstNonempty(_ key: String) -> (String, [String: Any])? {
+                for source in sources {
+                    if let value = source[key] as? String {
+                        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty { return (trimmed, source) }
+                    }
+                }
+                return nil
+            }
+            // A real command is authoritative; display_command is only a final fallback.
+            let commandSource = firstNonempty("command") ?? firstNonempty("display_command")
+            let command = commandSource?.0
+            let identity = commandSource?.1 ?? json
+            let runID = (identity["run_id"] as? String) ?? (json["run_id"] as? String)
+            let requestID = (identity["request_id"] as? String) ?? (json["request_id"] as? String)
+            continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command ?? "Command unknown", draft: nil, command: command, runID: runID, requestID: requestID)))
         case "run.completed": continuation.yield(.completed)
         case "run.cancelled": continuation.yield(.completed)
         case "run.failed", "error": continuation.yield(.failed(json["error"] as? String ?? json["message"] as? String ?? "Hermes run failed."))

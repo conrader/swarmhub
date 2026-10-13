@@ -1,0 +1,13 @@
+$ AGENTAPP_HERMES_INTEGRATION=1 HERMES_TEST_URL=http://127.0.0.1:18642/v1 HERMES_TEST_KEY=<throwaway> .build/debug/AgentApp
+[Performance] app initialized; peak resident memory 13.1 MB
+2026-10-13 06:31:44.086 AgentApp[33232:15114090] Failure on line 688 in function id scheduleApplicationNotification(LSNotificationCode, NSWorkspaceNotificationCenter *): noErr == _LSModifyNotification(notificationID, 1, &code, 0, NULL, NULL, NULL)
+2026-10-13 06:31:44.166 AgentApp[33232:15114092] Connection Invalid error for service com.apple.hiservices-xpcservice.
+2026-10-13 06:31:44.166 AgentApp[33232:15114090] Error received in message reply handler: Connection invalid
+2026-10-13 06:31:44.172 AgentApp[33232:15114092] NetworkStorageDB:_openDBReadConnections: failed to open read connection to DB @ /Users/konradsierzputowski/Library/Caches/AgentApp/Cache.db.  Error=14. Cause=unable to open database file
+2026-10-13 06:31:44.172 AgentApp[33232:15114092] The read-connection to the DB=/Users/konradsierzputowski/Library/Caches/AgentApp/Cache.db is NOT valid.  Unable to determine schema version.
+2026-10-13 06:31:44.172 AgentApp[33232:15114092] NetworkStorageDB:_openDBWriteConnections: failed to open write connection to DB @ /Users/konradsierzputowski/Library/Caches/AgentApp/Cache.db.  Error=14. Cause=unable to open database file
+2026-10-13 06:31:44.173 AgentApp[33232:15114092] DEBUG: there is no SQL cache DB located at /Users/konradsierzputowski/Library/Caches/AgentApp/Cache.db.
+2026-10-13 06:31:44.173 AgentApp[33232:15114092] DEBUG: there is no SQL cache DB located at /Users/konradsierzputowski/Library/Caches/AgentApp/Cache.db-shm.
+2026-10-13 06:31:44.173 AgentApp[33232:15114092] DEBUG: there is no SQL cache DB located at /Users/konradsierzputowski/Library/Caches/AgentApp/Cache.db-wal.
+Hermes integration failed: The operation couldn’t be completed. Operation not permitted
+exit_status=1

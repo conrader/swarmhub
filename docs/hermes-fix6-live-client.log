@@ -1,0 +1,4 @@
+$ AGENTAPP_HERMES_INTEGRATION=1 HERMES_TEST_URL=http://127.0.0.1:8642/v1 HERMES_TEST_KEY=<throwaway> .build/debug/AgentApp
+[Performance] app initialized; peak resident memory 13.2 MB
+Hermes integration failed: The operation couldn’t be completed. Operation not permitted
+exit_status=1

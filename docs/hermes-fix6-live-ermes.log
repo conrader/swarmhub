@@ -1,0 +1,5 @@
+[Performance] app initialized; peak resident memory 12.9 MB
+Hermes integration: Hermes unknown (degraded)
+Hermes integration: profiles=["default"]
+Hermes integration failed: The 'anthropic' package is required for the Anthropic provider: venv: anthropic installed; restart Hermes to activate it (this process does not run from the install's dependency environment) — retry, or run `hermes pm doctor`
+exit_status=1

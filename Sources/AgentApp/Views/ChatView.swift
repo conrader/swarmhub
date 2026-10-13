@@ -28,5 +28,5 @@ struct ChatView: View {
             ComposerView(text: $draft, isStreaming: store.isStreaming, send: send, stop: store.stop).background(AppColor.chat)
         }.background(AppColor.chat)
     }
-    private func send() { let value = draft; guard !store.isStreaming, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; draft = ""; store.send(text: value) }
+    private func send() { let value = draft; guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; if store.send(text: value) { draft = "" } }
 }

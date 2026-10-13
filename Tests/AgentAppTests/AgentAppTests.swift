@@ -204,7 +204,7 @@ private struct WaitTimeout: Error {}
     let bot = Bot(name: "Stop", backend: .hermes, hermesSessionID: "session-1"); store.bots = [bot]; store.selectedBot = bot
     store.send(text: "go"); try await waitUntil { await backend.recordedCalls().contains("send") }
     store.stop(); store.stop()
-    try await waitUntil { await backend.recordedCalls().filter { $0 == "post" }.count == 1 && !store.isStreaming }
+    try await waitUntil { bot.messages.filter { $0.role == .system && $0.content.contains("Stop requested") }.count == 1 }
     let stopCalls = await backend.recordedCalls().filter { ["capture", "post"].contains($0) }
     #expect(stopCalls == ["capture", "post"]); #expect(trace.read() == ["cancel", "post"])
     #expect(bot.messages.filter { $0.role == .system && $0.content.contains("Stop requested") }.count == 1)
@@ -217,7 +217,7 @@ private struct WaitTimeout: Error {}
     let bot = Bot(name: "Stop twice", backend: .hermes, hermesSessionID: "session-2"); store.bots = [bot]; store.selectedBot = bot
 
     store.send(text: "first"); try await waitUntil { await backend.recordedCalls().contains("send") }; store.stop()
-    try await waitUntil { !store.isStreaming }
+    try await waitUntil { store.isIdle }
     store.send(text: "second"); try await waitUntil { await backend.recordedCalls().filter { $0 == "send" }.count == 2 }; store.stop()
     try await waitUntil { await backend.recordedCalls().filter { $0 == "post" }.count == 2 && !store.isStreaming }
 
@@ -231,14 +231,47 @@ private struct WaitTimeout: Error {}
     let bot = Bot(name: "Stop race", backend: .hermes, hermesSessionID: "session-race"); store.bots = [bot]; store.selectedBot = bot
 
     store.send(text: "first"); try await waitUntil { await backend.recordedCalls().contains("send") }; store.stop()
-    try await waitUntil { !store.isStreaming }
+    try await waitUntil { store.isIdle }
     store.send(text: "second"); try await waitUntil { await backend.recordedCalls().filter { $0 == "send" }.count == 2 }
     try await waitUntil { await backend.recordedCalls().contains("post-failed") }
 
     #expect(store.isStreaming)
     #expect(store.errorMessage == nil)
+    #expect(bot.messages.dropLast(2).contains { $0.role == .system && $0.content.contains("Hermes Stop failed") })
     store.stop()
     try await waitUntil { !store.isStreaming }
+}
+
+@Test @MainActor func failedCurrentStopIsReportedBesideStoppedTurn() async throws {
+    let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning, failingStopCalls: [1])
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let bot = Bot(name: "Stop failure", backend: .hermes, hermesSessionID: "session-failure"); store.bots = [bot]; store.selectedBot = bot
+
+    store.send(text: "first"); try await waitUntil { await backend.recordedCalls().contains("send") }
+    let stoppedAssistantID = bot.messages.last?.id
+    store.stop()
+    let laterMessage = ChatMessage(role: .system, content: "Later local message")
+    bot.messages.append(laterMessage)
+    try await waitUntil { bot.messages.contains { $0.role == .system && $0.content.contains("Hermes Stop failed") } }
+
+    let stoppedIndex = try #require(bot.messages.firstIndex { $0.id == stoppedAssistantID })
+    let noteIndex = try #require(bot.messages.firstIndex { $0.role == .system && $0.content.contains("Hermes Stop failed") })
+    let laterIndex = try #require(bot.messages.firstIndex { $0.id == laterMessage.id })
+    #expect(noteIndex == stoppedIndex + 1)
+    #expect(laterIndex == noteIndex + 1)
+}
+
+@Test @MainActor func storeRejectsApprovalWithoutCommandText() async throws {
+    let backend = TestBackend(transport: .nativeSessions)
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let bot = Bot(name: "Approval", backend: .hermes); store.bots = [bot]
+    let approval = ApprovalRequest(id: UUID(), title: "Unknown", summary: "Command unknown", draft: nil, botID: bot.id)
+
+    store.decide(approval, approved: true)
+    await Task.yield()
+
+    #expect(!(await backend.recordedCalls()).contains("approval"))
+    #expect(store.errorMessage?.contains("without command text") == true)
 }
 
 @Test @MainActor func approvalIsScopedAndClearedAtRunEnd() async throws {

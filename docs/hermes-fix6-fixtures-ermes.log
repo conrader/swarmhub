@@ -1,0 +1,11 @@
+[Performance] app initialized; peak resident memory 13.0 MB
+fixture: approval called
+fixture: stop called
+Hermes integration: Hermes 0.21.7 (ok)
+Hermes integration: profiles=["default"]
+Hermes integration: listed=0 created=agentapp_integration_eff6a8e1-1b50-409e-9a71-4e16ebb20788 events=["token", "subagent", "subagent", "approval", "completed"]
+[Performance] app initialized; peak resident memory 13.0 MB
+Hermes integration: Hermes 0.21.7 (ok)
+Hermes integration: profiles=["default"]
+Hermes integration: listed=0 created=agentapp_legacy_integration events=["token", "completed"]
+exit_status=0

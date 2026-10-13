@@ -160,11 +160,11 @@ import UserNotifications
     func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName); bots.insert(bot, at: 0); selectedBot = bot; save() }
     func delete(_ bot: Bot) { bots.removeAll { $0.id == bot.id }; if selectedBot == bot { selectedBot = bots.first }; save() }
     func save() { guard persistenceEnabled, let data = try? JSONEncoder().encode(bots) else { return }; try? data.write(to: fileURL, options: .atomic) }
-    func send(text: String) {
-        guard !isStreaming, streamTask == nil, let bot = selectedBot, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    @discardableResult func send(text: String) -> Bool {
+        guard !isStreaming, streamTask == nil, let bot = selectedBot, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let activeBackend: any AgentBackend
         do { activeBackend = try backend(for: bot) }
-        catch { errorMessage = error.localizedDescription; return }
+        catch { errorMessage = error.localizedDescription; return false }
         historyLoadTokens[bot.id] = nil
         bot.messages.append(ChatMessage(role: .user, content: text, replyToID: replyTo?.id)); replyTo = nil; let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true); bot.messages.append(assistant)
         objectWillChange.send(); save(); isStreaming = true; streamingBotID = bot.id; streamingAssistant = assistant
@@ -192,7 +192,7 @@ import UserNotifications
                 } }
             } catch is CancellationError {
                 // User-initiated cancellation is not an error and must not notify.
-            } catch let error as URLError where error.code == .cancelled {
+            } catch let error as URLError where error.code == .cancelled && Task.isCancelled {
                 // URLSession reports cancellation this way when Stop lands during setup/first turn.
             } catch { errorMessage = error.localizedDescription; failed = true }
             let cancelled = Task.isCancelled
@@ -204,7 +204,9 @@ import UserNotifications
             save()
             if !cancelled && !failed && !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { notifyIfNeeded(bot: bot, message: assistant.content) }
         }
+        return true
     }
+    var isIdle: Bool { streamTask == nil }
     private func notifyIfNeeded(bot: Bot, message: String) {
         guard Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), !NSApp.isActive else { return }
         let content = UNMutableNotificationContent(); content.title = bot.name; content.body = String(message.prefix(140)); content.sound = .default
@@ -243,6 +245,11 @@ import UserNotifications
                 objectWillChange.send()
             } catch {
                 taskToCancel?.cancel()
+                let message = ChatMessage(role: .system, content: "Hermes Stop failed: \(error.localizedDescription)")
+                if let stoppedAssistantID, let index = bot.messages.firstIndex(where: { $0.id == stoppedAssistantID }) {
+                    bot.messages.insert(message, at: index + 1)
+                } else { bot.messages.append(message) }
+                objectWillChange.send()
                 if activeStreamToken == streamToken {
                     isStreaming = false
                     errorMessage = "Hermes Stop failed: \(error.localizedDescription)"
@@ -253,6 +260,10 @@ import UserNotifications
         }
     }
     func decide(_ approval: ApprovalRequest, approved: Bool) {
+        guard !approved || approval.hasKnownCommand else {
+            errorMessage = "Cannot approve a Hermes request without command text."
+            return
+        }
         guard let botID = approval.botID, let bot = bots.first(where: { $0.id == botID }), let approvalBackend = try? backend(for: bot) else { return }
         Task {
             do {

@@ -1,0 +1,12 @@
+$ HERMES_HOME=/private/tmp/hermes-test/home API_SERVER_KEY=<throwaway> /private/tmp/hermes-test/venv/bin/hermes gateway run --force
+
+Hermes Gateway Starting...
+2026-10-13 06:42:41,748 WARNING gateway.run: Host gateway lock could not be opened ([Errno 1] Operation not permitted: '/Users/konradsierzputowski/.local/state/hermes'); this gateway is not discoverable.
+2026-10-13 06:42:41,750 WARNING gateway.control_socket: Gateway control socket failed to start (non-fatal): [Errno 1] Operation not permitted
+2026-10-13 06:42:41,867 ERROR gateway.platforms.api_server: [Api_Server] Could not bind 127.0.0.1:8642: [Errno 1] error while attempting to bind on address ('127.0.0.1', 8642): [errno 1] operation not permitted. Set a different port in config.yaml: platforms.api_server.port
+2026-10-13 06:42:41,869 WARNING gateway.run: api_server failed to connect
+2026-10-13 06:42:41,887 WARNING gateway.run: Gateway started with no connected platforms; api_server queued for retry
+2026-10-13 06:42:42,230 WARNING gateway.shutdown_watchdog: Loop tick socket unavailable
+PermissionError: [Errno 1] Operation not permitted
+^C
+exit_status=0 (SIGINT after failed bind)
