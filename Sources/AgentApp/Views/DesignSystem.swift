@@ -116,17 +116,6 @@ struct FlatBotFace: View {
     }
 }
 
-struct BotAvatar: View {
-    let bot: Bot; var size: CGFloat = 38
-    var body: some View {
-        AvatarImage(name: bot.avatarName)
-            .scaledToFill().frame(width: size, height: size).clipShape(Circle())
-            .background(AppColor.raised, in: Circle())
-            .overlay(Circle().stroke(bot.accentColor.flatMap(Color.init(hex:)) ?? AppColor.separator, lineWidth: bot.accentColor == nil ? 0.75 : 1.5))
-            .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
-    }
-}
-
 struct NeutralPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 13, weight: .medium))

@@ -9,7 +9,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 if thread != nil { Button { store.closeThread() } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22) }.buttonStyle(.plain).help("Back to chat") }
-                BotAvatar(bot: bot, size: 30)
+                BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: store.isWorking(bot), probe: "chat_header")
                 Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)) }.buttonStyle(.plain)
                 if thread != nil { Text("Thread").font(.system(size: 12)).foregroundStyle(.secondary) }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
@@ -24,6 +24,7 @@ struct ChatView: View {
                             ThreadTranscript(thread: thread, parent: bot.messages.first { $0.id == thread.parentMessageID }) { proxy.scrollTo("bottom", anchor: .bottom) }
                         } else {
                             if GrokServerArchive.choice(hasLocalArchive: bot.grokSourceID != nil) == .local { GrokHistoryView(bot: bot, expanded: historyExpanded) }
+                            if bot.messages.isEmpty && bot.grokSourceID == nil { ChatWelcome(bot: bot) }
                             ForEach(bot.messages) { message in
                                 MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
                                             thread: bot.thread(for: message.id), canThread: store.canFork(bot),

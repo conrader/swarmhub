@@ -19,6 +19,7 @@ struct SettingsView: View {
                 ForEach(AppTheme.accentNames, id: \.self) { name in HStack { Circle().fill(AppTheme.accentColor(for: name)).frame(width: 10, height: 10); Text(name) }.tag(name) }
             }
             Text("Dark is the default. The accent colours buttons, selections and usage bars; Graphite follows the text colour.").font(.caption).foregroundStyle(.secondary)
+            AvatarMotionSettingRow()
         case .notifications:
             Section {
                 Toggle("Notify about new messages", isOn: $notifications).onChange(of: notifications) { _, enabled in

@@ -2,7 +2,8 @@ import SwiftUI
 
 struct BotEditorView: View {
     @Environment(\.dismiss) private var dismiss; @EnvironmentObject private var store: AppStore; let bot: Bot?
-    @State private var name = ""; @State private var title = "Personal agent"; @State private var details = ""; @State private var persona = "You are a thoughtful, capable assistant."; @State private var backend = BackendKind.mock; @State private var avatarName = BotAvatarName.faceCoral
+    @State private var name = ""; @State private var title = "Personal agent"; @State private var details = ""; @State private var persona = "You are a thoughtful, capable assistant."; @State private var backend = BackendKind.mock
+    @State private var avatar = AvatarChoice.unpicked; @State private var avatarTouched = false
     @State private var hidden = false; @State private var notifications = true
     @State private var approvalMode = ApprovalMode.ask; @State private var approvalRules = ApprovalRule.sensibleDefaults; @State private var reviewerBotID: UUID?
     @State private var conversationModel = ModelSetting.inherit
@@ -10,7 +11,7 @@ struct BotEditorView: View {
         VStack(spacing: 0) {
             HStack { Text(bot == nil ? "New agent" : "Agent settings").font(.title2.bold()); Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary).font(.title3) }.buttonStyle(.plain) }.padding(20)
             Divider(); Form {
-                Picker("Avatar", selection: $avatarName) { Section("Flat bot faces") { ForEach(BotAvatarName.allCases.filter(\.isFlatFace)) { avatar in HStack { AvatarImage(name: avatar).scaledToFill().frame(width: 24, height: 24).clipShape(Circle()); Text(avatar.displayName) }.tag(avatar) } }; Section("Clay collection") { ForEach(BotAvatarName.allCases.filter { !$0.isFlatFace }) { avatar in HStack { AvatarImage(name: avatar).scaledToFill().frame(width: 24, height: 24).clipShape(Circle()); Text(avatar.displayName) }.tag(avatar) } } }
+                Section("Avatar") { AvatarPickerView(choice: Binding(get: { avatar }, set: { avatar = $0; avatarTouched = true })) }
                 TextField("Name", text: $name); TextField("Title", text: $title); TextField("Description", text: $details, axis: .vertical).lineLimit(2...4)
                 Picker("Backend", selection: $backend) { ForEach(BackendKind.allCases) { Text($0.rawValue).tag($0) } }
                 Toggle("Show in sidebar", isOn: Binding(get: { !hidden }, set: { hidden = !$0 })); Toggle("Notifications", isOn: $notifications)
@@ -44,12 +45,12 @@ struct BotEditorView: View {
                 Section("Instructions") { TextEditor(text: $persona).frame(height: 90) }
             }.formStyle(.grouped).padding(.horizontal, 8)
             Divider(); HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(name.trimmingCharacters(in: .whitespaces).isEmpty) }.padding(16)
-        }.frame(width: 560, height: 720).background(AppColor.panel).onAppear { if let bot { name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend; avatarName = bot.avatarName; hidden = bot.isHidden; notifications = bot.notificationsEnabled; approvalMode = bot.approvalMode; approvalRules = bot.approvalRules; reviewerBotID = bot.reviewerBotID; conversationModel = bot.modelSettings?.conversation ?? .inherit } else if AppStore.hasHermesConfiguration { backend = .hermes } }
+        }.frame(width: 560, height: 720).background(AppColor.panel).onAppear { if let bot { name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend; avatar = AvatarChoice(bot: bot); hidden = bot.isHidden; notifications = bot.notificationsEnabled; approvalMode = bot.approvalMode; approvalRules = bot.approvalRules; reviewerBotID = bot.reviewerBotID; conversationModel = bot.modelSettings?.conversation ?? .inherit } else if AppStore.hasHermesConfiguration { backend = .hermes } }
     }
     private func setConversationModel(_ bot: Bot) {
         var settings = bot.modelSettings ?? .init(); settings.conversation = conversationModel
         bot.modelSettings = settings.isEmpty ? nil : settings
     }
     private func moveRule(id: UUID, offset: Int) { guard let index = approvalRules.firstIndex(where: { $0.id == id }) else { return }; let destination = index + offset; guard approvalRules.indices.contains(destination) else { return }; approvalRules.swapAt(index, destination) }
-    private func save() { if let bot { bot.name = name; bot.title = title; bot.botDescription = details; bot.persona = persona; bot.backend = backend; bot.avatarName = avatarName; bot.isHidden = hidden; bot.notificationsEnabled = notifications; bot.approvalMode = approvalMode; bot.approvalRules = approvalRules; bot.reviewerBotID = reviewerBotID == bot.id ? nil : reviewerBotID; setConversationModel(bot); store.save() } else { store.addBot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID) }; dismiss() }
+    private func save() { if let bot { bot.name = name; bot.title = title; bot.botDescription = details; bot.persona = persona; bot.backend = backend; if avatarTouched { avatar.apply(to: bot) }; bot.isHidden = hidden; bot.notificationsEnabled = notifications; bot.approvalMode = approvalMode; bot.approvalRules = approvalRules; bot.reviewerBotID = reviewerBotID == bot.id ? nil : reviewerBotID; setConversationModel(bot); store.save() } else { store.addBot(name: name, persona: persona, backend: backend, avatarName: nil, avatar: avatar, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID) }; dismiss() }
 }
