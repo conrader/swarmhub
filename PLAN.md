@@ -40,6 +40,9 @@ Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `gr
 | P7 | Settings & polish | Usage (session token counts), Updates (GitHub releases of conrader/torvli), Computers (noVNC URL per bot; take-over opens it), Account; README feature table brought up to date | `/api/sessions` fields |
 | P8 | Acceptance | MacBook build + full suite green; every endpoint the app uses verified against Konrad's box from OVH; Konrad does the last-hop UI check with his keys in the Keychain | live box (read-only probes) |
 | P9 | History on the box | Grok history (6,843 messages, seq 1 onward) written into each `grok-*` profile's `state.db` as `grok-import` archive sessions (one per day) through the box's own `SessionDB`, so bots can `session_search` it and clients can list it; Torvli shows one archive per bot. Canary on Rapper, backups, rollback (`briefs/P9.md`) | per-profile `state.db` (no API exists to append messages) |
+| P10 | Grok import in-app (proposed) | One in-app flow replaces the exporter + `--import-grok`: native Swift port (no Python), one macOS Keychain prompt, read-only full-history fetch, existing importer; phased P10.0 (go/no-go) → P10a offline core → P10b fake-server → P10c command → P10d sheet → P10e live. Awaits Konrad's D1–D5 (`briefs/P10.md`) | Grok private RPC (read-only); local |
+| P11 | Model from the box's supplier | Overview picker mirrors `/api/model/options` per profile, grouped and labelled by supplier, default first, reasons for every state; enhances P3 (`briefs/P11.md`) | `/api/model/options`, `/api/sessions/{id}/model` |
+| P12 | Connect OpenClaw | Finish `OpenClawBackend`: Gateway WebSocket v4 handshake + device pairing (A), streaming chat/steer/history (B), approvals/threads/attachments (C) (`briefs/P12.md`) | OpenClaw Gateway WS RPC |
 
 ## Out of scope (no Hermes API, or not part of Grok Bot)
 - Telegram/WhatsApp channels (not native to Grok Bot; handled by sb tooling).
