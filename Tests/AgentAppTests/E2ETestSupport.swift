@@ -11,8 +11,18 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         var log: [(method: String, path: String, body: [String: Any]?)] = []
         var sessionModels: [String: String] = [:]
         var steeredRuns: Set<String> = []
+        private let steerSignal = NSCondition()
         init(features: [String: Bool]) { self.features = features }
         func with<T>(_ body: (State) -> T) -> T { lock.lock(); defer { lock.unlock() }; return body(self) }
+        func markSteered(_ run: String) { with { _ = $0.steeredRuns.insert(run) }; steerSignal.lock(); steerSignal.broadcast(); steerSignal.unlock() }
+        /// Blocks until `run` is steered (woken by `markSteered`, no polling) or `deadline` passes.
+        func waitForSteer(of run: String, until deadline: Date) -> Bool {
+            steerSignal.lock(); defer { steerSignal.unlock() }
+            while !with({ $0.steeredRuns.contains(run) }) {
+                if !steerSignal.wait(until: deadline) { return with { $0.steeredRuns.contains(run) } }
+            }
+            return true
+        }
         func requests() -> [(method: String, path: String, body: [String: Any]?)] { with { $0.log } }
     }
     private static let lock = NSLock()
@@ -60,7 +70,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         case ("GET", ["api", "jobs"]): send(200, ["jobs": [["id": "job-1", "name": "Daily brief", "schedule": "0 8 * * *", "enabled": true]]])
         case ("POST", let path) where path.count == 4 && path[0...1] == ["v1", "runs"] && path[3] == "steer":
             guard state.with({ $0.features["run_steer"] == true }) else { return send(404, ["error": "no route"]) }
-            state.with { _ = $0.steeredRuns.insert(path[2]) }
+            state.markSteered(path[2])
             send(202, ["accepted": true])
         case ("POST", let path) where path.count == 5 && path[0...1] == ["api", "sessions"] && path[3...] == ["chat", "stream"]:
             stream(input: body?["input"] as? String ?? "", state: state)
@@ -68,7 +78,9 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         }
     }
 
-    /// "Count…" streams "1", then waits up to 2 s for a steer of its run; anything else answers its `exactly: E2E-…` token.
+    /// "Count…" streams "1", then holds the run until it is steered (the ceiling only bounds a hang). Without `run_steer`
+    /// no steer can come, so the count ends on its own after 5 s, ample time for the client to see "1" and try.
+    /// Anything else answers its `exactly: E2E-…` token.
     private func stream(input: String, state: State) {
         let run = "run-\(UUID().uuidString.lowercased())"
         respond(200, contentType: "text/event-stream")
@@ -80,9 +92,9 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         }
         client?.urlProtocol(self, didLoad: Self.event("assistant.delta", ["run_id": run, "delta": "1\n"]))
         DispatchQueue.global().async { [self] in
-            let deadline = Date(timeIntervalSinceNow: 2)
-            while Date() < deadline, !state.with({ $0.steeredRuns.contains(run) }) { Thread.sleep(forTimeInterval: 0.01) }
-            let steered = state.with { $0.steeredRuns.contains(run) }
+            let canSteer = state.with { $0.features["run_steer"] == true }
+            let hold = canSteer ? Double(waitCeiling.components.seconds) : 5
+            let steered = state.waitForSteer(of: run, until: Date(timeIntervalSinceNow: hold))
             client?.urlProtocol(self, didLoad: Self.event("assistant.delta", ["run_id": run, "delta": steered ? "E2E-STEER" : "2\n3"]) + Self.event("run.completed", ["run_id": run]))
             client?.urlProtocolDidFinishLoading(self)
         }
@@ -116,5 +128,5 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
 }
 
 extension HeadlessE2E.Timing {
-    static let fast = HeadlessE2E.Timing(turn: .seconds(10), steerStart: .seconds(10), request: .seconds(5), poll: .milliseconds(10))
+    static let fast = HeadlessE2E.Timing(turn: waitCeiling, steerStart: waitCeiling, request: waitCeiling, poll: .milliseconds(10))
 }

@@ -19,7 +19,7 @@ import Testing
     let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning, stopTrace: trace)
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, didCancelLocalStream: { trace.add("cancel") })
     let bot = Bot(name: "Stop", backend: .hermes, hermesSessionID: "session-1"); store.bots = [bot]; store.selectedBot = bot
-    store.send(text: "go"); try await waitUntil { await backend.recordedCalls().contains("send") }
+    store.send(text: "go"); try await backend.calls.wait { $0.contains("send") }
     store.stop(); store.stop()
     try await waitUntil { bot.messages.filter { $0.role == .system && $0.content.contains("Stop requested") }.count == 1 }
     let stopCalls = await backend.recordedCalls().filter { ["capture", "post"].contains($0) }
@@ -33,10 +33,10 @@ import Testing
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, didCancelLocalStream: { trace.add("cancel") })
     let bot = Bot(name: "Stop twice", backend: .hermes, hermesSessionID: "session-2"); store.bots = [bot]; store.selectedBot = bot
 
-    store.send(text: "first"); try await waitUntil { await backend.recordedCalls().contains("send") }; store.stop()
+    store.send(text: "first"); try await backend.calls.wait { $0.contains("send") }; store.stop()
     try await waitUntil { store.isIdle }
-    store.send(text: "second"); try await waitUntil { await backend.recordedCalls().filter { $0 == "send" }.count == 2 }; store.stop()
-    try await waitUntil { await backend.recordedCalls().filter { $0 == "post" }.count == 2 && !store.isStreaming }
+    store.send(text: "second"); try await backend.calls.wait { $0.filter { $0 == "send" }.count == 2 }; store.stop()
+    try await backend.calls.wait { $0.filter { $0 == "post" }.count == 2 }; try await waitUntil { !store.isStreaming }
 
     #expect(trace.read() == ["cancel", "post", "cancel", "post"])
     #expect(await backend.recordedCalls().filter { $0 == "post" }.count == 2)
@@ -47,10 +47,12 @@ import Testing
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
     let bot = Bot(name: "Stop race", backend: .hermes, hermesSessionID: "session-race"); store.bots = [bot]; store.selectedBot = bot
 
-    store.send(text: "first"); try await waitUntil { await backend.recordedCalls().contains("send") }; store.stop()
+    store.send(text: "first"); try await backend.calls.wait { $0.contains("send") }; store.stop()
     try await waitUntil { store.isIdle }
-    store.send(text: "second"); try await waitUntil { await backend.recordedCalls().filter { $0 == "send" }.count == 2 }
-    try await waitUntil { await backend.recordedCalls().contains("post-failed") }
+    store.send(text: "second"); try await backend.calls.wait { $0.filter { $0 == "send" }.count == 2 }
+    try await backend.calls.wait { $0.contains("post-failed") }
+    // The mock records the failure before throwing it; the store reports it once the throw reaches it.
+    try await waitUntil { bot.messages.contains { $0.role == .system && $0.content.contains("Hermes Stop failed") } }
 
     #expect(store.isStreaming)
     #expect(store.errorMessage == nil)
@@ -64,7 +66,7 @@ import Testing
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
     let bot = Bot(name: "Stop failure", backend: .hermes, hermesSessionID: "session-failure"); store.bots = [bot]; store.selectedBot = bot
 
-    store.send(text: "first"); try await waitUntil { await backend.recordedCalls().contains("send") }
+    store.send(text: "first"); try await backend.calls.wait { $0.contains("send") }
     let stoppedAssistantID = bot.messages.last?.id
     store.stop()
     let laterMessage = ChatMessage(role: .system, content: "Later local message")

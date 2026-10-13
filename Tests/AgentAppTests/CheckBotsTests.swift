@@ -68,7 +68,7 @@ private func checkBotsServer() -> (host: String, session: URLSession) {
     let jarvis = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis")
     store.bots = [jarvis]
     var lines: [String] = []
-    let code = await HeadlessCommands.chatOnce(store: store, botName: "jarvis", text: "Reply with exactly: Torvli OK", timeout: .seconds(5), output: { lines.append($0) })
+    let code = await HeadlessCommands.chatOnce(store: store, botName: "jarvis", text: "Reply with exactly: Torvli OK", timeout: waitCeiling, output: { lines.append($0) })
     let session = "agentapp_\(jarvis.id.uuidString.lowercased())"
     #expect(code == 0)
     #expect(lines == ["Chat Jarvis | session \(session) | reply: Torvli OK"])
