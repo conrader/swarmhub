@@ -24,8 +24,10 @@ private let jarvisID = "00000000-0000-4000-8000-000000000001"
     #expect(jarvis.messages.isEmpty)
     let finance = try #require(store.bots.first { $0.name == "Finance Controller" })
     #expect(finance.hermesProfile == "grok-finance-controller" && finance.avatarName == .planet)
-    let group = try #require(store.bots.first { $0.name == "Konrad, Jarvis, Plain Bot" })
-    #expect(group.isReadOnlyArchive && group.archivedMembers == ["Jarvis", "Plain Bot"] && group.hermesProfile == nil && group.backend == .mock)
+    let plain = try #require(store.bots.first { $0.name == "Plain Bot" })
+    let group = try #require(store.groups.first { $0.name == "Konrad, Jarvis, Plain Bot" })
+    #expect(group.memberIDs == [jarvis.id, plain.id] && group.grokHistoryCount == 3 && store.grokHistory.messages(for: group.id).count == 3)
+    #expect(!store.bots.contains { $0.isReadOnlyArchive || $0.name == group.name })
     #expect(store.bots.filter { $0.isDemo && !$0.isHidden }.isEmpty)
 }
 
@@ -146,5 +148,5 @@ private let jarvisID = "00000000-0000-4000-8000-000000000001"
     let routine = try #require(store.bots.first?.routines.first)
     #expect(routine.name == "Morning" && routine.prompt.isEmpty && routine.lastRun == "Never" && routine.importKind == .local)
     try store.importGrokExport(at: exportFolder)
-    #expect(store.bots.count == 5)
+    #expect(store.bots.count == 4 && store.groups.count == 1)
 }

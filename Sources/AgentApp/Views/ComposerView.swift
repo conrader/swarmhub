@@ -8,10 +8,24 @@ struct ComposerView: View {
     let isStreaming: Bool; var canSteer = false
     let send: () -> Void; let stop: () -> Void
     var attach: ([URL]) -> Void = { _ in }; var pasteImage: (Data, String) -> Void = { _, _ in }
+    /// Group chats: member names offered when the user types `@` (Return or Tab picks the first).
+    var mentionNames: [String] = []
     @State private var importing = false; @State private var pasteMonitor: Any?; @FocusState private var focused: Bool
     private var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attachments.isEmpty && !isStreaming) }
+    private var suggestions: [String] {
+        guard !mentionNames.isEmpty, let partial = GroupRouting.typedMention(in: text) else { return [] }
+        return Array(GroupRouting.suggestions(for: partial, names: mentionNames).prefix(6))
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if !suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(suggestions, id: \.self) { name in
+                        Button { text = GroupRouting.complete(text, with: name) } label: { Text("@" + name).font(.system(size: 12, weight: .medium)).padding(.horizontal, 8).frame(maxWidth: .infinity, minHeight: 24, alignment: .leading).contentShape(Rectangle()) }
+                            .buttonStyle(.plain).background(name == suggestions.first ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }.padding(4).background(AppColor.card, in: RoundedRectangle(cornerRadius: 9)).overlay(RoundedRectangle(cornerRadius: 9).stroke(AppColor.separator, lineWidth: 0.5)).frame(maxWidth: 260)
+            }
             if !attachments.isEmpty {
                 ScrollView(.horizontal) { HStack(spacing: 6) { ForEach(attachments) { attachment in AttachmentTile(attachment: attachment, size: 64) { attachments.removeAll { $0.id == attachment.id } } } } }
             }
@@ -19,7 +33,12 @@ struct ComposerView: View {
                 Button { importing = true } label: { Image(systemName: "paperclip").frame(width: 28, height: 28) }.buttonStyle(.plain).foregroundStyle(.secondary).help("Attach images or text files")
                 TextEditor(text: $text).font(.body).scrollContentBackground(.hidden).frame(height: 30).padding(.vertical, 2).focused($focused)
                     .overlay(alignment: .topLeading) { if text.isEmpty { Text(isStreaming && canSteer ? "Steer the running reply…" : "Message " + AppConstants.name + "…").foregroundStyle(.tertiary).allowsHitTesting(false).padding(.top, 5).padding(.leading, 5) } }
-                    .onKeyPress(.return, phases: .down) { press in if press.modifiers.contains(.shift) { return .ignored }; if !isStreaming || canSteer { send() }; return .handled }
+                    .onKeyPress(.return, phases: .down) { press in
+                        if press.modifiers.contains(.shift) { return .ignored }
+                        if let first = suggestions.first { text = GroupRouting.complete(text, with: first); return .handled }
+                        if !isStreaming || canSteer { send() }; return .handled
+                    }
+                    .onKeyPress(.tab) { guard let first = suggestions.first else { return .ignored }; text = GroupRouting.complete(text, with: first); return .handled }
                 if isStreaming && canSteer && hasContent {
                     Button(action: send) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)).frame(width: 28, height: 28) }
                         .buttonStyle(.bordered).buttonBorderShape(.circle).help("Steer the running reply")

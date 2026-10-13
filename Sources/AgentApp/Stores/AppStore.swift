@@ -23,15 +23,18 @@ private actor ReviewerStopTargetBox {
     /// turn takes steer messages, and a message the transcript should scroll to (Media tab).
     @Published var botFeatures: [UUID: Set<String>] = [:]; @Published var openThreadID: UUID?
     @Published var steerAvailable = false; @Published var scrollTarget: UUID?
+    /// P5 group chats; `selectedGroup` wins over `selectedBot` in the detail column.
+    @Published var groups: [GroupChat] = []; @Published var selectedGroup: GroupChat?; @Published var showingNewGroup = false
+    var groupRun: GroupRun?; var migratedGroupNames: [String] = []
     private(set) lazy var attachmentEncoder = AttachmentEncoder(directory: fileURL.deletingLastPathComponent().appending(path: "attachments", directoryHint: .isDirectory))
     let botInfo = BotInfoCache()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
-    private var streamTask: Task<Void, Never>?; let fileURL: URL
+    var streamTask: Task<Void, Never>?; let fileURL: URL
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
-    var streamingBotID: UUID?; private var streamingAssistant: ChatMessage?; var streamingConversation: (any Conversation)?
+    var streamingBotID: UUID?; var streamingAssistant: ChatMessage?; var streamingConversation: (any Conversation)?
     private var historyLoadTokens: [UUID: UUID] = [:]
-    private var activeStreamToken: UUID?
+    var activeStreamToken: UUID?
     private var stopInProgressForStream: UUID?
     private(set) var persistenceEnabled = true
     let backendFactory: ((Bot) throws -> any AgentBackend)?
@@ -50,7 +53,8 @@ private actor ReviewerStopTargetBox {
             loadDemoData(includeActivity: true)
         } else if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
-                bots = try JSONDecoder().decode([Bot].self, from: Data(contentsOf: fileURL))
+                let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups
+                if !migrateArchivedGroups().isEmpty { save() }
                 var migratedLegacyApprovalRules = false
                 for bot in bots {
                     let legacyRules = bot.approvalRules.filter {
@@ -211,8 +215,8 @@ private actor ReviewerStopTargetBox {
         bot.gettingStartedSkill?.isEnabled = false
         bots.insert(bot, at: 0); selectedBot = bot; save(); return bot
     }
-    func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; if selectedBot == bot { selectedBot = bots.first }; save() }
-    func save() { guard persistenceEnabled, let data = try? JSONEncoder().encode(bots) else { return }; try? data.write(to: fileURL, options: .atomic) }
+    func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { selectedBot = bots.first }; save() }
+    func save() { guard persistenceEnabled, let data = try? JSONEncoder().encode(StoreFile(bots: bots, groups: groups)) else { return }; try? data.write(to: fileURL, options: .atomic) }
     /// Sends into the open thread or the main chat. While a turn streams, the text steers it when the
     /// server has `run_steer`; otherwise sending stays disabled until the turn ends.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
@@ -278,7 +282,7 @@ private actor ReviewerStopTargetBox {
     }
     func stop() {
         guard isStreaming, let streamToken = activeStreamToken, stopInProgressForStream != streamToken else { return }
-        stopInProgressForStream = streamToken
+        stopInProgressForStream = streamToken; groupRun?.stopped = true
         let bot = streamingBotID.flatMap { id in bots.first { $0.id == id } }
         streamingAssistant?.isStreaming = false; steerAvailable = false
         guard let bot, let activeBackend = try? backend(for: bot) else {
@@ -335,7 +339,7 @@ private actor ReviewerStopTargetBox {
                 try await approvalBackend.resolveApproval(approval, approved: approved)
                 approvals.removeAll { $0.id == approval.id }
                 appendAudit(to: bot, approval: approval, outcome: approved ? .approved : .denied, decidedBy: "user", reason: "User chose " + (approved ? "approve." : "deny."))
-                bot.messages.append(ChatMessage(role: .system, content: approved ? "Approved: \(approval.title)" : "Declined: \(approval.title)")); objectWillChange.send(); save()
+                approvalConversation(approval, bot: bot).messages.append(ChatMessage(role: .system, content: approved ? "Approved: \(approval.title)" : "Declined: \(approval.title)")); objectWillChange.send(); save()
             } catch { errorMessage = error.localizedDescription }
         }
     }
@@ -453,10 +457,10 @@ private actor ReviewerStopTargetBox {
         do {
             try await backend.resolveApproval(approval, approved: approved)
             appendAudit(to: bot, approval: approval, outcome: approved ? .approved : .denied, decidedBy: decidedBy, reason: reason)
-            bot.messages.append(ChatMessage(role: .system, content: approved ? "Approved automatically: \(approval.title)" : "Declined automatically: \(approval.title)")); objectWillChange.send(); save()
+            approvalConversation(approval, bot: bot).messages.append(ChatMessage(role: .system, content: approved ? "Approved automatically: \(approval.title)" : "Declined automatically: \(approval.title)")); objectWillChange.send(); save()
         } catch { askUser(approval, bot: bot, reason: "Automatic decision could not be delivered; user review is required.", decidedBy: decidedBy) }
     }
-    private func appendAudit(to bot: Bot, approval: ApprovalRequest, outcome: ApprovalAuditOutcome, decidedBy: String, reason: String) {
+    func appendAudit(to bot: Bot, approval: ApprovalRequest, outcome: ApprovalAuditOutcome, decidedBy: String, reason: String) {
         bot.approvalAudit.append(.init(approvalID: approval.id, actionKind: approval.actionKind, outcome: outcome, decidedBy: decidedBy, reason: reason))
         if bot.approvalAudit.count > 500 { bot.approvalAudit.removeFirst(bot.approvalAudit.count - 500) }
         objectWillChange.send(); save()

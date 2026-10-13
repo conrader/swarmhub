@@ -1,14 +1,17 @@
 import SwiftUI
 
 /// Read-only "Grok history" archive shown above the live chat. Collapsed by default; the archive file
-/// is loaded only when expanded.
+/// is loaded only when expanded. Used for a bot's chat and for a group (archive keyed by the group id).
 struct GrokHistoryView: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var bot: Bot
+    let archiveID: UUID; let count: Int; let ownerName: String
     @State private var expanded: Bool
     @State private var query = ""
 
-    init(bot: Bot, expanded: Bool = false) { _bot = ObservedObject(wrappedValue: bot); _expanded = State(initialValue: expanded) }
+    init(bot: Bot, expanded: Bool = false) { self.init(archiveID: bot.id, count: bot.grokHistoryCount, ownerName: bot.name, expanded: expanded) }
+    init(archiveID: UUID, count: Int, ownerName: String, expanded: Bool = false) {
+        self.archiveID = archiveID; self.count = count; self.ownerName = ownerName; _expanded = State(initialValue: expanded)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -17,7 +20,7 @@ struct GrokHistoryView: View {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .semibold)).frame(width: 12)
                     Image(systemName: "archivebox").font(.system(size: 12))
                     Text("Grok history").font(.system(size: 12, weight: .semibold))
-                    Text("\(bot.grokHistoryCount) messages").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text("\(count) messages").font(.system(size: 12)).foregroundStyle(.secondary)
                     Spacer()
                     Text("Imported from Grok Bot").font(.system(size: 11)).foregroundStyle(.tertiary)
                 }.contentShape(Rectangle())
@@ -25,9 +28,9 @@ struct GrokHistoryView: View {
             if expanded {
                 HStack { Image(systemName: "magnifyingglass").foregroundStyle(.secondary); TextField("Search Grok history", text: $query).textFieldStyle(.plain) }
                     .font(.system(size: 12)).padding(7).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 7))
-                let rows = store.grokHistory.messages(for: bot.id).filter { $0.matches(query.trimmingCharacters(in: .whitespaces)) }
+                let rows = store.grokHistory.messages(for: archiveID).filter { $0.matches(query.trimmingCharacters(in: .whitespaces)) }
                 if rows.isEmpty { Text(query.isEmpty ? "No imported messages." : "No matches.").font(.caption).foregroundStyle(.secondary) }
-                LazyVStack(alignment: .leading, spacing: 6) { ForEach(rows) { ArchivedMessageRow(message: $0, botName: bot.name) } }
+                LazyVStack(alignment: .leading, spacing: 6) { ForEach(rows) { ArchivedMessageRow(message: $0, botName: ownerName) } }
             }
         }
         .padding(12).background(AppColor.panel.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
