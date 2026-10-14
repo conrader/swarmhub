@@ -129,7 +129,7 @@ import Testing
 }
 
 @Test func imagesGoAsContentPartsOnLegacyChatCompletions() async throws {
-    let (host, backend) = ChatParityServer.serve(features: [:]) { _, _ in .sse([]) }
+    let (host, backend) = ChatParityServer.serve(features: [:]) { _, _ in ChatParityServer.Reply(body: Data("data: [DONE]\n\n".utf8)) }
     let image = "data:image/jpeg;base64,/9j/4AAQ"
     for try await _ in try await backend.send(.init(sessionID: "s1", systemPrompt: "p", messages: [(role: "user", content: "earlier"), (role: "assistant", content: "ok"), (role: "user", content: "")], images: [image])) {}
     let body = try #require(ChatParityServer.requests(host).first { $0.path == "/v1/chat/completions" }?.body)

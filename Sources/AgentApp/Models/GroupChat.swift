@@ -13,6 +13,8 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
     @Published var grokSourceID: String?; @Published var grokHistoryCount: Int
     /// The member answering right now (not saved); `hermesSessionID` follows it so Stop and steer reach its run.
     var activeMemberID: UUID?
+    /// P16: the round in progress (saved; encoded only when set).
+    var round: GroupRound?
 
     init(id: UUID = UUID(), name: String, memberIDs: [UUID], messages: [ChatMessage] = [], createdAt: Date = .now) {
         self.id = id; self.name = name; self.memberIDs = memberIDs; self.messages = messages; self.createdAt = createdAt
@@ -29,7 +31,7 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
         set { if let id = activeMemberID { sessions[id.uuidString.lowercased()] = newValue } }
     }
 
-    enum CodingKeys: CodingKey { case id, name, memberIDs, messages, unreadCount, manualUnread, isHidden, isMuted, sessions, grokSourceID, grokHistoryCount, createdAt }
+    enum CodingKeys: CodingKey { case id, name, memberIDs, messages, unreadCount, manualUnread, isHidden, isMuted, sessions, grokSourceID, grokHistoryCount, createdAt, round }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Group"
@@ -39,13 +41,15 @@ final class GroupChat: ObservableObject, Identifiable, Codable, Hashable, Conver
         sessions = try c.decodeIfPresent([String: String].self, forKey: .sessions) ?? [:]
         grokSourceID = try c.decodeIfPresent(String.self, forKey: .grokSourceID); grokHistoryCount = try c.decodeIfPresent(Int.self, forKey: .grokHistoryCount) ?? 0
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .now
+        // A malformed round must not cost the store.
+        round = (try? c.decodeIfPresent(GroupRound.self, forKey: .round)) ?? nil
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id); try c.encode(name, forKey: .name); try c.encode(memberIDs, forKey: .memberIDs); try c.encode(messages, forKey: .messages)
         try c.encode(unreadCount, forKey: .unreadCount); try c.encode(manualUnread, forKey: .manualUnread); try c.encode(isHidden, forKey: .isHidden); try c.encode(isMuted, forKey: .isMuted)
         try c.encode(sessions, forKey: .sessions); try c.encodeIfPresent(grokSourceID, forKey: .grokSourceID); try c.encode(grokHistoryCount, forKey: .grokHistoryCount)
-        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(createdAt, forKey: .createdAt); try c.encodeIfPresent(round, forKey: .round)
     }
 }
 
