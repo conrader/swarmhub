@@ -23,6 +23,11 @@ enum SettingsLayout {
         }
     }
 
+    /// P32 8: the words for where a pane is, e.g. "Settings → Advanced → Servers and keys".
+    static func path(_ pane: AdvancedPane, _ section: String? = nil) -> String {
+        (["Settings", "Advanced", pane.rawValue] + (section.map { [$0] } ?? [])).joined(separator: " → ")
+    }
+
     /// Every control Settings had at the start of P21 (0.4.4), by stable id.
     static let baseline = [
         "servers.hermesVersion", "you.name", "servers.baseURL", "servers.defaultKey", "servers.namedProfiles", "servers.testDiscover",
