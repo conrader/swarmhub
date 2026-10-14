@@ -45,10 +45,12 @@ struct BotEditorAdvancedSection: View {
         }
         BotModelSettingsSection(cache: store.botInfo, bot: bot, pendingBackend: fields.backend, conversation: $fields.conversationModel, coding: $fields.codingModel)
         if let bot { BoxInstructionsSection(bot: bot) }
-        if bot != nil, fields.backend == .hermes {
+        if bot != nil, fields.backend == .hermes || fields.backend == .openClaw {
             Section("Bot management") {
                 Toggle("Can manage other bots", isOn: $fields.canManage)
-                Text("This bot may create bots, change their instructions and avatars, and retire them on its box. One per connection; \(AppConstants.name) sends it the management text only when you ask for bot management.").font(.caption).foregroundStyle(.secondary)
+                Text(fields.backend == .openClaw
+                     ? "This agent may create agents, change their instructions and avatars, and retire them on its Gateway host (its host must allow exec). One per Gateway; \(AppConstants.name) sends it the management text only when you ask for bot management."
+                     : "This bot may create bots, change their instructions and avatars, and retire them on its box. One per connection; \(AppConstants.name) sends it the management text only when you ask for bot management.").font(.caption).foregroundStyle(.secondary)
             }
         }
     }

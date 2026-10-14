@@ -15,6 +15,7 @@ struct BotOffer: Identifiable, Equatable {
 
 /// P22: the main bot manages the other bots with stock Hermes; SwarmHub sends it the manager text on demand only and
 /// applies the swarmhub blocks it returns. Nothing is installed on the box; new bots' keys are derived, never sent.
+/// P26: an OpenClaw agent can hold the role for its Gateway (`AppStore+BotManagerOpenClaw.swift`).
 extension AppStore {
     static let managerMigrationKey = "p22.managerRoleMigrated"
     private static let cachedTemplate = BotManagerText.template()
@@ -22,25 +23,29 @@ extension AppStore {
 
     // MARK: Manager role
 
-    /// The base URL a Hermes bot talks to, as `backend(for:)` resolves it.
+    /// The base URL a Hermes bot talks to, as `backend(for:)` resolves it; `openclaw:<gatewayID>` for an OpenClaw bot (P26).
     func connection(of bot: Bot) -> String {
+        if bot.backend == .openClaw { return "openclaw:\(bot.openClaw?.gatewayID ?? "")" }
         let raw = bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL
         return raw.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
     }
 
-    func isManager(_ bot: Bot) -> Bool { bot.canManageBots && bot.backend == .hermes && !bot.isReadOnlyArchive }
+    /// Hermes bots, and OpenClaw bots bound to a Gateway agent, can hold the role.
+    func canHoldManagerRole(_ bot: Bot) -> Bool { bot.backend == .hermes || (bot.backend == .openClaw && bot.openClaw != nil) }
 
-    /// The manager bot on this bot's backend connection (one per connection).
+    func isManager(_ bot: Bot) -> Bool { bot.canManageBots && canHoldManagerRole(bot) && !bot.isReadOnlyArchive }
+
+    /// The manager bot on this bot's backend connection (one per Hermes base URL, one per OpenClaw Gateway).
     func manager(for bot: Bot) -> Bot? {
-        guard bot.backend == .hermes else { return nil }
+        guard canHoldManagerRole(bot) else { return nil }
         let target = connection(of: bot)
         return bots.first { isManager($0) && connection(of: $0) == target }
     }
 
-    /// Turns the role on for one Hermes bot (and off for any other manager on its connection), or off.
+    /// Turns the role on for one bot (and off for any other manager on its connection), or off.
     func setCanManageBots(_ bot: Bot, _ on: Bool) {
         guard on else { bot.canManageBots = false; objectWillChange.send(); save(); return }
-        guard bot.backend == .hermes else { return }
+        guard canHoldManagerRole(bot) else { return }
         let target = connection(of: bot)
         for other in bots where other.id != bot.id && other.canManageBots && connection(of: other) == target { other.canManageBots = false }
         bot.canManageBots = true; objectWillChange.send(); save()
@@ -95,8 +100,10 @@ extension AppStore {
         Task { for op in ops { await apply(op, manager: bot) } }
     }
 
-    /// The bot bound to `profile` on the manager's connection (the manager itself included).
+    /// The bot bound to `profile` (an OpenClaw manager: agent id on its Gateway) on the manager's connection, the manager
+    /// itself included.
     func boundBot(_ profile: String, manager: Bot) -> Bot? {
+        if manager.backend == .openClaw { return boundOpenClawBot(profile, manager: manager) }
         let target = connection(of: manager)
         return bots.first { $0.backend == .hermes && ($0.hermesProfile ?? "default") == profile && !$0.isReadOnlyArchive && connection(of: $0) == target }
     }
@@ -119,7 +126,8 @@ extension AppStore {
             guard let bot = boundBot(name, manager: manager), bot.id != manager.id else { return }
             bot.retiredOnBox = true; setHidden(bot, true)
         case .bots(let listed):
-            botOffers[manager.id] = listed.filter { $0.name != "default" && boundBot($0.name, manager: manager) == nil }
+            let skipsDefault = manager.backend == .hermes
+            botOffers[manager.id] = listed.filter { !(skipsDefault && $0.name == "default") && boundBot($0.name, manager: manager) == nil }
                 .map { BotOffer(name: $0.name, description: $0.description) }
         }
         objectWillChange.send(); save()
@@ -132,6 +140,7 @@ extension AppStore {
             if let avatar { existing.avatarMark = avatar }
             return
         }
+        if manager.backend == .openClaw { return await createOpenClawBot(name: name, description: description, avatar: avatar, manager: manager) }
         switch await probeDerived(name, manager: manager) {
         case .reachable(let key):
             keyStore.setKey(key, for: Self.keyAccount(forProfile: name))
@@ -148,6 +157,7 @@ extension AppStore {
 
     /// "Add" on an offer from a `bots` list: derive + probe; a rejected key falls back to the paste-key flow.
     func addOffered(_ offer: BotOffer, manager: Bot) async {
+        if manager.backend == .openClaw { return await addOfferedOpenClaw(offer, manager: manager) }
         setOffer(offer.name, .adding, manager: manager)
         switch await probeDerived(offer.name, manager: manager) {
         case .reachable:
@@ -159,7 +169,7 @@ extension AppStore {
         }
     }
 
-    private func setOffer(_ name: String, _ state: BotOffer.State, manager: Bot) {
+    func setOffer(_ name: String, _ state: BotOffer.State, manager: Bot) {
         guard let index = botOffers[manager.id]?.firstIndex(where: { $0.name == name }) else { return }
         botOffers[manager.id]?[index].state = state
     }

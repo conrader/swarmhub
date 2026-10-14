@@ -79,9 +79,13 @@ extension AppStore {
 
     /// "Add bots from this Gateway…": one bot per (Gateway, agent), idempotent, never removes a bot; own avatars only.
     @discardableResult func addBotsFromGateway(_ gateway: OpenClawGateway) async throws -> [OpenClawAdd] {
-        let listed = try await openClawHub.agents(for: gateway)
+        addOpenClawBots(try await openClawHub.agents(for: gateway).agents, gateway: gateway)
+    }
+
+    /// One bot per chosen agent of this Gateway (P26 manager, Add bots), skipping agents that already have one.
+    @discardableResult func addOpenClawBots(_ agents: [OpenClawAgent], gateway: OpenClawGateway) -> [OpenClawAdd] {
         var results: [OpenClawAdd] = []
-        for agent in listed.agents {
+        for agent in agents {
             if bots.contains(where: { $0.backend == .openClaw && $0.openClaw?.gatewayID == gateway.id && $0.openClaw?.agentID == agent.id }) {
                 results.append(.init(name: agent.displayName, added: false)); continue
             }
