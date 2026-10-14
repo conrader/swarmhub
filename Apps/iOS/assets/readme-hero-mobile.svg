@@ -8,7 +8,7 @@
   </defs>
   <g clip-path="url(#bounds)">
     <rect width="720" height="555" fill="url(#canvas)"/>
-    
+
     <g stroke="#AAD6CD" stroke-opacity=".12"><circle cx="601" cy="108" r="94"/><circle cx="601" cy="108" r="120" stroke-dasharray="3 9"/></g>
     <svg x="522" y="28" width="158" height="158" viewBox="0 0 1024 1024"><defs>
 <linearGradient id="brand-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2E2F36"/><stop offset=".5" stop-color="#16171B"/><stop offset="1" stop-color="#08080A"/></linearGradient>
