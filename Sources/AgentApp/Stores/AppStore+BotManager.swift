@@ -14,7 +14,8 @@ struct BotOffer: Identifiable, Equatable {
 }
 
 /// P22: the main bot manages the other bots with stock Hermes; SwarmHub sends it the manager text on demand only and
-/// applies the swarmhub blocks it returns. Nothing is installed on the box; new bots' keys are derived, never sent.
+/// applies the swarmhub blocks it returns. New bots' keys are derived, never sent. P27 adds skills the manager installs
+/// on Konrad's press (AppStore+Skills.swift); Hermes itself is never changed.
 extension AppStore {
     static let managerMigrationKey = "p22.managerRoleMigrated"
     private static let cachedTemplate = BotManagerText.template()
@@ -63,11 +64,21 @@ extension AppStore {
 
     /// The turn's system prompt: the bot's instructions, plus the manager text only on a management turn of the manager's
     /// main chat (an intent match, a menu request, or a follow-up while the exchange is open).
+    /// P27: an Install press sends its own instructions instead; once the manager's `swarmhub-manager` skill is recorded
+    /// at the bundled version, a management turn carries a one-line pointer to it instead of the full text.
     func managementPrompt(for bot: Bot, text: String, conversation: any Conversation) -> String {
         guard isManager(bot), conversation === bot else { return bot.persona }
+        if let install = pendingSkillInstalls.removeValue(forKey: bot.id) {
+            managementExchanges[bot.id] = ManagementExchange(openedAt: now())
+            return bot.persona + "\n\n" + install.instructions
+        }
         let decision = ManagementExchange.decide(text: text, exchange: managementExchanges[bot.id], now: now())
         managementExchanges[bot.id] = decision.next
-        guard decision.attach, let managerText = managerText(for: bot) else { return bot.persona }
+        guard decision.attach else { return bot.persona }
+        if let skill = skills(for: bot).first(where: { $0.name == SkillLibrary.managerSkill }), skillState(skill, for: bot) == .current {
+            return bot.persona + "\n\n" + Self.skillPointer
+        }
+        guard let managerText = managerText(for: bot) else { return bot.persona }
         return bot.persona + "\n\n" + managerText
     }
 
@@ -114,6 +125,8 @@ extension AppStore {
         case .botRetired(let name):
             guard let bot = boundBot(name, manager: manager), bot.id != manager.id else { return }
             bot.retiredOnBox = true; setHidden(bot, true)
+        case .skillsInstalled(let profile, let installed):
+            recordInstalled(installed, profile: profile, manager: manager)
         case .bots(let listed):
             botOffers[manager.id] = listed.filter { $0.name != "default" && boundBot($0.name, manager: manager) == nil }
                 .map { BotOffer(name: $0.name, description: $0.description) }

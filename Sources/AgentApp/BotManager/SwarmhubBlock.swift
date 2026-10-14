@@ -4,6 +4,7 @@ import os
 /// One action the manager bot reports in a ```swarmhub fence (`Resources/BotManager/manager-hermes.md`).
 enum SwarmhubOp: Equatable {
     struct ListedBot: Equatable { var name: String; var description: String }
+    struct InstalledSkill: Equatable { var name: String; var version: String }
     case botCreated(name: String, description: String, avatar: AvatarMark?)
     case avatar(name: String, mark: AvatarMark)
     case description(name: String, description: String)
@@ -11,6 +12,8 @@ enum SwarmhubOp: Equatable {
     case instructions(name: String, text: String)
     case botRetired(name: String)
     case bots([ListedBot])
+    /// P27: the manager wrote SwarmHub skills into `bot`'s profile. Only names and versions; never the content.
+    case skillsInstalled(bot: String, skills: [InstalledSkill])
 
     /// The op from one JSON object; nil for unknown ops, missing fields or an invalid profile name.
     init?(_ object: [String: Any]) {
@@ -42,6 +45,14 @@ enum SwarmhubOp: Equatable {
             self = .bots(rows.compactMap { row in
                 guard let name = (row["name"] as? String).flatMap({ HermesKeyPaste.isValidProfileName($0) ? $0 : nil }) else { return nil }
                 return ListedBot(name: name, description: row["description"] as? String ?? "")
+            })
+        case "skills_installed":
+            guard let bot = string("bot").flatMap({ HermesKeyPaste.isValidProfileName($0) ? $0 : nil }),
+                  let rows = object["skills"] as? [[String: Any]] else { return nil }
+            self = .skillsInstalled(bot: bot, skills: rows.compactMap { row in
+                guard let name = row["name"] as? String, HermesKeyPaste.isValidProfileName(name),
+                      let version = (row["version"] as? String).flatMap(SkillVersion.init) else { return nil }
+                return InstalledSkill(name: name, version: version.description)
             })
         default: return nil
         }

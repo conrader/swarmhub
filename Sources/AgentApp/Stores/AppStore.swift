@@ -43,6 +43,8 @@ import UserNotifications
     var botProbeAttempts = 4; var botProbeDelay: Duration = .milliseconds(2500)
     /// Tests: the manager text template instead of the bundled resource.
     var managerTemplateOverride: String?
+    /// P27: tests' skill library instead of the bundled one; an Install waiting for its manager turn (per manager bot).
+    var skillLibraryOverride: [BundledSkill]?; var pendingSkillInstalls: [UUID: SkillInstallTurn] = [:]
     /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?

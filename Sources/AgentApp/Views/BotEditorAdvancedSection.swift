@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The editor's Advanced part (P21 item 7), unchanged controls moved out of the simple part: Title and Description,
 /// Backend (the only place "Mock" is offered), Show in sidebar, Approvals, the Models section (P13/P17 edit it here),
-/// box instructions, bot management, and a read-only "Runs on <where> as <name>" for an agent bound to a box.
+/// box instructions, bot management, SwarmHub skills (P27), and a read-only "Runs on <where> as <name>" for an agent bound to a box.
 struct BotEditorAdvancedSection: View {
     @EnvironmentObject private var store: AppStore
     let bot: Bot?
@@ -51,6 +51,7 @@ struct BotEditorAdvancedSection: View {
                 Text("This bot may create bots, change their instructions and avatars, and retire them on its box. One per connection; \(AppConstants.name) sends it the management text only when you ask for bot management.").font(.caption).foregroundStyle(.secondary)
             }
         }
+        if let bot { SwarmHubSkillsSection(bot: bot) }
     }
 
     private func place(_ bot: Bot) -> String {
