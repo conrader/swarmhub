@@ -23,6 +23,8 @@ final class ChatThread: ObservableObject, Identifiable, Codable, Conversation {
         self.id = id; self.parentMessageID = parentMessageID; self.parentSessionID = parentSessionID
         self.hermesSessionID = hermesSessionID; self.messages = messages; self.createdAt = createdAt
     }
+    /// "Coding · <model>" for a coding thread, else "Thread".
+    var headerTitle: String { role == .coding ? "Coding · \(modelLock?.model ?? "unknown")" : "Thread" }
     var replyCount: Int { messages.filter { $0.role != .system && !$0.content.isEmpty }.count }
     enum CodingKeys: CodingKey { case id, parentMessageID, parentSessionID, createdAt, hermesSessionID, messages, role, modelLock }
     required init(from decoder: Decoder) throws {

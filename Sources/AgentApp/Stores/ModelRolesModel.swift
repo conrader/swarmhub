@@ -6,6 +6,20 @@ struct ModelRolesModel: Equatable, Sendable {
     static let caption = "\(AppConstants.name) remembers these choices and applies them when it starts a chat. It does not change your box's own settings."
     static let conversationHelp = "Used for chats, group chats and threads \(AppConstants.name) starts."
     static let codingHelp = "Used for coding threads. Sub-agents use whatever the box sets."
+    /// What a coding thread's lock covers (P13 "The two roles"); coding in the main chat stays on the Conversation model.
+    static func codingThreadHelp(_ model: String) -> String {
+        "Opens a thread whose turns \(AppConstants.name) sends run on \(model). Not covered: turns Hermes starts itself after a background "
+            + "sub-agent, routines, and anything started outside \(AppConstants.name). Coding in the main chat stays on the conversation model. "
+            + ModelRoleReason.permanent.text
+    }
+    /// "Both use <supplier>; they share its usage limit", from supplier slugs (not measured); nil when they differ or
+    /// Coding follows the conversation.
+    static func sharedSupplierHint(conversation: ModelChoice?, coding: ModelChoice?, catalog: ModelCatalog?) -> String? {
+        guard let coding, let slug = conversation?.provider ?? catalog?.defaultSupplier else { return nil }
+        let supplier = catalog?.supplier(answering: slug)
+        guard slug.lowercased() == coding.provider.lowercased() || supplier?.answers(to: coding.provider) == true else { return nil }
+        return "Both use \(supplier?.name ?? slug); they share its usage limit."
+    }
 
     /// What the store knows about one bot; `current` is the model its main chat runs (P11's `currentModel`).
     struct Input: Sendable {

@@ -4,11 +4,15 @@ struct MessageView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage
     let repliedMessage: ChatMessage?; let thread: ChatThread?; let canThread: Bool
-    let reply: () -> Void; let openThread: () -> Void
+    /// P13 Part D: the Coding model "Code in thread" locks a fork to; nil hides the button.
+    let codingModel: String?
+    let reply: () -> Void; let openThread: () -> Void; let codeInThread: () -> Void
     @State private var showingReactions = false
     static let tapbacks = ["👍", "❤️", "😂", "‼️", "?"]
-    init(message: ChatMessage, repliedMessage: ChatMessage? = nil, thread: ChatThread? = nil, canThread: Bool = false, reply: @escaping () -> Void = {}, openThread: @escaping () -> Void = {}) {
-        self.message = message; self.repliedMessage = repliedMessage; self.thread = thread; self.canThread = canThread; self.reply = reply; self.openThread = openThread
+    init(message: ChatMessage, repliedMessage: ChatMessage? = nil, thread: ChatThread? = nil, canThread: Bool = false, codingModel: String? = nil,
+         reply: @escaping () -> Void = {}, openThread: @escaping () -> Void = {}, codeInThread: @escaping () -> Void = {}) {
+        self.message = message; self.repliedMessage = repliedMessage; self.thread = thread; self.canThread = canThread; self.codingModel = codingModel
+        self.reply = reply; self.openThread = openThread; self.codeInThread = codeInThread
     }
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -41,6 +45,10 @@ struct MessageView: View {
             Button { showingReactions.toggle() } label: { Image(systemName: "face.smiling") }.help("Tapback")
             Button(action: reply) { Image(systemName: "arrowshape.turn.up.left") }.help("Reply")
             if canThread && thread == nil && message.role == .assistant { Button(action: openThread) { Image(systemName: "bubble.left.and.text.bubble.right") }.help("Reply in thread") }
+            if canThread && thread == nil && message.role == .assistant, let codingModel {
+                Button(action: codeInThread) { Image(systemName: "chevron.left.forwardslash.chevron.right") }
+                    .help("Code in thread\n" + ModelRolesModel.codingThreadHelp(codingModel)).accessibilityLabel("Code in thread on \(codingModel)")
+            }
         }.buttonStyle(.plain).foregroundStyle(.tertiary).font(.caption)
             .popover(isPresented: $showingReactions) {
                 HStack { ForEach(Self.tapbacks, id: \.self) { emoji in Button(emoji) { store.toggleReaction(emoji, on: message); showingReactions = false }.buttonStyle(.plain).padding(3).background(message.reactions.contains(emoji) ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 5)) } }.padding(10)

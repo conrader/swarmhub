@@ -113,7 +113,8 @@ private func sessionOf(_ bot: Bot) -> String { "agentapp_\(bot.id.uuidString.low
     let calls = state.requests().map { "\($0.method) \($0.path)" }.filter { $0.contains(session) || $0.contains(fork) || $0 == "POST \(prefix)" }
     let start = try #require(calls.lastIndex(of: "POST \(prefix)"))
     #expect(Array(calls[start...]) == ["POST \(prefix)", "GET \(prefix)/\(session)", "POST \(prefix)/\(session)/model", "POST \(prefix)/\(session)/chat/stream",
-                                       "GET \(prefix)/\(session)", "POST \(prefix)/\(session)/fork", "POST \(prefix)/\(fork)/model", "POST \(prefix)/\(fork)/chat/stream"])
+                                       "GET \(prefix)/\(session)", "GET \(prefix)/\(session)", "POST \(prefix)/\(session)/fork", "POST \(prefix)/\(fork)/model",
+                                       "POST \(prefix)/\(fork)/chat/stream"], "Part D: g2 runs Code in thread, which re-reads the list for this chat before it forks")
     #expect(AppConstants.isSelfTestSession(session) && AppConstants.isSelfTestSession(fork))
     #expect(roleBot.threads.first?.role == .coding && roleBot.threads.first?.modelLock?.origin == .coding)
     let inputs = state.requests().filter { $0.path.hasSuffix("/chat/stream") }.map { $0.body?["input"] as? String ?? "" }

@@ -45,22 +45,10 @@ extension AppStore {
     func openThread(in bot: Bot) -> ChatThread? { openThreadID.flatMap { id in bot.threads.first { $0.id == id } } }
     func currentConversation(of bot: Bot) -> any Conversation { openThread(in: bot) ?? bot }
 
-    /// Opens the message's thread, forking the bot's session first when there is none yet.
+    /// Opens the message's thread, forking the bot's session first when there is none yet (`startThread`).
     func replyInThread(to message: ChatMessage, in bot: Bot) {
         if let existing = bot.thread(for: message.id) { openThreadID = existing.id; return }
-        guard canFork(bot), let sessionID = bot.hermesSessionID, !isStreaming else { return }
-        let activeBackend: any AgentBackend
-        do { activeBackend = try backend(for: bot) } catch { errorMessage = error.localizedDescription; return }
-        let threadID = UUID()
-        Task {
-            do {
-                let forkID = try await activeBackend.forkSession(sessionID: sessionID, id: "\(sessionNamespace)agentapp_thread_\(threadID.uuidString.lowercased())")
-                guard bot.thread(for: message.id) == nil else { return }
-                bot.threads.append(ChatThread(id: threadID, parentMessageID: message.id, parentSessionID: sessionID, hermesSessionID: forkID))
-                if selectedBot?.id == bot.id { openThreadID = threadID }
-                objectWillChange.send(); save()
-            } catch { errorMessage = "Could not start a thread: \(error.localizedDescription)" }
-        }
+        startThread(from: message, in: bot)
     }
 
     func closeThread() { openThreadID = nil }

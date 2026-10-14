@@ -14,6 +14,8 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         /// P13: the lock answer (a refusal echoes the caller's bearer key), ids `POST /api/sessions` reports as
         /// existing (409), and a catalog replacing the one-supplier default.
         var lockStatus = 200
+        /// P13 Part D: a per-session lock answer that wins over `lockStatus`.
+        var lockFailures: [String: Int] = [:]
         var existingSessions: Set<String> = []
         var catalog: [String: Any]?
         /// P17: a catalog per profile (`/p/<profile>/`), else `catalog`.
@@ -102,7 +104,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
             guard state.with({ $0.features["session_fork"] == true }) else { return send(404, ["error": "no route"]) }
             send(200, ["session": ["id": body?["id"] as? String ?? "fork"]])
         case ("POST", let path) where path.count == 4 && path[0...1] == ["api", "sessions"] && path[3] == "model":
-            let model = body?["model"] as? String ?? "", status = state.with { $0.lockStatus }
+            let model = body?["model"] as? String ?? "", status = state.with { $0.lockFailures[path[2]] ?? $0.lockStatus }
             guard status == 200 else {
                 return send(status, ["error": ["message": "cannot route for \(request.value(forHTTPHeaderField: "Authorization") ?? "")", "code": "model_lock_unavailable"]])
             }

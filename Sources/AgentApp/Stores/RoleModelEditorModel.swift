@@ -17,12 +17,14 @@ struct RoleModelEditorModel: Equatable {
     /// The stored pair or the app default is not in this agent's list.
     var warning: String?
     var showsUnpinCopy = false
+    static let sameAsConversation = "Same as conversation"
 
     /// `catalog` is nil for a new agent or a pending backend that differs from the saved one (nothing is loaded).
     init(isNew: Bool, savedBackend: BackendKind?, pendingBackend: BackendKind, catalog: Loadable<ModelCatalog>, hasEntry: Bool,
-         autoLoad: Bool, refreshNote: String? = nil, appDefault: ModelChoice?, setting: ModelSetting) {
+         autoLoad: Bool, refreshNote: String? = nil, appDefault: ModelChoice?, setting: ModelSetting, role: ModelRole = .conversation) {
         let loaded = catalog.value
-        let agentDefault = "Agent default (\(loaded?.agentDefault?.model ?? "unknown"))"
+        // Coding's opt-out row is "Same as conversation" (P13 Part D); Conversation's is the agent default.
+        let agentDefault = role == .coding ? Self.sameAsConversation : "Agent default (\(loaded?.agentDefault?.model ?? "unknown"))"
         let appDefaultTitle = appDefault.map { "\(AppConstants.name) default (\($0.model))" }
         switch setting {
         case .inherit: label = appDefaultTitle ?? agentDefault
@@ -53,7 +55,9 @@ struct RoleModelEditorModel: Equatable {
                 leading.append(.init(title: catalog.offers(appDefault) ? title : title + " — not offered by this agent", setting: .inherit))
             }
             leading.append(.init(title: agentDefault, setting: .box))
-            let effective = ModelPolicy.effective(role: .conversation, settings: .init(conversation: setting), defaults: .init(conversation: appDefault), catalog: catalog)
+            let settings = role == .coding ? BotModelSettings(coding: setting) : BotModelSettings(conversation: setting)
+            let defaults = role == .coding ? ModelDefaults(coding: appDefault) : ModelDefaults(conversation: appDefault)
+            let effective = ModelPolicy.effective(role: role, settings: settings, defaults: defaults, catalog: catalog)
             warning = effective.note
         }
     }

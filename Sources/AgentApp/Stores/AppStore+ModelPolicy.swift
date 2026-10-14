@@ -89,14 +89,9 @@ extension AppStore {
     /// Overview "Switch this chat": pins the chat to what the bot resolves to now, or to the box's current default
     /// pair when it resolves to the box default (Hermes has no unpin).
     func switchChatToRoleModel(for bot: Bot) async {
-        let catalog = modelCatalog(for: bot).value
-        let effective = ModelPolicy.effective(role: .conversation, settings: bot.modelSettings, defaults: modelDefaults, catalog: catalog)
-        if effective.check == .notOffered, effective.resolved.source == .bot, let note = effective.note { botInfo.finishSwitch(botID: bot.id, error: note); return }
-        let resolved = ResolvedModel(choice: effective.choice, source: effective.source)
-        guard let provider = resolved.choice?.provider ?? catalog?.defaultSupplierRow?.slug, let model = resolved.choice?.model ?? catalog?.agentDefault?.model else {
-            botInfo.finishSwitch(botID: bot.id, error: ModelRoleReason.noList.text); return
+        switch ModelPolicy.lockTarget(settings: bot.modelSettings, defaults: modelDefaults, catalog: modelCatalog(for: bot).value) {
+        case .refused(let reason): botInfo.finishSwitch(botID: bot.id, error: reason)
+        case .pair(let pair, let origin): await switchModel(for: bot, provider: pair.provider, model: pair.model, origin: origin)
         }
-        let origin: LockOrigin? = switch resolved.source { case .bot: .bot; case .appDefault: .torvliDefault; default: bot.modelSettings?.conversation == .box ? .bot : nil }
-        await switchModel(for: bot, provider: provider, model: model, origin: origin)
     }
 }
