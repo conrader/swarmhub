@@ -18,7 +18,7 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 |---|---|---|
 | Automatic updates | proven: Konrad updated 0.4.1 → 0.4.2 via Sparkle; 0.4.3 (Keychain fix, notarized) published + hand-installed, "works, no prompts" (Konrad) | Konrad: back up the Sparkle private key |
 | P10e live acceptance + P10c live steps (Grok import on Konrad's real account) | P10d merged (482 green): sheet, + → Import from Grok Bot…, Settings → Account → Grok Bot | shipped in 0.4.4; one live session with Konrad (Allow clicks) |
-| P13 Parts D / E model roles | Part C live e2e 8/8 PASS 2026-10-14 (g1 terra, g2 sol; from the notarized 0.4.5 build); Part D building (`p13d`) | D merge → E (needs P13.0 box canary GO per brief) |
+| P13 Part E sub-agent guidance | P13.0 canary 2026-10-14: NO-GO (check 2: Hermes 0.22.0 drops an async delegation result if the parent turn is still active ~15 s after the child finishes) — `docs/P13-canary.md`; Part D merged f39e151 | stays off; to revive: Hermes must deliver after the turn ends (upstream report or getermes core patch — Konrad's call), then re-run the canary |
 | P16 last hop | shipped in 0.4.5 (588 green) | Konrad: Wi-Fi off mid-answer → Incomplete then completes; send offline → Not sent, Retry once; quit mid-answer → partial kept |
 | P12 Connect OpenClaw | building Parts A-C (`p12`, MacBook; fakes only, no real Gateway) | merge when green |
 | Small: sidebar "Import from Grok Bot" item (needs P10d), attention badge for failed turns (needs P16), idle-pause for hidden windows | waiting on the phases named | with those phases |
