@@ -5,7 +5,7 @@ struct ChatView: View {
     @StateObject private var intake = AttachmentIntake()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     var body: some View {
-        let thread = store.openThread(in: bot)
+        let thread = store.openThread(in: bot), coding = store.codingThreadChoice(for: bot)
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
@@ -13,7 +13,7 @@ struct ChatView: View {
                 BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: store.isWorking(bot), probe: "chat_header",
                           isWaiting: store.hasPendingApproval(bot))
                 Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)) }.buttonStyle(.plain)
-                if thread != nil { Text("Thread").font(.system(size: 12)).foregroundStyle(.secondary) }
+                if let thread { Text(thread.headerTitle).font(.system(size: 12)).foregroundStyle(.secondary) }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
                 if store.isManager(bot) {
@@ -32,8 +32,9 @@ struct ChatView: View {
                             if bot.messages.isEmpty && bot.grokSourceID == nil { ChatWelcome(bot: bot) }
                             ForEach(bot.messages) { message in
                                 MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
-                                            thread: bot.thread(for: message.id), canThread: store.canFork(bot),
-                                            reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) }).id(message.id)
+                                            thread: bot.thread(for: message.id), canThread: store.canFork(bot), codingModel: coding?.model,
+                                            reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) },
+                                            codeInThread: { store.codeInThread(to: message, in: bot) }).id(message.id)
                             }
                         }
                         ForEach(store.approvals.filter { $0.botID == bot.id && !($0.sessionID?.hasPrefix("group-") ?? false) }) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }

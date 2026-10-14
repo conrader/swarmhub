@@ -1,7 +1,7 @@
 import Foundation
 
 /// P13 Part C, `--e2e --roles <provider>/<model> <provider>/<model>`: step g, appended to the six `--e2e` steps.
-/// It makes the calls the app's model roles make (Part B's apply-on-create, Part D's coding thread) in new self-test
+/// It runs the app's model roles (Part B's apply-on-create, Part D's "Code in thread") in new self-test
 /// sessions and checks the session stream's `runtime{}` against the pairs given. The pairs come from the command
 /// line only; nothing is picked from the catalog (an unrouted guess costs quota and proves nothing).
 extension HeadlessE2E {
@@ -26,7 +26,7 @@ extension HeadlessE2E {
     /// g1 and g2, one line each. g2 continues from g1's chat; without it g2 fails and says why.
     static func rolesSteps(store: AppStore, jarvis: Bot, pairs: RolePairs, timing: Timing) async -> [Step] {
         let bot = copy(jarvis, name: "\(jarvis.name) roles")
-        bot.modelSettings = .init(conversation: .choice(pairs.conversation))
+        bot.modelSettings = .init(conversation: .choice(pairs.conversation), coding: .choice(pairs.coding))
         store.bots.append(bot)
         let conversation = await conversationRoleStep(store: store, bot: bot, pair: pairs.conversation, timing: timing)
         let coding = await codingThreadStep(store: store, bot: bot, parent: conversation.assistant, pair: pairs.coding, timing: timing)
@@ -52,8 +52,8 @@ extension HeadlessE2E {
         return (step, turn.assistant)
     }
 
-    /// g2: fork with `replyInThread`, lock the fork's session to the coding pair, one message in the thread →
-    /// `runtime{}` equals the coding pair. These are the calls Part D's coding thread makes.
+    /// g2: "Code in thread" (`codeInThread`: fork, lock the fork to the coding pair), one message in the thread →
+    /// `runtime{}` equals the coding pair.
     static func codingThreadStep(store: AppStore, bot: Bot, parent: ChatMessage?, pair: ModelChoice, timing: Timing) async -> Step {
         var step = Step(id: "g2", name: "coding thread", passed: false, detail: "")
         select(bot, in: store)
@@ -64,20 +64,15 @@ extension HeadlessE2E {
         guard let options = store.botInfo.info(for: bot.id)?.modelOptions.value, ModelPickerModel.offers(options, pair) else {
             step.detail = "session \(parentSession) | \(ModelRoleReason.notOffered(pair.model).text)"; return step
         }
+        guard store.codingThreadChoice(for: bot) != nil else { step.detail = "session \(parentSession) | the chat already runs \(describe(pair)); no coding thread is offered"; return step }
         store.errorMessage = nil
-        store.replyInThread(to: parent, in: bot)
+        store.codeInThread(to: parent, in: bot)
         _ = await wait(timing.request, poll: timing.poll) { store.openThreadID != nil || store.errorMessage != nil }
-        guard let thread = store.openThread(in: bot), let fork = thread.hermesSessionID else {
-            step.detail = "fork of \(parentSession) | \(store.errorMessage ?? "no thread opened")"; return step
+        guard let thread = store.openThread(in: bot), let fork = thread.hermesSessionID, let lock = thread.modelLock else {
+            step.detail = "fork of \(parentSession) | \(store.errorMessage ?? "no coding thread opened")"; return step
         }
-        do {
-            guard let backend = try store.backend(for: bot) as? HermesBackend else { throw BackendError.unavailable("This bot is not on Hermes.") }
-            let lock = try await store.lockModel(backend, bot: bot, sessionID: fork, provider: pair.provider, model: pair.model, origin: .coding, record: false)
-            thread.role = .coding; thread.modelLock = lock
-        } catch {
-            store.closeThread()
-            let key = (try? store.backend(for: bot) as? HermesBackend)?.apiKey ?? ""
-            step.detail = "fork \(fork) of \(parentSession) | lock \(describe(pair)) refused: \(BotInfoCache.describe(error, key: key))"; return step
+        guard thread.role == .coding, lock.provider == pair.provider, sameModel(lock.model, pair.model) else {
+            store.closeThread(); step.detail = "fork \(fork) of \(parentSession) | locked to \(lock.provider)/\(lock.model), not \(describe(pair))"; return step
         }
         let turn = await self.turn(store: store, text: message("Reply with exactly: E2E-ROLECODE"), conversation: thread, timing: timing)
         store.closeThread()

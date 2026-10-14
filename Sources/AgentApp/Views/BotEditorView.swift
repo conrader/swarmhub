@@ -52,7 +52,7 @@ struct BotEditorFields {
     var avatar = AvatarChoice.unpicked
     var hidden = false, notifications = true
     var approvalMode = ApprovalMode.ask, approvalRules = ApprovalRule.sensibleDefaults, reviewerBotID: UUID?
-    var conversationModel = ModelSetting.inherit, canManage = false
+    var conversationModel = ModelSetting.inherit, codingModel = ModelSetting.inherit, canManage = false
 
     init() {}
     /// A new agent talks to the box when one is configured; Mock stays reachable only under Advanced.
@@ -61,18 +61,18 @@ struct BotEditorFields {
         name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend
         avatar = AvatarChoice(bot: bot); hidden = bot.isHidden; notifications = bot.notificationsEnabled
         approvalMode = bot.approvalMode; approvalRules = bot.approvalRules; reviewerBotID = bot.reviewerBotID
-        conversationModel = bot.modelSettings?.conversation ?? .inherit; canManage = bot.canManageBots
+        conversationModel = bot.modelSettings?.conversation ?? .inherit; codingModel = bot.modelSettings?.coding ?? .inherit; canManage = bot.canManageBots
     }
 
     @MainActor func apply(to bot: Bot, store: AppStore, avatarTouched: Bool) {
-        // A changed Backend clears the Conversation pair: no stale Hermes pair stays on another backend (P17).
-        let conversation = backend == bot.backend ? conversationModel : .inherit
+        // A changed Backend clears both role pairs: no stale Hermes pair stays on another backend (P17).
+        let conversation = backend == bot.backend ? conversationModel : .inherit, coding = backend == bot.backend ? codingModel : .inherit
         bot.name = name; bot.title = title; bot.botDescription = details; bot.persona = persona; bot.backend = backend
         if avatarTouched { avatar.apply(to: bot) }
         if bot.isHidden != hidden { store.setHidden(bot, hidden) }
         bot.notificationsEnabled = notifications; bot.approvalMode = approvalMode; bot.approvalRules = approvalRules
         bot.reviewerBotID = reviewerBotID == bot.id ? nil : reviewerBotID
-        var settings = bot.modelSettings ?? .init(); settings.conversation = conversation
+        var settings = bot.modelSettings ?? .init(); settings.conversation = conversation; settings.coding = coding
         bot.modelSettings = settings.isEmpty ? nil : settings
         if bot.canManageBots != (canManage && backend == .hermes) { store.setCanManageBots(bot, canManage && backend == .hermes) }
     }
