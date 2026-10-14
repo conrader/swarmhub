@@ -10,7 +10,7 @@ enum AvatarFacts {
     }
 
     @MainActor static func facts(bot: Bot, look: AvatarLook, mode: AvatarMotionMode, size: CGFloat, place: String,
-                                 facing: AvatarFacing = .right, context: AvatarMotionContext = .list, calm: Bool = false) -> [String: Any] {
+                                 facing: AvatarFacing = .right, context: AvatarMotionContext = .list, calm: Bool = false, isSelected: Bool = false) -> [String: Any] {
         var facts: [String: Any] = ["name": bot.name, "origin": origin(bot, look: look), "mode": mode.rawValue, "size": Double(size), "place": place]
         switch look {
         case .mark(let shape, let colour):
@@ -20,10 +20,13 @@ enum AvatarFacts {
             facts["body"] = body.type.rawValue
             facts["approximate"] = body.approximate
             facts["facing"] = facing.rawValue
-            let playback = AvatarMotion.playback(mode: mode, context: context, calm: calm)
+            let playback = AvatarMotion.playback(mode: mode, context: context, calm: calm, isSelected: isSelected)
             facts["scenario"] = mode == .still ? "still" : playback.scenario
             facts["kit_state"] = mode == .still ? "still" : playback.state.rawValue
             facts["calm"] = calm
+            facts["selected"] = isSelected || context == .focus
+            facts["idle_jump_interval"] = playback.jump.every
+            facts["speed"] = playback.speed
         case .classic(let name):
             facts["words"] = name.rawValue
             facts["body"] = "classic"

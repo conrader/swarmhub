@@ -6,6 +6,7 @@ import SwiftUI
 struct AvatarMarkView: View {
     let shape: String; let colour: AvatarColour; let size: CGFloat; let mode: AvatarMotionMode; let seed: String
     var facing: AvatarFacing = .forward; var context: AvatarMotionContext = .focus; var calm = false
+    var isSelected = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -17,7 +18,7 @@ struct AvatarMarkView: View {
                 AvatarStillMark(type: type, colourHex: hex, size: size, facing: facing).equatable().transition(.opacity)
             } else {
                 AvatarLiveMark(type: type, colourHex: hex, size: size, seed: AvatarKitMap.kitSeed(seed),
-                               facing: facing, playback: AvatarMotion.playback(mode: mode, context: context, calm: calm)).transition(.opacity)
+                               facing: facing, playback: AvatarMotion.playback(mode: mode, context: context, calm: calm, isSelected: isSelected)).transition(.opacity)
             }
         }
         .frame(width: size, height: size)
@@ -83,18 +84,22 @@ struct AvatarPlayback {
 }
 
 extension AvatarMotion {
-    static func playback(mode: AvatarMotionMode, context: AvatarMotionContext, calm: Bool) -> AvatarPlayback {
+    static func playback(mode: AvatarMotionMode, context: AvatarMotionContext, calm: Bool, isSelected: Bool = false) -> AvatarPlayback {
         let state: BotAvatarState
         let reaction: Int
         let scenario: String
+        let speed: Double
         switch mode {
-        case .still, .idle: state = .default; reaction = 0; scenario = context == .list ? "idle" : "focused"
-        case .hovered: state = .default; reaction = 2; scenario = "greeting"
-        case .working: state = .working; reaction = 0; scenario = "working"
-        case .waiting: state = .sleeping; reaction = 0; scenario = "waiting"
-        case .celebrating: state = .default; reaction = 1; scenario = "completion"
+        case .still, .idle:
+            state = .default; reaction = 0; scenario = context == .list ? "idle" : "focused"
+            speed = isSelected || context == .focus ? 0.6 : 0.55
+        case .hovered: state = .default; reaction = 0; scenario = "attentive"; speed = 0.6
+        case .working: state = .working; reaction = 0; scenario = "working"; speed = 0.5
+        case .waiting: state = .sleeping; reaction = 0; scenario = "waiting"; speed = 0.55
+        case .celebrating: state = .default; reaction = 1; scenario = "completion"; speed = 1
         }
-        return AvatarPlayback(state: state, jump: calm ? BotAvatarJumpConfig(every: 0) : .defaults,
-                              speed: calm ? 0.55 : 1, reaction: calm ? 0 : reaction, scenario: scenario)
+        // Random jumps stay disabled in every context; only work and successful replies use lively motion.
+        return AvatarPlayback(state: state, jump: BotAvatarJumpConfig(every: 0),
+                              speed: calm ? 0.35 : speed, reaction: calm ? 0 : reaction, scenario: scenario)
     }
 }

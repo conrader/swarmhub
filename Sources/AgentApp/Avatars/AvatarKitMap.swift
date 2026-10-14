@@ -21,14 +21,13 @@ enum AvatarKitMap {
     ]
 
     static func body(for shape: String) -> Body {
+        if let type = BotAvatarType(rawValue: shape) { return Body(type: type, approximate: false) }
         if let type = close[shape] { return Body(type: type, approximate: false) }
         return Body(type: approximations[shape] ?? .blob, approximate: true)
     }
 
-    /// The editor's 16 shapes: the 10 roster shapes, pebble, squircle, square, clover, flower, star.
-    /// Not offered: heart, house, sparkle (no kit body).
-    static let pickerShapes = ["blob", "cylinder", "gem", "hex", "leaf", "shield", "cloud", "tablet", "wedge", "teardrop",
-                               "pebble", "squircle", "square", "clover", "flower", "star"]
+    /// One choice per native body. Imported Grok aliases still resolve, but are never repeated in the picker.
+    static let pickerShapes = BotAvatarType.allCases.map(\.rawValue)
 
     /// The kit's 0–1 animation seed from the bot's look seed, so marks of different bots do not blink in lockstep.
     static func kitSeed(_ seed: String) -> Double { Double(GrokDefaultLook.fnv1a(seed)) / 4_294_967_296 }

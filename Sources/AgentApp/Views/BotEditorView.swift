@@ -6,13 +6,14 @@ struct BotEditorView: View {
     @Environment(\.dismiss) private var dismiss; @EnvironmentObject private var store: AppStore; let bot: Bot?
     @State private var fields = BotEditorFields()
     @State private var avatarTouched = false
+    @State private var newAvatarSeed = UUID().uuidString.lowercased()
     @State private var showAdvanced: Bool
     init(bot: Bot?, startExpanded: Bool = false) { self.bot = bot; _showAdvanced = State(initialValue: startExpanded) }
     var body: some View {
         VStack(spacing: 0) {
             HStack { Text(bot == nil ? SimpleCopy.newAgent : SimpleCopy.agentSettings).font(.title2.bold()); Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary).font(.title3) }.buttonStyle(.plain) }.padding(20)
             Divider(); Form {
-                Section(SimpleCopy.avatar) { AvatarPickerView(choice: Binding(get: { fields.avatar }, set: { fields.avatar = $0; avatarTouched = true })) }
+                Section(SimpleCopy.avatar) { AvatarPickerView(choice: Binding(get: { fields.avatar }, set: { fields.avatar = $0; avatarTouched = true }), seed: bot?.avatarSeed ?? newAvatarSeed) }
                 TextField(SimpleCopy.name, text: $fields.name)
                 if fields.backend == .openClaw {
                     OpenClawEditorSection(status: store.openClawStatus, fields: $fields)
@@ -30,7 +31,7 @@ struct BotEditorView: View {
             }.formStyle(.grouped).padding(.horizontal, 8)
             Divider(); HStack { Spacer(); Button(SimpleCopy.cancel) { dismiss() }; Button(SimpleCopy.save) { save() }.buttonStyle(.borderedProminent).disabled(fields.name.trimmingCharacters(in: .whitespaces).isEmpty || !fields.openClawReady) }.padding(16)
         }.frame(width: 560, height: 720).background(AppColor.panel).onAppear {
-            fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(hermesConfigured: store.hermesConfigured)
+            fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(hermesConfigured: store.hermesConfigured, avatarSeed: newAvatarSeed)
         }
         // P17: opening the editor reads this agent's own models (cache-aware, GETs only, no skills); a pending Backend
         // that differs from the saved one is not loaded.
@@ -62,7 +63,13 @@ struct BotEditorFields {
 
     init() {}
     /// A new agent talks to the box when one is configured; Mock stays reachable only under Advanced.
-    static func newAgent(hermesConfigured: Bool) -> BotEditorFields { var fields = BotEditorFields(); fields.backend = hermesConfigured ? .hermes : .mock; return fields }
+    static func newAgent(hermesConfigured: Bool, avatarSeed: String = UUID().uuidString.lowercased()) -> BotEditorFields {
+        var fields = BotEditorFields()
+        fields.backend = hermesConfigured ? .hermes : .mock
+        let mark = GrokDefaultLook.mark(for: avatarSeed)
+        fields.avatar = .mark(shape: mark.shape, colour: mark.colour)
+        return fields
+    }
     init(bot: Bot) {
         name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend
         avatar = AvatarChoice(bot: bot); hidden = bot.isHidden; notifications = bot.notificationsEnabled

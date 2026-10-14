@@ -5,9 +5,10 @@ import SwiftUI
 /// (hops overshoot); a classic avatar keeps them. `motion` picks the context; the parent passes `isWorking`
 /// (`AppStore.isWorking`) and, for list rows, `isHovered`. `probe` names the place for `--ui-smoke`.
 struct BotAvatar: View {
-    let bot: Bot; var size: CGFloat = 38; var motion: AvatarMotionContext = .still
+    @ObservedObject var bot: Bot; var size: CGFloat = 38; var motion: AvatarMotionContext = .still
     var isWorking = false; var isHovered = false; var probe: String? = nil
     var facing: AvatarFacing = .right; var isWaiting = false
+    var isSelected = false
     @ObservedObject private var settings = AvatarMotionSettings.shared
     @ObservedObject private var activity = AvatarActivity.shared
     @ObservedObject private var reactions = AvatarReactions.shared
@@ -27,7 +28,7 @@ struct BotAvatar: View {
             switch look {
             case .mark(let shape, let colour):
                 AvatarMarkView(shape: shape, colour: colour, size: size, mode: mode, seed: bot.avatarSeed,
-                               facing: facing, context: motion, calm: settings.effective == .calm)
+                               facing: facing, context: motion, calm: settings.effective == .calm, isSelected: isSelected)
             case .classic(let name):
                 AvatarImage(name: name)
                     .scaledToFill().frame(width: size, height: size).clipShape(Circle())
@@ -44,6 +45,7 @@ struct BotAvatar: View {
         .onChange(of: look) { _, next in report(next, mode) }
         .onChange(of: facing) { _, _ in report(look, mode) }
         .onChange(of: settings.effective) { _, _ in report(look, mode) }
+        .onChange(of: isSelected) { _, _ in report(look, mode) }
         .task(id: "\(bot.id)|\(reactions.completions[bot.id]?.timeIntervalSinceReferenceDate ?? 0)") {
             isCelebrating = false
             guard motion != .still, let completed = reactions.completions[bot.id] else { return }
@@ -64,7 +66,7 @@ struct BotAvatar: View {
     private func report(_ look: AvatarLook, _ mode: AvatarMotionMode) {
         guard let probe else { return }
         UISmokeProbe.avatarFacts["\(probe)|\(bot.id)"] = AvatarFacts.facts(bot: bot, look: look, mode: mode, size: size, place: probe,
-                                                                        facing: facing, context: motion, calm: settings.effective == .calm)
+                                                                        facing: facing, context: motion, calm: settings.effective == .calm, isSelected: isSelected)
     }
 }
 
@@ -75,6 +77,7 @@ struct GroupAvatarStack: View {
     @EnvironmentObject private var store: AppStore
     let group: GroupChat; let members: [Bot]; var size: CGFloat = 28; var isHovered = false
     var halo: Color = AppColor.sidebar; var probe: String? = nil; var facing: AvatarFacing = .right
+    var isSelected = false
 
     var body: some View {
         let shown = Array(members.prefix(4))
@@ -84,7 +87,7 @@ struct GroupAvatarStack: View {
             if shown.isEmpty { Circle().fill(AppColor.raised).overlay(Image(systemName: "person.3").font(.system(size: size * 0.35))) }
             ForEach(Array(shown.enumerated()), id: \.element.id) { index, bot in
                 BotAvatar(bot: bot, size: small, motion: .list, isWorking: store.isWorking(bot, in: group), isHovered: isHovered,
-                          probe: probe.map { "\($0)#\(index)" }, facing: facing, isWaiting: store.hasPendingApproval(bot, in: group))
+                          probe: probe.map { "\($0)#\(index)" }, facing: facing, isWaiting: store.hasPendingApproval(bot, in: group), isSelected: isSelected)
                     .shadow(color: shown.count > 1 ? halo : .clear, radius: 0.6).shadow(color: shown.count > 1 ? halo : .clear, radius: 0.6)
                     .offset(offset(index, count: shown.count, small: small))
             }
@@ -135,7 +138,7 @@ struct ChatWelcome: View {
     var body: some View {
         VStack(spacing: 10) {
             BotAvatar(bot: bot, size: 72, motion: .showcase, isWorking: store.isWorking(bot), probe: "showcase", facing: .down,
-                      isWaiting: store.hasPendingApproval(bot))
+                      isWaiting: store.hasPendingApproval(bot), isSelected: true)
             Text(bot.name).font(.system(size: 15, weight: .semibold))
             Text("Send a message to start.").font(.caption).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity).padding(.vertical, 36)

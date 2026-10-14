@@ -6,14 +6,71 @@ import Testing
 @Suite struct AvatarAnimationTests {
     @Test func scenariosSelectTheLibraryStatesAndTapGesture() {
         let cases: [(AvatarMotionMode, BotAvatarState, Int)] = [
-            (.idle, .default, 0), (.hovered, .default, 2), (.working, .working, 0),
+            (.idle, .default, 0), (.hovered, .default, 0), (.working, .working, 0),
             (.waiting, .sleeping, 0), (.celebrating, .default, 1)
         ]
         for (mode, state, reaction) in cases {
-            let playback = AvatarMotion.playback(mode: mode, context: .list, calm: false)
+            let playback = AvatarMotion.playback(mode: mode, context: .list, calm: false, isSelected: true)
             #expect(playback.state == state && playback.reaction == reaction)
-            #expect(playback.jump == .defaults && playback.speed == 1)
+            #expect(playback.jump.every == 0 && playback.speed > 0 && playback.speed <= 1)
         }
+    }
+
+    @Test func browsingIsCalmAndOnlyCompletionTriggersTheTapGesture() {
+        let idle = AvatarMotion.playback(mode: .idle, context: .list, calm: false)
+        #expect(idle.state == .default && idle.jump.every == 0 && idle.reaction == 0 && idle.speed == 0.55)
+        let selected = AvatarMotion.playback(mode: .idle, context: .list, calm: false, isSelected: true)
+        #expect(selected.jump.every == 0 && selected.speed == 0.6 && selected.reaction == 0)
+        let focused = AvatarMotion.playback(mode: .idle, context: .focus, calm: false)
+        #expect(focused.jump.every == 0 && focused.speed == 0.6 && focused.reaction == 0)
+        let working = AvatarMotion.playback(mode: .working, context: .list, calm: false)
+        #expect(working.state == .working && working.speed == 0.5)
+        let hovered = AvatarMotion.playback(mode: .hovered, context: .list, calm: false)
+        #expect(hovered.reaction == 0 && hovered.jump.every == 0)
+        #expect(AvatarMotion.playback(mode: .celebrating, context: .list, calm: false).reaction == 1)
+    }
+
+    @Test func noContextSelectionOrHoverEnablesRandomJumps() {
+        for context in [AvatarMotionContext.list, .focus, .showcase] {
+            for selected in [false, true] {
+                for mode in [AvatarMotionMode.idle, .hovered] {
+                    let playback = AvatarMotion.playback(mode: mode, context: context, calm: false, isSelected: selected)
+                    let sim = BotAvatarSim(seed: 0.7, state: playback.state)
+                    sim.setJump(playback.jump); BotAvatarGaze.right.apply(to: sim)
+                    for _ in 0..<2400 {
+                        sim.update(0.025 * playback.speed)
+                        #expect(abs(sim.pose.y) <= 2 && abs(sim.pose.yaw) < 1)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test @MainActor func completionReactionsHaveAPerAgentCooldown() {
+        let reactions = AvatarReactions()
+        let a = Bot(name: "A"), b = Bot(name: "B")
+        let first = Date(timeIntervalSince1970: 100)
+        reactions.completed(a, now: first)
+        reactions.completed(a, now: first.addingTimeInterval(14.9))
+        #expect(reactions.completions[a.id] == first)
+        reactions.completed(b, now: first.addingTimeInterval(1))
+        #expect(reactions.completions[b.id] == first.addingTimeInterval(1))
+        reactions.completed(a, now: first.addingTimeInterval(15))
+        #expect(reactions.completions[a.id] == first.addingTimeInterval(15))
+    }
+
+    @Test func unselectedNativeIdleKeepsBreathingAndBlinkingWithoutRandomJumps() {
+        let playback = AvatarMotion.playback(mode: .idle, context: .list, calm: false)
+        let sim = BotAvatarSim(seed: 0.2, state: playback.state)
+        sim.setJump(playback.jump); BotAvatarGaze.right.apply(to: sim)
+        var greatestBlink = 0.0, lowestSy = 1.0, highestSy = 1.0
+        for _ in 0..<2400 {
+            sim.update(0.025 * playback.speed)
+            #expect(abs(sim.pose.y) <= 2 && abs(sim.pose.yaw) < 1)
+            greatestBlink = max(greatestBlink, max(sim.pose.blinkL, sim.pose.blinkR))
+            lowestSy = min(lowestSy, sim.pose.sy); highestSy = max(highestSy, sim.pose.sy)
+        }
+        #expect(greatestBlink > 0.9 && lowestSy < 1 && highestSy > 1)
     }
 
     @Test func calmUsesLibraryPlaybackControls() {

@@ -12,10 +12,11 @@ import Testing
         #expect(GrokDefaultLook.colours == AvatarColour.allCases.filter { $0 != .black })
     }
 
-    @Test func twentyFiveValidShapesIncludeTheDerivableEight() {
-        #expect(AvatarShape.valid.count == 25 && Set(AvatarShape.valid).count == 25)
+    @Test func originalGrokShapesAndNativePickerBodiesStayValid() {
+        #expect(AvatarShape.grok.count == 25 && Set(AvatarShape.grok).count == 25)
+        #expect(Set(AvatarShape.valid).count == AvatarShape.valid.count)
         #expect(GrokDefaultLook.shapes.allSatisfy(AvatarShape.isValid))
-        #expect(!AvatarShape.isValid("Blob") && !AvatarShape.isValid("hexagon"))
+        #expect(!AvatarShape.isValid("Blob") && AvatarShape.isValid("hexagon") && AvatarShape.isValid("circle"))
     }
 
     @Test(arguments: [

@@ -14,14 +14,14 @@ enum AvatarMotionPreference: String, CaseIterable, Identifiable, Sendable {
     }
     var caption: String {
         switch self {
-        case .byContext: "Avatars breathe and blink on their own, look toward the conversation, and react to hover, work, approvals and completed replies."
-        case .calm: "Slower animation everywhere, with breathing and blinks, and no idle jumps or hover and completion reactions."
+        case .byContext: "Gentle breathing and blinking while browsing, slower working motion, and occasional completion reactions. No random jumps."
+        case .calm: "Slower animation everywhere, with breathing and blinks, and no completion reactions."
         case .off: "Marks never move."
         }
     }
 }
 
-/// Scenarios are selected from real activity; hover adds a greeting without enabling the clock.
+/// Scenarios are selected from real activity; hover remains attentive without triggering a hop.
 enum AvatarMotionMode: String, CaseIterable, Sendable { case still, idle, hovered, working, waiting, celebrating }
 
 /// The avatar's relationship to its content, independent of animation and pointer position.
@@ -88,7 +88,11 @@ enum AvatarMotion {
 @MainActor final class AvatarReactions: ObservableObject {
     static let shared = AvatarReactions()
     static let celebrationDuration: TimeInterval = 2
+    static let completionCooldown: TimeInterval = 15
     @Published private(set) var completions: [UUID: Date] = [:]
 
-    func completed(_ bot: Bot) { completions[bot.id] = .now }
+    func completed(_ bot: Bot, now: Date = .now) {
+        if let previous = completions[bot.id], now.timeIntervalSince(previous) < Self.completionCooldown { return }
+        completions[bot.id] = now
+    }
 }

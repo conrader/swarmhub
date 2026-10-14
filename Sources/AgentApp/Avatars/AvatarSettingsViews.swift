@@ -1,4 +1,5 @@
 import SwiftUI
+@preconcurrency import BotAvatarsKit
 
 /// Settings → Appearance → Avatar motion.
 struct AvatarMotionSettingRow: View {
@@ -25,6 +26,19 @@ enum AvatarChoice: Equatable {
         if let mark = bot.avatarMark { self = .mark(shape: mark.shape, colour: mark.colour) } else { self = .classic(bot.avatarName) }
     }
 
+    func previewMark(seed: String) -> AvatarMark {
+        if case .mark(let shape, let colour) = self { return AvatarLook.effectiveMark(shape: shape, colour: colour, seed: seed) }
+        return GrokDefaultLook.mark(for: seed)
+    }
+
+    mutating func selectShape(_ shape: String, seed: String) {
+        self = .mark(shape: shape, colour: previewMark(seed: seed).colour)
+    }
+
+    mutating func selectColour(_ colour: AvatarColour, seed: String) {
+        self = .mark(shape: previewMark(seed: seed).shape, colour: colour.rawValue)
+    }
+
     /// Applies the choice to a bot: a mark is stored with each missing or invalid field derived from the bot's seed;
     /// a classic pick writes `avatarName` and clears the mark.
     func apply(to bot: Bot) {
@@ -38,54 +52,71 @@ enum AvatarChoice: Equatable {
     }
 }
 
-/// The editor's avatar picker: 16 shapes drawn as still marks in the chosen colour, the 11 swatches below (black shows
-/// white in dark), and a collapsed Classic row with the 12 faces and 9 clay avatars.
+/// Native shapes, one tile per body, with immediate preview and explicit selection. Legacy choices remain readable.
 struct AvatarPickerView: View {
     @Binding var choice: AvatarChoice
-    @State private var showClassic = false
+    let seed: String
     @Environment(\.colorScheme) private var colorScheme
 
-    private var shape: String? { if case .mark(let shape, _) = choice { shape } else { nil } }
-    private var colour: AvatarColour? { if case .mark(_, let colour) = choice { colour.flatMap(AvatarColour.init(rawValue:)) } else { nil } }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(40), spacing: 6), count: 8), alignment: .leading, spacing: 6) {
-                ForEach(AvatarKitMap.pickerShapes, id: \.self) { word in
-                    Button { choice = .mark(shape: word, colour: colour?.rawValue) } label: {
-                        AvatarMarkView(shape: word, colour: colour ?? .gray, size: 32, mode: .still, seed: word).frame(width: 40, height: 40)
-                            .background(shape == word ? Color.primary.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                    }.buttonStyle(.plain).help(word.capitalized + (AvatarKitMap.body(for: word).approximate ? " (approximate)" : ""))
-                }
-            }
-            HStack(spacing: 6) {
-                ForEach(AvatarColour.allCases, id: \.self) { swatch in
-                    Button { choice = .mark(shape: shape, colour: swatch.rawValue) } label: {
-                        Circle().fill(Color(hex: swatch.hex(dark: colorScheme == .dark)) ?? .gray).frame(width: 18, height: 18)
-                            .overlay(Circle().stroke(Color.primary.opacity(colour == swatch ? 0.9 : 0.15), lineWidth: colour == swatch ? 2 : 0.5).padding(-2))
-                    }.buttonStyle(.plain).help(swatch.rawValue.capitalized)
-                }
-            }
-            DisclosureGroup("Classic", isExpanded: $showClassic) {
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(34), spacing: 6), count: 11), alignment: .leading, spacing: 6) {
-                    ForEach(BotAvatarName.allCases) { name in
-                        Button { choice = .classic(name) } label: {
-                            AvatarImage(name: name).scaledToFill().frame(width: 28, height: 28).clipShape(Circle())
-                                .overlay(Circle().stroke(Color.primary.opacity(choice == .classic(name) ? 0.9 : 0), lineWidth: 2).padding(-2))
-                        }.buttonStyle(.plain).help(name.displayName)
-                    }
-                }.padding(.top, 4)
-            }
-            Text(caption).font(.caption).foregroundStyle(.secondary)
-        }
-        .onAppear { if case .classic = choice { showClassic = true } }
+    private var mark: AvatarMark { choice.previewMark(seed: seed) }
+    private var colour: AvatarColour { AvatarColour(rawValue: mark.colour) ?? .gray }
+    private var selectedBody: BotAvatarType? {
+        if case .classic = choice { return nil }
+        return AvatarKitMap.body(for: mark.shape).type
     }
 
-    private var caption: String {
-        switch choice {
-        case .unpicked: "No pick: the bot gets its own shape and colour from its id, as Grok does."
-        case .mark(let shape, let colour): "\(shape ?? "derived shape") / \(colour ?? "derived colour")" + (shape.map { AvatarKitMap.body(for: $0).approximate } == true ? " · drawn approximately" : "")
-        case .classic(let name): "Classic: \(name.displayName)"
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                Group {
+                    if case .classic = choice {
+                        Image(systemName: "person.crop.circle").font(.system(size: 40)).foregroundStyle(.secondary)
+                    } else {
+                        AvatarMarkView(shape: mark.shape, colour: colour, size: 56, mode: .still, seed: seed)
+                    }
+                }.frame(width: 64, height: 64).accessibilityIdentifier("avatar-preview")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Avatar preview").font(.subheadline.weight(.medium))
+                    if let selectedBody {
+                        Text("\(selectedBody.preset.label) · \(colour.rawValue.capitalized)").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("Choose a shape and color, then Save.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Text("Shape").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(60), spacing: 8), count: 6), alignment: .leading, spacing: 8) {
+                ForEach(AvatarKitMap.pickerShapes, id: \.self) { word in
+                    let body = AvatarKitMap.body(for: word).type
+                    let selected = selectedBody == body
+                    Button { choice.selectShape(word, seed: seed) } label: {
+                        VStack(spacing: 3) {
+                            AvatarMarkView(shape: word, colour: colour, size: 32, mode: .still, seed: seed).frame(width: 40, height: 42)
+                            Text(body.preset.label).font(.system(size: 10)).lineLimit(1)
+                        }
+                        .frame(width: 60, height: 68)
+                        .background(selected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 2) }
+                        .overlay(alignment: .topTrailing) {
+                            if selected { Image(systemName: "checkmark.circle.fill").font(.system(size: 12)).foregroundStyle(Color.accentColor).padding(3) }
+                        }
+                        .contentShape(Rectangle())
+                    }.buttonStyle(.plain).help(body.preset.label)
+                        .accessibilityLabel(body.preset.label).accessibilityValue(selected ? "Selected" : "")
+                        .accessibilityIdentifier("avatar-shape-\(word)")
+                }
+            }
+            Text("Color").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                ForEach(AvatarColour.allCases, id: \.self) { swatch in
+                    Button { choice.selectColour(swatch, seed: seed) } label: {
+                        Circle().fill(Color(hex: swatch.hex(dark: colorScheme == .dark)) ?? .gray).frame(width: 22, height: 22)
+                            .overlay(Circle().stroke(Color.accentColor, lineWidth: colour == swatch && selectedBody != nil ? 2 : 0).padding(-3))
+                            .frame(width: 30, height: 30).contentShape(Rectangle())
+                    }.buttonStyle(.plain).help(swatch.rawValue.capitalized)
+                        .accessibilityLabel(swatch.rawValue.capitalized).accessibilityValue(colour == swatch && selectedBody != nil ? "Selected" : "")
+                        .accessibilityIdentifier("avatar-color-\(swatch.rawValue)")
+                }
+            }
         }
     }
 }

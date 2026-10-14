@@ -7,12 +7,13 @@ struct AvatarMark: Codable, Equatable, Hashable, Sendable {
     var colour: String
 }
 
-/// The shape words Grok Bot 0.70.2's engine accepts (docs/avatars-research.md), case-sensitive as Grok.
+/// Imported Grok shape words plus the native bodies offered by the app's picker, all case-sensitive.
 enum AvatarShape {
-    static let valid: [String] = [
+    static let grok: [String] = [
         "blob", "pebble", "bean", "egg", "squircle", "tablet", "capsule", "cylinder", "hex", "gem", "crystal", "wedge", "shield",
         "dome", "arch", "cloud", "teardrop", "leaf", "square", "sparkle", "clover", "flower", "heart", "house", "star"
     ]
+    static let valid = grok + AvatarKitMap.pickerShapes.filter { !grok.contains($0) }
     static func isValid(_ word: String) -> Bool { valid.contains(word) }
 }
 
