@@ -25,7 +25,7 @@ struct InfoPanel: View {
         case .overview:
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 12) { BotAvatar(bot: bot, size: 52, motion: .focus, isWorking: store.isWorking(bot), probe: "overview", facing: .left,
-                                              isWaiting: store.hasPendingApproval(bot)); VStack(alignment: .leading) { Text(bot.name).font(.headline); Text(bot.title).foregroundStyle(.secondary) } }
+                                              isWaiting: store.hasPendingApproval(bot)); VStack(alignment: .leading) { Text(bot.name).font(.headline); Text(bot.title).foregroundStyle(.secondary); HermesVersionCaption(bot: bot, cache: store.botInfo) } }
                 Text(bot.botDescription.isEmpty ? "No description yet." : bot.botDescription).foregroundStyle(.secondary)
                 infoSection("Memory", text: bot.memorySummary.isEmpty ? "Memory will appear as this bot learns your preferences." : bot.memorySummary)
                 BotCapabilitiesView(bot: bot, cache: store.botInfo)
@@ -68,4 +68,16 @@ struct InfoPanel: View {
     }
     private func infoSection(_ title: String, text: String) -> some View { VStack(alignment: .leading, spacing: 6) { Text(title).font(.headline); Text(text).foregroundStyle(.secondary).lineSpacing(2) } }
     private func member(_ name: String, role: String) -> some View { HStack { Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(.secondary); VStack(alignment: .leading) { Text(name); Text(role).font(.caption).foregroundStyle(.secondary) } } }
+}
+
+/// The bot's Hermes version, small, under its name in the Overview header (P24); nothing until it has been read.
+private struct HermesVersionCaption: View {
+    @EnvironmentObject private var store: AppStore
+    @ObservedObject var bot: Bot
+    @ObservedObject var cache: BotInfoCache
+    var body: some View {
+        if bot.backend == .hermes, !bot.isReadOnlyArchive, let reading = store.hermesVersion(for: bot) {
+            Text(reading.label).font(.caption2).foregroundStyle(.secondary).help(reading.problem ?? "Hermes version reported by this bot's server")
+        }
+    }
 }

@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Settings → Account: the Hermes server, the profiles the bots are bound to (with a per-profile Test),
-/// "Add bots from box" and the OpenClaw gateway.
+/// Settings → Account: the connection's Hermes version, the Hermes server, the profiles the bots are bound to (with a
+/// per-profile Test and version), "Add bots from box" and the OpenClaw gateway.
 struct SettingsAccountPane: View {
     @EnvironmentObject private var store: AppStore
+    @ObservedObject var cache: BotInfoCache
     @AppStorage("hermesBaseURL") private var hermesURL = AppConstants.defaultHermesURL; @AppStorage("openClawURL") private var openClawURL = "ws://127.0.0.1:18789"
     @AppStorage("hermesProfiles") private var hermesProfiles = ""
     @AppStorage(SidebarMetrics.accountNameKey) private var accountName = ""
@@ -12,6 +13,15 @@ struct SettingsAccountPane: View {
     @State private var profileResults: [String: String] = [:]; @State private var testingProfiles: Set<String> = []
 
     var body: some View {
+        Section("Connection") {
+            let lines = store.connectionVersionLines
+            if lines.isEmpty { Text("No bot is connected to a Hermes server yet.").foregroundStyle(.secondary) }
+            ForEach(lines, id: \.server) { line in
+                LabeledContent(line.server) { Text(line.reading?.label ?? "Reading the Hermes version…").foregroundStyle(.secondary) }
+            }
+            Text("Versions SwarmHub has run against are marked “works”; others are “not tested yet”.").font(.caption).foregroundStyle(.secondary)
+        }
+        .task { await store.loadHermesVersions() }
         Section("You") {
             TextField("Your name", text: $accountName, prompt: Text("Konrad"))
             Text("Its first letter is the round button at the bottom of the sidebar.").font(.caption).foregroundStyle(.secondary)
@@ -36,6 +46,7 @@ struct SettingsAccountPane: View {
                         Button("Test") { test(entry.bots[0], id: id) }.disabled(testingProfiles.contains(id))
                     }
                     Text("\(entry.profile) · \(URL(string: entry.server)?.host ?? entry.server) · key \(keyState(entry.profile))").font(.caption).foregroundStyle(.secondary)
+                    Text(versionText(entry.bots[0])).font(.caption).foregroundStyle(.secondary)
                     if let result = profileResults[id] { Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                 }
             }
@@ -48,6 +59,11 @@ struct SettingsAccountPane: View {
         }
         Section("OpenClaw") { TextField("Gateway URL", text: $openClawURL); Text("The OpenClaw WebSocket RPC transport is not implemented yet.").font(.caption).foregroundStyle(.secondary) }
             .onAppear { apiKey = KeychainStore.get(account: "hermes") }
+    }
+
+    private func versionText(_ bot: Bot) -> String {
+        guard let reading = store.hermesVersion(for: bot) else { return "Hermes version not read yet" }
+        return reading.label + (reading.raw == nil ? reading.problem.map { " (\($0))" } ?? "" : "")
     }
 
     /// From item attributes only, so listing profiles never asks for Keychain access.
@@ -79,6 +95,7 @@ struct SettingsAccountPane: View {
                 let available = probes.filter { $0.status.reason == nil }.count
                 let problems = probes.compactMap { probe in probe.status.reason.map { "\(probe.id): \($0)" } }
                 testResult = (["\(status); \(available) profile(s) available"] + problems).joined(separator: "\n")
+                await store.loadHermesVersions(force: true)
             } catch { testResult = error.localizedDescription }
             testing = false
         }
