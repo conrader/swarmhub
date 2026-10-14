@@ -17,7 +17,9 @@ final class MemoryKeyStore: HermesKeyStore, @unchecked Sendable {
     /// `backendFactory`: P28 D6, shots whose bots must never reach a server (the activity shots render a Hermes chat).
     static func makeStore(backendFactory: ((Bot) throws -> any AgentBackend)? = nil) -> AppStore {
         let directory = FileManager.default.temporaryDirectory.appending(path: "AgentApp-setup-preview-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let suite = "AgentApp-setup-preview-\(UUID().uuidString)"
+        // P32 11: an absolute-path suite in the throwaway folder, not a plist in ~/Library/Preferences.
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let suite = directory.appending(path: "settings").path
         guard let defaults = UserDefaults(suiteName: suite) else { preconditionFailure("no throwaway settings suite") }
         defaults.removePersistentDomain(forName: suite)
         let store = AppStore(storeURL: directory.appending(path: "store.json"), autoConfigureHermes: false, backendFactory: backendFactory, keyStore: MemoryKeyStore(), defaults: defaults)

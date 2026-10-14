@@ -52,6 +52,14 @@ enum TestRunGuard {
         if let sentinel { sentinel.outsideRequest(url, probe: probe) } else { FileHandle.standardError.write(Data("OUTSIDE REQUEST BLOCKED (no sentinel): \(url)\n".utf8)) }
     }
 
+    /// P32 11: settings for a refused or test-mode caller. The suite is an absolute path in the temporary folder, so it
+    /// never becomes a plist in ~/Library/Preferences (a plain suite name would, and cfprefsd keeps writing it back).
+    static func scratchDefaults(_ label: String) -> UserDefaults {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "AgentAppTests-scratch-defaults")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return UserDefaults(suiteName: folder.appending(path: "AgentAppTests-\(label)").path)!
+    }
+
     /// True in a test run: the call to production state is reported and must not be made.
     static func refuses(_ what: @autoclosure () -> String) -> Bool {
         guard isTestRun else { return false }

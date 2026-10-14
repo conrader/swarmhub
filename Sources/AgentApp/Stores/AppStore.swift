@@ -79,7 +79,7 @@ import UserNotifications
         if storeURL == nil, TestRunGuard.refuses("AppStore without storeURL (the real store.json)") {
             storeURL = FileManager.default.temporaryDirectory.appending(path: "AgentAppTests-unguarded-\(UUID().uuidString)/store.json")
         }
-        if defaults === UserDefaults.standard, TestRunGuard.refuses("AppStore on UserDefaults.standard") { defaults = UserDefaults(suiteName: "AgentAppTests-unguarded-\(UUID().uuidString)") ?? defaults }
+        if defaults === UserDefaults.standard, TestRunGuard.refuses("AppStore on UserDefaults.standard") { defaults = TestRunGuard.scratchDefaults("unguarded-\(UUID().uuidString)") }
         self.keyStore = keyStore; self.defaults = defaults; self.hermesSession = hermesSession; self.connectivity = connectivity
         injectedOpenClawHub = openClawHub
         self.backendFactory = backendFactory
