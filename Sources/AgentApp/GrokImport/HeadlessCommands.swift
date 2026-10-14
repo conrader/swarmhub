@@ -9,7 +9,8 @@ import Foundation
 ///   AgentApp --migrate-store                                      (see HeadlessGroups.swift)
 ///   AgentApp --probe-attachment <file>   (reads a PDF/RTF/DOC/DOCX like the composer; counts only, no network; see HeadlessProbeAttachment.swift)
 ///   AgentApp --e2e                       (live self-test in throwaway sessions; see HeadlessE2E.swift)
-///   AgentApp --grok-spike <report.json>  (throwaway P10.0 go/no-go harness; see HeadlessGrok.swift)
+///   AgentApp --grok-fetch --mode recent|full [--bots <names>] [--store <store.json>] [--report <file>]   (see HeadlessGrok.swift)
+///   AgentApp --grok-probe [--live] [--report <file>]   (Grok Bot drift check; see HeadlessGrok.swift)
 ///   AgentApp --grok-parity <python export folder> [--cache <folder>]   (see HeadlessGrokParity.swift)
 @MainActor enum HeadlessCommands {
     /// Returns an exit code when a headless command was requested, otherwise nil.

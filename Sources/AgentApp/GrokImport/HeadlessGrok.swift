@@ -1,245 +1,167 @@
 import Foundation
-import Security
 
-/// Throwaway P10.0 harness: `AgentApp --grok-spike <report.json>`. It settles, against the real Keychain, folder
-/// and server, the macOS unknowns no one can read from a keyboard (see briefs/P10.md P10.0). Deleted in P10c.
-///
-/// The report holds numbers, booleans and non-secret shape strings only (0600, rewritten after each step so a hang
-/// keeps earlier results). Steps (f)/(g) make the one live RPC; they run only under the packaged app started with
-/// `open -n`, with Konrad at the Mac. This file never prints secrets and never logs message text.
+/// The Grok Bot commands (briefs/P10.md P10c 3). Unlike the other headless commands they never call
+/// `SecKeychainSetUserInteractionAllowed(false)` (it is process-wide, and `--grok-fetch --mode full` / `--grok-probe --live`
+/// need the one macOS dialog). Output is counts, booleans and states only: no names, ids, text or anything secret.
+///   AgentApp --grok-fetch --mode recent|full [--bots "<name>,<name>"] [--store <store.json>] [--report <file>]
+///   AgentApp --grok-probe [--live] [--report <file>]
+///   AgentApp --grok-parity <python export folder> [--cache <folder>]   (see HeadlessGrokParity.swift)
 @MainActor enum HeadlessGrok {
+    nonisolated static let keychainNotice =
+        "KEYCHAIN PROMPT COMING: macOS asks for \"Grok Bot Safe Storage\". Click Allow (not Always Allow)."
+
     static func runIfRequested(arguments: [String]) -> Int32? {
         if arguments.contains("--grok-parity") { return GrokParity.run(arguments: arguments, output: { print($0) }) }
-        guard let flag = arguments.firstIndex(of: "--grok-spike") else { return nil }
-        guard arguments.indices.contains(flag + 1) else { print("Usage: AgentApp --grok-spike <report.json>"); return 64 }
-        let path = (arguments[flag + 1] as NSString).expandingTildeInPath
-        return run(reportPath: URL(fileURLWithPath: path))
+        if arguments.contains("--grok-probe") { return HeadlessRunLoop.wait { await probe(arguments: arguments, output: emit) } }
+        if arguments.contains("--grok-fetch") { return HeadlessRunLoop.wait { await fetch(arguments: arguments, output: emit) } }
+        return nil
     }
 
-    // MARK: Report (numbers/booleans/non-secret shape strings only)
-
-    struct Report: Codable {
-        var startedAtMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
-        var version: String = ""
-        var stepA_probe: StepTimed?
-        var stepB_cache: CacheStep?
-        var stepC_secrets: SecretsStep?
-        var stepD_read: ReadStep?
-        var stepE_decrypt: DecryptStep?
-        var stepF_live: LiveStep?
-        var stepG_honestUA: Int?
-
-        struct StepTimed: Codable { var osStatus: Int32; var ms: Int }
-        struct CacheStep: Codable { var readable: Bool; var errno: Int32; var ms: Int; var blobCount: Int; var rosterRows: Int }
-        struct SecretsStep: Codable { var hasAccountsString: Bool; var hasActiveAccount: Bool; var accountCount: Int; var hasMachineID: Bool }
-        struct ReadStep: Codable { var osStatus: Int32; var ms: Int; var byteCount: Int }
-        struct DecryptStep: Codable {
-            var tokenShapeOK: Bool; var tokenSegments: Int; var expSecondsFromNow: Int64
-            var machineIDLength: Int; var teamIDNumeric: Bool; var accountBinding: String
-        }
-        struct LiveStep: Codable, Sendable { var httpStatus: Int; var networkProtocol: String; var bytesStartGzip: Bool; var rowsDecoded: Int; var newestSeq: Int64 }
-    }
-
-    static func run(reportPath: URL) -> Int32 {
-        var report = Report()
-        report.version = GrokRequestHeaders.clientVersion(fromShortVersion: installedGrokVersion())
-        func flush() { write(report, to: reportPath) }
-        flush()
-
-        let keychain = GrokKeychain()
-        // (a) attributes-only probe — must be silent and under 500 ms.
-        report.stepA_probe = timed { keychain.probe() }
-        flush()
-
-        // (b) cache: list, count .blob, read the roster.
-        report.stepB_cache = cacheStep()
-        flush()
-
-        // (c) secrets-file structure, nothing decrypted.
-        let secretsURL = dataFolder().appending(path: GrokProtocol.secretsFileName)
-        let secretsData = try? Data(contentsOf: secretsURL)
-        if let secretsData, let parsed = try? GrokSecretsFile.parse(data: secretsData) {
-            report.stepC_secrets = .init(hasAccountsString: parsed.hasAccountsString, hasActiveAccount: parsed.activeAccountID != nil,
-                                         accountCount: parsed.accountIDs.count, hasMachineID: parsed.hasMachineID)
-        }
-        flush()
-
-        // (d) the one Keychain read.
-        print("KEYCHAIN PROMPT COMING — Konrad: click Allow (not Always Allow)")
+    nonisolated private static func emit(_ line: String) {
+        print(line)
         fflush(stdout)
-        var password: [UInt8] = []
-        let start = Date()
-        let readStatus: OSStatus
-        do { password = try keychain.readPassword(); readStatus = errSecSuccess }
-        catch let error as GrokKeychainError { readStatus = osStatus(from: error) }
-        catch { readStatus = errSecInternalError }
-        report.stepD_read = .init(osStatus: readStatus, ms: ms(since: start), byteCount: password.count)
-        flush()
+    }
 
-        // (e) derive the key once (the Keychain bytes are zeroed right after), decrypt three values, shapes only.
-        // The same key serves (f)/(g): one Keychain read per run (docs/P10-spike-findings.md, carry 1).
-        var key = password.isEmpty ? [] : ((try? GrokSafeStorage.deriveKey(password: password)) ?? [])
-        GrokSafeStorage.zero(&password)
-        defer { GrokSafeStorage.zero(&key) }
-        if !key.isEmpty, let secretsData {
-            report.stepE_decrypt = decryptStep(key: key, secretsData: secretsData)
+    static var appVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "" }
+
+    // MARK: --grok-probe
+
+    static func probe(arguments: [String], environment: GrokImportEnvironment? = nil,
+                      output: @escaping @Sendable (String) -> Void) async -> Int32 {
+        let live = arguments.contains("--live")
+        let notice = keychainNotice
+        let report = await GrokProbe.run(environment: environment ?? .live(appVersion: appVersion), live: live) { output(notice) }
+        for line in lines(for: report) { output(line) }
+        if let path = value(after: "--report", in: arguments) { write(probeJSON(report), to: path) }
+        return report.ok ? 0 : 1
+    }
+
+    static func lines(for report: GrokProbeReport) -> [String] {
+        var lines = [
+            "grokBotFound=\(report.grokBotFound) dataFolderFound=\(report.dataFolderFound) version=\(report.grokBotVersion) " +
+                "versionReadable=\(report.versionReadable)",
+            "cacheReadable=\(report.cacheReadable) rosterRows=\(report.rosterRows) bots=\(report.bots) groups=\(report.groups) " +
+                "cachedTranscripts=\(report.cachedTranscripts)",
+            "secretsShapeOK=\(report.secretsShapeOK) accounts=\(report.accounts) machineIDStored=\(report.machineIDStored) " +
+                "accountBinding=\(report.accountBinding)",
+            "keychainItemPresent=\(report.keychainItemPresent) keychainProbeMs=\(report.keychainProbeMs) serverReady=\(report.serverReady)",
+        ]
+        if let problem = report.cacheProblem { lines.insert("cacheProblem=\(problem)", at: 2) }
+        if let live = report.live {
+            lines.append("live keychainReadOK=\(live.keychainReadOK) tokenShapeOK=\(live.tokenShapeOK) tokenValid=\(live.tokenValid) " +
+                         "machineIDPresent=\(live.machineIDPresent) teamIDPresent=\(live.teamIDPresent) " +
+                         "canaryOK=\(live.canaryOK) canaryRows=\(live.canaryRows)" +
+                         (live.failure.map { " failure=\($0)" } ?? ""))
         }
-        flush()
+        lines.append("probe \(report.ok ? "OK" : "NOT OK")")
+        return lines
+    }
 
-        // (f)/(g) the one live RPC and the honest-UA probe. Guarded by the flag so cache-only builds never compile it out.
-        if GrokProtocol.serverHistoryEnabled, !key.isEmpty, let secretsData, let agentID = fewestEntriesAgentID() {
-            // Off the main actor (HeadlessGrokLive is nonisolated, run in Task.detached): this thread blocks below.
-            let version = report.version, liveKey = key
-            if let outcome = HeadlessGrokLive.blockingRun({
-                await HeadlessGrokLive.liveSteps(agentID: agentID, secretsData: secretsData, key: liveKey, version: version)
-            }) {
-                report.stepF_live = outcome.stepF
-                report.stepG_honestUA = outcome.stepG
-            }
-            flush()
+    // MARK: --grok-fetch
+
+    static func fetch(arguments: [String], store: AppStore? = nil, environment: GrokImportEnvironment? = nil,
+                      output: @escaping (String) -> Void) async -> Int32 {
+        guard let raw = value(after: "--mode", in: arguments), let mode = GrokImportMode(rawValue: raw) else {
+            output("Usage: AgentApp --grok-fetch --mode recent|full [--bots \"<name>,<name>\"] [--store <store.json>] [--report <file>]")
+            return 64
         }
-        return 0
-    }
-
-    // MARK: Steps
-
-    private static func timed(_ body: () -> OSStatus) -> Report.StepTimed {
-        let start = Date()
-        let status = body()
-        return .init(osStatus: status, ms: ms(since: start))
-    }
-
-    private static func cacheStep() -> Report.CacheStep {
-        let start = Date()
-        let cacheURL = dataFolder().appending(path: GrokProtocol.cacheFolderName)
-        var names: [String] = []
-        var errnoValue: Int32 = 0
-        do { names = try FileManager.default.contentsOfDirectory(atPath: cacheURL.path) }
-        catch { errnoValue = Int32((error as NSError).code) }
-        let blobs = names.filter { $0.hasSuffix(GrokProtocol.blobExtension) }
-        var rosterRows = 0
-        var readable = false
-        for name in blobs {
-            guard let key = decodeBlobName(name), key.hasSuffix(GrokProtocol.rosterSuffix) else { continue }
-            if let data = try? Data(contentsOf: cacheURL.appending(path: name)),
-               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let value = root["value"] as? [String: Any], let rows = value["rows"] as? [Any] {
-                rosterRows = rows.count
-                readable = true
-            }
-            break
+        let selection = value(after: "--bots", in: arguments).map { $0.split(separator: ",").map(String.init) }
+        let storeURL = value(after: "--store", in: arguments).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+        let store = store ?? AppStore(storeURL: storeURL, autoConfigureHermes: false)
+        if mode == .full {
+            output("Mode full: \(AppConstants.name) reads Grok Bot's sign-in once; macOS will show its own Keychain window. " +
+                   "Click Allow, not Always Allow.")
         }
-        return .init(readable: readable, errno: errnoValue, ms: ms(since: start), blobCount: blobs.count, rosterRows: rosterRows)
-    }
-
-    private static func decryptStep(key: [UInt8], secretsData: Data) -> Report.DecryptStep? {
-        guard let encrypted = try? GrokSecretsFile.encryptedAccount(data: secretsData) else { return nil }
-        guard let token = try? GrokSafeStorage.decryptText(encrypted.accessToken, key: key) else { return nil }
-        let segments = token.split(separator: ".", omittingEmptySubsequences: false).count
-        let exp = jwtExpSecondsFromNow(token)
-        var machineLen = 0
-        if let m = encrypted.machineID, let text = try? GrokSafeStorage.decryptText(m, key: key) {
-            machineLen = text.trimmingCharacters(in: .whitespacesAndNewlines).count
-        }
-        var teamNumeric = false
-        if let t = encrypted.teamID, let text = try? GrokSafeStorage.decryptText(t, key: key) {
-            teamNumeric = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)).map { $0 > 0 } ?? false
-        }
-        let binding = accountBindingDescription(activeAccountID: encrypted.activeAccountID)
-        return .init(tokenShapeOK: GrokCredentials.tokenSegmentsValid(token), tokenSegments: segments,
-                     expSecondsFromNow: exp, machineIDLength: machineLen, teamIDNumeric: teamNumeric, accountBinding: binding)
-    }
-
-    // MARK: Helpers
-
-    private static func dataFolder() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: GrokProtocol.dataFolderName)
-    }
-
-    private static func installedGrokVersion() -> String? {
-        let plist = URL(fileURLWithPath: GrokProtocol.appPath).appending(path: "Contents/Info.plist")
-        guard let data = try? Data(contentsOf: plist),
-              let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return nil }
-        return dict["CFBundleShortVersionString"] as? String
-    }
-
-    private static func fewestEntriesAgentID() -> String? {
-        let cacheURL = dataFolder().appending(path: GrokProtocol.cacheFolderName)
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: cacheURL.path) else { return nil }
-        var best: (count: Int, id: String)?
-        for name in names where name.hasSuffix(GrokProtocol.blobExtension) {
-            guard let key = decodeBlobName(name), let range = key.range(of: GrokProtocol.transcriptInfix) else { continue }
-            let id = String(key[range.upperBound...])
-            guard let data = try? Data(contentsOf: cacheURL.appending(path: name)),
-                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let value = root["value"] as? [String: Any] else { continue }
-            let count = (value["entries"] as? [Any])?.count ?? 0
-            if best == nil || count < best!.count { best = (count, id) }
-        }
-        return best?.id
-    }
-
-    private static func accountBindingDescription(activeAccountID: String) -> String {
-        let cacheURL = dataFolder().appending(path: GrokProtocol.cacheFolderName)
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: cacheURL.path) else { return "no-cache" }
-        var slotValue: String?
-        var segments = Set<String>()
-        for name in names where name.hasSuffix(GrokProtocol.blobExtension) {
-            guard let key = decodeBlobName(name), key.hasPrefix(GrokProtocol.accountSlicePrefix) else { continue }
-            let rest = key.dropFirst(GrokProtocol.accountSlicePrefix.count)
-            if let dot = rest.firstIndex(of: ".") { segments.insert(String(rest[..<dot])) }
-            if key == GrokProtocol.accountSlotKey, let data = try? Data(contentsOf: cacheURL.appending(path: name)),
-               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                slotValue = (root["value"] as? String) ?? (root["value"] as? [String: Any])?["value"] as? String
+        let run = GrokImportRun(store: store, environment: environment ?? .live(appVersion: appVersion),
+                                options: GrokImportOptions(mode: mode, selection: selection))
+        run.onEvent = { event in
+            switch event {
+            case .keychainReadComing: output(keychainNotice)
+            case .committed(let row): output("conversation \(run.rows.count): " + describe(row))
+            case .conversation, .page: break
             }
         }
-        guard let slotValue else { return segments.count > 1 ? "needs-account-choice" : "no-slot" }
-        let encoded = slotValue.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? slotValue
-        return GrokCredentials.accountBindingHolds(activeAccountID: activeAccountID, accountSlotValue: encoded) ? "holds" : "mismatch"
-    }
-
-    private static func jwtExpSecondsFromNow(_ token: String) -> Int64 {
-        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count >= 2, let payload = GrokCredentials.base64URLDecode(String(parts[1])),
-              let claims = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
-              let exp = claims["exp"] as? Double else { return 0 }
-        return Int64(exp - Date().timeIntervalSince1970)
-    }
-
-    /// Minimal unpadded lowercase RFC 4648 base32 decode for the spike (GrokBase32 with the full reject rules
-    /// arrives in P10a). A bad character or undecodable name is simply skipped here.
-    private static func decodeBlobName(_ name: String) -> String? {
-        guard name.hasSuffix(GrokProtocol.blobExtension) else { return nil }
-        let stem = String(name.dropLast(GrokProtocol.blobExtension.count)).lowercased()
-        let alphabet = Array("abcdefghijklmnopqrstuvwxyz234567")
-        var bits = 0, value = 0
-        var out: [UInt8] = []
-        for char in stem {
-            guard let index = alphabet.firstIndex(of: char) else { return nil }
-            value = (value << 5) | index
-            bits += 5
-            if bits >= 8 { bits -= 8; out.append(UInt8((value >> bits) & 0xFF)) }
+        let state = await run.start()
+        let requests = await run.requestCount()
+        let rows = run.rows
+        let done = rows.filter { $0.status == .done }.count
+        let incomplete = rows.filter { $0.status == .incomplete }.count
+        output("state=\(describe(state)) conversations=\(rows.count) done=\(done) incomplete=\(incomplete) " +
+               "skipped=\(rows.filter { $0.status == .skipped }.count) messages=\(rows.map(\.messages).reduce(0, +)) " +
+               "added=\(rows.map(\.addedLines).reduce(0, +)) requests=\(requests) keychainReads=\(run.keychainReads)")
+        if case .stopped(let error) = state { output("stopped: \(error.errorDescription ?? "unknown")") }
+        if case .paused(let pause) = state {
+            output("paused: \(describe(pause)); run the command again to continue (nothing is duplicated).")
         }
-        return String(bytes: out, encoding: .utf8)
+        if let path = value(after: "--report", in: arguments) {
+            write(fetchJSON(state: state, rows: rows, requests: requests, keychainReads: run.keychainReads), to: path)
+        }
+        let complete = state == .finished && !rows.isEmpty && rows.allSatisfy { $0.status == .done }
+        return complete ? 0 : 1
     }
 
-    private static func osStatus(from error: GrokKeychainError) -> OSStatus {
-        switch error {
-        case .denied(let s), .unexpected(let s): return s
-        case .itemMissing: return errSecItemNotFound
-        case .keychainLocked: return -25308
-        case .interactionNotAllowed: return errSecInteractionNotAllowed
+    static func describe(_ row: GrokImportRunRow) -> String {
+        "\(row.isGroup ? "group" : "bot") \(row.status.rawValue) coverage=\(row.coverage.rawValue) cached=\(row.cachedEntries) " +
+            "fetched=\(row.fetchedEntries) messages=\(row.messages) archive=\(row.archiveLines) added=\(row.addedLines) " +
+            "pages=\(row.stats.pages) blobsRead=\(row.stats.blobsRead) blobsMissing=\(row.stats.blobsMissing) " +
+            "omittedRefetched=\(row.stats.omittedRefetched) unreadable=\(row.stats.unreadable) gapRanges=\(row.gapRanges) " +
+            "missingSeqs=\(row.missingSeqs)"
+    }
+
+    static func describe(_ state: GrokImportRunState) -> String {
+        switch state {
+        case .idle: "idle"
+        case .preflighting: "preflighting"
+        case .awaitingMacOS: "awaitingMacOS"
+        case .running: "running"
+        case .paused: "paused"
+        case .finished: "finished"
+        case .stopped: "stopped"
+        case .cancelled: "cancelled"
         }
     }
 
-    private static func ms(since start: Date) -> Int { Int(Date().timeIntervalSince(start) * 1000) }
+    static func describe(_ pause: GrokImportPause) -> String {
+        switch pause {
+        case .network(let error): "network (\(error.description))"
+        case .tokenExpired: "the Grok Bot sign-in has expired; open Grok Bot once"
+        case .signInInvalid: "Grok no longer accepts this sign-in; macOS will ask again"
+        }
+    }
 
-    private static func write(_ report: Report, to url: URL) {
+    // MARK: Reports (0600; counts, booleans and states only)
+
+    private static func probeJSON(_ report: GrokProbeReport) -> Data? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(report) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        return try? encoder.encode(report)
+    }
+
+    private static func fetchJSON(state: GrokImportRunState, rows: [GrokImportRunRow], requests: Int, keychainReads: Int) -> Data? {
+        let rowObjects: [[String: Any]] = rows.map { row in
+            ["isGroup": row.isGroup, "status": row.status.rawValue, "coverage": row.coverage.rawValue, "cached": row.cachedEntries,
+             "fetched": row.fetchedEntries, "messages": row.messages, "archive": row.archiveLines, "added": row.addedLines,
+             "pages": row.stats.pages, "rows": row.stats.rows, "blobsRead": row.stats.blobsRead, "blobsMissing": row.stats.blobsMissing,
+             "omittedRefetched": row.stats.omittedRefetched, "unreadable": row.stats.unreadable, "gapRanges": row.gapRanges,
+             "missingSeqs": row.missingSeqs]
+        }
+        let object: [String: Any] = ["state": describe(state), "requests": requests, "keychainReads": keychainReads,
+                                     "conversations": rowObjects]
+        return try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    private static func write(_ data: Data?, to path: String) {
+        guard let data else { return }
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o700])
         try? data.write(to: url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private static func value(after flag: String, in arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else { return nil }
+        let value = arguments[index + 1]
+        return value.hasPrefix("--") ? nil : value
     }
 }

@@ -84,10 +84,12 @@ struct GrokCredentials: Sendable {
     /// Decrypts the three values with the derived key and runs the shape checks. The key is the caller's to zero.
     /// A wrong key passes PKCS7 padding ~0.4 % of the time, so the token must also be UTF-8 and three base64url
     /// segments (`decryptText` enforces UTF-8; `tokenSegmentsValid` the rest).
-    static func decrypt(from encrypted: GrokSecretsFile.EncryptedAccount, key: [UInt8], now: Date) throws -> GrokCredentials {
+    /// `margin`: the token must stay valid at least this long (the import pipeline asks for `GrokProtocol.tokenMargin`).
+    static func decrypt(from encrypted: GrokSecretsFile.EncryptedAccount, key: [UInt8], now: Date,
+                        margin: TimeInterval = 0) throws -> GrokCredentials {
         let token = try GrokSafeStorage.decryptText(encrypted.accessToken, key: key)
         guard tokenSegmentsValid(token) else { throw GrokCredentialsError.tokenShapeInvalid }
-        guard !tokenExpired(token, now: now) else { throw GrokCredentialsError.tokenExpired }
+        guard !tokenExpired(token, now: now, margin: margin) else { throw GrokCredentialsError.tokenExpired }
 
         var machineID = ""
         if let encryptedMachineID = encrypted.machineID {
@@ -126,7 +128,7 @@ struct GrokCredentials: Sendable {
         return exp <= now.timeIntervalSince1970 + margin
     }
 
-    /// The cache's account slot value (percent-encoded) hashes to the active account id (lowercase hex SHA-256).
+    /// The cache's account slot value, raw (not percent-encoded), hashes to the active account id (lowercase hex SHA-256).
     /// With no slot blob the binding cannot be checked, which is not a failure (the caller allows it).
     static func accountBindingHolds(activeAccountID: String, accountSlotValue: String) -> Bool {
         sha256Hex(Array(accountSlotValue.utf8)) == activeAccountID.lowercased()

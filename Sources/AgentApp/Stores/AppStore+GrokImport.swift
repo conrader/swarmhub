@@ -109,6 +109,14 @@ extension AppStore {
         return bound
     }
 
+    /// The Settings server new in-app imported bots chat through; nil when none is set (they import history-only).
+    var grokSettingsServerURL: String? { defaults.string(forKey: "hermesBaseURL") }
+
+    /// Archive lines already kept for a Grok conversation (bot or group), 0 when it was never imported.
+    func grokArchiveLines(sourceID: String) -> Int {
+        bots.first { $0.grokSourceID == sourceID }?.grokHistoryCount ?? groups.first { $0.grokSourceID == sourceID }?.grokHistoryCount ?? 0
+    }
+
     /// Writes `store.json`, surfacing a failure (the plain `save()` ignores it).
     func saveThrowing() throws {
         guard persistenceEnabled else { throw GrokImportError.persistenceDisabled }

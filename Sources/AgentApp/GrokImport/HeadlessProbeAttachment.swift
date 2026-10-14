@@ -9,10 +9,7 @@ import Foundation
             print("Usage: AgentApp --probe-attachment <file>"); return 64
         }
         let url = URL(fileURLWithPath: (arguments[index + 1] as NSString).expandingTildeInPath)
-        var code: Int32?
-        Task { @MainActor in code = await probe(url, output: { print($0); fflush(stdout) }) }
-        while code == nil { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
-        return code!
+        return HeadlessRunLoop.wait { await probe(url, output: { print($0); fflush(stdout) }) }
     }
 
     static func probe(_ url: URL, limits: DocumentLimits = .standard, output: (String) -> Void) async -> Int32 {

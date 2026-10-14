@@ -54,13 +54,10 @@ import Security
         let bots = Participants(jarvis: copy(originals[0], name: "\(originals[0].name) \(namespace)\(tag)"), dmt: copy(originals[1]), achilles: copy(originals[2]))
         store.bots = [bots.jarvis, bots.dmt, bots.achilles]; store.groups = []; store.selectedBot = nil
         print("E2E: test store \(directory.path) (removed afterwards); real store \(realURL.path) is read only, \(saved.groups.count) groups in it are not loaded")
-        var code: Int32?
-        Task { @MainActor in
+        return HeadlessRunLoop.wait {
             let steps = await run(store: store, bots: bots, tag: tag, output: { print($0); fflush(stdout) })
-            code = steps.allSatisfy(\.passed) && steps.count == 6 ? 0 : 1
+            return steps.allSatisfy(\.passed) && steps.count == 6 ? 0 : 1
         }
-        while code == nil { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
-        return code!
     }
 
     /// A Grok-imported bot first, then any visible one; never a read-only archive.
