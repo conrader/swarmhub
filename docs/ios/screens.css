@@ -10,7 +10,7 @@ a { color:inherit; }
 [hidden] { display:none !important; }
 .studio-header { margin:0 40px; padding:24px 0; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:16px; }
 .wordmark { display:flex; align-items:center; gap:10px; font-size:19px; font-weight:650; text-decoration:none; letter-spacing:-.5px; }
-.brand-mark { background:#262922; color:#eff1e8; width:29px; height:29px; display:grid; place-items:center; border-radius:8px; font-weight:700; }
+.brand-mark { width:36px; height:36px; display:block; object-fit:contain; flex-shrink:0; }
 .platform { color:var(--muted); font-weight:400; margin-left:8px; }
 .studio-actions { display:flex; align-items:center; gap:20px; font-size:13px; }
 .studio-actions button { border:1px solid var(--line); background:transparent; border-radius:30px; padding:9px 17px; }
