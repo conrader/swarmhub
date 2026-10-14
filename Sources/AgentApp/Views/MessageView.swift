@@ -59,12 +59,6 @@ struct MessageView: View {
 
     @ViewBuilder private var content: some View {
         switch message.presentation {
-        case .draftEmail: DraftEmailCard(message: message)
-        case .options: OptionCard(message: message)
-        case .attachment: AttachmentCard(message: message)
-        case .image: ImageCard(message: message)
-        case .links: LegacyLinkPills(message: message)
-        case .voiceMemo: VoiceMemoCard(message: message)
         case .delegation: DelegationCard(message: message)
         case .routineResult: RoutineResultCard(message: message)
         case .text:
@@ -78,7 +72,8 @@ struct MessageView: View {
                 }
             } else {
                 MarkdownContent(message: message)
-                if message.isStreaming { ActivityLiveLine(message: message) } else if message.activity != nil { ActivityStepsRow(message: message, expanded: stepsExpanded) }
+                // P29: one row while streaming and after, so an open row stays open when the turn ends.
+                ActivityRow(message: message, expanded: stepsExpanded)
             }
         }
     }

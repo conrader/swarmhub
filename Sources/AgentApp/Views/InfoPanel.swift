@@ -30,7 +30,7 @@ struct InfoPanel: View {
                 if bot.backend == .openClaw {
                     OpenClawOverviewSection(status: store.openClawStatus, bot: bot)
                 } else {
-                    infoSection("Memory", text: bot.memorySummary.isEmpty ? "Memory will appear as this agent learns your preferences." : bot.memorySummary)
+                    MemorySection(bot: bot)
                 }
                 BotCapabilitiesView(bot: bot, cache: store.botInfo)
                 VStack(alignment: .leading, spacing: 8) {
@@ -44,13 +44,7 @@ struct InfoPanel: View {
                     }
                     if bot.approvalAudit.isEmpty { Text("Approval requests and decisions will appear here. Command text and arguments are not stored in this audit.").font(.caption).foregroundStyle(.secondary) }
                 }
-                if bot.backend == .hermes {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Delegated tasks").font(.headline)
-                        ForEach(store.subAgentTasks[bot.id] ?? []) { task in HStack { Image(systemName: task.status == .completed ? "checkmark.circle" : "person.2"); VStack(alignment: .leading) { Text(task.title).font(.caption.weight(.medium)); Text(task.detail).font(.caption2).foregroundStyle(.secondary) }; Spacer(); Text(task.status.rawValue.capitalized).font(.caption2).foregroundStyle(.secondary) }.padding(8).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 8)) }
-                        if (store.subAgentTasks[bot.id] ?? []).isEmpty { Text("Delegated work will appear here while Hermes runs sub-agents.").font(.caption).foregroundStyle(.secondary) }
-                    }
-                }
+                if bot.backend == .hermes { DelegatedTasksSection(bot: bot, events: store.subAgentTasks[bot.id] ?? []) }
             }
         case .routines:
             RoutinesView(bot: bot, cache: store.routines)
@@ -70,7 +64,6 @@ struct InfoPanel: View {
             }
         }
     }
-    private func infoSection(_ title: String, text: String) -> some View { VStack(alignment: .leading, spacing: 6) { Text(title).font(.headline); Text(text).foregroundStyle(.secondary).lineSpacing(2) } }
     private func member(_ name: String, role: String) -> some View { HStack { Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(.secondary); VStack(alignment: .leading) { Text(name); Text(role).font(.caption).foregroundStyle(.secondary) } } }
 }
 

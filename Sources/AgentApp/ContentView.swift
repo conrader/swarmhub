@@ -45,29 +45,3 @@ struct ContentView: View {
         .alert("Backend Error", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) { Button("OK") { store.errorMessage = nil } } message: { Text(store.errorMessage ?? "") }
     }
 }
-
-private struct CommandPaletteView: View {
-    @EnvironmentObject private var store: AppStore; @Environment(\.dismiss) private var dismiss
-    let selectCommand: (AppCommand) -> Void
-    let openSetup: () -> Void
-    @State private var query = ""
-    @FocusState private var searchFocused: Bool
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack { Image(systemName: "magnifyingglass").foregroundStyle(.secondary); TextField("Jump to an agent or action", text: $query).textFieldStyle(.plain).font(.title3).focused($searchFocused); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }.padding(16)
-            Divider()
-            ScrollView { VStack(spacing: 4) {
-                ForEach(store.bots.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { bot in action(bot.name, icon: "message") { store.open(bot) } }
-                ForEach(store.groups.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { group in action(group.name, icon: "person.3") { store.open(group) } }
-                Divider().padding(.vertical, 4)
-                ForEach(AppCommand.allCases.filter { $0 != .quickSwitcher && (query.isEmpty || $0.title.localizedCaseInsensitiveContains(query)) }) { command in
-                    action(command.title, icon: command.icon, shortcut: command.shortcutText) { selectCommand(command) }
-                        .disabled(!command.isEnabled(in: store))
-                }
-                if query.isEmpty || setupTitle.localizedCaseInsensitiveContains(query) { action(setupTitle, icon: "link", perform: openSetup) }
-            }.padding(8) }
-        }.frame(width: 480, height: 380).background(AppColor.panel).onAppear { searchFocused = true }
-    }
-    private var setupTitle: String { store.boxConfigured ? SimpleCopy.changeConnection : SimpleCopy.setUp }
-    private func action(_ title: String, icon: String, shortcut: String? = nil, perform: @escaping () -> Void) -> some View { Button { perform(); dismiss() } label: { HStack { Image(systemName: icon).frame(width: 24); Text(title); Spacer(); if let shortcut { Text(shortcut).font(.caption.monospaced()).foregroundStyle(.secondary) } }.padding(9).contentShape(Rectangle()) }.buttonStyle(.plain) }
-}

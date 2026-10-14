@@ -48,7 +48,7 @@ private struct FixtureReviewerBackend: AgentBackend {
             if mode == .nativeSessions {
                 listedSessions = try await backend.listSessions()
                 let ownedID = "agentapp_integration_\(UUID().uuidString.lowercased())"
-                id = try await backend.createSession(title: "AgentApp integration \(ownedID.suffix(8))", systemPrompt: "Integration test", id: ownedID)
+                id = try await backend.createSession(title: "\(AppConstants.name) integration \(ownedID.suffix(8))", systemPrompt: "Integration test", id: ownedID)
                 _ = try await backend.loadMessages(sessionID: id)
             } else {
                 listedSessions = []; id = "agentapp_legacy_integration"

@@ -107,13 +107,13 @@ final class KeyVault: @unchecked Sendable {
 
     /// Test runs never touch the real Keychain; only the bundled app copies legacy keys into v2.
     static let shared = isTestRun
-        ? KeyVault(backend: DetachedKeychainBackend(), defaults: UserDefaults(suiteName: "AgentAppTests-KeyVault") ?? .standard, copiesLegacy: false)
+        ? KeyVault(backend: DetachedKeychainBackend(), defaults: TestRunGuard.scratchDefaults("KeyVault"), copiesLegacy: false)
         : KeyVault(backend: SecKeychainBackend(), defaults: .standard, copiesLegacy: Bundle.main.bundleURL.pathExtension == "app")
     static var isTestRun: Bool { TestRunGuard.isTestRun }
 
     private let lock = NSLock()
     private let backend: any KeychainBackend
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
     private let copiesLegacy: Bool
     private var values: [String: String] = [:]
     private var locked: Set<String> = []

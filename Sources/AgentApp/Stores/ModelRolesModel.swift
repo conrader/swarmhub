@@ -34,6 +34,8 @@ struct ModelRolesModel: Equatable, Sendable {
         var defaults: ModelDefaults?
         var current: CurrentModel?
         var isLocked = false
+        /// The bot has a main chat; an unpinned one runs the agent default, which can differ from the bot's choice.
+        var hasChat = false
     }
 
     struct RoleLine: Equatable, Sendable {
@@ -100,7 +102,7 @@ struct ModelRolesModel: Equatable, Sendable {
         let coding = ModelPolicy.effective(role: .coding, settings: input.settings, defaults: input.defaults, catalog: catalog)
         row.conversation = line(.conversation, conversation, catalog: catalog, loaded: input.info?.fetchedAt != nil)
         row.coding = line(.coding, coding, catalog: catalog, loaded: input.info?.fetchedAt != nil)
-        if let runs = input.current, runs.source != CurrentModel.agentDefault, let wanted = conversation.choice?.model ?? catalog?.agentDefault?.model,
+        if let runs = input.current, runs.source != CurrentModel.agentDefault || input.hasChat, let wanted = conversation.choice?.model ?? catalog?.agentDefault?.model,
            !ModelCatalog.sameModel(runs.model, wanted) {
             row.mismatch = "This chat runs \(runs.model); this bot's default is \(wanted)."
             row.canSwitch = row.blocked == nil && input.info?.isSwitchingModel != true && conversation.check != .notOffered && catalog?.pinning == .permanent

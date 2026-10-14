@@ -13,7 +13,7 @@ extension AppStore {
         // Each row sits under its own host; an OpenClaw agent's group is its Gateway's name ("OpenClaw" while unbound).
         return .init(id: bot.id, name: bot.name, server: bot.backend == .openClaw ? gateway(id: bot.openClaw?.gatewayID)?.name ?? "OpenClaw" : URL(string: server)?.host ?? server, profile: bot.hermesProfile ?? "default",
                      isOpenClaw: bot.backend == .openClaw, catalog: modelCatalog(for: bot), canAsk: block?.countsAsAskable ?? true,
-                     info: botInfo.info(for: bot.id), settings: modelSettings(for: bot), defaults: modelDefaultsForRoles, current: current, isLocked: locked)
+                     info: botInfo.info(for: bot.id), settings: modelSettings(for: bot), defaults: modelDefaultsForRoles, current: current, isLocked: locked, hasChat: bot.hermesSessionID != nil)
     }
 
     func modelSettings(for bot: Bot) -> BotModelSettings? { bot.modelSettings }

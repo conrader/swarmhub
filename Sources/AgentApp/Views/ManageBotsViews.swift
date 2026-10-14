@@ -35,7 +35,8 @@ struct BotOffersCard: View {
                         switch offer.state {
                         case .offered: Button("Add") { Task { await store.addOffered(offer, manager: manager) } }
                         case .adding: ProgressView().controlSize(.small)
-                        case .needsKey: SettingsLink { Text("Paste key…") }.help("This bot does not use a derived key; paste profile=key in Settings → Add bots from box.")
+                        case .needsKey: SettingsPaneButton(title: "Paste key…", pane: .servers)
+                            .help("This bot does not use a derived key; paste profile=key in \(SettingsLayout.path(.servers, "Add bots from box")).")
                         case .unreachable: Button("Retry") { Task { await store.addOffered(offer, manager: manager) } }.help("Couldn’t reach this bot yet.")
                         }
                     }

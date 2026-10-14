@@ -24,8 +24,6 @@ enum MediaExtractor {
             var found: [(MediaItem.Kind, String, String?, ChatAttachment?)] = []
             for attachment in message.attachments { found.append((attachment.kind == .image ? .image : .file, attachment.name, nil, attachment)) }
             switch message.presentation {
-            case .image: found.append((.image, message.metadata["name"] ?? "Image", nil, nil))
-            case .attachment: found.append((.file, message.metadata["name"] ?? "Attachment", nil, nil))
             case .text where message.role != .system:
                 for image in ChatCardParser.markdownImages(in: message.content) {
                     found.append((.image, image.alt.isEmpty ? (image.url.hasPrefix("data:") ? "Image" : ChatCardParser.pillLabel(image.url)) : image.alt, image.url, nil))

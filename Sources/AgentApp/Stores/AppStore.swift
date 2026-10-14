@@ -10,6 +10,8 @@ import UserNotifications
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false; @Published var replyTo: ChatMessage?
+    /// P32 8: the Advanced pane the Settings window shows when it next opens or is already open; it clears it.
+    @Published var settingsPane: SettingsLayout.AdvancedPane?
     /// P10d: the Grok Bot import sheet, and whether Grok Bot is on this Mac at all (Tier 1: existence checks only,
     /// run once, on first use; false hides every door).
     @Published var showingGrokImport = false
@@ -77,7 +79,7 @@ import UserNotifications
         if storeURL == nil, TestRunGuard.refuses("AppStore without storeURL (the real store.json)") {
             storeURL = FileManager.default.temporaryDirectory.appending(path: "AgentAppTests-unguarded-\(UUID().uuidString)/store.json")
         }
-        if defaults === UserDefaults.standard, TestRunGuard.refuses("AppStore on UserDefaults.standard") { defaults = UserDefaults(suiteName: "AgentAppTests-unguarded-\(UUID().uuidString)") ?? defaults }
+        if defaults === UserDefaults.standard, TestRunGuard.refuses("AppStore on UserDefaults.standard") { defaults = TestRunGuard.scratchDefaults("unguarded-\(UUID().uuidString)") }
         self.keyStore = keyStore; self.defaults = defaults; self.hermesSession = hermesSession; self.connectivity = connectivity
         injectedOpenClawHub = openClawHub
         self.backendFactory = backendFactory

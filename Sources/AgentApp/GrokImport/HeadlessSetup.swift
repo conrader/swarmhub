@@ -80,6 +80,7 @@ import SwiftUI
         }
         await HeadlessInspector.render(store: store, write: write) { view, size in await png(view.background(AppColor.panel), store: store, updater: updater, size: size) }
         await HeadlessActivityShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        await HeadlessP32Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         output("Rendered setup to \(directory.path); \(failures) failed")
         return failures == 0 ? 0 : 1
     }

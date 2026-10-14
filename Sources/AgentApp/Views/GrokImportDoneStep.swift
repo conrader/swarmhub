@@ -37,7 +37,7 @@ struct GrokDoneStep: View {
                 checking = true
                 Task { await coordinator.checkConnectionsAgain(); checking = false }
             }.disabled(checking)
-            if coordinator.serverURL == nil { SettingsLink { Text("Set up Hermes server…") } }
+            if coordinator.serverURL == nil { SettingsPaneButton(title: "Set up Hermes server…", pane: .servers).help("Opens \(SettingsLayout.path(.servers)).") }
         }
     }
 

@@ -79,7 +79,7 @@ import SwiftUI
             case .unavailable(let reason), .failed(let reason): "n/a (\(reason))"
             }
         }
-        let model = store.currentModel(for: bot).map { "\($0.model) (\($0.source))" } ?? "unknown"
+        let model = store.currentModel(for: bot).map { "\($0.model) (\($0.source)\($0.lastReplyModel.map { "; last reply \($0)" } ?? ""))" } ?? "unknown"
         let picker = info.showsModelPicker ? (info.canLockSessionModel ? "picker on" : "picker read-only") : "picker hidden"
         return "\(bot.name): Overview skills \(describe(info.skills)), toolsets \(describe(info.toolsets)), model \(model), \(picker)"
     }

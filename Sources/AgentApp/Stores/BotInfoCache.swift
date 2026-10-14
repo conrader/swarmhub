@@ -7,6 +7,9 @@ enum Loadable<Value: Equatable & Sendable>: Equatable, Sendable {
 
 struct CurrentModel: Equatable, Sendable {
     let model: String; let provider: String?; let source: String
+    /// An unpinned chat's session row names the model its last reply ran on; set only when that differs from `model`
+    /// (the agent default its next reply uses).
+    var lastReplyModel: String? = nil
     /// The source of a chat that runs on what the agent's backend reports as its default.
     static let agentDefault = "agent default"
 }
@@ -219,8 +222,9 @@ struct BotServerInfo: Equatable, Sendable {
     }
 
     /// Model shown for the chat: a lock confirmed for this session (unless the session row reports a different
-    /// concrete model, i.e. another client changed it), else the session row's model (unless it is the gateway's
-    /// virtual alias, which means "server default"), else the server's configured default.
+    /// concrete model, i.e. another client changed it), else the agent default (an unpinned chat's next reply runs on
+    /// it; Hermes' row only names the model the last reply ran on, carried as `lastReplyModel` when it differs), else
+    /// the session row's model (unless it is the gateway's virtual alias, which means "server default").
     nonisolated static func currentModel(lock: HermesModelLock?, sessionID: String?, sessionModel: String?, aliases: Set<String>, options: HermesModelOptions?) -> CurrentModel? {
         currentModel(lock: lock, sessionID: sessionID, sessionModel: sessionModel, aliases: aliases, catalog: options?.catalog(profile: ""))
     }
@@ -229,8 +233,11 @@ struct BotServerInfo: Equatable, Sendable {
         if let lock, lock.sessionID == sessionID, rowModel.map({ ModelCatalog.sameModel($0, lock.model) }) ?? true {
             return .init(model: lock.model, provider: lock.provider.isEmpty ? nil : lock.provider, source: "chosen for this chat")
         }
+        if let agentDefault = catalog?.agentDefault {
+            let lastReply = rowModel.flatMap { ModelCatalog.sameModel($0, agentDefault.model) ? nil : $0 }
+            return .init(model: agentDefault.model, provider: agentDefault.supplier, source: CurrentModel.agentDefault, lastReplyModel: lastReply)
+        }
         if let rowModel { return .init(model: rowModel, provider: nil, source: "this chat") }
-        if let agentDefault = catalog?.agentDefault { return .init(model: agentDefault.model, provider: agentDefault.supplier, source: CurrentModel.agentDefault) }
         return nil
     }
 

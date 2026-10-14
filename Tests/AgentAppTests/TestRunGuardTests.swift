@@ -88,3 +88,29 @@ private func probeRequest(_ probe: String, _ url: String = "https://konrad.agent
         #expect(store.defaults !== UserDefaults.standard)
     }
 }
+
+/// P32 11: the refused paths (an AppStore on the standard defaults, the test-mode key vault) and the setup preview get
+/// settings in the temporary folder, so a run adds no `AgentAppTests-*.plist` (or `AgentApp-setup-preview-*.plist`) to
+/// ~/Library/Preferences. Compares the files before and after.
+@MainActor @Test func refusedSettingsLeaveNoPlistInLibraryPreferences() async throws {
+    let preferences = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Preferences")
+    func testPlists() -> Set<String> {
+        Set(((try? FileManager.default.contentsOfDirectory(atPath: preferences.path)) ?? [])
+            .filter { ($0.hasPrefix("AgentAppTests-") || $0.hasPrefix("AgentApp-setup-preview-")) && $0.hasSuffix(".plist") })
+    }
+    let before = testPlists()
+    var refused: UserDefaults?
+    withKnownIssue {
+        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore())
+        refused = store.defaults
+        #expect(store.defaults !== UserDefaults.standard)
+    }
+    let marker = "p32-\(UUID().uuidString)"
+    refused?.set(marker, forKey: "p32.marker"); refused?.synchronize()
+    KeyVault.shared.defaults.set(marker, forKey: "p32.marker"); KeyVault.shared.defaults.synchronize()
+    let preview = SetupPreview.makeStore(); preview.defaults.set(marker, forKey: "p32.marker"); preview.defaults.synchronize()
+    #expect(refused?.string(forKey: "p32.marker") == marker, "the scratch settings work")
+    try await Task.sleep(for: .seconds(1)) // cfprefsd writes a suite's plist shortly after the change
+    let added = testPlists().subtracting(before)
+    #expect(added.isEmpty, "new in ~/Library/Preferences: \(added.sorted())")
+}
