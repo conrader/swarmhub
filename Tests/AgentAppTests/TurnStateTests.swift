@@ -140,7 +140,7 @@ actor EndingBackend: AgentBackend {
 
 @MainActor @Test func stopMarksTheRowStoppedAtOnce() async throws {
     let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning)
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let bot = Bot(name: "Long", backend: .hermes, hermesSessionID: "s-long"); store.bots = [bot]; store.selectedBot = bot
     store.send(text: "go")
     try await waitUntil { bot.messages.last?.content == "running" }

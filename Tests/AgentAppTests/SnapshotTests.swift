@@ -16,7 +16,10 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
 }
 
 @MainActor @Test func renderSnapshotWritesNonEmptyPNGsForSyntheticStore() async throws {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(["hermes.grok-jarvis": "synthetic"]), defaults: isolatedDefaults())
+    // The imported bots sit on `grokHermesBaseURL` (the production box); the rendered chat reads /v1/capabilities, so a
+    // synthetic server answers it (404: no features) instead of the box (P28: 401s with this key in the box's nginx log).
+    let box = MockHermesProtocol.serve { _ in (404, ["error": "no route"]) }
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(["hermes.grok-jarvis": "synthetic"]), defaults: isolatedDefaults(), hermesSession: box.session)
     try store.importGrokExport(at: exportFolder)
     let storeBefore = try Data(contentsOf: store.fileURL)
     let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppSnapshots-\(UUID().uuidString)")

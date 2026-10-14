@@ -72,6 +72,12 @@ import UserNotifications
     let reviewerTimeout: Duration
 
     init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil, openClawHub: OpenClawHub? = nil) {
+        // P28: a test run never opens the real store.json or the standard defaults; either is reported and replaced.
+        var storeURL = storeURL, defaults = defaults
+        if storeURL == nil, TestRunGuard.refuses("AppStore without storeURL (the real store.json)") {
+            storeURL = FileManager.default.temporaryDirectory.appending(path: "AgentAppTests-unguarded-\(UUID().uuidString)/store.json")
+        }
+        if defaults === UserDefaults.standard, TestRunGuard.refuses("AppStore on UserDefaults.standard") { defaults = UserDefaults(suiteName: "AgentAppTests-unguarded-\(UUID().uuidString)") ?? defaults }
         self.keyStore = keyStore; self.defaults = defaults; self.hermesSession = hermesSession; self.connectivity = connectivity
         injectedOpenClawHub = openClawHub
         self.backendFactory = backendFactory

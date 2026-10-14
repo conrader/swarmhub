@@ -28,7 +28,7 @@ import Testing
 
 @Test @MainActor func legacySendNeverCallsSessions() async throws {
     let backend = TestBackend(transport: .legacyChatCompletions)
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let bot = Bot(name: "Legacy", backend: .hermes); store.bots = [bot]; store.selectedBot = bot
     store.send(text: "hello")
     try await waitUntil { !store.isStreaming }
@@ -39,7 +39,7 @@ import Testing
 
 @Test @MainActor func historyDoesNotAdoptForeignSession() async throws {
     let backend = TestBackend(transport: .nativeSessions)
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let bot = Bot(name: "Unowned", backend: .hermes); store.bots = [bot]
     store.loadServerHistory(for: bot)
     try await backend.calls.wait { $0 == ["capabilities"] }
@@ -106,7 +106,7 @@ import Testing
 
 @Test @MainActor func divergentHistoryAddsAQuietNote() async throws {
     let backend = TestBackend(transport: .nativeSessions, rows: [.init(role: "user", content: "different")])
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let bot = Bot(name: "History", backend: .hermes, messages: [ChatMessage(role: .user, content: "local"), ChatMessage(role: .assistant, content: "partial")], hermesSessionID: "history-1")
     store.bots = [bot]; store.selectedBot = bot; store.loadServerHistory(for: bot)
     try await waitUntil { bot.messages.last?.content.contains("was not merged") == true }

@@ -57,7 +57,7 @@ struct SetupCheckResult: Equatable, Sendable {
 /// Test on the setup window: entirely in memory (P21 item 13). Reads the box's health and each agent's model list;
 /// writes nothing to the key store, the settings or the store file. No message ever contains a key.
 enum SetupCheck {
-    static func run(_ input: SetupInput, savedKey: @Sendable () -> String = { "" }, session: URLSession = .shared) async -> SetupCheckResult {
+    static func run(_ input: SetupInput, savedKey: @Sendable () -> String = { "" }, session: URLSession = TestRunGuard.sharedSession) async -> SetupCheckResult {
         guard let baseURL = BoxAddress.url(input.address) else { return .init(outcome: .badAddress) }
         let parsed = HermesKeyPaste.parse(input.extra)
         guard parsed.invalid.isEmpty else { return .init(outcome: .badLine, baseURL: baseURL) }

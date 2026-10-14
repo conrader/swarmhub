@@ -13,7 +13,7 @@ private func native() throws -> [GrokBotBundle] {
 @MainActor private func policyStore(server: String? = nil, keys: [String: String] = [:], url: URL = temporaryStore()) -> AppStore {
     let defaults = isolatedDefaults()
     if let server { defaults.set(server, forKey: "hermesBaseURL") }
-    return AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(keys), defaults: defaults)
+    return AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(keys), defaults: defaults, hermesSession: UnreachableProtocol.session)
 }
 
 /// The synchronous overload (an async context would pick the async one).
@@ -61,11 +61,11 @@ private func inApp(_ server: String? = nil, refresh: Bool = false) -> GrokImport
     #expect(store.grokHistory.messages(for: plain.id).isEmpty && store.bindUnboundGrokBots().isEmpty)
     // Keys added later: "Check again" binds fill-only and never replaces an existing profile.
     let keys = InMemoryKeyStore(["hermes.grok-plain-bot": "synthetic-key"])
-    let rebound = AppStore(storeURL: store.fileURL, autoConfigureHermes: false, keyStore: keys, defaults: isolatedDefaults())
+    let rebound = AppStore(storeURL: store.fileURL, autoConfigureHermes: false, keyStore: keys, defaults: isolatedDefaults(), hermesSession: UnreachableProtocol.session)
     let bound = rebound.bindUnboundGrokBots()
     #expect(bound.map(\.grokSourceID) == [plainID] && bound.first?.hermesProfile == "grok-plain-bot")
     #expect(rebound.bots.filter(\.isGrokHistoryOnly).count == 2)
-    #expect(AppStore(storeURL: store.fileURL, autoConfigureHermes: false, keyStore: keys, defaults: isolatedDefaults())
+    #expect(AppStore(storeURL: store.fileURL, autoConfigureHermes: false, keyStore: keys, defaults: isolatedDefaults(), hermesSession: UnreachableProtocol.session)
         .bots.first { $0.grokSourceID == plainID }?.hermesProfile == "grok-plain-bot")
 }
 

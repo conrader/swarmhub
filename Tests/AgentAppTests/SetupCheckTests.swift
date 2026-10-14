@@ -71,18 +71,6 @@ private func run(_ input: SetupInput, _ server: (address: String, session: URLSe
     }
 }
 
-/// Fails every request as unreachable and counts them.
-private final class UnreachableProtocol: URLProtocol, @unchecked Sendable {
-    static let session: URLSession = {
-        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [UnreachableProtocol.self]
-        return URLSession(configuration: configuration)
-    }()
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost)) }
-    override func stopLoading() {}
-}
-
 @MainActor private func setupStore(url: URL = temporaryStore(), keys: InMemoryKeyStore = InMemoryKeyStore(), defaults: UserDefaults = isolatedDefaults()) -> AppStore {
     AppStore(storeURL: url, autoConfigureHermes: false, keyStore: keys, defaults: defaults)
 }

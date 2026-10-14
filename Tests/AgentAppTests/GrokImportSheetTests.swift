@@ -205,7 +205,7 @@ import Testing
     for prepare in scenarios {
         let world = try GrokWorld()
         prepare(world)
-        let store = AppStore(storeURL: storeURL, autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: defaults)
+        let store = AppStore(storeURL: storeURL, autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: defaults, hermesSession: UnreachableProtocol.session)
         let coordinator = makeCoordinator(world, store)
         await coordinator.scan()
         await runFull(coordinator)

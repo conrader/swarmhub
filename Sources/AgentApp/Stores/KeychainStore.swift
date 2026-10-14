@@ -43,7 +43,7 @@ protocol KeychainBackend: Sendable {
     func allAccounts(service: String) -> [String]
 }
 
-/// The live Keychain: every call goes through `KeychainAccess.silently`.
+/// The live Keychain: every call goes through `KeychainAccess.silently`. A test run is refused before the Keychain (P28).
 struct SecKeychainBackend: KeychainBackend {
     var access: KeychainAccess = .shared
 
@@ -51,6 +51,7 @@ struct SecKeychainBackend: KeychainBackend {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
     }
     func read(service: String, account: String) -> (status: OSStatus, value: String?) {
+        if TestRunGuard.refuses("Keychain read \(service)/\(account)") { return (errSecInteractionNotAllowed, nil) }
         var query = query(service, account); query[kSecReturnData as String] = true; query[kSecMatchLimit as String] = kSecMatchLimitOne
         return access.silently {
             var result: CFTypeRef?
@@ -60,18 +61,22 @@ struct SecKeychainBackend: KeychainBackend {
         }
     }
     func add(_ value: String, service: String, account: String) -> OSStatus {
+        if TestRunGuard.refuses("Keychain add \(service)/\(account)") { return errSecInteractionNotAllowed }
         var insert = query(service, account); insert[kSecValueData as String] = Data(value.utf8)
         return access.silently { SecItemAdd(insert as CFDictionary, nil) }
     }
     func delete(service: String, account: String) -> OSStatus {
+        if TestRunGuard.refuses("Keychain delete \(service)/\(account)") { return errSecInteractionNotAllowed }
         let query = query(service, account)
         return access.silently { SecItemDelete(query as CFDictionary) }
     }
     func exists(service: String, account: String) -> Bool {
+        if TestRunGuard.refuses("Keychain exists \(service)/\(account)") { return false }
         var query = query(service, account); query[kSecReturnAttributes as String] = true; query[kSecMatchLimit as String] = kSecMatchLimitOne
         return access.silently { SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess }
     }
     func allAccounts(service: String) -> [String] {
+        if TestRunGuard.refuses("Keychain list \(service)") { return [] }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitAll]
         return access.silently {
             var result: CFTypeRef?
@@ -81,13 +86,14 @@ struct SecKeychainBackend: KeychainBackend {
     }
 }
 
-/// Stands in for the Keychain in test runs: nothing is stored outside the cache and no call can prompt.
+/// Stands in for the Keychain in test runs: nothing is stored and no call can prompt. Any call means a test reached the
+/// shared vault (the default `KeychainHermesKeyStore()`) instead of injecting a key store, so it is reported (P28).
 struct DetachedKeychainBackend: KeychainBackend {
-    func read(service: String, account: String) -> (status: OSStatus, value: String?) { (errSecItemNotFound, nil) }
-    func add(_ value: String, service: String, account: String) -> OSStatus { errSecSuccess }
-    func delete(service: String, account: String) -> OSStatus { errSecItemNotFound }
-    func exists(service: String, account: String) -> Bool { false }
-    func allAccounts(service: String) -> [String] { [] }
+    func read(service: String, account: String) -> (status: OSStatus, value: String?) { _ = TestRunGuard.refuses("shared key vault read \(account)"); return (errSecItemNotFound, nil) }
+    func add(_ value: String, service: String, account: String) -> OSStatus { _ = TestRunGuard.refuses("shared key vault write \(account)"); return errSecSuccess }
+    func delete(service: String, account: String) -> OSStatus { _ = TestRunGuard.refuses("shared key vault delete \(account)"); return errSecItemNotFound }
+    func exists(service: String, account: String) -> Bool { _ = TestRunGuard.refuses("shared key vault exists \(account)"); return false }
+    func allAccounts(service: String) -> [String] { _ = TestRunGuard.refuses("shared key vault list \(service)"); return [] }
 }
 
 /// SwarmHub's API keys. Each account resolves once per launch: memory cache -> v2 item (`com.konrad.agentapp.keys.v2`,
@@ -103,11 +109,7 @@ final class KeyVault: @unchecked Sendable {
     static let shared = isTestRun
         ? KeyVault(backend: DetachedKeychainBackend(), defaults: UserDefaults(suiteName: "AgentAppTests-KeyVault") ?? .standard, copiesLegacy: false)
         : KeyVault(backend: SecKeychainBackend(), defaults: .standard, copiesLegacy: Bundle.main.bundleURL.pathExtension == "app")
-    static var isTestRun: Bool {
-        let environment = ProcessInfo.processInfo.environment
-        return environment["XCTestConfigurationFilePath"] != nil || environment["XCTestBundlePath"] != nil || environment["XCTestSessionIdentifier"] != nil
-            || NSClassFromString("XCTestCase") != nil || ["xctest", "swiftpm-testing-helper"].contains(ProcessInfo.processInfo.processName)
-    }
+    static var isTestRun: Bool { TestRunGuard.isTestRun }
 
     private let lock = NSLock()
     private let backend: any KeychainBackend
