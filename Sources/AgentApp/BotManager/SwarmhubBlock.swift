@@ -3,7 +3,16 @@ import os
 
 /// One action the manager bot reports in a ```swarmhub fence (`Resources/BotManager/manager-hermes.md`).
 enum SwarmhubOp: Equatable {
-    struct ListedBot: Equatable { var name: String; var description: String }
+    /// P35: `hasKey` (whether its .env has an `API_SERVER_KEY`, never the key) when the list came from "List every bot".
+    struct ListedBot: Equatable { var name: String; var description: String; var hasKey: Bool? = nil }
+    /// P35: one profile of a "Connect bots" run; `backup` is the key-file backup's name (nil: it had no key file).
+    struct AdoptionResult: Equatable {
+        var name: String; var ok: Bool; var backup: String?
+        /// Only `.env.swarmhub-bak-<UTC stamp>` names, the ones the recipe writes.
+        static func isValidBackup(_ text: String) -> Bool {
+            text.range(of: #"^\.env\.swarmhub-bak-[0-9]{8}T[0-9]{6}Z$"#, options: .regularExpression) != nil
+        }
+    }
     struct InstalledSkill: Equatable {
         var name: String; var version: String
         /// P31: the variant the install turn wrote (e.g. `claude,codex,hermes`); nil for skills without one.
@@ -21,6 +30,9 @@ enum SwarmhubOp: Equatable {
     case bots([ListedBot])
     /// P27: the manager wrote SwarmHub skills into `bot`'s profile. Only names and versions; never the content.
     case skillsInstalled(bot: String, skills: [InstalledSkill])
+    /// P35: the manager connected these profiles (backup + derived key), and restored one bot's old key.
+    case botsAdopted([AdoptionResult])
+    case keyRestored(name: String, ok: Bool)
 
     /// The op from one JSON object; nil for unknown ops, missing fields or an invalid profile name.
     init?(_ object: [String: Any]) {
@@ -51,8 +63,20 @@ enum SwarmhubOp: Equatable {
             guard let rows = object["list"] as? [[String: Any]] else { return nil }
             self = .bots(rows.compactMap { row in
                 guard let name = (row["name"] as? String).flatMap({ HermesKeyPaste.isValidProfileName($0) ? $0 : nil }) else { return nil }
-                return ListedBot(name: name, description: row["description"] as? String ?? "")
+                return ListedBot(name: name, description: row["description"] as? String ?? "", hasKey: row["has_key"] as? Bool)
             })
+        case "bots_adopted":
+            guard let rows = object["results"] as? [[String: Any]] else { return nil }
+            self = .botsAdopted(rows.compactMap { row in
+                guard let name = (row["name"] as? String).flatMap({ HermesKeyPaste.isValidProfileName($0) ? $0 : nil }) else { return nil }
+                // A backup name the recipe would not write makes the row a failure: undo could not use it.
+                let backup = (row["backup"] as? String) ?? ""
+                let valid = backup.isEmpty || AdoptionResult.isValidBackup(backup)
+                return AdoptionResult(name: name, ok: valid && row["ok"] as? Bool == true, backup: valid && !backup.isEmpty ? backup : nil)
+            })
+        case "key_restored":
+            guard let name else { return nil }
+            self = .keyRestored(name: name, ok: object["ok"] as? Bool ?? false)
         case "skills_installed":
             guard let bot = string("bot").flatMap({ HermesKeyPaste.isValidProfileName($0) ? $0 : nil }),
                   let rows = object["skills"] as? [[String: Any]] else { return nil }

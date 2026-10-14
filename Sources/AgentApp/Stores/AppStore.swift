@@ -47,6 +47,10 @@ import UserNotifications
     var managementExchanges: [UUID: ManagementExchange] = [:]; @Published var composerFill: ComposerFill?
     @Published var botOffers: [UUID: [BotOffer]] = [:]; var now: () -> Date = { .now }
     var botProbeAttempts = 4; var botProbeDelay: Duration = .milliseconds(2500)
+    /// P35: profiles on each box with no bot yet (keyed by `connection(of:)`), the batch the confirmation sheet asks
+    /// about, connections discovered this launch, and the names each manager's "Connect bots" turn was asked for.
+    @Published var boxProfiles: [String: [BoxProfile]] = [:]; @Published var adoptionOffer: AdoptionOffer?
+    var discoveredConnections: Set<String> = []; var pendingAdoptions: [UUID: [String]] = [:]
     /// Tests: the manager text template instead of the bundled resource.
     var managerTemplateOverride: String?
     /// P27: tests' skill library instead of the bundled one; an Install waiting for its manager turn (per manager bot).
@@ -132,8 +136,8 @@ import UserNotifications
             bots = [bot]; save()
         }
         // P21 D3: a fresh install starts empty; the setup window or "Look around with sample agents" fills it.
-        if !demoMode { migrateManagerRole(); loadOpenClawGateways() }
-        if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys() } }
+        if !demoMode { migrateManagerRole(); migrateSampleBots(); loadOpenClawGateways() }
+        if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys(); await discoverBoxesOnLaunch() } }
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
         botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad

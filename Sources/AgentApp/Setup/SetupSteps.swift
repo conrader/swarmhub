@@ -92,15 +92,50 @@ struct SetupChooseStep: View {
                 if flow.software != .openClaw {
                     ForEach(flow.result?.problems ?? [], id: \.self) { line in Text(line).font(.caption).foregroundStyle(.orange) }
                 }
-            } header: { Text(SetupCopy.chooseTitle) } footer: { Text(footer).font(.caption) }
+            } header: { Text(flow.boxScan.map { BoxCopy.found($0.listed) } ?? SetupCopy.chooseTitle) } footer: { if !footer.isEmpty { Text(footer).font(.caption) } }
+            if flow.software != .openClaw { SetupBoxSections(flow: $flow) }
             if flow.movesAddress { Section { Toggle(SetupCopy.moveConfirm, isOn: $flow.confirmMove) } }
             Text(SetupCopy.addLater).font(.caption).foregroundStyle(.secondary)
         }.formStyle(.grouped).scrollContentBackground(.hidden).padding(-20)
     }
 
     private var footer: String {
-        guard flow.software == .openClaw else { return flow.result?.message ?? "" }
+        // P35: once the box is listed, its header says how many bots it has.
+        guard flow.software == .openClaw else { return flow.boxScan == nil ? flow.result?.message ?? "" : "" }
         return flow.choices.isEmpty ? SetupCopy.openClawNoAgents : SetupCopy.openClawFound(flow.choices.count)
+    }
+}
+
+/// P35 on S4: the scan's progress, the manager line, the bots SwarmHub will connect (one toggle for the batch: Add is
+/// the confirmation) and the ones that need their own key, each with its one-line reason.
+struct SetupBoxSections: View {
+    @Binding var flow: SetupFlow
+    var body: some View {
+        switch flow.box {
+        case .idle: EmptyView()
+        case .looking: Section { HStack(spacing: 8) { ProgressView().controlSize(.small); Text(BoxCopy.looking).foregroundStyle(.secondary) } }
+        case .failed: Section { Text(BoxCopy.lookFailed).font(.caption).foregroundStyle(.secondary) }
+        case .found(let scan):
+            if scan.managerIsNew { Section { Label(BoxCopy.managerLine(scan.managerName), systemImage: "person.badge.key").font(.callout) } }
+            if !scan.adoptable.isEmpty {
+                Section {
+                    Toggle(BoxCopy.adoptToggle, isOn: $flow.adoptOn)
+                    ForEach(scan.adoptable, id: \.self) { name in
+                        Text(HermesProfileNaming.botName(forProfile: name)).foregroundStyle(flow.adoptOn ? .primary : .secondary)
+                    }
+                } header: { Text(BoxCopy.adoptHeader(scan.adoptable.count)) } footer: { Text(BoxCopy.adoptDetail).font(.caption) }
+            }
+            if !scan.needsKey.isEmpty {
+                Section(BoxCopy.needsKeyHeader) {
+                    ForEach(scan.needsKey, id: \.self) { name in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name == "default" ? BoxCopy.mainBot : HermesProfileNaming.botName(forProfile: name))
+                            Text(name == "default" ? BoxCopy.mainBotWhy : BoxCopy.typedWhy).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -111,6 +146,9 @@ struct SetupDoneStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(SetupCopy.doneTitle(flow.addedCount)).font(.title2.bold())
+            if let scan = flow.boxScan, !flow.adopting.isEmpty {
+                Text(BoxCopy.adopting(manager: scan.managerName, count: flow.adopting.count)).foregroundStyle(.secondary)
+            }
             Text(SetupCopy.addLater).foregroundStyle(.secondary)
         }
     }

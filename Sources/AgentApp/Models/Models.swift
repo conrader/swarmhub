@@ -205,6 +205,8 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     /// install banner "Not now" hid. P31: name → the variant installed with it (e.g. the coding order), when it has one.
     @Published var installedSkills: [String: String] = [:]; @Published var skillBannerSnoozed: String? = nil
     @Published var installedSkillVariants: [String: String] = [:]
+    /// P35: the key-file backup on the box from SwarmHub connecting this bot ("" = it had no key file); nil = not connected that way.
+    @Published var adoptedKeyBackup: String? = nil
     /// P12: the OpenClaw Gateway and agent (nil = unbound; old stores load without it).
     @Published var openClaw: OpenClawBinding? = nil
     var isReadOnlyArchive: Bool { archivedMembers != nil }
@@ -218,7 +220,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     }
     static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox, openClaw, installedSkills, skillBannerSnoozed, installedSkillVariants }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox, openClaw, installedSkills, skillBannerSnoozed, installedSkillVariants, adoptedKeyBackup }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -247,6 +249,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         installedSkills = (try? c.decodeIfPresent([String: String].self, forKey: .installedSkills)) ?? [:]
         skillBannerSnoozed = try? c.decodeIfPresent(String.self, forKey: .skillBannerSnoozed)
         installedSkillVariants = (try? c.decodeIfPresent([String: String].self, forKey: .installedSkillVariants)) ?? [:]
+        adoptedKeyBackup = try? c.decodeIfPresent(String.self, forKey: .adoptedKeyBackup)
         threads = try c.decodeIfPresent([ChatThread].self, forKey: .threads) ?? []; manualUnread = try c.decodeIfPresent(Bool.self, forKey: .manualUnread) ?? false
         createdAt = try c.decode(Date.self, forKey: .createdAt); messages = try c.decode([ChatMessage].self, forKey: .messages)
         // A malformed mark must not cost the store; a missing one may be recovered from what the P6 importer wrote.
@@ -275,6 +278,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         try c.encodeIfPresent(boxInstructions, forKey: .boxInstructions); try c.encodeIfPresent(openClaw, forKey: .openClaw)
         if !installedSkills.isEmpty { try c.encode(installedSkills, forKey: .installedSkills) }; try c.encodeIfPresent(skillBannerSnoozed, forKey: .skillBannerSnoozed)
         if !installedSkillVariants.isEmpty { try c.encode(installedSkillVariants, forKey: .installedSkillVariants) }
+        try c.encodeIfPresent(adoptedKeyBackup, forKey: .adoptedKeyBackup)
     }
 }
 

@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 /// `AgentApp --render-setup <dir>` (P21 item 16, P25): renders every setup step (OpenClaw's included), the simple Settings page, the empty state,
-/// an agent's settings, the right panel (folded and open, P21b) and P27's activity and skills banner to PNG. Everything comes from a synthetic in-memory store, key store and
+/// an agent's settings, the right panel (folded and open, P21b), P27's activity and skills banner, and P35's
+/// box shots to PNG. Everything comes from a synthetic in-memory store, key store and
 /// settings suite, and Test results are built in memory: no network, no Keychain, nothing of the real app is read or
 /// written. Refuses a directory inside the repository, like `--render-snapshot`.
 @MainActor enum HeadlessSetup {
@@ -83,6 +84,7 @@ import SwiftUI
         await HeadlessP32Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessCodingShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP34Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        await HeadlessP35Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         output("Rendered setup to \(directory.path); \(failures) failed")
         return failures == 0 ? 0 : 1
     }
