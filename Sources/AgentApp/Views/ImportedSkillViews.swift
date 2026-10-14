@@ -88,7 +88,7 @@ struct ImportedSkillInstallSheet: View {
                     .disabled(file == nil || !store.isIdle || !store.canInstallImported(on: bot))
             }
         }
-        .padding(20).frame(width: 560, height: 520)
+        .padding(20).frame(width: 560, height: 520).background(AppColor.panel)
     }
 
     nonisolated static func explanation(skill: ImportedTemplateSkill, bot: String, manager: String) -> String {

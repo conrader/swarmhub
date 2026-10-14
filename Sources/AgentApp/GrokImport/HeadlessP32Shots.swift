@@ -3,9 +3,10 @@ import SwiftUI
 
 /// P32 shots of `--render-setup`: the sample agents' chat on the real draft and choices cards, a Hermes agent's Overview
 /// with delegated tasks (from its `delegate_task` steps) and the memory line, and the quick switcher with its first match
-/// highlighted. Throwaway in-memory stores with a mock backend; no network, no Keychain.
+/// highlighted, the imported-skill install sheet and a failed steer with "Send as next message". Throwaway in-memory
+/// stores with a mock backend; no network, no Keychain.
 @MainActor enum HeadlessP32Shots {
-    static let names = ["p32-sample-agents-chat", "p32-overview-delegated", "p32-quick-switcher"]
+    static let names = ["p32-sample-agents-chat", "p32-overview-delegated", "p32-quick-switcher", "p32-imported-skill-install", "p32-failed-steer"]
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
         let samples = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); samples.isSetupPreview = false
@@ -36,5 +37,32 @@ import SwiftUI
         store.bots = [ada, Bot(name: "Mira", backend: .hermes, hermesProfile: "mira")]; store.selectedBot = ada
         write(names[1], await png(AnyView(InfoPanel(bot: ada)), store, NSSize(width: 360, height: 900)))
         write(names[2], await png(AnyView(CommandPaletteView(selectCommand: { _ in }, openSetup: {})), store, NSSize(width: 480, height: 380)))
+        await renderItems5And9(write: write, png: png)
+    }
+
+    private static func renderItems5And9(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
+        let store = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); store.isSetupPreview = false
+        let jarvis = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis"); jarvis.canManageBots = true
+        let skill = ImportedTemplateSkill(name: "Travel Planner", markdown: """
+        # Travel Planner
+
+        When asked to plan a trip:
+        1. Ask for dates, budget and who is travelling.
+        2. Propose two routes with rough costs.
+        3. Book nothing without a yes.
+        """)
+        let trip = Bot(name: "Trip Planner", backend: .hermes, skills: [skill.name], importedSkills: [skill], hermesProfile: "trip-planner")
+        store.bots = [trip, jarvis]; store.selectedBot = trip
+        write(names[3], await png(AnyView(ImportedSkillInstallSheet(bot: trip, skill: skill)), store, NSSize(width: 560, height: 520)))
+
+        let now = Date.now
+        let ada = Bot(name: "Ada", backend: .hermes, hermesProfile: "ada")
+        ada.messages = [ChatMessage(role: .user, content: "Summarise the board pack", createdAt: now.addingTimeInterval(-300)),
+                        ChatMessage(role: .assistant, content: "Here is the summary: revenue is up 8 %, two hires are pending, and the venue contract needs a decision by Friday.",
+                                    createdAt: now.addingTimeInterval(-240), turnState: .finished),
+                        ChatMessage(role: .user, content: "Keep it to three bullet points", createdAt: now.addingTimeInterval(-238), metadata: [SteerKey.steer: "failed"]),
+                        ChatMessage(role: .system, content: "Steer not delivered: The answer ended first.", createdAt: now.addingTimeInterval(-237))]
+        store.bots = [ada]; store.selectedBot = ada
+        write(names[4], await png(AnyView(ChatView(bot: ada)), store, NSSize(width: 820, height: 620)))
     }
 }
