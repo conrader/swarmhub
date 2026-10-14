@@ -9,6 +9,8 @@ extension AppStore {
     /// Save would); otherwise this run's Gateway is created or updated. Never returns the key.
     func testSetupGateway(_ draft: OpenClawDraft) async -> (outcome: OpenClawSetupOutcome, gatewayID: String?) {
         guard let candidate = draft.gateway(updating: nil) else { return (.failed(draft.problem ?? SetupCopy.failed), nil) }
+        // This run's Gateway at another address starts over: its key and pairing belong to the old address.
+        if let previous = gateway(id: setupCreatedGatewayID), previous.url != candidate.url { await abandonSetupGateway() }
         let created = gateway(id: setupCreatedGatewayID)
         let target: OpenClawGateway
         if let existing = openClawGateways.first(where: { $0.url == candidate.url && $0.id != created?.id }) {

@@ -139,6 +139,20 @@ private func threeAgents() -> FakeGateway.Handler {
     #expect(store.openClawGateways == [existing] && keys.accounts == before && keys.log.deletes == deletesBefore, "the pre-existing Gateway is untouched")
 }
 
+@MainActor @Test func aNewAddressStartsAFreshGatewaySoTheOldKeyIsNeverSentThere() async throws {
+    let keys = RecordingKeyStore(), store = setupStore(keys: keys)
+    var typed = draft(); typed.keepsKey = true
+    let first = await store.testSetupGateway(typed)
+    let old = try #require(store.gateway(id: first.gatewayID))
+    #expect(keys.key(for: old.tokenAccount) == fakeSharedToken)
+    var moved = draft(key: ""); moved.url = "ws://localhost:18790"
+    let second = await store.testSetupGateway(moved)
+    let fresh = try #require(store.gateway(id: second.gatewayID))
+    #expect(fresh.id != old.id && store.openClawGateways == [fresh] && store.setupCreatedGatewayID == fresh.id)
+    #expect(keys.key(for: fresh.tokenAccount).isEmpty && !keys.accounts.contains(old.tokenAccount), "the old key went with the old Gateway")
+    await store.abandonSetupGateway()
+}
+
 @MainActor @Test func addCreatesOneBotPerTickedAgentAndIsIdempotent() async throws {
     let fake = FakeGateway(); fake.handlers["agents.list"] = threeAgents()
     let store = setupStore(fake)
