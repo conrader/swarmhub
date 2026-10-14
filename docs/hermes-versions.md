@@ -11,7 +11,7 @@ box. This list says which Hermes versions we have actually run SwarmHub against.
 | older | — | not supported | — |
 
 SwarmHub carries the same list in `HermesCompatibility` (`Sources/AgentApp/Models/HermesCompatibility.swift`; a test keeps the
-two equal) and shows each connection's version from `/health` in Settings → Account and the bot's Overview: a listed version shows
+two equal) and shows each connection's version from `/health` in Settings → Advanced → Servers and keys and the bot's Overview: a listed version shows
 its status, any other version "not tested yet", anything older than 0.20.5 "not supported". On a version listed with the
 `/v1/skills` issue, that exact 500 ("Failed to enumerate skills") shows as "This Hermes version can't list skills (known Hermes
 bug)" instead of an error.
@@ -22,7 +22,7 @@ sessions, jobs and a session create/delete all PASS on every profile; skills = K
 Not covered: a chat turn (the test server had no provider keys). SwarmHub needs nothing beyond stock Hermes except provider keys
 for chat and `gateway.multiplex_profiles: true` for more than one bot per server.
 
-OpenClaw: not supported yet (planned, P12).
+OpenClaw: supported since P12 (Gateway WebSocket protocol 4), tested against a scripted Gateway only; see [openclaw-integration.md](openclaw-integration.md).
 
 What SwarmHub needs from a box: `/v1/models`, `/v1/chat/completions` or `/v1/responses`, `/api/sessions`, `/api/jobs`,
 `/api/model/options`, `/v1/skills`, `/v1/toolsets`, `/health` (version), and `gateway.multiplex_profiles` for more than one bot per
