@@ -16,7 +16,6 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 
 | What | State | Next step |
 |---|---|---|
-| Group chats cut documents at 8,000 characters | building (`groupdocs`, MacBook) | merge when green |
 | Automatic updates: prove a real update | v0.4.2 (notarized Developer ID, Apple submission cd59e74f Accepted) published; installed app is 0.4.1 | Konrad: SwarmHub → Check for Updates… (or wait for the daily check) → install; back up the Sparkle private key |
 | P10d / P10e Grok import in the app (sheet, live) + P10c live steps | P10c merged 36b3af0 (435 green; probe on the real Mac OK, no click); P10d building (`p10d`) | after P10d ships in an update: one live session with Konrad (P10c ii-vi + P10e), Allow clicks |
 | P13 Parts C / D / E model roles (prove, existing chats, sub-agents) | Parts A+B merged, C/D/E never started | queued; Part C live step has Konrad's go |
