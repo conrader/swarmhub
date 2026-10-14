@@ -135,12 +135,29 @@ private func with(_ path: [String], _ value: Any, in facts: [String: Any]) -> [S
 
 // MARK: drag strip
 
-@Test func dragDecisionLeavesFullScreenAndTheSystemZoneAlone() {
+@Test func dragDecisionLeavesFullScreenAndSingleClicksInTheSystemZoneAlone() {
     #expect(WindowDragDecision.decide(isFullScreen: true, yFromTop: 40, systemZone: 28, clickCount: 1, doubleClickAction: nil) == .system)
-    #expect(WindowDragDecision.decide(isFullScreen: false, yFromTop: 10, systemZone: 28, clickCount: 2, doubleClickAction: nil) == .system)
+    #expect(WindowDragDecision.decide(isFullScreen: true, yFromTop: 40, systemZone: 28, clickCount: 2, doubleClickAction: nil) == .system)
+    #expect(WindowDragDecision.decide(isFullScreen: false, yFromTop: 10, systemZone: 28, clickCount: 1, doubleClickAction: nil) == .system)
     #expect(WindowDragDecision.decide(isFullScreen: false, yFromTop: 40, systemZone: 28, clickCount: 1, doubleClickAction: "Minimize") == .drag)
     #expect(WindowDragDecision.decide(isFullScreen: false, yFromTop: 40, systemZone: 28, clickCount: 2, doubleClickAction: "Minimize") == .miniaturize)
     #expect(WindowDragDecision.decide(isFullScreen: false, yFromTop: 40, systemZone: 0, clickCount: 2, doubleClickAction: nil) == .zoom)
+}
+
+/// P24 item 5: the top 28 pt of every pane header is the hidden title bar's zone; a double-click there must still act.
+@Test func doubleClickInTheHiddenTitleZoneFollowsTheSetting() {
+    #expect(WindowDragDecision.decide(isFullScreen: false, yFromTop: 10, systemZone: 28, clickCount: 2, doubleClickAction: nil) == .zoom)
+    #expect(WindowDragDecision.decide(isFullScreen: false, yFromTop: 10, systemZone: 28, clickCount: 2, doubleClickAction: "Maximize") == .zoom)
+    #expect(WindowDragDecision.decide(isFullScreen: false, yFromTop: 10, systemZone: 28, clickCount: 2, doubleClickAction: "Minimize") == .miniaturize)
+    #expect(WindowDragDecision.decide(isFullScreen: false, yFromTop: 10, systemZone: 28, clickCount: 2, doubleClickAction: "None") == .nothing)
+}
+
+@Test func doubleClickSettingIsReadFromTheGlobalDomain() {
+    #expect(WindowDragDecision.doubleClickSetting(globalDomain: nil) == nil)
+    #expect(WindowDragDecision.doubleClickSetting(globalDomain: [:]) == nil)
+    #expect(WindowDragDecision.doubleClickSetting(globalDomain: ["AppleActionOnDoubleClick": "Minimize"]) == "Minimize")
+    #expect(WindowDragDecision.doubleClickSetting(globalDomain: ["AppleActionOnDoubleClick": 1]) == nil)
+    #expect(WindowDragDecision.doubleClick(WindowDragDecision.doubleClickSetting(globalDomain: [:])) == .zoom)
 }
 
 @Test func doubleClickFollowsTheSystemSetting() {
@@ -184,4 +201,15 @@ private final class _NSGlassEffectLookalike: NSView {}
     #expect(RightColumnMechanism.current.rawValue == "inspector" || RightColumnMechanism.current.rawValue == "transition")
     #expect(UISmokeChrome.fullScreenRequested(arguments: [AppConstants.name, "--ui-smoke", "x"]) == false)
     #expect(UISmokeChrome.fullScreenRequested(arguments: [AppConstants.name, "--ui-smoke", "x", "--ui-smoke-fullscreen"]))
+}
+
+@MainActor @Test func doubleClickSmokeAimsAtBlankTopRowSpaceInEveryPane() {
+    let frames: [String: CGRect] = ["sidebar_row": CGRect(x: 0, y: 0, width: 300, height: 32), "new_bot": CGRect(x: 260, y: 4, width: 24, height: 24),
+                                    "search": CGRect(x: 230, y: 4, width: 24, height: 24), "chat_header": CGRect(x: 301, y: 0, width: 600, height: 54),
+                                    "details_header": CGRect(x: 902, y: 0, width: 330, height: 54)]
+    let points = UISmokeDoubleClick.points(frames: frames, lightsMaxX: 73)
+    #expect(points["sidebar_row"] == CGPoint(x: 151.5, y: 10), "between the lights and the first button, inside the title zone")
+    #expect(points["chat_header"] == CGPoint(x: 861, y: 10))
+    #expect(points["details_header"] == CGPoint(x: 1067, y: 10))
+    #expect(UISmokeDoubleClick.points(frames: [:], lightsMaxX: nil).isEmpty)
 }

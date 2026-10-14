@@ -10,6 +10,12 @@ box. This list says which Hermes versions we have actually run SwarmHub against.
 | **0.20.5** | the getermes fleet; Konrad's box until 2026-10-14 | works | none known for SwarmHub |
 | older | — | not supported | — |
 
+SwarmHub carries the same list in `HermesCompatibility` (`Sources/AgentApp/Models/HermesCompatibility.swift`; a test keeps the
+two equal) and shows each connection's version from `/health` in Settings → Account and the bot's Overview: a listed version shows
+its status, any other version "not tested yet", anything older than 0.20.5 "not supported". On a version listed with the
+`/v1/skills` issue, that exact 500 ("Failed to enumerate skills") shows as "This Hermes version can't list skills (known Hermes
+bug)" instead of an error.
+
 OpenClaw: not supported yet (planned, P12).
 
 What SwarmHub needs from a box: `/v1/models`, `/v1/chat/completions` or `/v1/responses`, `/api/sessions`, `/api/jobs`,

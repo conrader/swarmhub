@@ -82,6 +82,20 @@ extension HermesBackend {
         catch BackendError.http(404, _) { return nil }
     }
 
+    /// The `version` `/health` reports through this connection (profile-prefixed, as nginx forwards only `/p/<profile>/`);
+    /// `/health/detailed` when `/health` is absent.
+    func hermesVersion() async -> HermesVersionReading {
+        do {
+            let json: [String: Any]
+            do { json = try await jsonRequest(path: "health", timeout: 10) }
+            catch BackendError.http(404, _) { json = try await jsonRequest(path: "health/detailed", timeout: 10) }
+            guard let raw = json["version"] as? String else { return .init(raw: nil, problem: "/health reports no version.") }
+            return .init(raw: raw)
+        } catch {
+            return .init(raw: nil, problem: BotInfoCache.describe(error, key: apiKey))
+        }
+    }
+
     func skills() async throws -> [HermesSkill] { HermesSkill.parseList(try await jsonRequest(path: "v1/skills")) }
     func toolsets() async throws -> [HermesToolset] { HermesToolset.parseList(try await jsonRequest(path: "v1/toolsets")) }
     func modelOptions() async throws -> HermesModelOptions { HermesModelOptions.parse(try await jsonRequest(path: "api/model/options")) }

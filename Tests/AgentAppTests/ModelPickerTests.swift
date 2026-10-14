@@ -168,7 +168,9 @@ private final class TestClock: @unchecked Sendable { var now = utc("2026-10-13T1
         seen.append(paths(host).sorted())
         for request in requests { assertNoSentinels(request.url!.absoluteString + "\(request.allHTTPHeaderFields ?? [:])", "request") }
     }
-    #expect(seen[0] == ["GET /p/grok-jarvis/api/model/options", "GET /p/grok-jarvis/api/sessions/s1", "GET /p/grok-jarvis/v1/capabilities", "GET /p/grok-jarvis/v1/skills", "GET /p/grok-jarvis/v1/toolsets"])
+    // P24 adds the version read (`/health`, then `/health/detailed` because this fake has neither).
+    #expect(seen[0] == ["GET /p/grok-jarvis/api/model/options", "GET /p/grok-jarvis/api/sessions/s1", "GET /p/grok-jarvis/health", "GET /p/grok-jarvis/health/detailed",
+                        "GET /p/grok-jarvis/v1/capabilities", "GET /p/grok-jarvis/v1/skills", "GET /p/grok-jarvis/v1/toolsets"])
     #expect(seen[0] == seen[1])
 }
 

@@ -122,7 +122,8 @@ private func botInfoHandler(capabilities: [String: Any]?, modelOptionsStatus: In
     #expect(info?.skills.value?.count == 3); #expect(info?.toolsets.value?.count == 3)
     #expect(info?.showsModelPicker == true); #expect(info?.canLockSessionModel == true)
     let requests = MockHermesProtocol.recorded(host)
-    #expect(Set(requests.compactMap { $0.url?.path }) == ["/p/grok-jarvis/v1/capabilities", "/p/grok-jarvis/v1/skills", "/p/grok-jarvis/v1/toolsets", "/p/grok-jarvis/api/model/options", "/p/grok-jarvis/api/sessions/s1"])
+    #expect(Set(requests.compactMap { $0.url?.path }) == ["/p/grok-jarvis/v1/capabilities", "/p/grok-jarvis/v1/skills", "/p/grok-jarvis/v1/toolsets", "/p/grok-jarvis/api/model/options", "/p/grok-jarvis/api/sessions/s1",
+                                                                "/p/grok-jarvis/health", "/p/grok-jarvis/health/detailed"], "P24: the version is read too (this fake has no /health)")
     #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer jarvis-key" })
     // The session row holds the profile's virtual alias, so the server default is shown.
     #expect(store.currentModel(for: bot) == .init(model: "model-alpha", provider: "lab-one", source: "server default"))
@@ -161,7 +162,7 @@ private func botInfoHandler(capabilities: [String: Any]?, modelOptionsStatus: In
     let info = old.botInfo.info(for: oldBot.id)
     #expect(info?.skills == .unavailable("This Hermes server does not report its capabilities."))
     #expect(info?.showsModelPicker == false)
-    #expect(MockHermesProtocol.recorded(oldHost).compactMap { $0.url?.path } == ["/p/grok-jarvis/v1/capabilities"])
+    #expect(Set(MockHermesProtocol.recorded(oldHost).compactMap { $0.url?.path }) == ["/p/grok-jarvis/v1/capabilities", "/p/grok-jarvis/health", "/p/grok-jarvis/health/detailed"])
 
     let (failing, failingBot, _) = botInfoStore(botInfoHandler(capabilities: capabilitiesPayload(), modelOptionsStatus: 500))
     await failing.loadServerInfo(for: failingBot)

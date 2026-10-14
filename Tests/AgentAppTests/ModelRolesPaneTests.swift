@@ -21,7 +21,9 @@ import Testing
     #expect(!rolePaths(host).contains { $0.contains("/v1/skills") }, "Load skips skills")
     #expect(!rolePaths(host).contains { $0.contains("grok-old") }, "archives are not loaded")
     #expect(Set(rolePaths(host)) == ["GET /p/grok-jarvis/v1/capabilities", "GET /p/grok-jarvis/v1/toolsets", "GET /p/grok-jarvis/api/model/options", "GET /p/grok-jarvis/api/sessions/s1",
-                                     "GET /p/grok-rapper/v1/capabilities", "GET /p/grok-rapper/v1/toolsets", "GET /p/grok-rapper/api/model/options", "GET /p/grok-rapper/api/sessions/r1"])
+                                     "GET /p/grok-rapper/v1/capabilities", "GET /p/grok-rapper/v1/toolsets", "GET /p/grok-rapper/api/model/options", "GET /p/grok-rapper/api/sessions/r1",
+                                     // P24's version read; these fakes have no /health, so /health/detailed is tried too.
+                                     "GET /p/grok-jarvis/health", "GET /p/grok-jarvis/health/detailed", "GET /p/grok-rapper/health", "GET /p/grok-rapper/health/detailed"])
     #expect(try Data(contentsOf: url) == before, "Load saves nothing")
     #expect(try encoder.encode(StoreFile(bots: store.bots, groups: store.groups)) == encodedBefore, "and changes nothing it would save")
     #expect(jarvis.hermesModelLock == nil && rapper.hermesModelLock == nil)
