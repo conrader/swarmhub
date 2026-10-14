@@ -35,6 +35,7 @@ import SwiftUI
         ada.messages = [ChatMessage(role: .user, content: "research these three", createdAt: now.addingTimeInterval(-620)), reply,
                         ChatMessage(role: .user, content: "and draft the update", createdAt: now.addingTimeInterval(-41)), live]
         store.bots = [ada, Bot(name: "Mira", backend: .hermes, hermesProfile: "mira")]; store.selectedBot = ada
+        store.infoTab = .activity  // P33: delegated tasks live in the Activity tab
         write(names[1], await png(AnyView(InfoPanel(bot: ada)), store, NSSize(width: 360, height: 900)))
         write(names[2], await png(AnyView(CommandPaletteView(selectCommand: { _ in }, openSetup: {})), store, NSSize(width: 480, height: 380)))
         await renderItems5And9(write: write, png: png)

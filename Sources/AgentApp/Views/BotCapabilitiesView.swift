@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Overview sections fed by the bot's Hermes profile: model (with per-chat picker), skills and toolsets.
-/// Imported template skills are listed separately with Install (P32, `ImportedSkillViews.swift`); bare skill names without
+/// The Skills tab (P33): SwarmHub skills, then the sections fed by the bot's Hermes profile (skills and toolsets).
+/// The model section moved to the Model tab and the server-info load to `InfoPanel`. Imported template skills are listed separately with Install (P32, `ImportedSkillViews.swift`); bare skill names without
 /// Markdown stay as chips.
 struct BotCapabilitiesView: View {
     @EnvironmentObject private var store: AppStore
@@ -14,17 +14,13 @@ struct BotCapabilitiesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // P17: the model section reads any agent's own catalog (or its reason); skills and tools stay Hermes-only.
-            if isHermes || (bot.backend == .openClaw && !bot.isReadOnlyArchive) { ModelSectionView(bot: bot, cache: cache) }
+            SwarmHubSkillsPanelSection(bot: bot)
             if isHermes {
                 skillsSection
                 toolsetsSection
             }
             importedSection
         }
-        // Runs when the Overview appears and when the chat's session id changes (the first send creates it); the
-        // cache decides whether the entry is stale. Never polls.
-        .task(id: "\(bot.id)|\(bot.hermesSessionID ?? "")") { if cache.autoLoad { await store.loadServerInfo(for: bot) } }
     }
 
     // MARK: Skills

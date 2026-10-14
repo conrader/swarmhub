@@ -3,11 +3,14 @@ import SwiftUI
 /// The Overview "Model" section (P21b item 1): "Model: <name> · <supplier>" and a plain picker of this agent's own
 /// models on top; the source, supplier details, notes, roles and "Last turn ran on" fold under Advanced
 /// (`ModelSectionAdvanced`). Static (no animations); every decision comes from `ModelPickerModel` and `ModelSimpleLine`,
-/// and a pick goes through the same `switchModel` as before.
+/// and a pick goes through the same `switchModel` as before. P33: the full section is the Model tab; Overview uses `compact`.
 struct ModelSectionView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     @ObservedObject var cache: BotInfoCache
+    /// P33: Overview's one model line: the model, "last reply" and the change menu; status, refresh and Advanced live
+    /// in the Model tab.
+    var compact = false
 
     private var info: BotServerInfo? { cache.info(for: bot.id) }
     /// A non-Hermes agent shows only the heading, its catalog notes and where the list comes from.
@@ -19,14 +22,14 @@ struct ModelSectionView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(simple.line).font(.headline).textSelection(.enabled).accessibilityLabel(picker.currentAccessibilityLabel ?? simple.line)
-                Spacer(); if isHermes { refreshButton }
+                Spacer(); if isHermes && !compact { refreshButton }
             }
             if let lastReply = picker.lastReplyCaption { Text(lastReply).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             if simple.showsPicker { menu(picker, title: simple.pickerTitle) }
-            if let status = simple.status {
+            if !compact, let status = simple.status {
                 Text(status).font(.caption).foregroundStyle(simple.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
             }
-            AdvancedFold { ModelSectionAdvanced(bot: bot, cache: cache, picker: picker) }
+            if !compact { AdvancedFold { ModelSectionAdvanced(bot: bot, cache: cache, picker: picker) } }
         }
     }
 

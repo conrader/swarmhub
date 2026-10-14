@@ -1,15 +1,17 @@
 import AppKit
 import SwiftUI
 
+/// The agent panel's tabs in bar order (P33). Members folded into the bottom of Overview; `AppCommand.members` (⌘5) opens
+/// Overview so the old shortcut still lands on them.
 enum AgentInfoTab: String, CaseIterable {
-    case overview = "Overview", routines = "Routines", media = "Media", computer = "Computer", members = "Members"
+    case overview = "Overview", model = "Model", skills = "Skills", activity = "Activity", routines = "Routines", media = "Media", computer = "Computer"
 }
 
 /// Menu items, the quick switcher and the shortcut reference share the same actions and bindings.
 enum AppCommand: String, CaseIterable, Identifiable {
     case settings, newAgent, newGroup, importTemplate, quickSwitcher
     case toggleSidebar, toggleInfo, hiddenChats
-    case overview, routines, media, computer, members
+    case overview, routines, media, computer, members, model, skills, activity
     case previousChat, nextChat, backToChat, agentSettings, openComputer, stopResponse, keyboardShortcuts
 
     var id: Self { self }
@@ -28,6 +30,9 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .media: "Media"
         case .computer: "Computer"
         case .members: "Members"
+        case .model: "Model"
+        case .skills: "Skills"
+        case .activity: "Activity"
         case .previousChat: "Previous Chat"
         case .nextChat: "Next Chat"
         case .backToChat: "Back to Main Chat"
@@ -49,6 +54,9 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .hiddenChats: "eye.slash"
         case .routines: "clock"
         case .media: "photo.on.rectangle"
+        case .model: AgentInfoTab.model.symbol
+        case .skills: AgentInfoTab.skills.symbol
+        case .activity: AgentInfoTab.activity.symbol
         case .computer, .openComputer: "desktopcomputer"
         case .previousChat: "arrow.up"
         case .nextChat: "arrow.down"
@@ -61,7 +69,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         switch self {
         case .settings, .keyboardShortcuts: "App"
         case .newAgent, .newGroup, .importTemplate: "File"
-        case .toggleSidebar, .toggleInfo, .hiddenChats, .overview, .routines, .media, .computer, .members: "View"
+        case .toggleSidebar, .toggleInfo, .hiddenChats, .overview, .routines, .media, .computer, .members, .model, .skills, .activity: "View"
         case .quickSwitcher, .previousChat, .nextChat, .backToChat: "Navigate"
         case .agentSettings, .openComputer, .stopResponse: "Chat"
         }
@@ -80,6 +88,9 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .media: "3"
         case .computer: "4"
         case .members: "5"
+        case .model: "6"
+        case .skills: "7"
+        case .activity: "8"
         case .previousChat: .upArrow
         case .nextChat: .downArrow
         case .backToChat: "["
@@ -112,7 +123,10 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .routines: .routines
         case .media: .media
         case .computer: .computer
-        case .members: .members
+        case .members: .overview
+        case .model: .model
+        case .skills: .skills
+        case .activity: .activity
         default: nil
         }
     }
@@ -123,7 +137,10 @@ enum AppCommand: String, CaseIterable, Identifiable {
               store.editingBot == nil, store.errorMessage == nil else { return false }
         switch self {
         case .agentSettings: return store.selectedGroup == nil && store.selectedBot != nil
-        case .overview, .routines, .media, .computer: return store.selectedGroup == nil && store.selectedBot != nil
+        case .overview, .routines, .media, .computer, .model, .skills, .activity:
+            // P33: a tab an OpenClaw agent hides (nothing to show) is not offered.
+            guard store.selectedGroup == nil, let bot = store.selectedBot, let tab = infoTab else { return false }
+            return store.infoTabs(for: bot).contains(tab)
         case .members, .toggleInfo: return store.selectedGroup != nil || store.selectedBot != nil
         case .openComputer:
             return store.selectedGroup == nil && store.selectedBot.map { ComputerURL.validURL($0.computerURL) != nil } == true
@@ -201,6 +218,9 @@ struct AppCommands: Commands {
             command(.hiddenChats)
             Menu("Agent Details") {
                 command(.overview)
+                command(.model)
+                command(.skills)
+                command(.activity)
                 command(.routines)
                 command(.media)
                 command(.computer)
