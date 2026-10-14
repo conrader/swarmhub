@@ -113,10 +113,19 @@ struct OpenClawRunMapper {
         }
     }
 
+    /// `stream: "tool"` (`data.phase`, `data.name`, optional `data.toolCallId`/`data.isError`) as P27 activity steps; the
+    /// optional `data.args`/`data.meta` are never read, so OpenClaw steps carry no preview.
     private func mapAgent(_ payload: GatewayJSON) -> [AgentEvent] {
         guard payload["stream"]?.string == "tool", let name = payload["data"]?["name"]?.string, !name.isEmpty else { return [] }
-        let phase = payload["data"]?["phase"]?.string ?? "start"
-        return phase == "start" || phase == "running" ? [.status(name)] : []
+        let callID = payload["data"]?["toolCallId"]?.string
+        switch payload["data"]?["phase"]?.string ?? "start" {
+        case "start": return [.tool(ToolEvent(phase: .started, name: name, callID: callID))]
+        case "running", "update": return [.tool(ToolEvent(phase: .progress, name: name, callID: callID))]
+        case "result", "end", "done", "error":
+            let failed = payload["data"]?["phase"]?.string == "error" || payload["data"]?["isError"]?.bool == true
+            return [.tool(ToolEvent(phase: failed ? .failed : .completed, name: name, callID: callID))]
+        default: return []
+        }
     }
 
     /// The visible text of a new raw snapshot: a `.token` when it extends what is shown, else `.replace`.

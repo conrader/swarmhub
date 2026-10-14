@@ -14,7 +14,8 @@ struct BotOffer: Identifiable, Equatable {
 }
 
 /// P22: the main bot manages the other bots with stock Hermes; SwarmHub sends it the manager text on demand only and
-/// applies the swarmhub blocks it returns. Nothing is installed on the box; new bots' keys are derived, never sent.
+/// applies the swarmhub blocks it returns. New bots' keys are derived, never sent. P27 adds skills the manager installs
+/// on Konrad's press (AppStore+Skills.swift); Hermes itself is never changed.
 /// P26: an OpenClaw agent can hold the role for its Gateway (`AppStore+BotManagerOpenClaw.swift`).
 extension AppStore {
     static let managerMigrationKey = "p22.managerRoleMigrated"
@@ -73,11 +74,22 @@ extension AppStore {
 
     /// The manager text for this turn: only on a management turn of the manager's main chat (an intent match, a menu
     /// request, or a follow-up while the exchange is open); nil otherwise. The backend decides where it goes (P26 D3).
+    /// P27 (Hermes managers only): an Install press sends its own instructions instead; once the manager's
+    /// `swarmhub-manager` skill is recorded at the bundled version, a management turn carries a one-line pointer to it
+    /// instead of the full text. OpenClaw managers keep the full text (P27 D8).
     func managementText(for bot: Bot, text: String, conversation: any Conversation) -> String? {
         guard isManager(bot), conversation === bot else { return nil }
+        if bot.backend == .hermes, let install = pendingSkillInstalls.removeValue(forKey: bot.id) {
+            managementExchanges[bot.id] = ManagementExchange(openedAt: now())
+            return install.instructions
+        }
         let decision = ManagementExchange.decide(text: text, exchange: managementExchanges[bot.id], now: now())
         managementExchanges[bot.id] = decision.next
-        return decision.attach ? managerText(for: bot) : nil
+        guard decision.attach else { return nil }
+        if bot.backend == .hermes, let skill = skills(for: bot).first(where: { $0.name == SkillLibrary.managerSkill }), skillState(skill, for: bot) == .current {
+            return Self.skillPointer
+        }
+        return managerText(for: bot)
     }
 
     /// Opens a management exchange in the manager's chat and fills its composer (or sends at once when `send`).
@@ -125,6 +137,9 @@ extension AppStore {
         case .botRetired(let name):
             guard let bot = boundBot(name, manager: manager), bot.id != manager.id else { return }
             bot.retiredOnBox = true; setHidden(bot, true)
+        case .skillsInstalled(let profile, let installed):
+            guard manager.backend == .hermes else { return }
+            recordInstalled(installed, profile: profile, manager: manager)
         case .bots(let listed):
             let skipsDefault = manager.backend == .hermes
             botOffers[manager.id] = listed.filter { !(skipsDefault && $0.name == "default") && boundBot($0.name, manager: manager) == nil }

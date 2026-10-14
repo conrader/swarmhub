@@ -358,6 +358,7 @@ struct HermesBackend: AgentBackend {
                 if text == "[DONE]" { sink.yield(.completed); return }
                 guard let data = text.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
                 if let runID = json["run_id"] as? String { await HermesRunRegistry.shared.set(runID, for: sessionID, token: token) }
+                HermesStreamTap.shared.record(legacy ? "legacy:\(eventName)" : eventName, json)
                 if !legacy, HermesRuntime.events.contains(eventName), let runtime = HermesRuntime.parse(json["runtime"]) {
                     await HermesRuntimeLog.shared.record(runtime, for: sessionID)
                 }
@@ -371,7 +372,7 @@ struct HermesBackend: AgentBackend {
     }
 
     private func parseLegacy(_ event: String, _ json: [String: Any], _ continuation: EventSink) {
-        if event == "hermes.tool.progress" { continuation.yield(.status(json["message"] as? String ?? json["name"] as? String ?? "Using tool")); return }
+        if event == "hermes.tool.progress" { continuation.yield(.tool(legacyTool(json))); return }
         if event == "hermes.failed" { continuation.yield(.failed(json["error"] as? String ?? json["message"] as? String ?? "Hermes run failed.")); return }
         let choice = (json["choices"] as? [[String: Any]])?.first
         if let delta = choice?["delta"] as? [String: Any], let content = delta["content"] as? String { continuation.yield(.token(content)) }
@@ -381,7 +382,7 @@ struct HermesBackend: AgentBackend {
     private func parseNative(_ event: String, _ json: [String: Any], _ continuation: EventSink, emittedAssistantDelta: inout Bool) {
         switch event {
         case "assistant.delta", "message.delta": if let token = (json["delta"] ?? json["text"]) as? String { emittedAssistantDelta = true; continuation.yield(.token(token)) }
-        case "tool.started", "tool.completed", "tool.failed", "tool.progress": continuation.yield(.status((json["tool_name"] ?? json["tool"]) as? String ?? event))
+        case "tool.started", "tool.completed", "tool.failed", "tool.progress": continuation.yield(.tool(nativeTool(event, json)))
         case "assistant.commentary": if (json["already_streamed"] as? Bool) != true, let text = json["text"] as? String { continuation.yield(.token(text)) }
         case "subagent.start": continuation.yield(.subAgent(.init(id: UUID(), title: json["task"] as? String ?? json["label"] as? String ?? "Delegated task", detail: json["profile"] as? String ?? "", status: .running)))
         case "subagent.complete": continuation.yield(.subAgent(.init(id: UUID(), title: json["task"] as? String ?? "Delegated task", detail: json["summary"] as? String ?? "", status: (json["status"] as? String) == "completed" ? .completed : .failed)))

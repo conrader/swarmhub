@@ -37,6 +37,7 @@ func collect(_ stream: AsyncThrowingStream<AgentEvent, Error>) async throws -> [
         case .token(let text): out.append("token:\(text)")
         case .replace(let text): out.append("replace:\(text)")
         case .status(let text): out.append("status:\(text)")
+        case .tool(let tool): out.append("tool:\(tool.phase.rawValue):\(tool.name)")
         case .completed: out.append("completed")
         case .failed(let text): out.append("failed:\(text)")
         default: out.append("other")
@@ -71,7 +72,7 @@ func collect(_ stream: AsyncThrowingStream<AgentEvent, Error>) async throws -> [
     fake.emit("agent", ["runId": "run-1", "seq": 1, "stream": "tool", "ts": 1, "data": ["phase": "start", "name": "exec"]])
     fake.emit("chat", chatEvent("delta", seq: 2, ["message": assistant("Hello")]))
     fake.emit("chat", chatEvent("final", seq: 3))
-    #expect(try await collect(stream) == ["token:Hel", "status:exec", "token:lo", "completed"])
+    #expect(try await collect(stream) == ["token:Hel", "tool:started:exec", "token:lo", "completed"])
 }
 
 @MainActor @Test func stopAbortsTheLedgersRunOrSaysThereIsNone() async throws {

@@ -12,6 +12,7 @@ import Foundation
 ///   AgentApp --migrate-store                                      (see HeadlessGroups.swift)
 ///   AgentApp --probe-attachment <file>   (reads a PDF/RTF/DOC/DOCX like the composer; counts only, no network; see HeadlessProbeAttachment.swift)
 ///   AgentApp --e2e [--roles <provider>/<model> <provider>/<model>]   (live self-test in throwaway sessions; see HeadlessE2E.swift)
+///   AgentApp --capture-events   (one throwaway self-test turn; prints SSE event names + keys, no values; see HeadlessCaptureEvents.swift)
 ///   AgentApp --grok-fetch --mode recent|full [--bots <names>] [--store <store.json>] [--report <file>]   (see HeadlessGrok.swift)
 ///   AgentApp --grok-probe [--live] [--report <file>]   (Grok Bot drift check; see HeadlessGrok.swift)
 ///   AgentApp --grok-parity <python export folder> [--cache <folder>]   (see HeadlessGrokParity.swift)
@@ -19,7 +20,7 @@ import Foundation
 /// Launch arguments of the normal app (window shown): `--ui-smoke <report.json>` and `--setup-preview` (SetupPreview.swift).
 @MainActor enum HeadlessCommands {
     /// Every flag the app recognises; the dispatcher below and the launch arguments read this list.
-    static let flags = ["--check-bots", "--check-server", "--check-openclaw", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--grok-fetch", "--grok-probe",
+    static let flags = ["--check-bots", "--check-server", "--check-openclaw", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--capture-events", "--grok-fetch", "--grok-probe",
                         "--grok-parity", "--import-grok", "--import-keys", "--ui-smoke", "--setup-preview", "--render-setup"]
     /// The flags that run without a window and exit.
     static let headless = flags.filter { $0 != "--ui-smoke" && $0 != "--setup-preview" }
@@ -36,6 +37,7 @@ import Foundation
         if arguments.contains("--reconcile") { return HeadlessReconcile.run(arguments: arguments) }
         if arguments.contains("--migrate-store") { return migrateStore() }
         if arguments.contains("--e2e") { return HeadlessE2E.run(arguments: arguments) }
+        if arguments.contains("--capture-events") { return HeadlessCaptureEvents.run(arguments: arguments) }
         if let code = HeadlessGrok.runIfRequested(arguments: arguments) { return code }
         guard let flagIndex = arguments.firstIndex(where: { $0 == "--import-grok" || $0 == "--import-keys" }) else { return nil }
         guard arguments.indices.contains(flagIndex + 1) else { print("Usage: AgentApp --import-grok <folder> | --import-keys <file>"); return 64 }

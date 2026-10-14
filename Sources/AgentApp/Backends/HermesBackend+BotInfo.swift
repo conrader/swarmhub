@@ -29,12 +29,15 @@ struct HermesCapabilities: Sendable, Equatable {
 struct HermesSkill: Sendable, Equatable, Identifiable {
     var id: String { name }
     let name: String; let description: String; let category: String?
+    /// P27: a `version` when the server lists one (stock 0.20–0.22 do not).
+    var version: String? = nil
 
     static func parseList(_ json: [String: Any]) -> [HermesSkill] {
         ((json["data"] as? [[String: Any]]) ?? []).compactMap { row in
             guard let name = (row["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
             let category = (row["category"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            return .init(name: name, description: oneLine(row["description"] as? String ?? ""), category: category)
+            let version = (row["version"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return .init(name: name, description: oneLine(row["description"] as? String ?? ""), category: category, version: version)
         }
     }
 

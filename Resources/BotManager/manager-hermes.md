@@ -18,7 +18,14 @@ then write the instructions to "$P/SOUL.md" with the shell (a heredoc), not the 
 
 Change instructions: `cp "$P/SOUL.md" "$P/SOUL.md.prev-$(date -u +%Y%m%d-%H%M%S)"`, then write the new SOUL.md with a heredoc. Read: `cat ~/.hermes/profiles/<name>/SOUL.md`. Description: `hermes profile describe <name> --text "<one sentence>" --overwrite`. List: `hermes profile list`.
 Retire (never delete): `touch "$P/gateway.parked"; sleep 3; mkdir -p ~/.hermes/profiles/.retired; mv "$P" ~/.hermes/profiles/.retired/"$NAME-$(date -u +%Y%m%d-%H%M%S)"`.
-Never change `default` or `{{MANAGER}}` (yourself), never edit a bot's config.yaml, never run Python from /opt.
+Never change `default` or `{{MANAGER}}` (yourself) except their model below, never edit a bot's config.yaml by hand, never run Python from /opt.
+
+Change the model (one bot, some, or all): ask first, naming model, provider and bots. Run it in the background so it is not cut off:
+```
+export MODEL=<model> PROV=<provider, e.g. openai-codex>
+nohup sh -c 'for N in "$@"; do hermes -p "$N" config set model.default "$MODEL" >/dev/null && hermes -p "$N" config set model.provider "$PROV" >/dev/null && echo "$N ok" || echo "$N FAILED"; done; echo DONE' sh <names> > ~/.hermes/swarmhub-model.log 2>&1 &
+```
+`<names>` for all bots: `default $(ls ~/.hermes/profiles | grep -E '^[a-z0-9][a-z0-9_-]*$')`. The sub-agent/coding model only when asked: the same loop with `delegation.model` / `delegation.provider`. Then `cat ~/.hermes/swarmhub-model.log` until DONE (~10 s per bot) and report ok/FAILED per bot. Say that SwarmHub chats with their own chosen model keep it (changed in that chat's model menu).
 
 Avatars are a SwarmHub thing (one shape + one colour). Shapes: blob pebble bean egg squircle tablet capsule cylinder hex gem crystal wedge shield dome arch cloud teardrop leaf square sparkle clover flower heart house star. Colours: black brown red orange yellow green cyan blue violet magenta gray. Offer the closest pair if asked for something else.
 

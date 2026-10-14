@@ -7,6 +7,8 @@ struct MessageView: View {
     /// P13 Part D: the Coding model "Code in thread" locks a fork to; nil hides the button.
     let codingModel: String?
     let reply: () -> Void; let openThread: () -> Void; let codeInThread: () -> Void
+    /// P27: renders open the steps row.
+    var stepsExpanded = false
     @State private var showingReactions = false
     static let tapbacks = ["👍", "❤️", "😂", "‼️", "?"]
     init(message: ChatMessage, repliedMessage: ChatMessage? = nil, thread: ChatThread? = nil, canThread: Bool = false, codingModel: String? = nil,
@@ -76,7 +78,7 @@ struct MessageView: View {
                 }
             } else {
                 MarkdownContent(message: message)
-                if message.isStreaming { ProgressView().controlSize(.mini) }
+                if message.isStreaming { ActivityLiveLine(message: message) } else if message.activity != nil { ActivityStepsRow(message: message, expanded: stepsExpanded) }
             }
         }
     }

@@ -55,6 +55,8 @@ else
   cp -R Resources/Avatars "$BUILD_DIR/AgentApp.resources/Avatars"
   rm -rf "$BUILD_DIR/AgentApp.resources/BotManager"
   cp -R Resources/BotManager "$BUILD_DIR/AgentApp.resources/BotManager"
+  rm -rf "$BUILD_DIR/AgentApp.resources/Skills"
+  cp -R Resources/Skills "$BUILD_DIR/AgentApp.resources/Skills"
 fi
 # Bare executable launches need the dynamic framework beside the binary too.
 if [[ "$SPARKLE_FRAMEWORK" != "$BUILD_DIR/Sparkle.framework" ]]; then

@@ -52,8 +52,10 @@ struct BotRow: View {
     var body: some View {
         let working = store.isWorking(bot), attention = store.needsAttention(bot)
         // P21 D3: sample bots say so instead of showing their canned last message.
-        let fragment = bot.isDemo ? SimpleCopy.sampleLabel : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: working,
-                                            archiveNewest: store.grokHistory.newestVisible(for: bot.id))
+        let fragment = { (now: Date) in
+            bot.isDemo ? SimpleCopy.sampleLabel : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: working,
+                                                                       archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now))
+        }
         Button { store.open(bot) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
                 BotAvatar(bot: bot, size: SidebarMetrics.mark, motion: .list, isWorking: working, isHovered: hovering, probe: "sidebar",
@@ -65,7 +67,12 @@ struct BotRow: View {
                                 .offset(x: 2, y: 2).accessibilityLabel("Needs attention")
                         }
                     }
-                RowText(name: bot.name, fragment: fragment, unread: bot.isUnread)
+                // P27: a long quiet turn shows its current step; the line is re-read every few seconds while working.
+                if working {
+                    TimelineView(.periodic(from: .now, by: 5)) { context in RowText(name: bot.name, fragment: fragment(context.date), unread: bot.isUnread) }
+                } else {
+                    RowText(name: bot.name, fragment: fragment(.now), unread: bot.isUnread)
+                }
                 Spacer(minLength: 4)
                 if bot.retiredOnBox { Text("retired").font(.system(size: 10)).foregroundStyle(.tertiary) }
                 if bot.isUnread { UnreadDot() }

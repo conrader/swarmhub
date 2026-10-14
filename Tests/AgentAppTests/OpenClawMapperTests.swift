@@ -20,6 +20,7 @@ private func render(_ events: [AgentEvent]) -> [String] {
         case .token(let text): "token:\(text)"
         case .replace(let text): "replace:\(text)"
         case .status(let text): "status:\(text)"
+        case .tool(let tool): "tool:\(tool.phase.rawValue):\(tool.name)"
         case .completed: "completed"
         case .failed(let text): "failed:\(text)"
         case .approval: "approval"
@@ -71,7 +72,7 @@ private func run(_ events: [GatewayEvent], primary: String = "run-1", ignore: [S
             == ["status:Starting the model…", "status:Rate limited; retrying (1 of 3)…"])
     let tool = GatewayEvent(event: "agent", payload: ["runId": "run-1", "seq": 1, "stream": "tool", "ts": 1, "data": ["phase": "start", "name": "exec"]], seq: nil)
     let otherTool = GatewayEvent(event: "agent", payload: ["runId": "run-2", "seq": 1, "stream": "tool", "ts": 1, "data": ["phase": "start", "name": "browser"]], seq: nil)
-    #expect(run([tool, otherTool]) == ["status:exec"])
+    #expect(run([tool, otherTool]) == ["tool:started:exec"])
     #expect(run([chat("final", seq: 1), chat("delta", seq: 2, ["message": snapshot("late")])]) == ["completed"], "nothing after the end")
 }
 

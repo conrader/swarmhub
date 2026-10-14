@@ -38,7 +38,14 @@ enum ManagementIntent {
                                   "list bots", "list the bots", "list all bots", "list my bots", "which bots", "what bots", "show bots",
                                   "instrukcje", "instrukcji", "instrukcja", "awatar", "awatara", "lista botów", "lista botow", "listę botów"]
 
-    /// True when the text asks to create, retire or list bots, or to read or change a bot's instructions or avatar.
+    // P27: "switch all agents to 6.1 sol" — a change verb, bots (or all of them) and a model.
+    private static let modelVerbs = ["switch", "change", "set", "move", "use", "upgrade",
+                                     "przełącz", "przelacz", "zmień", "zmien", "ustaw"]
+    private static let allWords = ["all", "every", "wszystkie", "wszystkich"]
+    private static let modelWords = ["model", "models", "modelu", "modele"]
+
+    /// True when the text asks to create, retire or list bots, to read or change a bot's instructions or avatar, or to
+    /// change bots' model.
     static func matches(_ text: String) -> Bool {
         let words = tokens(text); guard !words.isEmpty else { return false }
         let joined = " " + words.joined(separator: " ") + " "
@@ -46,7 +53,17 @@ enum ManagementIntent {
         if phrases.contains(where: has) { return true }
         if has("prompt"), botNouns.contains(where: has) { return true }
         if createVerbs.contains(where: has), botNouns.contains(where: has) { return true }
+        if modelVerbs.contains(where: has), (botNouns + allWords).contains(where: has),
+           modelWords.contains(where: has) || words.contains(where: isModelLike) { return true }
         return retireVerbs.contains(where: has) && retireNouns.contains(where: has)
+    }
+
+    /// A model-ish token: a version like `6.1`, a word containing gpt/claude/opus/sonnet, or `sol`/`terra`. `sol` and `terra` count only as a whole part of a
+    /// hyphenated token, so "resolution" or "terrace" are not models.
+    static func isModelLike(_ word: String) -> Bool {
+        if word.range(of: #"\d+\.\d+"#, options: .regularExpression) != nil { return true }
+        if ["gpt", "claude", "opus", "sonnet"].contains(where: word.contains) { return true }
+        return word.split(separator: "-").contains { $0 == "sol" || $0 == "terra" }
     }
 
     /// Lowercased words; letters, digits, `.`, `-` and `'` stay inside a word, everything else separates.
@@ -58,14 +75,21 @@ enum ManagementIntent {
 
 /// The Manage bots menu: each item fills the composer with a plain request and opens an exchange.
 enum ManageBotsAction: String, CaseIterable, Identifiable {
-    case newBot, changeInstructions, changeAvatar, showInstructions, listBots, retireBot
+    case newBot, changeInstructions, changeAvatar, changeModel, showInstructions, listBots, retireBot
     var id: String { rawValue }
+
+    /// The menu for a manager on this backend: "Change model…" only where the manager text has a model recipe (Hermes;
+    /// the OpenClaw text has none, P27 D8).
+    static func actions(for backend: BackendKind) -> [ManageBotsAction] {
+        backend == .hermes ? allCases : allCases.filter { $0 != .changeModel }
+    }
 
     var title: String {
         switch self {
         case .newBot: "New bot…"
         case .changeInstructions: "Change instructions…"
         case .changeAvatar: "Change avatar…"
+        case .changeModel: "Change model…"
         case .showInstructions: "Show instructions…"
         case .listBots: "List bots"
         case .retireBot: "Retire bot…"
@@ -77,6 +101,7 @@ enum ManageBotsAction: String, CaseIterable, Identifiable {
         case .newBot: "plus.circle"
         case .changeInstructions: "text.badge.checkmark"
         case .changeAvatar: "paintpalette"
+        case .changeModel: "cpu"
         case .showInstructions: "doc.text"
         case .listBots: "list.bullet"
         case .retireBot: "archivebox"
@@ -90,6 +115,7 @@ enum ManageBotsAction: String, CaseIterable, Identifiable {
         case .newBot: return "Create a new bot called <name> that "
         case .changeInstructions: return "Change the instructions of the bot \(target): "
         case .changeAvatar: return "Change the avatar of the bot \(target) to "
+        case .changeModel: return "Change the model of \(bot ?? "<bots>") to "
         case .showInstructions: return "Show me the instructions of the bot \(target)."
         case .listBots: return "List the bots on this box."
         case .retireBot: return "Retire the bot \(target)."
