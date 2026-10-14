@@ -30,6 +30,8 @@ In development for **macOS, Windows, and Linux**. You can build the macOS protot
 
 [How it works](docs/guide.md#how-it-works) · [Technical reference](docs/reference.md) · [Roadmap](PLAN.md)
 
----
+## Credits
 
-[MIT license](LICENSE) · [Credits](THIRD-PARTY-NOTICES.md)
+Bot avatars use [BotAvatarsKit](https://github.com/Jakubantalik/Libraries.dev/tree/a27566557b4def79bcdcedc71858c0fb28020b6d/packages/bot-avatars/ports/ios/BotAvatarsKit) by **Jakub Antalik (Libraries.dev)**, licensed under [MIT](Vendor/BotAvatarsKit/LICENSE).
+
+[Third-party notices](THIRD-PARTY-NOTICES.md) · [Project license](LICENSE)
