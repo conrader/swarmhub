@@ -47,6 +47,7 @@ struct SettingsAccountPane: View {
                     }
                     Text("\(entry.profile) · \(URL(string: entry.server)?.host ?? entry.server) · key \(keyState(entry.profile))").font(.caption).foregroundStyle(.secondary)
                     Text(versionText(entry.bots[0])).font(.caption).foregroundStyle(.secondary)
+                    if store.keyNeedsReentry(entry.bots[0]) { ReenterKeyField(bot: entry.bots[0]) }
                     if let result = profileResults[id] { Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                 }
             }
@@ -67,7 +68,11 @@ struct SettingsAccountPane: View {
     }
 
     /// From item attributes only, so listing profiles never asks for Keychain access.
-    private func keyState(_ profile: String) -> String { store.keyStore.hasKey(for: AppStore.keyAccount(forProfile: profile)) ? "saved" : "missing" }
+    private func keyState(_ profile: String) -> String {
+        let account = AppStore.keyAccount(forProfile: profile)
+        if store.keyStore.needsReentry(account) { return "needs re-entry" }
+        return store.keyStore.hasKey(for: account) ? "saved" : "missing"
+    }
 
     /// The same read-only probe as `--check-bots` (`/v1/models`, `/v1/capabilities`, `/api/jobs`).
     private func test(_ bot: Bot, id: String) {
@@ -100,4 +105,21 @@ struct SettingsAccountPane: View {
             testing = false
         }
     }
+}
+
+/// "Re-enter this bot's key" under a profile whose stored key could not be read without a dialog.
+struct ReenterKeyField: View {
+    @EnvironmentObject private var store: AppStore
+    let bot: Bot
+    @State private var key = ""
+
+    var body: some View {
+        HStack {
+            Text(KeychainStore.reenterMessage).font(.caption).foregroundStyle(.orange)
+            SecureField("API key", text: $key).onSubmit(save)
+            Button("Save", action: save).disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func save() { store.saveKey(key, for: bot); key = "" }
 }

@@ -82,7 +82,7 @@ struct AddKeyBanner: View {
                 Button("Save", action: save).disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
                 Button("Cancel") { adding = false; key = "" }
             } else {
-                Text("No key for \(bot.hermesProfile ?? "this profile") yet.").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(store.keyNeedsReentry(bot) ? KeychainStore.reenterMessage : "No key for \(bot.hermesProfile ?? "this profile") yet.").font(.system(size: 12)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Add key") { adding = true }.buttonStyle(.borderedProminent)
             }

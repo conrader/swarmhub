@@ -33,14 +33,21 @@ extension AppStore {
     static func keyAccount(forProfile profile: String) -> String { profile == "default" ? "hermes" : "hermes.\(profile)" }
 
     /// A Hermes bot bound to a named profile whose Keychain key is missing shows "Add key" instead of
-    /// sending (and erroring). Injected test backends bypass the check.
+    /// sending (and erroring), as does any Hermes bot whose stored key needs re-entry. Injected test backends bypass the check.
     func needsKey(_ bot: Bot) -> Bool {
-        guard backendFactory == nil, bot.backend == .hermes, let profile = bot.hermesProfile, profile != "default" else { return false }
+        guard backendFactory == nil, bot.backend == .hermes else { return false }
+        if keyNeedsReentry(bot) { return true }
+        guard let profile = bot.hermesProfile, profile != "default" else { return false }
         return keyStore.key(for: Self.keyAccount(forProfile: profile)).isEmpty
     }
 
+    /// This bot's stored key could not be read without a dialog and nothing replaced it this launch; no further read
+    /// happens until the key is re-entered.
+    func keyNeedsReentry(_ bot: Bot) -> Bool { bot.backend == .hermes && keyStore.needsReentry(Self.keyAccount(forProfile: bot.hermesProfile ?? "default")) }
+
     func saveKey(_ key: String, for bot: Bot) {
-        guard let profile = bot.hermesProfile, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let profile = bot.hermesProfile ?? "default"
+        guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         keyStore.setKey(key.trimmingCharacters(in: .whitespacesAndNewlines), for: Self.keyAccount(forProfile: profile))
         objectWillChange.send()
     }

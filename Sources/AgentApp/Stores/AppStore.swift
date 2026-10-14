@@ -102,6 +102,7 @@ import UserNotifications
             loadDemoData(persist: true)
         }
         if !demoMode { migrateManagerRole() }
+        if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys() } }
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
         botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad
@@ -259,7 +260,8 @@ import UserNotifications
     case .hermes:
         guard let baseURL = HermesBackend.validatedBaseURL(bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL) else { throw BackendError.invalidURL }
         let profile = bot.hermesProfile ?? "default"
-        let key = keyStore.key(for: profile == "default" ? "hermes" : "hermes.\(profile)")
+        let key = keyStore.key(for: Self.keyAccount(forProfile: profile))
+        if key.isEmpty, keyStore.needsReentry(Self.keyAccount(forProfile: profile)) { throw BackendError.unavailable(KeychainStore.reenterMessage) }
         return HermesBackend(baseURL: baseURL, apiKey: key, profile: profile, session: hermesSession)
     case .openClaw: return OpenClawBackend(gatewayURL: URL(string: UserDefaults.standard.string(forKey: "openClawURL") ?? ""))
     } }

@@ -60,7 +60,10 @@ extension HeadlessCommands {
         do {
             guard let built = try store.backend(for: bot) as? HermesBackend else { check.problem = "not a Hermes backend"; return check }
             backend = built
-        } catch { check.problem = error.localizedDescription; return check }
+        } catch {
+            if store.keyStore.needsReentry(account) { check.key = .locked }
+            check.problem = error.localizedDescription; return check
+        }
         if !backend.apiKey.isEmpty { check.key = .present }
         else if store.keyStore.hasKey(for: account) { check.key = .locked; check.problem = "Keychain access needs approval"; return check }
         else if profile != "default" { check.problem = "no key"; return check }
