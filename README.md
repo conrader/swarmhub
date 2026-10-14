@@ -34,7 +34,7 @@ Hermes is supported; OpenClaw agents connect through their Gateway (built agains
 - **Agent overview:** see skills, tools, and available models.
 - **Models per agent:** configure conversation and coding choices separately for each agent, such as Codex for conversation and Claude Code for coding. Conversation settings are available now; coding settings are planned.
 - **Approvals:** approve or decline requests and set policies for each agent.
-- **OpenClaw agents:** add a Gateway in Settings → Advanced → Servers and keys → OpenClaw (address and token; an SSH tunnel pairs at once, other networks need `openclaw devices approve`), then Add bots: streaming chat, Stop, steer, images, threads, history and the agent's approval requests. A paired Mac can read and write the Gateway's sessions; an agent that may run tools can run commands on the Gateway host. Approvals from runs SwarmHub did not start always ask you. [Details](docs/openclaw-integration.md).
+- **OpenClaw agents:** connect a Gateway from the setup window, or add one in Settings → Advanced → Servers and keys → OpenClaw (address and token; an SSH tunnel pairs at once, other networks need `openclaw devices approve`), then Add bots: streaming chat, Stop, steer, images, threads, history and the agent's approval requests. A paired Mac can read and write the Gateway's sessions; an agent that may run tools can run commands on the Gateway host. Approvals from runs SwarmHub did not start always ask you. [Details](docs/openclaw-integration.md).
 - **Agents that manage agents:** ask your main agent to create a new agent, change an agent's instructions or avatar, or retire one. It asks you first, and the new agent appears in the sidebar with its own key. Works with stock Hermes; nothing is installed on your server.
 - **Import from Grok Bot:** bring your Grok bots, their avatars and their history into SwarmHub (sidebar + → Import from Grok Bot…). Read-only; the full history needs one macOS Keychain prompt for Grok Bot's sign-in, which stays in memory and is never saved. It uses Grok Bot's private interface, so it can stop working when Grok changes it; recent messages from this Mac always import without it.
 - **No reply is lost:** every reply says whether it finished, is incomplete or was not sent; cut replies complete themselves from your server, and Retry checks the server before it sends anything ([how it works](docs/reference.md#never-losing-a-reply)).
@@ -53,6 +53,8 @@ In development for **macOS, Windows, Linux, iOS, and Android**. You can build th
 [Download the latest macOS build →](https://github.com/conrader/swarmhub/releases/latest) · [Get started →](docs/guide.md#get-started)
 
 Installed builds update themselves (signed updates, checked daily; Settings → Updates).
+
+The setup window (first run, or Settings → Change connection…) connects a Hermes box or an OpenClaw Gateway: pick OpenClaw, Test, approve this Mac if asked, and choose its agents, without opening Settings.
 
 [How it works](docs/guide.md#how-it-works) · [Technical reference](docs/reference.md) · [Roadmap](PLAN.md)
 
