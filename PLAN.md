@@ -9,17 +9,16 @@ Grok Bot is Cursor's hosted Mac agent app; SwarmHub reproduces its features on t
 Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `grok-<slug>`
 (SOUL, skills, imported history), served at `https://konrad.agenthut.net/p/grok-<slug>/`.
 
-## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 20538ee, P19 c31d0c0, P24 + release 0.4.1 deb1f7a, release 0.4.2 449a770 merged)
+## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 20538ee, P19 c31d0c0, P24 + release 0.4.1 deb1f7a, release 0.4.2 449a770, P10c 36b3af0, group documents 46619c1 merged)
 
 Everything planned that is not merged yet, so nobody has to remember it. Built = merged into `main`.
 **Konrad 2026-10-14: "Build all, defaults"** — every row below is accepted with the recommended defaults (P16, P17, P21, P12 included; P13 Part C's live step has his go). Order: P23 → P19 → P24 → P10c → P10d → P10e → P13 C → D → E → P16 → P21 → P17 → P12; each merged when green; Claude reports results, comes back only for a real blocker.
 
 | What | State | Next step |
 |---|---|---|
-| Group chats cut documents at 8,000 characters (P19 left the group context cap unchanged) | not fixed | after P10c: send attachments whole to the addressed bot(s) in groups |
 | Automatic updates: prove a real update | v0.4.2 (notarized Developer ID, Apple submission cd59e74f Accepted) published; installed app is 0.4.1 | Konrad: SwarmHub → Check for Updates… (or wait for the daily check) → install; back up the Sparkle private key |
-| P10d / P10e Grok import in the app (sheet, live) | P10c merged (36b3af0); P10d built on `p10d` (MacBook): the sheet, sidebar + → Import from Grok Bot…, Settings → Account → Grok Bot | review + merge P10d; P10e needs Konrad at the Mac (one Allow) |
-| P13 Parts C / D / E model roles (prove, existing chats, sub-agents) | Parts A+B merged, C/D/E never started | queued; Part C live step has Konrad's go |
+| P10d / P10e Grok import in the app (sheet, live) + P10c live steps | P10c merged 36b3af0 (435 green; probe on the real Mac OK, no click); P10d built on `p10d` (MacBook): the sheet, sidebar + → Import from Grok Bot…, Settings → Account → Grok Bot | review + merge P10d; after P10d ships in an update: one live session with Konrad (P10c ii-vi + P10e), Allow clicks |
+| P13 Parts C / D / E model roles | Part C building (`p13c`, MacBook; live e2e with terra/sol pairs) | D only after C's live step is green, then E |
 | P16 No reply is lost | accepted (build all) | queued |
 | P17 Models from the agent's own backend | accepted (build all) | queued |
 | P21 Simple settings + setup wizard | accepted (build all) | queued |
@@ -54,6 +53,11 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 - The orchestrator on OVH fetches the branch over ssh, reviews it (adversarial verifier),
   merges to `main` in the orchestrator checkout, pushes to `github.com/conrader/swarmhub`,
   and the next phase starts from that `main`.
+- **Never leave a test-mode SwarmHub running** (Konrad 2026-10-14: "check for updates" was greyed out because the open copy
+  was the `--ui-smoke` launch, where updates are off by design). After any `--ui-smoke` / `--render-snapshot` / probe launch, quit
+  that instance by pid and reopen the app normally with `open ~/Applications/SwarmHub.app`; report the normal instance's pid.
+- **Ship through the updater:** a merged change reaches Konrad as a new notarized release (Developer ID, `plainsay-notary`,
+  build number +1, appcast) that his installed app updates to; no hand-installs over his app once updates work.
 - Hermes API reference: upstream tag `v2026.8.19` (byte-identical to the box's 0.20.5
   `gateway/platforms/api_server.py`); for 0.21.x, tag `v0.21.7`.
 

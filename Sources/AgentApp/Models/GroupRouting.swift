@@ -59,28 +59,38 @@ enum GroupRouting {
     }
 
     /// The group transcript since `bot`'s last reply as author-prefixed lines, capped at `limit` characters
-    /// (oldest lines dropped first; an oversized newest line is cut).
-    static func context(for bot: Member, groupName: String, members: [Member], messages: [ChatMessage], limit: Int = contextLimit) -> String {
+    /// (oldest lines dropped first; an oversized newest line is cut). The attachment text of the `current`
+    /// message (documents and text files) follows its line whole and does not count towards `limit`; the
+    /// backend splits long text into parts and guards the request size as in 1:1 chats.
+    static func context(for bot: Member, groupName: String, members: [Member], messages: [ChatMessage], current: UUID? = nil, limit: Int = contextLimit) -> String {
         let names = Dictionary(members.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
         let start = (messages.lastIndex { $0.role == .assistant && $0.authorID == bot.id && !$0.content.isEmpty }).map { $0 + 1 } ?? 0
-        let lines: [String] = messages[start...].compactMap { message in
-            let text = message.outgoingText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty, !message.isSteer, message.role != .system else { return nil }
+        let lines: [(label: Int, line: String, files: String?)] = messages[start...].compactMap { message in
+            let isCurrent = current != nil && message.id == current
+            let files = isCurrent ? AttachmentEncoder.compose(text: "", attachments: message.attachments) : ""
+            let text = (isCurrent ? message.content : message.outgoingText).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty || !files.isEmpty, !message.isSteer, message.role != .system else { return nil }
             let author = message.role == .user ? userName : message.authorID.flatMap { names[$0] } ?? "Bot"
-            return "\(author): \(text)"
+            return (author.count + 1, text.isEmpty ? "\(author):" : "\(author): \(text)", files.isEmpty ? nil : files)
         }
         let others = members.filter { $0.id != bot.id }.map(\.name)
         let header = "[Group chat “\(groupName)” with \(([userName] + others).joined(separator: ", ")) and you (\(bot.name)). Messages since your last reply:]"
         let omitted = "[… earlier messages omitted]"
-        var kept: [String] = []; var used = header.count + 1
-        for line in lines.reversed() {
+        var kept: [String] = []; var used = header.count + 1; var full = false; var dropped = false
+        for (label, line, files) in lines.reversed() {
             let cost = line.count + 1
-            if used + cost + omitted.count + 1 > limit {
-                if kept.isEmpty { kept.append(String(line.prefix(max(0, limit - used - omitted.count - 2)))) }
-                kept.append(omitted); break
-            }
-            kept.append(line); used += cost
+            if !full, used + cost + omitted.count + 1 <= limit { kept.append(line + (files.map { "\n\n" + $0 } ?? "")); used += cost; continue }
+            // Past the cap only an oversized newest line (cut) and the current message survive; the current
+            // message keeps at least its author label so its attachments stay attributed.
+            if kept.isEmpty || files != nil {
+                if dropped { kept.append(omitted); dropped = false }
+                let room = max(files == nil ? 0 : label, limit - used - omitted.count - 2)
+                kept.append(String(line.prefix(room)) + (files.map { "\n\n" + $0 } ?? "")); used += min(room, line.count) + 1
+                dropped = room < line.count
+            } else { dropped = true }
+            full = true
         }
+        if dropped { kept.append(omitted) }
         return ([header] + kept.reversed()).joined(separator: "\n")
     }
 

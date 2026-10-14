@@ -57,16 +57,21 @@ struct GrokKeychain: GrokPasswordProvider {
         var query = baseQuery
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        return SecItemCopyMatching(query as CFDictionary, &result)
+        return KeychainAccess.shared.exclusive {
+            var result: CFTypeRef?
+            return SecItemCopyMatching(query as CFDictionary, &result)
+        }
     }
 
     func readPassword() throws -> [UInt8] {
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // Under the app's Keychain lock, so no silent key read can disable interaction while this dialog is up.
+        let (status, result) = KeychainAccess.shared.exclusive { () -> (OSStatus, CFTypeRef?) in
+            var result: CFTypeRef?
+            return (SecItemCopyMatching(query as CFDictionary, &result), result)
+        }
         guard status == errSecSuccess else { throw GrokKeychainError.from(status) }
         guard let data = result as? Data else { throw GrokKeychainError.unexpected(errSecInternalError) }
         return [UInt8](data)

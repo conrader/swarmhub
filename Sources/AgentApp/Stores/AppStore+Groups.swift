@@ -106,7 +106,8 @@ extension AppStore {
         let images: [String]
         do { images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
         let recipients = GroupRouting.recipients(of: text, members: members)
-        group.messages.append(ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)); replyTo = nil
+        let message = ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)
+        group.messages.append(message); replyTo = nil
         let run = GroupRun(groupID: group.id); groupRun = run
         let token = UUID(); activeStreamToken = token
         isStreaming = true; streamingConversation = group; objectWillChange.send(); save()
@@ -115,7 +116,7 @@ extension AppStore {
             for botID in recipients {
                 guard !run.stopped, !Task.isCancelled else { break }
                 guard group.memberIDs.contains(botID), let bot = bots.first(where: { $0.id == botID }) else { continue }
-                await groupTurn(bot: bot, group: group, run: run, token: token, images: images)
+                await groupTurn(bot: bot, group: group, run: run, token: token, images: images, current: message.id)
             }
             group.activeMemberID = nil
             if activeStreamToken == token {
@@ -127,11 +128,11 @@ extension AppStore {
         return true
     }
 
-    private func groupTurn(bot: Bot, group: GroupChat, run: GroupRun, token: UUID, images: [String]) async {
+    private func groupTurn(bot: Bot, group: GroupChat, run: GroupRun, token: UUID, images: [String], current: UUID) async {
         if needsKey(bot) { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: no key for \(bot.hermesProfile ?? "its profile").")); return }
         let activeBackend: any AgentBackend
         do { activeBackend = try backend(for: bot) } catch { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(error.localizedDescription)")); return }
-        let context = GroupRouting.context(for: .init(id: bot.id, name: bot.name), groupName: group.name, members: routingMembers(of: group), messages: group.messages)
+        let context = GroupRouting.context(for: .init(id: bot.id, name: bot.name), groupName: group.name, members: routingMembers(of: group), messages: group.messages, current: current)
         let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, authorID: bot.id)
         group.messages.append(assistant); group.activeMemberID = bot.id
         if activeStreamToken == token { streamingBotID = bot.id; streamingAssistant = assistant }

@@ -1,4 +1,7 @@
 .build/
+**/.build/
+Apps/iOS/build/
+**/xcuserdata/
 dist/
 *.xcuserstate
 # Real Grok Bot exports are private: never inside the repo.
