@@ -26,7 +26,7 @@ struct BotEditorView: View {
             }.formStyle(.grouped).padding(.horizontal, 8)
             Divider(); HStack { Spacer(); Button(SimpleCopy.cancel) { dismiss() }; Button(SimpleCopy.save) { save() }.buttonStyle(.borderedProminent).disabled(fields.name.trimmingCharacters(in: .whitespaces).isEmpty) }.padding(16)
         }.frame(width: 560, height: 720).background(AppColor.panel).onAppear {
-            if let bot { fields = BotEditorFields(bot: bot) } else { fields.backend = store.hermesConfigured ? .hermes : .mock }
+            fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(hermesConfigured: store.hermesConfigured)
         }
     }
     private func save() {
@@ -50,6 +50,8 @@ struct BotEditorFields {
     var conversationModel = ModelSetting.inherit, canManage = false
 
     init() {}
+    /// A new agent talks to the box when one is configured; Mock stays reachable only under Advanced.
+    static func newAgent(hermesConfigured: Bool) -> BotEditorFields { var fields = BotEditorFields(); fields.backend = hermesConfigured ? .hermes : .mock; return fields }
     init(bot: Bot) {
         name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend
         avatar = AvatarChoice(bot: bot); hidden = bot.isHidden; notifications = bot.notificationsEnabled
