@@ -1,43 +1,49 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="555" viewBox="0 0 720 555" fill="none" role="img" aria-labelledby="title description">
   <title id="title">SwarmHub for iOS — your agents, wherever you are</title>
-  <desc id="description">SwarmHub's agent mark beside a native iPhone app introduction. SwiftUI, iOS 18 or later, in development.</desc>
+  <desc id="description">The website's approved round two-eye SwarmHub mark beside a native iPhone app introduction. SwiftUI, iOS 18 or later, in development.</desc>
   <defs>
-    <linearGradient id="canvas" x1="0" y1="0" x2="720" y2="555" gradientUnits="userSpaceOnUse"><stop stop-color="#101725"/><stop offset="1" stop-color="#13302E"/></linearGradient>
-    <linearGradient id="accent" x1="40" y1="0" x2="700" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#98C7FF"/><stop offset="1" stop-color="#A2E4CF"/></linearGradient>
+    <linearGradient id="canvas" x1="0" y1="0" x2="720" y2="555" gradientUnits="userSpaceOnUse"><stop stop-color="#f7f7f2"/><stop offset="1" stop-color="#f7f7f2"/></linearGradient>
+    <linearGradient id="accent" x1="40" y1="0" x2="700" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#e75a32"/><stop offset="1" stop-color="#e75a32"/></linearGradient>
     <clipPath id="bounds"><rect width="720" height="555" rx="24"/></clipPath>
   </defs>
   <g clip-path="url(#bounds)">
     <rect width="720" height="555" fill="url(#canvas)"/>
 
-    <g stroke="#AAD6CD" stroke-opacity=".12"><circle cx="601" cy="108" r="94"/><circle cx="601" cy="108" r="120" stroke-dasharray="3 9"/></g>
-    <svg x="522" y="28" width="158" height="158" viewBox="0 0 1024 1024"><defs>
-<linearGradient id="brand-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2E2F36"/><stop offset=".5" stop-color="#16171B"/><stop offset="1" stop-color="#08080A"/></linearGradient>
-<radialGradient id="brand-w" cx=".5" cy=".5" r=".55" fx=".33" fy=".28"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".45" stop-color="#F2F2F5"/><stop offset=".85" stop-color="#B9B9C2"/><stop offset="1" stop-color="#8C8C96"/></radialGradient>
-<radialGradient id="brand-b" cx=".5" cy=".5" r=".55" fx=".33" fy=".28"><stop offset="0" stop-color="#8CC6FF"/><stop offset=".45" stop-color="#1E8BFF"/><stop offset=".85" stop-color="#0A5BD0"/><stop offset="1" stop-color="#063E94"/></radialGradient>
-<radialGradient id="brand-o" cx=".5" cy=".5" r=".55" fx=".33" fy=".28"><stop offset="0" stop-color="#FFD98A"/><stop offset=".45" stop-color="#FFA21A"/><stop offset=".85" stop-color="#E07800"/><stop offset="1" stop-color="#A85500"/></radialGradient>
-<radialGradient id="brand-g" cx=".5" cy=".5" r=".55" fx=".33" fy=".28"><stop offset="0" stop-color="#8BF2BF"/><stop offset=".45" stop-color="#14D07F"/><stop offset=".85" stop-color="#00A35F"/><stop offset="1" stop-color="#007443"/></radialGradient>
-<linearGradient id="brand-hexside" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B85F00"/><stop offset="1" stop-color="#7A3E00"/></linearGradient>
-<linearGradient id="brand-eye" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#050506"/><stop offset="1" stop-color="#2A2A30"/></linearGradient>
-<radialGradient id="brand-spec" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".95"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
-<radialGradient id="brand-bounce" cx=".62" cy=".9" r=".55"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".35"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>
-<filter id="brand-glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="40"/></filter>
-<filter id="brand-sh" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur in="SourceAlpha" stdDeviation="26"/><feOffset dy="34" result="b"/><feFlood flood-color="#000" flood-opacity=".7"/><feComposite in2="b" operator="in"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-<filter id="brand-shs" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur in="SourceAlpha" stdDeviation="14"/><feOffset dy="16" result="b"/><feFlood flood-color="#000" flood-opacity=".6"/><feComposite in2="b" operator="in"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-<filter id="brand-blur8"><feGaussianBlur stdDeviation="8"/></filter>
-<clipPath id="brand-c"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath></defs>
-<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#brand-bg)"/>
-<g clip-path="url(#brand-c)"><circle cx="320" cy="340" r="220" fill="#1E8BFF" opacity=".45" filter="url(#brand-glow)"/><g filter="url(#brand-shs)"><circle cx="320" cy="340" r="190" fill="url(#brand-b)"/></g><circle cx="320" cy="340" r="190" fill="url(#brand-bounce)"/><ellipse cx="247.8" cy="245.0" rx="53.2" ry="30.400000000000002" fill="url(#brand-spec)" transform="rotate(-30 247.8 245.0)"/><rect x="262.0" y="275.0" width="46" height="100" rx="23.0" fill="url(#brand-eye)" transform="rotate(-14 285 325)"/><rect x="349.0" y="261.0" width="46" height="100" rx="23.0" fill="url(#brand-eye)" transform="rotate(-14 372 311)"/><g filter="url(#brand-sh)"><circle cx="595" cy="690" r="345" fill="url(#brand-w)"/></g><circle cx="595" cy="690" r="345" fill="url(#brand-bounce)"/><ellipse cx="463.9" cy="517.5" rx="96.60000000000001" ry="55.2" fill="url(#brand-spec)" transform="rotate(-30 463.9 517.5)"/><rect x="464.0" y="541.0" width="82" height="174" rx="41.0" fill="url(#brand-eye)" transform="rotate(-14 505 628)"/><rect x="647.0" y="511.0" width="82" height="174" rx="41.0" fill="url(#brand-eye)" transform="rotate(-14 688 598)"/></g>
-<rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#FFFFFF" stroke-opacity=".12" stroke-width="3"/></svg>
+    <g stroke="#688554" stroke-opacity=".12"><circle cx="601" cy="108" r="94"/><circle cx="601" cy="108" r="120" stroke-dasharray="3 9"/></g>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" x="522" y="28" width="158" height="158">
+  <title>SwarmHub app icon</title>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#f7f7f2"/>
+  <svg x="184" y="184" width="656" height="656" viewBox="0 0 30 30">
+    <title>SwarmHub</title>
+  <g transform="rotate(-9 15 15)">
+    <circle cx="15" cy="15" r="15" fill="#262821"/>
+    <g fill="#f7f7f2">
+      <rect x="8.5" y="10" width="4" height="10" rx="2"/>
+      <rect x="17.5" y="10" width="4" height="10" rx="2"/>
+    </g>
+  </g>
+  </svg>
+</svg>
     <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
-      <text x="42" y="79" fill="#F3F6FA" font-size="31" font-weight="600" letter-spacing="-.8">SwarmHub for iOS</text>
-      <text x="38" y="214" fill="#F5F8FC" font-size="62" font-weight="650" letter-spacing="-2.8">Your agents.</text>
+      <svg x="38" y="46" width="42" height="42" viewBox="0 0 30 30">
+  <title>SwarmHub</title>
+  <g transform="rotate(-9 15 15)">
+    <circle cx="15" cy="15" r="15" fill="#262821"/>
+    <g fill="#f7f7f2">
+      <rect x="8.5" y="10" width="4" height="10" rx="2"/>
+      <rect x="17.5" y="10" width="4" height="10" rx="2"/>
+    </g>
+  </g>
+</svg>
+      <text x="93" y="79" fill="#262821" font-size="31" font-weight="750" letter-spacing="-1">SwarmHub for iOS</text>
+      <text x="38" y="214" fill="#262821" font-size="62" font-weight="650" letter-spacing="-2.8">Your agents.</text>
       <text x="38" y="287" fill="url(#accent)" font-size="62" font-weight="650" letter-spacing="-2.8">Wherever you are.</text>
-      <text x="42" y="338" fill="#BCCCDD" font-size="24">Conversations, sessions and approvals.</text>
-      <path d="M42 396H678" stroke="#D0DFEF" stroke-opacity=".16"/>
-      <circle cx="47" cy="438" r="5" fill="#98C7FF"/><text x="65" y="444" fill="#D4DFEA" font-size="18">Native SwiftUI</text>
-      <circle cx="280" cy="438" r="5" fill="#A2E4CF"/><text x="298" y="444" fill="#D4DFEA" font-size="18">iOS 18+</text>
+      <text x="42" y="338" fill="#6e7166" font-size="24">Conversations, sessions and approvals.</text>
+      <path d="M42 396H678" stroke="#688554" stroke-opacity=".16"/>
+      <circle cx="47" cy="438" r="5" fill="#e75a32"/><text x="65" y="444" fill="#6e7166" font-size="18">Native SwiftUI</text>
+      <circle cx="280" cy="438" r="5" fill="#e75a32"/><text x="298" y="444" fill="#6e7166" font-size="18">iOS 18+</text>
       <rect x="42" y="478" width="222" height="38" rx="19" fill="#FFFFFF" fill-opacity=".05" stroke="#FFFFFF" stroke-opacity=".13"/>
-      <circle cx="61" cy="497" r="4" fill="#F2B86E"/><text x="79" y="503" fill="#D4DFEA" font-size="15" letter-spacing=".4">IN DEVELOPMENT</text>
+      <circle cx="61" cy="497" r="4" fill="#688554"/><text x="79" y="503" fill="#6e7166" font-size="15" letter-spacing=".4">IN DEVELOPMENT</text>
     </g>
   </g>
 </svg>

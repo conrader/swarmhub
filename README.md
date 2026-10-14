@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(max-width: 600px)" srcset="docs/readme/hero-mobile.svg">
-  <img src="docs/readme/hero.svg" alt="SwarmHub — your agents, one place to work." width="1280">
+  <img src="docs/readme/hero.svg" alt="SwarmHub — your agents, all together." width="1280">
 </picture>
 
 A desktop interface for your **Hermes** and **OpenClaw** agents. Keep conversations, recurring tasks, and approvals together in one place.
