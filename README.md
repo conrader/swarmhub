@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(max-width: 600px)" srcset="docs/readme/hero-mobile.svg">
-  <img src="docs/readme/hero.svg" alt="SwarmHub — your agents, one place to work." width="1280" height="450">
+  <img src="docs/readme/hero.svg" alt="SwarmHub — your agents, one place to work." width="1280">
 </picture>
 
 A desktop interface for your **Hermes** and **OpenClaw** agents. Keep conversations, recurring tasks, and approvals together in one place.
@@ -12,7 +12,7 @@ Hermes is supported now; OpenClaw integration is planned.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="docs/readme/swarmhub-light.png">
-    <img src="docs/readme/swarmhub-dark.png" alt="Current SwarmHub interface with bot marks, chat previews, a group conversation, a draft card, and the agent Overview." width="1440" height="900">
+    <img src="docs/readme/swarmhub-dark.png" alt="Current SwarmHub interface with bot marks, chat previews, a group conversation, a draft card, and the agent Overview." width="1440">
   </picture>
   <br>
   <sub>Current macOS interface · demo content.</sub>
