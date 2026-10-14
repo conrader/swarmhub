@@ -11,17 +11,17 @@ struct SidebarView: View {
                 Spacer(minLength: ChromeMetrics.lightsClearance)
                 HideSidebarButton()
                 Button { store.showingTemplateImport = true } label: { Image(systemName: "square.and.arrow.down").font(.system(size: 12, weight: .medium)).frame(width: 24, height: 24) }
-                    .buttonStyle(.plain).help("Import template")
+                    .buttonStyle(.plain).help("Import template (\(AppCommand.importTemplate.shortcutText))")
                     .accessibilityLabel("Import template").chromeProbe("import_template")
                 Button { store.showingNewBot = true } label: { Image(systemName: "plus").font(.system(size: 12, weight: .medium)).frame(width: 24, height: 24) }
-                    .buttonStyle(.plain).help("New bot")
+                    .buttonStyle(.plain).help("New bot (\(AppCommand.newAgent.shortcutText))")
                     .accessibilityLabel("New bot").chromeProbe("new_bot")
             }.padding(.trailing, 10).frame(height: ChromeMetrics.titleRow).windowDragStrip(probe: "sidebar_row")
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     sectionLabel("MY BOTS")
                     ForEach(store.bots.filter { !$0.isHidden }) { bot in row(bot) }
-                    HStack { sectionLabel("GROUPS"); Spacer(); Button { store.showingNewGroup = true } label: { Image(systemName: "plus").font(.system(size: 10, weight: .semibold)).frame(width: 20, height: 20) }.buttonStyle(.plain).foregroundStyle(.secondary).help("New group").padding(.top, 8) }
+                    HStack { sectionLabel("GROUPS"); Spacer(); Button { store.showingNewGroup = true } label: { Image(systemName: "plus").font(.system(size: 10, weight: .semibold)).frame(width: 20, height: 20) }.buttonStyle(.plain).foregroundStyle(.secondary).help("New group (\(AppCommand.newGroup.shortcutText))").padding(.top, 8) }
                     ForEach(store.groups.filter { !$0.isHidden }) { group in GroupRow(group: group, botToDelete: $groupToDelete) }
                     sectionLabel("WORKSPACE")
                     Button { store.showingHiddenBots.toggle() } label: { Label("Hidden chats", systemImage: "eye.slash").font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 9).frame(height: 34) }.buttonStyle(.plain)
@@ -32,9 +32,9 @@ struct SidebarView: View {
                 }.padding(.horizontal, 8)
             }.chromeProbe("sidebar_list")
             SettingsLink {
-                HStack(spacing: 9) { Image(systemName: "person.crop.circle.fill").font(.system(size: 25)).foregroundStyle(.secondary); Text("Konrad").font(.system(size: 13, weight: .medium)); Spacer() }
+                HStack(spacing: 9) { Image(systemName: "gearshape").font(.system(size: 18)).foregroundStyle(.secondary); Text("Settings").font(.system(size: 13, weight: .medium)); Spacer(); Text(AppCommand.settings.shortcutText).font(.system(size: 11)).foregroundStyle(.tertiary) }
                     .contentShape(Rectangle()).padding(.horizontal, 12).padding(.vertical, 10)
-            }.buttonStyle(.plain)
+            }.buttonStyle(.plain).help("Settings (\(AppCommand.settings.shortcutText))").accessibilityLabel("Settings")
         }.background(AppColor.sidebar)
         .alert("Delete \(botToDelete?.name ?? "bot")?", isPresented: Binding(get: { botToDelete != nil }, set: { if !$0 { botToDelete = nil } })) {
             Button("Cancel", role: .cancel) { botToDelete = nil }
@@ -49,7 +49,7 @@ struct SidebarView: View {
     private func row(_ bot: Bot) -> some View { BotRow(bot: bot, selected: selection == bot && store.selectedGroup == nil, botToDelete: $botToDelete) }
 }
 
-/// A bot in the sidebar: its mark (still unless working or hovered), name and unread dot, plus the context actions.
+/// A bot in the sidebar: its inward-facing, gently animated mark, name, unread dot and context actions.
 private struct BotRow: View {
     @EnvironmentObject private var store: AppStore
     let bot: Bot; let selected: Bool; @Binding var botToDelete: Bot?
@@ -57,7 +57,8 @@ private struct BotRow: View {
     var body: some View {
         Button { store.open(bot) } label: {
             HStack(spacing: 9) {
-                BotAvatar(bot: bot, size: 28, motion: .list, isWorking: store.isWorking(bot), isHovered: hovering, probe: "sidebar")
+                BotAvatar(bot: bot, size: 28, motion: .list, isWorking: store.isWorking(bot), isHovered: hovering, probe: "sidebar",
+                          isWaiting: store.hasPendingApproval(bot))
                 Text(bot.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
                 Spacer(minLength: 5)
                 if bot.retiredOnBox { Text("retired on box").font(.system(size: 10)).foregroundStyle(.tertiary) }

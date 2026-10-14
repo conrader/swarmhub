@@ -8,7 +8,7 @@ struct AvatarMotionSettingRow: View {
             Picker("Avatar motion", selection: $settings.preference) {
                 ForEach(AvatarMotionPreference.allCases) { Text($0.title).tag($0) }
             }.pickerStyle(.segmented)
-            Text(settings.preference.caption + (settings.preference == .off ? "" : " A working bot hops until its reply ends.") + " macOS Reduce Motion always wins: nothing moves and a dot shows while a bot works.")
+            Text(settings.preference.caption + " macOS Reduce Motion freezes avatars and shows a dot while a bot works.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

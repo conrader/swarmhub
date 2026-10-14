@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-/// P15 item 13: the motion truth table over context × preference × working × hovered × Reduce Motion.
+/// Motion permissions over context × preference × activity × hover × Reduce Motion.
 @Suite struct AvatarMotionTests {
     static let contexts: [AvatarMotionContext] = [.list, .focus, .showcase]
 
@@ -10,7 +10,7 @@ import Testing
     private func expected(_ context: AvatarMotionContext, _ preference: AvatarMotionPreference, working: Bool, hovered: Bool, reduce: Bool) -> AvatarMotionMode {
         if reduce || preference == .off { return .still }
         if working { return .working }
-        if preference == .calm || context == .list { return hovered ? .idle : .still }
+        if hovered && preference != .calm { return .hovered }
         return .idle
     }
 
@@ -43,21 +43,40 @@ import Testing
         }
     }
 
-    @Test func calmMakesFocusAndShowcaseBehaveAsList() {
+    @Test func calmAndDefaultIdleWithoutHoverInEveryLiveContext() {
         for context in [AvatarMotionContext.focus, .showcase] {
             for working in [false, true] {
                 for hovered in [false, true] {
                     #expect(AvatarMotion.resolve(context: context, isWorking: working, isHovered: hovered, reduceMotion: false, preference: .calm)
-                            == AvatarMotion.resolve(context: .list, isWorking: working, isHovered: hovered, reduceMotion: false, preference: .byContext))
+                            == (working ? .working : .idle))
                 }
             }
         }
         #expect(AvatarMotion.resolve(context: .focus, isWorking: false, isHovered: false, reduceMotion: false, preference: .byContext) == .idle)
-        #expect(AvatarMotion.resolve(context: .list, isWorking: false, isHovered: false, reduceMotion: false, preference: .byContext) == .still)
+        #expect(AvatarMotion.resolve(context: .list, isWorking: false, isHovered: false, reduceMotion: false, preference: .byContext) == .idle)
     }
 
     @Test func stillContextNeverMoves() {
         #expect(AvatarMotion.resolve(context: .still, isWorking: true, isHovered: true, reduceMotion: false, preference: .byContext) == .still)
+    }
+
+    @Test func approvalWorkAndCompletionTakePriorityOverHover() {
+        for context in Self.contexts {
+            #expect(AvatarMotion.resolve(context: context, isWorking: true, isHovered: true, reduceMotion: false,
+                                         preference: .byContext, isWaiting: true, isCelebrating: true) == .waiting)
+            #expect(AvatarMotion.resolve(context: context, isWorking: true, isHovered: true, reduceMotion: false,
+                                         preference: .byContext, isCelebrating: true) == .working)
+            #expect(AvatarMotion.resolve(context: context, isWorking: false, isHovered: true, reduceMotion: false,
+                                         preference: .byContext, isCelebrating: true) == .celebrating)
+            for preference in AvatarMotionPreference.allCases {
+                #expect(AvatarMotion.resolve(context: context, isWorking: true, isHovered: true, reduceMotion: true,
+                                             preference: preference, isWaiting: true, isCelebrating: true) == .still)
+            }
+            #expect(AvatarMotion.resolve(context: context, isWorking: true, isHovered: true, reduceMotion: false,
+                                         preference: .off, isWaiting: true, isCelebrating: true) == .still)
+            #expect(AvatarMotion.resolve(context: context, isWorking: false, isHovered: true, reduceMotion: false,
+                                         preference: .calm, isCelebrating: true) == .idle)
+        }
     }
 
     @Test @MainActor func preferencePersistsAndDefaultsToByContext() {

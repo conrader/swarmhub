@@ -13,9 +13,12 @@ Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `gr
 - Copy Grok Bot's look and match its features with our own code and assets only. No Grok images,
   icons, fonts, prompts or tool definitions. Exception (P15, accepted 2026-10-13): the vendored, pinned MIT
   BotAvatarsKit (Jakub Antalik, Libraries.dev) under `Vendor/`, credited in `THIRD-PARTY-NOTICES.md`.
-- No animations, except avatar motion by context (P15): list rows stay still unless that bot is working or hovered;
-  the open bot's large mark and showcase views idle gently; a working bot hops everywhere; Settings → Appearance →
-  Avatar motion can choose Calm everywhere or Off; macOS Reduce Motion is always honoured. Also allowed (P14): sidebar and
+- No animations, except avatar motion by context (P15, revised 2026-10-14): list, focus and showcase marks animate
+  without hover and face inward toward the conversation. Idle, focused, hover greeting, working, approval waiting and
+  successful-reply completion select Libraries.dev's original states and gestures, with flat shading
+  (see `docs/avatar-animation-scenarios.md`). Settings → Appearance → Avatar motion can choose Calm everywhere
+  (slower continuous motion, no idle flips) or Off; macOS Reduce Motion is always honoured.
+  All motion stops while the app is inactive or its main windows are hidden. Also allowed (P14): sidebar and
   right-column open/close (system split-view / inspector slide; none under Reduce Motion).
   Dark theme by default; fast and light; no built-in model.
 - Never import or store secrets outside the Keychain. Imported routines start disabled.

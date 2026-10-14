@@ -25,6 +25,7 @@ import Testing
     let derived = GrokDefaultLook.mark(for: marked.avatarSeed)
     #expect(rows[0]["words"] as? String == "\(derived.shape)/\(derived.colour)" && rows[0]["origin"] as? String == "stored")
     #expect(rows[0]["body"] as? String == AvatarKitMap.body(for: derived.shape).type.rawValue && rows[0]["size"] as? Double == 28)
+    #expect(rows[0]["facing"] as? String == "right" && rows[0]["scenario"] as? String == "still")
     #expect(rows[1]["origin"] as? String == "classic" && rows[1]["words"] as? String == "fox")
     let groups = try #require(report["groups"] as? [[String: Any]])
     #expect(groups.first?["name"] as? String == "Pair" && (groups.first?["marks"] as? [[String: Any]])?.count == 1)
@@ -32,6 +33,7 @@ import Testing
     #expect((report["idle"] as? [String: Any])?["live_views"] is Int && (report["calm"] as? [String: Any])?["clock_running"] is Bool)
     let working = try #require(report["working"] as? [String: Any])
     #expect(working["bot"] as? String == "Marked" && working["during"] is [String: Any] && working["after"] is [String: Any])
+    #expect((working["off"] as? [String: Any])?["clock_running"] is Bool)
     #expect(settings.probeOverride == nil && UISmokeProbe.forcedWorking != marked.id)
 }
 

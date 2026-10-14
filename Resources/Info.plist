@@ -14,5 +14,12 @@
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+    <key>SUFeedURL</key><string>https://github.com/conrader/swarmhub/releases/latest/download/appcast.xml</string>
+    <!-- scripts/setup-updates.sh stores the public key here; the private key stays in Keychain. -->
+    <key>SUPublicEDKey</key><string></string>
+    <key>SUEnableAutomaticChecks</key><true/>
+    <key>SUAutomaticallyUpdate</key><false/>
+    <key>SUScheduledCheckInterval</key><integer>86400</integer>
+    <key>SUVerifyUpdateBeforeExtraction</key><true/>
 </dict>
 </plist>

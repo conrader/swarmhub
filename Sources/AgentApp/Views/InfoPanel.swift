@@ -3,9 +3,6 @@ import SwiftUI
 struct InfoPanel: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
-    @State private var tab = PanelTab.overview
-
-    private enum PanelTab: String, CaseIterable { case overview = "Overview", routines = "Routines", media = "Media", computer = "Computer", members = "Members" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,17 +14,18 @@ struct InfoPanel: View {
                     .buttonStyle(.plain).help("Close")
             }.padding(.horizontal, 14).frame(height: 54).windowDragStrip(probe: "details_header")
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
-            HStack(spacing: 3) { ForEach(PanelTab.allCases, id: \.self) { item in Button(item.rawValue) { tab = item }.font(.system(size: 10, weight: tab == item ? .semibold : .regular)).buttonStyle(.plain).padding(.horizontal, 6).frame(height: 26).background(tab == item ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6)) } }.padding(8)
+            HStack(spacing: 3) { ForEach(AgentInfoTab.allCases, id: \.self) { item in Button(item.rawValue) { store.infoTab = item }.font(.system(size: 10, weight: store.infoTab == item ? .semibold : .regular)).buttonStyle(.plain).padding(.horizontal, 6).frame(height: 26).background(store.infoTab == item ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6)) } }.padding(8)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView { panelContent.padding(14).frame(maxWidth: .infinity, alignment: .leading) }
         }.frame(minWidth: 300, idealWidth: 330, maxWidth: 380).background(AppColor.panel)
     }
 
     @ViewBuilder private var panelContent: some View {
-        switch tab {
+        switch store.infoTab {
         case .overview:
             VStack(alignment: .leading, spacing: 18) {
-                HStack(spacing: 12) { BotAvatar(bot: bot, size: 52, motion: .focus, isWorking: store.isWorking(bot), probe: "overview"); VStack(alignment: .leading) { Text(bot.name).font(.headline); Text(bot.title).foregroundStyle(.secondary) } }
+                HStack(spacing: 12) { BotAvatar(bot: bot, size: 52, motion: .focus, isWorking: store.isWorking(bot), probe: "overview", facing: .left,
+                                              isWaiting: store.hasPendingApproval(bot)); VStack(alignment: .leading) { Text(bot.name).font(.headline); Text(bot.title).foregroundStyle(.secondary) } }
                 Text(bot.botDescription.isEmpty ? "No description yet." : bot.botDescription).foregroundStyle(.secondary)
                 infoSection("Memory", text: bot.memorySummary.isEmpty ? "Memory will appear as this bot learns your preferences." : bot.memorySummary)
                 BotCapabilitiesView(bot: bot, cache: store.botInfo)
@@ -71,4 +69,3 @@ struct InfoPanel: View {
     private func infoSection(_ title: String, text: String) -> some View { VStack(alignment: .leading, spacing: 6) { Text(title).font(.headline); Text(text).foregroundStyle(.secondary).lineSpacing(2) } }
     private func member(_ name: String, role: String) -> some View { HStack { Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(.secondary); VStack(alignment: .leading) { Text(name); Text(role).font(.caption).foregroundStyle(.secondary) } } }
 }
-

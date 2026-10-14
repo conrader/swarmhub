@@ -64,8 +64,9 @@ struct SettingsUsagePane: View {
     }
 }
 
-/// Settings → Updates: this build's version and commit, and an on-demand check of the latest GitHub release.
+/// Settings → Updates: this build's identity and the shared Sparkle updater.
 struct SettingsUpdatesPane: View {
+    @EnvironmentObject private var updater: AppUpdater
     @State private var status: UpdateStatus?; @State private var checking = false
     private let info = AppBuildInfo.current()
 
@@ -75,12 +76,21 @@ struct SettingsUpdatesPane: View {
             LabeledContent("Build", value: info.shortSHA.map { $0 + (info.dirty ? " (uncommitted changes)" : "") } ?? "not packaged")
         }
         Section {
-            HStack { Button("Check for Updates") { check() }.disabled(checking); if checking { ProgressView().controlSize(.small) } }
-            if let status {
-                Text(status.message).foregroundStyle(.secondary)
-                if case .newer(let release) = status, let page = release.pageURL { Link("Open \(release.name ?? release.tag) on GitHub", destination: page) }
+            if let reason = updater.unavailableReason {
+                Text(reason).foregroundStyle(.secondary)
+                HStack { Button("Check GitHub Releases") { check() }.disabled(checking); if checking { ProgressView().controlSize(.small) } }
+                if let status {
+                    Text(status.message).foregroundStyle(.secondary)
+                    if case .newer(let release) = status, let page = release.pageURL { Link("Open \(release.name ?? release.tag) on GitHub", destination: page) }
+                }
+            } else {
+                Toggle("Automatically check for updates", isOn: Binding(get: { updater.automaticallyChecksForUpdates }, set: updater.setAutomaticallyChecksForUpdates))
+                Toggle("Automatically download and install updates", isOn: Binding(get: { updater.automaticallyDownloadsUpdates }, set: updater.setAutomaticallyDownloadsUpdates))
+                    .disabled(!updater.allowsAutomaticUpdates)
+                Button("Check for Updates…", action: updater.checkForUpdates)
+                    .disabled(!updater.canCheckForUpdates)
+                Text("When enabled, updates are checked daily. You can install an available update now or let it install when you quit.").font(.caption).foregroundStyle(.secondary)
             }
-            Text("Checks github.com/\(AppConstants.releasesRepo) releases only when you press the button. Nothing is downloaded or installed.").font(.caption).foregroundStyle(.secondary)
         }
         AcknowledgementsSection()
     }

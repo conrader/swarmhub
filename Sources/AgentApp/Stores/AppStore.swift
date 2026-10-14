@@ -12,6 +12,7 @@ import UserNotifications
     @Published var showingHiddenBots = false; @Published var replyTo: ChatMessage?
     /// P14: the sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false
+    @Published var infoTab = AgentInfoTab.overview
     @Published var editingBot: Bot?; @Published var errorMessage: String?
     /// Profiles whose `/p/<profile>/` prefix the server ignored (multiplexing off). Never routed to.
     @Published var prefixIgnoredHermesProfiles: Set<String> = []
@@ -186,7 +187,10 @@ import UserNotifications
             }
             save()
             if !cancelled && !failed { handleManagerReply(assistant, from: bot, in: conversation) }
-            if !cancelled && !failed && !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.content)) }
+            if !cancelled && !failed && !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                AvatarReactions.shared.completed(bot)
+                notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.content))
+            }
         }
         return true
     }

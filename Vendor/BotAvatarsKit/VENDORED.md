@@ -13,7 +13,7 @@
 | File | Upstream blob | Here |
 |------|---------------|------|
 | `LICENSE` | `0e9405a2ee75ce720c665c04568fedda3c07906a` | unchanged |
-| `BotAvatar.swift` | `c8f70c4fb2d8b2571dcb0736002acc200f69436a` | unchanged |
+| `BotAvatar.swift` | `c8f70c4fb2d8b2571dcb0736002acc200f69436a` | patched (d) |
 | `BotAvatarClock.swift` | `45efd1c37d2f33f78f7fd462cf6af460e2d256f8` | patched (a), (c) |
 | `BotAvatarColor.swift` | `864d02443302953928da395c4e578c81b790e3d9` | patched (b) |
 | `BotAvatarDraw.swift` | `91feb934bf84e67cc0cc59781916b6826dce3bc6` | unchanged |
@@ -31,6 +31,10 @@
 - (b) `BotAvatarColor.swift`: `BotColor.init(_ color: Color)` used `UIColor`; the AppKit variant resolves
   `NSColor(color).usingColorSpace(.sRGB)`.
 - (c) `BotAvatarClock.swift`: `public var isRunning: Bool { link != nil }`.
+- (d) `BotAvatar.swift` and the added `BotAvatarGaze.swift`: an optional `gaze` aims the existing pointer-following rig
+  at the conversation without a mouse. A changed nonzero `reaction` signal calls the existing `sim.poke()` tap gesture.
+  Reduce Motion uses the same gaze's rest pose. The live renderer draws `sim.pose` directly; the engine, motion curves,
+  state transitions and renderer are unchanged. Omitting the new props retains upstream behaviour.
 
 No further compile fixes were needed (Apple Swift 6.4, macOS 27 SDK, both `swift build` and the swiftc fallback).
 
