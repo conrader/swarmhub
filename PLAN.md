@@ -9,7 +9,7 @@ Grok Bot is Cursor's hosted Mac agent app; SwarmHub reproduces its features on t
 Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `grok-<slug>`
 (SOUL, skills, imported history), served at `https://konrad.agenthut.net/p/grok-<slug>/`.
 
-## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 20538ee, P19 c31d0c0, P24 + release 0.4.1 deb1f7a, release 0.4.2 449a770, P10c 36b3af0, group documents 46619c1, release 0.4.3 1a61357, P13 Part C 55be45a, P10d 6ec4eee merged; release 0.4.4 (57180ec) published)
+## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 20538ee, P19 c31d0c0, P24 + release 0.4.1 deb1f7a, release 0.4.2 449a770, P10c 36b3af0, group documents 46619c1, release 0.4.3 1a61357, P13 Part C 55be45a, P10d 6ec4eee merged; release 0.4.4 published; P21 merged (518 green) — ships in 0.4.5)
 
 Everything planned that is not merged yet, so nobody has to remember it. Built = merged into `main`.
 **Konrad 2026-10-14: "Build all, defaults"** — every row below is accepted with the recommended defaults (P16, P17, P21, P12 included; P13 Part C's live step has his go). Order: P23 → P19 → P24 → P10c → P10d → P10e → P13 C → D → E → P16 → P21 → P17 → P12; each merged when green; Claude reports results, comes back only for a real blocker.
@@ -21,7 +21,7 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | P13 Parts C / D / E model roles | Part C shipped in 0.4.4; live e2e (terra/sol) runs once Konrad's app is on 0.4.4 | live e2e → D → E |
 | P16 No reply is lost (+ sidebar attention badge) | building (`p16`, MacBook) | merge when green |
 | P17 Models from the agent's own backend | accepted (build all) | queued |
-| P21 Simple settings + setup wizard | building (`p21`, MacBook) | merge when green |
+| P21b Simple right panel (D9, deferred from P21) | not started: Overview model picker, raw cron field in the routine editor, groups UI, Import template | brief after P17 |
 | Vanilla test bed: SwarmHub against untouched upstream Hermes 0.22.0 (no getermes patches, no layer), isolated HERMES_HOME + throwaway keys + two profiles; run --check-bots, ui-smoke facts, P22 manager flow against a mock | not started (Konrad 2026-10-14: "I hope this is vanilla hermes") | after P10c; proves SwarmHub needs nothing beyond stock Hermes |
 | P12 Connect OpenClaw | accepted (build all), never started | queued last |
 | Small: sidebar "Import from Grok Bot" item (needs P10d), attention badge for failed turns (needs P16), idle-pause for hidden windows | waiting on the phases named | with those phases |
@@ -56,6 +56,10 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 - **Never leave a test-mode SwarmHub running** (Konrad 2026-10-14: "check for updates" was greyed out because the open copy
   was the `--ui-smoke` launch, where updates are off by design). After any `--ui-smoke` / `--render-snapshot` / probe launch, quit
   that instance by pid and reopen the app normally with `open ~/Applications/SwarmHub.app`; report the normal instance's pid.
+- **Commit identity (Konrad's approved attribution rewrite, 2026-10-14 10:40 UTC):** every commit in this repo is authored and
+  committed as `Konrad Sierzputowski <8105013+conrader@users.noreply.github.com>` with no `Co-Authored-By` trailer. Main was
+  force-rewritten to this (same trees, new hashes; backups `~/swarmhub-before-attribution-*.bundle`); branches made before it are
+  replayed onto the new main, never merged across histories.
 - **Ship through the updater:** a merged change reaches Konrad as a new notarized release (Developer ID, `plainsay-notary`,
   build number +1, appcast) that his installed app updates to; no hand-installs over his app once updates work.
 - Hermes API reference: upstream tag `v2026.8.19` (byte-identical to the box's 0.20.5
