@@ -85,6 +85,7 @@ struct BotEditorFields {
         bot.reviewerBotID = reviewerBotID == bot.id ? nil : reviewerBotID
         var settings = bot.modelSettings ?? .init(); settings.conversation = conversation; settings.coding = coding
         bot.modelSettings = settings.isEmpty ? nil : settings
-        if bot.canManageBots != (canManage && backend == .hermes) { store.setCanManageBots(bot, canManage && backend == .hermes) }
+        let manages = canManage && store.canHoldManagerRole(bot)
+        if bot.canManageBots != manages { store.setCanManageBots(bot, manages) }
     }
 }

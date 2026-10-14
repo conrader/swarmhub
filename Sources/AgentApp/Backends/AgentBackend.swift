@@ -6,6 +6,12 @@ struct AgentRequest: Sendable {
     let messages: [(role: String, content: String)]
     /// `data:image/...` URLs sent as image parts with the last user message.
     var images: [String] = []
+    /// P26: the manager text on a bot-management turn only. Hermes appends it to the system prompt; OpenClaw (no
+    /// system prompt) wraps it into this turn's message as one marked block (`ManagerEnvelope`).
+    var managementText: String? = nil
+
+    /// The system prompt with the management text appended (the P22 Hermes shape, byte for byte).
+    var effectiveSystemPrompt: String { managementText.map { systemPrompt + "\n\n" + $0 } ?? systemPrompt }
 }
 
 protocol AgentBackend: Sendable {

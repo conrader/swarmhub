@@ -15,6 +15,7 @@ struct ManageBotsMenu<Label: View>: View {
 }
 
 /// Profiles the manager listed that SwarmHub has no bot for, each with Add (derived key + probe; a rejected key → paste it).
+/// An OpenClaw manager's offers are Gateway agents; Add binds them directly (P26).
 struct BotOffersCard: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var manager: Bot
     var body: some View {
@@ -22,13 +23,13 @@ struct BotOffersCard: View {
         if !offers.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("On the box, not in \(AppConstants.name)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("\(manager.backend == .openClaw ? "On the Gateway" : "On the box"), not in \(AppConstants.name)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Spacer()
                     Button { store.botOffers[manager.id] = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain).foregroundStyle(.tertiary).help("Dismiss")
                 }
                 ForEach(offers) { offer in
                     HStack(spacing: 8) {
-                        Text(HermesProfileNaming.botName(forProfile: offer.name)).font(.callout.weight(.medium))
+                        Text(manager.backend == .openClaw ? offer.name : HermesProfileNaming.botName(forProfile: offer.name)).font(.callout.weight(.medium))
                         Text(offer.description).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         Spacer()
                         switch offer.state {
@@ -50,8 +51,8 @@ struct BoxInstructionsSection: View {
     @EnvironmentObject private var store: AppStore; @Environment(\.dismiss) private var dismiss
     @ObservedObject var bot: Bot
     var body: some View {
-        if bot.backend == .hermes, !bot.isReadOnlyArchive, let manager = store.manager(for: bot) {
-            let profile = bot.hermesProfile ?? "default"
+        if !bot.isReadOnlyArchive, let manager = store.manager(for: bot) {
+            let profile = bot.backend == .openClaw ? bot.openClaw?.agentID ?? "" : bot.hermesProfile ?? "default"
             Section("Instructions on the box") {
                 if let known = bot.boxInstructions, let text = known.text {
                     ScrollView { Text(text).font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 120)
