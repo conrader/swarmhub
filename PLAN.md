@@ -24,9 +24,9 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | P12 Connect OpenClaw | shipped in 0.4.7 (merge 4624ca7, release 9e32b17, notarized; feed + zip verified 2026-10-14; Hermes e2e 8/8 x4 A/B vs 0.4.6, one earlier steer 409 = server timing) | real-Gateway last hop needs an OpenClaw Gateway (`docs/openclaw-integration.md`) |
 | P25 OpenClaw in the setup window | shipped in 0.4.8 (merge eb5d89f, 726 green; release 02687a7 notarized, feed + zip verified 2026-10-14) | real-Gateway last hop needs an OpenClaw Gateway |
 | P26 Manager agent on OpenClaw | shipped in 0.4.8 (merge a8dfd28, 736 green x2 with P25; Hermes e2e 8/8 from the notarized build) | real-Gateway last hop: mark an OpenClaw agent manager, create a bot, approve exec |
-| P27 SwarmHub skills installed into bots + model recipe + live tool activity | merged d8ae419 (761 green x2 with P26; fakes only; Hermes 0.22 tool-event fields confirmed from the box source) | ships when Konrad calls the release; then live: Install on Jarvis, model recipe, activity line |
+| P27 SwarmHub skills installed into bots + model recipe + live tool activity | shipped in 0.4.9 (merge d8ae419; release af1d808 notarized; feed + zip verified 2026-10-14) | Konrad: Install banner on Jarvis, then "switch all agents to <model>" |
 | P27 follow-up: OpenClaw skills | D8: OpenClaw agents keep P26's on-demand text this phase; installing SwarmHub skills into an OpenClaw agent (its own skills folder, through its manager's exec) and the model recipe for OpenClaw are a later phase | after P27 ships |
-| P28 Steer that actually lands | cause found in Hermes 0.22 source: steer is queued until the current tool batch ends, so text-only turns never get it; brief `briefs/P28.md` (steer during a step, Stop-and-send otherwise; e2e b1/b2) | build on the Mac (`p28`), merge when green |
+| P28 Steer that actually lands (+ reply order, 401 loop, hermetic tests) | shipped in 0.4.9 (merge da8bcb6, 783 green x3; live e2e 9/9 from the notarized build incl. b1 steer-during-text and b2 steer-during-tool) | — |
 | Box/ops: Codex login has no refresh token (Konrad re-logs in), DB password in plain text in the context-api unit, staged P9 bundles on the box to delete | open | flagged to Konrad |
 
 ## Standing constraints (from BRIEF*.md and SPEC-6.1)
