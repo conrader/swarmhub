@@ -11,7 +11,7 @@ struct BotEditorAdvancedSection: View {
     var body: some View {
         Section {
             TextField("Title", text: $fields.title); TextField("Description", text: $fields.details, axis: .vertical).lineLimit(2...4)
-            Picker("Backend", selection: $fields.backend) { ForEach(BackendKind.allCases) { Text($0.rawValue).tag($0) } }
+            Picker("Backend", selection: Binding(get: { fields.backend }, set: { fields.backend = $0; fields.conversationModel = .inherit })) { ForEach(BackendKind.allCases) { Text($0.rawValue).tag($0) } }
             Toggle("Show in sidebar", isOn: Binding(get: { !fields.hidden }, set: { fields.hidden = !$0 }))
             if let bot, bot.backend == .hermes, let profile = bot.hermesProfile ?? (bot.isGrokHistoryOnly ? nil : "default") {
                 Text(SimpleCopy.runsOn(place(bot), as: profile)).font(.caption).foregroundStyle(.secondary)
@@ -43,7 +43,7 @@ struct BotEditorAdvancedSection: View {
                 Text("First match wins. Patterns are case-insensitive and support * and ?. Allow rules accept only conservative ASCII commands and reject a short list of known-dangerous programs/options, shell syntax, quotes, escapes, newlines, and redaction markers. Broad wildcards can expose extra files. No match asks you.").font(.caption).foregroundStyle(.secondary)
             }
         }
-        BotModelSettingsSection(cache: store.botInfo, bot: bot, conversation: $fields.conversationModel)
+        BotModelSettingsSection(cache: store.botInfo, bot: bot, pendingBackend: fields.backend, conversation: $fields.conversationModel)
         if let bot { BoxInstructionsSection(bot: bot) }
         if bot != nil, fields.backend == .hermes {
             Section("Bot management") {

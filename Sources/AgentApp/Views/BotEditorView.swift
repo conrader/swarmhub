@@ -28,6 +28,11 @@ struct BotEditorView: View {
         }.frame(width: 560, height: 720).background(AppColor.panel).onAppear {
             fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(hermesConfigured: store.hermesConfigured)
         }
+        // P17: opening the editor reads this agent's own models (cache-aware, GETs only, no skills); a pending Backend
+        // that differs from the saved one is not loaded.
+        .task(id: "\(bot?.id.uuidString ?? "new")|\(fields.backend.rawValue)") {
+            if store.botInfo.autoLoad { await store.loadEditorModels(for: bot, pendingBackend: fields.backend) }
+        }
     }
     private func save() {
         if let bot {
@@ -60,12 +65,14 @@ struct BotEditorFields {
     }
 
     @MainActor func apply(to bot: Bot, store: AppStore, avatarTouched: Bool) {
+        // A changed Backend clears the Conversation pair: no stale Hermes pair stays on another backend (P17).
+        let conversation = backend == bot.backend ? conversationModel : .inherit
         bot.name = name; bot.title = title; bot.botDescription = details; bot.persona = persona; bot.backend = backend
         if avatarTouched { avatar.apply(to: bot) }
         if bot.isHidden != hidden { store.setHidden(bot, hidden) }
         bot.notificationsEnabled = notifications; bot.approvalMode = approvalMode; bot.approvalRules = approvalRules
         bot.reviewerBotID = reviewerBotID == bot.id ? nil : reviewerBotID
-        var settings = bot.modelSettings ?? .init(); settings.conversation = conversationModel
+        var settings = bot.modelSettings ?? .init(); settings.conversation = conversation
         bot.modelSettings = settings.isEmpty ? nil : settings
         if bot.canManageBots != (canManage && backend == .hermes) { store.setCanManageBots(bot, canManage && backend == .hermes) }
     }

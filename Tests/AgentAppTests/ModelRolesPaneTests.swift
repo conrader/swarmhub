@@ -104,7 +104,7 @@ import Testing
     let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appending(path: "Sources")
     let files = try #require(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)).compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
     // No provider or model names of any real box either: the app ships no model.
-    let banned = roleFixtureNames + ["gpt-", "openai-codex", "-sol", "-terra", "-luna", "claude-", "anthropic/"]
+    let banned = roleFixtureNames + catalogProviderFixtureNames + ["gpt-", "openai-codex", "-sol", "-terra", "-luna", "claude-", "anthropic/"]
     for file in files {
         let text = try String(contentsOf: file, encoding: .utf8)
         for name in banned { #expect(!text.contains(name), "\(file.lastPathComponent) contains \(name)") }
