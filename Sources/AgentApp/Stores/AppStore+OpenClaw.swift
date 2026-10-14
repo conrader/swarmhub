@@ -86,7 +86,8 @@ extension AppStore {
     }
 
     /// One bot per (Gateway, agent) in `chosen` (nil = every agent), idempotent, never removes a bot; own avatars only.
-    /// Shared by Settings ("Add bots", all) and the setup window (the ticked agents, P25 D5). The caller saves.
+    /// Shared by Settings ("Add bots", all), the setup window (the ticked agents, P25 D5) and the P26 manager's
+    /// `bot_created` / offer Add (one agent). The caller saves.
     func appendOpenClawBots(_ agents: [OpenClawAgent], gatewayID: String, only chosen: Set<String>? = nil) -> (results: [OpenClawAdd], added: [Bot]) {
         var results: [OpenClawAdd] = [], added: [Bot] = []
         for agent in agents where chosen?.contains(agent.id) ?? true {

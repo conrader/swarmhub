@@ -10,7 +10,8 @@ extension OpenClawBackend {
         let (connection, capabilities) = try await connected()
         try require(.chat, in: capabilities)
         let sessionKey = request.sessionID
-        let text = request.messages.last { $0.role == "user" }?.content ?? ""
+        let typed = request.messages.last { $0.role == "user" }?.content ?? ""
+        let text = request.managementText.map { ManagerEnvelope.wrap($0, around: typed) } ?? typed
         var params: [String: GatewayJSON] = ["sessionKey": .string(sessionKey), "agentId": .string(agentID), "message": .string(text),
                                             "idempotencyKey": .string(UUID().uuidString.lowercased())]
         if !request.images.isEmpty {
