@@ -74,6 +74,28 @@ extension AppStore {
         }
     }
 
+    /// P19: like `prepareAttachments`, but documents (PDF, RTF, DOC, DOCX) are read off the main actor and one
+    /// file may yield several attachments. Files go in order; a refusal is reported and skips only that file.
+    /// Cancelling the calling task stops between pages and leaves no page-image files behind.
+    func prepareAttachmentsAsync(_ urls: [URL]) async -> [ChatAttachment] {
+        var result: [ChatAttachment] = []
+        let encoder = attachmentEncoder
+        for url in urls {
+            if Task.isCancelled { break }
+            // The file picker stops its own security-scoped access as soon as it hands the URLs over.
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do { result += try await encoder.prepareAll(fileURL: url) }
+            catch is CancellationError { break }
+            catch { errorMessage = error.localizedDescription }
+        }
+        if Task.isCancelled { encoder.discard(result); return [] }
+        return result
+    }
+
+    /// Removes the files of attachments that were dropped from the composer before sending.
+    func discardAttachments(_ attachments: [ChatAttachment]) { attachmentEncoder.discard(attachments) }
+
     func prepareAttachment(imageData: Data, name: String) -> ChatAttachment? {
         do { return try attachmentEncoder.prepare(imageData: imageData, name: name) } catch { errorMessage = error.localizedDescription; return nil }
     }

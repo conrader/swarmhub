@@ -90,12 +90,6 @@ struct HermesBackend: AgentBackend {
         return forkID
     }
 
-    /// Text plus `image_url` parts (the Chat Completions shape both Hermes endpoints normalise); plain text without images.
-    static func contentParts(text: String, images: [String]) -> Any {
-        guard !images.isEmpty else { return text }
-        let textPart: [[String: Any]] = text.isEmpty ? [] : [["type": "text", "text": text]]
-        return textPart + images.map { ["type": "image_url", "image_url": ["url": $0]] }
-    }
     func sessionTransport() async throws -> HermesTransport? { try await transport() }
 
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
@@ -253,7 +247,7 @@ struct HermesBackend: AgentBackend {
         let escaped = request.sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? request.sessionID
         var urlRequest = try makeRequest(path: "api/sessions/\(escaped)/chat/stream", method: "POST")
         let input = request.messages.last(where: { $0.role == "user" })?.content ?? ""
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: ["input": Self.contentParts(text: input, images: request.images), "instructions": request.systemPrompt])
+        urlRequest.httpBody = try Self.requestBody(["input": Self.contentParts(text: input, images: request.images), "instructions": request.systemPrompt])
         return sseStream(urlRequest, sessionID: request.sessionID, legacy: false)
     }
 
@@ -261,12 +255,13 @@ struct HermesBackend: AgentBackend {
         var urlRequest = try makeRequest(path: "v1/chat/completions", method: "POST")
         urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         urlRequest.setValue(request.sessionID, forHTTPHeaderField: "X-Hermes-Session-Id")
+        // The persona stays one system string; every history message is split too, since Hermes cuts plain strings as well.
+        let lastUser = request.messages.lastIndex { $0.role == "user" }
         var messages: [[String: Any]] = [["role": "system", "content": request.systemPrompt]]
-        messages.append(contentsOf: request.messages.map { ["role": $0.role, "content": $0.content] })
-        if !request.images.isEmpty, let last = messages.lastIndex(where: { $0["role"] as? String == "user" }) {
-            messages[last]["content"] = Self.contentParts(text: messages[last]["content"] as? String ?? "", images: request.images)
-        }
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: ["model": "hermes-agent", "stream": true, "messages": messages])
+        messages.append(contentsOf: request.messages.enumerated().map { index, message in
+            ["role": message.role, "content": Self.contentParts(text: message.content, images: index == lastUser ? request.images : [])]
+        })
+        urlRequest.httpBody = try Self.requestBody(["model": "hermes-agent", "stream": true, "messages": messages])
         return sseStream(urlRequest, sessionID: request.sessionID, legacy: true)
     }
 

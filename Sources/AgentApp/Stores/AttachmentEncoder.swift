@@ -5,17 +5,23 @@ import UniformTypeIdentifiers
 
 enum AttachmentError: LocalizedError, Equatable {
     case unsupported(String), tooLarge(String, String), unreadable(String)
+    /// P19 document refusals; messages carry the file name only, never its contents.
+    case locked(String), noText(String), copyRestricted(String)
     var errorDescription: String? {
         switch self {
-        case .unsupported(let name): "Can’t attach “\(name)”: only PNG, JPEG, GIF and WebP images and text files up to 200 KB can be sent."
+        case .unsupported(let name): "Can’t attach “\(name)”: only PNG, JPEG, GIF, WebP, PDF, RTF, DOC, DOCX and text files (text up to 200 KB) can be sent."
         case .tooLarge(let name, let limit): "Can’t attach “\(name)”: it is larger than \(limit)."
         case .unreadable(let name): "Can’t read “\(name)”."
+        case .locked(let name): "“\(name)” is password-protected. Remove the password and attach it again."
+        case .noText(let name): "No readable text found in “\(name)”."
+        case .copyRestricted(let name): "“\(name)” does not allow its text to be copied."
         }
     }
 }
 
 /// Turns picked, dropped or pasted files into message attachments. Images become `data:image/...`
 /// parts (long edge ≤ 2048 px, data URL ≤ 5 MB); text files ≤ 200 KB are sent inline as a fenced block.
+/// P19: PDF, RTF, DOC and DOCX are read on the Mac by `prepareAll` (see `AttachmentDocumentReader`).
 struct AttachmentEncoder {
     static let maxImageEdge = 2048
     static let maxImageDataURLBytes = 5 * 1024 * 1024
@@ -33,6 +39,8 @@ struct AttachmentEncoder {
             guard (values?.fileSize ?? 0) <= 64 * 1024 * 1024, let data = try? Data(contentsOf: fileURL) else { throw AttachmentError.unreadable(name) }
             return try prepare(imageData: data, name: name)
         }
+        // Documents need the asynchronous reader (`prepareAll`).
+        if DocumentKind.detect(fileURL) != nil { throw AttachmentError.unsupported(name) }
         if let size = values?.fileSize, size > Self.maxTextBytes {
             throw type?.conforms(to: .text) == true || type == nil ? AttachmentError.tooLarge(name, "200 KB") : AttachmentError.unsupported(name)
         }
@@ -40,6 +48,38 @@ struct AttachmentEncoder {
         if CGImageSourceCreateWithData(data as CFData, nil).flatMap(CGImageSourceGetType) != nil { return try prepare(imageData: data, name: name) }
         let text = try Self.textContent(data, name: name)
         return ChatAttachment(id: UUID(), kind: .text, name: name, mimeType: type?.preferredMIMEType ?? "text/plain", byteCount: data.count, text: text)
+    }
+
+    /// Every attachment one file yields: images and text exactly as `prepare(fileURL:)`; a document becomes its
+    /// text attachment first, then any page images (written under `directory`, removed again on cancellation).
+    func prepareAll(fileURL: URL, limits: DocumentLimits = .standard, pageHook: AttachmentDocumentReader.PageHook? = nil) async throws -> [ChatAttachment] {
+        try await prepareAllDetailed(fileURL: fileURL, limits: limits, pageHook: pageHook).attachments
+    }
+
+    /// `prepareAll` plus the reader's counts (OCR pages, images, copy restriction) for `--probe-attachment`.
+    func prepareAllDetailed(fileURL: URL, limits: DocumentLimits = .standard, pageHook: AttachmentDocumentReader.PageHook? = nil) async throws -> (attachments: [ChatAttachment], extraction: DocumentExtraction?) {
+        let name = fileURL.lastPathComponent
+        if UTType(filenameExtension: fileURL.pathExtension)?.conforms(to: .image) == true { return ([try prepare(fileURL: fileURL)], nil) }
+        guard let kind = DocumentKind.detect(fileURL) else { return ([try prepare(fileURL: fileURL)], nil) }
+        let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        guard size <= limits.sourceBytes else { throw AttachmentError.tooLarge(name, limits.sourceBytes % 1_048_576 == 0 ? "\(limits.sourceBytes / 1_048_576) MB" : "\(limits.sourceBytes) bytes") }
+        let extraction = try AttachmentDocumentReader.read(fileURL, kind: kind, name: name, limits: limits, pageHook: pageHook)
+        var result = [ChatAttachment(id: UUID(), kind: .text, name: name, mimeType: kind.mimeType, byteCount: size, text: extraction.text,
+                                     pageCount: extraction.pageCount, summary: extraction.summary)]
+        let base = (name as NSString).deletingPathExtension
+        do {
+            for image in extraction.images {
+                try Task.checkCancellation()
+                result.append(try prepare(imageData: image.jpeg, name: "\(base) — page \(image.page).jpg"))
+            }
+            try Task.checkCancellation()
+        } catch { discard(result); throw error }
+        return (result, extraction)
+    }
+
+    /// Deletes the files of attachments that were never sent (removed chips, cancelled reads).
+    func discard(_ attachments: [ChatAttachment]) {
+        for attachment in attachments { if let url = fileURL(for: attachment) { try? FileManager.default.removeItem(at: url) } }
     }
 
     func prepare(imageData: Data, name: String) throws -> ChatAttachment {
@@ -92,7 +132,7 @@ struct AttachmentEncoder {
         throw AttachmentError.tooLarge(name, "5 MB after encoding")
     }
 
-    private static func encode(_ image: CGImage, as type: UTType, quality: Double?) -> Data? {
+    static func encode(_ image: CGImage, as type: UTType, quality: Double?) -> Data? {
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output, type.identifier as CFString, 1, nil) else { return nil }
         let options: [CFString: Any] = quality.map { [kCGImageDestinationLossyCompressionQuality: $0] } ?? [:]

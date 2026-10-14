@@ -7,6 +7,7 @@ import Foundation
 ///   AgentApp --check-bots [--chat "<bot name>" "<text>"]   (see HeadlessCheckBots.swift)
 ///   AgentApp --render-snapshot <dir> [--bot "<name>"]...         (see HeadlessSnapshot.swift)
 ///   AgentApp --migrate-store                                      (see HeadlessGroups.swift)
+///   AgentApp --probe-attachment <file>   (reads a PDF/RTF/DOC/DOCX like the composer; counts only, no network; see HeadlessProbeAttachment.swift)
 ///   AgentApp --e2e                       (live self-test in throwaway sessions; see HeadlessE2E.swift)
 ///   AgentApp --grok-spike <report.json>  (throwaway P10.0 go/no-go harness; see HeadlessGrok.swift)
 ///   AgentApp --grok-parity <python export folder> [--cache <folder>]   (see HeadlessGrokParity.swift)
@@ -15,6 +16,7 @@ import Foundation
     static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Int32? {
         if arguments.contains("--check-bots") { return runCheckBots(arguments: arguments) }
         if arguments.contains("--render-snapshot") { return HeadlessSnapshot.run(arguments: arguments) }
+        if arguments.contains("--probe-attachment") { return HeadlessProbeAttachment.run(arguments: arguments) }
         if arguments.contains("--migrate-store") { return migrateStore() }
         if arguments.contains("--e2e") { return HeadlessE2E.run(arguments: arguments) }
         if let code = HeadlessGrok.runIfRequested(arguments: arguments) { return code }

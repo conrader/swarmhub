@@ -65,7 +65,9 @@ import Testing
     UISmokeProbe.renderedChats.insert(bot.id); UISmokeProbe.historyHeaders[bot.id] = 0
     await store.loadServerInfo(for: bot)
     let window = NSWindow(contentRect: NSRect(x: 10, y: 20, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
-    let budget = UISmoke.Budget(window: .milliseconds(50), chat: .seconds(1), overview: .seconds(2), routines: .seconds(2))
+    // Routines get 10 s (the app default is 15 s): the wait ends as soon as jobs load, and 2 s was too tight
+    // while P19's OCR tests load the CPU in the parallel suite.
+    let budget = UISmoke.Budget(window: .milliseconds(50), chat: .seconds(1), overview: .seconds(2), routines: .seconds(10))
     let report = await UISmoke.collect(store: store, budget: budget, window: { window })
 
     #expect(store.selectedBot === bot)

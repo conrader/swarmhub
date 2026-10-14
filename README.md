@@ -26,7 +26,7 @@ Hermes is supported now; OpenClaw integration is planned.
 
 - **Chat and threads:** streaming replies, threaded conversations, and stop controls.
 - **Group chats:** multiple agents in one conversation, with `@mentions` to choose who responds.
-- **Images and files:** share images and text files; find chat images and links in Media.
+- **Images and files:** share images, text files, PDFs and Word/RTF documents (read on your Mac, with on-device OCR for scans); find chat images and links in Media.
 - **Routines:** schedule recurring tasks and receive their results in chat.
 - **Agent overview:** see skills, tools, and available models.
 - **Models per agent:** configure conversation and coding choices separately for each agent, such as Codex for conversation and Claude Code for coding. Conversation settings are available now; coding settings are planned.
