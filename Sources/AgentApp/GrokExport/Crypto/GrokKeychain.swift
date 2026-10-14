@@ -76,15 +76,4 @@ struct GrokKeychain: GrokPasswordProvider {
         guard let data = result as? Data else { throw GrokKeychainError.unexpected(errSecInternalError) }
         return [UInt8](data)
     }
-
-    /// Runs `readPassword` on the private queue and bridges it to async without blocking the main actor or the
-    /// cooperative pool. The call itself cannot be cancelled; the caller drops a late result after Cancel (Rule 3).
-    func readPasswordAsync() async throws -> [UInt8] {
-        try await withCheckedThrowingContinuation { continuation in
-            Self.queue.async {
-                do { continuation.resume(returning: try self.readPassword()) }
-                catch { continuation.resume(throwing: error) }
-            }
-        }
-    }
 }

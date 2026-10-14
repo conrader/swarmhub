@@ -47,6 +47,9 @@ import Foundation
     private var current: String?
     private var driver: Task<Void, Never>?
     private var ticker: Task<Void, Never>?
+    private var keychainWatch: Task<Void, Never>?
+    /// "Retry remaining" on the Done step: the next fresh run adds to this session's committed rows.
+    private var keepCommittedRows = false
     private var startedAt = ContinuousClock.now
 
     init(store: AppStore, environment: GrokImportEnvironment,
@@ -82,13 +85,19 @@ import Foundation
         selected = Set(items.map(\.id))
         mode = availability == .ready ? .full : .recent
         signInMayBeStale = secretsOlderThanADay() && !isGrokRunning()
+        watchKeychain()
         step = .found
     }
 
-    /// Ticking a group ticks its members; unticking a group leaves them.
+    /// Ticking a group ticks its members; unticking a group leaves them. A ticked group always brings its members
+    /// (`GrokImportRun.conversations`), so unticking a member unticks the groups it belongs to.
     func toggle(_ id: String) {
         guard let item = items.first(where: { $0.id == id }) else { return }
-        if selected.contains(id) { selected.remove(id); return }
+        if selected.contains(id) {
+            selected.remove(id)
+            items.filter { $0.isGroup && $0.memberIDs.contains(id) }.forEach { selected.remove($0.id) }
+            return
+        }
         selected.insert(id)
         if item.isGroup { item.memberIDs.filter { member in items.contains { $0.id == member } }.forEach { selected.insert($0) } }
     }
@@ -96,7 +105,7 @@ import Foundation
     /// Found → Permission (Full mode, when macOS would be asked) or straight to importing.
     func proceed() async {
         guard !selected.isEmpty, availability?.canImport == true else { return }
-        if mode == .full, availability == .ready, await currentRun().willAskMacOS() { step = .permission; return }
+        if mode == .full, availability == .ready, await currentRun().willAskMacOS() { step = .permission; watchKeychain(); return }
         begin(fresh: true) { run, options in await run.start(options) }
     }
 
@@ -129,7 +138,24 @@ import Foundation
     func cancel() {
         guard let run else { return }
         run.cancel()
-        if driver == nil, step.isPaused { step = .cancelled; stopTicker() }
+        guard driver == nil, step.isPaused else { return }
+        driver = Task { [weak self] in await self?.settle(.cancelled) }
+    }
+
+    /// The conversations of the last run that did not finish (incomplete, skipped, failed, or never reached).
+    var unfinishedIDs: [String] {
+        guard step == .finished || step == .cancelled || step.isFailed else { return [] }
+        return progress.filter { $0.status != .done }.map(\.id)
+    }
+
+    /// "Retry remaining" on the Done step: a new run over the unfinished conversations only. The sign-in was forgotten
+    /// when the run ended, so Full mode goes through the Permission step again before macOS is asked.
+    func retryUnfinished() async {
+        let ids = unfinishedIDs
+        guard driver == nil, !ids.isEmpty else { return }
+        selected = Set(ids)
+        keepCommittedRows = true
+        await proceed()
     }
 
     /// After Cancel: commit the interrupted conversation as incomplete.
@@ -155,6 +181,8 @@ import Foundation
         await driver?.value
         await run?.forgetSignIn()
         stopTicker()
+        keychainWatch?.cancel()
+        keychainWatch = nil
         holdsSignIn = false
     }
 
@@ -183,7 +211,11 @@ import Foundation
     private func begin(fresh: Bool, _ action: @escaping @MainActor (GrokImportRun, GrokImportOptions) async -> GrokImportRunState) {
         guard driver == nil else { return }
         let run = currentRun(), options = options()
-        if fresh { resetProgress(options); committedRows = []; outcomes = [] }
+        if fresh {
+            resetProgress(options)
+            if !keepCommittedRows { committedRows = []; outcomes = [] }
+            keepCommittedRows = false
+        }
         step = .running
         startTicker()
         driver = Task { [weak self] in
@@ -276,7 +308,21 @@ import Foundation
     private func stopTicker() {
         ticker?.cancel()
         ticker = nil
+        watchKeychain()
+    }
+
+    /// Keeps `keychainBusy` true until a pending read (an earlier sheet's or run's) returns, also when no ticker runs.
+    private func watchKeychain() {
         keychainBusy = environment.gate.isReading
+        guard keychainBusy, keychainWatch == nil else { return }
+        keychainWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self else { return }
+                if !self.environment.gate.isReading { self.keychainBusy = false; break }
+            }
+            self?.keychainWatch = nil
+        }
     }
 
     private func tick() async {
@@ -321,6 +367,7 @@ import Foundation
 
 extension GrokImportCoordinator.Step {
     var isPaused: Bool { if case .paused = self { true } else { false } }
+    var isFailed: Bool { if case .failed = self { true } else { false } }
 }
 
 extension GrokProgressRow.Status {

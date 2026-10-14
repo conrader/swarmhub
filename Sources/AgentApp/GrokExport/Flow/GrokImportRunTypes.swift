@@ -110,6 +110,8 @@ struct GrokImportRunRow: Sendable, Equatable {
     var addedLines = 0
     var gapRanges = 0
     var missingSeqs: Int64 = 0
+    /// Incomplete coverage: the oldest seq fetched (nothing older was).
+    var stoppedAtSeq: Int64?
     var stats = GrokHistoryFetcher.Stats()
     /// Entries not imported, by kind (and card type), as the mapper counted them.
     var droppedByKind: [String: Int] = [:]

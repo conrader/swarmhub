@@ -95,7 +95,7 @@ struct GrokImportOutcome: Identifiable, Equatable, Sendable {
         case .complete where row.gapRanges == 0: return "Complete"
         case .complete, .serverGaps: return "Complete; Grok has no entry for \(row.missingSeqs) sequence numbers inside this history"
         case .incomplete:
-            return "Incomplete: stopped" + (row.stats.pages > 0 ? " after \(row.stats.pages) pages" : "") + ", nothing older was fetched"
+            return "Incomplete: stopped" + (row.stoppedAtSeq.map { " at seq \($0)" } ?? "") + ", nothing older was fetched"
         case .cacheOnly: return "Recent messages from this Mac only"
         }
     }

@@ -83,6 +83,10 @@ struct GrokDoneStep: View {
             }
             let failed = coordinator.progress.filter { if case .failed = $0.status { true } else { false } }
             ForEach(failed) { row in Text("\(row.name): \(row.label)").font(.caption).foregroundStyle(.red) }
+            if !coordinator.unfinishedIDs.isEmpty {
+                Button("Retry remaining (\(coordinator.unfinishedIDs.count))") { Task { await coordinator.retryUnfinished() } }
+                    .help("Imports the conversations above that did not finish; Full mode asks macOS once more first.")
+            }
         }.padding(.top, 6)
     }
 }

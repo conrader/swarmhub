@@ -304,7 +304,7 @@ import Foundation
         switch merge?.coverage {
         case .complete?: row.coverage = .complete
         case .serverGaps?: row.coverage = .serverGaps
-        case .incomplete?: row.coverage = .incomplete; row.status = .incomplete
+        case .incomplete(let stoppedAt, _)?: row.coverage = .incomplete; row.status = .incomplete; row.stoppedAtSeq = stoppedAt
         case nil: break
         }
         let gaps = merge?.summary.gaps ?? []

@@ -22,7 +22,7 @@ struct SidebarView: View {
                     if store.grokBotPresent {
                         Button("Import from Grok Bot…", systemImage: "tray.and.arrow.down") { store.showingGrokImport = true }
                     }
-                    Button("Import Template", systemImage: "square.and.arrow.down") { store.showingTemplateImport = true }
+                    Button("Import Template…", systemImage: "square.and.arrow.down") { store.showingTemplateImport = true }
                 } label: { RoundSidebarLabel(symbol: "plus") }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                     .help("New bot, group or template (\(AppCommand.newAgent.shortcutText))").accessibilityLabel("New").chromeProbe("new_bot")
