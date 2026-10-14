@@ -22,7 +22,7 @@ struct RoutinesView: View {
             }
             if let error = state.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
             if bot.backend != .hermes {
-                Text("Routines run on a Hermes server. This bot's routines are shown read-only.").font(.caption).foregroundStyle(.secondary)
+                Text("Routines run on a Hermes server. This agent's routines are shown read-only.").font(.caption).foregroundStyle(.secondary)
             } else {
                 switch state.jobs {
                 case .loading: ProgressView().controlSize(.small)
@@ -38,7 +38,7 @@ struct RoutinesView: View {
                                       edit: { editor = .edit(job) },
                                       delete: { confirmingDelete = nil; Task { await store.deleteRoutine(job, for: bot) } })
                     }
-                    if jobs.isEmpty && bot.routines.isEmpty { Text("No routines yet. Create one to run this bot on a schedule.").foregroundStyle(.secondary) }
+                    if jobs.isEmpty && bot.routines.isEmpty { Text("No routines yet. Create one to run this agent on a schedule.").foregroundStyle(.secondary) }
                 }
             }
             ForEach(bot.routines) { routine in
@@ -109,7 +109,7 @@ private struct PendingRoutineRow: View {
             if canCreate {
                 HStack {
                     Button("Create on server", action: create).font(.caption).buttonStyle(.plain).disabled(busy)
-                        .help("Creates this routine on the bot's Hermes server, paused")
+                        .help("Creates this routine on the agent's Hermes server, paused")
                     if busy { ProgressView().controlSize(.mini) }
                 }
             }

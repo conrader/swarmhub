@@ -9,7 +9,7 @@ struct InfoPanel: View {
             HStack {
                 Text("Details").font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24) }.buttonStyle(.plain).help("Bot settings")
+                Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24) }.buttonStyle(.plain).help(SimpleCopy.agentSettings)
                 Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
                     .buttonStyle(.plain).help("Close")
             }.padding(.horizontal, 14).frame(height: 54).windowDragStrip(probe: "details_header")
@@ -27,7 +27,7 @@ struct InfoPanel: View {
                 HStack(spacing: 12) { BotAvatar(bot: bot, size: 52, motion: .focus, isWorking: store.isWorking(bot), probe: "overview", facing: .left,
                                               isWaiting: store.hasPendingApproval(bot)); VStack(alignment: .leading) { Text(bot.name).font(.headline); Text(bot.title).foregroundStyle(.secondary); HermesVersionCaption(bot: bot, cache: store.botInfo) } }
                 Text(bot.botDescription.isEmpty ? "No description yet." : bot.botDescription).foregroundStyle(.secondary)
-                infoSection("Memory", text: bot.memorySummary.isEmpty ? "Memory will appear as this bot learns your preferences." : bot.memorySummary)
+                infoSection("Memory", text: bot.memorySummary.isEmpty ? "Memory will appear as this agent learns your preferences." : bot.memorySummary)
                 BotCapabilitiesView(bot: bot, cache: store.botInfo)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack { Text("Approval policy").font(.headline); Spacer(); Text(bot.approvalMode.rawValue).font(.caption).foregroundStyle(.secondary) }
@@ -77,7 +77,7 @@ private struct HermesVersionCaption: View {
     @ObservedObject var cache: BotInfoCache
     var body: some View {
         if bot.backend == .hermes, !bot.isReadOnlyArchive, let reading = store.hermesVersion(for: bot) {
-            Text(reading.label).font(.caption2).foregroundStyle(.secondary).help(reading.problem ?? "Hermes version reported by this bot's server")
+            Text(reading.label).font(.caption2).foregroundStyle(.secondary).help(reading.problem ?? "Hermes version reported by this agent's server")
         }
     }
 }

@@ -5,7 +5,6 @@ import Foundation
 struct ModelPickerModel: Equatable, Sendable {
     /// More models than this under one supplier go into a submenu with the same title.
     static let submenuThreshold = 16
-    static let buttonTitle = "Change model for this chat"
     static let buttonHelp = "Choosing a model pins this chat to it. Hermes has no way to unpin a chat afterwards."
     static let notListed = "not in the box's list"
 
@@ -43,6 +42,11 @@ struct ModelPickerModel: Equatable, Sendable {
     var isSwitching = false
     /// Why the menu is read-only when it opens with every row disabled.
     var switchBlockedReason: String?
+    /// The same, as a case the right panel's plain line (P21b) maps to its own words.
+    enum Block: Equatable, Sendable { case notYet, readOnly, noChat, switching }
+    var blocked: Block?
+    /// The list has not arrived yet.
+    var isLoading = false
     var notes: [Note] = []
     var caption: String?
     var footer: String?
@@ -66,7 +70,7 @@ struct ModelPickerModel: Equatable, Sendable {
         currentModel = current?.model; currentSource = current?.source
         isSwitching = info?.isSwitchingModel ?? false
         switch info?.catalog(profile: profile) ?? .loading {
-        case .loading: notes = [.init(text: "Loading the box's models…")]
+        case .loading: notes = [.init(text: "Loading the box's models…")]; isLoading = true
         case .unavailable(let reason): notes = [.init(text: reason)]
         case .failed(let reason): notes = [.init(text: reason, offersRetry: true)]
         case .loaded(let catalog): build(catalog, info: info!, current: current, sessionID: sessionID)
@@ -110,10 +114,10 @@ struct ModelPickerModel: Equatable, Sendable {
         if !catalog.hasChoices {
             notes.append(.init(text: "No supplier on the box can serve a model right now. Provider keys live on the box; \(AppConstants.name) never holds them."))
         }
-        if !canPin { switchBlockedReason = ModelCatalog.switchingLater }
-        else if !info.canLockSessionModel { switchBlockedReason = "Read-only: this server cannot switch a chat's model." }
-        else if sessionID == nil { switchBlockedReason = "Send a message first; the model is chosen per chat." }
-        else if info.isSwitchingModel { switchBlockedReason = "A switch is in progress." }
+        if !canPin { switchBlockedReason = ModelCatalog.switchingLater; blocked = .notYet }
+        else if !info.canLockSessionModel { switchBlockedReason = "Read-only: this server cannot switch a chat's model."; blocked = .readOnly }
+        else if sessionID == nil { switchBlockedReason = "Send a message first; the model is chosen per chat."; blocked = .noChat }
+        else if info.isSwitchingModel { switchBlockedReason = "A switch is in progress."; blocked = .switching }
         if let reason = switchBlockedReason, !info.isSwitchingModel { notes.append(.init(text: reason)) }
         if let error = info.refreshError {
             let asOf = info.modelsAsOf.map { " Showing the list from \($0.formatted(date: .omitted, time: .shortened))." } ?? ""

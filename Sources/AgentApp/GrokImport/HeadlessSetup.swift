@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// `AgentApp --render-setup <dir>` (P21 item 16): renders every setup step, the simple Settings page, the empty state
-/// and an agent's settings (folded and open) to PNG. Everything comes from a synthetic in-memory store, key store and
+/// `AgentApp --render-setup <dir>` (P21 item 16): renders every setup step, the simple Settings page, the empty state,
+/// an agent's settings and the right panel (folded and open, P21b) to PNG. Everything comes from a synthetic in-memory store, key store and
 /// settings suite, and Test results are built in memory: no network, no Keychain, nothing of the real app is read or
 /// written. Refuses a directory inside the repository, like `--render-snapshot`.
 @MainActor enum HeadlessSetup {
@@ -65,6 +65,7 @@ import SwiftUI
             write("editor-folded", await png(BotEditorView(bot: agent), store: store, updater: updater, size: NSSize(width: 560, height: 720)))
             write("editor-advanced", await png(BotEditorView(bot: agent, startExpanded: true), store: store, updater: updater, size: NSSize(width: 560, height: 720)))
         }
+        await HeadlessInspector.render(store: store, write: write) { view, size in await png(view.background(AppColor.panel), store: store, updater: updater, size: size) }
         output("Rendered setup to \(directory.path); \(failures) failed")
         return failures == 0 ? 0 : 1
     }

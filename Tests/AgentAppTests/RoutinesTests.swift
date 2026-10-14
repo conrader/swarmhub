@@ -158,7 +158,7 @@ import Testing
     #expect(draft.expression == "5 7 * * *")
     draft.preset = .weekdays; #expect(draft.expression == "5 7 * * 1-5")
     draft.preset = .weekly; draft.weekday = 0; #expect(draft.expression == "5 7 * * 0")
-    draft.preset = .hourly; #expect(draft.expression == "0 * * * *")
+    draft.preset = .everyHours; #expect(draft.expression == "0 * * * *")
     draft.preset = .custom; draft.custom = " every 30m "; #expect(draft.expression == "every 30m")
     #expect(RoutineScheduleDraft(parsing: "30 8 * * 1-5") == { var d = RoutineScheduleDraft(); d.preset = .weekdays; d.hour = 8; d.minute = 30; d.custom = "30 8 * * 1-5"; return d }())
     #expect(RoutineScheduleDraft(parsing: "0 9 * * 7").weekday == 0)

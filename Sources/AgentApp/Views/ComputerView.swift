@@ -26,7 +26,7 @@ struct ComputerTab: View {
                     Button("Take over") { openWindow(id: ComputerWindow.id, value: bot.id) }.buttonStyle(.borderedProminent)
                 }
             } else {
-                Text("Add the address of this bot’s web desktop (for example a noVNC page) to watch it and take over.").font(.caption).foregroundStyle(.secondary)
+                Text("Add the address of this agent’s web desktop (for example a noVNC page) to watch it and take over.").font(.caption).foregroundStyle(.secondary)
             }
         }
         .task(id: bot.computerURL) { if let url = ComputerURL.validURL(bot.computerURL) { check(url) } else { reachability = .unknown } }

@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// The Overview "Model" section: the chat's current model and a per-chat picker grouped by the box's suppliers.
-/// Static (no animations); every decision comes from `ModelPickerModel`.
+/// The Overview "Model" section (P21b item 1): "Model: <name> · <supplier>" and a plain picker of this agent's own
+/// models on top; the source, supplier details, notes, roles and "Last turn ran on" fold under Advanced
+/// (`ModelSectionAdvanced`). Static (no animations); every decision comes from `ModelPickerModel` and `ModelSimpleLine`,
+/// and a pick goes through the same `switchModel` as before.
 struct ModelSectionView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
@@ -13,34 +15,21 @@ struct ModelSectionView: View {
 
     var body: some View {
         let picker = store.modelPicker(for: bot)
+        let simple = ModelSimpleLine(picker: picker, isRefreshing: info?.isRefreshing ?? true, error: info?.modelError)
         VStack(alignment: .leading, spacing: 8) {
-            HStack { Text("Model").font(.headline); Spacer(); if isHermes { refreshButton } }
-            current(picker)
-            if picker.showsMenu { menu(picker) }
-            if let caption = picker.caption { Text(caption).font(.caption2).foregroundStyle(.secondary) }
-            ForEach(Array(picker.notes.enumerated()), id: \.offset) { _, note in noteView(note) }
-            if let error = info?.modelError { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
-            if let footer = picker.footer { Text(footer).font(.caption2).foregroundStyle(.tertiary) }
-            if isHermes { ModelRolesReadout(bot: bot, cache: cache) }
-        }
-    }
-
-    @ViewBuilder private func current(_ picker: ModelPickerModel) -> some View {
-        if let model = picker.currentModel {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model).font(.callout.weight(.medium)).textSelection(.enabled)
-                if let caption = picker.currentCaption { Text(caption).font(.caption2).foregroundStyle(.secondary) }
+            HStack(alignment: .firstTextBaseline) {
+                Text(simple.line).font(.headline).textSelection(.enabled).accessibilityLabel(picker.currentAccessibilityLabel ?? simple.line)
+                Spacer(); if isHermes { refreshButton }
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(picker.currentAccessibilityLabel ?? model)
-        } else if info?.isRefreshing ?? true {
-            Text("Checking…").font(.caption).foregroundStyle(.secondary)
-        } else {
-            Text("The server did not report a model.").font(.caption).foregroundStyle(.secondary)
+            if simple.showsPicker { menu(picker, title: simple.pickerTitle) }
+            if let status = simple.status {
+                Text(status).font(.caption).foregroundStyle(simple.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+            }
+            AdvancedFold { ModelSectionAdvanced(bot: bot, cache: cache, picker: picker) }
         }
     }
 
-    private func menu(_ picker: ModelPickerModel) -> some View {
+    private func menu(_ picker: ModelPickerModel, title: String) -> some View {
         Menu {
             ForEach(picker.groups) { group in
                 if group.usesSubmenu {
@@ -49,7 +38,7 @@ struct ModelSectionView: View {
                     Section(group.title) { items(group) }
                 }
             }
-        } label: { Text(picker.isSwitching ? "Switching…" : ModelPickerModel.buttonTitle) }
+        } label: { Text(title) }
             .menuStyle(.borderlessButton).fixedSize()
             .help(picker.unpinHelp ?? "")
             .disabled(picker.groups.isEmpty)
@@ -61,7 +50,7 @@ struct ModelSectionView: View {
             Button {
                 Task { await store.switchModel(for: bot, provider: item.supplierSlug, model: item.model) }
             } label: {
-                let title = item.detail.map { Text(item.model) + Text("  \($0)").foregroundStyle(.secondary) } ?? Text(item.model)
+                let title = item.detail.map { Text(item.model) + Text(verbatim: "  \($0)").foregroundStyle(.secondary) } ?? Text(item.model)
                 if item.isChecked { Label { title } icon: { Image(systemName: "checkmark") } } else { title }
             }
             .disabled(!item.isEnabled)
@@ -69,15 +58,8 @@ struct ModelSectionView: View {
         }
     }
 
-    private func noteView(_ note: ModelPickerModel.Note) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(note.text).font(.caption).foregroundStyle(note.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-            if note.offersRetry { Spacer(); Button("Retry") { Task { await store.loadServerInfo(for: bot, force: true) } }.controlSize(.small) }
-        }
-    }
-
     private var refreshButton: some View {
         Button { Task { await store.loadServerInfo(for: bot, force: true) } } label: { Image(systemName: "arrow.clockwise").frame(width: 22, height: 22) }
-            .buttonStyle(.plain).help("Reload skills, tools and the box's models").disabled(info?.isRefreshing ?? false)
+            .buttonStyle(.plain).help(InspectorCopy.reloadModels).disabled(info?.isRefreshing ?? false)
     }
 }

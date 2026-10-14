@@ -36,21 +36,22 @@ private func containsWord(_ text: String, _ word: String) -> Bool {
 }
 
 @Test func simpleAndSetupCopyUsePlainWords() {
-    for text in SimpleCopy.all + SetupCopy.all {
+    for text in SimpleCopy.all + SetupCopy.all + InspectorCopy.all {
         for word in banned { #expect(!containsWord(text, word), "“\(text)” contains \(word)") }
         if !SetupCopy.softwareNames.contains(text) {
             #expect(!containsWord(text, "Hermes") && !containsWord(text, "OpenClaw"), "“\(text)” names the software outside the S1 card")
         }
     }
     #expect(SetupCopy.softwareLine.contains("OpenClaw: not ready yet"))
-    #expect(!(SimpleCopy.all + SetupCopy.all).contains { $0.contains("Mock") })
+    #expect(!(SimpleCopy.all + SetupCopy.all + InspectorCopy.all).contains { $0.contains("Mock") })
     #expect(SimpleCopy.connected(to: "this Mac", agents: 2).hasPrefix("Connected") && !SimpleCopy.all.contains { $0.localizedCaseInsensitiveContains("key saved") })
 }
 
 @Test func simpleViewsTakeTheirWordsFromTheCopyEnums() throws {
     let files = ["Sources/AgentApp/Views/SettingsSimplePane.swift", "Sources/AgentApp/Views/BotEditorView.swift",
                  "Sources/AgentApp/Setup/SetupView.swift", "Sources/AgentApp/Setup/SetupSteps.swift", "Sources/AgentApp/Setup/SetupEmptyState.swift"]
-    let literal = try NSRegularExpression(pattern: #"\b(Text|Button|Label|TextField|SecureField|Toggle|Picker|Section)\(\s*""#)
+                + inspectorSimpleFiles
+    let literal = try NSRegularExpression(pattern: #"(\b(Text|Button|Label|TextField|SecureField|Toggle|Picker|DatePicker|Section|Menu|DisclosureGroup)|\.help)\(\s*""#)
     for file in files {
         let text = try String(contentsOf: repoRoot.appending(path: file), encoding: .utf8)
         let hits = literal.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text))

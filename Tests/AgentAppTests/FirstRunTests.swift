@@ -86,12 +86,15 @@ import Testing
     #expect(await HeadlessSetup.render(to: directory, output: { lines.append($0) }) == 0, "\(lines)")
     let expected = ["s1-welcome", "s-host", "s3-empty", "s3-filled", "s3-error-bad-address", "s3-error-not-encrypted", "s3-error-unreachable",
                     "s3-error-key-rejected", "s3-error-main-only", "s3-error-bad-line", "s4-choose", "s5-done", "settings-simple",
-                    "empty-state", "editor-folded", "editor-advanced"]
+                    "empty-state", "editor-folded", "editor-advanced"] + HeadlessInspector.names
+    var sizes: [String: Int] = [:]
     for name in expected {
         let data = try Data(contentsOf: directory.appending(path: "\(name).png"))
         let image = try #require(NSBitmapImageRep(data: data))
-        #expect(image.pixelsWide > 0 && data.count > 4_000, "\(name) looks blank")
+        #expect(image.pixelsWide > 0 && data.count > 4_000, "\(name) looks blank"); sizes[name] = data.count
     }
+    // P21b: the right panel folded and with Advanced open differ.
+    #expect(sizes["inspector-folded"] != sizes["inspector-advanced"] && sizes["group-folded"] != sizes["group-advanced"])
     let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
     #expect(await HeadlessSetup.render(to: repo.appending(path: "setup-shots"), output: { _ in }) == 2, "refuses a folder inside the repository")
 }
