@@ -31,8 +31,8 @@ private struct WelcomeView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             Text("SwarmHub").font(.headline).foregroundStyle(.secondary)
-            Image("SwarmHubBrand").resizable().scaledToFit().frame(width: 128, height: 128).accessibilityHidden(true)
-                .frame(maxWidth: .infinity).padding(.vertical, 8)
+            HStack(spacing: 24) { AgentMark(color: "orange", size: 44); AgentMark(size: 64); AgentMark(color: "green", size: 44) }
+                .frame(maxWidth: .infinity).padding(.vertical, 40)
             Text("Your agents.\nWherever you are.").font(.largeTitle.bold())
             Text("Give them work, follow the progress, and review the next step. Your agents run on your own server.").foregroundStyle(.secondary)
             Label("Conversations and results together", systemImage: "bubble.left")
