@@ -118,7 +118,10 @@ private struct ThreadBubble: View {
             VStack(alignment: outgoing ? .trailing : .leading, spacing: 3) {
                 HStack(spacing: 4) {
                     Text(store.displayName(forProfile: line.author)).font(.caption.weight(.semibold))
-                    if let date = line.date { Text(date, style: .time).font(.caption2).foregroundStyle(.tertiary) }
+                    if let date = line.date {
+                        Text(date, format: Calendar.current.isDateInToday(date) ? .dateTime.hour().minute() : .dateTime.month(.abbreviated).day().hour().minute())
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
                 }
                 Text(line.text).textSelection(.enabled).padding(.horizontal, 11).padding(.vertical, 7)
                     .background(outgoing ? AppColor.raised : AppColor.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
