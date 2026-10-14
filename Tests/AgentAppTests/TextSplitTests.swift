@@ -153,12 +153,35 @@ private func checkShape(_ host: String) {
     try await waitUntil { !store.isStreaming }
     let bodies = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.compactMap(\.body)
     #expect(bodies.count == 2, "each member gets the group context")
-    // The group context goes through the same splitter, but P5 caps it at 8,000 characters first (the newest
-    // line is cut), so in a group it stays one plain string: unchanged by P19, reported as open.
+    // The current message's attachments are exempt from the 8,000-character cap and go through the splitter.
     for body in bodies {
-        let input = try #require(body["input"] as? String)
-        #expect(scalarCount(input).allSatisfy { $0 <= HermesBackend.maxTextPartScalars } && input.count <= GroupRouting.contextLimit)
-        #expect(input.contains("Konrad: Read this\n\nFile: big.txt\n```\n"))
+        let input = try #require(body["input"] as? [[String: Any]])
+        #expect(input.count == 3 && scalarCount(input).allSatisfy { $0 <= HermesBackend.maxTextPartScalars })
+        #expect(serverText(input).contains("Konrad: Read this\n\n" + AttachmentEncoder.compose(text: "", attachments: [notes])), "the 130,000-character file arrives whole")
+    }
+    checkShape(host)
+}
+
+@Test @MainActor func aThirtyThousandCharacterDocumentReachesEveryGroupMemberWhole() async throws {
+    let (store, bot, host) = hermesStore(features: ["session_chat_streaming": true])
+    let other = Bot(name: "Second", backend: .hermes, hermesProfile: "default"); store.bots.append(other)
+    let group = try #require(store.createGroup(name: "Doc group", memberIDs: [bot.id, other.id]))
+    group.messages = (0..<40).map { ChatMessage(role: .user, content: "earlier \($0) " + String(repeating: "x", count: 400)) }
+    let docText = "DOCX: 12 pages, text extracted\n\n" + mixedText(scalars: 30_000)
+    let doc = ChatAttachment(id: UUID(), kind: .text, name: "umowa.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                             byteCount: 80_000, text: docText, pageCount: 12, summary: "DOCX: 12 pages, text extracted")
+    #expect((30_000..<HermesBackend.maxTextPartScalars).contains(docText.unicodeScalars.count))
+    #expect(store.send(text: "Check this contract", attachments: [doc], to: group))
+    try await waitUntil { !store.isStreaming }
+    let bodies = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.compactMap(\.body)
+    #expect(bodies.count == 2, "every member is asked")
+    let block = AttachmentEncoder.compose(text: "", attachments: [doc])
+    for body in bodies {
+        let input = try #require(body["input"] as? String, "under 60,000 scalars the context stays one plain string")
+        #expect(input.hasSuffix("Konrad: Check this contract\n\n" + block), "the document arrives whole after the message")
+        let history = input.replacingOccurrences(of: "\n\n" + block, with: "")
+        #expect(history.count <= GroupRouting.contextLimit && history.contains("[… earlier messages omitted]"), "earlier history stays capped")
+        #expect(history.contains("Konrad: earlier 39 ") && !history.contains("Konrad: earlier 0 "))
     }
     checkShape(host)
 }

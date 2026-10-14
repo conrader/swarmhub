@@ -86,6 +86,14 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
     #expect(capped.contains("Konrad: line 39 ") && !capped.contains("Konrad: line 0 "), "newest lines are kept")
     let huge = GroupRouting.context(for: dmt, groupName: "G", members: members, messages: [ChatMessage(role: .user, content: String(repeating: "y", count: 20_000))])
     #expect(huge.count <= GroupRouting.contextLimit && huge.contains("Konrad: yyy"))
+
+    let file = ChatAttachment(id: UUID(), kind: .text, name: "big.txt", mimeType: "text/plain", byteCount: 30_000, text: String(repeating: "z", count: 30_000))
+    let current = ChatMessage(role: .user, content: "", attachments: [file])
+    let replies = [ChatMessage(role: .assistant, content: String(repeating: "r", count: 9_000), authorID: achilles.id)]
+    let whole = GroupRouting.context(for: dmt, groupName: "G", members: members, messages: long + [current] + replies, current: current.id)
+    #expect(whole.contains("\nKonrad:\n\n" + AttachmentEncoder.compose(text: "", attachments: [file]) + "\n[… earlier messages omitted]\nAchilles: rrr"),
+            "the current attachments stay whole and attributed even when newer lines fill the cap")
+    #expect(!whole.contains("line 39"))
 }
 
 @MainActor @Test func everyMemberAnswersInOrderInItsOwnGroupSession() async throws {
