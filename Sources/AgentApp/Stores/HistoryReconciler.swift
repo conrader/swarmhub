@@ -201,7 +201,7 @@ enum HistoryReconciler {
             }
         }
 
-        if pairs.isEmpty && hasLocalTurns && !server.isEmpty { plan.diverged = true; return plan }
+        if pairs.isEmpty && hasLocalTurns && !server.isEmpty { plan.diverged = true; plan.newerUnmatched = true; return plan }
 
         let boxClockNow = input.now.addingTimeInterval(input.skew)
         func covers(_ date: Date) -> Bool { input.coversFrom.map { $0 <= date.addingTimeInterval(input.skew) } ?? true }
