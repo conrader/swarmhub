@@ -27,10 +27,9 @@ import SwiftUI
         // Same store location and decoding as the app; no Hermes history refresh.
         SecKeychainSetUserInteractionAllowed(false)
         let store = AppStore(autoConfigureHermes: false)
-        var code: Int32?
-        Task { @MainActor in code = await render(store: store, to: directory, botNames: names, loadOverview: true, output: { print($0); fflush(stdout) }) }
-        while code == nil { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
-        return code!
+        return HeadlessRunLoop.wait {
+            await render(store: store, to: directory, botNames: names, loadOverview: true, output: { print($0); fflush(stdout) })
+        }
     }
 
     static func render(store: AppStore, to directory: URL, botNames: [String], loadOverview: Bool = false, output: (String) -> Void) async -> Int32 {

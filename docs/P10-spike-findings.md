@@ -52,3 +52,12 @@ were not captured, which is informational only.
 3. **Honest user agent works.** Grok accepted `Torvli/<version>`. Per D1, changing the client headers needs
    Konrad's word; recommend identifying honestly.
 4. Capture `URLSessionTaskMetrics` if `networkProtocol` matters, or drop the field.
+
+## Correction from P10c (2026-10-14)
+Step (e)'s `accountBinding: no-slot` was a harness bug: it looked for the slot blob only among keys starting
+`sand.client.slice.account.`, and the slot key (`sand.client.slice.client-meta.account-slot`) never does. The real
+cache has a slot blob. `--grok-probe` (no `--live`, no prompt) found that `cursor-accounts.active` is the SHA-256 of
+the slot's **raw** value, not of its percent-encoded form (the slice segment), so the first P10c probe reported a
+false `mismatch`. Fixed in `GrokPreflight` (and noted in `GrokProtocol`); after the fix the probe reports
+`accountBinding=holds`, `serverReady=true`. Checked with a throwaway read-only script outside the repo that printed
+booleans only; nothing was decrypted.

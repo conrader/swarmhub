@@ -37,6 +37,8 @@ struct GrokCache: Sendable {
     var transcriptSchemaVersions: Set<Int64>
     /// Links, non-`.blob` and undecodable names, and slices of other kinds: never read.
     var skippedFiles: Int
+    /// The slot blob's raw value, when the cache has one: the sign-in's account is checked against it (memory only).
+    var accountSlot: String?
 }
 
 /// Reads `sand-client-persistence/*.blob` read-only (port of `load_cache` with stricter gates; briefs/P10.md P10a 4).
@@ -72,7 +74,7 @@ struct GrokCacheReader: Sendable {
         let segments = Set(slices.compactMap { Self.parse($0.key)?.account })
         let account = try Self.chooseAccount(segments: segments, slot: slotValue, chosen: chosen)
         var cache = GrokCache(account: account, roster: [], transcripts: [:], rosterSchemaVersion: nil,
-                              transcriptSchemaVersions: [], skippedFiles: skipped)
+                              transcriptSchemaVersions: [], skippedFiles: skipped, accountSlot: slotValue)
         var sawRoster = false
         for slice in slices {
             guard let parsed = Self.parse(slice.key), parsed.account == account else { cache.skippedFiles += 1; continue }

@@ -25,7 +25,8 @@ enum GrokProtocol {
     static let rosterSuffix = ".roster.last-roster"
     static let transcriptInfix = ".transcript.replicas."
     /// Its value, percent-encoded, is the account segment of the slice keys; `cursor-accounts.active` is the lowercase hex
-    /// SHA-256 of that segment (seen once, one account).
+    /// SHA-256 of the slot's raw value, before percent-encoding (drift: the brief said "of the segment"; P10c's probe
+    /// on Konrad's Mac, 2026-10-14, found the raw value matches and the encoded one does not; one account).
     static let accountSlotKey = "sand.client.slice.client-meta.account-slot"
 
     // MARK: `sand-secrets.json` keys (`electron-main/main-app.cjs`)
@@ -65,6 +66,10 @@ enum GrokProtocol {
     static let minRequestInterval: Duration = .milliseconds(500)
     static let maxPagesPerBot = 400
     static let maxRequestsPerRun = 2000
+    /// A paused run keeps the sign-in (or, for an expired token, the derived key) at most this long (lifetime table).
+    static let signInHold: Duration = .seconds(600)
+    /// The token must stay valid at least this long past the start of a run, else `tokenExpired`.
+    static let tokenMargin: TimeInterval = 60
     /// Response caps: a larger body is refused unread (`tooLarge`), never truncated.
     static let maxRPCResponseBytes = 32 << 20
     static let maxBlobResponseBytes = 16 << 20

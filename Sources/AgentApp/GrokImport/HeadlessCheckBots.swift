@@ -143,11 +143,6 @@ extension HeadlessCommands {
         }
         SecKeychainSetUserInteractionAllowed(false)
         let store = AppStore(autoConfigureHermes: false)
-        let box = ExitCodeBox()
-        Task { @MainActor in box.code = await checkBots(store: store, chat: chat, output: { print($0); fflush(stdout) }) }
-        while box.code == nil { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
-        return box.code!
+        return HeadlessRunLoop.wait { await checkBots(store: store, chat: chat, output: { print($0); fflush(stdout) }) }
     }
 }
-
-@MainActor private final class ExitCodeBox { var code: Int32? }
