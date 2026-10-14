@@ -1,16 +1,16 @@
 import SwiftUI
 
-/// P27 D9: under a streaming reply, what the bot is doing now: "Running a command · step 3 · 1 m 12 s" (shown also once
-/// text has started), refreshed every second.
+/// The live reply's Thinking, Typing or Working phase and current action, refreshed every second.
 struct ActivityLiveLine: View {
     @ObservedObject var message: ChatMessage
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
-                Text(ActivityCopy.liveLine(message.activity, since: message.createdAt, now: context.date))
+                Text(ActivityCopy.liveLine(message.activity, since: message.createdAt, lastText: message.lastTextAt, now: context.date))
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                if let preview = message.activity?.current?.preview {
+                if ChatActivityPhase.current(message.activity, lastText: message.lastTextAt, now: context.date) == .working,
+                   let preview = message.activity?.current?.preview {
                     Text(preview).font(.caption.monospaced()).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
                 }
             }

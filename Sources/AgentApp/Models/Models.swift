@@ -132,7 +132,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
     /// P16: the state of the turn whose reply this row holds (nil = written before P16); encoded only when set.
     @Published var turnState: TurnState?
     /// P27: the tools this reply ran (bounded); encoded only when set. `lastTextAt` (memory only): when text last arrived.
-    @Published var activity: ToolActivity?; var lastTextAt: Date?
+    @Published var activity: ToolActivity?; @Published var lastTextAt: Date?
     init(id: UUID = UUID(), role: MessageRole, content: String, createdAt: Date = .now, isStreaming: Bool = false, presentation: MessagePresentation = .text, metadata: [String: String] = [:], reactions: [String] = [], replyToID: UUID? = nil, attachments: [ChatAttachment] = [], authorID: UUID? = nil, turnState: TurnState? = nil) {
         self.id = id; self.role = role; self.content = content; self.createdAt = createdAt; self.isStreaming = isStreaming
         self.presentation = presentation; self.metadata = metadata; self.reactions = reactions; self.replyToID = replyToID; self.attachments = attachments; self.authorID = authorID

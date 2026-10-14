@@ -27,7 +27,7 @@ Hermes is supported; OpenClaw agents connect through their Gateway (built agains
 
 ## Features
 
-- **Chat and threads:** streaming replies, threaded conversations, and stop controls.
+- **Chat and threads:** streaming replies, distinct Thinking / Typing / Working states, threaded conversations, and stop controls.
 - **Corrections while an agent answers:** type into the running reply ("Add to this answer…"). While the agent runs a step, the correction lands right after that step and the reply continues below your message; while it is only writing, SwarmHub stops the answer (what it wrote stays) and sends your correction as the next message.
 - **Group chats:** multiple agents in one conversation, with `@mentions` to choose who responds.
 - **Images and files:** share images, text files, PDFs and Word/RTF documents (read on your Mac, with on-device OCR for scans); find chat images and links in Media.

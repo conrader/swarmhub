@@ -106,12 +106,15 @@ enum ActivityCopy {
         return "\(total) s"
     }
 
-    /// While streaming: "Running a command · step 3 · 1 m 12 s"; between steps "Working… · 3 steps · 1 m 12 s".
-    static func liveLine(_ activity: ToolActivity?, since start: Date, now: Date) -> String {
+    /// A live reply's phase, current action or completed step count, and elapsed time.
+    static func liveLine(_ activity: ToolActivity?, since start: Date, lastText: Date? = nil, now: Date) -> String {
         let elapsed = duration(now.timeIntervalSince(start))
-        guard let activity, activity.total > 0 else { return "Working… · \(elapsed)" }
-        if let step = activity.current { return "\(label(step.name)) · step \(activity.number(of: step)) · \(elapsed)" }
-        return "Working… · \(steps(activity.total)) · \(elapsed)"
+        let phase = ChatActivityPhase.current(activity, lastText: lastText, now: now)
+        guard let activity, activity.total > 0 else { return "\(phase.label) · \(elapsed)" }
+        if phase == .working, let step = activity.current {
+            return "\(phase.label) · \(label(step.name)) · step \(activity.number(of: step)) · \(elapsed)"
+        }
+        return "\(phase.label) · \(steps(activity.total)) · \(elapsed)"
     }
 
     /// After the turn: "12 steps · 4 m 52 s"; nil when the reply used no tools.
@@ -123,13 +126,10 @@ enum ActivityCopy {
 
     static func steps(_ count: Int) -> String { count == 1 ? "1 step" : "\(count) steps" }
 
-    static let quietAfter: TimeInterval = 60
-
-    /// The sidebar's preview line for a reply still running `quietAfter` after its last text (or its start) with a
-    /// step: "Working: terminal · ls -la", "Working: terminal …". Nil otherwise.
-    static func sidebarLine(_ activity: ToolActivity?, started: Date, lastText: Date?, now: Date) -> String? {
-        guard now.timeIntervalSince(max(started, lastText ?? started)) >= quietAfter,
-              let step = activity?.current ?? activity?.steps.last else { return nil }
-        return "Working: \(step.name)" + (step.preview.map { " · \($0)" } ?? " …")
+    /// The same phase as the chat footer, with a current tool's plain-language action and safe preview.
+    static func sidebarLine(_ activity: ToolActivity?, lastText: Date?, now: Date) -> String {
+        let phase = ChatActivityPhase.current(activity, lastText: lastText, now: now)
+        guard phase == .working, let step = activity?.current else { return phase.label }
+        return "\(phase.label) · \(label(step.name))" + (step.preview.map { " · \($0)" } ?? "")
     }
 }

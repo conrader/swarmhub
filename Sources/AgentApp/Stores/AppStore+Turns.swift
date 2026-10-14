@@ -39,13 +39,17 @@ extension AppStore {
             }
             row = steerRow(for: event, origin: assistant, row: row)
             switch event {
-            case .token(let token): row.content += token; row.lastTextAt = now(); objectWillChange.send(); autosaveIfDue()
-            case .replace(let text): row.content = text; row.lastTextAt = now(); objectWillChange.send(); autosaveIfDue()
+            case .token(let token):
+                row.content += token
+                if !token.isEmpty { row.lastTextAt = now() }
+                objectWillChange.send(); autosaveIfDue()
+            case .replace(let text): row.content = text; row.lastTextAt = text.isEmpty ? nil : now(); objectWillChange.send(); autosaveIfDue()
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
+                if tool.name == "_thinking", tool.phase == .progress { row.lastTextAt = nil }
                 if row.content.isEmpty, ToolActivity.isShown(tool.name) { row.metadata["status"] = tool.name }
                 var activity = row.activity ?? ToolActivity(); activity.apply(tool, at: now())
-                if activity.total > 0 { row.activity = activity }
+                if activity.total > 0 { row.activity = activity; objectWillChange.send() }
             case .subAgent(let task): subAgent(task)
             case .approval(var request):
                 request.botID = bot.id; request.profile = bot.hermesProfile ?? "default"; request.sessionID = sessionID

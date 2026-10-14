@@ -67,9 +67,9 @@ struct BotRow: View {
                                 .offset(x: 2, y: 2).accessibilityLabel("Needs attention")
                         }
                     }
-                // P27: a long quiet turn shows its current step; the line is re-read every few seconds while working.
+                // Re-read the phase during a pause in text, even when no stream event arrives.
                 if working {
-                    TimelineView(.periodic(from: .now, by: 5)) { context in RowText(name: bot.name, fragment: fragment(context.date), unread: bot.isUnread) }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(context.date), unread: bot.isUnread) }
                 } else {
                     RowText(name: bot.name, fragment: fragment(.now), unread: bot.isUnread)
                 }
@@ -94,15 +94,21 @@ struct GroupRow: View {
     @State private var hovering = false
     var body: some View {
         let selected = store.selectedGroup?.id == group.id
-        let fragment = SidebarFragment.text(messages: group.messages, draft: drafts.texts[group.id],
-                                            isWorking: store.isStreaming && store.streamingConversation === group,
+        let working = store.isStreaming && store.streamingConversation === group
+        let fragment = { (now: Date) in SidebarFragment.text(messages: group.messages, draft: drafts.texts[group.id],
+                                            isWorking: working,
                                             archiveNewest: store.grokHistory.newestVisible(for: group.id),
-                                            author: { id in id.flatMap { id in store.bots.first { $0.id == id }?.name } })
+                                            author: { id in id.flatMap { id in store.bots.first { $0.id == id }?.name } },
+                                            working: store.workingLine(for: group, now: now)) }
         Button { store.open(group) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
                 GroupAvatarStack(group: group, members: store.members(of: group), size: SidebarMetrics.mark, isHovered: hovering,
                                  halo: selected ? AppColor.selection : AppColor.sidebar, probe: "group:\(group.id)")
-                RowText(name: group.name, fragment: fragment, unread: group.isUnread)
+                if working {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: group.name, fragment: fragment(context.date), unread: group.isUnread) }
+                } else {
+                    RowText(name: group.name, fragment: fragment(.now), unread: group.isUnread)
+                }
                 Spacer(minLength: 4)
                 if group.isMuted { Image(systemName: "bell.slash").font(.system(size: 10)).foregroundStyle(.tertiary) }
                 if group.isUnread { UnreadDot() }

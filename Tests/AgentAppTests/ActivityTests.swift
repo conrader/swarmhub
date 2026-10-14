@@ -73,14 +73,14 @@ private func completed(_ tool: String, event: String = "tool.completed", extra: 
 @Test func liveLineAndFoldedSummary() {
     let t0 = Date(timeIntervalSince1970: 1_000_000)
     var activity = ToolActivity()
-    #expect(ActivityCopy.liveLine(nil, since: t0, now: t0.addingTimeInterval(5)) == "Working… · 5 s")
+    #expect(ActivityCopy.liveLine(nil, since: t0, now: t0.addingTimeInterval(5)) == "Thinking… · 5 s")
     activity.apply(ToolEvent(phase: .started, name: "read_file", preview: "a.md"), at: t0.addingTimeInterval(2))
     activity.apply(ToolEvent(phase: .completed, name: "read_file"), at: t0.addingTimeInterval(3))
-    #expect(ActivityCopy.liveLine(activity, since: t0, now: t0.addingTimeInterval(30)) == "Working… · 1 step · 30 s")
+    #expect(ActivityCopy.liveLine(activity, since: t0, now: t0.addingTimeInterval(30)) == "Thinking… · 1 step · 30 s")
     activity.apply(ToolEvent(phase: .started, name: "terminal", preview: "ls"), at: t0.addingTimeInterval(40))
-    #expect(ActivityCopy.liveLine(activity, since: t0, now: t0.addingTimeInterval(72)) == "Running a command · step 2 · 1 m 12 s")
+    #expect(ActivityCopy.liveLine(activity, since: t0, now: t0.addingTimeInterval(72)) == "Working… · Running a command · step 2 · 1 m 12 s")
     activity.apply(ToolEvent(phase: .started, name: "mystery_tool"), at: t0.addingTimeInterval(80))
-    #expect(ActivityCopy.liveLine(activity, since: t0, now: t0.addingTimeInterval(81)) == "Running mystery_tool · step 3 · 1 m 21 s")
+    #expect(ActivityCopy.liveLine(activity, since: t0, now: t0.addingTimeInterval(81)) == "Working… · Running mystery_tool · step 3 · 1 m 21 s")
     for index in 0..<9 { activity.apply(ToolEvent(phase: .started, name: "web_search", preview: "q\(index)"), at: t0.addingTimeInterval(100)) }
     activity.finish(at: t0.addingTimeInterval(292))
     #expect(ActivityCopy.summary(activity, since: t0) == "12 steps · 4 m 52 s")
@@ -112,16 +112,16 @@ private func completed(_ tool: String, event: String = "tool.completed", extra: 
     #expect(!plain.contains("activity"), "messages without tools encode as before")
 }
 
-@Test @MainActor func sidebarSaysWorkingAfterAQuietMinute() {
+@Test @MainActor func sidebarShowsTheCurrentPhaseWithoutWaitingAMinute() {
     let t0 = Date(timeIntervalSince1970: 1_000_000)
     var activity = ToolActivity()
     activity.apply(ToolEvent(phase: .started, name: "terminal", preview: "ls -la"), at: t0.addingTimeInterval(5))
-    #expect(ActivityCopy.sidebarLine(activity, started: t0, lastText: nil, now: t0.addingTimeInterval(59)) == nil)
-    #expect(ActivityCopy.sidebarLine(activity, started: t0, lastText: nil, now: t0.addingTimeInterval(60)) == "Working: terminal · ls -la")
-    #expect(ActivityCopy.sidebarLine(activity, started: t0, lastText: t0.addingTimeInterval(30), now: t0.addingTimeInterval(80)) == nil, "text arrived 50 s ago")
-    #expect(ActivityCopy.sidebarLine(ToolActivity(), started: t0, lastText: nil, now: t0.addingTimeInterval(600)) == nil, "no step, no line")
+    #expect(ActivityCopy.sidebarLine(activity, lastText: nil, now: t0.addingTimeInterval(5)) == "Working… · Running a command · ls -la")
+    #expect(ActivityCopy.sidebarLine(activity, lastText: t0.addingTimeInterval(30), now: t0.addingTimeInterval(31)) == "Typing…")
+    #expect(ActivityCopy.sidebarLine(activity, lastText: t0.addingTimeInterval(30), now: t0.addingTimeInterval(80)) == "Working… · Running a command · ls -la")
+    #expect(ActivityCopy.sidebarLine(ToolActivity(), lastText: nil, now: t0.addingTimeInterval(600)) == "Thinking…")
     var bare = ToolActivity(); bare.apply(ToolEvent(phase: .started, name: "terminal"), at: t0)
-    #expect(ActivityCopy.sidebarLine(bare, started: t0, lastText: nil, now: t0.addingTimeInterval(61)) == "Working: terminal …")
+    #expect(ActivityCopy.sidebarLine(bare, lastText: nil, now: t0.addingTimeInterval(61)) == "Working… · Running a command")
 
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let bot = Bot(name: "Worker", backend: .hermes, hermesProfile: "default"); store.bots = [bot]
@@ -129,7 +129,7 @@ private func completed(_ tool: String, event: String = "tool.completed", extra: 
     bot.messages = [ChatMessage(role: .user, content: "go"), assistant]
     store.streamingBotID = bot.id; store.streamingAssistant = assistant
     let line = store.workingLine(for: bot, now: t0.addingTimeInterval(61))
-    #expect(line == "Working: terminal · ls -la")
-    #expect(SidebarFragment.text(messages: bot.messages, draft: nil, isWorking: true, archiveNewest: nil, working: line) == "Working: terminal · ls -la")
-    #expect(SidebarFragment.text(messages: bot.messages, draft: nil, isWorking: true, archiveNewest: nil, working: store.workingLine(for: bot, now: t0.addingTimeInterval(30))) == "Typing…")
+    #expect(line == "Working… · Running a command · ls -la")
+    #expect(SidebarFragment.text(messages: bot.messages, draft: nil, isWorking: true, archiveNewest: nil, working: line) == "Working… · Running a command · ls -la")
+    #expect(SidebarFragment.text(messages: bot.messages, draft: nil, isWorking: true, archiveNewest: nil, working: store.workingLine(for: bot, now: t0.addingTimeInterval(30))) == "Working… · Running a command · ls -la")
 }
