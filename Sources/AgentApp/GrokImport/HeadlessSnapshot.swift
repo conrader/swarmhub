@@ -4,13 +4,15 @@ import SwiftUI
 
 /// `AgentApp --render-snapshot <dir> [--bot "<name>"]...` renders the real UI from the saved store without
 /// showing a window: `main.png` (first Grok bot selected), and per bot `<slug>.png` (Grok history expanded)
-/// plus `info-<slug>.png` (its right panel). Dark, 1280×800 points at scale 2. Nothing is saved to the store.
+/// plus `info-<slug>.png` (its right panel), and `sidebar.png` (the left column alone, 280×800). Dark, 1280×800 points
+/// at scale 2. Nothing is saved to the store.
 /// The only network calls are read-only GETs for each named bot's Overview (capabilities, skills, toolsets, model);
 /// each named bot also gets one model-menu line from the same `ModelPickerModel` the Overview draws, and one roles
 /// line from `ModelRolesModel` (Settings → Models).
 @MainActor enum HeadlessSnapshot {
     static let size = NSSize(width: 1280, height: 800)
     static let infoSize = NSSize(width: 360, height: 800)
+    static let sidebarSize = NSSize(width: SidebarMetrics.width.ideal, height: 800)
 
     static func run(arguments: [String]) -> Int32 {
         guard let flag = arguments.firstIndex(of: "--render-snapshot"), arguments.indices.contains(flag + 1) else {
@@ -49,6 +51,7 @@ import SwiftUI
         let firstGrokBot = store.bots.first { $0.grokSourceID != nil && !$0.isReadOnlyArchive && !$0.isHidden } ?? store.bots.first
         if loadOverview, let firstGrokBot, !bots.contains(firstGrokBot) { await store.loadServerInfo(for: firstGrokBot) }
         var shots: [(file: String, selected: Bot?, render: () async -> Data?)] = [("main.png", firstGrokBot, { await SnapshotRenderer.contentPNG(store: store, size: size) })]
+        shots.append(("sidebar.png", firstGrokBot, { await SnapshotRenderer.png(SidebarView(selection: .constant(store.selectedBot)).environmentObject(store), size: sidebarSize) }))
         for bot in bots {
             if loadOverview { await store.loadServerInfo(for: bot); output(overviewSummary(store: store, bot: bot)); output(store.modelMenuSummary(for: bot)); output(store.modelRolesSummary(for: bot)) }
             shots.append(("\(slug(bot.name)).png", bot, { await SnapshotRenderer.contentPNG(store: store, size: size, historyExpanded: true) }))

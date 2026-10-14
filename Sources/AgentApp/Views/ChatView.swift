@@ -67,7 +67,8 @@ struct ChatView: View {
                 guard !files.isEmpty, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly else { return false }
                 attach(files); return true
             }
-            .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
+            .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); draft = store.drafts.text(for: bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
+            .onChange(of: draft) { _, value in store.drafts.set(value, for: bot.id) }
             .onChange(of: store.composerFill) { _, _ in takeComposerFill() }
     }
     private func manage(_ action: ManageBotsAction) { store.startManagement(action, manager: bot) }

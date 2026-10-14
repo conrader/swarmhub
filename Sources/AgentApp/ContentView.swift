@@ -9,7 +9,7 @@ struct ContentView: View {
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(get: { store.sidebarHidden ? .detailOnly : .all }, set: { store.sidebarHidden = $0 == .detailOnly })) {
-            SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: 176, ideal: 196, max: 224)
+            SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: SidebarMetrics.width.min, ideal: SidebarMetrics.width.ideal, max: SidebarMetrics.width.max)
                 .toolbar(removing: .sidebarToggle).ignoresSafeArea(.container, edges: .top)
         } detail: {
             Group {

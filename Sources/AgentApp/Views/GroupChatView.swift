@@ -49,6 +49,8 @@ struct GroupChatView: View {
                 guard !files.isEmpty else { return false }
                 pending += store.prepareAttachments(files); return true
             }
+            .task(id: group.id) { draft = store.drafts.text(for: group.id) }
+            .onChange(of: draft) { _, value in store.drafts.set(value, for: group.id) }
     }
 
     private func isGroupApproval(_ request: ApprovalRequest) -> Bool {

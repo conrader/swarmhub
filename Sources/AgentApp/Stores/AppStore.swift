@@ -34,6 +34,8 @@ import UserNotifications
     var botProbeAttempts = 4; var botProbeDelay: Duration = .milliseconds(2500)
     /// Tests: the manager text template instead of the bundled resource.
     var managerTemplateOverride: String?
+    /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
+    let drafts = ComposerDrafts()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     var streamTask: Task<Void, Never>?; let fileURL: URL

@@ -18,11 +18,25 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
 @MainActor final class GrokHistoryStore: ObservableObject {
     let directory: URL
     @Published private(set) var loaded: [UUID: [ArchivedMessage]] = [:]
+    /// The sidebar's newest-line cache; not published, so reading it while a view draws changes nothing.
+    private var newestCache: [UUID: ArchivedMessage?] = [:]
 
     init(directory: URL) { self.directory = directory }
 
     func fileURL(for botID: UUID) -> URL { directory.appending(path: "\(botID.uuidString.lowercased()).json") }
     func isLoaded(_ botID: UUID) -> Bool { loaded[botID] != nil }
+
+    /// The newest visible archived line (P20 sidebar fragment); reads the file at most once per merge.
+    func newestVisible(for botID: UUID) -> ArchivedMessage? {
+        if let messages = loaded[botID] { return Self.newestVisible(in: messages) }
+        if let cached = newestCache[botID] { return cached }
+        let newest = Self.newestVisible(in: read(botID)?.messages ?? [])
+        newestCache[botID] = .some(newest)
+        return newest
+    }
+    nonisolated static func newestVisible(in messages: [ArchivedMessage]) -> ArchivedMessage? {
+        messages.last { !$0.hidden && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
 
     func messages(for botID: UUID) -> [ArchivedMessage] {
         if let cached = loaded[botID] { return cached }
@@ -35,7 +49,7 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
     /// Returns the merged count. An existing file that cannot be read is set aside, never overwritten.
     @discardableResult func merge(_ incoming: [ArchivedMessage], sourceID: String, for botID: UUID) throws -> Int {
         let merged = try Self.mergeOnDisk(incoming, sourceID: sourceID, url: fileURL(for: botID), directory: directory)
-        loaded[botID] = merged
+        loaded[botID] = merged; newestCache[botID] = nil
         return merged.count
     }
 
@@ -45,7 +59,7 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
         let merged = try await Task.detached(priority: .userInitiated) {
             try Self.mergeOnDisk(incoming, sourceID: sourceID, url: url, directory: directory)
         }.value
-        loaded[botID] = merged
+        loaded[botID] = merged; newestCache[botID] = nil
         return merged.count
     }
 
@@ -54,7 +68,7 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
         (try? FileManager.default.attributesOfItem(atPath: fileURL(for: botID).path))?[.modificationDate] as? Date
     }
 
-    func remove(_ botID: UUID) { try? FileManager.default.removeItem(at: fileURL(for: botID)); loaded[botID] = nil }
+    func remove(_ botID: UUID) { try? FileManager.default.removeItem(at: fileURL(for: botID)); loaded[botID] = nil; newestCache[botID] = nil }
 
     private func read(_ botID: UUID) -> GrokHistoryFile? { Self.read(fileURL(for: botID)) }
 
