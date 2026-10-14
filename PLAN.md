@@ -9,7 +9,7 @@ Grok Bot is Cursor's hosted Mac agent app; SwarmHub reproduces its features on t
 Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `grok-<slug>`
 (SOUL, skills, imported history), served at `https://konrad.agenthut.net/p/grok-<slug>/`.
 
-## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 20538ee, P19 c31d0c0, P24 + release 0.4.1 deb1f7a merged)
+## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 20538ee, P19 c31d0c0, P24 + release 0.4.1 deb1f7a, release 0.4.2 449a770 merged)
 
 Everything planned that is not merged yet, so nobody has to remember it. Built = merged into `main`.
 **Konrad 2026-10-14: "Build all, defaults"** — every row below is accepted with the recommended defaults (P16, P17, P21, P12 included; P13 Part C's live step has his go). Order: P23 → P19 → P24 → P10c → P10d → P10e → P13 C → D → E → P16 → P21 → P17 → P12; each merged when green; Claude reports results, comes back only for a real blocker.
@@ -17,8 +17,7 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | What | State | Next step |
 |---|---|---|
 | Group chats cut documents at 8,000 characters (P19 left the group context cap unchanged) | not fixed | after P10c: send attachments whole to the addressed bot(s) in groups |
-| SwarmHub's built-in version list still calls 0.22.0 "not tested yet" | box runs 0.22.0 since 08:50 UTC, verified (skills 178, 21/21 bots) | flip to "works" in the next app build; for stock 0.22.0 keep the skills note |
-| Automatic updates: prove a real update | v0.4.1 published (feed live, zip verified); key in Konrad's login Keychain, NOT backed up yet | ship v0.4.2 with the next merge, watch the installed 0.4.1 update itself; Konrad: back up the private key |
+| Automatic updates: prove a real update | v0.4.2 (notarized Developer ID, Apple submission cd59e74f Accepted) published; installed app is 0.4.1 | Konrad: SwarmHub → Check for Updates… (or wait for the daily check) → install; back up the Sparkle private key |
 | P10c / P10d / P10e Grok import in the app (command, sheet, live) | P10c building (`p10c`, MacBook); live steps need Konrad's Keychain click | then P10d, P10e |
 | P13 Parts C / D / E model roles (prove, existing chats, sub-agents) | Parts A+B merged, C/D/E never started | queued; Part C live step has Konrad's go |
 | P16 No reply is lost | accepted (build all) | queued |
@@ -27,7 +26,7 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | Vanilla test bed: SwarmHub against untouched upstream Hermes 0.22.0 (no getermes patches, no layer), isolated HERMES_HOME + throwaway keys + two profiles; run --check-bots, ui-smoke facts, P22 manager flow against a mock | not started (Konrad 2026-10-14: "I hope this is vanilla hermes") | after P10c; proves SwarmHub needs nothing beyond stock Hermes |
 | P12 Connect OpenClaw | accepted (build all), never started | queued last |
 | Small: sidebar "Import from Grok Bot" item (needs P10d), attention badge for failed turns (needs P16), idle-pause for hidden windows | waiting on the phases named | with those phases |
-| Box/ops: Codex login has no refresh token (Konrad re-logs in), DB password in plain text in the context-api unit, staged P9 bundles on the box to delete, Mac clone remote still says `torvli` | open | flagged to Konrad |
+| Box/ops: Codex login has no refresh token (Konrad re-logs in), DB password in plain text in the context-api unit, staged P9 bundles on the box to delete | open | flagged to Konrad |
 
 ## Standing constraints (from BRIEF*.md and SPEC-6.1)
 - Copy Grok Bot's look and match its features with our own code and assets only. No Grok images,
