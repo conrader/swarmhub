@@ -1,0 +1,187 @@
+#!/bin/sh
+# bot-msg: send one message to another Hermes bot on this box through its gateway, and print its reply.
+# Installed by SwarmHub with the swarmhub-messages skill. POSIX sh (dash, macOS sh) + curl; no jq, no GNU-only tools.
+#
+#   bot-msg --to <bot> [--from <bot>] [--wait <s> (default 300) | --no-wait] -- "<text>"
+#
+# The recipient's session is `swarmhub-from-<sender>`, titled "From <sender>": created on first use, reused after.
+# The recipient's API_SERVER_KEY is read from its profile's .env and handed to curl on stdin (`-K -`), so it is never
+# in argv (ps), the output or the log. Gateway: $SWARMHUB_GATEWAY (default http://127.0.0.1:8642), profiles under
+# /p/<bot>/ like nginx serves them; without SWARMHUB_GATEWAY a profile whose .env sets API_SERVER_PORT is reached on
+# that port directly.
+#
+# Exit: 0 ok (reply on stdout; with --no-wait the session id); 2 unknown bot or no key; 3 gateway error;
+# 124 no reply within --wait; 64 usage. One TSV line per message in ~/.hermes/swarmhub/bot-messages.log:
+# time, from, to, recipient session id, waited|queued, ms, ok|error. Never the text or a key.
+
+usage() { echo "usage: bot-msg --to <bot> [--from <bot>] [--wait <seconds> | --no-wait] -- \"<text>\"" >&2; exit 64; }
+
+TO= FROM= WAIT=300 NOWAIT=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --to|--from|--wait)
+      [ $# -ge 2 ] || usage
+      case $1 in --to) TO=$2 ;; --from) FROM=$2 ;; --wait) WAIT=$2 ;; esac
+      shift 2 ;;
+    --no-wait) NOWAIT=1; shift ;;
+    --) shift; break ;;
+    *) usage ;;
+  esac
+done
+[ $# -eq 1 ] && [ -n "$1" ] || usage
+TEXT=$1
+
+# The sender: --from, else the profile this script is installed in (…/profiles/<bot>/skills/… or ~/.hermes/skills/…).
+if [ -z "$FROM" ]; then
+  case $0 in
+    */.hermes/profiles/*/skills/*) FROM=${0#*/.hermes/profiles/}; FROM=${FROM%%/*} ;;
+    */.hermes/skills/*) FROM=default ;;
+  esac
+fi
+case $TO in ''|*[!A-Za-z0-9_.-]*|.*) echo "bot-msg: --to must be a bot name" >&2; exit 64 ;; esac
+case $FROM in ''|*[!A-Za-z0-9_.-]*|.*) echo "bot-msg: --from must be a bot name (could not tell who is sending)" >&2; exit 64 ;; esac
+case $WAIT in ''|*[!0-9]*|0) echo "bot-msg: --wait must be a number of seconds" >&2; exit 64 ;; esac
+
+H=$HOME/.hermes
+if [ "$TO" = default ]; then ENVF=$H/.env; else ENVF=$H/profiles/$TO/.env; fi
+if [ "$TO" != default ] && [ ! -d "$H/profiles/$TO" ]; then echo "bot-msg: no bot named $TO on this box" >&2; exit 2; fi
+
+# Value of NAME= in the .env (last one wins; optional quotes and a trailing CR dropped).
+env_value() {
+  sed -n "s/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}$1=//p" "$ENVF" 2>/dev/null | tail -n 1 | tr -d '\r' |
+    sed -e 's/^"\(.*\)"[[:space:]]*$/\1/' -e "s/^'\\(.*\\)'[[:space:]]*\$/\\1/" -e 's/[[:space:]]*$//'
+}
+KEY=$(env_value API_SERVER_KEY)
+[ -n "$KEY" ] || { echo "bot-msg: $TO has no API_SERVER_KEY in its .env" >&2; exit 2; }
+case $KEY in *[\"\\]*|*[[:space:]]*) echo "bot-msg: $TO's API_SERVER_KEY is not usable" >&2; exit 2 ;; esac
+
+if [ -n "${SWARMHUB_GATEWAY:-}" ]; then BASE=${SWARMHUB_GATEWAY%/}; PREFIXED=1
+else
+  PORT=$(env_value API_SERVER_PORT)
+  case $PORT in ''|*[!0-9]*) BASE=http://127.0.0.1:8642; PREFIXED=1 ;; *) BASE=http://127.0.0.1:$PORT; PREFIXED= ;; esac
+fi
+BASE=${BASE%/v1}
+if [ -n "$PREFIXED" ] && [ "$TO" != default ]; then URL=$BASE/p/$TO; else URL=$BASE; fi
+
+SID=swarmhub-from-$FROM
+S=$H/swarmhub
+mkdir -p "$S" && chmod 700 "$S" || exit 1
+T=$(mktemp -d "${TMPDIR:-/tmp}/bot-msg.XXXXXX") || exit 1
+chmod 700 "$T"
+
+now_ms() {
+  n=$(date +%s%N 2>/dev/null)
+  case $n in *[!0-9]*|'') echo $(( $(date +%s) * 1000 )) ;; *) echo $(( n / 1000000 )) ;; esac
+}
+START=$(now_ms)
+MODE=waited; [ -n "$NOWAIT" ] && MODE=queued
+
+finish() {
+  rc=$1 word=ok
+  [ "$rc" -eq 0 ] || word=error
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$FROM" "$TO" "$SID" "$MODE" $(( $(now_ms) - START )) "$word" >> "$S/bot-messages.log"
+  rm -rf "$T"
+  exit "$rc"
+}
+trap 'finish 130' INT TERM
+
+# JSON string of stdin (LC_ALL=C: bytes pass through; quotes, backslashes, tabs, newlines escaped; other controls dropped).
+json_string() {
+  LC_ALL=C awk 'BEGIN { ORS = "" } {
+      gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r"); gsub(/[\001-\037]/, "")
+      out = out (NR > 1 ? "\\n" : "") $0 }
+    END { print "\"" out "\"" }'
+}
+
+# curl with the key from stdin. $1 = output file, rest = curl arguments; prints the HTTP status (000 when none).
+api() {
+  out=$1; shift
+  printf 'header = "Authorization: Bearer %s"\n' "$KEY" |
+    curl -sS -K - -o "$out" -w '%{http_code}' -H 'Content-Type: application/json' -H 'Accept: application/json' "$@" 2> "$T/curl.err"
+}
+
+# The thread: create it; 409 means it is already there.
+TITLE=$(printf 'From %s' "$FROM" | json_string)
+printf '{"id":"%s","title":%s,"source":"api_server"}' "$SID" "$TITLE" > "$T/create.json"
+code=$(api "$T/create.out" --max-time 20 -X POST --data-binary @"$T/create.json" "$URL/api/sessions")
+case $code in
+  200|201|409) ;;
+  000) echo "bot-msg: the gateway for $TO did not answer: $(head -n 1 "$T/curl.err")" >&2; finish 3 ;;
+  401|403) echo "bot-msg: the gateway for $TO refused its key (HTTP $code)" >&2; finish 3 ;;
+  *) echo "bot-msg: the gateway for $TO answered HTTP $code" >&2; finish 3 ;;
+esac
+
+{ printf '[Message from %s via SwarmHub]\n' "$FROM"; printf '%s\n' "$TEXT"; } | json_string > "$T/input"
+{ printf '{"input":'; cat "$T/input"; printf '}'; } > "$T/chat.json"
+rm -f "$T/input"
+
+if [ -n "$NOWAIT" ]; then
+  # The run goes on in the background; its reply lands in the thread.
+  KEYLINE=$(printf 'header = "Authorization: Bearer %s"' "$KEY")
+  ( printf '%s\n' "$KEYLINE" | curl -sS -K - -o /dev/null --max-time 3600 -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+      -X POST --data-binary @"$T/chat.json" "$URL/api/sessions/$SID/chat/stream" > /dev/null 2>&1 ) < /dev/null &
+  # curl reads the body at start; give it a moment before the folder goes.
+  sleep 1
+  echo "$SID"
+  finish 0
+fi
+
+code=$(api "$T/stream" --max-time "$WAIT" -N -H 'Accept: text/event-stream' -X POST --data-binary @"$T/chat.json" "$URL/api/sessions/$SID/chat/stream")
+rc=$?
+if [ "$rc" -eq 28 ]; then echo "bot-msg: no reply from $TO within ${WAIT}s; it may still answer in the thread $SID" >&2; finish 124; fi
+case $code in
+  200) ;;
+  000) echo "bot-msg: the gateway for $TO did not answer: $(head -n 1 "$T/curl.err")" >&2; finish 3 ;;
+  *) echo "bot-msg: the gateway for $TO answered HTTP $code" >&2; finish 3 ;;
+esac
+
+# The reply from the event stream: assistant.completed's content, else the deltas; run.failed/error is a gateway error.
+LC_ALL=C awk -v out="$T/reply" -v err="$T/failed" '
+  function hex(h,   i, c, v) { v = 0; for (i = 1; i <= 4; i++) { c = index("0123456789abcdef", tolower(substr(h, i, 1))); v = v * 16 + c - 1 } return v }
+  function utf8(c) {
+    if (c < 128) return sprintf("%c", c)
+    if (c < 2048) return sprintf("%c%c", 192 + int(c / 64), 128 + c % 64)
+    if (c < 65536) return sprintf("%c%c%c", 224 + int(c / 4096), 128 + int(c / 64) % 64, 128 + c % 64)
+    return sprintf("%c%c%c%c", 240 + int(c / 262144), 128 + int(c / 4096) % 64, 128 + int(c / 64) % 64, 128 + c % 64)
+  }
+  # The decoded JSON string value of "key" in s, or "" (found = 0).
+  function field(s, key,   p, i, ch, v, c, d) {
+    found = 0
+    p = index(s, "\"" key "\":")
+    if (!p) return ""
+    s = substr(s, p + length(key) + 3); sub(/^[ \t]*/, "", s)
+    if (substr(s, 1, 1) != "\"") return ""
+    found = 1; v = ""
+    for (i = 2; i <= length(s); i++) {
+      ch = substr(s, i, 1)
+      if (ch == "\"") break
+      if (ch != "\\") { v = v ch; continue }
+      ch = substr(s, ++i, 1)
+      if (ch == "n") v = v "\n"; else if (ch == "t") v = v "\t"; else if (ch == "r") v = v "\r"
+      else if (ch == "b" || ch == "f") v = v
+      else if (ch == "u") {
+        c = hex(substr(s, i + 1, 4)); i += 4
+        if (c >= 55296 && c < 56320 && substr(s, i + 1, 2) == "\\u") { d = hex(substr(s, i + 3, 4)); i += 6; c = 65536 + (c - 55296) * 1024 + (d - 56320) }
+        v = v utf8(c)
+      } else v = v ch
+    }
+    return v
+  }
+  /^event:/ { ev = $0; sub(/^event:[ ]*/, "", ev); sub(/\r$/, "", ev); next }
+  /^data:/ {
+    d = $0; sub(/^data:[ ]*/, "", d)
+    if (ev == "assistant.delta" || ev == "message.delta") { t = field(d, "delta"); if (!found) t = field(d, "text"); deltas = deltas t }
+    else if (ev == "assistant.completed") { t = field(d, "content"); if (found && t != "") final = t }
+    else if (ev == "run.failed" || ev == "error") { t = field(d, "error"); if (t == "") t = field(d, "message"); failed = (t == "" ? "the run failed" : t) }
+    else if (ev == "run.cancelled") failed = "the run was cancelled"
+    next
+  }
+  END {
+    if (failed != "") { printf "%s\n", failed > err; exit }
+    r = (final != "" ? final : deltas)
+    printf "%s", r > out
+  }' "$T/stream"
+if [ -s "$T/failed" ]; then echo "bot-msg: $TO could not answer: $(head -n 1 "$T/failed")" >&2; finish 3; fi
+cat "$T/reply" 2>/dev/null
+echo
+finish 0

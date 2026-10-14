@@ -69,7 +69,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let (store, _, coder, _) = codingStore()
     coder.modelSettings = BotModelSettings(codingAgent: .codexClaudeHermes)
     let skills = store.skills(for: coder)
-    #expect(skills.map(\.name) == ["swarmhub-coding"], "every Hermes bot gets it; the manager skill only the manager")
+    #expect(skills.map(\.name) == ["swarmhub-coding", "swarmhub-messages"], "every Hermes bot gets them; the manager skill only the manager")
     let text = try #require(try store.skillInstallInstructions(skills, profile: "coder", botName: "Coder", codingOrder: store.codingOrder(for: coder)))
     let folder = "~/.hermes/profiles/coder/skills/swarmhub/swarmhub-coding"
     let script = try #require(try codingSkill().files.first)
