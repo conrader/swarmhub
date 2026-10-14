@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Overview sections fed by the bot's Hermes profile: model (with per-chat picker), skills and toolsets.
-/// Locally imported template skills stay listed separately because they are not installed on the server.
+/// Imported template skills are listed separately with Install (P32, `ImportedSkillViews.swift`); bare skill names without
+/// Markdown stay as chips.
 struct BotCapabilitiesView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
@@ -97,7 +98,11 @@ struct BotCapabilitiesView: View {
 
     // MARK: Imported
 
-    private var importedNames: [String] { Self.importedOnly(bot.importedSkills.map(\.name) + bot.skills, server: info?.skills.value ?? []) }
+    /// Bare names only: skills with Markdown have their own section with Install.
+    private var importedNames: [String] {
+        let withMarkdown = Set(store.importedSkills(for: bot).map { $0.name.lowercased() })
+        return Self.importedOnly(bot.skills.filter { !withMarkdown.contains($0.lowercased()) }, server: info?.skills.value ?? [])
+    }
 
     /// Local skill names, de-duplicated, minus any the server already lists (case-insensitive).
     nonisolated static func importedOnly(_ local: [String], server: [HermesSkill]) -> [String] {
@@ -108,10 +113,11 @@ struct BotCapabilitiesView: View {
     }
 
     @ViewBuilder private var importedSection: some View {
+        ImportedSkillsSection(bot: bot, server: info?.skills.value ?? [])
         let names = importedNames
-        if !isHermes || !names.isEmpty {
+        if !isHermes && store.importedSkills(for: bot).isEmpty || !names.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text(isHermes ? "Imported (not on server)" : "Skills").font(.headline)
+                Text(isHermes ? "Other imported names (not on server)" : "Skills").font(.headline)
                 if names.isEmpty { note("No skills configured") }
                 ForEach(names, id: \.self) { name in Text(name).font(.caption).padding(.horizontal, 9).padding(.vertical, 5).background(.primary.opacity(0.06), in: Capsule()) }
             }

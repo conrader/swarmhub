@@ -21,6 +21,8 @@ import Foundation
     /// P28: queued steers per turn (keyed by the turn's first reply row), the row a split turn now streams into, and the
     /// turn whose answer is being stopped for a correction.
     var steers: [UUID: PendingSteer] = [:]; var parts: [UUID: ChatMessage] = [:]; var correcting: UUID?
+    /// P32: failed steers sent as the next message once the running turn ends (`AppStore+NextMessage.swift`).
+    var nextMessages: [QueuedNextMessage] = []
 }
 
 /// P16 Part 2: one stream consumer and one `finishTurn` for both send paths.
@@ -147,12 +149,13 @@ extension AppStore {
         }
         save()
         let hasText = !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if outcome.state == .finished { handleManagerReply(assistant, from: bot, in: conversation) }
+        if outcome.state == .finished { handleManagerReply(assistant, from: bot, in: conversation); refreshModelsAfterRecipe(assistant, from: bot, in: conversation) }
         if outcome.state == .finished && hasText {
             AvatarReactions.shared.completed(bot)
             notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.content))
         }
         resendReturnedSteers(steers, bot: bot)
+        sendQueuedNextMessage()
     }
 
     /// History for a 1:1 turn: the transcript up to and including `last`, without steer bubbles, warning lines and empty replies.

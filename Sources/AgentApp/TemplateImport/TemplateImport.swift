@@ -250,7 +250,7 @@ enum TemplateImportMapper {
             else { report.append(.init(category: "Bot", name: "Avatar", status: .converted, reason: "External avatar data is not copied; the default \(AppConstants.name) avatar will be used.")) }
         }
         for memory in manifest.memories { report.append(.init(category: "Memory", name: memory.name, status: .converted, reason: "Saved with the bot in \(AppConstants.name); not yet given to the agent or Hermes memory.")) }
-        for skill in manifest.skills { report.append(.init(category: "Skill", name: skill.name, status: .converted, reason: "Preserved as Markdown in the inert Hermes template configuration; runtime installation is not exposed by the connected API.")) }
+        for skill in manifest.skills { report.append(.init(category: "Skill", name: skill.name, status: .converted, reason: "Kept with the bot as Markdown. Overview → Imported skills shows it and installs it through the manager bot (Hermes only).")) }
         var routines: [BotRoutine] = []
         for routine in manifest.routines {
             if let schedule = routine.schedule {
@@ -270,7 +270,7 @@ enum TemplateImportMapper {
             } else { report.append(.init(category: "Connector", name: connector, status: .unsupported, reason: "Unknown connector ID; it is not carried over.")) }
         }
         if let skill = manifest.gettingStartedSkill {
-            report.append(.init(category: "Getting started", name: skill.name, status: .converted, reason: "Preserved but disabled until the owner reviews and activates it for the first conversation."))
+            report.append(.init(category: "Getting started", name: skill.name, status: .converted, reason: "Kept with the bot, not installed. Overview → Imported skills shows it and installs it through the manager bot, like the other imported skills (Hermes only)."))
         }
         if manifest.rejectedSecretCount > 0 {
             let noun = manifest.rejectedSecretCount == 1 ? "field or value was" : "fields or values were"

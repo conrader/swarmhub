@@ -18,9 +18,9 @@ The run script builds and launches the app.
 
 ### Connect Hermes
 
-1. Open **Settings → Account** and enter your Hermes server’s base URL and API key.
-2. Use **Test & Discover** to check the connection.
-3. For named profiles, use **Add bots from box** with one `profile=key` per line. Each profile needs its own key.
+1. On first run the setup window asks for your Hermes server’s address and key, tests them and lets you pick its agents. Later: **Settings → Change connection…**.
+2. To enter them by hand, open **Settings → Advanced… → Servers and keys**, fill in the base URL and key, and use **Test & Discover**.
+3. For named profiles, use **Add bots from box** (same pane) with one `profile=key` per line. Each profile needs its own key.
 
 Need to set up the server first? Follow the [Hermes setup notes](reference.md#hermes-agent-setup). For imports, see [Grok Bot history](reference.md#feature-parity) and [bot templates](reference.md#grok-bot-template-import).
 
@@ -28,8 +28,8 @@ Need to set up the server first? Follow the [Hermes setup notes](reference.md#he
 
 | Shortcut | Action |
 |:--|:--|
-| `⌘ K` | Open the quick switcher |
-| `⌘ N` | Create a bot |
+| `⌘ K` | Open the quick switcher (↑/↓ move, Return opens, Esc closes) |
+| `⌘ N` | Create an agent |
 | `⌃ ⌘ S` | Toggle the sidebar |
 | `⇧ ⌘ I` | Toggle the info panel |
 
@@ -81,7 +81,7 @@ flowchart TD
 
 ## Project status
 
-**This is a prototype.** Windows and Linux versions are planned. Hermes and OpenClaw are implemented; the OpenClaw connection was built against the published protocol and a test Gateway, and still needs a check against a real Gateway. More reliable recovery of interrupted turns and coding threads are planned.
+**This is a prototype.** Windows and Linux versions are planned. Hermes and OpenClaw are implemented; the OpenClaw connection was built against the published protocol and a test Gateway, and still needs a check against a real Gateway. Interrupted replies are recovered from your server ([how](reference.md#never-losing-a-reply)), and coding threads use each agent's coding model.
 
 Approvals default to **Ask me**. Rules and reviewer modes have known limitations, and provider-backed reviewer decisions remain unverified. Read the [known issues](reference.md#known-issues) before enabling automatic approvals.
 
