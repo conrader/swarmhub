@@ -42,8 +42,8 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
 
 @Test func managerTextCarriesTheModelRecipeWithinItsBudget() throws {
     let template = try #require(BotManagerText.template())
-    // P30: the exact recipe block took the text past 4 KiB.
-    #expect(template.utf8.count <= 4608, "manager-hermes.md is \(template.utf8.count) bytes")
+    // P30: the exact recipe block took the text past 4 KiB; P35's list, connect and restore recipes to 6.4 KiB.
+    #expect(template.utf8.count <= 6656, "manager-hermes.md is \(template.utf8.count) bytes")
     #expect(template.contains(modelRecipe))
     #expect(template.contains(#"hermes -p "$N" config set "$K" "$V""#) && template.contains("KM=model.default KP=model.provider"))
     #expect(template.contains("xargs -P 2 -n 1") && template.contains("2>>swarmhub-model.err") && template.contains("echo DONE >> swarmhub-model.log"))
@@ -68,7 +68,7 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
     #expect(skills.map(\.name) == ["swarmhub-coding", "swarmhub-manager"], "P31: swarmhub-coding joins it")
     let skill = try #require(skills.first { $0.name == SkillLibrary.managerSkill })
     #expect(skill.files.isEmpty, "the manager skill is SKILL.md only")
-    #expect(skill.version == SkillVersion("1.0.1")!, "P30: the faster model recipe")
+    #expect(skill.version == SkillVersion("1.0.2")!, "P35: the list, connect and restore recipes")
     #expect(SkillLibrary.state(installed: "1.0.0", bundled: skill.version) == .outdated(installed: "1.0.0"), "bots on 1.0.0 get the Update banner")
     let fields = SkillLibrary.frontmatter(skill.template)
     #expect(fields["name"] == "swarmhub-manager" && fields["version"] == skill.version.description)
