@@ -24,7 +24,7 @@ import Testing
 @MainActor @Test func tokenAppendsAutosaveTheIncompletePartial() async throws {
     let url = temporaryStore()
     let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning)
-    let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { _ in backend })
+    let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.autosaveInterval = .zero
     let bot = Bot(name: "Saver", backend: .hermes, hermesSessionID: "s"); store.bots = [bot]; store.selectedBot = bot
     store.send(text: "go")

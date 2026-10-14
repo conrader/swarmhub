@@ -28,7 +28,7 @@ final class WebSocketTransport: GatewayTransport, @unchecked Sendable {
     private let continuation: AsyncThrowingStream<String, Error>.Continuation
 
     /// No cookies, cache or credential store: nothing about a Gateway outlives the socket except what the Keychain keeps.
-    static let session = URLSession(configuration: .ephemeral)
+    static let session = URLSession(configuration: TestRunGuard.guarded(.ephemeral))
 
     init(session: URLSession = WebSocketTransport.session) {
         self.session = session
@@ -36,6 +36,7 @@ final class WebSocketTransport: GatewayTransport, @unchecked Sendable {
     }
 
     func open(_ request: URLRequest) async throws {
+        guard TestRunGuard.allows(request) else { throw URLError(.notConnectedToInternet) } // URLProtocols do not see WebSocket tasks
         let task = session.webSocketTask(with: request)
         task.maximumMessageSize = Self.maximumMessageSize
         lock.withLock { self.task = task }

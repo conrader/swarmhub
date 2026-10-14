@@ -21,8 +21,8 @@ struct MessageView: View {
             if message.role == .user { Spacer(minLength: 110) }
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {
                 if let repliedMessage { HStack(spacing: 5) { Rectangle().fill(.secondary.opacity(0.35)).frame(width: 2, height: 24); Text(SwarmhubBlock.visibleText(repliedMessage.content)).lineLimit(1) }.font(.caption).foregroundStyle(.secondary) }
-                if message.isSteer {
-                    Label(message.metadata["steer"] == "failed" ? "Steer not delivered" : "Steered the running turn", systemImage: "arrow.turn.down.right").font(.caption2).foregroundStyle(.secondary)
+                if let caption = SteerCopy.caption(message) {
+                    Label(caption, systemImage: "arrow.turn.down.right").font(.caption2).foregroundStyle(.secondary)
                 }
                 if !message.attachments.isEmpty { AttachmentThumbnails(attachments: message.attachments) }
                 content
@@ -73,8 +73,8 @@ struct MessageView: View {
             } else if message.role == .user {
                 if !message.content.isEmpty {
                     Text(markdown).textSelection(.enabled).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)
-                        .background(message.isSteer ? AppColor.card : AppColor.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay { if message.isSteer { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColor.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3])) } }
+                        .background(message.isSteer || message.isCorrection ? AppColor.card : AppColor.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay { if message.isSteer || message.isCorrection { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColor.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3])) } }
                 }
             } else {
                 MarkdownContent(message: message)

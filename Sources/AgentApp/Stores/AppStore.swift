@@ -29,6 +29,8 @@ import UserNotifications
     /// turn takes steer messages, and a message the transcript should scroll to (Media tab).
     @Published var botFeatures: [UUID: Set<String>] = [:]; @Published var openThreadID: UUID?
     @Published var steerAvailable = false; @Published var scrollTarget: UUID?
+    /// P28 D2: the one-time caption under the composer after the first steer.
+    @Published var steerHint: String?
     /// P5 group chats; `selectedGroup` wins over `selectedBot` in the detail column.
     @Published var groups: [GroupChat] = []; @Published var selectedGroup: GroupChat?; @Published var showingNewGroup = false
     var groupRun: GroupRun?; var migratedGroupNames: [String] = []
@@ -66,10 +68,16 @@ import UserNotifications
     @Published var openClawGateways: [OpenClawGateway] = []
     var injectedOpenClawHub: OpenClawHub?; var openClawWakeObserver: NSObjectProtocol?
     private(set) lazy var openClawHub: OpenClawHub = makeOpenClawHub()
-    private let didCancelLocalStream: (() -> Void)?
+    let didCancelLocalStream: (() -> Void)?
     let reviewerTimeout: Duration
 
     init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil, openClawHub: OpenClawHub? = nil) {
+        // P28: a test run never opens the real store.json or the standard defaults; either is reported and replaced.
+        var storeURL = storeURL, defaults = defaults
+        if storeURL == nil, TestRunGuard.refuses("AppStore without storeURL (the real store.json)") {
+            storeURL = FileManager.default.temporaryDirectory.appending(path: "AgentAppTests-unguarded-\(UUID().uuidString)/store.json")
+        }
+        if defaults === UserDefaults.standard, TestRunGuard.refuses("AppStore on UserDefaults.standard") { defaults = UserDefaults(suiteName: "AgentAppTests-unguarded-\(UUID().uuidString)") ?? defaults }
         self.keyStore = keyStore; self.defaults = defaults; self.hermesSession = hermesSession; self.connectivity = connectivity
         injectedOpenClawHub = openClawHub
         self.backendFactory = backendFactory
@@ -169,17 +177,23 @@ import UserNotifications
         do { activeBackend = try backend(for: bot); images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) }
         catch { errorMessage = error.localizedDescription; return false }
         let conversation: any Conversation = openThread(in: bot) ?? bot
-        historyLoadTokens[bot.id] = nil
-        conversation.messages.append(ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)); replyTo = nil; let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete); conversation.messages.append(assistant)
+        historyLoadTokens[bot.id] = nil; steerHint = nil
+        let user = ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments); replyTo = nil
+        conversation.messages.append(user)
+        startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
+        return true
+    }
+    /// Starts the 1:1 or thread turn answering `user`, which is already the last user row of `conversation`.
+    func startChatTurn(bot: Bot, conversation: any Conversation, user: ChatMessage, images: [String] = [], backend activeBackend: any AgentBackend) {
+        let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete); conversation.messages.append(assistant)
         objectWillChange.send(); save(); isStreaming = true; streamingBotID = bot.id; streamingAssistant = assistant; streamingConversation = conversation
         let streamToken = UUID(); activeStreamToken = streamToken
-        let managementText = self.managementText(for: bot, text: text, conversation: conversation)
+        let managementText = self.managementText(for: bot, text: user.content, conversation: conversation)
         let history = chatHistory(conversation, excluding: assistant)
         streamTask = Task { [weak self] in
             await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.persona,
                                     managementText: managementText, backend: activeBackend, token: streamToken)
         }
-        return true
     }
     var isIdle: Bool { streamTask == nil }
     func notifyIfNeeded(bot: Bot, message: String) {

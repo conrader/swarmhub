@@ -54,6 +54,7 @@ struct GrokKeychain: GrokPasswordProvider {
     }
 
     func probe() -> OSStatus {
+        if TestRunGuard.refuses("Keychain probe Grok Bot Safe Storage") { return errSecInteractionNotAllowed }
         var query = baseQuery
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -64,6 +65,7 @@ struct GrokKeychain: GrokPasswordProvider {
     }
 
     func readPassword() throws -> [UInt8] {
+        if TestRunGuard.refuses("Keychain read Grok Bot Safe Storage") { throw GrokKeychainError.interactionNotAllowed }
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne

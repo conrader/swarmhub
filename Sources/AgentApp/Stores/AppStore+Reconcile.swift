@@ -101,7 +101,8 @@ extension AppStore {
 
     private func reconcileUnit(_ unit: ReconcileUnit, full: Bool, ignoringStream: Bool, into report: inout ReconcileReport) async {
         guard !needsKey(unit.bot), let activeBackend = try? backend(for: unit.bot) else { report.problems.append("\(unit.name): no readable key"); return }
-        do { if try await activeBackend.sessionTransport() == .legacyChatCompletions { return } } catch { report.unreachable = true; report.problems.append("\(unit.name): read failed"); return }
+        // A box that answered (e.g. 401 for a rejected key, P28 D6) is not "unreachable": no quick retries for it.
+        do { if try await activeBackend.sessionTransport() == .legacyChatCompletions { return } } catch { report.unreachable = !(error is BackendError); report.problems.append("\(unit.name): read failed"); return }
         let snapshot = unit.conversation.messages.map(HistoryReconciler.LocalRow.init)
         let oldestNeeded = snapshot.filter { $0.role == .assistant && ($0.state == .incomplete || $0.state == .notSent || ($0.isEmpty && $0.state != .finished && $0.state != .stopped)) }.map(\.createdAt).min()
         let read: SessionRead

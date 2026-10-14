@@ -201,3 +201,16 @@ func hermesModelsHandler(multiplex: Bool, served: Set<String>) -> MockHermesProt
         return parts == ["v1", "models"] ? (200, ["data": [["id": "hermes-agent"]]]) : (404, ["error": "no route"])
     }
 }
+
+/// Fails every request as unreachable, like a fixture host (`box.test`) that does not exist. For stores whose bots sit on
+/// such hosts, so no probe ever reaches the system HTTP stack (P28).
+final class UnreachableProtocol: URLProtocol, @unchecked Sendable {
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [UnreachableProtocol.self]
+        return URLSession(configuration: configuration)
+    }()
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost)) }
+    override func stopLoading() {}
+}

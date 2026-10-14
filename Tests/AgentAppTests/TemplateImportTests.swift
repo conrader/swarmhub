@@ -64,7 +64,7 @@ import Testing
         ]
         let manifest = try GrokTemplateParser.parse(JSONSerialization.data(withJSONObject: object))
         #expect(manifest.rejectedSecretCount >= 5)
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false)
+        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         store.bots = []
         _ = store.importTemplate(TemplateImportMapper.makePlan(from: manifest))
         let persisted = String(decoding: try JSONEncoder().encode(store.bots), as: UTF8.self)
@@ -95,7 +95,7 @@ import Testing
     #expect(!plan.manifest.instructions.contains(marker))
 
     let url = temporaryStore()
-    let store = AppStore(storeURL: url, autoConfigureHermes: false)
+    let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.bots = []
     let bot = store.importTemplate(plan)
     #expect(!bot.persona.contains(marker))
@@ -109,13 +109,7 @@ import Testing
 }
 
 @Test @MainActor func templateImportRemovesWholePrivateKeyBlockFromPreviewStoreAndHermesPersona() throws {
-    let configurationKey = "hermesBaseURL"
-    let previousConfiguration = UserDefaults.standard.object(forKey: configurationKey)
-    defer {
-        if let previousConfiguration { UserDefaults.standard.set(previousConfiguration, forKey: configurationKey) }
-        else { UserDefaults.standard.removeObject(forKey: configurationKey) }
-    }
-    UserDefaults.standard.set("http://127.0.0.1:8642/v1", forKey: configurationKey)
+    let defaults = isolatedDefaults(); defaults.set("http://127.0.0.1:8642/v1", forKey: "hermesBaseURL")
     let bodyLines = [
         "VGhpcyBpcyBhIHN5bnRoZXRpYyBrZXkgYm9keS4=",
         "U2Vjb25kIHN5bnRoZXRpYyBiYXNlNjQgbGluZS4=",
@@ -128,7 +122,7 @@ import Testing
     #expect(plan.manifest.instructions.contains("Before")); #expect(plan.manifest.instructions.contains("After"))
 
     let url = temporaryStore()
-    let store = AppStore(storeURL: url, autoConfigureHermes: false)
+    let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: defaults)
     store.bots = []
     let bot = store.importTemplate(plan)
     #expect(bot.backend == .hermes); #expect(bot.persona == plan.manifest.instructions)
@@ -169,7 +163,7 @@ import Testing
 }
 
 @Test @MainActor func previewPlanDoesNotCreateBotUntilExplicitImport() throws {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false)
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.bots = []
     let manifest = try GrokTemplateParser.parse(##"{"name":"Only after confirm","skills":[{"name":"S","markdown":"# S"}],"routines":[{"name":"C","cron":"0 1 * * *"}]}"##.data(using: .utf8)!)
     let plan = TemplateImportMapper.makePlan(from: manifest)

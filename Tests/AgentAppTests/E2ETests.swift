@@ -10,20 +10,26 @@ import Testing
     var lines: [String] = []
     let steps = await HeadlessE2E.run(store: store, bots: bots, timing: .fast, output: { lines.append($0) })
 
-    #expect(steps.map { $0.id } == ["a", "b", "c", "d", "e", "f"])
+    #expect(steps.map { $0.id } == ["a", "b1", "b2", "c", "d", "e", "f"])
     #expect(steps.allSatisfy { $0.passed }, "\(lines)")
-    #expect(lines.prefix(6).allSatisfy { $0.hasPrefix("PASS ") })
-    #expect(lines.last == "E2E: 6 passed, 0 failed")
-    #expect(steps[1].detail.contains("steer accepted (HTTP 2xx)") && steps[1].detail.contains("E2E-STEER"))
+    #expect(lines.prefix(7).allSatisfy { $0.hasPrefix("PASS ") })
+    #expect(lines.last == "E2E: 7 passed, 0 failed")
+    // P28 D4: b1 stopped the count and sent the correction; b2's steer landed after the terminal step.
+    #expect(steps[1].detail.contains("partial kept") && steps[1].detail.contains("E2E-STEER"))
+    #expect(steps[2].detail.contains("after the terminal step") && steps[2].detail.contains("E2E-STEER"))
 
     let requests = state.requests()
     // Every session created or forked is a new AppConstants.selfTestPrefix session; every message carries the preamble.
     let created = requests.filter { $0.method == "POST" && ($0.path.hasSuffix("/api/sessions") || $0.path.hasSuffix("/fork")) }.compactMap { $0.body?["id"] as? String }
-    #expect(created.count == 4, "a, b and the group create a session; c forks one")
+    #expect(created.count == 5, "a, b1, b2 and the group create a session; c forks one")
     #expect(created.allSatisfy { $0.hasPrefix(AppConstants.selfTestPrefix) })
     let inputs = requests.filter { $0.path.hasSuffix("/chat/stream") }.map { $0.body?["input"] as? String ?? "" }
-    #expect(inputs.count == 5)
+    #expect(inputs.count == 7, "a, b1, b1's correction, b2, c, d, e")
     #expect(inputs.allSatisfy { $0.contains(HeadlessE2E.preamble) })
+    // b1: Stop was requested for the count's run before the correction went out, with its lead line.
+    let stop = try #require(requests.firstIndex { $0.path.hasSuffix("/stop") })
+    let correction = try #require(requests.firstIndex { ($0.body?["input"] as? String)?.hasPrefix(SteerCopy.lead) == true })
+    #expect(stop < correction)
     #expect(requests.allSatisfy { !$0.path.hasPrefix("/p/grok-achilles/") || $0.method == "GET" }, "Achilles was not mentioned, so nothing is sent to it")
     // Model: switched to the other offered model, then back.
     let locks = requests.filter { $0.path.hasSuffix("/model") }.compactMap { $0.body?["model"] as? String }
@@ -39,10 +45,11 @@ import Testing
     var lines: [String] = []
     let steps = await HeadlessE2E.run(store: store, bots: bots, timing: .fast, output: { lines.append($0) })
 
-    #expect(steps.filter { !$0.passed }.map { $0.id } == ["b", "c"], "\(lines)")
-    #expect(lines.contains { $0.hasPrefix("FAIL b steer") && $0.contains("steer not offered") })
+    #expect(steps.filter { !$0.passed }.map { $0.id } == ["b1", "b2", "c"], "\(lines)")
+    #expect(lines.contains { $0.hasPrefix("FAIL b1 steer during text") && $0.contains("steer not offered") })
+    #expect(lines.contains { $0.hasPrefix("FAIL b2 steer during a tool step") && $0.contains("steer not offered") })
     #expect(lines.contains { $0.hasPrefix("FAIL c fork") && $0.contains("session_fork") })
-    #expect(lines.last == "E2E: 4 passed, 2 failed")
+    #expect(lines.last == "E2E: 4 passed, 3 failed")
     #expect(!state.requests().contains { $0.path.hasSuffix("/fork") || $0.path.hasSuffix("/steer") })
 }
 

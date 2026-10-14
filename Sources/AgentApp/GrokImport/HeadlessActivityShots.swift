@@ -26,7 +26,8 @@ import SwiftUI
     }
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
-        let store = SetupPreview.makeStore(); store.isSetupPreview = false
+        // P28 D6: a mock backend, so the chat's capability read never leaves the Mac with the synthetic key.
+        let store = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); store.isSetupPreview = false
         let jarvis = Bot(name: "Jarvis", persona: "You are Jarvis.", backend: .hermes, hermesProfile: "grok-jarvis")
         jarvis.canManageBots = true
         store.keyStore.setKey("synthetic", for: AppStore.keyAccount(forProfile: "grok-jarvis"))

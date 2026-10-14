@@ -37,13 +37,6 @@ final class StreamProbe: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     }
 }
 
-private actor HermesCapabilityRegistry {
-    static let shared = HermesCapabilityRegistry()
-    private var values: [String: Set<String>] = [:]
-    func value(for key: String) -> Set<String>? { values[key] }
-    func set(_ value: Set<String>, for key: String) { values[key] = value }
-}
-
 enum HermesTransport: Sendable, Equatable { case nativeSessions, legacyChatCompletions }
 
 struct HermesAgentProfile: Sendable, Equatable { let id: String; let name: String; let model: String }
@@ -85,18 +78,18 @@ struct HermesBackend: AgentBackend {
         try await features().contains("session_chat_streaming") ? .nativeSessions : .legacyChatCompletions
     }
 
-    /// True `/v1/capabilities` feature flags, cached per server and profile; a 404 means none.
+    /// True `/v1/capabilities` feature flags, cached per server, profile and key; a 404 means none. Reads go through
+    /// `capabilitiesJSON()` (P28 D6: one request for concurrent callers, a rejected key backs off).
     func features() async throws -> Set<String> {
-        let cacheKey = "\(baseURL.absoluteString)|\(profile)"
-        if let cached = await HermesCapabilityRegistry.shared.value(for: cacheKey) { return cached }
+        if let cached = await HermesCapabilityRegistry.shared.flags(for: capabilityScope) { return cached }
         let flags: Set<String>
         do {
-            let features = try await jsonRequest(path: "v1/capabilities")["features"] as? [String: Any] ?? [:]
+            let features = try await capabilitiesJSON()["features"] as? [String: Any] ?? [:]
             flags = Set(features.compactMap { ($0.value as? Bool) == true ? $0.key : nil })
         } catch BackendError.http(let code, _) where code == 404 {
             flags = []
         }
-        await HermesCapabilityRegistry.shared.set(flags, for: cacheKey)
+        await HermesCapabilityRegistry.shared.setFlags(flags, for: capabilityScope)
         return flags
     }
 
@@ -388,6 +381,7 @@ struct HermesBackend: AgentBackend {
         case "subagent.complete": continuation.yield(.subAgent(.init(id: UUID(), title: json["task"] as? String ?? "Delegated task", detail: json["summary"] as? String ?? "", status: (json["status"] as? String) == "completed" ? .completed : .failed)))
         case "assistant.completed":
             if !emittedAssistantDelta, let content = json["content"] as? String, !content.isEmpty { continuation.yield(.token(content)) }
+            if let text = json["pending_steer"] as? String, !text.isEmpty { continuation.yield(.steer(.returned(text))) }
             continuation.yield(.completed)
         case "approval.request":
             // v0.21.7 emits `command` at the top level. Pollable run status and some
@@ -413,7 +407,11 @@ struct HermesBackend: AgentBackend {
             let requestID = (identity["request_id"] as? String) ?? (json["request_id"] as? String)
             let actionKind = firstNonempty("action_kind")?.0 ?? firstNonempty("tool_name")?.0 ?? firstNonempty("action")?.0 ?? "command"
             continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command ?? displayCommandSource?.0 ?? "Command unknown", draft: nil, command: command, runID: runID, requestID: requestID, actionKind: actionKind)))
-        case "run.completed": continuation.yield(.completed)
+        case "run.completed":
+            if let text = json["pending_steer"] as? String, !text.isEmpty { continuation.yield(.steer(.returned(text))) }
+            continuation.yield(.completed)
+        // P28: the box queued a steer for this run (it lands after the current tool batch).
+        case "run.steered": continuation.yield(.steer(.accepted))
         // The box closed the run without a full answer (another client's Stop); the reconcile reads what it kept.
         case "run.cancelled": continuation.yield(.failed("The box cancelled this run."))
         case "run.failed", "error": continuation.yield(.failed(json["error"] as? String ?? json["message"] as? String ?? "Hermes run failed."))

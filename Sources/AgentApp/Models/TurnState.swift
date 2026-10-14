@@ -92,4 +92,6 @@ enum TurnKey {
     static let forUser = "for", run = "run", why = "why", ambiguous = "ambiguous", restored = "restored", box = "box", tone = "tone"
     /// How the box ended a reply it holds no more of ("none" or "error"), the result of the user's Refresh, and Retry prompts.
     static let end = "end", check = "check", retry = "retry"
+    /// P28 D5: a reply split by a delivered steer: "1" on the part before it, "2", "3"… on the parts after.
+    static let part = "part"
 }

@@ -30,7 +30,7 @@ enum HermesURLSession {
     static let shared: URLSession = make()
 
     static func make() -> URLSession {
-        let configuration = URLSessionConfiguration.default
+        let configuration = TestRunGuard.guarded(.default)
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: configuration)

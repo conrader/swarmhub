@@ -75,7 +75,12 @@ extension ChatAttachment {
 
 extension ChatMessage {
     /// Steer bubbles were sent to a running turn, not as a turn of their own.
-    var isSteer: Bool { metadata["steer"] != nil }
-    /// The text Hermes receives for this message: typed text plus inline text files.
-    var outgoingText: String { AttachmentEncoder.compose(text: content, attachments: attachments) }
+    var isSteer: Bool { metadata[SteerKey.steer] != nil }
+    /// P28: a correction sent as its own message after the answer was stopped (a turn of its own, unlike a steer).
+    var isCorrection: Bool { metadata[SteerKey.correction] != nil }
+    /// The text Hermes receives for this message: typed text plus inline text files; a correction carries its lead line.
+    var outgoingText: String {
+        let text = AttachmentEncoder.compose(text: content, attachments: attachments)
+        return isCorrection ? SteerCopy.lead + "\n" + text : text
+    }
 }

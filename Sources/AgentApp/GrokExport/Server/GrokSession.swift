@@ -13,7 +13,7 @@ final class GrokSession: Sendable {
     static func live() -> GrokSession { GrokSession(classes: nil) }
 
     private init(classes: [AnyClass]?) {
-        let configuration = URLSessionConfiguration.ephemeral
+        let configuration = TestRunGuard.guarded(.ephemeral)
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil

@@ -102,10 +102,10 @@ private func sessionOf(_ bot: Bot) -> String { "agentapp_\(bot.id.uuidString.low
     let pairs = HeadlessE2E.RolePairs(conversation: ModelChoice(provider: "prov", model: "model-b")!, coding: ModelChoice(provider: "prov", model: "model-a")!)
     var output: [String] = []
     let steps = await HeadlessE2E.run(store: store, bots: bots, timing: .fast, roles: pairs, output: { output.append($0) })
-    #expect(steps.map(\.id) == ["a", "b", "c", "d", "e", "f", "g1", "g2"])
+    #expect(steps.map(\.id) == ["a", "b1", "b2", "c", "d", "e", "f", "g1", "g2"])
     #expect(steps.allSatisfy { $0.passed }, "\(output)")
-    #expect(output.last == "E2E: 8 passed, 0 failed")
-    #expect(steps[6].detail.contains("runtime prov/model-b") && steps[7].detail.contains("runtime prov/model-a"))
+    #expect(output.last == "E2E: 9 passed, 0 failed")
+    #expect(steps[7].detail.contains("runtime prov/model-b") && steps[8].detail.contains("runtime prov/model-a"))
 
     let roleBot = try #require(store.bots.first { $0.name.hasSuffix(" roles") })
     let session = try #require(roleBot.hermesSessionID), fork = try #require(roleBot.threads.first?.hermesSessionID)
@@ -118,7 +118,7 @@ private func sessionOf(_ bot: Bot) -> String { "agentapp_\(bot.id.uuidString.low
     #expect(AppConstants.isSelfTestSession(session) && AppConstants.isSelfTestSession(fork))
     #expect(roleBot.threads.first?.role == .coding && roleBot.threads.first?.modelLock?.origin == .coding)
     let inputs = state.requests().filter { $0.path.hasSuffix("/chat/stream") }.map { $0.body?["input"] as? String ?? "" }
-    #expect(inputs.count == 7 && inputs.allSatisfy { $0.contains(HeadlessE2E.preamble) })
+    #expect(inputs.count == 9 && inputs.allSatisfy { $0.contains(HeadlessE2E.preamble) })
     #expect(state.requests().filter { $0.path.hasSuffix("/chat/stream") }.allSatisfy { Set($0.body?.keys ?? [:].keys) == ["input", "instructions"] })
 }
 
@@ -130,7 +130,7 @@ private func sessionOf(_ bot: Bot) -> String { "agentapp_\(bot.id.uuidString.low
     let steps = await HeadlessE2E.run(store: store, bots: bots, timing: .fast, roles: pairs, output: { output.append($0) })
     #expect(steps.filter { !$0.passed }.map(\.id) == ["g1", "g2"], "\(output)")
     #expect(output.contains { $0.hasPrefix("FAIL g1 conversation role") && $0.contains("runtime prov/model-z") })
-    #expect(output.last == "E2E: 6 passed, 2 failed")
+    #expect(output.last == "E2E: 7 passed, 2 failed")
 }
 
 @MainActor @Test func e2eRolesRefusesACodingPairTheProfileDoesNotOffer() async throws {

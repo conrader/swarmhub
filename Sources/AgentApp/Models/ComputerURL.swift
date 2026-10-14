@@ -36,7 +36,7 @@ enum ComputerURL {
     enum Reachability: Equatable { case unknown, checking, reachable(Int), unreachable(String) }
 
     /// `HEAD` the page with a short timeout. Any HTTP answer (even 401/404) means the host is up.
-    static func probe(_ url: URL, session: URLSession = .shared) async -> Reachability {
+    static func probe(_ url: URL, session: URLSession = TestRunGuard.sharedSession) async -> Reachability {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 6)
         request.httpMethod = "HEAD"
         do {

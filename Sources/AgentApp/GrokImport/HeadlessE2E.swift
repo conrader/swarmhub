@@ -62,7 +62,7 @@ import Security
         print("E2E: test store \(directory.path) (removed afterwards); real store \(realURL.path) is read only, \(saved.groups.count) groups in it are not loaded")
         return HeadlessRunLoop.wait {
             let steps = await run(store: store, bots: bots, tag: tag, roles: roles, output: { print($0); fflush(stdout) })
-            return steps.allSatisfy(\.passed) && steps.count == (roles == nil ? 6 : 8) ? 0 : 1
+            return steps.allSatisfy(\.passed) && steps.count == (roles == nil ? 7 : 9) ? 0 : 1
         }
     }
 
@@ -74,14 +74,15 @@ import Security
 
     // MARK: Steps
 
-    /// Runs steps a–f in order (and g1, g2 with `roles`), printing one line per step. All bots in `bots` must already be in `store`.
+    /// Runs steps a, b1, b2, c–f in order (and g1, g2 with `roles`), printing one line per step. All bots in `bots` must already be in `store`.
     static func run(store: AppStore, bots: Participants, tag: String = "test", timing: Timing = .init(), roles: RolePairs? = nil, output: (String) -> Void) async -> [Step] {
         store.sessionNamespace = namespace
         var steps: [Step] = []
         func record(_ step: Step) { steps.append(step); output(step.line) }
 
         let chat = await chatStep(store: store, bot: bots.jarvis, timing: timing); record(chat.step)
-        record(await steerStep(store: store, jarvis: bots.jarvis, timing: timing))
+        record(await steerTextStep(store: store, jarvis: bots.jarvis, timing: timing))
+        record(await steerToolStep(store: store, jarvis: bots.jarvis, timing: timing))
         record(await forkStep(store: store, bot: bots.jarvis, parent: chat.assistant, timing: timing))
         record(await modelStep(store: store, bot: bots.jarvis, timing: timing))
         record(await groupStep(store: store, bots: bots, tag: tag, timing: timing))
@@ -95,44 +96,6 @@ import Security
         select(bot, in: store)
         let turn = await self.turn(store: store, text: message("Reply with exactly: E2E-CHAT"), conversation: bot, timing: timing)
         return (expect(turn, "E2E-CHAT", id: "a", name: "chat"), turn.assistant)
-    }
-
-    /// Steers a running count with a second message; an accepted steer the model ignores still passes.
-    static func steerStep(store: AppStore, jarvis: Bot, timing: Timing) async -> Step {
-        let bot = copy(jarvis, name: "\(jarvis.name) steer")
-        store.bots.append(bot); select(bot, in: store)
-        var step = Step(id: "b", name: "steer", passed: false, detail: "")
-        store.errorMessage = nil
-        guard store.send(text: message("Count slowly from 1 to 20, one number per line")) else { step.detail = "not sent: \(store.errorMessage ?? "send refused")"; return step }
-        let assistant = store.streamingAssistant
-        // `steerAvailable` is settled before the first token is read from the stream.
-        let tokens = await wait(timing.steerStart, poll: timing.poll) { store.isIdle || !(assistant?.content.isEmpty ?? true) }
-        guard tokens, !store.isIdle else {
-            if !tokens { store.stop() }
-            await finish(store, timing: timing)
-            step.detail = "session \(bot.hermesSessionID ?? "-") | " + (tokens ? "turn ended before the first tokens could be steered" : "no tokens within \(timing.steerStart)") + (store.errorMessage.map { " (\($0))" } ?? "")
-            return step
-        }
-        guard store.send(text: message("Stop counting and reply with exactly: E2E-STEER")) else {
-            await finish(store, timing: timing)
-            step.detail = "session \(bot.hermesSessionID ?? "-") | steer not offered (run_steer=\(store.steerAvailable))"
-            return step
-        }
-        let steer = bot.messages.last { $0.isSteer }
-        _ = await wait(timing.request, poll: timing.poll) { steer?.metadata["steer"] != "sent" }
-        let ended = await finish(store, timing: timing)
-        _ = await wait(timing.request, poll: timing.poll) { steer?.metadata["steer"] != "sent" }
-        let outcome = steer?.metadata["steer"] ?? "missing"
-        let final = oneLine(assistant?.content ?? "")
-        let session = "session \(bot.hermesSessionID ?? "-")"
-        guard outcome == "delivered" else {
-            let reason = bot.messages.last { $0.role == .system && $0.content.hasPrefix("Steer not delivered") }?.content ?? "steer state \(outcome)"
-            step.detail = "\(session) | \(reason)"; return step
-        }
-        guard ended else { step.detail = "\(session) | steer accepted (HTTP 2xx) but the turn did not finish within \(timing.turn)"; return step }
-        step.passed = true
-        step.detail = "\(session) | steer accepted (HTTP 2xx) | " + (final.contains("E2E-STEER") ? "final: \(snippet(final))" : "accepted-but-ignored, final: \(snippet(final))")
-        return step
     }
 
     static func forkStep(store: AppStore, bot: Bot, parent: ChatMessage?, timing: Timing) async -> Step {

@@ -8,7 +8,7 @@ private let jarvisID = "00000000-0000-4000-8000-000000000001"
 
 @MainActor private func grokStore(_ url: URL = temporaryStore(), keys: [String: String] = [:]) -> (AppStore, InMemoryKeyStore) {
     let keyStore = InMemoryKeyStore(keys)
-    return (AppStore(storeURL: url, autoConfigureHermes: false, keyStore: keyStore, defaults: isolatedDefaults()), keyStore)
+    return (AppStore(storeURL: url, autoConfigureHermes: false, keyStore: keyStore, defaults: isolatedDefaults(), hermesSession: UnreachableProtocol.session), keyStore)
 }
 
 @MainActor @Test func grokImportMapsBotsProfilesAvatarsAndGroup() throws {

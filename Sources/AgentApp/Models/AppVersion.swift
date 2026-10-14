@@ -104,7 +104,7 @@ enum UpdateStatus: Equatable, Sendable {
 enum ReleaseChecker {
     static let latestURLs = [AppConstants.releasesRepo, AppConstants.previousReleasesRepo].map { URL(string: "https://api.github.com/repos/\($0)/releases/latest")! }
 
-    static func check(current: String, session: URLSession = .shared, urls: [URL] = latestURLs) async -> UpdateStatus {
+    static func check(current: String, session: URLSession = TestRunGuard.sharedSession, urls: [URL] = latestURLs) async -> UpdateStatus {
         for url in urls {
             var request = URLRequest(url: url, timeoutInterval: 15)
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")

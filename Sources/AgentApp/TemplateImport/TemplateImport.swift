@@ -281,7 +281,7 @@ enum TemplateImportMapper {
 }
 
 enum TemplateImportLoader {
-    static func load(link: String, session: URLSession = .shared) async throws -> Data {
+    static func load(link: String, session: URLSession = TestRunGuard.sharedSession) async throws -> Data {
         guard let url = URL(string: link), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { throw TemplateImportError.invalidLink }
         var request = URLRequest(url: url); request.setValue("application/json", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)

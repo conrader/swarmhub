@@ -307,4 +307,8 @@ enum StopTarget: Sendable, Equatable { case serverRun(String), disconnectedLegac
 enum StopOutcome: Sendable, Equatable { case requested, disconnectedLegacy, noActiveRun }
 /// `replace` (P12): the whole reply text so far, when a backend's snapshot no longer extends what was streamed.
 /// `tool` (P27): a tool started, progressed or finished; the reply keeps these as its activity steps.
-enum AgentEvent: Sendable { case token(String), replace(String), status(String), tool(ToolEvent), subAgent(SubAgentTask), approval(ApprovalRequest), completed, failed(String) }
+enum AgentEvent: Sendable { case token(String), replace(String), status(String), tool(ToolEvent), subAgent(SubAgentTask), approval(ApprovalRequest), completed, failed(String), steer(SteerSignal) }
+
+/// P28: what the stream says about a steer: the box took it (`run.steered`), or the turn ended before it could be
+/// delivered and the box handed the text back (`pending_steer` on the completed event).
+enum SteerSignal: Sendable, Equatable { case accepted, returned(String) }

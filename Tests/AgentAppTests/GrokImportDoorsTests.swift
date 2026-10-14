@@ -79,7 +79,7 @@ private func cacheFile(_ world: GrokWorld, containing marker: String) throws -> 
     #expect(await availability(mismatch) == .cacheOnly(.cache(.accountMismatch)))
     // A store that cannot save.
     let world = try GrokWorld()
-    let demo = AppStore(demoMode: true, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let demo = AppStore(demoMode: true, storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     #expect(await availability(world, store: demo) == .unavailable(.persistenceOff))
     #expect(world.passwords.reads == 0 && world.fake.requests.isEmpty)
 }
@@ -95,7 +95,7 @@ private func cacheFile(_ world: GrokWorld, containing marker: String) throws -> 
         let defaults = isolatedDefaults()
         if let server = entry.server { defaults.set(server, forKey: "hermesBaseURL") }
         let keys = InMemoryKeyStore(entry.key ? ["hermes.grok-jarvis": "synthetic-key"] : [:])
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults)
+        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults, hermesSession: UnreachableProtocol.session)
         let coordinator = makeCoordinator(world, store)
         await coordinator.scan()
         coordinator.mode = .recent

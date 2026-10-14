@@ -29,10 +29,10 @@ import Testing
 }
 
 @Test @MainActor func storeSteersOnlyWhenTheServerSupportsIt() async throws {
-    let steering = ChatParityBackend(flags: ["run_steer"])
+    let steering = ChatParityBackend(flags: ["run_steer"], opening: [.token("working"), .tool(ToolEvent(phase: .started, name: "terminal"))])
     let (store, bot) = parityStore(steering)
     #expect(store.send(text: "first"))
-    try await waitUntil { store.steerAvailable }
+    try await waitUntil { store.steerAvailable && store.streamingAssistant?.activity?.current != nil }
     #expect(store.send(text: "  also check the logs "))
     try await steering.calls.wait { $0.contains("steer:session-main:also check the logs") }
     let bubble = try #require(bot.messages.last)
