@@ -16,6 +16,12 @@ its status, any other version "not tested yet", anything older than 0.20.5 "not 
 `/v1/skills` issue, that exact 500 ("Failed to enumerate skills") shows as "This Hermes version can't list skills (known Hermes
 bug)" instead of an error.
 
+**Stock upstream check (2026-10-14):** `AgentApp --check-server` against an untouched upstream Hermes 0.22.0 (no getermes
+patches, no hosting layer, multiplexing on, two profiles): health/version, auth, models, capabilities, model options, toolsets,
+sessions, jobs and a session create/delete all PASS on every profile; skills = KNOWN (upstream bug); another profile's key = 401.
+Not covered: a chat turn (the test server had no provider keys). SwarmHub needs nothing beyond stock Hermes except provider keys
+for chat and `gateway.multiplex_profiles: true` for more than one bot per server.
+
 OpenClaw: not supported yet (planned, P12).
 
 What SwarmHub needs from a box: `/v1/models`, `/v1/chat/completions` or `/v1/responses`, `/api/sessions`, `/api/jobs`,

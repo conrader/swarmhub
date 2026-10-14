@@ -21,7 +21,6 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | P13 Parts C / D / E model roles | Part C shipped in 0.4.4; live e2e (terra/sol) runs once Konrad's app is on 0.4.4 | live e2e → D → E |
 | P16 last hop | shipped in 0.4.5 (588 green) | Konrad: Wi-Fi off mid-answer → Incomplete then completes; send offline → Not sent, Retry once; quit mid-answer → partial kept |
 | P21b Simple right panel (D9, deferred from P21) | not started: Overview model picker, raw cron field in the routine editor, groups UI, Import template | brief after P17 |
-| Vanilla test bed: SwarmHub against untouched upstream Hermes 0.22.0 | VPS scratch install (127.0.0.1:18651, two throwaway profiles, no provider keys) being set up | then a Mac run: headless check against it through an ssh tunnel (keys from a file, no Keychain) |
 | P12 Connect OpenClaw | building Parts A-C (`p12`, MacBook; fakes only, no real Gateway) | merge when green |
 | Small: sidebar "Import from Grok Bot" item (needs P10d), attention badge for failed turns (needs P16), idle-pause for hidden windows | waiting on the phases named | with those phases |
 | Box/ops: Codex login has no refresh token (Konrad re-logs in), DB password in plain text in the context-api unit, staged P9 bundles on the box to delete | open | flagged to Konrad |
