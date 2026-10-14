@@ -183,6 +183,27 @@ extension AppStore {
         return rejected ? .rejected : .unreachable
     }
 
+    /// Launch: resolves each Hermes bot's key once (silently). A key the Keychain would only give behind a dialog is
+    /// recovered once per launch when the bot's connection has a manager whose key is readable: the P22 derived key,
+    /// kept only if `GET /p/<profile>/v1/models` answers 200. Otherwise the bot stays "Re-enter this bot's key".
+    func recoverLockedKeys() async {
+        for bot in bots where bot.backend == .hermes && !bot.isReadOnlyArchive {
+            let profile = bot.hermesProfile ?? "default"; let account = Self.keyAccount(forProfile: profile)
+            _ = keyStore.key(for: account)
+            guard keyStore.needsReentry(account), profile != "default", HermesKeyPaste.isValidProfileName(profile),
+                  let manager = manager(for: bot), manager.hermesProfile != profile, keyStore.claimRecovery(account) else { continue }
+            let managerKey = keyStore.key(for: Self.keyAccount(forProfile: manager.hermesProfile ?? "default"))
+            guard !managerKey.isEmpty,
+                  let baseURL = HermesBackend.validatedBaseURL(bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL) else { continue }
+            let key = BotManagerText.derivedKey(managerKey: managerKey, botName: profile)
+            let backend = HermesBackend(baseURL: baseURL, apiKey: key, profile: profile, session: hermesSession)
+            guard let (_, response) = try? await backend.rawRequest(path: "v1/models", timeout: 10),
+                  (response as? HTTPURLResponse)?.statusCode == 200 else { continue }
+            keyStore.setKey(key, for: account)
+            objectWillChange.send()
+        }
+    }
+
     /// A small line in the manager's chat.
     func notice(_ text: String, in bot: Bot) {
         bot.messages.append(ChatMessage(role: .system, content: text)); objectWillChange.send(); save()
