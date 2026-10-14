@@ -82,6 +82,7 @@ import Foundation
         let chrome = await UISmokeChrome.collect(window: window(), store: store, budget: budget.layout)
         report["chrome"] = chrome
         report["sidebar_width"] = SidebarWidth.live(in: window(), errors: &errors)
+        report["top_bar_double_click"] = await UISmokeDoubleClick.collect(window: window(), budget: budget.layout, errors: &errors)
         errors += (chrome["errors"] as? [String] ?? []) + ((chrome["fullscreen"] as? [String: Any])?["errors"] as? [String] ?? [])
         if let message = store.errorMessage { errors.append("alert: \(message)") }
         report["errors"] = errors
