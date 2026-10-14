@@ -38,6 +38,8 @@ rm -rf "$APP_DIR/Contents/MacOS/AgentApp.resources" "$APP_DIR/Contents/Resources
 cp -R "$ROOT_DIR/Resources/Avatars" "$APP_DIR/Contents/Resources/Avatars"
 # P22: the bot-manager text SwarmHub sends the manager bot on demand.
 cp -R "$ROOT_DIR/Resources/BotManager" "$APP_DIR/Contents/Resources/BotManager"
+# P23: the Swarm app icon (CFBundleIconFile/CFBundleIconName = AppIcon in Info.plist).
+/usr/bin/iconutil -c icns "$ROOT_DIR/Resources/AppIcon/AppIcon.iconset" -o "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp "$ROOT_DIR/THIRD-PARTY-NOTICES.md" "$APP_DIR/Contents/Resources/THIRD-PARTY-NOTICES.md"
 cp "$SPARKLE_DIR/LICENSE" "$APP_DIR/Contents/Resources/SPARKLE-LICENSE.txt"
 cp "$CONFIGURED_PLIST" "$APP_DIR/Contents/Info.plist"
@@ -85,6 +87,10 @@ TEAM_ID="$(/usr/bin/codesign -dv "$APP_DIR/Contents/MacOS/AgentApp" 2>&1 | awk -
 echo "signing_team=${TEAM_ID:-adhoc}" >> "$APP_DIR/Contents/Resources/SOURCE.txt"
 /usr/bin/codesign "${SIGN_ARGS[@]}" --identifier com.konrad.agentapp "$APP_DIR"
 /usr/bin/codesign --verify --deep --strict "$APP_DIR"
+if [[ ! -s "$APP_DIR/Contents/Resources/AppIcon.icns" ]]; then
+  echo "ERROR: $APP_DIR lacks Contents/Resources/AppIcon.icns." >&2
+  exit 1
+fi
 rm -f "$ZIP_PATH"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
 if [[ -n "${SWARMHUB_NOTARY_PROFILE:-}" ]]; then
