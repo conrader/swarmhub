@@ -9,6 +9,27 @@ Grok Bot is Cursor's hosted Mac agent app; SwarmHub reproduces its features on t
 Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `grok-<slug>`
 (SOUL, skills, imported history), served at `https://konrad.agenthut.net/p/grok-<slug>/`.
 
+## Open work (kept current by Claude; last audit 2026-10-14 08:30 UTC)
+
+Everything planned that is not merged yet, so nobody has to remember it. Built = merged into `main`.
+
+| What | State | Next step |
+|---|---|---|
+| P23 Codex's menus/shortcuts + app icon, P20 sidebar | built on `p23`, final fix run on the MacBook | merge when green, delete `p23` + `codex/menu-shortcuts-snapshot` |
+| P19 PDF / DOCX / RTF attachments | building now (`p19`, MacBook) | merge when green, install |
+| Hermes 0.22.0 on Konrad's box (+ `/v1/skills` fix) | release session running | canary on Konrad's box, verify, report |
+| Automatic updates (Sparkle) | code merged with P23; no signing key yet | create key, release v0.4.1 on GitHub, prove an update with v0.4.2 |
+| README: bot management, shortcuts, versions, updates | not done | after P23 merge |
+| P24 Hermes version per box + calm skills note | accepted, not started | after P23 |
+| P10c / P10d / P10e Grok import in the app (command, sheet, live) | P10.0/a/b merged, c/d/e never started | build in order |
+| P13 Parts C / D / E model roles (prove, existing chats, sub-agents) | Parts A+B merged, C/D/E never started | Part C (its live step needs Konrad's go) |
+| P16 No reply is lost | brief proposed, waiting for yes | build with defaults on yes |
+| P17 Models from the agent's own backend | brief proposed, waiting for yes | build on yes |
+| P21 Simple settings + setup wizard | brief proposed, waiting for yes | build with defaults on yes |
+| P12 Connect OpenClaw | brief written, never started | after the Hermes items |
+| Small: sidebar "Import from Grok Bot" item (needs P10d), attention badge for failed turns (needs P16), idle-pause for hidden windows | waiting on the phases named | with those phases |
+| Box/ops: Codex login has no refresh token (Konrad re-logs in), DB password in plain text in the context-api unit, staged P9 bundles on the box to delete, Mac clone remote still says `torvli` | open | flagged to Konrad |
+
 ## Standing constraints (from BRIEF*.md and SPEC-6.1)
 - Copy Grok Bot's look and match its features with our own code and assets only. No Grok images,
   icons, fonts, prompts or tool definitions. Exception (P15, accepted 2026-10-13): the vendored, pinned MIT
