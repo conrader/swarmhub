@@ -9,7 +9,7 @@ Grok Bot is Cursor's hosted Mac agent app; SwarmHub reproduces its features on t
 Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `grok-<slug>`
 (SOUL, skills, imported history), served at `https://konrad.agenthut.net/p/grok-<slug>/`.
 
-## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 20538ee, P19 c31d0c0, P24 + release 0.4.1 deb1f7a, release 0.4.2 449a770, P10c 36b3af0, group documents 46619c1, release 0.4.3 1a61357, P13 Part C 55be45a, P10d 6ec4eee merged; release 0.4.4 published; P21 + P16 shipped in 0.4.5 (a1ef85c), P17 6eabea5, --check-server 8261bb4, P21b e04fbb7 merged)
+## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 20538ee, P19 c31d0c0, P24 + release 0.4.1 deb1f7a, release 0.4.2 449a770, P10c 36b3af0, group documents 46619c1, release 0.4.3 1a61357, P13 Part C 55be45a, P10d 6ec4eee merged; release 0.4.4 published; P21 + P16 shipped in 0.4.5 (a1ef85c), P17 6eabea5, --check-server 8261bb4, P21b e04fbb7, P13 Part D f39e151 merged; release 0.4.6 published (b6f9452; roles e2e 8/8 from the notarized build))
 
 Everything planned that is not merged yet, so nobody has to remember it. Built = merged into `main`.
 **Konrad 2026-10-14: "Build all, defaults"** — every row below is accepted with the recommended defaults (P16, P17, P21, P12 included; P13 Part C's live step has his go). Order: P23 → P19 → P24 → P10c → P10d → P10e → P13 C → D → E → P16 → P21 → P17 → P12; each merged when green; Claude reports results, comes back only for a real blocker.
