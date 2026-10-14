@@ -17,7 +17,7 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | What | State | Next step |
 |---|---|---|
 | Group chats cut documents at 8,000 characters (P19 left the group context cap unchanged) | not fixed | after P10c: send attachments whole to the addressed bot(s) in groups |
-| Hermes 0.22.0 on Konrad's box (+ `/v1/skills` fix) | release session running | canary on Konrad's box, verify, report |
+| SwarmHub's built-in version list still calls 0.22.0 "not tested yet" | box runs 0.22.0 since 08:50 UTC, verified (skills 178, 21/21 bots) | flip to "works" in the next app build; for stock 0.22.0 keep the skills note |
 | Automatic updates (Sparkle) | running: key + v0.4.1 build on the MacBook | publish GitHub release v0.4.1, then prove an update with v0.4.2 |
 | README: automatic updates line | bot management, shortcuts, versions done (dcbf703) | add once v0.4.1 is published |
 | P24 Hermes version + calm skills note + double-click zoom | green on `p24` (396); merged with P19 on `p24-merge`, being tested | fast-forward main when green |
