@@ -3,6 +3,7 @@
 The iOS and Android apps are in development. The first native iOS foundation now lives in [Apps/iOS](../../Apps/iOS/README.md), with shared Swift code in [Packages/SwarmHubCore](../../Packages/SwarmHubCore/README.md). It includes secure profile setup, server sessions, cached history/drafts, streaming text chat and manual approvals. The drawings below describe the full feature target; store distribution and the remaining feature milestones follow.
 
 - [iOS specsheet](specsheet.md): scope, feature parity, screen inventory, architecture, acceptance criteria, and implementation milestones.
+- [Native app screenshots](screenshots/SCREENSHOTS.md): actual iPhone simulator captures of the first native build, with Chats, Conversation, Approvals and Settings in dark and light appearances.
 - [Interactive screen drawings](screens.html): 37 screens with navigation, light and dark appearances, and local sample interactions. Open the file in a browser; no server or installation is needed.
 - [Core screens](core-screens.png): chats, conversation, agent overview, routines, approvals, and settings.
 - [Work screens](work-screens.png): group chat, thread, media, computer, models, and import preview.
@@ -11,6 +12,15 @@ The iOS and Android apps are in development. The first native iOS foundation now
 All content is synthetic. The drawings make no API calls and never connect to an agent, save a key, send a message, or grant an approval. Labels for future server features appear in the screens that require them.
 
 The iOS design uses SwarmHub's agent marks, quiet chat layout, and dark default. The desktop side panel becomes agent details on iPhone. Android will follow the same feature and backend contract with Android navigation and controls; its native implementation and dedicated screen drawings follow the iOS foundation.
+
+## Native app preview
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="screenshots/mobile-light.png">
+  <img src="screenshots/mobile-dark.png" alt="Actual native SwarmHub iOS Chats, Conversation, Approvals and Settings screens with sample content." width="1480">
+</picture>
+
+Actual native iOS app, captured in an iPhone simulator. The drawings below describe later feature milestones.
 
 ![SwarmHub iOS chat list, conversation, and agent overview drawings](preview.png)
 

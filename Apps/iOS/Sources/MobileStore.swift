@@ -24,6 +24,7 @@ final class MobileStore {
     var storageReady: Bool { repository != nil }
 
     init() {
+        if CaptureConfiguration.screen != nil { CaptureConfiguration.configure(self); return }
         do {
             let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("SwarmHub")
             repository = try SQLiteRepository(url: directory.appendingPathComponent("mobile.sqlite"))
@@ -48,8 +49,10 @@ final class MobileStore {
         demo = true
         for (name, color) in [("Atlas", "blue"), ("Mira", "orange"), ("Patch", "green"), ("Scout", "purple")] {
             guard let address = try? ConnectionAddress("https://sample.invalid", profile: name.lowercased()) else { continue }
-            let profile = AgentProfile(name: name, address: address, sessionID: "sample-session", color: color)
-            profiles.append(profile); clients[profile.id] = DemoClient(); caches[profile.id] = ChatCache()
+            let profile = AgentProfile(id: "sample-\(name.lowercased())", name: name, address: address, sessionID: "sample-session", color: color)
+            profiles.append(profile)
+            clients[profile.id] = CaptureConfiguration.screen == nil ? DemoClient() : DemoClient(history: CaptureConfiguration.messages(for: name))
+            caches[profile.id] = ChatCache()
         }
     }
 

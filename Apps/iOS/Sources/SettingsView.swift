@@ -19,7 +19,7 @@ struct SettingsView: View {
                 }
                 Section("Preferences") {
                     TextField("Your name", text: $displayName)
-                    Picker("Appearance", selection: $appearance) { Text("Dark").tag("Dark"); Text("Light").tag("Light"); Text("System").tag("System") }
+                    Picker("Appearance", selection: Binding(get: { CaptureConfiguration.appearance ?? appearance }, set: { if CaptureConfiguration.screen == nil { appearance = $0 } })) { Text("Dark").tag("Dark"); Text("Light").tag("Light"); Text("System").tag("System") }
                     AvailabilityNote(text: "Notifications while the app is closed need the push relay. This foundation build refreshes history when you reopen it.")
                 }
                 Section("About") {

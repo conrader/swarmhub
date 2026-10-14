@@ -54,6 +54,17 @@ Installed builds update themselves (signed updates, checked daily; Settings → 
 
 [How it works](docs/guide.md#how-it-works) · [Technical reference](docs/reference.md) · [Roadmap](PLAN.md)
 
+## Mobile apps
+
+The **iOS and Android apps are in development**. These screenshots show the first native iOS build with sample content. Android is at the planning stage.
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/ios/screenshots/mobile-light.png">
+  <img src="docs/ios/screenshots/mobile-dark.png" alt="Actual native SwarmHub iOS app: Chats, Conversation, Approvals and Settings, shown in an iPhone simulator with sample content." width="1480">
+</picture>
+
+[Individual screenshots and capture details](docs/ios/screenshots/SCREENSHOTS.md) · [Build the iOS app](Apps/iOS/README.md) · [Full feature specification and drawings](docs/ios/README.md)
+
 ## Credits
 
 Bot avatars use [BotAvatarsKit](https://github.com/Jakubantalik/Libraries.dev/tree/a27566557b4def79bcdcedc71858c0fb28020b6d/packages/bot-avatars/ports/ios/BotAvatarsKit) by **Jakub Antalik (Libraries.dev)**, licensed under [MIT](Vendor/BotAvatarsKit/LICENSE).

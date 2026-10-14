@@ -4,16 +4,17 @@ import SwarmHubCore
 struct RootView: View {
     @Environment(MobileStore.self) private var store
     @State private var showSetup = false
+    @State private var selectedTab = CaptureConfiguration.tab
     var body: some View {
         @Bindable var store = store
         Group {
             if !store.booted { ProgressView("Opening SwarmHub…") }
             else if store.profiles.isEmpty { WelcomeView(showSetup: $showSetup) }
             else {
-                TabView {
-                    Tab("Chats", systemImage: "bubble.left.and.bubble.right") { ChatsView() }
-                    Tab("Approvals", systemImage: "checkmark.shield") { ApprovalsView() }.badge(store.approvals.count)
-                    Tab("Settings", systemImage: "gearshape") { SettingsView() }
+                TabView(selection: $selectedTab) {
+                    Tab("Chats", systemImage: "bubble.left.and.bubble.right", value: 0) { ChatsView() }
+                    Tab("Approvals", systemImage: "checkmark.shield", value: 1) { ApprovalsView() }.badge(store.approvals.count)
+                    Tab("Settings", systemImage: "gearshape", value: 2) { SettingsView() }
                 }
             }
         }
@@ -48,9 +49,10 @@ struct ChatsView: View {
     @Environment(MobileStore.self) private var store
     @State private var query = ""
     @State private var showSetup = false
+    @State private var path = CaptureConfiguration.path
     private var visibleProfiles: [AgentProfile] { store.profiles.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) } }
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 if store.demo { AvailabilityNote(text: "Local sample agents. Messages stay on this device and no server is contacted.") }
                 Section("Your agents") {

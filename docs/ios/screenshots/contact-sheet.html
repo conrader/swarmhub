@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SwarmHub native iOS captures</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#111615;color:#f7f7f2;font:16px Arial,Helvetica,sans-serif}
+    body.light{background:#f7f7f2;color:#262821}
+    main{width:1480px;padding:42px 48px 36px}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px}
+    h1{font-size:32px;letter-spacing:-1.2px;margin:0;font-weight:600}
+    header p{font-size:13px;letter-spacing:.5px;margin:0;opacity:.65}
+    .gallery{display:grid;grid-template-columns:repeat(4,1fr);gap:32px}
+    figure{margin:0}
+    .device{border:7px solid #353b37;border-radius:39px;overflow:hidden;background:#000;box-shadow:0 18px 30px #0002}
+    img{display:block;width:100%;height:auto}
+    h2{font-size:18px;font-weight:500;margin:20px 0 8px;letter-spacing:-.25px}
+    figcaption p{font-size:13px;line-height:1.6;margin:0;opacity:.65}
+    footer{font-size:12px;margin-top:30px;opacity:.6;letter-spacing:.2px}
+  </style>
+</head>
+<body>
+  <main>
+    <header><h1>SwarmHub for iOS</h1><p>NATIVE APP · IN DEVELOPMENT</p></header>
+    <div class="gallery">
+      <figure><div class="device"><img data-screen="chats" src="chats-dark.png" alt="Actual native iOS Chats screen." width="1206" height="2622"></div><figcaption><h2>Chats</h2><p>Your agents and conversations.</p></figcaption></figure>
+      <figure><div class="device"><img data-screen="conversation" src="conversation-dark.png" alt="Actual native iOS Conversation screen." width="1206" height="2622"></div><figcaption><h2>Conversation</h2><p>Replies and your next message.</p></figcaption></figure>
+      <figure><div class="device"><img data-screen="approvals" src="approvals-dark.png" alt="Actual native iOS Approvals screen." width="1206" height="2622"></div><figcaption><h2>Approvals</h2><p>Requests waiting for review.</p></figcaption></figure>
+      <figure><div class="device"><img data-screen="settings" src="settings-dark.png" alt="Actual native iOS Settings screen." width="1206" height="2622"></div><figcaption><h2>Settings</h2><p>Connections and appearance.</p></figcaption></figure>
+    </div>
+    <footer>Actual iOS app · iPhone simulator · sample content. Android is at the planning stage.</footer>
+  </main>
+  <script>
+    const theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
+    document.body.classList.toggle('light', theme === 'light');
+    document.querySelectorAll('[data-screen]').forEach(img => img.src = img.dataset.screen + '-' + theme + '.png');
+  </script>
+</body>
+</html>

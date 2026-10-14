@@ -8,7 +8,7 @@ struct SwarmHubApp: App {
     var body: some Scene {
         WindowGroup {
             RootView().environment(store)
-                .preferredColorScheme(appearance == "System" ? nil : appearance == "Light" ? .light : .dark)
+                .preferredColorScheme((CaptureConfiguration.appearance ?? appearance) == "System" ? nil : (CaptureConfiguration.appearance ?? appearance) == "Light" ? .light : .dark)
                 .tint(.primary)
                 .task { await store.load() }
                 .onChange(of: scenePhase) { _, phase in

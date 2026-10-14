@@ -7,6 +7,7 @@ actor DemoClient: AgentClient {
         .init(id: "demo-user", role: .user, text: "Find a simple direction for our mobile launch."),
         .init(id: "demo-reply", role: .assistant, text: "Start with the work your agents finish while you’re away. Keep conversations, routine results and approvals within reach.")
     ]
+    init(history: [TranscriptMessage]? = nil) { if let history { self.history = history } }
     func verify() async throws -> ProfileVerification { .init(name: "Sample agent", capabilities: try await capabilities()) }
     func capabilities() async throws -> ServerCapabilities { .init(features: ["session_chat_streaming"]) }
     func sessions() async throws -> [SessionSummary] { [.init(id: "sample-session", title: "Mobile launch · sample")] }

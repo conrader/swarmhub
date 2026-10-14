@@ -9,6 +9,7 @@ The iPhone app is in `Apps/iOS`, with shared code in `Packages/SwarmHubCore`. Ve
 | Xcode simulator SDK build | Passed with Xcode 27.0 / Swift 6.4, deployment target iOS 18.0 |
 | Simulator binary architectures | `arm64` and `x86_64` |
 | Bundle identifier | `com.konrad.swarmhub.ios` |
+| Native simulator launch and screen capture | Passed on a dedicated iPhone 16 Pro simulator running iOS 18.3; Chats, Conversation, Approvals and Settings inspected in dark/light appearances |
 | Shared unit and real-HTTP fixture suite | 20 tests passed, including profile isolation, canonical history, streaming, manual approval acknowledgment, Stop, steer transport and interrupted-stream handling |
 | Desktop regression suite | 459 tests passed on the combined tree, including the latest desktop key-store changes and the shared text encoder |
 | Desktop direct-compiler fallback | Passed with `SWARMHUB_FORCE_SWIFTC=1`; shared module and SQLite link successfully |
@@ -21,7 +22,7 @@ The streaming test caught a real boundary issue: Foundation's async line reader 
 
 ## Remaining acceptance work
 
-The Mac has the iOS simulator SDK but no installed simulator runtime or available simulator device. The app was compiled and linked; it was not launched in a simulator or on an iPhone. Native screen layout, keyboard behavior, Dynamic Type, VoiceOver, Keychain save/rollback, foreground/background transitions and multi-device approval races still require simulator or device acceptance. No native screenshots or TestFlight release are claimed.
+The build Mac has the iOS simulator SDK but no installed runtime. A separate Mac with an installed iOS 18.3 runtime launched the built app in a dedicated simulator and captured the actual native views with isolated sample content. [Native screenshots and reproduction](screenshots/SCREENSHOTS.md) record this layout verification. Keyboard behavior, Dynamic Type, VoiceOver, Keychain save/rollback, foreground/background transitions and multi-device approval races still require simulator or device acceptance. No physical iPhone or TestFlight release has been verified.
 
 The initial app stores conversation snapshots in SQLite. Full-text search, paged local histories, background push, shared roster metadata and the remaining full-feature UI remain later milestones. An interrupted turn without authoritative run readback remains unconfirmed and is never blindly resent.
 
