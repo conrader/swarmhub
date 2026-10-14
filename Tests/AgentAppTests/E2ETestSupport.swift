@@ -24,6 +24,14 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         var runtimeShape: RuntimeShape = .full
         var runtimeModel: String?
         var sessionProviders: [String: String] = [:]
+        /// `--check-server`: per-profile bearer keys (nil = no auth), the `/health` version, the `/v1/skills` status
+        /// (500 is 0.21.7/0.22.0's enumeration bug), deleted session ids, and a DELETE that keeps the row.
+        var keys: [String: String]?
+        var version = "0.22.0"
+        var skillsStatus = 200
+        var deletedSessions: Set<String> = []
+        var deleteKeepsSession = false
+        var multiplex = true
         private let steerSignal = NSCondition()
         init(features: [String: Bool]) { self.features = features }
         func with<T>(_ body: (State) -> T) -> T { lock.lock(); defer { lock.unlock() }; return body(self) }
@@ -65,7 +73,23 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         if parts.first == "p", parts.count > 2 { parts.removeFirst(2) }
         let method = request.httpMethod ?? "GET", body = jsonBody(request)
         state.with { $0.log.append((method, url.path, body)) }
+        if parts != ["health"], let keys = state.with({ $0.keys }), request.value(forHTTPHeaderField: "Authorization") != "Bearer \(keys[profile] ?? "-")" {
+            return send(401, ["error": ["message": "Invalid API key", "code": "invalid_api_key"]])
+        }
         switch (method, parts) {
+        case ("GET", ["health"]): send(200, ["status": "ok", "platform": "hermes-agent", "version": state.with { $0.version }])
+        case ("GET", ["v1", "models"]): send(200, ["object": "list", "data": [["id": profile == "default" || !state.with({ $0.multiplex }) ? "hermes-agent" : profile, "object": "model"]]])
+        case ("GET", ["v1", "skills"]):
+            let status = state.with { $0.skillsStatus }
+            guard status == 200 else { return send(status, ["error": ["message": "Failed to enumerate skills", "code": "skills_error"]]) }
+            send(200, ["data": [["name": "notes", "description": "Take notes"]]])
+        case ("GET", ["v1", "toolsets"]): send(200, ["data": [["name": "web", "enabled": true, "tools": ["web_search"]], ["name": "files", "enabled": false]]])
+        case ("GET", ["api", "sessions"]): send(200, ["object": "list", "data": [["id": "s-1", "title": "One"]]])
+        case ("DELETE", let path) where path.count == 3 && path[0...1] == ["api", "sessions"]:
+            state.with { if !$0.deleteKeepsSession { $0.deletedSessions.insert(path[2]) } }
+            send(200, ["object": "hermes.session.deleted", "id": path[2], "deleted": true])
+        case ("GET", let path) where path.count == 3 && path[0...1] == ["api", "sessions"] && state.with({ $0.deletedSessions.contains(path[2]) }):
+            send(404, ["error": ["message": "Session not found", "code": "session_not_found"]])
         case ("GET", ["v1", "capabilities"]): send(200, ["features": state.with { $0.features }, "model": "hermes-agent"])
         case ("POST", ["api", "sessions"]):
             let id = body?["id"] as? String ?? UUID().uuidString
