@@ -31,8 +31,10 @@ Hermes is supported now; OpenClaw integration is planned.
 - **Agent overview:** see skills, tools, and available models.
 - **Models per agent:** configure conversation and coding choices separately for each agent, such as Codex for conversation and Claude Code for coding. Conversation settings are available now; coding settings are planned.
 - **Approvals:** approve or decline requests and set policies for each agent.
+- **Agents that manage agents:** ask your main agent to create a new agent, change an agent's instructions or avatar, or retire one. It asks you first, and the new agent appears in the sidebar with its own key. Works with stock Hermes; nothing is installed on your server.
+- **Sidebar and shortcuts:** every chat shows its latest message or your unsent draft; Navigate and Chat menus with keyboard shortcuts (Help → Keyboard Shortcuts).
 
-Available features depend on what your connected server supports.
+Available features depend on what your connected server supports. See the [Hermes versions SwarmHub works with](docs/hermes-versions.md).
 
 ## Try SwarmHub
 
