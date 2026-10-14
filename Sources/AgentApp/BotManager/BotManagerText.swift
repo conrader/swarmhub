@@ -16,6 +16,8 @@ enum BotManagerText {
         return [
             Bundle.main.resourceURL?.appending(path: resourcePath),
             executable.appending(path: "AgentApp_AgentApp.bundle/\(resourcePath)"),
+            // P27: the SwiftPM bundle as newer toolchains lay it out (`Contents/Resources`).
+            executable.appending(path: "AgentApp_AgentApp.bundle/Contents/Resources/\(resourcePath)"),
             executable.appending(path: "AgentApp.resources/\(resourcePath)"),
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appending(path: "Resources/\(resourcePath)")
         ].compactMap { $0 }
