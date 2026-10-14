@@ -2,12 +2,13 @@ import AppKit
 import SwiftUI
 
 /// P27 shots of `--render-setup`: a manager's chat with the SwarmHub-skills install banner and a reply still working
-/// (the live activity line), and a finished reply's steps row folded and open. A throwaway in-memory store with
+/// (the live activity line), and a finished reply's steps row folded and open. P29: the working reply's row folded (with its
+/// chevron) and open (the steps so far, the last one running). A throwaway in-memory store with
 /// synthetic steps; no network, no Keychain.
 @MainActor enum HeadlessActivityShots {
     static let chatSize = NSSize(width: 820, height: 620)
     static let rowSize = NSSize(width: 720, height: 420)
-    static let names = ["p27-install-banner-live-line", "p27-steps-folded", "p27-steps-open"]
+    static let names = ["p27-install-banner-live-line", "p27-steps-folded", "p27-steps-open", "p29-working-folded", "p29-working-open"]
 
     static func sampleActivity(start: Date, running: Bool) -> ToolActivity {
         var activity = ToolActivity()
@@ -40,8 +41,8 @@ import SwiftUI
                            ChatMessage(role: .user, content: "check the log again", createdAt: now.addingTimeInterval(-73)), working]
         store.bots = [jarvis]; store.selectedBot = jarvis
         write(names[0], await png(AnyView(ChatView(bot: jarvis)), store, chatSize))
-        for (name, open) in [(names[1], false), (names[2], true)] {
-            var message = MessageView(message: finished); message.stepsExpanded = open
+        for (name, row, open) in [(names[1], finished, false), (names[2], finished, true), (names[3], working, false), (names[4], working, true)] {
+            var message = MessageView(message: row); message.stepsExpanded = open
             let view = VStack(alignment: .leading, spacing: 0) { message; Spacer() }
             write(name, await png(AnyView(view.frame(width: rowSize.width, height: rowSize.height, alignment: .topLeading).background(AppColor.chat)), store, rowSize))
         }

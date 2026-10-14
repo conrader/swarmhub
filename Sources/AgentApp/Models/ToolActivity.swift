@@ -123,6 +123,22 @@ enum ActivityCopy {
 
     static func steps(_ count: Int) -> String { count == 1 ? "1 step" : "\(count) steps" }
 
+    /// P29: the row opens whenever the reply has a step, streaming or not.
+    static func canUnfold(_ activity: ToolActivity?) -> Bool { (activity?.total ?? 0) > 0 }
+
+    /// P29: a streaming reply always has the row ("Working… · 12 s" before any step); a finished one only with steps.
+    static func isRowShown(_ activity: ToolActivity?, streaming: Bool) -> Bool { streaming || canUnfold(activity) }
+
+    /// P29: a step still open in a streaming reply runs (a spinner, no duration); after the turn none does.
+    static func isRunning(_ step: ToolStep, streaming: Bool) -> Bool { streaming && step.isRunning }
+
+    /// P29: the chevron's help, while streaming or after.
+    static func toggleHelp(expanded: Bool, total: Int, streaming: Bool) -> String {
+        if expanded { return "Hide steps" }
+        if streaming { return total == 1 ? "Show the step so far" : "Show the steps so far" }
+        return "Show what \(total == 1 ? "this step was" : "these steps were")"
+    }
+
     static let quietAfter: TimeInterval = 60
 
     /// The sidebar's preview line for a reply still running `quietAfter` after its last text (or its start) with a

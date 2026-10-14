@@ -78,7 +78,8 @@ struct MessageView: View {
                 }
             } else {
                 MarkdownContent(message: message)
-                if message.isStreaming { ActivityLiveLine(message: message) } else if message.activity != nil { ActivityStepsRow(message: message, expanded: stepsExpanded) }
+                // P29: one row while streaming and after, so an open row stays open when the turn ends.
+                ActivityRow(message: message, expanded: stepsExpanded)
             }
         }
     }
