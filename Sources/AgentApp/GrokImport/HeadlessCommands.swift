@@ -6,6 +6,7 @@ import Foundation
 ///   AgentApp --import-keys <file>      (lines `profile=key`; file must be 0600 and owned by the user)
 ///   AgentApp --check-bots [--chat "<bot name>" "<text>"]   (see HeadlessCheckBots.swift)
 ///   AgentApp --render-snapshot <dir> [--bot "<name>"]...         (see HeadlessSnapshot.swift)
+///   AgentApp --reconcile [--dry-run] [--bot "<name>"] [--group "<name>"] [--store <path>]   (GET only; see HeadlessReconcile.swift)
 ///   AgentApp --migrate-store                                      (see HeadlessGroups.swift)
 ///   AgentApp --probe-attachment <file>   (reads a PDF/RTF/DOC/DOCX like the composer; counts only, no network; see HeadlessProbeAttachment.swift)
 ///   AgentApp --e2e [--roles <provider>/<model> <provider>/<model>]   (live self-test in throwaway sessions; see HeadlessE2E.swift)
@@ -28,6 +29,7 @@ import Foundation
         if arguments.contains("--render-setup") { return HeadlessSetup.run(arguments: arguments) }
         if arguments.contains("--render-snapshot") { return HeadlessSnapshot.run(arguments: arguments) }
         if arguments.contains("--probe-attachment") { return HeadlessProbeAttachment.run(arguments: arguments) }
+        if arguments.contains("--reconcile") { return HeadlessReconcile.run(arguments: arguments) }
         if arguments.contains("--migrate-store") { return migrateStore() }
         if arguments.contains("--e2e") { return HeadlessE2E.run(arguments: arguments) }
         if let code = HeadlessGrok.runIfRequested(arguments: arguments) { return code }
