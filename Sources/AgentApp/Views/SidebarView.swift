@@ -60,6 +60,7 @@ private struct BotRow: View {
                 BotAvatar(bot: bot, size: 28, motion: .list, isWorking: store.isWorking(bot), isHovered: hovering, probe: "sidebar")
                 Text(bot.name).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
                 Spacer(minLength: 5)
+                if bot.retiredOnBox { Text("retired on box").font(.system(size: 10)).foregroundStyle(.tertiary) }
                 if bot.isUnread { Circle().fill(.primary.opacity(0.72)).frame(width: 6, height: 6) }
             }.padding(.horizontal, 7).frame(height: 40).contentShape(RoundedRectangle(cornerRadius: 7)).background(selected ? AppColor.selection : .clear, in: RoundedRectangle(cornerRadius: 7))
                 .onHover { hovering = $0 }

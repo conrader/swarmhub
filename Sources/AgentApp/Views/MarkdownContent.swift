@@ -1,12 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// Assistant Markdown with inline cards: choices, drafts, link pills and images (see `ChatCardParser`).
+/// Assistant Markdown with inline cards: choices, drafts, link pills and images (see `ChatCardParser`); swarmhub blocks stay hidden.
 struct MarkdownContent: View {
     @ObservedObject var message: ChatMessage
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(ChatCardParser.parse(message.content).enumerated()), id: \.offset) { index, block in
+            ForEach(Array(ChatCardParser.parse(SwarmhubBlock.visibleText(message.content)).enumerated()), id: \.offset) { index, block in
                 switch block {
                 case .markdown(let text): ProseBlock(text: text)
                 case .code(_, let body): CodeBlock(code: body)

@@ -6,7 +6,7 @@ struct BotEditorView: View {
     @State private var avatar = AvatarChoice.unpicked; @State private var avatarTouched = false
     @State private var hidden = false; @State private var notifications = true
     @State private var approvalMode = ApprovalMode.ask; @State private var approvalRules = ApprovalRule.sensibleDefaults; @State private var reviewerBotID: UUID?
-    @State private var conversationModel = ModelSetting.inherit
+    @State private var conversationModel = ModelSetting.inherit; @State private var canManage = false
     var body: some View {
         VStack(spacing: 0) {
             HStack { Text(bot == nil ? "New agent" : "Agent settings").font(.title2.bold()); Spacer(); Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary).font(.title3) }.buttonStyle(.plain) }.padding(20)
@@ -42,15 +42,22 @@ struct BotEditorView: View {
                     }
                 }
                 BotModelSettingsSection(cache: store.botInfo, bot: bot, conversation: $conversationModel)
-                Section("Instructions") { TextEditor(text: $persona).frame(height: 90) }
+                if let bot { BoxInstructionsSection(bot: bot) }
+                Section("Extra instructions for this app") { TextEditor(text: $persona).frame(height: 90) }
+                if bot != nil, backend == .hermes {
+                    Section("Advanced") {
+                        Toggle("Can manage other bots", isOn: $canManage)
+                        Text("This bot may create bots, change their instructions and avatars, and retire them on its box. One per connection; \(AppConstants.name) sends it the management text only when you ask for bot management.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }.formStyle(.grouped).padding(.horizontal, 8)
             Divider(); HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Save") { save() }.buttonStyle(.borderedProminent).disabled(name.trimmingCharacters(in: .whitespaces).isEmpty) }.padding(16)
-        }.frame(width: 560, height: 720).background(AppColor.panel).onAppear { if let bot { name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend; avatar = AvatarChoice(bot: bot); hidden = bot.isHidden; notifications = bot.notificationsEnabled; approvalMode = bot.approvalMode; approvalRules = bot.approvalRules; reviewerBotID = bot.reviewerBotID; conversationModel = bot.modelSettings?.conversation ?? .inherit } else if AppStore.hasHermesConfiguration { backend = .hermes } }
+        }.frame(width: 560, height: 720).background(AppColor.panel).onAppear { if let bot { name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend; avatar = AvatarChoice(bot: bot); hidden = bot.isHidden; notifications = bot.notificationsEnabled; approvalMode = bot.approvalMode; approvalRules = bot.approvalRules; reviewerBotID = bot.reviewerBotID; conversationModel = bot.modelSettings?.conversation ?? .inherit; canManage = bot.canManageBots } else if AppStore.hasHermesConfiguration { backend = .hermes } }
     }
     private func setConversationModel(_ bot: Bot) {
         var settings = bot.modelSettings ?? .init(); settings.conversation = conversationModel
         bot.modelSettings = settings.isEmpty ? nil : settings
     }
     private func moveRule(id: UUID, offset: Int) { guard let index = approvalRules.firstIndex(where: { $0.id == id }) else { return }; let destination = index + offset; guard approvalRules.indices.contains(destination) else { return }; approvalRules.swapAt(index, destination) }
-    private func save() { if let bot { bot.name = name; bot.title = title; bot.botDescription = details; bot.persona = persona; bot.backend = backend; if avatarTouched { avatar.apply(to: bot) }; if bot.isHidden != hidden { store.setHidden(bot, hidden) }; bot.notificationsEnabled = notifications; bot.approvalMode = approvalMode; bot.approvalRules = approvalRules; bot.reviewerBotID = reviewerBotID == bot.id ? nil : reviewerBotID; setConversationModel(bot); store.save() } else { store.addBot(name: name, persona: persona, backend: backend, avatarName: nil, avatar: avatar, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID) }; dismiss() }
+    private func save() { if let bot { bot.name = name; bot.title = title; bot.botDescription = details; bot.persona = persona; bot.backend = backend; if avatarTouched { avatar.apply(to: bot) }; if bot.isHidden != hidden { store.setHidden(bot, hidden) }; bot.notificationsEnabled = notifications; bot.approvalMode = approvalMode; bot.approvalRules = approvalRules; bot.reviewerBotID = reviewerBotID == bot.id ? nil : reviewerBotID; setConversationModel(bot); if bot.canManageBots != (canManage && backend == .hermes) { store.setCanManageBots(bot, canManage && backend == .hermes) }; store.save() } else { store.addBot(name: name, persona: persona, backend: backend, avatarName: nil, avatar: avatar, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID) }; dismiss() }
 }

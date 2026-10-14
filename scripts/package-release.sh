@@ -19,8 +19,10 @@ ZIP_PATH="$ROOT_DIR/dist/$APP_NAME-${SOURCE_SHA}${DIRTY_SUFFIX}-arm64.zip"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$ROOT_DIR/.build/debug/AgentApp" "$APP_DIR/Contents/MacOS/AgentApp"
-rm -rf "$APP_DIR/Contents/MacOS/AgentApp.resources" "$APP_DIR/Contents/Resources/Avatars"
+rm -rf "$APP_DIR/Contents/MacOS/AgentApp.resources" "$APP_DIR/Contents/Resources/Avatars" "$APP_DIR/Contents/Resources/BotManager"
 cp -R "$ROOT_DIR/Resources/Avatars" "$APP_DIR/Contents/Resources/Avatars"
+# P22: the bot-manager text SwarmHub sends the manager bot on demand.
+cp -R "$ROOT_DIR/Resources/BotManager" "$APP_DIR/Contents/Resources/BotManager"
 cp "$ROOT_DIR/THIRD-PARTY-NOTICES.md" "$APP_DIR/Contents/Resources/THIRD-PARTY-NOTICES.md"
 cp "$ROOT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 {

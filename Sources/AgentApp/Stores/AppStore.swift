@@ -26,6 +26,13 @@ import UserNotifications
     let botInfo = BotInfoCache()
     /// P13 app-wide model defaults (store.json, this install only); empty until set in Settings → Models.
     @Published var modelDefaults = ModelDefaults()
+    /// P22 bot manager: open management exchanges per manager bot, a request for a chat's composer, "Add" offers from a
+    /// `bots` list, the clock the exchange window uses, and the new-profile probe's retries (~10 s).
+    var managementExchanges: [UUID: ManagementExchange] = [:]; @Published var composerFill: ComposerFill?
+    @Published var botOffers: [UUID: [BotOffer]] = [:]; var now: () -> Date = { .now }
+    var botProbeAttempts = 4; var botProbeDelay: Duration = .milliseconds(2500)
+    /// Tests: the manager text template instead of the bundled resource.
+    var managerTemplateOverride: String?
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     var streamTask: Task<Void, Never>?; let fileURL: URL
@@ -91,6 +98,7 @@ import UserNotifications
         } else {
             loadDemoData(persist: true)
         }
+        if !demoMode { migrateManagerRole() }
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
         botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad
@@ -132,6 +140,7 @@ import UserNotifications
         conversation.messages.append(ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)); replyTo = nil; let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true); conversation.messages.append(assistant)
         objectWillChange.send(); save(); isStreaming = true; streamingBotID = bot.id; streamingAssistant = assistant; streamingConversation = conversation
         let streamToken = UUID(); activeStreamToken = streamToken
+        let systemPrompt = managementPrompt(for: bot, text: text, conversation: conversation)
         let history = conversation.messages.filter { $0.id != assistant.id && !$0.isSteer }.map { (role: $0.role.rawValue, content: $0.outgoingText) }
         streamTask = Task { [weak self] in
             guard let self else { return }
@@ -146,7 +155,7 @@ import UserNotifications
                     save()
                 }
                 let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
-                let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: bot.persona, messages: history, images: images))
+                let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: systemPrompt, messages: history, images: images))
                 if activeStreamToken == streamToken { steerAvailable = (try? await activeBackend.features())?.contains("run_steer") == true }
                 for try await event in stream { guard !Task.isCancelled else { break }; switch event {
                 case .token(let token): assistant.content += token; objectWillChange.send()
@@ -176,7 +185,8 @@ import UserNotifications
                 isStreaming = false; streamTask = nil; activeStreamToken = nil; streamingBotID = nil; streamingAssistant = nil; streamingConversation = nil; steerAvailable = false
             }
             save()
-            if !cancelled && !failed && !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { notifyIfNeeded(bot: bot, message: assistant.content) }
+            if !cancelled && !failed { handleManagerReply(assistant, from: bot, in: conversation) }
+            if !cancelled && !failed && !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.content)) }
         }
         return true
     }
