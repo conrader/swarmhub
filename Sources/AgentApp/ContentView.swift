@@ -10,6 +10,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(get: { store.sidebarHidden ? .detailOnly : .all }, set: { store.sidebarHidden = $0 == .detailOnly })) {
             SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: SidebarMetrics.width.min, ideal: SidebarMetrics.width.ideal, max: SidebarMetrics.width.max)
+                .background(SidebarWidthClamp())
                 .toolbar(removing: .sidebarToggle).ignoresSafeArea(.container, edges: .top)
         } detail: {
             Group {
