@@ -10,6 +10,9 @@ actor OpenClawHub {
     private let jitter: @Sendable () -> Double
     private let states: AsyncStream<(String, GatewayState)>.Continuation
     private var links: [String: GatewayLink] = [:]
+    /// Runtime "this Gateway rejected that parameter" marks, and the active run per session (Stop, run marks).
+    nonisolated let marks = OpenClawRuntimeMarks()
+    nonisolated let ledger = OpenClawRunLedger()
 
     init(status: OpenClawStatus, keyStore: any HermesKeyStore, makeTransport: @escaping GatewayTransportFactory = { WebSocketTransport() },
          clock: any GatewayClock = SystemGatewayClock(), jitter: @escaping @Sendable () -> Double = { Double.random(in: -1...1) }) {
@@ -36,6 +39,20 @@ actor OpenClawHub {
     /// A connected socket for this Gateway (connecting first, waiting up to `timeout`).
     func connection(for gateway: OpenClawGateway, timeout: Duration = GatewayLink.readyTimeout) async throws -> GatewayConnection {
         try await link(for: gateway).ready(timeout: timeout)
+    }
+
+    /// The socket only when the link is already up (feature reads and launch never connect).
+    func currentConnection(_ gatewayID: String) async -> GatewayConnection? {
+        guard let link = links[gatewayID], await link.state.isConnected, let connection = await link.connection, await !connection.isClosed else { return nil }
+        return connection
+    }
+
+    func state(_ gatewayID: String) async -> GatewayState { await links[gatewayID]?.state ?? .disconnected }
+
+    /// What this connection can do: `hello-ok` plus the runtime marks for its `connId`.
+    func capabilities(gatewayID: String, connection: GatewayConnection) async -> OpenClawCapabilities? {
+        guard let summary = await connection.summary else { return nil }
+        return OpenClawCapabilities(summary: summary, unsupported: await marks.unsupported(gatewayID: gatewayID, connId: summary.connId))
     }
 
     func connect(_ gateway: OpenClawGateway) async { await link(for: gateway).connect() }
@@ -81,4 +98,21 @@ actor OpenClawHub {
     }
 
     private func didConnect(gatewayID: String, connection: GatewayConnection, summary: GatewaySummary) async {}
+}
+
+/// The run a session is streaming (one per session key), for Stop and the row's run mark.
+actor OpenClawRunLedger {
+    struct Run: Sendable, Equatable { let sessionKey: String; let agentId: String; let runId: String }
+    private var runs: [String: Run] = [:]
+    /// Recent runs by id, kept after they end: Stop builds `chat.abort` after the stream it cancels has cleaned up.
+    private var recent: [Run] = []
+    func start(_ run: Run) { runs[run.sessionKey.lowercased()] = run; recent = Array((recent.filter { $0.runId != run.runId } + [run]).suffix(50)) }
+    func finish(sessionKey: String, runId: String) { if runs[sessionKey.lowercased()]?.runId == runId { runs[sessionKey.lowercased()] = nil } }
+    func active(sessionKey: String) -> Run? { runs[sessionKey.lowercased()] }
+    func run(id runId: String) -> Run? { runs.values.first { $0.runId == runId } ?? recent.last { $0.runId == runId } }
+    /// A steer's own run id (when it is not the active run, which a steer can join).
+    private(set) var ignored: Set<String> = []
+    func ignore(_ runId: String, sessionKey: String) { if runs[sessionKey.lowercased()]?.runId != runId { ignored.insert(runId) } }
+    /// Every active run id (approvals for these runs follow the bot's policy; others are ask-only).
+    var runIds: Set<String> { Set(runs.values.map(\.runId)) }
 }

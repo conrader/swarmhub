@@ -34,6 +34,7 @@ extension AppStore {
             }
             switch event {
             case .token(let token): assistant.content += token; objectWillChange.send(); autosaveIfDue()
+            case .replace(let text): assistant.content = text; objectWillChange.send(); autosaveIfDue()
             case .status(let value): if assistant.content.isEmpty { assistant.metadata["status"] = value }
             case .subAgent(let task): subAgent(task)
             case .approval(var request):

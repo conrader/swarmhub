@@ -15,7 +15,8 @@ enum SetupCopy {
     static let connectCardTitle = "Connect my existing box"
     /// The one place "box" is defined, and the only strings that name the agent software.
     static let connectCardDetail = "Your box is the computer or server where your agents run."
-    static let softwareLine = "Works with Hermes. OpenClaw: not ready yet."
+    /// P12: OpenClaw connects in Settings → Advanced (this window has no OpenClaw step yet).
+    static let softwareLine = "Works with Hermes. OpenClaw: add it later in Settings → Advanced."
 
     // S3 Address and key
     static let addressTitle = "Where are your agents?"

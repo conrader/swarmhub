@@ -42,7 +42,7 @@ private func containsWord(_ text: String, _ word: String) -> Bool {
             #expect(!containsWord(text, "Hermes") && !containsWord(text, "OpenClaw"), "“\(text)” names the software outside the S1 card")
         }
     }
-    #expect(SetupCopy.softwareLine.contains("OpenClaw: not ready yet"))
+    #expect(SetupCopy.softwareLine.contains("OpenClaw: add it later in Settings → Advanced."))
     #expect(!(SimpleCopy.all + SetupCopy.all).contains { $0.contains("Mock") })
     #expect(SimpleCopy.connected(to: "this Mac", agents: 2).hasPrefix("Connected") && !SimpleCopy.all.contains { $0.localizedCaseInsensitiveContains("key saved") })
 }

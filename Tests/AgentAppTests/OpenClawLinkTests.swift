@@ -34,6 +34,13 @@ private func stable(_ params: GatewayJSON) -> GatewayJSON {
     await link.disconnect()
 }
 
+@Test func anUntrustedRequestIDNeverReachesTheCopyableCommand() {
+    #expect(GatewayState.approveCommand("req-1.a_b:C") == "openclaw devices approve req-1.a_b:C")
+    for hostile in ["x; rm -rf ~", "$(id)", "a b", "`x`", "", String(repeating: "a", count: 129), "ré"] {
+        #expect(GatewayState.approveCommand(hostile) == "openclaw devices approve <requestId>", "\(hostile)")
+    }
+}
+
 @Test func thePairingWaitEndsAfterTenMinutes() async throws {
     let fake = FakeGateway(); fake.requiresApproval = true
     let clock = ManualGatewayClock(); let (gateway, keys) = fakeGatewaySetup()

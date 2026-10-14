@@ -3,6 +3,11 @@ import Foundation
 
 /// P12: saved OpenClaw Gateways and their links. The Gateway list is read from UserDefaults at launch (no network);
 /// the hub exists only once something asks for it.
+extension Bot {
+    /// Group chats stay Hermes and Mock for now (OpenClaw members are P12b).
+    var joinsGroups: Bool { backend != .openClaw }
+}
+
 extension AppStore {
     var gatewayStore: GatewayStore { GatewayStore(defaults: defaults, keyStore: keyStore) }
     var openClawStatus: OpenClawStatus { openClawHub.status }
@@ -64,5 +69,57 @@ extension AppStore {
     func existingIdentity(for gateway: OpenClawGateway) throws -> GatewayIdentity? {
         guard keyStore.hasKey(for: gateway.deviceKeyAccount) else { return nil }
         return try GatewayIdentity.loadOrCreate(gatewayID: gateway.id, store: keyStore)
+    }
+}
+
+/// P12 Part B: OpenClaw bots.
+extension AppStore {
+    struct OpenClawAdd: Equatable { let name: String; let added: Bool }
+
+    /// "Add bots from this Gateway…": one bot per (Gateway, agent), idempotent, never removes a bot; own avatars only.
+    @discardableResult func addBotsFromGateway(_ gateway: OpenClawGateway) async throws -> [OpenClawAdd] {
+        let listed = try await openClawHub.agents(for: gateway)
+        var results: [OpenClawAdd] = []
+        for agent in listed.agents {
+            if bots.contains(where: { $0.backend == .openClaw && $0.openClaw?.gatewayID == gateway.id && $0.openClaw?.agentID == agent.id }) {
+                results.append(.init(name: agent.displayName, added: false)); continue
+            }
+            let bot = Bot(name: agent.displayName, title: "OpenClaw agent", persona: "", backend: .openClaw)
+            bot.openClaw = OpenClawBinding(gatewayID: gateway.id, agentID: agent.id)
+            bots.append(bot); results.append(.init(name: agent.displayName, added: true))
+        }
+        objectWillChange.send(); save()
+        return results
+    }
+
+    /// The editor's agent list (connects: the user asked for it).
+    func loadOpenClawAgents(_ gatewayID: String) async -> String? {
+        guard let gateway = gateway(id: gatewayID) else { return nil }
+        do { _ = try await openClawHub.agents(for: gateway); return nil } catch { return redactedOpenClaw(error, gateway: gateway) }
+    }
+
+    /// Why this bot cannot send now (unbound, unpaired, failed, read-only); nil when it can (a send while connecting
+    /// waits up to 30 s). Reads the published state only.
+    func openClawBlock(_ bot: Bot) -> String? {
+        guard bot.backend == .openClaw, backendFactory == nil || bot.openClaw != nil else { return nil }
+        guard let binding = bot.openClaw, gateway(id: binding.gatewayID) != nil else { return OpenClawBackend.unboundMessage }
+        let state = openClawStatus.state(for: binding.gatewayID)
+        switch state {
+        case .pairingRequired, .failed: return state.line()
+        case .connected(let summary) where !summary.hasScope("operator.write"): return state.line()
+        default: return nil
+        }
+    }
+
+    /// A non-blocking line while the link is coming up.
+    func openClawNotice(_ bot: Bot) -> String? {
+        guard bot.backend == .openClaw, let id = bot.openClaw?.gatewayID, gateway(id: id) != nil else { return nil }
+        let state = openClawStatus.state(for: id)
+        return state.isWorking ? state.line() : nil
+    }
+
+    func retryOpenClaw(_ bot: Bot) {
+        guard let gateway = gateway(id: bot.openClaw?.gatewayID) else { return }
+        Task { await openClawHub.link(for: gateway).retryNow() }
     }
 }

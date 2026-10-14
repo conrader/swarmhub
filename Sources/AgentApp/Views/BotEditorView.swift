@@ -14,9 +14,13 @@ struct BotEditorView: View {
             Divider(); Form {
                 Section(SimpleCopy.avatar) { AvatarPickerView(choice: Binding(get: { fields.avatar }, set: { fields.avatar = $0; avatarTouched = true })) }
                 TextField(SimpleCopy.name, text: $fields.name)
-                Section(SimpleCopy.instructions) {
-                    TextEditor(text: $fields.persona).frame(height: 90)
-                    Text(SimpleCopy.instructionsCaption).font(.caption).foregroundStyle(.secondary)
+                if fields.backend == .openClaw {
+                    OpenClawEditorSection(status: store.openClawStatus, fields: $fields)
+                } else {
+                    Section(SimpleCopy.instructions) {
+                        TextEditor(text: $fields.persona).frame(height: 90)
+                        Text(SimpleCopy.instructionsCaption).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Toggle(SimpleCopy.notifyAgent, isOn: $fields.notifications)
                 Section {
@@ -24,7 +28,7 @@ struct BotEditorView: View {
                 }
                 if showAdvanced { BotEditorAdvancedSection(bot: bot, fields: $fields) }
             }.formStyle(.grouped).padding(.horizontal, 8)
-            Divider(); HStack { Spacer(); Button(SimpleCopy.cancel) { dismiss() }; Button(SimpleCopy.save) { save() }.buttonStyle(.borderedProminent).disabled(fields.name.trimmingCharacters(in: .whitespaces).isEmpty) }.padding(16)
+            Divider(); HStack { Spacer(); Button(SimpleCopy.cancel) { dismiss() }; Button(SimpleCopy.save) { save() }.buttonStyle(.borderedProminent).disabled(fields.name.trimmingCharacters(in: .whitespaces).isEmpty || !fields.openClawReady) }.padding(16)
         }.frame(width: 560, height: 720).background(AppColor.panel).onAppear {
             fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(hermesConfigured: store.hermesConfigured)
         }
@@ -38,7 +42,7 @@ struct BotEditorView: View {
         if let bot {
             fields.apply(to: bot, store: store, avatarTouched: avatarTouched); store.save()
         } else {
-            store.addBot(name: fields.name, persona: fields.persona, backend: fields.backend, avatarName: nil, avatar: fields.avatar, approvalMode: fields.approvalMode, approvalRules: fields.approvalRules, reviewerBotID: fields.reviewerBotID)
+            store.addBot(name: fields.name, persona: fields.backend == .openClaw ? "" : fields.persona, backend: fields.backend, avatarName: nil, avatar: fields.avatar, approvalMode: fields.approvalMode, approvalRules: fields.approvalRules, reviewerBotID: fields.reviewerBotID, openClaw: fields.openClawBinding)
         }
         dismiss()
     }
@@ -53,6 +57,8 @@ struct BotEditorFields {
     var hidden = false, notifications = true
     var approvalMode = ApprovalMode.ask, approvalRules = ApprovalRule.sensibleDefaults, reviewerBotID: UUID?
     var conversationModel = ModelSetting.inherit, canManage = false
+    /// P12: an OpenClaw agent's Gateway, agent id and session mode.
+    var openClawGatewayID: String?, openClawAgentID = "", openClawSessionMode = OpenClawBinding.SessionMode.own
 
     init() {}
     /// A new agent talks to the box when one is configured; Mock stays reachable only under Advanced.
@@ -62,11 +68,16 @@ struct BotEditorFields {
         avatar = AvatarChoice(bot: bot); hidden = bot.isHidden; notifications = bot.notificationsEnabled
         approvalMode = bot.approvalMode; approvalRules = bot.approvalRules; reviewerBotID = bot.reviewerBotID
         conversationModel = bot.modelSettings?.conversation ?? .inherit; canManage = bot.canManageBots
+        openClawGatewayID = bot.openClaw?.gatewayID; openClawAgentID = bot.openClaw?.agentID ?? ""; openClawSessionMode = bot.openClaw?.sessionMode ?? .own
     }
 
     @MainActor func apply(to bot: Bot, store: AppStore, avatarTouched: Bool) {
         // A changed Backend clears the Conversation pair: no stale Hermes pair stays on another backend (P17).
         let conversation = backend == bot.backend ? conversationModel : .inherit
+        // P12: a new binding (or a move to or from OpenClaw) starts a new chat session; the transcript stays.
+        let binding = openClawBinding
+        if bot.openClaw != binding || (backend != bot.backend && (backend == .openClaw || bot.backend == .openClaw)) { bot.hermesSessionID = nil }
+        bot.openClaw = binding
         bot.name = name; bot.title = title; bot.botDescription = details; bot.persona = persona; bot.backend = backend
         if avatarTouched { avatar.apply(to: bot) }
         if bot.isHidden != hidden { store.setHidden(bot, hidden) }

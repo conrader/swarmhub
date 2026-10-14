@@ -19,7 +19,7 @@ struct GroupInfoPanel: View {
 
     private var content: some View {
         let members = store.members(of: group)
-        let candidates = store.bots.filter { !group.memberIDs.contains($0.id) && !$0.isReadOnlyArchive && !$0.isDemo }
+        let candidates = store.bots.filter { !group.memberIDs.contains($0.id) && !$0.isReadOnlyArchive && !$0.isDemo && $0.joinsGroups }
         return VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Group name").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -63,7 +63,7 @@ struct NewGroupSheet: View {
     @State private var name = ""; @State private var picked: Set<UUID> = []
 
     var body: some View {
-        let bots = store.bots.filter { !$0.isReadOnlyArchive && (!$0.isDemo || picked.contains($0.id)) }
+        let bots = store.bots.filter { !$0.isReadOnlyArchive && $0.joinsGroups && (!$0.isDemo || picked.contains($0.id)) }
         VStack(alignment: .leading, spacing: 12) {
             Text("New group").font(.title3.weight(.semibold))
             TextField(picked.count >= 2 ? store.defaultGroupName(ordered(bots)) : "Group name (optional)", text: $name).textFieldStyle(.roundedBorder)

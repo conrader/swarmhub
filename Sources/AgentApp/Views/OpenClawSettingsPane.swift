@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// P12: Settings → Advanced → Servers and keys → OpenClaw. Per Gateway: name, address, one state line that names the
-/// next action, and Test, Connect/Disconnect, Edit, Forget (plus Add bots once connected). With no Gateway: an empty
+/// next action, and Test, Connect/Disconnect, Add bots, Edit, Forget. With no Gateway: an empty
 /// list and Add Gateway; nothing touches the network until the user acts.
 struct OpenClawSettingsSection: View {
     @EnvironmentObject private var store: AppStore
@@ -44,8 +44,9 @@ struct OpenClawSettingsSection: View {
                 if busy.contains(gateway.id) || state.isWorking { ProgressView().controlSize(.small) }
             }
             Text(stateLine(state, gateway: gateway)).font(.caption).foregroundStyle(lineColor(state)).textSelection(.enabled)
-            if case .pairingRequired(let requestId, _, _) = state, let requestId {
-                HStack { Text("openclaw devices approve \(requestId)").font(.caption.monospaced()); CopyButton(text: "openclaw devices approve \(requestId)") }
+            if case .pairingRequired(let requestId, _, _) = state, let safe = requestId.flatMap(GatewayState.shellSafe) {
+                let command = GatewayState.approveCommand(safe)
+                HStack { Text(command).font(.caption.monospaced()); CopyButton(text: command) }
             }
             HStack {
                 Button("Test") { test(gateway) }.disabled(busy.contains(gateway.id))
@@ -54,6 +55,7 @@ struct OpenClawSettingsSection: View {
                 } else {
                     Button("Connect") { Task { await store.connectGateway(gateway) } }
                 }
+                Button("Add bots…") { addBots(gateway) }.disabled(busy.contains(gateway.id)).help("One bot per agent on this Gateway; existing bots stay")
                 Button("Edit…") { editing = .edit(gateway) }
                 Button("Forget", role: .destructive) { forget(gateway) }
             }
@@ -77,6 +79,18 @@ struct OpenClawSettingsSection: View {
     private func test(_ gateway: OpenClawGateway) {
         busy.insert(gateway.id); results[gateway.id] = nil
         Task { results[gateway.id] = await store.testGateway(gateway); busy.remove(gateway.id) }
+    }
+
+    private func addBots(_ gateway: OpenClawGateway) {
+        busy.insert(gateway.id); results[gateway.id] = nil
+        Task {
+            do {
+                let added = try await store.addBotsFromGateway(gateway)
+                let new = added.filter(\.added).map(\.name)
+                results[gateway.id] = added.isEmpty ? "This Gateway lists no agents." : new.isEmpty ? "Every agent already has a bot." : "Added \(new.joined(separator: ", "))."
+            } catch { results[gateway.id] = store.redactedOpenClaw(error, gateway: gateway) }
+            busy.remove(gateway.id)
+        }
     }
 
     private func forget(_ gateway: OpenClawGateway) {

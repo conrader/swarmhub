@@ -19,13 +19,23 @@ enum GatewayState: Sendable, Equatable {
         case .disconnected: return "Not connected. Press Connect or send a message to connect."
         case .connecting: return "Connecting…"
         case .pairingRequired(let requestId, _, _):
-            return "Waiting for approval on the Gateway host: openclaw devices approve \(requestId ?? "<requestId>")"
+            return "Waiting for approval on the Gateway host: \(Self.approveCommand(requestId))"
         case .connected(let summary):
             if !summary.hasScope("operator.write") { return "This Mac is paired read-only (needs operator.write)." }
             return "Connected · OpenClaw \(summary.serverVersion.isEmpty ? "(version not sent)" : summary.serverVersion)"
         case .reconnecting(let delay): return "Connection lost. Reconnecting in \(Self.wholeSeconds(delay)) s…"
         case .failed(let failure): return failure.line
         }
+    }
+
+    /// The Gateway's `requestId` is untrusted: it goes into a copyable shell command only when it is a plain token.
+    static func approveCommand(_ requestId: String?) -> String {
+        "openclaw devices approve \(requestId.flatMap(shellSafe) ?? "<requestId>")"
+    }
+
+    static func shellSafe(_ value: String) -> String? {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-")
+        return (1...128).contains(value.count) && value.unicodeScalars.allSatisfy(allowed.contains) ? value : nil
     }
 
     static func wholeSeconds(_ duration: Duration) -> Int {

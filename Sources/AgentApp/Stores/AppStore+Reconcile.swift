@@ -44,8 +44,9 @@ struct SessionRead: Sendable { var rows: [BackendMessage]; var coversFrom: Date?
 
 /// P16 Part 1: reconcile from the box (GET only; writes only this store).
 extension AppStore {
-    func loadHermesHistory(for bot: Bot) {
-        guard bot.backend == .hermes, !isStreaming, !needsKey(bot) else { return }
+    /// Opening a chat (a user action) reads its server history; for OpenClaw this may connect the Gateway (P12).
+    func loadServerHistory(for bot: Bot) {
+        guard bot.backend.hasServerSessions, !isStreaming, !needsKey(bot), bot.backend != .openClaw || bot.openClaw != nil else { return }
         refreshFeatures(for: bot)
         let token = UUID(); historyLoadTokens[bot.id] = token
         Task {

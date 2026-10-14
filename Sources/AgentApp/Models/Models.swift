@@ -295,4 +295,5 @@ struct BackendMessage: Sendable, Equatable {
 }
 enum StopTarget: Sendable, Equatable { case serverRun(String), disconnectedLegacy, noActiveRun }
 enum StopOutcome: Sendable, Equatable { case requested, disconnectedLegacy, noActiveRun }
-enum AgentEvent: Sendable { case token(String), status(String), subAgent(SubAgentTask), approval(ApprovalRequest), completed, failed(String) }
+/// `replace` (P12): the whole reply text so far, when a backend's snapshot no longer extends what was streamed.
+enum AgentEvent: Sendable { case token(String), replace(String), status(String), subAgent(SubAgentTask), approval(ApprovalRequest), completed, failed(String) }

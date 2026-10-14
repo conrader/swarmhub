@@ -65,6 +65,7 @@ private struct FixtureReviewerBackend: AgentBackend {
             policyStore.bots = [policyBot, reviewer]
             for try await event in stream { switch event {
             case .token(let token): kinds.append("token"); reply += token
+            case .replace(let text): kinds.append("replace"); reply = text
             case .status: kinds.append("status")
             case .subAgent: kinds.append("subagent")
             case .approval(let request):

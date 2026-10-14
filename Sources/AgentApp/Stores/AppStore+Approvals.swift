@@ -10,7 +10,8 @@ fileprivate actor ReviewerStopTargetBox {
 extension AppStore {
     func decide(_ approval: ApprovalRequest, approved: Bool) {
         guard !approved || approval.hasKnownCommand else {
-            errorMessage = "Cannot approve a Hermes request without command text."
+            let server = approval.botID.flatMap { id in bots.first { $0.id == id } }?.backend.shortName ?? BackendKind.hermes.shortName
+            errorMessage = "Cannot approve a \(server) request without command text."
             return
         }
         guard let botID = approval.botID, let bot = bots.first(where: { $0.id == botID }), let approvalBackend = try? backend(for: bot) else { return }
@@ -96,7 +97,7 @@ extension AppStore {
                     if await stopTargetBox.value() == nil, let target = try? await reviewerBackend.stopTarget(sessionID: reviewerSessionID), case .serverRun = target {
                         await stopTargetBox.capture(target)
                     }
-                    switch event { case .token(let value): answer += value; case .approval(let nested): return .nestedApproval(nested); case .failed(let value): throw BackendError.unavailable(value); case .completed: completed = true; default: break }
+                    switch event { case .token(let value): answer += value; case .replace(let value): answer = value; case .approval(let nested): return .nestedApproval(nested); case .failed(let value): throw BackendError.unavailable(value); case .completed: completed = true; default: break }
                 }
                 guard completed else { throw BackendError.unavailable("Reviewer stream ended without completion.") }
                 let normalized = answer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
