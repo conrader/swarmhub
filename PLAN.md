@@ -12,6 +12,7 @@ Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `gr
 ## Open work (kept current by Claude; last audit 2026-10-14 08:30 UTC)
 
 Everything planned that is not merged yet, so nobody has to remember it. Built = merged into `main`.
+**Konrad 2026-10-14: "Build all, defaults"** — every row below is accepted with the recommended defaults (P16, P17, P21, P12 included; P13 Part C's live step has his go). Order: P23 → P19 → P24 → P10c → P10d → P10e → P13 C → D → E → P16 → P21 → P17 → P12; each merged when green; Claude reports results, comes back only for a real blocker.
 
 | What | State | Next step |
 |---|---|---|
@@ -22,11 +23,11 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | README: bot management, shortcuts, versions, updates | not done | after P23 merge |
 | P24 Hermes version per box + calm skills note | accepted, not started | after P23 |
 | P10c / P10d / P10e Grok import in the app (command, sheet, live) | P10.0/a/b merged, c/d/e never started | build in order |
-| P13 Parts C / D / E model roles (prove, existing chats, sub-agents) | Parts A+B merged, C/D/E never started | Part C (its live step needs Konrad's go) |
-| P16 No reply is lost | brief proposed, waiting for yes | build with defaults on yes |
-| P17 Models from the agent's own backend | brief proposed, waiting for yes | build on yes |
-| P21 Simple settings + setup wizard | brief proposed, waiting for yes | build with defaults on yes |
-| P12 Connect OpenClaw | brief written, never started | after the Hermes items |
+| P13 Parts C / D / E model roles (prove, existing chats, sub-agents) | Parts A+B merged, C/D/E never started | queued; Part C live step has Konrad's go |
+| P16 No reply is lost | accepted (build all) | queued |
+| P17 Models from the agent's own backend | accepted (build all) | queued |
+| P21 Simple settings + setup wizard | accepted (build all) | queued |
+| P12 Connect OpenClaw | accepted (build all), never started | queued last |
 | Small: sidebar "Import from Grok Bot" item (needs P10d), attention badge for failed turns (needs P16), idle-pause for hidden windows | waiting on the phases named | with those phases |
 | Box/ops: Codex login has no refresh token (Konrad re-logs in), DB password in plain text in the context-api unit, staged P9 bundles on the box to delete, Mac clone remote still says `torvli` | open | flagged to Konrad |
 
