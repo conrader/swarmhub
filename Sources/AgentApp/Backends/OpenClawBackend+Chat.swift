@@ -29,10 +29,14 @@ extension OpenClawBackend {
                     Task { await connection.unsubscribe(subscription); if let finishedRun { await hub.ledger.finish(sessionKey: sessionKey, runId: finishedRun) } }
                 }
                 do {
-                    let ack = try await call(connection, "chat.send", sendParams, feature: .chat)
+                    let ack = try await call(connection, "chat.send", sendParams)
                     guard let id = ack["runId"]?.string else { throw BackendError.unavailable("The Gateway accepted the message but sent no run id.") }
                     runId = id
                     await hub.ledger.start(.init(sessionKey: sessionKey, agentId: agentID, runId: id))
+                    if Task.isCancelled { // Stop came before the ack: the run exists now, so abort it
+                        _ = try? await call(connection, "chat.abort", ["sessionKey": .string(sessionKey), "agentId": .string(agentID), "runId": .string(id)], timeout: Self.abortTimeout)
+                        throw CancellationError()
+                    }
                     var mapper = OpenClawRunMapper(sessionKey: sessionKey); mapper.setPrimary(id)
                     try await stream(events, into: &mapper, continuation)
                     while !mapper.isFinished, !Task.isCancelled {
@@ -94,7 +98,7 @@ extension OpenClawBackend {
     /// `chat.history {sessionKey, agentId, limit: 200, maxChars: 20000}` (15 s).
     func historyPage(_ connection: GatewayConnection, sessionKey: String) async throws -> GatewayJSON {
         try await call(connection, "chat.history", ["sessionKey": .string(sessionKey), "agentId": .string(agentID), "limit": .int(Self.historyLimit),
-                                                    "maxChars": .int(Self.historyMaxChars)], feature: .history, timeout: Self.historyTimeout)
+                                                    "maxChars": .int(Self.historyMaxChars)], timeout: Self.historyTimeout)
     }
 
     /// `chat.send` with `queueMode:"steer"` and a fresh key; its run joins the active run's ignore set.

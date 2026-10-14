@@ -41,7 +41,8 @@ struct OpenClawBackend: AgentBackend {
         return await hub.capabilities(gatewayID: gateway.id, connection: connection)?.hermesFlags ?? []
     }
 
-    /// One request with the error text redacted; an `INVALID_REQUEST`/unknown method marks `feature` for this connection.
+    /// One request with the error text redacted. Pass `feature` only for optional parameters (steer, fork, titles): an
+    /// `INVALID_REQUEST`/unknown method then marks just that feature for this connection; mandatory calls never mark.
     func call(_ connection: GatewayConnection, _ method: String, _ params: GatewayJSON, feature: OpenClawFeature? = nil,
               timeout: Duration = GatewayConnection.defaultTimeout) async throws -> GatewayJSON {
         do { return try await connection.request(method, params: params, timeout: timeout) }
@@ -95,7 +96,7 @@ struct OpenClawBackend: AgentBackend {
         guard capabilities.isAvailable(.stop) else { return .disconnectedLegacy }
         guard let run = await hub.ledger.run(id: runId) else { return .noActiveRun }
         let sessionKey = run.sessionKey
-        _ = try await call(connection, "chat.abort", ["sessionKey": .string(sessionKey), "agentId": .string(agentID), "runId": .string(runId)], feature: .stop, timeout: Self.abortTimeout)
+        _ = try await call(connection, "chat.abort", ["sessionKey": .string(sessionKey), "agentId": .string(agentID), "runId": .string(runId)], timeout: Self.abortTimeout)
         return .requested
     }
 
@@ -108,7 +109,7 @@ struct OpenClawBackend: AgentBackend {
     func listSessions() async throws -> [BackendSession] {
         let (connection, capabilities) = try await connected()
         try require(.sessions, in: capabilities)
-        let result = try await call(connection, "sessions.list", ["agentId": .string(agentID), "limit": 100], feature: .sessions)
+        let result = try await call(connection, "sessions.list", ["agentId": .string(agentID), "limit": 100])
         return (result["sessions"]?.array ?? result["rows"]?.array ?? []).compactMap { row in
             guard let key = row["key"]?.string else { return nil }
             return BackendSession(id: key, title: row["displayName"]?.string ?? row["label"]?.string ?? key)

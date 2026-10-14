@@ -48,6 +48,10 @@ actor GatewayLink {
         if loop == nil { connect() } else { sleeper?.cancel() }
     }
 
+    /// Wake: cut a running loop's pause short; a link the user never connected, disconnected or that failed for good
+    /// stays down.
+    func nudge() { sleeper?.cancel() }
+
     func disconnect() async {
         loop?.cancel(); loop = nil; sleeper?.cancel()
         let open = connection; connection = nil
@@ -74,14 +78,14 @@ actor GatewayLink {
         waiters.removeValue(forKey: id)?.resume(throwing: GatewayFailure.unreachable("no answer within 30 s"))
     }
 
-    private func setState(_ new: GatewayState) {
+    private func setState(_ new: GatewayState, failWaiters: Bool = true) {
         state = new; publish(new)
         let failure: Error?
         switch new {
         case .connected:
             guard let connection else { return }
             waiters.values.forEach { $0.resume(returning: connection) }; waiters = [:]; return
-        case .failed(let value): failure = value
+        case .failed(let value): failure = failWaiters ? value : nil
         case .pairingRequired, .disconnected: failure = GatewayFailure.rejected(code: "NOT_CONNECTED", message: new.line())
         case .connecting, .reconnecting: failure = nil
         }
@@ -95,7 +99,7 @@ actor GatewayLink {
     private func run() async {
         var backoff = Self.firstBackoff, signatureVersion = 3
         var preferDevice = false, deviceRetryUsed = false
-        var pairingSince: Duration?, first = true
+        var pairingSince: Duration?, first = true, wasUp = false
         func nextBackoff() -> Duration { let delay = jittered(backoff); backoff = min(backoff * 2, Self.maxBackoff); return delay }
         while !Task.isCancelled {
             // While pairing or backing off after a failure the line stays; a fresh start (Connect, Retry, a send) says Connecting.
@@ -112,13 +116,14 @@ actor GatewayLink {
                 await onConnected(open, summary)
                 _ = await open.waitUntilClosed()
                 if Task.isCancelled { return }
-                connection = nil
+                connection = nil; wasUp = true
                 if clock.now - upAt >= Self.stableAfter { backoff = Self.firstBackoff }
                 let delay = nextBackoff()
                 setState(.reconnecting(in: delay))
                 await pause(delay)
             case .unreachable(let why):
-                setState(.failed(.unreachable(why)))
+                // After a drop, a send resuming its run keeps waiting (its own 30 s) while the loop retries.
+                setState(.failed(.unreachable(why)), failWaiters: !wasUp)
                 await pause(nextBackoff())
             case .verdict(let verdict):
                 switch verdict {
@@ -192,7 +197,8 @@ actor GatewayLink {
             }
             guard summary.hasScope("operator.read") else { await open.close(); return .verdict(.terminal(.insufficientScopes(missing: ["operator.read"]))) }
             return .connected(open, summary)
-        } catch let error as GatewayError {
+        } catch var error as GatewayError {
+            error.message = redact(error.message)
             await open.close(); return .verdict(.classify(error))
         } catch let failure as GatewayFailure {
             await open.close(); return .verdict(.terminal(failure))

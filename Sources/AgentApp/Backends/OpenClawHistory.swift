@@ -33,7 +33,7 @@ extension OpenClawBackend: ModelCatalogProviding {
             throw BackendError.unavailable("Connect this Gateway to see its models.")
         }
         if let reason = capabilities.reason(.models) { throw BackendError.unavailable("\(reason) Update OpenClaw to list this agent's models.") }
-        let listed = try await call(connection, "models.list", ["agentId": .string(agentID)], feature: .models)
+        let listed = try await call(connection, "models.list", ["agentId": .string(agentID)])
         var primary: String?
         if capabilities.isAvailable(.agents), let agents = try? await call(connection, "agents.list", .object([:])) {
             primary = OpenClawAgent.list(agents).agents.first { $0.id == agentID }?.primaryModel

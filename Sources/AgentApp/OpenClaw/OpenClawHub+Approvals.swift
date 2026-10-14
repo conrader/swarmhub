@@ -11,6 +11,9 @@ struct GatewayApproval: Sendable, Equatable {
     var sessionKey: String?
     var runId: String?
     var expiresAtMs: Int?
+    /// `request.command` when it differs from the plan's `commandText` (which is what runs): such an approval is never
+    /// decided automatically, and both texts are shown.
+    var displayedCommand: String?
 
     init(gatewayID: String, id: String, command: String? = nil, cwd: String? = nil, host: String? = nil, agentId: String? = nil,
          sessionKey: String? = nil, runId: String? = nil, expiresAtMs: Int? = nil) {
@@ -24,11 +27,16 @@ struct GatewayApproval: Sendable, Equatable {
         let request = json["request"] ?? json
         let plan = request["systemRunPlan"]
         func text(_ value: GatewayJSON?) -> String? { value?.string.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } }
-        self.init(gatewayID: gatewayID, id: id, command: text(request["command"]) ?? text(plan?["commandText"]), cwd: text(request["cwd"]) ?? text(plan?["cwd"]),
+        // The run plan is the source of truth when present: it is what the Gateway will execute.
+        let planned = text(plan?["commandText"]), shown = text(request["command"])
+        self.init(gatewayID: gatewayID, id: id, command: planned ?? shown, cwd: text(plan?["cwd"]) ?? text(request["cwd"]),
                   host: text(request["host"]), agentId: text(request["agentId"]) ?? text(plan?["agentId"]),
                   sessionKey: text(request["sessionKey"]) ?? text(plan?["sessionKey"]), runId: text(request["runId"]),
                   expiresAtMs: json["expiresAtMs"]?.int ?? request["expiresAtMs"]?.int)
+        if let planned, let shown, planned.trimmingCharacters(in: .whitespacesAndNewlines) != shown.trimmingCharacters(in: .whitespacesAndNewlines) { displayedCommand = shown }
     }
+
+    var commandsDisagree: Bool { displayedCommand != nil }
 
     func isExpired(now: Date = .now) -> Bool { expiresAtMs.map { Double($0) / 1000 <= now.timeIntervalSince1970 } ?? false }
     var expiresAt: Date? { expiresAtMs.map { Date(timeIntervalSince1970: Double($0) / 1000) } }
@@ -80,6 +88,6 @@ extension OpenClawBackend {
         guard let id = approval.requestID else { throw BackendError.unavailable("This approval has no Gateway id.") }
         let (connection, capabilities) = try await connected()
         try require(.approvals, in: capabilities)
-        _ = try await call(connection, "exec.approval.resolve", ["id": .string(id), "decision": .string(Self.decision(approved: approved))], feature: .approvals)
+        _ = try await call(connection, "exec.approval.resolve", ["id": .string(id), "decision": .string(Self.decision(approved: approved))])
     }
 }

@@ -201,3 +201,26 @@ func collect(_ stream: AsyncThrowingStream<AgentEvent, Error>) async throws -> [
     #expect(catalog.place == "OpenClaw Gateway Test Gateway" && catalog.detail == "Agent agent-alpha" && backend.catalogScope.hasSuffix("|agent-alpha"))
     #expect(fake.requestsFor("models.list") == [["agentId": "agent-alpha"]])
 }
+
+@MainActor @Test func aRejectedSendDoesNotDisableChatForTheLink() async throws {
+    let (backend, fake, _) = clawBackend()
+    fake.handlers["chat.send"] = { _, _ in .failure(GatewayError(code: "INVALID_REQUEST", message: "attachment too large")) }
+    await #expect(throws: BackendError.self) { _ = try await collect(backend.send(AgentRequest(sessionID: "agent:agent-alpha:s1", systemPrompt: "", messages: [("user", "x")]))) }
+    #expect(try await backend.features() == ["session_chat_streaming", "run_steer", "session_fork"], "only optional parameters mark a feature")
+}
+
+@MainActor @Test func stopBeforeTheAckStillAbortsTheRun() async throws {
+    let fake = FakeGateway(); fake.silentMethods = ["chat.send"]
+    let (backend, _, _) = clawBackend(fake)
+    let stream = try await backend.send(AgentRequest(sessionID: "agent:agent-alpha:s1", systemPrompt: "", messages: [("user", "x")]))
+    let consumer = Task { try await collect(stream) }
+    try await fake.requestLog.wait { $0.contains("chat.send") }
+    consumer.cancel()
+    let socket = try #require(fake.lastSocket)
+    let ids = socket.sentFrames.compactMap { text -> String? in
+        guard case .request(let id, "chat.send", _)? = GatewayFrame.decode(text) else { return nil }; return id }
+    let sendID = try #require(ids.first)
+    fake.respond(to: sendID, on: socket, payload: ["runId": "run-late"])
+    try await fake.requestLog.wait { $0.contains("chat.abort") }
+    #expect(fake.requestsFor("chat.abort") == [["sessionKey": "agent:agent-alpha:s1", "agentId": "agent-alpha", "runId": "run-late"]])
+}

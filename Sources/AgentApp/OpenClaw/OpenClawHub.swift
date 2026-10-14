@@ -70,8 +70,8 @@ actor OpenClawHub {
         await MainActor.run { [status] in status.forget(gatewayID) }
     }
 
-    /// `NSWorkspace.didWakeNotification`: every link that is down tries at once.
-    func wake() async { for link in links.values { await link.retryNow() } }
+    /// `NSWorkspace.didWakeNotification`: every link that is retrying tries at once (none starts here).
+    func wake() async { for link in links.values { await link.nudge() } }
 
     // MARK: Agents and Test
 

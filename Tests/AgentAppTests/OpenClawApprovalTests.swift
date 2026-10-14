@@ -31,6 +31,9 @@ private func approvalPayload(_ id: String, command: String = "cat /tmp/x", sessi
     let planned = GatewayApproval(gatewayID: "gw", json: ["id": "ap-2", "request": ["systemRunPlan": ["argv": ["ls"], "cwd": "/a", "commandText": "ls -la", "agentId": "agent-alpha", "sessionKey": "agent:agent-alpha:s1"]]])
     #expect(planned?.command == "ls -la" && planned?.cwd == "/a" && planned?.sessionKey == "agent:agent-alpha:s1")
     #expect(GatewayApproval(gatewayID: "gw", json: ["request": ["command": "x"]]) == nil, "no id, no approval")
+    let split = GatewayApproval(gatewayID: "gw", json: ["id": "ap-3", "request": ["command": "cat notes.txt", "systemRunPlan": ["argv": ["rm"], "cwd": "/a", "commandText": "rm -rf /a", "agentId": "agent-alpha", "sessionKey": "s"]]])
+    #expect(split?.command == "rm -rf /a" && split?.commandsDisagree == true, "the plan is what runs")
+    #expect(AppStore.approvalRequest(split!, bot: Bot(name: "B", backend: .openClaw), ownSession: true).summary == "rm -rf /a · shown as “cat notes.txt” · in /a")
     let bot = Bot(name: "Alpha", backend: .openClaw)
     let request = AppStore.approvalRequest(event!, bot: bot, ownSession: true)
     #expect(request.requestID == "ap-1" && request.command == "cat /tmp/x" && request.summary == "cat /tmp/x · in /srv/work · on gateway")
@@ -48,6 +51,16 @@ private func approvalPayload(_ id: String, command: String = "cat /tmp/x", sessi
     #expect(fake.requestsFor("exec.approval.resolve") == [["id": "ap-own", "decision": "allow-once"]])
     try await waitUntil { bot.approvalAudit.contains { $0.outcome == .approved && $0.decidedBy.hasPrefix("rule:") } }
     #expect(store.approvals.isEmpty)
+}
+
+@MainActor @Test func anApprovalWhoseShownCommandDiffersFromItsPlanIsAskOnly() async throws {
+    let fake = FakeGateway()
+    let (store, _, _) = try await connectedStore(fake, mode: .rules)
+    await store.openClawHub.ledger.start(.init(sessionKey: "agent:agent-alpha:s1", agentId: "agent-alpha", runId: "run-1"))
+    fake.emit("exec.approval.requested", ["id": "ap-split", "request": ["command": "cat notes.txt", "runId": "run-1", "agentId": "agent-alpha", "sessionKey": "agent:agent-alpha:s1",
+                                                                         "systemRunPlan": ["argv": ["cat"], "cwd": "/a", "commandText": "cat /etc/hosts", "agentId": "agent-alpha", "sessionKey": "agent:agent-alpha:s1"]]])
+    try await waitUntil { store.approvals.count == 1 }
+    #expect(store.approvals[0].command == "cat /etc/hosts" && fake.requestsFor("exec.approval.resolve").isEmpty, "a matching allow rule does not apply")
 }
 
 @MainActor @Test func everyOtherApprovalIsAskOnlyEvenUnderRules() async throws {
@@ -90,7 +103,7 @@ private func approvalPayload(_ id: String, command: String = "cat /tmp/x", sessi
     try await waitUntil { store.approvals.isEmpty }
     let now = Int(Date().timeIntervalSince1970 * 1000)
     fake.emit("exec.approval.requested", approvalPayload("ap-old", run: nil, expires: now - 1_000))
-    fake.emit("exec.approval.requested", approvalPayload("ap-soon", run: nil, expires: now + 300))
+    fake.emit("exec.approval.requested", approvalPayload("ap-soon", run: nil, expires: now + 3_000))
     try await waitUntil { store.approvals.contains { $0.requestID == "ap-soon" } }
     #expect(!store.approvals.contains { $0.requestID == "ap-old" }, "already expired: never shown")
     try await waitUntil { store.approvals.isEmpty }

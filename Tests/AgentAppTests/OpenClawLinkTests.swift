@@ -182,3 +182,15 @@ private func stable(_ params: GatewayJSON) -> GatewayJSON {
     #expect(clock.now == .zero, "no time passed")
     await link.disconnect()
 }
+
+@MainActor @Test func wakeNeverStartsALinkTheUserDidNotConnectOrDisconnected() async throws {
+    let fake = FakeGateway(); let (gateway, keys) = fakeGatewaySetup()
+    let hub = clawHub(fake, keys: keys)
+    _ = await hub.link(for: gateway) // saved, never connected
+    await hub.wake()
+    _ = try await hub.connection(for: gateway); await hub.disconnect(gateway.id)
+    let opened = fake.connectParams.count
+    await hub.wake()
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(opened == 1 && fake.connectParams.count == 1, "only the explicit connect opened a socket")
+}

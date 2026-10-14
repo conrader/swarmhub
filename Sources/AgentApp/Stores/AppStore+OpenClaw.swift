@@ -140,7 +140,8 @@ extension AppStore {
             let request = Self.approvalRequest(approval, bot: bot, ownSession: ownSession)
             let activeRuns = await openClawHub.ledger.runIds
             let ownRun = approval.runId.map(activeRuns.contains) ?? false
-            if ownSession, ownRun, let activeBackend = try? backend(for: bot) { await routeApproval(request, for: bot, backend: activeBackend) }
+            // A Reviewer decision can take seconds; it must not hold up later approvals and resolutions on the stream.
+            if ownSession, ownRun, !approval.commandsDisagree, let activeBackend = try? backend(for: bot) { Task { await routeApproval(request, for: bot, backend: activeBackend) } }
             else { routeUnsolicitedApproval(request, for: bot) }
             if let expiry = approval.expiresAt { scheduleApprovalExpiry(request.id, bot: bot, at: expiry) }
         }
@@ -157,7 +158,8 @@ extension AppStore {
     }
 
     static func approvalRequest(_ approval: GatewayApproval, bot: Bot, ownSession: Bool) -> ApprovalRequest {
-        let summary = [approval.command, approval.cwd.map { "in \($0)" }, approval.host.map { "on \($0)" }].compactMap { $0 }.joined(separator: " · ")
+        let shown = approval.displayedCommand.map { "shown as “\($0)”" }
+        let summary = [approval.command, shown, approval.cwd.map { "in \($0)" }, approval.host.map { "on \($0)" }].compactMap { $0 }.joined(separator: " · ")
         let title = "Run a command on \(approval.host ?? "the Gateway host")" + (ownSession ? "" : " (from another session)")
         return ApprovalRequest(id: UUID(), title: title, summary: summary.isEmpty ? "A command (no text was sent)" : summary, draft: nil, command: approval.command,
                                runID: approval.runId, requestID: approval.id, botID: bot.id, profile: nil, sessionID: approval.sessionKey, actionKind: "command")
