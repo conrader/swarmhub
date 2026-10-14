@@ -19,8 +19,8 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | Automatic updates | proven: Konrad updated 0.4.1 → 0.4.2 via Sparkle; 0.4.3 (Keychain fix, notarized) published + hand-installed, "works, no prompts" (Konrad) | Konrad: back up the Sparkle private key |
 | P10e live acceptance + P10c live steps (Grok import on Konrad's real account) | P10d merged (482 green): sheet, + → Import from Grok Bot…, Settings → Account → Grok Bot | shipped in 0.4.4; one live session with Konrad (Allow clicks) |
 | P13 Parts C / D / E model roles | Part C shipped in 0.4.4; live e2e (terra/sol) runs once Konrad's app is on 0.4.4 | live e2e → D → E |
-| P16 No reply is lost (+ sidebar attention badge) | building (`p16`, MacBook) | merge when green |
-| P17 Models from the agent's own backend | accepted (build all) | queued |
+| P16 No reply is lost (+ sidebar attention badge) | built (538 green on old-history `p16`); being replayed onto main + release 0.4.5 build (with P21) | publish 0.4.5; Konrad's last hop (Wi-Fi off mid-answer, Retry once, quit mid-answer) |
+| P17 Models from the agent's own backend | building (`p17`, MacBook) | merge when green |
 | P21b Simple right panel (D9, deferred from P21) | not started: Overview model picker, raw cron field in the routine editor, groups UI, Import template | brief after P17 |
 | Vanilla test bed: SwarmHub against untouched upstream Hermes 0.22.0 (no getermes patches, no layer), isolated HERMES_HOME + throwaway keys + two profiles; run --check-bots, ui-smoke facts, P22 manager flow against a mock | not started (Konrad 2026-10-14: "I hope this is vanilla hermes") | after P10c; proves SwarmHub needs nothing beyond stock Hermes |
 | P12 Connect OpenClaw | accepted (build all), never started | queued last |
