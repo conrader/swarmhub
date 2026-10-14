@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Settings → Models: the two model roles per bot, what is set and where it lives. Opening the pane fetches
-/// nothing; **Load** reads each profile (GETs only). Static text, no spinner, no animation.
+/// Settings → Models: the two model roles per bot, what is set and where it lives, each from that agent's own list
+/// (P17). Opening the pane fetches nothing; **Load** reads each agent (GETs only). Static text, no spinner, no animation.
 struct SettingsModelsPane: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var cache: BotInfoCache
@@ -18,7 +18,7 @@ struct SettingsModelsPane: View {
                 else if !loading { Text("Press Load to read each bot's profile.").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 if loading { Text("Loading…").font(.caption).foregroundStyle(.secondary) }
-                Button(loadedAt == nil ? "Load" : "Refresh") { load() }.disabled(loading || model.hermesRows.isEmpty)
+                Button(loadedAt == nil ? "Load" : "Refresh") { load() }.disabled(loading || model.askableRows.isEmpty)
             }
         }
         Section("All bots") {
@@ -32,7 +32,7 @@ struct SettingsModelsPane: View {
             Section("Per bot · \(server.server)") { ForEach(server.rows) { row in botRow(row) } }
         }
         Section("Set on the box (read-only)") {
-            boxLine("Box default", model.fleetSummary, note: nil)
+            boxLine("Agent default", model.fleetSummary, note: nil)
             boxLine("Sub-agents", model.subAgentSummary, note: ModelRoleReason.boxOnly.text)
             boxLine("Compaction", nil, note: ModelRoleReason.boxOnly.text)
             boxLine("Routines", nil, note: ModelRoleReason.boxOnly.text)
@@ -40,8 +40,10 @@ struct SettingsModelsPane: View {
     }
 
     @ViewBuilder private func conversationDefault(_ model: ModelRolesModel) -> some View {
-        let loaded = model.hermesRows.filter { cache.info(for: $0.id)?.modelOptions.value != nil }
-        let reference = store.bots.first { $0.id == (referenceID ?? loaded.first?.id) }
+        let loaded = model.rows.filter { $0.canAsk && $0.catalog != nil }
+        let referenceRow = loaded.first { $0.id == referenceID } ?? loaded.first
+        let reference = store.bots.first { $0.id == referenceRow?.id }
+        let permanent = referenceRow?.catalog?.pinning == .permanent
         if !loaded.isEmpty {
             Picker("Models from", selection: Binding(get: { reference?.id }, set: { referenceID = $0 })) {
                 ForEach(loaded) { row in Text(row.name).tag(row.id as UUID?) }
@@ -50,13 +52,15 @@ struct SettingsModelsPane: View {
         HStack {
             Text("Conversation model")
             Spacer()
-            RoleModelMenu(label: store.modelDefaults.conversation?.model ?? "Box default", leading: [("Box default", .box)],
-                          picker: reference.map { store.modelPicker(for: $0) }) { setting in
+            RoleModelMenu(label: store.modelDefaults.conversation?.model ?? "Agent default", leading: [("Agent default", .box)],
+                          picker: reference.map { store.modelPicker(for: $0) }, enabled: reference == nil || permanent) { setting in
                 if case .choice(let choice) = setting { store.modelDefaults.conversation = choice } else { store.modelDefaults.conversation = nil }
                 store.save()
             }
         }
-        Text(ModelRolesModel.conversationHelp + (loaded.isEmpty ? " Press Load to list the box's models." : "") + " " + ModelRoleReason.permanent.text)
+        if let offered = model.offerSummary(store.modelDefaults.conversation) { Text(offered).font(.caption).foregroundStyle(.secondary) }
+        if referenceRow != nil, !permanent { Text(ModelCatalog.switchingLater).font(.caption).foregroundStyle(.secondary) }
+        Text(ModelRolesModel.conversationHelp + (loaded.isEmpty ? " Press Load to list each agent's models." : "") + (permanent ? " " + ModelRoleReason.permanent.text : ""))
             .font(.caption).foregroundStyle(.secondary)
     }
 
@@ -71,12 +75,15 @@ struct SettingsModelsPane: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.name)
-                if row.isOpenClaw { Text(ModelRoleReason.openClaw.text).font(.caption).foregroundStyle(.secondary) }
+                if !row.canAsk { Text(row.catalogReason ?? ModelRoleReason.openClaw.text).font(.caption).foregroundStyle(.secondary) }
                 else {
-                    Text("Profile \(row.profile)").font(.caption2).foregroundStyle(.tertiary)
+                    Text(row.catalog?.detail ?? "Profile \(row.profile)").font(.caption2).foregroundStyle(.tertiary)
                     ForEach([row.conversation, row.coding].compactMap { $0 }, id: \.title) { line in
                         Text(line.text).font(.caption).foregroundStyle(.secondary).accessibilityLabel(line.accessibilityLabel)
+                        if let note = line.note { Text(note).font(.caption2).foregroundStyle(.orange) }
                     }
+                    if row.catalog == nil, let reason = row.catalogReason, row.loadError == nil, row.boxDefault == nil, reason != "not loaded" { Text(reason).font(.caption2).foregroundStyle(.secondary) }
+                    if let readOnly = row.readOnly { Text(readOnly).font(.caption2).foregroundStyle(.secondary) }
                     if let error = row.loadError { Text(error).font(.caption2).foregroundStyle(.orange) }
                     if let blocked = row.blocked { Text(blocked.text).font(.caption2).foregroundStyle(.secondary) }
                 }
@@ -84,7 +91,7 @@ struct SettingsModelsPane: View {
             Spacer()
             if let bot = store.bots.first(where: { $0.id == row.id }) { Button("Edit…") { store.editingBot = bot } }
         }
-        .opacity(row.isOpenClaw ? 0.5 : 1)
+        .opacity(row.canAsk ? 1 : 0.5)
     }
 
     private func boxLine(_ title: String, _ value: String?, note: String?) -> some View {
