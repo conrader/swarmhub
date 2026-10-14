@@ -35,7 +35,7 @@ Quit the running app and back up any existing `~/Applications/SwarmHub.app` befo
 - The automatic-allow safety check has a deliberately short denylist rather than a complete model of every executable and option. Known residual reviewer/allow gaps include side effects hidden behind less common programs or options; keep custom allow patterns restricted to specific read-only commands. `rg --pre` and Git `--output` are blocked, but this is not a general sandbox.
 - Reviewer-mode residuals include Git branch-mutating flags such as `--delete`, `-m`, and `--force`; an owner deny rule conservatively becomes a user prompt rather than an automatic denial.
 - Reviewer Stop cannot capture a server run target before the first reviewer event; the fallback lookup can still race stream teardown. Reviewer timeout currently sends two stop requests to the same run.
-- A reviewer run cancelled after streaming a decision can still count that decision as approval because Hermes cancellation currently maps to ordinary completion.
+- A reviewer run the box cancels now ends as a failed review (P16 maps `run.cancelled` to a failure, not completion), so a decision streamed before the cancel is no longer counted.
 - Hermes v0.21.7 redacts approval commands with its general secret redactor before AgentApp sees them. That redactor can emit `***`, head/tail masks containing `...`, and `«redacted:…»` sentinels; AgentApp therefore refuses automatic approval for redacted-looking commands.
 - Approval audit rows intentionally omit command text, show raw rule/reviewer UUIDs, and record Hermes' free-form action label. Some guard-driven audit reasons group different causes under shell-syntax or unsafe-operation wording and can therefore be misleading. The fixture harness routes approvals directly and its shell script relies on process exit status rather than grepping each expected line.
 - Pending approvals cleared when a run ends are audited as denied/cancelled even though no final denial is posted to Hermes; delivery ambiguity after a lost automatic-decision response also remains.
@@ -79,11 +79,40 @@ This pass recreates the product structure and interaction patterns with original
 | Hermes | Done | Bots bound to Hermes profiles (`/p/<profile>/`, own Keychain key each); features chosen from `/v1/capabilities` and route presence; Sessions + SSE chat on 0.20.5/0.21.x, Chat Completions fallback on older servers; paged, non-destructive history merge; ask/rules/reviewer approvals with a local audit. A profile whose `/v1/models` id differs from its name (multiplexing off) is rejected and never routed to. Provider-backed reviewer runs remain unverified. |
 | Grok Bot import | Done | **In the app (P10d):** sidebar + → Import from Grok Bot… (or Settings → Account → Grok Bot) finds Grok Bot on this Mac and lists its bots and groups from its local cache, with no prompt and no network. Two modes: **All history Grok returns** (one macOS Keychain prompt for *Grok Bot Safe Storage* — choose Allow, not Always Allow — then read-only list requests to `api2.cursor.sh` with your own sign-in) or **Recent messages from this Mac** (the latest 28–200 entries per chat from the cache; no prompt, no network). The sign-in is kept in memory only while importing (up to ten minutes if paused), never saved, shown or logged; nothing is sent to Grok beyond those reads, and Grok Bot's files are never changed. It uses Grok Bot's private interface and can stop working when Grok changes it. Each conversation is committed as it finishes; re-importing never duplicates a bot or a line and keeps local renames unless "Also refresh names, avatars and instructions" is ticked. New bots chat through the Settings Hermes server (no server: history only until one is set); the Done step measures each bot (Live, Needs key, Profile not on the server, Server unreachable, History only) and offers Add keys… and Check again. **Stays manual:** creating the `grok-<slug>` Hermes profiles on the box and pasting their keys. **Export folder (older path):** `scripts/export-grokbot.py` writes `agentapp-bot-bundle/v1` under `~/Documents/SwarmHub Grok Export/`; import it from Import Template or `AgentApp --import-grok <folder>`. `AgentApp --import-keys <file>` loads keys from a 0600 file and deletes it. |
 | App icon | Assets ready | The SwarmHub "Swarm" icon: a white lead mark with a small blue, orange and green swarm, lit and shaded in 3D on a dark macOS rounded square. Sources in `Resources/AppIcon/` (`SwarmHub-icon.svg`, a simpler `SwarmHub-icon-small.svg` for 16 and 32 px, and a rendered `AppIcon.iconset`). Our own drawing, not Grok artwork. Building the `.icns` into the app bundle comes with the SwarmHub packaging. |
-| Headless tools | Done | `--check-bots [--chat "<bot>" "<text>"]`, `--render-snapshot <dir> [--bot <name>]…`, `--import-grok`, `--import-keys`, `--migrate-store`, `--grok-fetch --mode recent\|full [--bots <names>] [--store <store.json>] [--report <file>]` (the in-app Grok import as one command; full mode asks macOS once), `--grok-probe [--live]` (drift check after a Grok Bot update; counts and booleans only). |
+| Headless tools | Done | `--check-bots [--chat "<bot>" "<text>"]`, `--render-snapshot <dir> [--bot <name>]…`, `--import-grok`, `--import-keys`, `--migrate-store`, `--grok-fetch --mode recent\|full [--bots <names>] [--store <store.json>] [--report <file>]` (the in-app Grok import as one command; full mode asks macOS once), `--grok-probe [--live]` (drift check after a Grok Bot update; counts and booleans only), `--reconcile [--dry-run] [--bot "<name>"] [--group "<name>"] [--store <path>]` (see [Never losing a reply](#never-losing-a-reply)). |
 | OpenClaw | Not started | URL setting and protocol boundary only; the authenticated WebSocket RPC transport is not implemented. |
 | Sub-agents | Partial | Inline lifecycle cards render if `subagent.*` events arrive, but the Hermes session stream does not emit them; no child transcript drill-down. |
 
 There are no external package dependencies.
+
+## Never losing a reply
+
+P16 (`briefs/P16.md`). The box is the source of truth: SwarmHub only ever extends what it shows from the box's own rows.
+
+**Four states**, on the row that holds a reply (rows written before P16 carry none and are treated as possibly cut):
+
+| State | Meaning | Footer |
+|---|---|---|
+| finished | the box closed the run (a terminal event arrived) | none |
+| incomplete | the row exists but the turn was not seen to end (cut stream, EOF, the box's own error) | "Incomplete" and **Refresh** |
+| stopped | you pressed Stop | "Stopped" when empty |
+| not sent | the turn did not reach the box as far as the Mac knows | "Not sent (offline / refused / error)" or "Not confirmed (…) — the box may have it", and **Retry** |
+
+Every failure also leaves a warning line (`<Bot>: <reason>`, keys shown as `[key]`) in the chat; the "Backend Error" alert stays for your own sends. Nothing is deleted any more, and the sidebar marks a bot whose last reply failed or is incomplete.
+
+**Why a terminal event is not proof of an answer.** Hermes sends `assistant.completed` and `run.completed` after every run with `completed: true` hard-coded, even when it interrupted the run or a lease failed. So "finished" only means the box closed the run; a reply is called complete only when the box's own row ends with `finish_reason` `stop`, `end_turn` or `length`. `GET /v1/runs/{id}` (capability `run_status`) can only veto (a run still active keeps polling); it never attests. Without `finish_reason` the row stays honestly incomplete with "The box has no more of this reply".
+
+**Reconcile.** Reads are GETs only (`/api/sessions/{id}/messages?order=latest&limit=61&offset=60·k`: each window carries one row of the next, so rows landing or vanishing between GETs abort the pass) and write only this Mac's store. A pass pairs local and box turns (newest first, never by time; group turns by whole entries of the context blob), extends a cut reply after its matched prefix, fills an empty one, adds turns the box finished while the Mac was away (at most 10 mid-transcript per pass, never a duplicate), and marks an empty placeholder the box never got (older than 120 s) as not sent. Finished and stopped rows are never edited. Passes run at launch (every Hermes chat, three at a time, skipped offline), when a chat or group is opened (30 s floor), after a cut stream (0, 3, 10, 30, 90 s; a pass that cannot reach the box retries at 2, 5, 15, 30 s, 2 and 10 min), on wake, when the network returns, on the first success after failures, and on Refresh. No automatic pass raises an alert. Restored rows say "Restored from the box".
+
+**Retry** works only on a not-sent row. It first reads the box: if the box has the turn it is adopted (nothing sent); if the box has your message but no reply yet the row turns incomplete and is polled; if the read fails or does not reach back far enough nothing is sent ("Can't reach the box; nothing was sent."); if a newer box message cannot be matched it asks before an explicit **Send anyway**. Only when the box clearly lacks the turn does it send once, into the same row (the original text and images; in a group a context built now). A "Not confirmed" row younger than 30 minutes needs a second tap. Nothing is ever resent by itself, also not at launch: members a quit, a Stop or a dead connection skipped get their own not-sent row.
+
+**Timeouts** (`HermesTimeouts`): chat stream idle 90 s (three box keepalives); open deadline 20 s plus body bytes ÷ 50 KB/s for the response headers; GET reads and session create 30 s; jobs, fork, approval and model POSTs 60 s; steer and stop 8 s. One process-wide URL session without a cache.
+
+**`AgentApp --reconcile [--dry-run] [--bot "<name>"] [--group "<name>"] [--store <path>]`** runs the same pass over every Hermes bot's chat and threads and every group (or the named ones) and reads whole transcripts. It always works on a temp copy of store.json; `--dry-run` stops there and prints one line per conversation (names and counts only). A real run refuses while the app runs (exit 75), writes nothing when nothing changes, else makes a byte-equal `store.json.backup-reconcile-<time>`, checks that no key or message is lost and every reply keeps its old text, and replaces store.json only if it did not change meanwhile. It does not send, regenerate, or touch the box.
+
+**Residual double-send windows** (documented, not solved): a request an edge proxy still holds, and a request queued behind the box's turn lease whose user row is not written yet. A Retry after "Not confirmed" can then reach the box twice (it serialises them); the second-tap rule narrows this.
+
+**Open gap:** a steer typed while a stream is stalled (up to the 90 s idle window) that fails shows "Steer not delivered" and is never re-sent; the fix is a later phase.
 
 ## Card syntax
 
@@ -212,7 +241,7 @@ Phase briefs live in [briefs/](../briefs/); [PLAN.md](../PLAN.md) holds the tabl
 | P18 | SwarmHub branding; launch never selects a hidden bot (the Atlas fix) | Merged |
 | P20 | Sidebar like Grok Bot: 36 pt marks, name plus latest message, flat list | Planned (after P18) |
 | P19 | PDF and document attachments, read on the Mac; fixes the silent 64K text truncation | Done |
-| P16 | No reply is lost: truthful turns, reconcile from the box, Retry | Planned (brief in `briefs/P16.md`) |
+| P16 | No reply is lost: truthful turns, reconcile from the box, Retry | Built on branch `p16` |
 | P17 | Model choices in bot settings come from the bot's own Hermes profile or OpenClaw gateway | Designing |
 | P13 C | Coding threads and the sub-agent model | Waiting for go |
 | P12 | Connect OpenClaw | Planned |

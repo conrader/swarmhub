@@ -148,9 +148,7 @@ extension AppStore {
             added += rows.filter { $0.role == .assistant }.count
             if let after = addition.after {
                 guard let index = conversation.messages.firstIndex(where: { $0.id == after }) else { continue }
-                var position = index + 1
-                while position < conversation.messages.count, conversation.messages[position].metadata[TurnKey.restored] == "added", rows.first?.role == .user { position += 1 }
-                conversation.messages.insert(contentsOf: rows, at: position)
+                conversation.messages.insert(contentsOf: rows, at: index + 1)
             } else { conversation.messages.append(contentsOf: rows) }
             rows.forEach { report.changedRows.insert($0.id) }
             report.changed = true

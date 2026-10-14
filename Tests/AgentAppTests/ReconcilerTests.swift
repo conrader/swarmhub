@@ -99,7 +99,9 @@ private func chatPlan(_ local: [LRow], _ server: [BackendMessage], active: Set<U
     server += [srow("user", "tail \(syntheticParagraph(12, seed: 99))", at: 2_000), srow("assistant", syntheticParagraph(30, seed: 98), finish: "stop", at: 2_001)]
     let plan = chatPlan(local, server)
     #expect(plan.counts.added == 11 && plan.counts.capped == 2)
-    #expect(plan.additions.filter { $0.after != nil }.count == 10 && plan.additions.last?.after == nil)
+    #expect(plan.additions.filter { $0.after != nil }.flatMap(\.rows).count == 20 && plan.additions.last?.after == nil, "ten mid turns (user and reply), in box order")
+    let mid = plan.additions.first { $0.after != nil }!.rows.filter { $0.role == .user }.map(\.content)
+    #expect(mid == (0..<10).map { "mid \(syntheticParagraph(12, seed: 100 + $0))" })
     let result = applied(plan, to: local)
     #expect(result.filter { local.map(\.id).contains($0.id) }.map(\.id) == local.map(\.id), "no local row moves")
 }

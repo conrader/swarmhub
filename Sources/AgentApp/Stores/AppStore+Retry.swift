@@ -86,7 +86,7 @@ extension AppStore {
         if row.metadata[TurnKey.ambiguous] == "1", now().timeIntervalSince(row.createdAt) < 1_800, row.metadata[TurnKey.retry] != "confirm", !sendAnyway {
             row.metadata[TurnKey.retry] = "confirm"; return
         }
-        let ledger = "\(conversation.messages.first?.id.uuidString ?? "")|\(bot.id)|\(trigger.id)"
+        let ledger = "\(ObjectIdentifier(conversation).hashValue)|\(bot.id)|\(trigger.id)"
         guard turns.retryLedger.insert(ledger).inserted else { return }
         let token = UUID(); activeStreamToken = token; isStreaming = true
         streamingConversation = conversation; streamingBotID = bot.id; streamingAssistant = row

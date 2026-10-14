@@ -265,7 +265,8 @@ enum HistoryReconciler {
                 rows.append(.init(role: .user, content: user.content, authorID: nil, state: nil, metadata: [TurnKey.restored: "added", TurnKey.box: ids(user.id.map { [$0] } ?? [])], createdAt: localTime ?? input.now))
             }
             if !box.replyText.isEmpty { rows.append(newReply(box, author: memberID(input.mode), mode: input.mode, time: localTime ?? input.now)) }
-            if let index = plan.additions.lastIndex(where: { $0.after == after }), after == nil { plan.additions[index].rows += rows }
+            // Turns sharing an anchor stay in box order.
+            if let index = plan.additions.lastIndex(where: { $0.after == after }) { plan.additions[index].rows += rows }
             else { plan.additions.append(.init(after: after, rows: rows)) }
             plan.counts.added += 1
         }
