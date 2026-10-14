@@ -81,7 +81,7 @@ struct HermesModelLock: Codable, Sendable, Equatable {
 extension HermesBackend {
     /// `nil` when the server has no `/v1/capabilities` (old gateway): every optional feature is then hidden.
     func capabilities() async throws -> HermesCapabilities? {
-        do { return HermesCapabilities.parse(try await jsonRequest(path: "v1/capabilities")) }
+        do { return HermesCapabilities.parse(try await capabilitiesJSON()) }
         catch BackendError.http(404, _) { return nil }
     }
 

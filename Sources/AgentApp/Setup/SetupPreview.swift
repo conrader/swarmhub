@@ -14,12 +14,13 @@ final class MemoryKeyStore: HermesKeyStore, @unchecked Sendable {
 
     static func isRequested(_ arguments: [String] = CommandLine.arguments) -> Bool { arguments.contains(flag) }
 
-    static func makeStore() -> AppStore {
+    /// `backendFactory`: P28 D6, shots whose bots must never reach a server (the activity shots render a Hermes chat).
+    static func makeStore(backendFactory: ((Bot) throws -> any AgentBackend)? = nil) -> AppStore {
         let directory = FileManager.default.temporaryDirectory.appending(path: "AgentApp-setup-preview-\(UUID().uuidString)", directoryHint: .isDirectory)
         let suite = "AgentApp-setup-preview-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suite) else { preconditionFailure("no throwaway settings suite") }
         defaults.removePersistentDomain(forName: suite)
-        let store = AppStore(storeURL: directory.appending(path: "store.json"), autoConfigureHermes: false, keyStore: MemoryKeyStore(), defaults: defaults)
+        let store = AppStore(storeURL: directory.appending(path: "store.json"), autoConfigureHermes: false, backendFactory: backendFactory, keyStore: MemoryKeyStore(), defaults: defaults)
         store.isSetupPreview = true
         return store
     }

@@ -37,13 +37,6 @@ final class StreamProbe: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     }
 }
 
-private actor HermesCapabilityRegistry {
-    static let shared = HermesCapabilityRegistry()
-    private var values: [String: Set<String>] = [:]
-    func value(for key: String) -> Set<String>? { values[key] }
-    func set(_ value: Set<String>, for key: String) { values[key] = value }
-}
-
 enum HermesTransport: Sendable, Equatable { case nativeSessions, legacyChatCompletions }
 
 struct HermesAgentProfile: Sendable, Equatable { let id: String; let name: String; let model: String }
@@ -85,18 +78,18 @@ struct HermesBackend: AgentBackend {
         try await features().contains("session_chat_streaming") ? .nativeSessions : .legacyChatCompletions
     }
 
-    /// True `/v1/capabilities` feature flags, cached per server and profile; a 404 means none.
+    /// True `/v1/capabilities` feature flags, cached per server, profile and key; a 404 means none. Reads go through
+    /// `capabilitiesJSON()` (P28 D6: one request for concurrent callers, a rejected key backs off).
     func features() async throws -> Set<String> {
-        let cacheKey = "\(baseURL.absoluteString)|\(profile)"
-        if let cached = await HermesCapabilityRegistry.shared.value(for: cacheKey) { return cached }
+        if let cached = await HermesCapabilityRegistry.shared.flags(for: capabilityScope) { return cached }
         let flags: Set<String>
         do {
-            let features = try await jsonRequest(path: "v1/capabilities")["features"] as? [String: Any] ?? [:]
+            let features = try await capabilitiesJSON()["features"] as? [String: Any] ?? [:]
             flags = Set(features.compactMap { ($0.value as? Bool) == true ? $0.key : nil })
         } catch BackendError.http(let code, _) where code == 404 {
             flags = []
         }
-        await HermesCapabilityRegistry.shared.set(flags, for: cacheKey)
+        await HermesCapabilityRegistry.shared.setFlags(flags, for: capabilityScope)
         return flags
     }
 
