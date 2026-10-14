@@ -63,7 +63,7 @@ private func sessionOf(_ bot: Bot) -> String { "agentapp_\(bot.id.uuidString.low
     #expect(ModelRolesModel.ranOn(.init(model: "model-alpha", provider: nil), lock: nil, sessionID: "s1", options: nil)?.line == "Last turn ran on model-alpha")
     #expect(ModelRolesModel.ranOn(.init(model: "x", provider: "unlisted"), lock: nil, sessionID: "s1", options: options)?.line == "Last turn ran on x · unlisted")
     #expect(ModelRolesModel.ranOn(nil, lock: lock, sessionID: "s1", options: options) == nil)
-    #expect(ModelRolesModel.boxDefaultNote(options) == "Hermes can't unpin a chat; this pins it to the box's current default (model-alpha).")
+    #expect(ModelRolesModel.boxDefaultNote(options) == "Hermes can't unpin a chat; this pins it to the agent's current default (model-alpha).")
     #expect(ModelRolesModel.boxDefaultNote(nil) == nil)
 }
 
@@ -136,7 +136,7 @@ private func sessionOf(_ bot: Bot) -> String { "agentapp_\(bot.id.uuidString.low
     let (store, bots, state) = e2eStore()
     let pairs = HeadlessE2E.RolePairs(conversation: ModelChoice(provider: "prov", model: "model-b")!, coding: ModelChoice(provider: "prov", model: "model-q")!)
     let steps = await HeadlessE2E.run(store: store, bots: bots, timing: .fast, roles: pairs, output: { _ in })
-    #expect(steps.last?.passed == false && steps.last?.detail.contains("model-q isn't offered by this bot's profile.") == true)
+    #expect(steps.last?.passed == false && steps.last?.detail.contains("model-q isn't offered by this agent.") == true)
     #expect(state.requests().filter { $0.path.hasSuffix("/fork") }.count == 1, "only step c forks; g2 stops before its fork")
     #expect(lockPosts(state).allSatisfy { $0.body["model"] as? String != "model-q" })
 }

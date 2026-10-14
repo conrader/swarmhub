@@ -36,23 +36,23 @@ import Testing
 @Test(arguments: CatalogShape.allCases) @MainActor func rowsReadTheBoxDefaultPerBot(shape: CatalogShape) async {
     let (store, jarvis, rapper, _, _) = rolesStore(pickerServer(shape), delegation: ["grok-jarvis": true, "grok-rapper": false])
     let before = store.modelRoles()
-    #expect(before.rows.map(\.conversation?.text) == ["Conversation: not loaded · box default", "Conversation: not loaded · box default"])
-    #expect(before.fleetSummary == "box default: not loaded (press Load)")
+    #expect(before.rows.map(\.conversation?.text) == ["Conversation: not loaded · agent default", "Conversation: not loaded · agent default"])
+    #expect(before.fleetSummary == "agent default: not loaded (press Load)")
 
     await store.loadModelRoles()
     let roles = store.modelRoles()
     let jarvisRow = try! #require(roles.rows.first { $0.id == jarvis.id }), rapperRow = try! #require(roles.rows.first { $0.id == rapper.id })
-    #expect(jarvisRow.conversation?.text == "Conversation: model-alpha · Lab One · box default")
-    #expect(jarvisRow.conversation?.accessibilityLabel == "Conversation, model-alpha, Lab One, box default")
+    #expect(jarvisRow.conversation?.text == "Conversation: model-alpha · Lab One · agent default")
+    #expect(jarvisRow.conversation?.accessibilityLabel == "Conversation, model-alpha, Lab One, agent default")
     #expect(jarvisRow.coding?.text == "Coding threads: same as conversation")
-    #expect(rapperRow.conversation?.text == "Conversation: solo-model · Lab Solo · box default")
+    #expect(rapperRow.conversation?.text == "Conversation: solo-model · Lab Solo · agent default")
     #expect(jarvisRow.subAgents == "on" && rapperRow.subAgents == "off")
     #expect(jarvisRow.blocked == nil && jarvisRow.mismatch == nil)
     #expect(roles.fleetSummary == "differs: model-alpha on 1, solo-model on 1")
     #expect(roles.subAgentSummary == "delegation toolset on for 1 of 2 bots")
     #expect(roles.servers.count == 1 && roles.servers[0].rows.map(\.name) == ["Jarvis", "Rapper"])
-    #expect(store.modelRolesSummary(for: jarvis) == "Jarvis: roles conversation model-alpha (box default) | coding threads same as conversation | sub-agents on, set on the box")
-    #expect(store.modelRolesSummary(for: rapper) == "Rapper: roles conversation solo-model (box default) | coding threads same as conversation | sub-agents off, set on the box")
+    #expect(store.modelRolesSummary(for: jarvis) == "Jarvis: roles conversation model-alpha (agent default) | coding threads same as conversation | sub-agents on, set on the box")
+    #expect(store.modelRolesSummary(for: rapper) == "Rapper: roles conversation solo-model (agent default) | coding threads same as conversation | sub-agents off, set on the box")
     for text in roles.rows.flatMap({ [$0.conversation?.text, $0.coding?.text, ModelRolesModel.headlessLine($0)].compactMap { $0 } }) + [roles.fleetSummary] {
         for sentinel in catalogSentinels { #expect(!text.contains(sentinel)) }
     }
@@ -63,9 +63,9 @@ import Testing
     let (store, _, _, _, _) = rolesStore(server)
     let third = Bot(name: "Keyless", backend: .hermes, hermesProfile: "grok-keyless"); store.bots.append(third)
     await store.loadModelRoles()
-    #expect(store.modelRoles().fleetSummary == "box default: model-alpha on 2 of 3 bots")
+    #expect(store.modelRoles().fleetSummary == "agent default: model-alpha on 2 of 3 bots")
     #expect(store.modelRoles().subAgentSummary == "delegation toolset not loaded")
-    #expect(store.modelRolesSummary(for: third).hasPrefix("Keyless: roles conversation not loaded (box default)"))
+    #expect(store.modelRolesSummary(for: third).hasPrefix("Keyless: roles conversation not loaded (agent default)"))
 }
 
 @Test @MainActor func mismatchSentenceWithoutAButton() async {
@@ -77,7 +77,7 @@ import Testing
     #expect(store.modelRolesRow(for: rapper).mismatch == nil, "the row's virtual alias means the box default")
 }
 
-@Test @MainActor func blockedBotsSayWhyAndOpenClawIsManagedThere() async {
+@Test @MainActor func blockedBotsSayWhyAndOpenClawWaitsForItsGateway() async {
     let server = pickerServer()
     var capabilities = pickerCapabilities(modelLock: false)
     capabilities["features"] = (capabilities["features"] as! [String: Any]).merging(["session_model_lock": false]) { $1 }
@@ -87,10 +87,13 @@ import Testing
     await store.loadModelRoles()
     #expect(store.modelRolesRow(for: jarvis).blocked == .noLock)
     #expect(store.modelRolesSummary(for: jarvis).hasSuffix("| This box can't switch a chat's model, so \(AppConstants.name) can't apply a model here."))
+    // P17: the OpenClaw stub is not asked; its row is its reason, grouped under "OpenClaw", and Load sends it nothing.
     let clawRow = store.modelRolesRow(for: claw)
-    #expect(clawRow.isOpenClaw && clawRow.conversation == nil)
-    #expect(store.modelRolesSummary(for: claw) == "Claw: roles Managed in OpenClaw.")
-    #expect(store.modelRoles().hermesRows.count == 2)
+    #expect(clawRow.isOpenClaw && !clawRow.canAsk && clawRow.conversation == nil && clawRow.server == "OpenClaw")
+    #expect(clawRow.catalogReason == "Models come from the OpenClaw gateway once connected.")
+    #expect(store.modelRolesSummary(for: claw) == "Claw: roles Models come from the OpenClaw gateway once connected.")
+    #expect(store.modelRoles().hermesRows.count == 2 && store.modelRoles().askableRows.count == 2)
+    #expect(store.botInfo.info(for: claw.id) == nil)
 
     server.set(capabilities: nil)
     await store.loadModelRoles()

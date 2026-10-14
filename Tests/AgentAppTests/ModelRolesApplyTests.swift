@@ -49,7 +49,7 @@ private func notes(_ bot: Bot) -> [String] { bot.messages.filter { $0.role == .s
     store.modelDefaults.conversation = beta
     state.with { $0.lockStatus = 409 }
     try await sendAndWait(store, jarvis, "hi E2E-DEFAULT")
-    let note = "\(AppConstants.name)'s default model model-beta was not applied: Hermes cannot route model-beta for this chat and will not fall back to the default. This chat runs on the box default."
+    let note = "\(AppConstants.name)'s default model model-beta was not applied: Hermes cannot route model-beta for this chat and will not fall back to the default. This chat runs on the agent default."
     #expect(notes(jarvis) == [note])
     #expect(store.botInfo.info(for: jarvis.id)?.modelError == note)
     #expect(jarvis.hermesModelLock == nil && jarvis.hermesSessionID == sessionOf(jarvis))
@@ -141,7 +141,7 @@ private func notes(_ bot: Bot) -> [String] { bot.messages.filter { $0.role == .s
 
     // Opting out on a pinned chat re-pins it to the box's current default.
     jarvis.modelSettings = .init(conversation: .box)
-    #expect(store.modelRolesRow(for: jarvis).switchNote == "Hermes can't unpin a chat; this pins it to the box's current default (model-alpha).")
+    #expect(store.modelRolesRow(for: jarvis).switchNote == "Hermes can't unpin a chat; this pins it to the agent's current default (model-alpha).")
     await store.switchChatToRoleModel(for: jarvis)
     #expect(lockPosts(state).count == 2 && jarvis.hermesModelLock?.model == "model-alpha" && jarvis.hermesModelLock?.provider == "lab-one")
 }

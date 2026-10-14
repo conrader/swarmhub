@@ -82,11 +82,11 @@ private func encoded<T: Encodable>(_ value: T) throws -> String {
         (.noRow, "This box can't report a chat's model, so \(AppConstants.name) can't tell whether the chat is new."),
         (.legacy, "This box only has the older chat API, which has no per-chat model."),
         (.noFork, "Coding threads need conversation forks, which this box doesn't offer."),
-        (.notOffered("model-coder"), "model-coder isn't offered by this bot's profile."),
+        (.notOffered("model-coder"), "model-coder isn't offered by this agent."),
         (.permanent, "Hermes can't unpin a chat, and a pinned chat has no fallback model."),
         (.boxOnly, "Set on the box. Hermes doesn't let apps read or change it."),
         (.subAgentsOff, "Sub-agents are turned off for this bot."),
-        (.openClaw, "Managed in OpenClaw."),
+        (.openClaw, "Models come from the OpenClaw gateway once connected."),
     ]
     for (reason, text) in expected { #expect(reason.text == text) }
     #expect(ModelRolesModel.caption == "\(AppConstants.name) remembers these choices and applies them when it starts a chat. It does not change your box's own settings.")

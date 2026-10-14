@@ -8,7 +8,7 @@ import SwiftUI
 /// at scale 2. Nothing is saved to the store.
 /// The only network calls are read-only GETs for each named bot's Overview (capabilities, skills, toolsets, model);
 /// each named bot also gets one model-menu line from the same `ModelPickerModel` the Overview draws, and one roles
-/// line from `ModelRolesModel` (Settings → Models).
+/// line from `ModelRolesModel` (Settings → Models), and one editor line from its own catalog (P17).
 @MainActor enum HeadlessSnapshot {
     static let size = NSSize(width: 1280, height: 800)
     static let infoSize = NSSize(width: 360, height: 800)
@@ -52,7 +52,7 @@ import SwiftUI
         var shots: [(file: String, selected: Bot?, render: () async -> Data?)] = [("main.png", firstGrokBot, { await SnapshotRenderer.contentPNG(store: store, size: size) })]
         shots.append(("sidebar.png", firstGrokBot, { await SnapshotRenderer.png(SidebarView(selection: .constant(store.selectedBot)).environmentObject(store), size: sidebarSize) }))
         for bot in bots {
-            if loadOverview { await store.loadServerInfo(for: bot); output(overviewSummary(store: store, bot: bot)); output(store.modelMenuSummary(for: bot)); output(store.modelRolesSummary(for: bot)) }
+            if loadOverview { await store.loadServerInfo(for: bot); output(overviewSummary(store: store, bot: bot)); output(store.modelMenuSummary(for: bot)); output(store.modelRolesSummary(for: bot)); output(store.editorModelsSummary(for: bot)) }
             shots.append(("\(slug(bot.name)).png", bot, { await SnapshotRenderer.contentPNG(store: store, size: size, historyExpanded: true) }))
             shots.append(("info-\(slug(bot.name)).png", bot, { await SnapshotRenderer.png(InfoPanel(bot: bot).environmentObject(store), size: infoSize) }))
         }

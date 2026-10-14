@@ -19,11 +19,11 @@ extension AppStore {
         guard let choice = resolved.choice, let hermes = backend as? HermesBackend else { return nil }
         let origin: LockOrigin = resolved.source == .bot ? .bot : .torvliDefault
         await botInfo.load(botID: bot.id, sessionID: bot.hermesSessionID, using: hermes, includeSkills: false)
-        let info = botInfo.info(for: bot.id)
+        let info = botInfo.info(for: bot.id), catalog = modelCatalog(for: bot)
         let blocked: String?
         if let reason = ModelRoleReason.blocker(info) { blocked = reason.text }
-        else if let options = info?.modelOptions.value { blocked = ModelPickerModel.offers(options, choice) ? nil : ModelRoleReason.notOffered(choice.model).text }
-        else if case .failed(let reason) = info?.modelOptions { blocked = reason }
+        else if let catalog = catalog.value { blocked = ModelPolicy.check(choice, catalog: catalog) == .offered ? nil : ModelRoleReason.notOffered(choice.model).text }
+        else if case .failed(let reason) = catalog { blocked = reason }
         else { blocked = ModelRoleReason.noList.text }
         guard let blocked else { return .init(choice: choice, origin: origin, backend: hermes) }
         try skipModel(choice, origin: origin, bot: bot, reason: blocked, note: note)
@@ -47,7 +47,7 @@ extension AppStore {
     /// D3: an override stops the send; a default is skipped with one note and `modelError`.
     private func skipModel(_ choice: ModelChoice, origin: LockOrigin, bot: Bot, reason: String, note: (String) -> Void) throws {
         if origin == .bot { throw ModelRefusal(text: "\(choice.model), this bot's model, was not applied: \(reason) Nothing was sent.") }
-        let text = "\(AppConstants.name)'s default model \(choice.model) was not applied: \(reason) This chat runs on the box default."
+        let text = "\(AppConstants.name)'s default model \(choice.model) was not applied: \(reason) This chat runs on the agent default."
         note(text)
         botInfo.finishSwitch(botID: bot.id, error: text)
     }
@@ -79,8 +79,8 @@ extension AppStore {
     /// Part C "Use the box default instead": the only way back from a pick that ran on something else is a lock to
     /// the box's current default pair (Hermes has no unpin).
     func useBoxDefault(for bot: Bot) async {
-        let options = botInfo.info(for: bot.id)?.modelOptions.value
-        guard let provider = options?.defaultProvider?.slug, let model = options?.model else {
+        let catalog = modelCatalog(for: bot).value
+        guard let provider = catalog?.defaultSupplierRow?.slug, let model = catalog?.agentDefault?.model else {
             botInfo.finishSwitch(botID: bot.id, error: ModelRoleReason.noList.text); return
         }
         await switchModel(for: bot, provider: provider, model: model)
@@ -89,9 +89,11 @@ extension AppStore {
     /// Overview "Switch this chat": pins the chat to what the bot resolves to now, or to the box's current default
     /// pair when it resolves to the box default (Hermes has no unpin).
     func switchChatToRoleModel(for bot: Bot) async {
-        let resolved = ModelPolicy.resolve(role: .conversation, settings: bot.modelSettings, defaults: modelDefaults)
-        let options = botInfo.info(for: bot.id)?.modelOptions.value
-        guard let provider = resolved.choice?.provider ?? options?.defaultProvider?.slug, let model = resolved.choice?.model ?? options?.model else {
+        let catalog = modelCatalog(for: bot).value
+        let effective = ModelPolicy.effective(role: .conversation, settings: bot.modelSettings, defaults: modelDefaults, catalog: catalog)
+        if effective.check == .notOffered, effective.resolved.source == .bot, let note = effective.note { botInfo.finishSwitch(botID: bot.id, error: note); return }
+        let resolved = ResolvedModel(choice: effective.choice, source: effective.source)
+        guard let provider = resolved.choice?.provider ?? catalog?.defaultSupplierRow?.slug, let model = resolved.choice?.model ?? catalog?.agentDefault?.model else {
             botInfo.finishSwitch(botID: bot.id, error: ModelRoleReason.noList.text); return
         }
         let origin: LockOrigin? = switch resolved.source { case .bot: .bot; case .appDefault: .torvliDefault; default: bot.modelSettings?.conversation == .box ? .bot : nil }

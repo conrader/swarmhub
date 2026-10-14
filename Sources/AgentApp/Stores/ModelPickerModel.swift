@@ -19,7 +19,7 @@ struct ModelPickerModel: Equatable, Sendable {
         var isEnabled = false
         var accessibilityLabel: String { "\(model), \(supplierName)" }
         /// Small text after the id: the server default tag or the reason it is unavailable.
-        var detail: String? { disabledReason ?? (isServerDefault ? "box default" : nil) }
+        var detail: String? { disabledReason ?? (isServerDefault ? CurrentModel.agentDefault : nil) }
     }
 
     struct Group: Equatable, Sendable, Identifiable {
@@ -57,64 +57,74 @@ struct ModelPickerModel: Equatable, Sendable {
 
     func item(provider: String, model: String) -> Item? { groups.first { $0.slug == provider }?.items.first { $0.model == model } }
 
+    /// The catalog's pinning; the "cannot unpin" copy shows only for `.permanent`.
+    var pinning: ModelCatalog.Pinning = .permanent
+    var unpinHelp: String? { pinning == .permanent ? Self.buttonHelp : nil }
+
     init(info: BotServerInfo?, current: CurrentModel?, sessionID: String?, profile: String) {
         self.profile = profile
         currentModel = current?.model; currentSource = current?.source
         isSwitching = info?.isSwitchingModel ?? false
-        switch info?.modelOptions ?? .loading {
+        switch info?.catalog(profile: profile) ?? .loading {
         case .loading: notes = [.init(text: "Loading the box's models…")]
         case .unavailable(let reason): notes = [.init(text: reason)]
         case .failed(let reason): notes = [.init(text: reason, offersRetry: true)]
-        case .loaded(let options): build(options, info: info!, current: current, sessionID: sessionID)
+        case .loaded(let catalog): build(catalog, info: info!, current: current, sessionID: sessionID)
         }
     }
 
-    private mutating func build(_ options: HermesModelOptions, info: BotServerInfo, current: CurrentModel?, sessionID: String?) {
-        showsMenu = true
-        let defaultSupplier = options.defaultProvider
-        let listed = options.providers.filter { !$0.isSkeleton }
-        hiddenCount = options.providers.count - listed.count
-        let ordered = listed.filter { $0.slug == defaultSupplier?.slug } + listed.filter { $0.slug != defaultSupplier?.slug }
-        canSwitch = info.canLockSessionModel && sessionID != nil && !info.isSwitchingModel
-        let checkedSlug = current.flatMap { Self.checkedSupplier(for: $0, in: ordered, default: defaultSupplier) }
+    /// Without `info` (a bot that cannot be asked), the reason alone.
+    init(reason: String, profile: String) { self.profile = profile; notes = [.init(text: reason)] }
 
-        groups = ordered.map { supplier in
+    private mutating func build(_ catalog: ModelCatalog, info: BotServerInfo, current: CurrentModel?, sessionID: String?) {
+        showsMenu = true
+        pinning = catalog.pinning
+        let defaultSupplier = catalog.defaultSupplierRow
+        hiddenCount = catalog.hiddenCount
+        let canPin = catalog.pinning == .permanent
+        canSwitch = canPin && info.canLockSessionModel && sessionID != nil && !info.isSwitchingModel && info.refreshError == nil
+        let checkedSlug = current.flatMap { Self.checkedSupplier(for: $0, in: catalog) }
+
+        groups = catalog.suppliers.map { supplier in
             let isDefault = supplier.slug == defaultSupplier?.slug
-            var tags = isDefault ? ["default"] : []
-            if let tag = Self.tag(for: supplier.source) { tags.append(tag) }
             let items: [Item] = supplier.models.map { model in
                 var item = Item(model: model, supplierSlug: supplier.slug, supplierName: supplier.name)
-                item.isServerDefault = isDefault && options.model == model
-                item.disabledReason = Self.reason(model, supplier)
+                item.isServerDefault = isDefault && catalog.agentDefault?.model == model
+                item.disabledReason = supplier.reason(for: model)
                 item.isEnabled = canSwitch && item.disabledReason == nil
                 return item
             }
-            var group = Group(slug: supplier.slug, name: supplier.name, tags: tags, items: Self.ticked(items, current: current?.model, under: checkedSlug))
-            if items.isEmpty { group.note = supplier.isSignedOut ? "Sign-in needed on the box" : "No models listed" }
+            var group = Group(slug: supplier.slug, name: supplier.name, tags: (isDefault ? ["default"] : []) + supplier.tags, items: Self.ticked(items, current: current?.model, under: checkedSlug))
+            if items.isEmpty { group.note = supplier.needsSignIn ? "Sign-in needed on the box" : "No models listed" }
             return group
         }
 
         if let current {
             if let checkedSlug { currentSupplier = groups.first { $0.slug == checkedSlug }?.name }
-            else if !ordered.contains(where: { $0.models.contains { HermesModelOptions.sameModel($0, current.model) } }) { currentSupplier = Self.notListed }
+            else if !catalog.suppliers.contains(where: { $0.models.contains { ModelCatalog.sameModel($0, current.model) } }) { currentSupplier = Self.notListed }
         }
 
-        if let defaultSupplier, defaultSupplier.isSignedOut {
+        if let defaultSupplier, defaultSupplier.needsSignIn {
             notes.append(.init(text: "\(defaultSupplier.name), the default supplier, needs a new sign-in on the box.", isWarning: true))
         }
-        if !groups.contains(where: { $0.items.contains { $0.disabledReason == nil } }) {
+        if !catalog.hasChoices {
             notes.append(.init(text: "No supplier on the box can serve a model right now. Provider keys live on the box; \(AppConstants.name) never holds them."))
         }
-        if !info.canLockSessionModel { switchBlockedReason = "Read-only: this server cannot switch a chat's model." }
+        if !canPin { switchBlockedReason = ModelCatalog.switchingLater }
+        else if !info.canLockSessionModel { switchBlockedReason = "Read-only: this server cannot switch a chat's model." }
         else if sessionID == nil { switchBlockedReason = "Send a message first; the model is chosen per chat." }
         else if info.isSwitchingModel { switchBlockedReason = "A switch is in progress." }
         if let reason = switchBlockedReason, !info.isSwitchingModel { notes.append(.init(text: reason)) }
-
-        if groups.count == 1 { caption = "Models provided by \(groups[0].name) on your Hermes box" }
-        else if groups.count > 1 {
-            caption = "Models provided by \(groups.count) providers on your Hermes box" + (defaultSupplier.map { " · default \($0.name)" } ?? "")
+        if let error = info.refreshError {
+            let asOf = info.modelsAsOf.map { " Showing the list from \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
+            notes.append(.init(text: error + asOf, isWarning: true, offersRetry: true))
         }
-        var footer = ["Profile \(profile)"]
+
+        if groups.count == 1 { caption = "Models provided by \(groups[0].name) on \(catalog.place)" }
+        else if groups.count > 1 {
+            caption = "Models provided by \(groups.count) providers on \(catalog.place)" + (defaultSupplier.map { " · default \($0.name)" } ?? "")
+        }
+        var footer = [catalog.detail]
         if let fetchedAt = info.fetchedAt { footer.append("updated \(fetchedAt.formatted(date: .omitted, time: .shortened))") }
         if hiddenCount > 0 { footer.append("\(hiddenCount) provider\(hiddenCount == 1 ? "" : "s") not configured on the box") }
         self.footer = footer.joined(separator: " · ")
@@ -122,47 +132,24 @@ struct ModelPickerModel: Equatable, Sendable {
 
     /// The lock's (or default's) provider by slug or alias, else the default supplier if it lists the id, else the
     /// only supplier that lists it, else none.
-    static func checkedSupplier(for current: CurrentModel, in suppliers: [HermesModelProvider], default defaultSupplier: HermesModelProvider?) -> String? {
-        func lists(_ supplier: HermesModelProvider) -> Bool { supplier.models.contains { HermesModelOptions.sameModel($0, current.model) } }
-        if let provider = current.provider, let named = suppliers.first(where: { $0.answers(to: provider) }) { return lists(named) ? named.slug : nil }
-        if let defaultSupplier, suppliers.contains(where: { $0.slug == defaultSupplier.slug }), lists(defaultSupplier) { return defaultSupplier.slug }
-        let listing = suppliers.filter(lists)
+    static func checkedSupplier(for current: CurrentModel, in catalog: ModelCatalog) -> String? {
+        func lists(_ supplier: ModelCatalog.Supplier) -> Bool { supplier.models.contains { ModelCatalog.sameModel($0, current.model) } }
+        if let provider = current.provider, let named = catalog.supplier(answering: provider) { return lists(named) ? named.slug : nil }
+        if let defaultSupplier = catalog.defaultSupplierRow, lists(defaultSupplier) { return defaultSupplier.slug }
+        let listing = catalog.suppliers.filter(lists)
         return listing.count == 1 ? listing[0].slug : nil
     }
 
     private static func ticked(_ items: [Item], current: String?, under slug: String?) -> [Item] {
         guard let current, let slug, items.first?.supplierSlug == slug else { return items }
-        let index = items.firstIndex { $0.model == current } ?? items.firstIndex { HermesModelOptions.sameModel($0.model, current) }
+        let index = items.firstIndex { $0.model == current } ?? items.firstIndex { ModelCatalog.sameModel($0.model, current) }
         var items = items
         if let index { items[index].isChecked = true }
         return items
     }
 
-    /// `source` in our words; `built-in`, `hermes` and `canonical` need no tag.
-    static func tag(for source: String?) -> String? {
-        switch source {
-        case "virtual": "preset"
-        case "local-runtime": "runs on the box"
-        case "user-config", "model-config": "custom endpoint"
-        case "configured-current": "sign-in needed"
-        default: nil
-        }
-    }
-
-    static func reason(_ model: String, _ supplier: HermesModelProvider) -> String? {
-        if supplier.isSignedOut { return "sign-in needed on the box" }
-        if supplier.unavailableModels.contains(model) { return supplier.freeTierPending ? "checking the plan" : "needs a paid plan" }
-        switch supplier.limit {
-        case .account(let resetsAt): return rateLimited(resetsAt)
-        case .models(let models): if let entry = models[model] { return rateLimited(entry) }
-        case nil: break
-        }
-        return nil
-    }
-
-    private static func rateLimited(_ until: Date?) -> String {
-        until.map { "rate-limited until \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "rate-limited"
-    }
+    /// P11's tags, now owned by the Hermes mapper.
+    static func tag(for source: String?) -> String? { HermesModelOptions.tag(for: source) }
 
     /// One line per bot for `--render-snapshot`: names and counts only.
     func headlessLine(botName: String) -> String {
