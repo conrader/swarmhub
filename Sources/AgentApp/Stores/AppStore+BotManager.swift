@@ -140,6 +140,7 @@ extension AppStore {
         case .skillsInstalled(let profile, let installed):
             guard manager.backend == .hermes else { return }
             recordInstalled(installed, profile: profile, manager: manager)
+            recordImportedInstalled(installed, profile: profile, manager: manager)
         case .bots(let listed):
             let skipsDefault = manager.backend == .hermes
             botOffers[manager.id] = listed.filter { !(skipsDefault && $0.name == "default") && boundBot($0.name, manager: manager) == nil }

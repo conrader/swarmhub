@@ -250,7 +250,7 @@ enum TemplateImportMapper {
             else { report.append(.init(category: "Bot", name: "Avatar", status: .converted, reason: "External avatar data is not copied; the default \(AppConstants.name) avatar will be used.")) }
         }
         for memory in manifest.memories { report.append(.init(category: "Memory", name: memory.name, status: .converted, reason: "Saved with the bot in \(AppConstants.name); not yet given to the agent or Hermes memory.")) }
-        for skill in manifest.skills { report.append(.init(category: "Skill", name: skill.name, status: .converted, reason: "Preserved as Markdown in the inert Hermes template configuration; runtime installation is not exposed by the connected API.")) }
+        for skill in manifest.skills { report.append(.init(category: "Skill", name: skill.name, status: .converted, reason: "Kept with the bot as Markdown. Overview → Imported skills shows it and installs it through the manager bot (Hermes only).")) }
         var routines: [BotRoutine] = []
         for routine in manifest.routines {
             if let schedule = routine.schedule {
