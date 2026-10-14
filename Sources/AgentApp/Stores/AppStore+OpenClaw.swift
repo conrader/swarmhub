@@ -77,20 +77,33 @@ extension AppStore {
 extension AppStore {
     struct OpenClawAdd: Equatable { let name: String; let added: Bool }
 
-    /// "Add bots from this Gateway…": one bot per (Gateway, agent), idempotent, never removes a bot; own avatars only.
-    @discardableResult func addBotsFromGateway(_ gateway: OpenClawGateway) async throws -> [OpenClawAdd] {
+    /// "Add bots from this Gateway…": lists the agents, then `appendOpenClawBots` for all of them.
+    @discardableResult func addBotsFromGateway(_ gateway: OpenClawGateway, only chosen: Set<String>? = nil) async throws -> [OpenClawAdd] {
         let listed = try await openClawHub.agents(for: gateway)
-        var results: [OpenClawAdd] = []
-        for agent in listed.agents {
-            if bots.contains(where: { $0.backend == .openClaw && $0.openClaw?.gatewayID == gateway.id && $0.openClaw?.agentID == agent.id }) {
+        let results = appendOpenClawBots(listed.agents, gatewayID: gateway.id, only: chosen).results
+        objectWillChange.send(); save()
+        return results
+    }
+
+    /// One bot per (Gateway, agent) in `chosen` (nil = every agent), idempotent, never removes a bot; own avatars only.
+    /// Shared by Settings ("Add bots", all) and the setup window (the ticked agents, P25 D5). The caller saves.
+    func appendOpenClawBots(_ agents: [OpenClawAgent], gatewayID: String, only chosen: Set<String>? = nil) -> (results: [OpenClawAdd], added: [Bot]) {
+        var results: [OpenClawAdd] = [], added: [Bot] = []
+        for agent in agents where chosen?.contains(agent.id) ?? true {
+            if bots.contains(where: { $0.backend == .openClaw && $0.openClaw?.gatewayID == gatewayID && $0.openClaw?.agentID == agent.id }) {
                 results.append(.init(name: agent.displayName, added: false)); continue
             }
             let bot = Bot(name: agent.displayName, title: "OpenClaw agent", persona: "", backend: .openClaw)
-            bot.openClaw = OpenClawBinding(gatewayID: gateway.id, agentID: agent.id)
-            bots.append(bot); results.append(.init(name: agent.displayName, added: true))
+            bot.openClaw = OpenClawBinding(gatewayID: gatewayID, agentID: agent.id)
+            bots.append(bot); added.append(bot); results.append(.init(name: agent.displayName, added: true))
         }
-        objectWillChange.send(); save()
-        return results
+        return (results, added)
+    }
+
+    /// Agent ids already bound to a bot on this Gateway (shown "Already added" in the setup window).
+    func openClawAgentIDs(boundTo gatewayID: String?) -> Set<String> {
+        guard let gatewayID else { return [] }
+        return Set(bots.filter { $0.backend == .openClaw && $0.openClaw?.gatewayID == gatewayID }.compactMap { $0.openClaw?.agentID })
     }
 
     /// The editor's agent list (connects: the user asked for it).
