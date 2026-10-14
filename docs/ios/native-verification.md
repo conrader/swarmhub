@@ -10,7 +10,7 @@ The iPhone app is in `Apps/iOS`, with shared code in `Packages/SwarmHubCore`. Ve
 | Simulator binary architectures | `arm64` and `x86_64` |
 | Bundle identifier | `com.konrad.swarmhub.ios` |
 | Shared unit and real-HTTP fixture suite | 20 tests passed, including profile isolation, canonical history, streaming, manual approval acknowledgment, Stop, steer transport and interrupted-stream handling |
-| Desktop regression suite | 436 tests passed after extracting the shared text encoder and incorporating the latest group-document changes |
+| Desktop regression suite | 459 tests passed on the combined tree, including the latest desktop key-store changes and the shared text encoder |
 | Desktop direct-compiler fallback | Passed with `SWARMHUB_FORCE_SWIFTC=1`; shared module and SQLite link successfully |
 | Project regeneration | Deterministic; Python standard library only |
 | Swift and source layout | App and package files remain under the repository's 500-line constraint |
