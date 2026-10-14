@@ -280,6 +280,9 @@ struct HermesBackend: AgentBackend {
                         if text == "[DONE]" { continuation.yield(.completed); break }
                         guard let data = text.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
                         if let runID = json["run_id"] as? String { await HermesRunRegistry.shared.set(runID, for: sessionID, token: streamToken) }
+                        if !legacy, HermesRuntime.events.contains(eventName), let runtime = HermesRuntime.parse(json["runtime"]) {
+                            await HermesRuntimeLog.shared.record(runtime, for: sessionID)
+                        }
                         if legacy { parseLegacy(eventName, json, continuation) } else { parseNative(eventName, json, continuation, emittedAssistantDelta: &emittedAssistantDelta) }
                         eventName = "message"
                     }

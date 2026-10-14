@@ -7,10 +7,26 @@ struct ModelRolesReadout: View {
     @ObservedObject var bot: Bot
     @ObservedObject var cache: BotInfoCache
     @State private var confirming = false
+    @State private var confirmingBoxDefault = false
+    @State private var runtime: HermesRuntime?
 
     var body: some View {
         let row = store.modelRolesRow(for: bot)
+        let options = cache.info(for: bot.id)?.modelOptions.value
+        let ranOn = ModelRolesModel.ranOn(runtime, lock: bot.hermesModelLock, sessionID: bot.hermesSessionID, options: options)
         VStack(alignment: .leading, spacing: 3) {
+            if let ranOn {
+                Text(ranOn.line).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                if let mismatch = ranOn.mismatch {
+                    Text(mismatch).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+                    let note = ModelRolesModel.boxDefaultNote(options)
+                    Button("Use the box default instead") { confirmingBoxDefault = true }.controlSize(.small)
+                        .disabled(note == nil || row.blocked != nil || cache.info(for: bot.id)?.isSwitchingModel == true)
+                        .confirmationDialog("Use the box default instead?", isPresented: $confirmingBoxDefault) {
+                            Button("Use the box default instead") { Task { await store.useBoxDefault(for: bot) } }
+                        } message: { Text([note, ModelRoleReason.permanent.text].compactMap { $0 }.joined(separator: " ")) }
+                }
+            }
             ForEach([row.conversation, row.coding].compactMap { $0 }, id: \.title) { line in
                 Text(line.text).font(.caption).foregroundStyle(.secondary).accessibilityLabel(line.accessibilityLabel)
             }
@@ -27,6 +43,9 @@ struct ModelRolesReadout: View {
                     } message: { Text([row.switchNote, ModelRoleReason.permanent.text].compactMap { $0 }.joined(separator: " ")) }
                 if let blocked = row.blocked { Text(blocked.text).font(.caption2).foregroundStyle(.secondary) }
             }
+        }
+        .task(id: "\(bot.hermesSessionID ?? "")|\(bot.messages.last?.id.uuidString ?? "")|\(store.isIdle)|\(bot.hermesModelLock?.model ?? "")") {
+            runtime = await store.lastRuntime(for: bot)
         }
     }
 }
