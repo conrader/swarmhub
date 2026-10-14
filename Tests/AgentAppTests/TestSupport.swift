@@ -138,10 +138,27 @@ final class InMemoryKeyStore: HermesKeyStore, @unchecked Sendable {
     func all() -> [String: String] { lock.lock(); defer { lock.unlock() }; return values }
 }
 
-func isolatedDefaults() -> UserDefaults {
-    let name = "AgentAppTests-\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: name)!; defaults.removePersistentDomain(forName: name)
-    return defaults
+func isolatedDefaults() -> UserDefaults { IsolatedDefaults() }
+
+/// A throwaway settings suite that removes its domain when the test lets go of it. A plain suite name lands in
+/// ~/Library/Preferences, and cfprefsd writes the (emptied) plist back asynchronously even after the file is deleted,
+/// so the suite is an absolute path in a temporary folder instead: a run leaves no `AgentAppTests-<uuid>.plist` in
+/// ~/Library/Preferences, and the folder's leftovers are swept on the next run.
+final class IsolatedDefaults: UserDefaults, @unchecked Sendable {
+    private static let folder: URL = {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "AgentAppTests-defaults")
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }()
+    private let name: String
+    init() {
+        let name = Self.folder.appending(path: "AgentAppTests-\(UUID().uuidString)").path
+        self.name = name
+        super.init(suiteName: name)!
+    }
+    override init?(suiteName: String?) { fatalError("use isolatedDefaults()") }
+    deinit { removePersistentDomain(forName: name) }
 }
 
 /// Isolated settings whose "Your name" is "Konrad", so group-context expectations hold on any machine (P21 D6).
