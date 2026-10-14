@@ -204,14 +204,23 @@ private func botInfoHandler(capabilities: [String: Any]?, modelOptionsStatus: In
     #expect(fresh.botInfo.info(for: freshBot.id)?.modelError?.contains("Send a message first") == true)
 }
 
-@Test func currentModelPrefersSessionLockThenSessionThenDefault() {
+@Test func currentModelPrefersSessionLockThenDefaultThenSession() {
     let options = HermesModelOptions.parse(modelOptionsPayload())
     let lock = HermesModelLock(sessionID: "s1", provider: "router", model: "m-lock")
-    // P11: the session row beats a local lock when it reports a different concrete model (changed from another client).
-    #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s1", sessionModel: "m-row", aliases: [], options: options) == .init(model: "m-row", provider: nil, source: "this chat"))
-    #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s1", sessionModel: "vendor/m-lock", aliases: [], options: options)?.model == "m-lock")
+    let onDefault = { (lastReply: String?) in CurrentModel(model: "model-alpha", provider: "lab-one", source: CurrentModel.agentDefault, lastReplyModel: lastReply) }
+    // P11: the session row beats a local lock when it reports a different concrete model (changed from another client);
+    // P30: the chat is then unpinned for the app, so it shows the agent default and the row as its last reply.
+    #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s1", sessionModel: "m-row", aliases: [], options: options) == onDefault("m-row"))
+    #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s1", sessionModel: "vendor/m-lock", aliases: [], options: options)
+            == .init(model: "m-lock", provider: "router", source: "chosen for this chat"), "the lock wins")
     #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s1", sessionModel: nil, aliases: [], options: options)?.model == "m-lock")
-    #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s9", sessionModel: "m-row", aliases: [], options: options) == .init(model: "m-row", provider: nil, source: "this chat"))
+    #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s9", sessionModel: "m-row", aliases: [], options: options) == onDefault("m-row"))
+    // P30: an unpinned chat's row is only the model its last reply ran on; the next reply runs the agent default.
+    #expect(BotInfoCache.currentModel(lock: nil, sessionID: "s1", sessionModel: "model-gamma", aliases: [], options: options) == onDefault("model-gamma"))
+    #expect(BotInfoCache.currentModel(lock: nil, sessionID: "s1", sessionModel: "model-alpha", aliases: [], options: options) == onDefault(nil))
+    #expect(BotInfoCache.currentModel(lock: nil, sessionID: "s1", sessionModel: "lab-one/model-alpha", aliases: [], options: options) == onDefault(nil), "the same model")
+    #expect(BotInfoCache.currentModel(lock: nil, sessionID: "s1", sessionModel: "m-row", aliases: [], options: nil) == .init(model: "m-row", provider: nil, source: "this chat"),
+            "no agent default known: the row")
     #expect(BotInfoCache.currentModel(lock: nil, sessionID: "s1", sessionModel: "hermes-agent", aliases: ["hermes-agent"], options: options)?.source == "agent default")
     #expect(BotInfoCache.currentModel(lock: nil, sessionID: nil, sessionModel: nil, aliases: [], options: nil) == nil)
     #expect(HermesBackend.modelLockBody(provider: "", model: "m") as NSDictionary == ["model": "m"] as NSDictionary)

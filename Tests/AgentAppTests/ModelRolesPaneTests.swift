@@ -68,12 +68,14 @@ import Testing
     #expect(store.modelRolesSummary(for: third).hasPrefix("Keyless: roles conversation not loaded (agent default)"))
 }
 
-@Test @MainActor func mismatchSentenceWithoutAButton() async {
+@Test @MainActor func anUnpinnedChatsLastReplyIsNoMismatch() async {
     let server = pickerServer()
     server.set(sessionModel: "model-beta", profile: "grok-jarvis", session: "s1")
     let (store, jarvis, rapper, _, _) = rolesStore(server)
     await store.loadModelRoles()
-    #expect(store.modelRolesRow(for: jarvis).mismatch == "This chat runs model-beta; this bot's default is model-alpha.")
+    // P30: unpinned, so its next reply runs the default alpha; beta was only the last reply.
+    #expect(store.modelRolesRow(for: jarvis).mismatch == nil)
+    #expect(store.currentModel(for: jarvis)?.lastReplyModel == "model-beta")
     #expect(store.modelRolesRow(for: rapper).mismatch == nil, "the row's virtual alias means the box default")
 }
 

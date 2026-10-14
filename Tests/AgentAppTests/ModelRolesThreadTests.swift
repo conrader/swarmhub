@@ -87,6 +87,18 @@ private func forkThenLock(_ state: E2EServer.State) -> [String] {
     #expect(store.codingThreadChoice(for: jarvis) == nil, "the chat already runs the Coding model")
 }
 
+@Test(arguments: CatalogShape.allCases) @MainActor func anUnpinnedChatIsNotOnItsLastReplysModel(shape: CatalogShape) async throws {
+    // P30: the row names only the model the last reply ran on; an unpinned chat's next reply runs the agent default.
+    let (store, jarvis, state) = try await chatting(shape)
+    let session = try #require(jarvis.hermesSessionID)
+    #expect(jarvis.hermesModelLock == nil)
+    state.with { $0.sessionModels[session] = "model-beta" }
+    await store.loadServerInfo(for: jarvis, force: true)
+    #expect(store.currentModel(for: jarvis)?.model == "model-alpha" && store.currentModel(for: jarvis)?.lastReplyModel == "model-beta")
+    jarvis.modelSettings = .init(coding: .choice(beta))
+    #expect(store.codingThreadChoice(for: jarvis) == beta, "the last reply ran on beta, but the chat is not on it")
+}
+
 @Test(arguments: CatalogShape.allCases) @MainActor func theEditorOffersTheCodingRole(shape: CatalogShape) {
     let catalog = HermesModelOptions.parse(catalogPayload(shape)).catalog(profile: "grok-jarvis")
     func model(_ setting: ModelSetting, appDefault: ModelChoice?) -> RoleModelEditorModel {
