@@ -20,6 +20,14 @@ enum OpenClawSetupOutcome: Equatable, Sendable {
 /// One row on S4: a Hermes probe id or an OpenClaw agent id, and its name.
 struct SetupChoice: Equatable, Identifiable { let id: String; let name: String }
 
+/// P35: what the scan after a Hermes Test found on the box: the bot that will set up the others (a new manager when the
+/// connection has none), how many bots the box listed, those that answer with their derived key (added like the
+/// others), those SwarmHub can connect, and those that need their own key.
+struct SetupBoxScan: Equatable, Sendable {
+    var managerName: String; var managerProfile: String; var managerIsNew: Bool
+    var listed: Int; var derived: [String] = []; var adoptable: [String] = []; var needsKey: [String] = []
+}
+
 /// The setup window's steps as a pure state machine (P21 item 11, P25). No step writes anything except two: S4's Add
 /// (`commitSetup` / `commitSetupOpenClaw`), and S3-OC's Test, which saves the Gateway it connects through and is
 /// undone on Cancel, Back to `software` or closing the window (`abandonSetupGateway`).
@@ -29,7 +37,10 @@ struct SetupFlow: Equatable {
     enum Action: Equatable {
         case connectExisting, newHosted, pick(Software), test(SetupCheckResult), openClawTest(OpenClawSetupOutcome, gatewayID: String?)
         case add(count: Int, first: String?), back
+        /// P35: the box scan finished (nil: it could not list the bots).
+        case boxScanned(SetupBoxScan?)
     }
+    enum BoxLook: Equatable { case idle, looking, found(SetupBoxScan), failed }
 
     private(set) var step: Step = .welcome
     private(set) var history: [Step] = []
@@ -44,6 +55,11 @@ struct SetupFlow: Equatable {
     var chosen: Set<String> = []
     var confirmMove = false
     private(set) var addedCount = 0; private(set) var firstAdded: String?
+    /// P35: the box scan, whether S4's "Connect these too" is on, and the bots being connected after Add.
+    private(set) var box = BoxLook.idle
+    var adoptOn = true
+    var adopting: [String] = []
+    var boxScan: SetupBoxScan? { if case .found(let scan) = box { scan } else { nil } }
     let prefill: SetupPrefill
 
     init(prefill: SetupPrefill = .init()) {
@@ -79,8 +95,10 @@ struct SetupFlow: Equatable {
 
     /// S4's rows for the software chosen.
     var choices: [SetupChoice] {
-        software == .openClaw ? openClawAgents.map { SetupChoice(id: $0.id, name: $0.displayName) }
-                              : (result?.available ?? []).map { SetupChoice(id: $0.id, name: $0.name) }
+        guard software != .openClaw else { return openClawAgents.map { SetupChoice(id: $0.id, name: $0.displayName) } }
+        let probed = (result?.available ?? []).map { SetupChoice(id: $0.id, name: $0.name) }
+        let derived = (boxScan?.derived ?? []).filter { name in !probed.contains { $0.id == name } }
+        return probed + derived.map { SetupChoice(id: $0, name: HermesProfileNaming.botName(forProfile: $0)) }
     }
 
     mutating func apply(_ action: Action) {
@@ -91,9 +109,14 @@ struct SetupFlow: Equatable {
             software = picked
             go(picked == .hermes ? .address : .openClaw)
         case .test(let checked):
-            result = checked
+            result = checked; box = .idle
             guard checked.succeeded else { return }
+            box = .looking
             go(.choose)
+        case .boxScanned(let scan):
+            guard box == .looking else { return }
+            box = scan.map(BoxLook.found) ?? .failed
+            chosen.formUnion(scan?.derived ?? [])
         case .openClawTest(let outcome, let gatewayID):
             openClawOutcome = outcome; openClawGatewayID = gatewayID
             guard case .connected = outcome else { return }

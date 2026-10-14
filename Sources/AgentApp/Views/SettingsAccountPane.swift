@@ -47,6 +47,7 @@ struct SettingsAccountPane: View {
                 }
             }
         }
+        AddAllBotsSection()
         BoxKeysPasteSection()
         SettingsGrokSection()
         // P12: the Gateways' own section (it used to be a URL field here).

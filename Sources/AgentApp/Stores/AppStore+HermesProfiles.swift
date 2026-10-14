@@ -42,6 +42,7 @@ extension AppStore {
         guard !parsed.entries.isEmpty else { return results }
         for entry in parsed.entries { keyStore.setKey(entry.key, for: "hermes.\(entry.profile)") }
         namedHermesProfiles += parsed.entries.map(\.profile)
+        typedKeyProfiles.formUnion(parsed.entries.map(\.profile))
         // A Grok-imported history-only bot takes its pasted profile first, so discovery adds no second bot for it.
         bindUnboundGrokBots()
         let present = Set(bots.filter { $0.backend == .hermes }.map { $0.hermesProfile ?? "default" })

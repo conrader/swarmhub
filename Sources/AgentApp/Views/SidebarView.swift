@@ -31,6 +31,7 @@ struct SidebarView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(store.bots.filter { !$0.isHidden }) { bot in row(bot) }
                     ForEach(store.groups.filter { !$0.isHidden }) { group in GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete) }
+                    BoxNotConnectedSections()
                     Button { store.showingHiddenBots.toggle() } label: {
                         HStack(spacing: 6) {
                             Image(systemName: store.showingHiddenBots ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold))

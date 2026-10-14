@@ -26,11 +26,7 @@ struct SetupView: View {
                 case .software: SetupSoftwareStep(flow: $flow)
                 case .address: SetupAddressStep(flow: $flow, testing: testing, test: test)
                 case .openClaw: SetupOpenClawStep(flow: $flow, testing: testing, test: testOpenClaw)
-                case .openClaw:
-                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Button(testing ? SetupCopy.testing : flow.awaitsPairing ? SetupCopy.testAgain : SetupCopy.test, action: testOpenClaw).buttonStyle(.borderedProminent)
-                    .disabled(testing || flow.openClaw.problem != nil).keyboardShortcut(.defaultAction)
-            case .choose: SetupChooseStep(flow: $flow, added: added)
+                case .choose: SetupChooseStep(flow: $flow, added: added)
                 case .done: SetupDoneStep(flow: flow, agentName: store.selectedBot?.name)
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(24)
@@ -67,7 +63,7 @@ struct SetupView: View {
                     .disabled(testing || flow.openClaw.problem != nil).keyboardShortcut(.defaultAction)
             case .choose:
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Button(SetupCopy.addButton(flow.chosen.count), action: add).buttonStyle(.borderedProminent).disabled(!flow.canAdd).keyboardShortcut(.defaultAction)
+                Button(addTitle, action: add).buttonStyle(.borderedProminent).disabled(!flow.canAdd).keyboardShortcut(.defaultAction)
             case .done:
                 if let name = store.selectedBot?.name {
                     Button(SetupCopy.openAgent(name), action: openFirst).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
@@ -76,6 +72,12 @@ struct SetupView: View {
                 }
             }
         }
+    }
+
+    /// P35: with the batch on, Add counts the bots it connects too.
+    private var addTitle: String {
+        guard let scan = flow.boxScan, flow.adoptOn, !scan.adoptable.isEmpty else { return SetupCopy.addButton(flow.chosen.count) }
+        return BoxCopy.addButton(flow.chosen.count + scan.adoptable.count)
     }
 
     /// S4's already-added ids for the software chosen.
@@ -116,6 +118,10 @@ struct SetupView: View {
             flow.apply(.test(result))
             if result.succeeded { flow.preselect(alreadyAdded: store.addedProfileIDs) }
             testing = false
+            // P35: then the box's other bots, quietly; S4 already shows what Test found.
+            guard result.succeeded else { return }
+            let scan = await store.scanBoxForSetup(result, key: input.key)
+            if !closed, flow.result == result { flow.apply(.boxScanned(scan)) }
         }
     }
 
@@ -126,9 +132,15 @@ struct SetupView: View {
                 added = try store.commitSetupOpenClaw(gatewayID: flow.openClawGatewayID, agents: flow.openClawAgents, chosen: flow.chosen)
             } else {
                 guard let result = flow.result else { return }
-                added = try store.commitSetup(result, key: flow.input.key, chosen: flow.chosen, confirmMove: flow.confirmMove)
+                added = try store.commitSetup(result, key: flow.input.key, chosen: flow.chosen, confirmMove: flow.confirmMove, scan: flow.boxScan)
             }
             flow.apply(.add(count: added.count, first: store.selectedBot?.name))
+            // P35: Add is the yes for the listed batch; the manager connects them in its chat.
+            if let scan = flow.boxScan, flow.adoptOn, !scan.adoptable.isEmpty, let manager = store.bots.first(where: {
+                store.isManager($0) && $0.backend == .hermes && ($0.hermesProfile ?? "default") == scan.managerProfile }),
+               store.startAdoption(scan.adoptable, manager: manager) {
+                flow.adopting = scan.adoptable
+            }
         } catch { failure = SetupCopy.failed }
     }
 

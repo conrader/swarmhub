@@ -144,8 +144,8 @@ extension AppStore {
     }
 
     private func finishGrokImport(_ rows: [GrokImportRow]) throws {
-        // The demo bots step aside once real bots exist; they stay under Hidden chats.
-        if !rows.isEmpty { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
+        // The sample bots go once real bots exist (P35 D6); any left (no real bot yet) step aside under Hidden chats.
+        if !rows.isEmpty { removeSampleBots(); bots.filter(\.isDemo).forEach { $0.isHidden = true } }
         if (selectedBot == nil && selectedGroup == nil) || selectedBot?.isHidden == true { selectVisibleChat() }
         objectWillChange.send()
         try saveThrowing()

@@ -140,6 +140,15 @@ extension AppStore {
         case .skillsInstalled(let profile, let installed):
             guard manager.backend == .hermes else { return }
             recordInstalled(installed, profile: profile, manager: manager)
+        case .bots(let listed) where manager.backend == .hermes && listed.contains(where: { $0.hasKey != nil }):
+            // P35: "List every bot" (has_key per profile): add what answers, list the rest under "not connected".
+            await absorbListed(listed, manager: manager)
+        case .botsAdopted(let results):
+            guard manager.backend == .hermes else { return }
+            await finishAdoption(results, manager: manager)
+        case .keyRestored(let name, let ok):
+            guard manager.backend == .hermes else { return }
+            finishRestore(name, ok: ok, manager: manager)
         case .bots(let listed):
             let skipsDefault = manager.backend == .hermes
             botOffers[manager.id] = listed.filter { !(skipsDefault && $0.name == "default") && boundBot($0.name, manager: manager) == nil }
@@ -163,7 +172,7 @@ extension AppStore {
             let bot = Bot(name: HermesProfileNaming.botName(forProfile: name), title: "Hermes profile", description: description, backend: .hermes, hermesProfile: name)
             bot.hermesBaseURL = manager.hermesBaseURL
             if let avatar { bot.avatarMark = avatar }
-            bots.append(bot)
+            bots.append(bot); removeSampleBots()
             notice("\(manager.name) created \(bot.name)", in: manager)
         case .rejected, .unreachable:
             notice("Couldn’t reach \(name) yet", in: manager)
@@ -193,14 +202,20 @@ extension AppStore {
 
     /// `GET /p/<name>/v1/models` with the derived key, a few tries over ~10 s; the key never leaves this function except
     /// as the result. 401/403 means the profile exists but does not use the derived key.
-    func probeDerived(_ name: String, manager: Bot) async -> DerivedProbe {
-        let managerKey = keyStore.key(for: Self.keyAccount(forProfile: manager.hermesProfile ?? "default"))
+    /// P35: `attempts` 1 for discovery's fast path (no retries); the default retries cover a just-written key.
+    func probeDerived(_ name: String, manager: Bot, attempts: Int? = nil) async -> DerivedProbe {
+        await probeDerived(name, managerKey: keyStore.key(for: Self.keyAccount(forProfile: manager.hermesProfile ?? "default")),
+                           baseURL: manager.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL, attempts: attempts)
+    }
+
+    /// The same probe for a manager key and box address that are not saved yet (the setup window's scan).
+    func probeDerived(_ name: String, managerKey: String, baseURL address: String, attempts: Int? = nil) async -> DerivedProbe {
         guard !managerKey.isEmpty, HermesKeyPaste.isValidProfileName(name), name != "default",
-              let baseURL = HermesBackend.validatedBaseURL(manager.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL) else { return .unreachable }
+              let baseURL = HermesBackend.validatedBaseURL(address) else { return .unreachable }
         let key = BotManagerText.derivedKey(managerKey: managerKey, botName: name)
         let backend = HermesBackend(baseURL: baseURL, apiKey: key, profile: name, session: hermesSession)
         var rejected = false
-        for attempt in 0..<max(1, botProbeAttempts) {
+        for attempt in 0..<max(1, attempts ?? botProbeAttempts) {
             if attempt > 0 { try? await Task.sleep(for: botProbeDelay) }
             do {
                 let json = try await backend.jsonRequest(path: "v1/models", timeout: 5)

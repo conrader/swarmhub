@@ -45,7 +45,7 @@ struct BotEditorAdvancedSection: View {
         }
         BotModelSettingsSection(cache: store.botInfo, bot: bot, pendingBackend: fields.backend, conversation: $fields.conversationModel, coding: $fields.codingModel,
                                 codingAgent: $fields.codingAgent)
-        if let bot { BoxInstructionsSection(bot: bot) }
+        if let bot { BoxInstructionsSection(bot: bot); RestoreOldKeySection(bot: bot) }
         if bot != nil, fields.backend == .hermes || fields.backend == .openClaw {
             Section("Bot management") {
                 Toggle("Can manage other bots", isOn: $fields.canManage)

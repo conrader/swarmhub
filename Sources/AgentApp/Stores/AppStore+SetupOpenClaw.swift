@@ -43,15 +43,15 @@ extension AppStore {
         if let gateway = gateway(id: id) { await forgetGateway(gateway) }
     }
 
-    /// S4's Add for OpenClaw (D5): one bot per ticked agent through `appendOpenClawBots`, no network. Hides sample
-    /// bots, selects the first added agent, marks setup done and keeps the Gateway. Restores the bots if saving fails.
+    /// S4's Add for OpenClaw (D5): one bot per ticked agent through `appendOpenClawBots`, no network. Removes sample
+    /// bots (P35), selects the first added agent, marks setup done and keeps the Gateway. Restores the bots if saving fails.
     @discardableResult func commitSetupOpenClaw(gatewayID: String?, agents: [OpenClawAgent], chosen: Set<String>) throws -> [Bot] {
         guard let gatewayID, gateway(id: gatewayID) != nil else { throw SetupCommitError.notTested }
         guard !chosen.isEmpty else { throw SetupCommitError.nothingChosen }
         let oldBots = bots, oldHidden = bots.map { ($0, $0.isHidden) }, oldSelection = (selectedBot, selectedGroup)
         let oldState = defaults.object(forKey: FirstRun.stateKey)
         let added = appendOpenClawBots(agents, gatewayID: gatewayID, only: chosen).added
-        bots.filter(\.isDemo).forEach { $0.isHidden = true }
+        removeSampleBots()
         let target = added.first ?? bots.first { $0.openClaw?.gatewayID == gatewayID && chosen.contains($0.openClaw?.agentID ?? "") && !$0.isHidden }
         if let target { selectedBot = target; selectedGroup = nil; rememberSelection(bot: target) } else { selectVisibleChat() }
         FirstRun.record(.done, in: defaults)
