@@ -20,7 +20,7 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | P10e live acceptance + P10c live steps (Grok import on Konrad's real account) | P10d merged (482 green): sheet, + → Import from Grok Bot…, Settings → Account → Grok Bot | shipped in 0.4.4; one live session with Konrad (Allow clicks) |
 | P13 Parts C / D / E model roles | Part C shipped in 0.4.4; live e2e (terra/sol) runs once Konrad's app is on 0.4.4 | live e2e → D → E |
 | P16 last hop | shipped in 0.4.5 (588 green) | Konrad: Wi-Fi off mid-answer → Incomplete then completes; send offline → Not sent, Retry once; quit mid-answer → partial kept |
-| P21b Simple right panel (D9, deferred from P21) | not started: Overview model picker, raw cron field in the routine editor, groups UI, Import template | brief after P17 |
+| P21b Simple right panel (D9, deferred from P21) | brief written (`briefs/P21b.md`), accepted (build all) | next free Mac slot |
 | P12 Connect OpenClaw | building Parts A-C (`p12`, MacBook; fakes only, no real Gateway) | merge when green |
 | Small: sidebar "Import from Grok Bot" item (needs P10d), attention badge for failed turns (needs P16), idle-pause for hidden windows | waiting on the phases named | with those phases |
 | Box/ops: Codex login has no refresh token (Konrad re-logs in), DB password in plain text in the context-api unit, staged P9 bundles on the box to delete | open | flagged to Konrad |
