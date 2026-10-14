@@ -1,6 +1,6 @@
 # SwarmHub technical reference
 
-Detailed behavior, integration notes, and known limitations. For the overview and quick start, see the [README](../README.md).
+Detailed behavior, integration notes, and known limitations. Start with the [setup guide](guide.md) or return to the [overview](../README.md).
 
 SwarmHub is a desktop workspace for chatting with user-owned agent harnesses, targeting macOS, Windows, and Linux. This reference describes the current native macOS prototype; Windows and Linux versions are planned. There is no built-in model. The user-facing name is defined in `AppConstants.name` and mirrored by `CFBundleName`/`CFBundleDisplayName` in `Resources/Info.plist`, with tests keeping them consistent. The Swift package, module and executable keep the `AgentApp` codename; the bundle identifier, data folder and Keychain service remain stable so existing settings and keys carry over.
 
