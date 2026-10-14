@@ -26,6 +26,7 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | P16 No reply is lost | accepted (build all) | queued |
 | P17 Models from the agent's own backend | accepted (build all) | queued |
 | P21 Simple settings + setup wizard | accepted (build all) | queued |
+| Vanilla test bed: SwarmHub against untouched upstream Hermes 0.22.0 (no getermes patches, no layer), isolated HERMES_HOME + throwaway keys + two profiles; run --check-bots, ui-smoke facts, P22 manager flow against a mock | not started (Konrad 2026-10-14: "I hope this is vanilla hermes") | after P10c; proves SwarmHub needs nothing beyond stock Hermes |
 | P12 Connect OpenClaw | accepted (build all), never started | queued last |
 | Small: sidebar "Import from Grok Bot" item (needs P10d), attention badge for failed turns (needs P16), idle-pause for hidden windows | waiting on the phases named | with those phases |
 | Box/ops: Codex login has no refresh token (Konrad re-logs in), DB password in plain text in the context-api unit, staged P9 bundles on the box to delete, Mac clone remote still says `torvli` | open | flagged to Konrad |
