@@ -9,7 +9,7 @@ Grok Bot is Cursor's hosted Mac agent app; SwarmHub reproduces its features on t
 Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `grok-<slug>`
 (SOUL, skills, imported history), served at `https://konrad.agenthut.net/p/grok-<slug>/`.
 
-## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 20538ee, P19 c31d0c0, P24 + release 0.4.1 deb1f7a, release 0.4.2 449a770, P10c 36b3af0, group documents 46619c1, release 0.4.3 1a61357, P13 Part C 55be45a, P10d 6ec4eee merged; release 0.4.4 published; P21 + P16 shipped in 0.4.5 (a1ef85c), P17 6eabea5 merged (604 green))
+## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 20538ee, P19 c31d0c0, P24 + release 0.4.1 deb1f7a, release 0.4.2 449a770, P10c 36b3af0, group documents 46619c1, release 0.4.3 1a61357, P13 Part C 55be45a, P10d 6ec4eee merged; release 0.4.4 published; P21 + P16 shipped in 0.4.5 (a1ef85c), P17 6eabea5, --check-server 8261bb4, P21b e04fbb7 merged)
 
 Everything planned that is not merged yet, so nobody has to remember it. Built = merged into `main`.
 **Konrad 2026-10-14: "Build all, defaults"** — every row below is accepted with the recommended defaults (P16, P17, P21, P12 included; P13 Part C's live step has his go). Order: P23 → P19 → P24 → P10c → P10d → P10e → P13 C → D → E → P16 → P21 → P17 → P12; each merged when green; Claude reports results, comes back only for a real blocker.
@@ -18,11 +18,11 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 |---|---|---|
 | Automatic updates | proven: Konrad updated 0.4.1 → 0.4.2 via Sparkle; 0.4.3 (Keychain fix, notarized) published + hand-installed, "works, no prompts" (Konrad) | Konrad: back up the Sparkle private key |
 | P10e live acceptance + P10c live steps (Grok import on Konrad's real account) | P10d merged (482 green): sheet, + → Import from Grok Bot…, Settings → Account → Grok Bot | shipped in 0.4.4; one live session with Konrad (Allow clicks) |
-| P13 Parts C / D / E model roles | Part C shipped in 0.4.4; live e2e (terra/sol) runs once Konrad's app is on 0.4.4 | live e2e → D → E |
+| P13 Parts D / E model roles | Part C live e2e 8/8 PASS 2026-10-14 (g1 terra, g2 sol; from the notarized 0.4.5 build); Part D building (`p13d`) | D merge → E (needs P13.0 box canary GO per brief) |
 | P16 last hop | shipped in 0.4.5 (588 green) | Konrad: Wi-Fi off mid-answer → Incomplete then completes; send offline → Not sent, Retry once; quit mid-answer → partial kept |
-| P21b Simple right panel (D9, deferred from P21) | brief written (`briefs/P21b.md`), accepted (build all) | next free Mac slot |
 | P12 Connect OpenClaw | building Parts A-C (`p12`, MacBook; fakes only, no real Gateway) | merge when green |
 | Small: sidebar "Import from Grok Bot" item (needs P10d), attention badge for failed turns (needs P16), idle-pause for hidden windows | waiting on the phases named | with those phases |
+| Steer is accepted but ignored (e2e step b on 2026-10-14: HTTP 2xx, reply unchanged) | known, pre-existing | look at in a later phase (Hermes /steer semantics) |
 | Box/ops: Codex login has no refresh token (Konrad re-logs in), DB password in plain text in the context-api unit, staged P9 bundles on the box to delete | open | flagged to Konrad |
 
 ## Standing constraints (from BRIEF*.md and SPEC-6.1)
