@@ -56,7 +56,7 @@ enum HermesCompatibility {
     struct Entry: Sendable, Equatable { let version: HermesVersion; let status: HermesSupportStatus; let issues: Set<HermesKnownIssue> }
 
     static let versions: [Entry] = [
-        .init(version: .init(0, 22, 0), status: .notTestedYet, issues: [.skillsEnumeration]),
+        .init(version: .init(0, 22, 0), status: .works, issues: [.skillsEnumeration]),
         .init(version: .init(0, 21, 7), status: .works, issues: [.skillsEnumeration]),
         .init(version: .init(0, 20, 5), status: .works, issues: [])
     ]
