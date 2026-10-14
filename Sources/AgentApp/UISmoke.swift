@@ -39,7 +39,7 @@ import Foundation
     }
 
     static func collect(store: AppStore, budget: Budget = .init(), window: @escaping @MainActor () -> NSWindow? = { mainWindow() }) async -> [String: Any] {
-        var errors: [String] = []
+        var errors: [String] = [], limitations: [String] = []
         var report: [String: Any] = ["launch_selection": launchSelection(store, errors: &errors)]
         let bot = store.bots.first { $0.grokSourceID != nil && !$0.isReadOnlyArchive && !$0.isHidden } ?? store.bots.first { !$0.isHidden }
         if let bot { store.open(bot, remember: false); store.showInfo = true } else { errors.append("no bot to select") }
@@ -72,7 +72,7 @@ import Foundation
                 guard let info = store.botInfo.info(for: bot.id) else { return false }
                 return info.skills != .loading && !info.isRefreshing
             }
-            report["overview"] = overview(store.botInfo.info(for: bot.id), errors: &errors)
+            report["overview"] = overview(store.botInfo.info(for: bot.id), errors: &errors, limitations: &limitations)
 
             Task { await store.refreshRoutines(for: bot) }
             _ = await HeadlessE2E.wait(budget.routines, poll: .milliseconds(200)) { store.routines.state(for: bot.id).jobs != .loading }
@@ -82,9 +82,11 @@ import Foundation
         let chrome = await UISmokeChrome.collect(window: window(), store: store, budget: budget.layout)
         report["chrome"] = chrome
         report["sidebar_width"] = SidebarWidth.live(in: window(), errors: &errors)
+        report["top_bar_double_click"] = await UISmokeDoubleClick.collect(window: window(), budget: budget.layout, errors: &errors)
         errors += (chrome["errors"] as? [String] ?? []) + ((chrome["fullscreen"] as? [String: Any])?["errors"] as? [String] ?? [])
         if let message = store.errorMessage { errors.append("alert: \(message)") }
         report["errors"] = errors
+        report["known_limitations"] = limitations
         report["source"] = Bundle.main.url(forResource: "SOURCE", withExtension: "txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) }?
             .split(separator: "\n").first.map(String.init) ?? "unknown"
         report["written_at"] = ISO8601DateFormatter().string(from: .now)
@@ -102,12 +104,18 @@ import Foundation
         return ["kind": "bot", "name": bot.name, "hidden": bot.isHidden, "demo": bot.isDemo]
     }
 
-    static func overview(_ info: BotServerInfo?, errors: inout [String]) -> [String: Any] {
+    /// A known Hermes bug (P24, e.g. 0.21.7's `/v1/skills` 500) goes to `known_limitations`, not `errors`.
+    static func overview(_ info: BotServerInfo?, errors: inout [String], limitations: inout [String]) -> [String: Any] {
         guard let info else { errors.append("overview: no server info"); return ["state": "not loaded"] }
+        let version: Any = info.hermesVersion.map { ["raw": $0.raw ?? NSNull(), "label": $0.label, "problem": $0.problem ?? NSNull()] as [String: Any] } ?? NSNull()
+        let known = info.knownLimitations
+        limitations += known.map { "overview: \($0.note)" }
         switch info.skills {
-        case .loaded(let skills): return ["state": "loaded", "skills": skills.count, "toolsets": info.toolsets.value.map { $0.count as Any } ?? NSNull()]
-        case .loading: errors.append("overview: skills still loading"); return ["state": "loading"]
-        case .unavailable(let reason), .failed(let reason): errors.append("overview: \(reason)"); return ["state": "unavailable", "reason": reason]
+        case .loaded(let skills): return ["state": "loaded", "skills": skills.count, "toolsets": info.toolsets.value.map { $0.count as Any } ?? NSNull(), "hermes_version": version]
+        case .loading: errors.append("overview: skills still loading"); return ["state": "loading", "hermes_version": version]
+        case .unavailable(let reason) where !known.isEmpty:
+            return ["state": "known_limitation", "reason": reason, "limitations": known.map(\.rawValue), "hermes_version": version]
+        case .unavailable(let reason), .failed(let reason): errors.append("overview: \(reason)"); return ["state": "unavailable", "reason": reason, "hermes_version": version]
         }
     }
 

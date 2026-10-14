@@ -12,7 +12,7 @@ struct SettingsView: View {
     }
     @ViewBuilder private var content: some View {
         switch pane {
-        case .account: SettingsAccountPane()
+        case .account: SettingsAccountPane(cache: store.botInfo)
         case .appearance:
             Picker("Theme", selection: $appearance) { Text("Dark").tag("Dark"); Text("Light").tag("Light"); Text("System").tag("System") }.pickerStyle(.segmented)
             Picker("Accent", selection: $accent) {

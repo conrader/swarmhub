@@ -17,11 +17,18 @@ enum ChromeMetrics {
 enum WindowDragDecision: Equatable {
     case system, drag, zoom, miniaturize, nothing
 
-    /// Full screen and the system's own title zone are left alone; a double-click follows the user's
-    /// "double-click a window's title bar" setting; any other click drags the window.
+    /// Full screen is left alone. A double-click anywhere on the strip, the system's title zone included (with the title bar
+    /// hidden nothing there answers it), follows the user's "double-click a window's title bar" setting; a single click in
+    /// the title zone goes to the system, any other click drags the window.
     static func decide(isFullScreen: Bool, yFromTop: CGFloat, systemZone: CGFloat, clickCount: Int, doubleClickAction: String?) -> Self {
-        if isFullScreen || yFromTop < systemZone { return .system }
-        return clickCount == 2 ? doubleClick(doubleClickAction) : .drag
+        if isFullScreen { return .system }
+        if clickCount == 2 { return doubleClick(doubleClickAction) }
+        return yFromTop < systemZone ? .system : .drag
+    }
+
+    /// `AppleActionOnDoubleClick` as set in System Settings → Desktop & Dock (the global domain), nil when never set.
+    static func doubleClickSetting(globalDomain: [String: Any]? = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)) -> String? {
+        globalDomain?["AppleActionOnDoubleClick"] as? String
     }
 
     /// `AppleActionOnDoubleClick`: unset or Maximize → zoom, Minimize → miniaturize, None → nothing.
@@ -43,7 +50,7 @@ final class WindowDragView: NSView {
         let decision = WindowDragDecision.decide(isFullScreen: window.styleMask.contains(.fullScreen), yFromTop: window.frame.height - event.locationInWindow.y,
                                                  systemZone: window.frame.height - window.contentLayoutRect.maxY,
                                                  clickCount: event.clickCount,
-                                                 doubleClickAction: UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick"))
+                                                 doubleClickAction: WindowDragDecision.doubleClickSetting())
         switch decision {
         case .system: super.mouseDown(with: event)
         case .drag: window.performDrag(with: event)

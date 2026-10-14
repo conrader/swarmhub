@@ -13,6 +13,10 @@ struct BotServerInfo: Equatable, Sendable {
     var skills: Loadable<[HermesSkill]> = .loading
     var toolsets: Loadable<[HermesToolset]> = .loading
     var modelOptions: Loadable<HermesModelOptions> = .loading
+    /// What `/health` said on the last load (P24); nil before the first.
+    var hermesVersion: HermesVersionReading?
+    /// Known Hermes bugs this load ran into, shown as notes instead of errors (P24).
+    var knownLimitations: [HermesKnownIssue] { HermesKnownIssue.allCases.filter { skills == .unavailable($0.note) } }
     var sessionModel: String?
     /// The session `sessionModel` was read (or acknowledged) for; a value for another session is ignored.
     var sessionModelSessionID: String?
@@ -42,6 +46,8 @@ struct BotServerInfo: Equatable, Sendable {
 /// Per-bot cache for the app session (memory only). Views read `entries`; loads go through `AppStore`.
 @MainActor final class BotInfoCache: ObservableObject {
     @Published private(set) var entries: [UUID: BotServerInfo] = [:]
+    /// The Hermes version per connection (`scope`), from the last Overview load or Settings read; memory only.
+    @Published private(set) var versions: [String: HermesVersionReading] = [:]
     /// Off for headless and test stores: views then never fetch on appear; callers load explicitly.
     var autoLoad = true
     /// Entries older than this are fetched again when the Overview appears; never polled.
@@ -80,6 +86,8 @@ struct BotServerInfo: Equatable, Sendable {
     private func merge(_ fetched: BotServerInfo, botID: UUID, generation: Int, scope: String, sessionID: String?) {
         var info = entries[botID] ?? fetched
         info.capabilities = fetched.capabilities
+        info.hermesVersion = fetched.hermesVersion
+        if let reading = fetched.hermesVersion { versions[scope] = reading }
         (info.skills, info.toolsets, info.modelOptions) = (fetched.skills, fetched.toolsets, fetched.modelOptions)
         if info.switchGeneration == generation, !info.isSwitchingModel { (info.sessionModel, info.sessionModelSessionID) = (fetched.sessionModel, fetched.sessionModelSessionID) }
         info.isRefreshing = false
@@ -91,22 +99,27 @@ struct BotServerInfo: Equatable, Sendable {
     nonisolated static func fetch(sessionID: String?, using backend: HermesBackend, previous: BotServerInfo = .init(), includeSkills: Bool = true) async -> BotServerInfo {
         var info = previous
         info.isRefreshing = false; info.lastLoadFailed = false
+        async let reading = backend.hermesVersion()
         let capabilities: HermesCapabilities?
         do { capabilities = try await backend.capabilities() }
         catch {
+            info.hermesVersion = await reading
             let reason = describe(error, key: backend.apiKey)
             info.skills = .failed(reason); info.toolsets = .failed(reason); info.modelOptions = .failed(reason)
             info.lastLoadFailed = true
             return info
         }
         info.capabilities = capabilities
+        let version = await reading
+        info.hermesVersion = version
         guard let capabilities else {
             let reason = "This Hermes server does not report its capabilities."
             info.skills = .unavailable(reason); info.toolsets = .unavailable(reason); info.modelOptions = .unavailable(reason)
             return info
         }
         let previousSkills = previous.skills
-        async let skills = includeSkills ? optional(capabilities.skills, "This server does not list its skills.", key: backend.apiKey) { try await backend.skills() } : previousSkills
+        let known = { @Sendable (error: Error) in HermesCompatibility.limitation(for: error, version: version.version)?.note }
+        async let skills = includeSkills ? optional(capabilities.skills, "This server does not list its skills.", key: backend.apiKey, known: known) { try await backend.skills() } : previousSkills
         async let toolsets = optional(capabilities.toolsets, "This server does not list its toolsets.", key: backend.apiKey) { try await backend.toolsets() }
         async let options = optional(capabilities.modelOptions, "This server does not offer model options.", key: backend.apiKey) { try await backend.modelOptions() }
         (info.skills, info.toolsets, info.modelOptions) = await (skills, toolsets, options)
@@ -117,12 +130,22 @@ struct BotServerInfo: Equatable, Sendable {
         return info
     }
 
-    /// Runs `fetch` only when the server advertises the feature; a 404 or 405 means the route is absent.
-    private nonisolated static func optional<T: Equatable & Sendable>(_ supported: Bool, _ offReason: String, key: String, _ fetch: @Sendable () async throws -> T) async -> Loadable<T> {
+    /// Runs `fetch` only when the server advertises the feature; a 404 or 405 means the route is absent. `known` turns a
+    /// known Hermes bug's exact symptom into its calm note (unavailable, not failed).
+    private nonisolated static func optional<T: Equatable & Sendable>(_ supported: Bool, _ offReason: String, key: String,
+                                                                    known: @Sendable (Error) -> String? = { _ in nil },
+                                                                    _ fetch: @Sendable () async throws -> T) async -> Loadable<T> {
         guard supported else { return .unavailable(offReason) }
         do { return .loaded(try await fetch()) }
         catch BackendError.http(let code, _) where code == 404 || code == 405 { return .unavailable(offReason) }
-        catch { return .failed(describe(error, key: key)) }
+        catch { return known(error).map { .unavailable($0) } ?? .failed(describe(error, key: key)) }
+    }
+
+    /// Reads the connection's version for Settings when no Overview load has (or `force`).
+    func loadVersion(using backend: HermesBackend, force: Bool = false) async {
+        let scope = Self.scope(of: backend)
+        guard force || versions[scope] == nil else { return }
+        versions[scope] = await backend.hermesVersion()
     }
 
     nonisolated static func describe(_ error: Error, key: String) -> String {
