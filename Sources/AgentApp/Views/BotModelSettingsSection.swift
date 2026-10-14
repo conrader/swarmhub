@@ -38,12 +38,22 @@ struct BotModelSettingsSection: View {
     let pendingBackend: BackendKind
     @Binding var conversation: ModelSetting
     @Binding var coding: ModelSetting
+    /// P31: this bot's own coding agent order (nil = the SwarmHub default); Hermes bots only.
+    @Binding var codingAgent: CodingOrder?
 
     var body: some View {
         let model = editorModel(.conversation), codingModel = editorModel(.coding)
         Section("Models") {
             roleRow("Conversation model", model) { conversation = $0 }
             roleRow("Coding model", codingModel) { coding = $0 }
+            if pendingBackend == .hermes {
+                Picker("Coding agent", selection: $codingAgent) {
+                    Text("\(AppConstants.name) default").tag(CodingOrder?.none)
+                    ForEach(CodingOrder.allCases) { Text($0.title).tag(Optional($0)) }
+                }
+                Text((codingAgent == nil ? "\(AppConstants.name) default: \((store.modelDefaults.codingAgent ?? .standard).title). " : "") + CodingOrder.help)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             HStack(alignment: .firstTextBaseline) {
                 Text(model.reason).font(.caption).foregroundStyle(.secondary)
                 if model.offersRetry, let bot { Spacer(); Button("Retry") { Task { await store.loadEditorModels(for: bot, pendingBackend: pendingBackend, force: true) } }.controlSize(.small) }

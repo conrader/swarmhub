@@ -58,6 +58,8 @@ struct BotEditorFields {
     var hidden = false, notifications = true
     var approvalMode = ApprovalMode.ask, approvalRules = ApprovalRule.sensibleDefaults, reviewerBotID: UUID?
     var conversationModel = ModelSetting.inherit, codingModel = ModelSetting.inherit, canManage = false
+    /// P31: the bot's own coding agent order; nil follows the SwarmHub default.
+    var codingAgent: CodingOrder?
     /// P12: an OpenClaw agent's Gateway, agent id and session mode.
     var openClawGatewayID: String?, openClawAgentID = "", openClawSessionMode = OpenClawBinding.SessionMode.own
 
@@ -75,6 +77,7 @@ struct BotEditorFields {
         avatar = AvatarChoice(bot: bot); hidden = bot.isHidden; notifications = bot.notificationsEnabled
         approvalMode = bot.approvalMode; approvalRules = bot.approvalRules; reviewerBotID = bot.reviewerBotID
         conversationModel = bot.modelSettings?.conversation ?? .inherit; codingModel = bot.modelSettings?.coding ?? .inherit; canManage = bot.canManageBots
+        codingAgent = bot.modelSettings?.codingAgent
         openClawGatewayID = bot.openClaw?.gatewayID; openClawAgentID = bot.openClaw?.agentID ?? ""; openClawSessionMode = bot.openClaw?.sessionMode ?? .own
     }
 
@@ -91,6 +94,7 @@ struct BotEditorFields {
         bot.notificationsEnabled = notifications; bot.approvalMode = approvalMode; bot.approvalRules = approvalRules
         bot.reviewerBotID = reviewerBotID == bot.id ? nil : reviewerBotID
         var settings = bot.modelSettings ?? .init(); settings.conversation = conversation; settings.coding = coding
+        settings.codingAgent = backend == .hermes ? codingAgent : nil
         bot.modelSettings = settings.isEmpty ? nil : settings
         let manages = canManage && store.canHoldManagerRole(bot)
         if bot.canManageBots != manages { store.setCanManageBots(bot, manages) }

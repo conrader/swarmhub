@@ -52,14 +52,19 @@ enum ModelSetting: Codable, Sendable, Equatable {
 struct BotModelSettings: Codable, Sendable, Equatable {
     var conversation: ModelSetting = .inherit
     var coding: ModelSetting = .inherit
-    var isEmpty: Bool { conversation == .inherit && coding == .inherit }
+    /// P31: this bot's own coding agent order; nil follows the SwarmHub-wide default.
+    var codingAgent: CodingOrder?
+    var isEmpty: Bool { conversation == .inherit && coding == .inherit && codingAgent == nil }
 
-    enum CodingKeys: CodingKey { case conversation, coding }
-    init(conversation: ModelSetting = .inherit, coding: ModelSetting = .inherit) { self.conversation = conversation; self.coding = coding }
+    enum CodingKeys: CodingKey { case conversation, coding, codingAgent }
+    init(conversation: ModelSetting = .inherit, coding: ModelSetting = .inherit, codingAgent: CodingOrder? = nil) {
+        self.conversation = conversation; self.coding = coding; self.codingAgent = codingAgent
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         conversation = try c.decodeIfPresent(ModelSetting.self, forKey: .conversation) ?? .inherit
         coding = try c.decodeIfPresent(ModelSetting.self, forKey: .coding) ?? .inherit
+        codingAgent = CodingOrder.decode(c, .codingAgent)
     }
 }
 
@@ -67,14 +72,19 @@ struct BotModelSettings: Codable, Sendable, Equatable {
 struct ModelDefaults: Codable, Sendable, Equatable {
     var conversation: ModelChoice?
     var coding: ModelChoice?
-    var isEmpty: Bool { conversation == nil && coding == nil }
+    /// P31: the SwarmHub-wide coding agent order; nil = Claude Code → Codex → Hermes sub-agent.
+    var codingAgent: CodingOrder?
+    var isEmpty: Bool { conversation == nil && coding == nil && codingAgent == nil }
 
-    enum CodingKeys: CodingKey { case conversation, coding }
-    init(conversation: ModelChoice? = nil, coding: ModelChoice? = nil) { self.conversation = conversation; self.coding = coding }
+    enum CodingKeys: CodingKey { case conversation, coding, codingAgent }
+    init(conversation: ModelChoice? = nil, coding: ModelChoice? = nil, codingAgent: CodingOrder? = nil) {
+        self.conversation = conversation; self.coding = coding; self.codingAgent = codingAgent
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         conversation = try? c.decodeIfPresent(ModelChoice.self, forKey: .conversation)
         coding = try? c.decodeIfPresent(ModelChoice.self, forKey: .coding)
+        codingAgent = CodingOrder.decode(c, .codingAgent)
     }
 }
 

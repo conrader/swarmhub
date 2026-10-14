@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// P27: one skill SwarmHub authors and versions (`Resources/Skills/<name>/SKILL.md`) and installs into a bot's own
 /// profile as an ordinary Hermes skill. Hermes itself is never changed; the file is what a user would install by hand.
@@ -7,6 +8,16 @@ struct BundledSkill: Equatable, Sendable {
     let version: SkillVersion
     /// The SKILL.md template: frontmatter plus `{{VERSION}}` and, for `swarmhub-manager`, `{{MANAGER_TEXT}}`.
     let template: String
+    /// P31: every other file of the skill's folder (e.g. `scripts/code-job`), written next to SKILL.md as is.
+    var files: [SkillFile] = []
+}
+
+/// P31: one extra file of a bundled skill, its path relative to the skill's folder.
+struct SkillFile: Equatable, Sendable {
+    let path: String
+    let content: String
+    /// Files under `scripts/` are installed `chmod 755`.
+    var isExecutable: Bool { path.hasPrefix("scripts/") }
 }
 
 /// A semver `major.minor.patch`; anything else does not parse.
@@ -24,9 +35,10 @@ struct SkillVersion: Comparable, Hashable, Sendable, CustomStringConvertible {
     static func < (lhs: Self, rhs: Self) -> Bool { (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch) }
 }
 
-/// A bot's copy of one bundled skill, compared with what this build ships.
+/// A bot's copy of one bundled skill, compared with what this build ships. P31: `changed` is the bundled version
+/// installed with another variant (e.g. a coding order changed since).
 enum SkillInstallState: Equatable {
-    case missing, outdated(installed: String), current
+    case missing, outdated(installed: String), changed(installed: String), current
     var needsAction: Bool { self != .current }
 }
 
@@ -53,8 +65,37 @@ enum SkillLibrary {
         return names.sorted().compactMap { name in
             guard let text = try? String(contentsOf: folder.appending(path: "\(name)/SKILL.md"), encoding: .utf8) else { return nil }
             let fields = frontmatter(text)
-            guard fields["name"] == name, HermesKeyPaste.isValidProfileName(name), let version = fields["version"].flatMap(SkillVersion.init) else { return nil }
-            return BundledSkill(name: name, version: version, template: text)
+            guard fields["name"] == name, HermesKeyPaste.isValidProfileName(name), let version = fields["version"].flatMap(SkillVersion.init),
+                  let files = extraFiles(in: folder.appending(path: name, directoryHint: .isDirectory)) else { return nil }
+            return BundledSkill(name: name, version: version, template: text, files: files)
+        }
+    }
+
+    /// P31: every regular file of a skill's folder besides the top SKILL.md, sorted by path (dot files skipped). Nil, so
+    /// the skill is not offered, when one is not UTF-8 text or its path has anything but letters, digits, `.`, `_`, `-`.
+    static func extraFiles(in folder: URL) -> [SkillFile]? {
+        let base = folder.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { return [] }
+        var files: [SkillFile] = []
+        for case let url as URL in walker {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            let full = url.standardizedFileURL.resolvingSymlinksInPath().path
+            guard full.hasPrefix(base) else { return nil }
+            let path = String(full.dropFirst(base.count))
+            guard path != "SKILL.md" else { continue }
+            guard isSafeRelativePath(path), let content = try? String(contentsOf: url, encoding: .utf8) else {
+                SwarmhubBlock.log.error("Skill file \(path, privacy: .public) is not installable; skill skipped")
+                return nil
+            }
+            files.append(SkillFile(path: path, content: content))
+        }
+        return files.sorted { $0.path < $1.path }
+    }
+
+    static func isSafeRelativePath(_ path: String) -> Bool {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        return !parts.isEmpty && parts.allSatisfy { part in
+            !part.isEmpty && part != "." && part != ".." && part.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0)) }
         }
     }
 
@@ -72,15 +113,26 @@ enum SkillLibrary {
     }
 
     /// The SKILL.md written into `profile`: the version filled in and, for `swarmhub-manager`, the manager text rendered
-    /// for that profile (`manager-hermes.md` stays the one source of truth). Nil when a needed template is missing.
-    static func render(_ skill: BundledSkill, forProfile profile: String, managerTemplate: String?) -> String? {
+    /// for that profile (`manager-hermes.md` stays the one source of truth). P31: `{{CODING_ORDER}}` (this bot's coding
+    /// agent order), `{{BOT}}` (the profile) and `{{SKILL_DIR}}` (where the skill lives on the box). Nil when a needed
+    /// template is missing.
+    static func render(_ skill: BundledSkill, forProfile profile: String, managerTemplate: String?, codingOrder: CodingOrder = .standard) -> String? {
         var text = skill.template.replacingOccurrences(of: "{{VERSION}}", with: skill.version.description)
         if text.contains("{{MANAGER_TEXT}}") {
             guard let managerTemplate else { return nil }
             let manager = BotManagerText.filled(managerTemplate, managerProfile: profile).trimmingCharacters(in: .whitespacesAndNewlines)
             text = text.replacingOccurrences(of: "{{MANAGER_TEXT}}", with: manager)
         }
+        text = text.replacingOccurrences(of: "{{CODING_ORDER}}", with: codingOrder.argument)
+            .replacingOccurrences(of: "{{SKILL_DIR}}", with: installPath(skill.name, profile: profile))
+            .replacingOccurrences(of: "{{BOT}}", with: profile)
         return text.hasSuffix("\n") ? text : text + "\n"
+    }
+
+    /// P31: what besides the version decides a bot's copy, recorded with the install: the coding order for a skill
+    /// that renders one; nil for the others.
+    static func variant(of skill: BundledSkill, codingOrder: CodingOrder) -> String? {
+        skill.template.contains("{{CODING_ORDER}}") ? codingOrder.argument : nil
     }
 
     /// `~/.hermes/skills` for `default`, else `~/.hermes/profiles/<profile>/skills`.
@@ -90,10 +142,13 @@ enum SkillLibrary {
 
     static func installPath(_ skill: String, profile: String) -> String { "\(skillsRoot(forProfile: profile))/\(category)/\(skill)" }
 
-    /// A bot's copy against the bundled one: absent, older (or unreadable), or current.
-    static func state(installed: String?, bundled: SkillVersion) -> SkillInstallState {
+    /// A bot's copy against the bundled one: absent, older (or unreadable), current, or (P31) current but installed with
+    /// another variant than this bot wants now. A skill without a wanted variant ignores the recorded one, so records
+    /// from before P31 (no variant) stay current for skills that have none.
+    static func state(installed: String?, bundled: SkillVersion, installedVariant: String? = nil, wantedVariant: String? = nil) -> SkillInstallState {
         guard let installed else { return .missing }
         guard let version = SkillVersion(installed), version >= bundled else { return .outdated(installed: installed) }
+        if let wantedVariant, installedVariant != wantedVariant { return .changed(installed: installed) }
         return .current
     }
 

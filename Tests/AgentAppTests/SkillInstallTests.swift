@@ -167,3 +167,76 @@ private func installedBlock(_ bot: String, _ version: String) -> String {
     await broken.refreshInstalledSkills(for: brokenJarvis)
     #expect(brokenJarvis.installedSkills == ["swarmhub-manager": "1.2.0"])
 }
+
+// MARK: Extra files (P31 A)
+
+private let toolSkill = BundledSkill(name: "swarmhub-tool", version: SkillVersion("1.0.0")!,
+                                     template: "---\nname: swarmhub-tool\nversion: 1.0.0\n---\n\nRun scripts/run.\n",
+                                     files: [SkillFile(path: "notes/readme.txt", content: "plain notes"),
+                                             SkillFile(path: "scripts/run", content: "#!/bin/sh\necho 'it works'\n")])
+
+@Test @MainActor func installTurnWritesEveryFileAndMakesScriptsExecutable() throws {
+    let (store, _, _) = skillStore()
+    let text = try #require(try store.skillInstallInstructions([skill, toolSkill], profile: "grok-jarvis", botName: "Jarvis"))
+    let folder = "~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-tool"
+    #expect(text.contains("mkdir -p \(folder) \(folder)/notes \(folder)/scripts\n"))
+    #expect(text.contains("cat > \(folder)/SKILL.md <<'SWARMHUB_EOF'\n---\nname: swarmhub-tool\nversion: 1.0.0\n---\n\nRun scripts/run.\nSWARMHUB_EOF\n"))
+    // A file without a final newline gets one, so the end marker stays on its own line.
+    #expect(text.contains("cat > \(folder)/notes/readme.txt <<'SWARMHUB_EOF'\nplain notes\nSWARMHUB_EOF\n"))
+    #expect(text.contains("cat > \(folder)/scripts/run <<'SWARMHUB_EOF'\n#!/bin/sh\necho 'it works'\nSWARMHUB_EOF\nchmod 755 \(folder)/scripts/run\n"))
+    #expect(!text.contains("chmod 755 \(folder)/notes"), "only scripts/ are executable")
+    #expect(!text.contains("chmod 755 ~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-manager"), "a skill without scripts gets no chmod")
+    #expect(text.contains(#"{"name":"swarmhub-manager","version":"1.2.0"},{"name":"swarmhub-tool","version":"1.0.0"}"#))
+}
+
+@Test @MainActor func aFileCarryingTheEndMarkerIsRefusedLoudly() throws {
+    let (store, jarvis, host) = skillStore()
+    let bad = BundledSkill(name: "swarmhub-tool", version: SkillVersion("1.0.0")!, template: toolSkill.template,
+                           files: [SkillFile(path: "scripts/run", content: "cat <<SWARMHUB_EOF\nx\nSWARMHUB_EOF\n")])
+    #expect(throws: SkillInstallError.markerInFile(skill: "swarmhub-tool", path: "scripts/run")) {
+        try store.skillInstallInstructions([bad], profile: "grok-jarvis", botName: "Jarvis")
+    }
+    // Even inside a line, not only as a whole line.
+    let inline = BundledSkill(name: "swarmhub-tool", version: SkillVersion("1.0.0")!, template: toolSkill.template,
+                              files: [SkillFile(path: "notes/a", content: "echo SWARMHUB_EOF_x\n")])
+    #expect(throws: SkillInstallError.self) { try store.skillInstallInstructions([inline], profile: "grok-jarvis", botName: "Jarvis") }
+    store.skillLibraryOverride = [skill, bad]
+    #expect(!store.installSkills(for: jarvis))
+    #expect(store.errorMessage?.contains("scripts/run contains SWARMHUB_EOF") == true)
+    #expect(store.pendingSkillInstalls.isEmpty && sentInstructions(host).isEmpty, "nothing reaches the manager")
+}
+
+@Test func extraFilesLoadFromTheSkillFolder() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: "p31-skills-\(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let folder = root.appending(path: "swarmhub-tool", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: folder.appending(path: "scripts"), withIntermediateDirectories: true)
+    try toolSkill.template.write(to: folder.appending(path: "SKILL.md"), atomically: true, encoding: .utf8)
+    try "#!/bin/sh\n".write(to: folder.appending(path: "scripts/run"), atomically: true, encoding: .utf8)
+    try "x".write(to: folder.appending(path: ".DS_Store"), atomically: true, encoding: .utf8)
+    let loaded = try #require(SkillLibrary.bundled(in: root).first)
+    #expect(loaded.files == [SkillFile(path: "scripts/run", content: "#!/bin/sh\n")] && loaded.files[0].isExecutable)
+    try Data([0xFF, 0xFE, 0x00]).write(to: folder.appending(path: "scripts/blob"))
+    #expect(SkillLibrary.bundled(in: root).isEmpty, "a file that is not text keeps the skill out")
+    #expect(!SkillLibrary.isSafeRelativePath("../x") && !SkillLibrary.isSafeRelativePath("a b") && SkillLibrary.isSafeRelativePath("scripts/code-job"))
+}
+
+/// The commands themselves, run by /bin/sh against a temp folder in place of `~/.hermes`: same bytes, scripts 0755.
+@Test @MainActor func installCommandsRecreateTheFilesWithTheirModes() throws {
+    let (store, _, _) = skillStore()
+    let text = try #require(try store.skillInstallInstructions([toolSkill], profile: "grok-jarvis", botName: "Jarvis"))
+    let start = try #require(text.range(of: "````sh\n")), end = try #require(text.range(of: "\n````\n", range: start.upperBound..<text.endIndex))
+    let root = FileManager.default.temporaryDirectory.appending(path: "p31-install-\(UUID().uuidString)", directoryHint: .isDirectory)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let script = String(text[start.upperBound..<end.lowerBound]).replacingOccurrences(of: "~/.hermes", with: root.path)
+    let process = Process(); process.executableURL = URL(fileURLWithPath: "/bin/sh"); process.arguments = ["-c", script]
+    try process.run(); process.waitUntilExit()
+    #expect(process.terminationStatus == 0)
+    let folder = root.appending(path: "profiles/grok-jarvis/skills/swarmhub/swarmhub-tool")
+    #expect(try String(contentsOf: folder.appending(path: "scripts/run"), encoding: .utf8) == "#!/bin/sh\necho 'it works'\n")
+    #expect(try String(contentsOf: folder.appending(path: "notes/readme.txt"), encoding: .utf8) == "plain notes\n")
+    func mode(_ path: String) throws -> Int { try (FileManager.default.attributesOfItem(atPath: folder.appending(path: path).path)[.posixPermissions] as? Int) ?? -1 }
+    #expect(try mode("scripts/run") == 0o755)
+    #expect(try mode("notes/readme.txt") & 0o111 == 0)
+}
