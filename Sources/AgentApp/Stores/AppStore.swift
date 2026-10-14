@@ -38,6 +38,8 @@ import UserNotifications
     var groupRun: GroupRun?; var migratedGroupNames: [String] = []
     private(set) lazy var attachmentEncoder = AttachmentEncoder(directory: fileURL.deletingLastPathComponent().appending(path: "attachments", directoryHint: .isDirectory))
     let botInfo = BotInfoCache()
+    /// P34: bot-to-bot threads (session lists, arrivals, loaded lines) and the thread sheet open now.
+    let botMessages = BotMessageCenter(); @Published var openBotThread: BotThreadKey?
     /// P13 app-wide model defaults (store.json, this install only); empty until set in Settings → Models.
     @Published var modelDefaults = ModelDefaults()
     /// P22 bot manager: open management exchanges per manager bot, a request for a chat's composer, "Add" offers from a

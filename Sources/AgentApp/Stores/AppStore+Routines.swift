@@ -110,6 +110,7 @@ extension AppStore {
         routinePollTask = Task { [weak self] in
             while !Task.isCancelled, let store = self {
                 await store.pollRoutinesOnce()
+                await store.pollBotMessagesOnce()
                 try? await Task.sleep(for: tick)
             }
         }

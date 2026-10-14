@@ -20,7 +20,9 @@ extension HermesBackend {
 }
 
 /// P27 D9: Hermes tool events as `ToolEvent`s. Previews come only from the display fields Hermes builds for this purpose
-/// (`preview`, `label`, `message`), never from `args`; each is redacted and cut to one short line.
+/// (`preview`, `label`, `message`), never from `args`; each is redacted and cut to one short line. P34: `args.command`
+/// is read only when it runs bot-msg (the script reads keys itself, so its command line carries none), and a step's
+/// result is passed on for the bot-msg step it ends.
 extension HermesBackend {
     /// `tool.started|progress|completed|failed` on the native session stream (`tool_name` or `tool`, `preview`,
     /// `tool_call_id`/`toolCallId`; a completion with `error`/`is_error` true counts as failed).
@@ -33,7 +35,26 @@ extension HermesBackend {
         default: failed ? .failed : .completed
         }
         let preview = phase == .progress ? nil : ToolEvent.preview(json["preview"] as? String, key: apiKey)
-        return ToolEvent(phase: phase, name: name, preview: preview, callID: (json["tool_call_id"] ?? json["toolCallId"]) as? String)
+        return ToolEvent(phase: phase, name: name, preview: preview, callID: (json["tool_call_id"] ?? json["toolCallId"]) as? String,
+                         command: phase == .started ? Self.botMessageCommand(json["args"] ?? json["arguments"]) : nil,
+                         result: phase == .completed || phase == .failed ? Self.toolResult(json) : nil)
+    }
+
+    /// The `command` of a step's args (an object, or its JSON text) when it runs bot-msg.
+    static func botMessageCommand(_ args: Any?) -> String? {
+        var object = args as? [String: Any]
+        if object == nil, let text = args as? String, let data = text.data(using: .utf8) { object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] }
+        guard let command = (object?["command"] ?? object?["cmd"]) as? String, command.contains("bot-msg") else { return nil }
+        return command
+    }
+
+    /// An ended step's result text (`result`, `output` or `content`; an object is passed on as JSON).
+    static func toolResult(_ json: [String: Any]) -> String? {
+        for key in ["result", "output", "content"] {
+            if let text = json[key] as? String { return String(text.prefix(BotMessageCall.textLimit * 2)) }
+            if let object = json[key] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: object) { return String(decoding: data, as: UTF8.self) }
+        }
+        return nil
     }
 
     /// `hermes.tool.progress` on the legacy stream: `tool`/`label`/`toolCallId`/`status` (running, completed) on newer

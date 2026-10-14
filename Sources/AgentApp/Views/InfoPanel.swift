@@ -35,7 +35,10 @@ struct InfoPanel: View {
         case .activity:
             VStack(alignment: .leading, spacing: 18) {
                 ApprovalAuditSection(bot: bot)
-                if bot.backend == .hermes { DelegatedTasksSection(bot: bot, events: store.subAgentTasks[bot.id] ?? []) }
+                if bot.backend == .hermes {
+                    BotMessagesSection(bot: bot, center: store.botMessages)
+                    DelegatedTasksSection(bot: bot, events: store.subAgentTasks[bot.id] ?? [])
+                }
             }
         case .routines: RoutinesView(bot: bot, cache: store.routines)
         case .media: MediaTabView(bot: bot)

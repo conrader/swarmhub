@@ -5,6 +5,7 @@ import SwiftUI
 /// A chevron opens the steps whenever there is one, streaming or not, and one view for both states keeps the row open
 /// when the turn ends.
 struct ActivityRow: View {
+    @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage
     @State private var expanded: Bool
     init(message: ChatMessage, expanded: Bool = false) { self.message = message; _expanded = State(initialValue: expanded) }
@@ -21,7 +22,8 @@ struct ActivityRow: View {
                     VStack(alignment: .leading, spacing: 4) {
                         if activity.total > activity.steps.count { Text("Earlier \(activity.total - activity.steps.count) steps not kept").font(.caption2).foregroundStyle(.tertiary) }
                         ForEach(Array(activity.steps.enumerated()), id: \.offset) { _, step in
-                            StepLine(step: step, number: activity.number(of: step), running: ActivityCopy.isRunning(step, streaming: message.isStreaming))
+                            StepLine(step: step, number: activity.number(of: step), running: ActivityCopy.isRunning(step, streaming: message.isStreaming),
+                                     thread: step.botMessage.flatMap { store.threadKey(for: $0, in: message) })
                         }
                     }.padding(.leading, 14)
                 }
@@ -60,6 +62,8 @@ struct ActivityRow: View {
 
 private struct StepLine: View {
     let step: ToolStep; let number: Int; let running: Bool
+    /// P34 D4: the thread a bot-msg step wrote to.
+    var thread: BotThreadKey? = nil
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text("\(number)").font(.caption2).foregroundStyle(.tertiary).frame(minWidth: 16, alignment: .trailing).monospacedDigit()
@@ -70,7 +74,8 @@ private struct StepLine: View {
             }
             Text(ActivityCopy.label(step.name)).font(.caption)
             Text(step.name).font(.caption2.monospaced()).foregroundStyle(.tertiary)
-            if let preview = step.preview { Text(preview).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+            if let thread { BotMessageChip(key: thread) }
+            if let preview = step.preview, thread == nil { Text(preview).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
             if !running, let end = step.finishedAt { Text(ActivityCopy.duration(end.timeIntervalSince(step.startedAt))).font(.caption2).foregroundStyle(.tertiary).monospacedDigit() }
         }
     }

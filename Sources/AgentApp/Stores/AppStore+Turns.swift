@@ -50,7 +50,9 @@ extension AppStore {
             case .tool(let tool):
                 if tool.name == "_thinking", tool.phase == .progress { row.lastTextAt = nil }
                 if row.content.isEmpty, ToolActivity.isShown(tool.name) { row.metadata["status"] = tool.name }
-                var activity = row.activity ?? ToolActivity(); activity.apply(tool, at: now())
+                let before = row.activity
+                var activity = before ?? ToolActivity(); activity.apply(tool, at: now())
+                noteEndedBotMessageSteps(before: before, after: activity, sender: bot)
                 if activity.total > 0 { row.activity = activity; objectWillChange.send() }
             case .subAgent(let task): subAgent(task)
             case .approval(var request):

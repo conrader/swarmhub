@@ -65,6 +65,7 @@ struct MessageView: View {
         switch message.presentation {
         case .delegation: DelegationCard(message: message)
         case .routineResult: RoutineResultCard(message: message)
+        case .botMessage: BotArrivalLine(message: message)
         case .text:
             if message.role == .system {
                 Label(message.content, systemImage: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
@@ -78,6 +79,7 @@ struct MessageView: View {
                 MarkdownContent(message: message)
                 // P29: one row while streaming and after, so an open row stays open when the turn ends.
                 ActivityRow(message: message, expanded: stepsExpanded)
+                BotMessageChipsRow(message: message)
             }
         }
     }

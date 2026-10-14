@@ -75,6 +75,11 @@ struct BotRow: View {
                 }
                 Spacer(minLength: 4)
                 if bot.retiredOnBox { Text("retired").font(.system(size: 10)).foregroundStyle(.tertiary) }
+                // P34 D6: a bot message arrived that is not opened yet.
+                if store.hasBotMessageBadge(bot) {
+                    Image(systemName: "bubble.left.and.bubble.right.fill").font(.system(size: 8, weight: .semibold)).foregroundStyle(.white)
+                        .padding(4).background(Color.accentColor, in: Circle()).help("A bot wrote to \(bot.name)").accessibilityLabel("New bot message")
+                }
                 if bot.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
         }.buttonStyle(.plain).contextMenu {

@@ -81,6 +81,7 @@ extension AppStore {
         selectedBot = bot; selectedGroup = nil
         if remember { rememberSelection(bot: bot) }
         if bot.unreadCount != 0 || bot.manualUnread { bot.unreadCount = 0; bot.manualUnread = false; save() }
+        clearBotMessageBadge(bot)
         loadServerHistory(for: bot)
     }
 

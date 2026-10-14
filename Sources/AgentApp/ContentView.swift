@@ -6,6 +6,7 @@ struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
     @State private var pendingCommand: AppCommand?
+    @State private var pendingThread: BotThreadKey?
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(get: { store.sidebarHidden ? .detailOnly : .all }, set: { store.sidebarHidden = $0 == .detailOnly })) {
@@ -32,6 +33,7 @@ struct ContentView: View {
         .sheet(isPresented: $store.showingGrokImport) { GrokImportSheet(store: store) }
         .sheet(isPresented: $store.showingNewGroup) { NewGroupSheet(preselected: store.selectedGroup == nil ? Set(store.selectedBot.map { [$0.id] } ?? []) : []) }
         .sheet(item: $store.editingBot) { BotEditorView(bot: $0) }
+        .sheet(item: $store.openBotThread) { BotThreadSheet(center: store.botMessages, key: $0) }
         .onReceive(NotificationCenter.default.publisher(for: .toggleInfo)) { _ in store.showInfo.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in store.sidebarHidden.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: .newBot)) { _ in store.showingNewBot = true }
@@ -41,7 +43,8 @@ struct ContentView: View {
                 pendingCommand = nil
                 command.perform(in: store, openSettings: openSettings, openWindow: openWindow)
             }
-        }) { CommandPaletteView(selectCommand: { pendingCommand = $0 }, openSetup: { store.openSetup(openWindow: openWindow) }) }
+            if let thread = pendingThread { pendingThread = nil; store.openThread(thread) }
+        }) { CommandPaletteView(selectCommand: { pendingCommand = $0 }, openSetup: { store.openSetup(openWindow: openWindow) }, openThread: { pendingThread = $0 }) }
         .alert("Backend Error", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) { Button("OK") { store.errorMessage = nil } } message: { Text(store.errorMessage ?? "") }
     }
 }

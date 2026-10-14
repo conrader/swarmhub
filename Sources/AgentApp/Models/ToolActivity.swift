@@ -5,6 +5,8 @@ import Foundation
 struct ToolEvent: Sendable, Equatable {
     enum Phase: String, Sendable { case started, progress, completed, failed }
     var phase: Phase; var name: String; var preview: String? = nil; var callID: String? = nil
+    /// P34: a started step's full command when it runs bot-msg, and an ended step's result (kept for bot-msg steps only).
+    var command: String? = nil; var result: String? = nil
 
     static let previewLimit = 80
 
@@ -26,6 +28,8 @@ struct ToolEvent: Sendable, Equatable {
 /// One step of a reply: a tool the bot ran, what it ran it on, when, and whether it failed.
 struct ToolStep: Codable, Equatable, Sendable {
     var name: String; var preview: String?; var startedAt: Date; var finishedAt: Date?; var failed = false; var callID: String?
+    /// P34 D4: the bot this step messaged through bot-msg (and, once it ends, the reply).
+    var botMessage: BotMessageCall?
     var isRunning: Bool { finishedAt == nil }
 }
 
@@ -43,13 +47,15 @@ struct ToolActivity: Codable, Equatable, Sendable {
         switch event.phase {
         case .started:
             if let id = event.callID, steps.contains(where: { $0.callID == id }) { return }
-            steps.append(ToolStep(name: event.name, preview: event.preview, startedAt: now, callID: event.callID)); total += 1
+            let call = (event.command ?? event.preview).flatMap(BotMessageCall.parse(command:))
+            steps.append(ToolStep(name: event.name, preview: event.preview, startedAt: now, callID: event.callID, botMessage: call)); total += 1
             if steps.count > Self.limit { steps.removeFirst(steps.count - Self.limit) }
         case .progress:
             if let index = match(event), steps[index].preview == nil { steps[index].preview = event.preview }
         case .completed, .failed:
             guard let index = match(event) else { return }
             steps[index].finishedAt = now; steps[index].failed = event.phase == .failed
+            if steps[index].botMessage != nil, let reply = BotMessageCall.reply(fromResult: event.result) { steps[index].botMessage?.reply = reply }
             if event.preview != nil, steps[index].preview == nil { steps[index].preview = event.preview }
         }
     }
