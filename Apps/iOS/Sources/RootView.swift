@@ -38,7 +38,7 @@ private struct WelcomeView: View {
             Label("Conversations and results together", systemImage: "bubble.left")
             Label("You decide what gets approved", systemImage: "checkmark.shield")
             Spacer(minLength: 16)
-            Button("Connect my server") { showSetup = true }.buttonStyle(.borderedProminent).tint(.blue).controlSize(.large).frame(maxWidth: .infinity)
+            Button("Connect my server") { showSetup = true }.buttonStyle(.borderedProminent).foregroundStyle(.background).controlSize(.large).frame(maxWidth: .infinity)
             Button("Explore local sample agents") { store.useSamples() }.frame(maxWidth: .infinity).padding(10)
             Text("Hermes is supported. OpenClaw and hosted setup are planned.").font(.footnote).foregroundStyle(.secondary)
         }.padding(24)
