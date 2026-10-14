@@ -40,7 +40,9 @@ Available features depend on what your connected server supports. See the [Herme
 
 In development for **macOS, Windows, and Linux**. You can build the macOS prototype now; Windows and Linux versions are planned.
 
-[Get started →](docs/guide.md#get-started)
+[Download the latest macOS build →](https://github.com/conrader/swarmhub/releases/latest) · [Get started →](docs/guide.md#get-started)
+
+Installed builds update themselves (signed updates, checked daily; Settings → Updates).
 
 [How it works](docs/guide.md#how-it-works) · [Technical reference](docs/reference.md) · [Roadmap](PLAN.md)
 
