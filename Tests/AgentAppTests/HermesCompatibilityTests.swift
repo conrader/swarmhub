@@ -21,12 +21,12 @@ import Testing
 @Test func statusLookupFollowsTheList() {
     #expect(HermesCompatibility.status(for: .init(0, 21, 7)) == .works)
     #expect(HermesCompatibility.status(for: .init(0, 20, 5)) == .works)
-    #expect(HermesCompatibility.status(for: .init(0, 22, 0)) == .notTestedYet)
+    #expect(HermesCompatibility.status(for: .init(0, 22, 0)) == .works)
     #expect(HermesCompatibility.status(for: .init(0, 22, 1)) == .notTestedYet, "newer than any listed")
     #expect(HermesCompatibility.status(for: .init(0, 21, 0)) == .notTestedYet, "between listed versions")
     #expect(HermesCompatibility.status(for: .init(0, 19, 9)) == .notSupported, "older than the oldest listed")
     #expect(HermesVersionReading(raw: "0.21.7").label == "Hermes 0.21.7 · works")
-    #expect(HermesVersionReading(raw: "0.22.0").label == "Hermes 0.22.0 · not tested yet")
+    #expect(HermesVersionReading(raw: "0.22.0").label == "Hermes 0.22.0 · works")
     #expect(HermesVersionReading(raw: "0.22.1").label == "Hermes 0.22.1 · not tested yet")
     #expect(HermesVersionReading(raw: "nightly").label == "Hermes nightly · version not recognised")
     #expect(HermesVersionReading(raw: nil, problem: "HTTP 404: no route").label == "Hermes version unknown")
@@ -127,7 +127,7 @@ private func healthHandler(version: Any?, skillsStatus: Int, skillsMessage: Stri
     let (store, bot, loaded) = await overviewLoad(version: "0.22.0", skillsStatus: 200)
     let info = try #require(loaded)
     #expect(info.skills.value?.map(\.name) == ["tide-check"] && info.knownLimitations.isEmpty)
-    #expect(store.hermesVersion(for: bot)?.label == "Hermes 0.22.0 · not tested yet")
+    #expect(store.hermesVersion(for: bot)?.label == "Hermes 0.22.0 · works")
     var errors: [String] = [], limitations: [String] = []
     let report = UISmoke.overview(info, errors: &errors, limitations: &limitations)
     #expect(errors.isEmpty && limitations.isEmpty && report["state"] as? String == "loaded")
