@@ -1,0 +1,303 @@
+{
+ "methods": {
+  "agents.list": {
+   "allowed": [],
+   "closed": true,
+   "definition": "AgentsListParams",
+   "required": [],
+   "scope": "operator.read",
+   "since": "<=2026.7"
+  },
+  "chat.abort": {
+   "allowed": [
+    "agentId",
+    "discardPendingInput",
+    "preserveSideRuns",
+    "runId",
+    "sessionKey"
+   ],
+   "closed": true,
+   "definition": "ChatAbortParams",
+   "required": [
+    "sessionKey"
+   ],
+   "scope": "operator.write",
+   "since": "<=2026.7"
+  },
+  "chat.history": {
+   "allowed": [
+    "agentId",
+    "cursor",
+    "inputRunIds",
+    "limit",
+    "maxBytes",
+    "maxChars",
+    "messageId",
+    "offset",
+    "pendingBefore",
+    "sessionId",
+    "sessionKey"
+   ],
+   "closed": true,
+   "definition": "ChatHistoryParams",
+   "required": [
+    "sessionKey"
+   ],
+   "scope": "operator.read",
+   "since": "<=2026.7"
+  },
+  "chat.send": {
+   "allowed": [
+    "agentId",
+    "attachments",
+    "deliver",
+    "expectedLeafEntryId",
+    "expectedPermissionMode",
+    "expectedSessionRoutingContract",
+    "expectedToolOverrides",
+    "fastAutoOnSeconds",
+    "fastMode",
+    "idempotencyKey",
+    "intent",
+    "mentions",
+    "message",
+    "originatingAccountId",
+    "originatingChannel",
+    "originatingThreadId",
+    "originatingTo",
+    "queueMode",
+    "replyToId",
+    "sessionId",
+    "sessionKey",
+    "suppressCommandInterpretation",
+    "systemInputProvenance",
+    "systemProvenanceReceipt",
+    "thinking",
+    "timeoutMs",
+    "toolBindings",
+    "workContext"
+   ],
+   "closed": true,
+   "definition": "ChatSendParams",
+   "required": [
+    "idempotencyKey",
+    "message",
+    "sessionKey"
+   ],
+   "scope": "operator.write",
+   "since": "<=2026.7"
+  },
+  "connect": {
+   "allowed": [
+    "auth",
+    "caps",
+    "client",
+    "commands",
+    "computerUse",
+    "device",
+    "locale",
+    "maxProtocol",
+    "minProtocol",
+    "modelCatalog",
+    "pathEnv",
+    "permissions",
+    "role",
+    "scopes",
+    "userAgent",
+    "workerRuns"
+   ],
+   "auth": {
+    "allowed": [
+     "agentRuntimeIdentityToken",
+     "approvalRuntimeToken",
+     "bootstrapToken",
+     "deviceToken",
+     "password",
+     "token"
+    ],
+    "closed": true,
+    "required": []
+   },
+   "client": {
+    "allowed": [
+     "buildId",
+     "deviceFamily",
+     "displayName",
+     "id",
+     "instanceId",
+     "mode",
+     "modelIdentifier",
+     "platform",
+     "timeZone",
+     "version"
+    ],
+    "closed": true,
+    "required": [
+     "id",
+     "mode",
+     "platform",
+     "version"
+    ]
+   },
+   "closed": true,
+   "definition": "ConnectParams",
+   "device": {
+    "allowed": [
+     "id",
+     "nonce",
+     "publicKey",
+     "signature",
+     "signedAt"
+    ],
+    "closed": true,
+    "required": [
+     "id",
+     "nonce",
+     "publicKey",
+     "signature",
+     "signedAt"
+    ]
+   },
+   "required": [
+    "client",
+    "maxProtocol",
+    "minProtocol"
+   ],
+   "scope": "operator.admin",
+   "since": "<=2026.7"
+  },
+  "exec.approval.list": {
+   "definition": null,
+   "scope": "operator.approvals",
+   "since": "<=2026.7"
+  },
+  "exec.approval.resolve": {
+   "allowed": [
+    "decision",
+    "grantExpiresInDays",
+    "id",
+    "reviewer"
+   ],
+   "closed": true,
+   "definition": "ExecApprovalResolveParams",
+   "required": [
+    "decision",
+    "id"
+   ],
+   "scope": "operator.approvals",
+   "since": "<=2026.7"
+  },
+  "models.list": {
+   "allowed": [
+    "agentId",
+    "authProfileId",
+    "includeDefaultModels",
+    "includeDetails",
+    "includeProviderCapabilities",
+    "preparedOnly",
+    "provider",
+    "refresh",
+    "sessionKey",
+    "view"
+   ],
+   "closed": true,
+   "definition": "ModelsListParams",
+   "required": [],
+   "scope": "operator.read",
+   "since": "<=2026.7"
+  },
+  "sessions.create": {
+   "allowed": [
+    "agentId",
+    "agentRuntime",
+    "attachments",
+    "catalogId",
+    "category",
+    "contextWindow",
+    "cwd",
+    "displayName",
+    "emitCommandHooks",
+    "execNode",
+    "fastMode",
+    "fork",
+    "forkFrom",
+    "idempotencyKey",
+    "incognito",
+    "key",
+    "label",
+    "mentions",
+    "message",
+    "model",
+    "parentSessionKey",
+    "permissionMode",
+    "projectGitUrl",
+    "projectId",
+    "repository",
+    "spawnDepth",
+    "succeedsParent",
+    "task",
+    "thinkingLevel",
+    "timeoutMs",
+    "titleSource",
+    "toolOverrides",
+    "visibility",
+    "worktree",
+    "worktreeBaseRef",
+    "worktreeName",
+    "worktreeSource"
+   ],
+   "closed": true,
+   "definition": "SessionsCreateParams",
+   "required": [],
+   "scope": "dynamic",
+   "since": "<=2026.7"
+  },
+  "sessions.list": {
+   "allowed": [
+    "activeMinutes",
+    "activeOnly",
+    "activityPulseBoundaries",
+    "agentId",
+    "archived",
+    "boardFace",
+    "configuredAgentsOnly",
+    "creatorId",
+    "excludeCron",
+    "excludeSubagents",
+    "excludeSystem",
+    "group",
+    "hasBoard",
+    "includeActivitySummary",
+    "includeDerivedTitles",
+    "includeGlobal",
+    "includeLastMessage",
+    "includeOwnerSessionCounts",
+    "includePeople",
+    "includeUnknown",
+    "involvingMe",
+    "involvingProfileId",
+    "label",
+    "limit",
+    "offset",
+    "ownerFirst",
+    "ownerId",
+    "pinned",
+    "profileRelation",
+    "projectId",
+    "requireLastInteraction",
+    "rowMode",
+    "search",
+    "sortBy",
+    "spawnedBy",
+    "workspaceDir"
+   ],
+   "closed": true,
+   "definition": "SessionsListParams",
+   "required": [],
+   "scope": "operator.read",
+   "since": "<=2026.7"
+  }
+ },
+ "sha256": "b7ab8a5113021fc73344ab5fef3d84009b4d9b0dfb852287eadd031fed65cf72",
+ "source": "protocol.schema.json"
+}

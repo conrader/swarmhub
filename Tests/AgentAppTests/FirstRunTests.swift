@@ -64,7 +64,8 @@ import Testing
 @MainActor @Test func everyFlagIsListedAndRecognised() {
     let old = ["--check-bots", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--grok-fetch", "--grok-probe",
                "--grok-parity", "--import-grok", "--import-keys", "--ui-smoke"]
-    #expect(Set(HeadlessCommands.flags) == Set(old + ["--setup-preview", "--render-setup"]) && HeadlessCommands.flags.count == old.count + 2)
+    let added = ["--setup-preview", "--render-setup", "--check-openclaw"] // P21, P21, P12
+    #expect(Set(HeadlessCommands.flags) == Set(old + added) && HeadlessCommands.flags.count == old.count + added.count)
     #expect(!HeadlessCommands.headless.contains("--ui-smoke") && !HeadlessCommands.headless.contains("--setup-preview"))
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--setup-preview"]) == nil, "a launch argument, not a headless command")
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp"]) == nil)

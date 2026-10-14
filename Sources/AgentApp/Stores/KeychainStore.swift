@@ -148,6 +148,20 @@ final class KeyVault: @unchecked Sendable {
         }
     }
 
+    /// P12: like `set`, but reports whether the v2 item was written and reads back equal; the cache keeps the value
+    /// only then (a device key must never live in memory alone).
+    func setVerified(_ value: String, account: String) -> Bool {
+        lock.withLock {
+            _ = backend.delete(service: Self.v2Service, account: account)
+            guard backend.add(value, service: Self.v2Service, account: account) == errSecSuccess,
+                  backend.read(service: Self.v2Service, account: account).value == value else { values[account] = nil; return false }
+            locked.remove(account); values[account] = value
+            var cleared = Set(defaults.stringArray(forKey: Self.clearedKey) ?? []); cleared.remove(account)
+            defaults.set(cleared.sorted(), forKey: Self.clearedKey)
+            return true
+        }
+    }
+
     /// The legacy item would need a dialog (or failed) and no key replaced it this launch.
     func needsReentry(account: String) -> Bool { lock.withLock { locked.contains(account) } }
 
@@ -205,9 +219,12 @@ protocol HermesKeyStore: Sendable {
     func needsReentry(_ account: String) -> Bool
     /// True once per account per launch: whether this caller may make the one derived-key attempt.
     func claimRecovery(_ account: String) -> Bool
+    /// P12: writes and reads back; false when the store did not keep the value.
+    func storeVerified(_ value: String, for account: String) -> Bool
 }
 
 extension HermesKeyStore {
+    func storeVerified(_ value: String, for account: String) -> Bool { setKey(value, for: account); return key(for: account) == value }
     func hasKey(for account: String) -> Bool { !key(for: account).isEmpty }
     func needsReentry(_ account: String) -> Bool { false }
     func claimRecovery(_ account: String) -> Bool { false }
@@ -220,4 +237,5 @@ struct KeychainHermesKeyStore: HermesKeyStore {
     func hasKey(for account: String) -> Bool { vault.exists(account: account) }
     func needsReentry(_ account: String) -> Bool { vault.needsReentry(account: account) }
     func claimRecovery(_ account: String) -> Bool { vault.claimRecovery(account: account) }
+    func storeVerified(_ value: String, for account: String) -> Bool { vault.setVerified(value, account: account) }
 }

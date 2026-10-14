@@ -58,11 +58,16 @@ import UserNotifications
     private var stopInProgressForStream: UUID?
     private(set) var persistenceEnabled = true
     let backendFactory: ((Bot) throws -> any AgentBackend)?
+    /// P12: saved OpenClaw Gateways (no secrets) and the hub, created on first use so nothing connects at launch.
+    @Published var openClawGateways: [OpenClawGateway] = []
+    var injectedOpenClawHub: OpenClawHub?; var openClawWakeObserver: NSObjectProtocol?
+    private(set) lazy var openClawHub: OpenClawHub = makeOpenClawHub()
     private let didCancelLocalStream: (() -> Void)?
     let reviewerTimeout: Duration
 
-    init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil) {
+    init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil, openClawHub: OpenClawHub? = nil) {
         self.keyStore = keyStore; self.defaults = defaults; self.hermesSession = hermesSession; self.connectivity = connectivity
+        injectedOpenClawHub = openClawHub
         self.backendFactory = backendFactory
         self.didCancelLocalStream = didCancelLocalStream
         self.reviewerTimeout = reviewerTimeout
@@ -111,7 +116,7 @@ import UserNotifications
             bots = [bot]; save()
         }
         // P21 D3: a fresh install starts empty; the setup window or "Look around with sample agents" fills it.
-        if !demoMode { migrateManagerRole() }
+        if !demoMode { migrateManagerRole(); loadOpenClawGateways() }
         if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys() } }
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
