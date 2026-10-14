@@ -29,13 +29,27 @@ func ordinaryChatIsNoModelIntent(_ text: String) { #expect(!ManagementIntent.mat
 
 // MARK: Template
 
+/// P30: the model recipe (skill 1.0.1), byte for byte: two bots at a time, values a bot already has skipped, Hermes'
+/// stderr kept out of the log, started with the terminal tool's background option (it refuses nohup).
+private let modelRecipe = ##"""
+Change the model (one bot, some, or all): ask first, naming model, provider and bots. Start it as a background process of your terminal tool (its background option, not nohup/setsid, which it refuses):
+```
+export MODEL=<model> PROV=<provider, e.g. openai-codex> KM=model.default KP=model.provider
+cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 1 sh -c 'N=$1; F=profiles/$N/config.yaml; [ "$N" = default ] && F=config.yaml; r=ok; for KV in "$KM=$MODEL" "$KP=$PROV"; do K=${KV%%=*}; V=${KV#*=}; sed -n "/^${K%%.*}:/,/^[^ ]/p" "$F" | grep -Eq "^ +${K#*.}: *\"?$V\"? *$" || hermes -p "$N" config set "$K" "$V" >/dev/null 2>>swarmhub-model.err || r=FAILED; done; echo "$N $r"' sh > swarmhub-model.log; echo DONE >> swarmhub-model.log
+```
+`<names>` for all bots: `default $(ls ~/.hermes/profiles | grep -E '^[a-z0-9][a-z0-9_-]*$')`. The sub-agent/coding model only when asked: the same with `KM=delegation.model KP=delegation.provider`. A value a bot already has is skipped; each change takes ~4 s, two bots at a time. Wait for the process, then `cat ~/.hermes/swarmhub-model.log` (ends with DONE) and report ok/FAILED per bot; for FAILED show the last lines of `~/.hermes/swarmhub-model.err`. Say that SwarmHub chats with their own chosen model keep it (changed in that chat's model menu).
+"""##
+
 @Test func managerTextCarriesTheModelRecipeWithinItsBudget() throws {
     let template = try #require(BotManagerText.template())
-    #expect(template.utf8.count <= 4096, "manager-hermes.md is \(template.utf8.count) bytes")
-    #expect(template.contains(#"hermes -p "$N" config set model.default "$MODEL""#) && template.contains(#"config set model.provider "$PROV""#))
-    #expect(template.contains("nohup sh -c") && template.contains("~/.hermes/swarmhub-model.log") && template.contains("echo DONE"))
+    // P30: the exact recipe block took the text past 4 KiB.
+    #expect(template.utf8.count <= 4608, "manager-hermes.md is \(template.utf8.count) bytes")
+    #expect(template.contains(modelRecipe))
+    #expect(template.contains(#"hermes -p "$N" config set "$K" "$V""#) && template.contains("KM=model.default KP=model.provider"))
+    #expect(template.contains("xargs -P 2 -n 1") && template.contains("2>>swarmhub-model.err") && template.contains("echo DONE >> swarmhub-model.log"))
+    #expect(!template.contains("nohup sh -c") && !template.contains("10 s per bot"))
     #expect(template.contains("default $(ls ~/.hermes/profiles | grep -E '^[a-z0-9][a-z0-9_-]*$')"))
-    #expect(template.contains("delegation.model") && template.contains("delegation.provider") && template.contains("ask first"))
+    #expect(template.contains("KM=delegation.model KP=delegation.provider") && template.contains("ask first"))
     for profile in ["default", "grok-jarvis"] {
         let filled = BotManagerText.filled(template, managerProfile: profile)
         #expect(!filled.contains("{{"), "\(profile)")
@@ -53,7 +67,8 @@ func ordinaryChatIsNoModelIntent(_ text: String) { #expect(!ManagementIntent.mat
     let skills = SkillLibrary.bundled()
     #expect(skills.map(\.name) == ["swarmhub-manager"])
     let skill = try #require(skills.first)
-    #expect(skill.version >= SkillVersion("1.0.0")!)
+    #expect(skill.version == SkillVersion("1.0.1")!, "P30: the faster model recipe")
+    #expect(SkillLibrary.state(installed: "1.0.0", bundled: skill.version) == .outdated(installed: "1.0.0"), "bots on 1.0.0 get the Update banner")
     let fields = SkillLibrary.frontmatter(skill.template)
     #expect(fields["name"] == "swarmhub-manager" && fields["version"] == skill.version.description)
     #expect(skill.template.contains("metadata:\n  swarmhub:\n    source: swarmhub"))
@@ -74,6 +89,8 @@ func ordinaryChatIsNoModelIntent(_ text: String) { #expect(!ManagementIntent.mat
         #expect(rendered.hasSuffix(manager + "\n"))
         #expect(rendered.contains("You are the profile `\(profile)`"))
     }
+    let jarvis = try #require(SkillLibrary.render(skill, forProfile: "grok-jarvis", managerTemplate: template))
+    #expect(jarvis.contains(modelRecipe), "the rendered skill carries the recipe byte for byte")
     #expect(SkillLibrary.render(skill, forProfile: "x", managerTemplate: nil) == nil, "no manager text, no skill")
 }
 

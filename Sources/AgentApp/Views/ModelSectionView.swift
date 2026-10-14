@@ -21,6 +21,7 @@ struct ModelSectionView: View {
                 Text(simple.line).font(.headline).textSelection(.enabled).accessibilityLabel(picker.currentAccessibilityLabel ?? simple.line)
                 Spacer(); if isHermes { refreshButton }
             }
+            if let lastReply = picker.lastReplyCaption { Text(lastReply).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             if simple.showsPicker { menu(picker, title: simple.pickerTitle) }
             if let status = simple.status {
                 Text(status).font(.caption).foregroundStyle(simple.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
@@ -31,6 +32,7 @@ struct ModelSectionView: View {
 
     private func menu(_ picker: ModelPickerModel, title: String) -> some View {
         Menu {
+            if let lastReply = picker.lastReplyCaption { Text(lastReply) }
             ForEach(picker.groups) { group in
                 if group.usesSubmenu {
                     Menu(group.title) { items(group) }

@@ -231,16 +231,18 @@ private final class TestClock: @unchecked Sendable { var now = utc("2026-10-13T1
     #expect(store.currentModel(for: jarvis)?.source == "chosen for this chat")
     server.set(sessionModel: "model-gamma", profile: "grok-jarvis", session: "s1")   // another client switched it
     await store.loadServerInfo(for: jarvis, force: true)
-    #expect(store.currentModel(for: jarvis) == .init(model: "model-gamma", provider: nil, source: "this chat"))
-    #expect(store.modelPicker(for: jarvis).item(provider: "lab-one", model: "model-gamma")?.isChecked == true)
+    // P30: the lock no longer holds, so the chat is unpinned: the agent default, with gamma as its last reply.
+    #expect(store.currentModel(for: jarvis) == .init(model: "model-alpha", provider: "lab-one", source: CurrentModel.agentDefault, lastReplyModel: "model-gamma"))
+    #expect(store.modelPicker(for: jarvis).item(provider: "lab-one", model: "model-alpha")?.isChecked == true)
+    #expect(store.modelPicker(for: jarvis).lastReplyCaption == "last reply: model-gamma")
     server.set(status: 503, for: "/api/sessions/s1")
     await store.loadServerInfo(for: jarvis, force: true)
-    #expect(store.currentModel(for: jarvis)?.model == "model-gamma", "a failed session read keeps the last good value")
+    #expect(store.currentModel(for: jarvis)?.lastReplyModel == "model-gamma", "a failed session read keeps the last good value")
     jarvis.hermesSessionID = "s2"
     #expect(store.currentModel(for: jarvis)?.source == "agent default", "a model read for another session is ignored")
     server.set(sessionModel: "elsewhere-9", profile: "grok-jarvis", session: "s2")
     await store.loadServerInfo(for: jarvis)
-    #expect(store.modelPicker(for: jarvis).currentSupplier == ModelPickerModel.notListed)
+    #expect(store.currentModel(for: jarvis)?.lastReplyModel == "elsewhere-9")
 }
 
 @Test @MainActor func acceptedLockShowsTheNewModelEvenWhenTheReadBackFails() async {
@@ -307,7 +309,7 @@ private final class TestClock: @unchecked Sendable { var now = utc("2026-10-13T1
     store.botInfo.setSessionModel(botID: jarvis.id, sessionID: "s1", model: "model-beta"); store.botInfo.finishSwitch(botID: jarvis.id, error: nil)
     info = try #require(store.botInfo.info(for: jarvis.id))
     #expect(!info.isSwitchingModel && info.modelError == nil && info.sessionModel == "model-beta")
-    #expect(store.currentModel(for: jarvis)?.model == "model-beta")
+    #expect(store.currentModel(for: jarvis)?.lastReplyModel == "model-beta", "unpinned (no lock here): beta was the last reply")
 }
 
 // MARK: Headless line and sources

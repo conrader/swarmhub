@@ -20,12 +20,12 @@ Change instructions: `cp "$P/SOUL.md" "$P/SOUL.md.prev-$(date -u +%Y%m%d-%H%M%S)
 Retire (never delete): `touch "$P/gateway.parked"; sleep 3; mkdir -p ~/.hermes/profiles/.retired; mv "$P" ~/.hermes/profiles/.retired/"$NAME-$(date -u +%Y%m%d-%H%M%S)"`.
 Never change `default` or `{{MANAGER}}` (yourself) except their model below, never edit a bot's config.yaml by hand, never run Python from /opt.
 
-Change the model (one bot, some, or all): ask first, naming model, provider and bots. Run it in the background so it is not cut off:
+Change the model (one bot, some, or all): ask first, naming model, provider and bots. Start it as a background process of your terminal tool (its background option, not nohup/setsid, which it refuses):
 ```
-export MODEL=<model> PROV=<provider, e.g. openai-codex>
-nohup sh -c 'for N in "$@"; do hermes -p "$N" config set model.default "$MODEL" >/dev/null && hermes -p "$N" config set model.provider "$PROV" >/dev/null && echo "$N ok" || echo "$N FAILED"; done; echo DONE' sh <names> > ~/.hermes/swarmhub-model.log 2>&1 &
+export MODEL=<model> PROV=<provider, e.g. openai-codex> KM=model.default KP=model.provider
+cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 1 sh -c 'N=$1; F=profiles/$N/config.yaml; [ "$N" = default ] && F=config.yaml; r=ok; for KV in "$KM=$MODEL" "$KP=$PROV"; do K=${KV%%=*}; V=${KV#*=}; sed -n "/^${K%%.*}:/,/^[^ ]/p" "$F" | grep -Eq "^ +${K#*.}: *\"?$V\"? *$" || hermes -p "$N" config set "$K" "$V" >/dev/null 2>>swarmhub-model.err || r=FAILED; done; echo "$N $r"' sh > swarmhub-model.log; echo DONE >> swarmhub-model.log
 ```
-`<names>` for all bots: `default $(ls ~/.hermes/profiles | grep -E '^[a-z0-9][a-z0-9_-]*$')`. The sub-agent/coding model only when asked: the same loop with `delegation.model` / `delegation.provider`. Then `cat ~/.hermes/swarmhub-model.log` until DONE (~10 s per bot) and report ok/FAILED per bot. Say that SwarmHub chats with their own chosen model keep it (changed in that chat's model menu).
+`<names>` for all bots: `default $(ls ~/.hermes/profiles | grep -E '^[a-z0-9][a-z0-9_-]*$')`. The sub-agent/coding model only when asked: the same with `KM=delegation.model KP=delegation.provider`. A value a bot already has is skipped; each change takes ~4 s, two bots at a time. Wait for the process, then `cat ~/.hermes/swarmhub-model.log` (ends with DONE) and report ok/FAILED per bot; for FAILED show the last lines of `~/.hermes/swarmhub-model.err`. Say that SwarmHub chats with their own chosen model keep it (changed in that chat's model menu).
 
 Avatars are a SwarmHub thing (one shape + one colour). Shapes: blob pebble bean egg squircle tablet capsule cylinder hex gem crystal wedge shield dome arch cloud teardrop leaf square sparkle clover flower heart house star. Colours: black brown red orange yellow green cyan blue violet magenta gray. Offer the closest pair if asked for something else.
 

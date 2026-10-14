@@ -133,3 +133,31 @@ private func completed(_ tool: String, event: String = "tool.completed", extra: 
     #expect(SidebarFragment.text(messages: bot.messages, draft: nil, isWorking: true, archiveNewest: nil, working: line) == "Working… · Running a command · ls -la")
     #expect(SidebarFragment.text(messages: bot.messages, draft: nil, isWorking: true, archiveNewest: nil, working: store.workingLine(for: bot, now: t0.addingTimeInterval(30))) == "Working… · Running a command · ls -la")
 }
+
+// P29: the row opens whenever the reply has a step, streaming or not; only a streaming reply has a running step.
+@Test func activityRowUnfoldsWheneverThereIsAStep() {
+    let t0 = Date(timeIntervalSince1970: 1_000_000)
+    var activity = ToolActivity()
+    #expect(!ActivityCopy.canUnfold(nil) && !ActivityCopy.canUnfold(activity), "nothing to unfold")
+    #expect(ActivityCopy.isRowShown(nil, streaming: true) && ActivityCopy.isRowShown(activity, streaming: true), "Thinking… · 12 s")
+    #expect(!ActivityCopy.isRowShown(nil, streaming: false) && !ActivityCopy.isRowShown(activity, streaming: false))
+    activity.apply(ToolEvent(phase: .started, name: "read_file", preview: "a.md"), at: t0)
+    activity.apply(ToolEvent(phase: .completed, name: "read_file"), at: t0.addingTimeInterval(1))
+    activity.apply(ToolEvent(phase: .started, name: "terminal", preview: "ls"), at: t0.addingTimeInterval(2))
+    #expect(ActivityCopy.canUnfold(activity) && ActivityCopy.isRowShown(activity, streaming: true) && ActivityCopy.isRowShown(activity, streaming: false))
+    #expect(activity.steps.map { ActivityCopy.isRunning($0, streaming: true) } == [false, true])
+    #expect(activity.steps.map { ActivityCopy.isRunning($0, streaming: false) } == [false, false], "after the turn no step runs")
+    for _ in 0..<60 { activity.apply(ToolEvent(phase: .started, name: "terminal"), at: t0.addingTimeInterval(3)) }
+    #expect(ActivityCopy.canUnfold(activity) && activity.steps.count == ToolActivity.limit && activity.total == 62)
+    activity.finish(at: t0.addingTimeInterval(10))
+    #expect(ActivityCopy.canUnfold(activity) && !activity.steps.contains { ActivityCopy.isRunning($0, streaming: false) })
+}
+
+@Test func activityRowHelpFitsBothStates() {
+    #expect(ActivityCopy.toggleHelp(expanded: true, total: 3, streaming: true) == "Hide steps")
+    #expect(ActivityCopy.toggleHelp(expanded: true, total: 3, streaming: false) == "Hide steps")
+    #expect(ActivityCopy.toggleHelp(expanded: false, total: 1, streaming: true) == "Show the step so far")
+    #expect(ActivityCopy.toggleHelp(expanded: false, total: 3, streaming: true) == "Show the steps so far")
+    #expect(ActivityCopy.toggleHelp(expanded: false, total: 1, streaming: false) == "Show what this step was")
+    #expect(ActivityCopy.toggleHelp(expanded: false, total: 12, streaming: false) == "Show what these steps were")
+}

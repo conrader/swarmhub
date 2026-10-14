@@ -54,6 +54,8 @@ struct ModelPickerModel: Equatable, Sendable {
     var currentModel: String?
     var currentSupplier: String?
     var currentSource: String?
+    /// "last reply: <model>" when an unpinned chat's last reply ran on another model than the default it now shows.
+    var lastReplyCaption: String?
     var profile: String
 
     var currentCaption: String? { currentModel == nil ? nil : [currentSupplier, currentSource].compactMap { $0 }.joined(separator: " · ") }
@@ -68,6 +70,7 @@ struct ModelPickerModel: Equatable, Sendable {
     init(info: BotServerInfo?, current: CurrentModel?, sessionID: String?, profile: String) {
         self.profile = profile
         currentModel = current?.model; currentSource = current?.source
+        lastReplyCaption = current?.lastReplyModel.map { "last reply: \($0)" }
         isSwitching = info?.isSwitchingModel ?? false
         switch info?.catalog(profile: profile) ?? .loading {
         case .loading: notes = [.init(text: "Loading the box's models…")]; isLoading = true

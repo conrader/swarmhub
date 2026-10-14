@@ -1,7 +1,7 @@
 ---
 name: swarmhub-manager
 description: "Use when Konrad asks to create, change or retire bots (Hermes profiles), to read or change their instructions, avatars or descriptions, or to change bots' models. Installed by SwarmHub, v{{VERSION}}."
-version: 1.0.0
+version: 1.0.1
 author: SwarmHub
 metadata:
   swarmhub:
