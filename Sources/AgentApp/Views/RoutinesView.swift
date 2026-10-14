@@ -21,7 +21,9 @@ struct RoutinesView: View {
                 }
             }
             if let error = state.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
-            if bot.backend != .hermes {
+            if bot.backend == .openClaw {
+                Text(OpenClawOverview.routines).font(.caption).foregroundStyle(.secondary)
+            } else if bot.backend != .hermes {
                 Text("Routines run on a Hermes server. This bot's routines are shown read-only.").font(.caption).foregroundStyle(.secondary)
             } else {
                 switch state.jobs {

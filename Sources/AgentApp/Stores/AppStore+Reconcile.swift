@@ -53,6 +53,7 @@ extension AppStore {
             // No session yet: only the transport is learned (as before P16); nothing is read or adopted.
             if reconcileUnits(for: bot).isEmpty { _ = try? await backend(for: bot).sessionTransport(); return }
             await reconcile(bot, reason: .open)
+            if bot.backend == .openClaw { refreshFeatures(for: bot) } // the history read connected the Gateway (P12)
         }
     }
 

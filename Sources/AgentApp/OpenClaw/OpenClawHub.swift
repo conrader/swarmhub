@@ -13,12 +13,18 @@ actor OpenClawHub {
     /// Runtime "this Gateway rejected that parameter" marks, and the active run per session (Stop, run marks).
     nonisolated let marks = OpenClawRuntimeMarks()
     nonisolated let ledger = OpenClawRunLedger()
+    /// Approval requests and resolutions from every connected Gateway, on one stream `AppStore` consumes (Part C).
+    nonisolated let approvals: AsyncStream<OpenClawApprovalEvent>
+    let approvalSink: AsyncStream<OpenClawApprovalEvent>.Continuation
+    /// Per Gateway: approval ids already published, and ids resolved (so a backfill racing a resolution never resurrects one).
+    var publishedApprovals: [String: Set<String>] = [:], resolvedApprovals: [String: Set<String>] = [:]
 
     init(status: OpenClawStatus, keyStore: any HermesKeyStore, makeTransport: @escaping GatewayTransportFactory = { WebSocketTransport() },
          clock: any GatewayClock = SystemGatewayClock(), jitter: @escaping @Sendable () -> Double = { Double.random(in: -1...1) }) {
         self.status = status; self.keyStore = keyStore; self.makeTransport = makeTransport; self.clock = clock; self.jitter = jitter
         let (stream, continuation) = AsyncStream.makeStream(of: (String, GatewayState).self)
         states = continuation
+        (approvals, approvalSink) = AsyncStream.makeStream(of: OpenClawApprovalEvent.self)
         Task { @MainActor in for await (id, state) in stream { status.set(state, for: id) } }
     }
 
@@ -97,7 +103,9 @@ actor OpenClawHub {
         return value.rounded() == value ? "\(Int(value)) MB" : String(format: "%.1f MB", value)
     }
 
-    private func didConnect(gatewayID: String, connection: GatewayConnection, summary: GatewaySummary) async {}
+    private func didConnect(gatewayID: String, connection: GatewayConnection, summary: GatewaySummary) async {
+        await installApprovals(gatewayID: gatewayID, connection: connection, summary: summary)
+    }
 }
 
 /// The run a session is streaming (one per session key), for Stop and the row's run mark.

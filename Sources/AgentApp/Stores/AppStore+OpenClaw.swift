@@ -17,6 +17,7 @@ extension AppStore {
         openClawWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
             Task { await hub.wake() }
         }
+        Task { [weak self] in for await event in hub.approvals { await self?.receiveOpenClawApproval(event) } }
         return hub
     }
 
@@ -121,5 +122,53 @@ extension AppStore {
     func retryOpenClaw(_ bot: Bot) {
         guard let gateway = gateway(id: bot.openClaw?.gatewayID) else { return }
         Task { await openClawHub.link(for: gateway).retryNow() }
+    }
+}
+
+/// P12 Part C: Gateway approvals. Each attaches to the bot whose session matches, else to the bot bound to the same
+/// agent ("from another session"); with no such bot it is left for the Gateway's other clients and never resolved here.
+/// Approvals for a run this app started follow the bot's policy (Ask me, Rules, Reviewer); every other one, the
+/// Gateway's own automations included, is ask-only. A resolution elsewhere, or the expiry, removes the card.
+extension AppStore {
+    func receiveOpenClawApproval(_ event: OpenClawApprovalEvent) async {
+        switch event {
+        case .resolved(let gatewayID, let id):
+            let onGateway = Set(bots.filter { $0.openClaw?.gatewayID == gatewayID }.map(\.id))
+            approvals.removeAll { approval in approval.requestID == id && approval.botID.map(onGateway.contains) == true }
+        case .requested(let approval):
+            guard !approval.isExpired(), !approvals.contains(where: { $0.requestID == approval.id }), let (bot, ownSession) = openClawBot(for: approval) else { return }
+            let request = Self.approvalRequest(approval, bot: bot, ownSession: ownSession)
+            let activeRuns = await openClawHub.ledger.runIds
+            let ownRun = approval.runId.map(activeRuns.contains) ?? false
+            if ownSession, ownRun, let activeBackend = try? backend(for: bot) { await routeApproval(request, for: bot, backend: activeBackend) }
+            else { routeUnsolicitedApproval(request, for: bot) }
+            if let expiry = approval.expiresAt { scheduleApprovalExpiry(request.id, bot: bot, at: expiry) }
+        }
+    }
+
+    /// The bot whose session key matches (its chat or a thread), else one bound to the same agent on that Gateway.
+    func openClawBot(for approval: GatewayApproval) -> (Bot, ownSession: Bool)? {
+        let onGateway = bots.filter { $0.backend == .openClaw && $0.openClaw?.gatewayID == approval.gatewayID && !$0.isReadOnlyArchive }
+        if let key = approval.sessionKey?.lowercased(), let bot = onGateway.first(where: { bot in
+            bot.hermesSessionID?.lowercased() == key || bot.threads.contains { $0.hermesSessionID?.lowercased() == key }
+        }) { return (bot, true) }
+        if let agent = approval.agentId?.lowercased(), let bot = onGateway.first(where: { $0.openClaw?.agentID.lowercased() == agent }) { return (bot, false) }
+        return nil
+    }
+
+    static func approvalRequest(_ approval: GatewayApproval, bot: Bot, ownSession: Bool) -> ApprovalRequest {
+        let summary = [approval.command, approval.cwd.map { "in \($0)" }, approval.host.map { "on \($0)" }].compactMap { $0 }.joined(separator: " · ")
+        let title = "Run a command on \(approval.host ?? "the Gateway host")" + (ownSession ? "" : " (from another session)")
+        return ApprovalRequest(id: UUID(), title: title, summary: summary.isEmpty ? "A command (no text was sent)" : summary, draft: nil, command: approval.command,
+                               runID: approval.runId, requestID: approval.id, botID: bot.id, profile: nil, sessionID: approval.sessionKey, actionKind: "command")
+    }
+
+    private func scheduleApprovalExpiry(_ id: UUID, bot: Bot, at date: Date) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(0, date.timeIntervalSinceNow)))
+            guard let self, let approval = approvals.first(where: { $0.id == id }) else { return }
+            approvals.removeAll { $0.id == id }
+            appendAudit(to: bot, approval: approval, outcome: .denied, decidedBy: "system", reason: "The Gateway's approval request expired.")
+        }
     }
 }

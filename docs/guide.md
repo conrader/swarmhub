@@ -81,7 +81,7 @@ flowchart TD
 
 ## Project status
 
-**This is a prototype.** Windows and Linux versions are planned. Hermes is the implemented backend; OpenClaw currently has configuration and an adapter boundary, with its WebSocket transport still to come. More reliable recovery of interrupted turns and coding threads are planned.
+**This is a prototype.** Windows and Linux versions are planned. Hermes and OpenClaw are implemented; the OpenClaw connection was built against the published protocol and a test Gateway, and still needs a check against a real Gateway. More reliable recovery of interrupted turns and coding threads are planned.
 
 Approvals default to **Ask me**. Rules and reviewer modes have known limitations, and provider-backed reviewer decisions remain unverified. Read the [known issues](reference.md#known-issues) before enabling automatic approvals.
 

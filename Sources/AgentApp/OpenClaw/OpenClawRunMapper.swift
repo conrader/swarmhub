@@ -21,6 +21,12 @@ enum OpenClawText {
         }
     }
 
+    /// For history comparison (P12 item 11): complete directives removed and `NO_REPLY` empty, on both sides alike.
+    static func comparable(_ text: String) -> String {
+        let value = directive.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
+        return ["NO_REPLY", "no_reply"].contains(value.trimmingCharacters(in: .whitespacesAndNewlines)) ? "" : value
+    }
+
     static func clean(_ text: String) -> String {
         let range = NSRange(text.startIndex..., in: text)
         var value = directive.stringByReplacingMatches(in: text, range: range, withTemplate: "")

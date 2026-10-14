@@ -59,7 +59,10 @@ extension AppStore {
                 bot.threads.append(ChatThread(id: threadID, parentMessageID: message.id, parentSessionID: sessionID, hermesSessionID: forkID))
                 if selectedBot?.id == bot.id { openThreadID = threadID }
                 objectWillChange.send(); save()
-            } catch { errorMessage = "Could not start a thread: \(error.localizedDescription)" }
+            } catch {
+                errorMessage = "Could not start a thread: \(error.localizedDescription)"
+                refreshFeatures(for: bot) // a Gateway that rejected the fork parameters hides Reply in thread (P12)
+            }
         }
     }
 

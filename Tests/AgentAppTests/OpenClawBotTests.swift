@@ -31,6 +31,7 @@ func echoCreate() -> FakeGateway.Handler { { params, _ in .success(["ok": true, 
     #expect(bot.messages.last?.content == "Hello from Alpha" && bot.messages.last?.turnState == .finished)
     #expect(bot.hermesSessionID == "agent:agent-alpha:agentapp-\(bot.id.uuidString.lowercased())")
     #expect(fake.requestsFor("sessions.create").first?["displayName"] == "SwarmHub · Alpha")
+    #expect(store.botFeatures[bot.id] == ["session_chat_streaming", "run_steer", "session_fork"] && store.canFork(bot), "Reply in thread once the link is up")
 }
 
 @MainActor @Test func stopAbortsTheRunAndSaysOpenClaw() async throws {

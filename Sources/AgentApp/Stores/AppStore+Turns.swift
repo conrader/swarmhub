@@ -101,7 +101,12 @@ extension AppStore {
             }
             let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
             let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: systemPrompt, messages: history, images: images))
-            if activeStreamToken == token { steerAvailable = (try? await activeBackend.features())?.contains("run_steer") == true }
+            if activeStreamToken == token {
+                let flags = try? await activeBackend.features()
+                steerAvailable = flags?.contains("run_steer") == true
+                // P12: an OpenClaw link is up only now, so its flags (Reply in thread) are read here too.
+                if bot.backend == .openClaw, let flags { botFeatures[bot.id] = flags }
+            }
             end = try await consumeTurn(stream, assistant: assistant, bot: bot, sessionID: sessionID, backend: activeBackend) { [unowned self] task in
                 subAgentTasks[bot.id, default: []].append(task)
                 conversation.messages.append(ChatMessage(role: .assistant, content: task.title, presentation: .delegation, metadata: ["detail": task.detail, "status": task.status.rawValue]))
