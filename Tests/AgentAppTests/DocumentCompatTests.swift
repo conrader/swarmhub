@@ -97,10 +97,12 @@ private final class PageLog: @unchecked Sendable {
     #expect(AttachmentPreview.symbol(for: ChatAttachment(id: UUID(), kind: .text, name: "a.txt", mimeType: "text/plain", byteCount: 1)) == "doc.text")
 }
 
-@Test(.enabled(if: PageOCR.languages().polish, "Vision on this Mac lists no pl-PL model; the Polish OCR test did not run"))
-func polishOCRKeepsDiacritics() throws {
-    let languages = PageOCR.languages()
-    #expect(languages.languages.first == "pl-PL")
-    let text = PageOCR.recognize(DocumentFixtures.raster(words: "ZAŻÓŁĆ GĘŚLĄ"), languages: languages.languages)
-    #expect(text.contains("Ż") || text.contains("Ł") || text.contains("Ę"), "Polish letters survive OCR")
+extension DocumentReaderTests {
+    @Test(.enabled(if: PageOCR.languages().polish, "Vision on this Mac lists no pl-PL model; the Polish OCR test did not run"))
+    func polishOCRKeepsDiacritics() throws {
+        let languages = PageOCR.languages()
+        #expect(languages.languages.first == "pl-PL")
+        let text = PageOCR.recognize(DocumentFixtures.raster(words: "ZAŻÓŁĆ GĘŚLĄ"), languages: languages.languages)
+        #expect(text.contains("Ż") || text.contains("Ł") || text.contains("Ę"), "Polish letters survive OCR")
+    }
 }

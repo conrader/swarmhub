@@ -62,14 +62,14 @@ extension AppStore {
     }
 
     /// Server rows render image parts as `[Image: …]` lines; local messages keep images as attachments.
-    static func comparable(_ content: String) -> String {
+    nonisolated static func comparable(_ content: String) -> String {
         content.components(separatedBy: "\n").filter { !($0.hasPrefix("[Image: ") && $0.hasSuffix("]")) }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// P19: text over `HermesBackend.maxTextPartScalars` went out split; a hard cut (a window without a line
     /// break or space) comes back from the server with one extra `\n`, possibly inside a word, so long texts
     /// are compared with all whitespace removed. Short texts compare exactly as before.
-    static func sameText(_ local: String, _ remote: String) -> Bool {
+    nonisolated static func sameText(_ local: String, _ remote: String) -> Bool {
         let left = comparable(local), right = comparable(remote)
         if left == right { return true }
         let limit = HermesBackend.maxTextPartScalars

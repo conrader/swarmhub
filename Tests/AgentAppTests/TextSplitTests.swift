@@ -54,7 +54,7 @@ private func checkShape(_ host: String) {
     #expect(HermesBackend.maxRequestBodyBytes / HermesBackend.maxTextPartScalars < HermesServerLimits.maxContentListSize)
 }
 
-@Test @MainActor func splitterCutsAtLineBreaksThenSpacesThenHard() {
+@Test func splitterCutsAtLineBreaksThenSpacesThenHard() {
     let limit = HermesBackend.maxTextPartScalars
     let short = mixedText(scalars: 1_000)
     #expect(HermesBackend.splitText(short) == [short])
@@ -108,7 +108,8 @@ private func checkShape(_ host: String) {
 
 @Test func oversizedBodiesAreRefusedBeforeSending() async throws {
     let (host, backend) = ChatParityServer.serve(features: [:]) { _, _ in .sse([]) }
-    let huge = String(repeating: "word ", count: 2_000_000)
+    // 4 UTF-8 bytes per scalar keeps the fixture cheap: ~10.2 MB of JSON from 3 million scalars.
+    let huge = String(repeating: "🙂🙂🙂🙂 ", count: 600_000)
     await #expect(throws: (any Error).self) { _ = try await backend.send(.init(sessionID: "s1", systemPrompt: "p", messages: [(role: "user", content: huge)])) }
     do { _ = try await backend.send(.init(sessionID: "s1", systemPrompt: "p", messages: [(role: "user", content: huge)])) }
     catch { #expect(error.localizedDescription == HermesBackend.requestTooLargeMessage) }
@@ -162,13 +163,18 @@ private func checkShape(_ host: String) {
     checkShape(host)
 }
 
-@Test @MainActor func reconcileMatchesAServerRowBuiltFromSplitParts() throws {
-    let local = ChatMessage(role: .user, content: "Look", attachments: [ChatAttachment(id: UUID(), kind: .text, name: "solid.txt", mimeType: "text/plain", byteCount: 1, text: String(repeating: "ż🙂", count: 50_000))])
-    let parts = try #require(HermesBackend.contentParts(text: local.outgoingText, images: []) as? [[String: Any]])
+@Test func reconcileMatchesAServerRowBuiltFromSplitParts() async throws {
+    let solid = ChatAttachment(id: UUID(), kind: .text, name: "solid.txt", mimeType: "text/plain", byteCount: 1, text: String(repeating: "ż🙂", count: 50_000))
+    let outgoing = AttachmentEncoder.compose(text: "Look", attachments: [solid])
+    let parts = try #require(HermesBackend.contentParts(text: outgoing, images: []) as? [[String: Any]])
     let row = try #require(HermesBackend.normalizedContent(parts))
-    #expect(row != local.outgoingText, "a hard cut adds a line break on the server")
-    #expect(AppStore.sameText(local.outgoingText, row))
-    let merged = AppStore.mergeHermesHistory(local: [local, ChatMessage(role: .assistant, content: "Done")],
-                                    server: [.init(role: "user", content: row), .init(role: "assistant", content: "Done"), .init(role: "assistant", content: "Later")])
-    #expect(merged?.count == 3 && merged?.last?.content == "Later")
+    #expect(row != outgoing, "a hard cut adds a line break on the server")
+    #expect(AppStore.sameText(outgoing, row))
+    let count = await MainActor.run {
+        let local = ChatMessage(role: .user, content: "Look", attachments: [solid])
+        let merged = AppStore.mergeHermesHistory(local: [local, ChatMessage(role: .assistant, content: "Done")],
+                                                 server: [.init(role: "user", content: row), .init(role: "assistant", content: "Done"), .init(role: "assistant", content: "Later")])
+        return merged.map { "\($0.count) \($0.last?.content ?? "")" }
+    }
+    #expect(count == "3 Later")
 }
