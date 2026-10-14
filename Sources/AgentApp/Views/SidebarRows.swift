@@ -9,7 +9,7 @@ enum SidebarMetrics {
     /// The top row holds the 32 pt round search and + buttons; it is taller than the 28 pt title zone it covers.
     static let topRow: CGFloat = 32, roundButton: CGFloat = 32, bottomBar: CGFloat = 56
     static let width: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (240, 280, 320)
-    /// Settings → Account → Your name; its first letter is the bottom round button.
+    /// Settings → Your name (simple page); its first letter is the bottom round button.
     static let accountNameKey = "accountName"
     static func initial(of name: String) -> String {
         name.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? "K"
@@ -51,7 +51,8 @@ struct BotRow: View {
     @State private var hovering = false
     var body: some View {
         let working = store.isWorking(bot), attention = store.hasPendingApproval(bot)
-        let fragment = SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: working,
+        // P21 D3: sample bots say so instead of showing their canned last message.
+        let fragment = bot.isDemo ? SimpleCopy.sampleLabel : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: working,
                                             archiveNewest: store.grokHistory.newestVisible(for: bot.id))
         Button { store.open(bot) } label: {
             HStack(spacing: SidebarMetrics.markGap) {

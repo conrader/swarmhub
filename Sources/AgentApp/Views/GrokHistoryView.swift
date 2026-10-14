@@ -78,13 +78,13 @@ struct AddKeyBanner: View {
         HStack(spacing: 10) {
             Image(systemName: "key.fill").foregroundStyle(.secondary)
             if adding {
-                SecureField("API key for \(bot.hermesProfile ?? "profile")", text: $key).textFieldStyle(.roundedBorder).onSubmit(save)
-                Button("Save", action: save).disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
-                Button("Cancel") { adding = false; key = "" }
+                SecureField(SimpleCopy.keyFor(bot.name), text: $key).textFieldStyle(.roundedBorder).onSubmit(save)
+                Button(SimpleCopy.save, action: save).disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button(SimpleCopy.cancel) { adding = false; key = "" }
             } else {
-                Text(store.keyNeedsReentry(bot) ? KeychainStore.reenterMessage : "No key for \(bot.hermesProfile ?? "this profile") yet.").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(store.keyNeedsReentry(bot) ? KeychainStore.reenterMessage : SimpleCopy.noKey(bot.name)).font(.system(size: 12)).foregroundStyle(.secondary)
                 Spacer()
-                Button("Add key") { adding = true }.buttonStyle(.borderedProminent)
+                Button(SimpleCopy.addKey) { adding = true }.buttonStyle(.borderedProminent)
             }
         }
         .padding(12).frame(maxWidth: 720).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10))
@@ -93,14 +93,18 @@ struct AddKeyBanner: View {
     private func save() { store.saveKey(key, for: bot); key = ""; adding = false }
 }
 
-/// Shown instead of the composer for a Grok-imported bot with no Hermes profile (`Bot.isGrokHistoryOnly`).
+/// Shown instead of the composer for a Grok-imported bot with no Hermes profile (`Bot.isGrokHistoryOnly`). P21 D9:
+/// plain words, and "Connect…" opens the setup window prefilled with this agent's line instead of Settings.
 struct HistoryOnlyBanner: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.openWindow) private var openWindow
+    let bot: Bot
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "archivebox").foregroundStyle(.secondary)
-            Text("History only — not connected to a Hermes profile yet").font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(SimpleCopy.historyOnly).font(.system(size: 12)).foregroundStyle(.secondary)
             Spacer()
-            SettingsLink { Text("Open Settings") }
+            Button(SimpleCopy.connect) { store.openSetup(store.setupPrefill(for: bot), openWindow: openWindow) }
         }
         .padding(12).frame(maxWidth: 720).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10))
         .padding(.horizontal, 24).padding(.vertical, 12)

@@ -15,7 +15,7 @@ extension AppStore {
     func members(of group: GroupChat) -> [Bot] { group.memberIDs.compactMap { id in bots.first { $0.id == id } } }
     func routingMembers(of group: GroupChat) -> [GroupRouting.Member] { members(of: group).map { .init(id: $0.id, name: $0.name) } }
     func defaultGroupName(_ memberIDs: [UUID]) -> String {
-        ([GroupRouting.userName] + memberIDs.compactMap { id in bots.first { $0.id == id }?.name }).joined(separator: ", ")
+        ([userName] + memberIDs.compactMap { id in bots.first { $0.id == id }?.name }).joined(separator: ", ")
     }
 
     /// "New group": needs at least two distinct bots. An empty name becomes "Konrad, A, B".
@@ -132,7 +132,7 @@ extension AppStore {
         if needsKey(bot) { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: no key for \(bot.hermesProfile ?? "its profile").")); return }
         let activeBackend: any AgentBackend
         do { activeBackend = try backend(for: bot) } catch { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(error.localizedDescription)")); return }
-        let context = GroupRouting.context(for: .init(id: bot.id, name: bot.name), groupName: group.name, members: routingMembers(of: group), messages: group.messages, current: current)
+        let context = GroupRouting.context(for: .init(id: bot.id, name: bot.name), groupName: group.name, members: routingMembers(of: group), messages: group.messages, current: current, userName: userName)
         let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, authorID: bot.id)
         group.messages.append(assistant); group.activeMemberID = bot.id
         if activeStreamToken == token { streamingBotID = bot.id; streamingAssistant = assistant }

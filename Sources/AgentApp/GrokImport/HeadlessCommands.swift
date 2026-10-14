@@ -12,10 +12,20 @@ import Foundation
 ///   AgentApp --grok-fetch --mode recent|full [--bots <names>] [--store <store.json>] [--report <file>]   (see HeadlessGrok.swift)
 ///   AgentApp --grok-probe [--live] [--report <file>]   (Grok Bot drift check; see HeadlessGrok.swift)
 ///   AgentApp --grok-parity <python export folder> [--cache <folder>]   (see HeadlessGrokParity.swift)
+///   AgentApp --render-setup <dir>     (every setup step and the simple Settings page from a synthetic store; see HeadlessSetup.swift)
+/// Launch arguments of the normal app (window shown): `--ui-smoke <report.json>` and `--setup-preview` (SetupPreview.swift).
 @MainActor enum HeadlessCommands {
+    /// Every flag the app recognises; the dispatcher below and the launch arguments read this list.
+    static let flags = ["--check-bots", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--grok-fetch", "--grok-probe",
+                        "--grok-parity", "--import-grok", "--import-keys", "--ui-smoke", "--setup-preview", "--render-setup"]
+    /// The flags that run without a window and exit.
+    static let headless = flags.filter { $0 != "--ui-smoke" && $0 != "--setup-preview" }
+
     /// Returns an exit code when a headless command was requested, otherwise nil.
     static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Int32? {
+        guard arguments.contains(where: headless.contains) else { return nil }
         if arguments.contains("--check-bots") { return runCheckBots(arguments: arguments) }
+        if arguments.contains("--render-setup") { return HeadlessSetup.run(arguments: arguments) }
         if arguments.contains("--render-snapshot") { return HeadlessSnapshot.run(arguments: arguments) }
         if arguments.contains("--probe-attachment") { return HeadlessProbeAttachment.run(arguments: arguments) }
         if arguments.contains("--migrate-store") { return migrateStore() }

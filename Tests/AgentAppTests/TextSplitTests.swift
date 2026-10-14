@@ -120,7 +120,7 @@ private func checkShape(_ host: String) {
     let (host, backend) = ChatParityServer.serve(features: features) { request, _ in
         request.url?.path == "/api/sessions" ? .json(200, ["session": ["id": "created"]]) : .sse([("run.completed", ["run_id": "r"])])
     }
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: namedDefaults())
     let bot = Bot(name: "Splitter", backend: .hermes, hermesProfile: "default")
     store.bots = [bot]; store.selectedBot = bot
     return (store, bot, host)

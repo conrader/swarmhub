@@ -37,7 +37,7 @@ actor GroupBackend: AgentBackend {
 @MainActor private func groupStore(_ names: [String], hanging: Set<String> = [], url: URL = temporaryStore()) -> (AppStore, [Bot], [UUID: GroupBackend], GroupChat) {
     let bots = names.map { Bot(name: $0, backend: .hermes, hermesProfile: "grok-\($0.lowercased().replacingOccurrences(of: " ", with: "-"))") }
     let backends = Dictionary(uniqueKeysWithValues: bots.map { ($0.id, GroupBackend(name: $0.name, hang: hanging.contains($0.name))) })
-    let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { bot in backends[bot.id]! }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { bot in backends[bot.id]! }, keyStore: InMemoryKeyStore(), defaults: namedDefaults())
     store.bots = bots
     let group = store.createGroup(name: "", memberIDs: bots.map(\.id))!
     return (store, bots, backends, group)

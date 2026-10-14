@@ -31,7 +31,7 @@ struct GroupInfoPanel: View {
             Text("\(members.count + 1) in this chat").font(.headline)
             HStack(spacing: 10) {
                 Image(systemName: "person.crop.circle.fill").font(.system(size: 30)).foregroundStyle(.secondary)
-                VStack(alignment: .leading) { Text(GroupRouting.userName); Text("Owner").font(.caption).foregroundStyle(.secondary) }
+                VStack(alignment: .leading) { Text(store.userName); Text("Owner").font(.caption).foregroundStyle(.secondary) }
             }
             ForEach(members) { bot in
                 HStack(spacing: 10) {

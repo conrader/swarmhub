@@ -51,7 +51,7 @@ struct ChatView: View {
             if bot.isReadOnlyArchive {
                 Text("Read-only archive imported from Grok Bot.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity).background(AppColor.chat)
             } else if bot.isGrokHistoryOnly {
-                HistoryOnlyBanner().frame(maxWidth: .infinity).background(AppColor.chat)
+                HistoryOnlyBanner(bot: bot).frame(maxWidth: .infinity).background(AppColor.chat)
             } else if store.needsKey(bot) {
                 AddKeyBanner(bot: bot).frame(maxWidth: .infinity).background(AppColor.chat)
             } else {

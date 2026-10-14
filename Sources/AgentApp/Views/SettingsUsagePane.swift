@@ -64,39 +64,26 @@ struct SettingsUsagePane: View {
     }
 }
 
-/// Settings → Updates: this build's identity and the shared Sparkle updater.
-struct SettingsUpdatesPane: View {
+/// Settings → Advanced → About (P21): this build's identity, automatic install, why updates are off when they are, and
+/// the acknowledgements. Version, the automatic check and Check for Updates live only on the simple page (`UpdateCheckRow`).
+struct SettingsAboutPane: View {
     @EnvironmentObject private var updater: AppUpdater
-    @State private var status: UpdateStatus?; @State private var checking = false
     private let info = AppBuildInfo.current()
 
     var body: some View {
         Section {
-            LabeledContent("Version", value: info.version + (info.build.map { " (\($0))" } ?? ""))
             LabeledContent("Build", value: info.shortSHA.map { $0 + (info.dirty ? " (uncommitted changes)" : "") } ?? "not packaged")
+            Text("Releases: github.com/\(AppConstants.releasesRepo)").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
         }
-        Section {
+        Section("Updates") {
             if let reason = updater.unavailableReason {
                 Text(reason).foregroundStyle(.secondary)
-                HStack { Button("Check GitHub Releases") { check() }.disabled(checking); if checking { ProgressView().controlSize(.small) } }
-                if let status {
-                    Text(status.message).foregroundStyle(.secondary)
-                    if case .newer(let release) = status, let page = release.pageURL { Link("Open \(release.name ?? release.tag) on GitHub", destination: page) }
-                }
             } else {
-                Toggle("Automatically check for updates", isOn: Binding(get: { updater.automaticallyChecksForUpdates }, set: updater.setAutomaticallyChecksForUpdates))
                 Toggle("Automatically download and install updates", isOn: Binding(get: { updater.automaticallyDownloadsUpdates }, set: updater.setAutomaticallyDownloadsUpdates))
                     .disabled(!updater.allowsAutomaticUpdates)
-                Button("Check for Updates…", action: updater.checkForUpdates)
-                    .disabled(!updater.canCheckForUpdates)
                 Text("When enabled, updates are checked daily. You can install an available update now or let it install when you quit.").font(.caption).foregroundStyle(.secondary)
             }
         }
         AcknowledgementsSection()
-    }
-
-    private func check() {
-        checking = true
-        Task { status = await ReleaseChecker.check(current: info.version); checking = false }
     }
 }

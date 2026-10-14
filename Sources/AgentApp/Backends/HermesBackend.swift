@@ -33,7 +33,8 @@ enum HermesProfileStatus: Sendable, Equatable {
     }
 }
 
-struct HermesProfileProbe: Sendable, Equatable { let id: String; let status: HermesProfileStatus }
+/// `httpStatus` (P21, additive) is the status of a failed `/v1/models` answer, so callers map 401/403 without parsing text.
+struct HermesProfileProbe: Sendable, Equatable { let id: String; let status: HermesProfileStatus; var httpStatus: Int? = nil }
 
 struct HermesBackend: AgentBackend {
     let kind = BackendKind.hermes
@@ -234,10 +235,10 @@ struct HermesBackend: AgentBackend {
                 if candidate != "default" && model != candidate { result.append(.init(id: candidate, status: .prefixIgnored)); continue }
                 result.append(.init(id: candidate, status: .available(.init(id: candidate, name: candidate == "default" ? model : HermesProfileNaming.botName(forProfile: candidate), model: model))))
             } catch {
-                let reason: String
-                if case BackendError.http(let code, _) = error { reason = code == 401 || code == 403 ? "HTTP \(code): the server rejected this key." : "HTTP \(code)." }
+                let reason: String; var status: Int?
+                if case BackendError.http(let code, _) = error { status = code; reason = code == 401 || code == 403 ? "HTTP \(code): the server rejected this key." : "HTTP \(code)." }
                 else { reason = error.localizedDescription }
-                result.append(.init(id: candidate, status: .unavailable(key.isEmpty ? reason : reason.replacingOccurrences(of: key, with: "[key]"))))
+                result.append(.init(id: candidate, status: .unavailable(key.isEmpty ? reason : reason.replacingOccurrences(of: key, with: "[key]")), httpStatus: status))
             }
         }
         return result

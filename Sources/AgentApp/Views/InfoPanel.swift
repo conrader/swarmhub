@@ -56,7 +56,7 @@ struct InfoPanel: View {
             ComputerTab(bot: bot)
         case .members:
             VStack(alignment: .leading, spacing: 12) {
-                Text("Members").font(.headline); member(GroupRouting.userName, role: "Owner"); member(bot.name, role: "Agent")
+                Text("Members").font(.headline); member(store.userName, role: "Owner"); member(bot.name, role: "Agent")
                 let groups = store.groups.filter { $0.memberIDs.contains(bot.id) }
                 if !groups.isEmpty {
                     Text("Groups").font(.headline).padding(.top, 6)

@@ -13,6 +13,9 @@ import UserNotifications
     /// P10d: the Grok Bot import sheet, and whether Grok Bot is on this Mac at all (Tier 1: existence checks only,
     /// run once, on first use; false hides every door).
     @Published var showingGrokImport = false
+    /// P21: what the setup window opens with (bumping `setupGeneration` restarts it), and `--setup-preview` (throwaway
+    /// store, keys and settings; Settings are off).
+    @Published var setupPrefill = SetupPrefill(); @Published var setupGeneration = 0; var isSetupPreview = false
     lazy var grokBotPresent: Bool = GrokLocator.live().isPresent
     /// P14: the sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false
@@ -102,17 +105,14 @@ import UserNotifications
         } else if hermesConfigured {
             let bot = Bot(name: "Hermes", title: "Hermes Agent", description: "Default Hermes profile", backend: .hermes, hermesProfile: "default")
             bots = [bot]; save()
-        } else {
-            loadDemoData(persist: true)
         }
+        // P21 D3: a fresh install starts empty; the setup window or "Look around with sample agents" fills it.
         if !demoMode { migrateManagerRole() }
         if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys() } }
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
         botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad
     }
-
-    static var hasHermesConfiguration: Bool { UserDefaults.standard.object(forKey: "hermesBaseURL") != nil || !KeychainStore.get(account: "hermes").isEmpty }
 
     func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID); avatar.apply(to: bot); bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save() }
     @discardableResult func importTemplate(_ plan: TemplateImportPlan) -> Bot {

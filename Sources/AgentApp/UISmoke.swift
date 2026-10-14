@@ -54,6 +54,9 @@ import Foundation
                          "bundle_display_name": info["CFBundleDisplayName"] ?? NSNull(), "bundle_id": Bundle.main.bundleIdentifier ?? NSNull()]
         if let title = window()?.title, title != AppConstants.name { errors.append("window title is \(title), not \(AppConstants.name)") }
 
+        report["setup"] = ["needs_setup": FirstRun.needsSetup(defaults: store.defaults, keyStore: store.keyStore, bots: store.bots),
+                           "state": FirstRun.state(store.defaults)?.rawValue ?? NSNull(),
+                           "wizard_shown": NSApp?.windows.contains { $0.isVisible && $0.title == SetupCopy.windowTitle } == true]
         report["sidebar_rows"] = ["bots": store.bots.filter { !$0.isHidden }.count, "groups": store.groups.filter { !$0.isHidden }.count,
                                   "total": store.bots.filter { !$0.isHidden }.count + store.groups.filter { !$0.isHidden }.count]
         if let bot {

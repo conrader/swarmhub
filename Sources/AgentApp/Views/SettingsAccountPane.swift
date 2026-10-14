@@ -1,13 +1,12 @@
 import SwiftUI
 
-/// Settings → Account: the connection's Hermes version, the Hermes server, the profiles the bots are bound to (with a
+/// Settings → Advanced → Servers and keys (Account before P21; "Your name" moved to the simple page): the connection's Hermes version, the Hermes server, the profiles the bots are bound to (with a
 /// per-profile Test and version), "Add bots from box" (`BoxKeysPasteSection`), Grok Bot and the OpenClaw gateway.
 struct SettingsAccountPane: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var cache: BotInfoCache
     @AppStorage("hermesBaseURL") private var hermesURL = AppConstants.defaultHermesURL; @AppStorage("openClawURL") private var openClawURL = "ws://127.0.0.1:18789"
     @AppStorage("hermesProfiles") private var hermesProfiles = ""
-    @AppStorage(SidebarMetrics.accountNameKey) private var accountName = ""
     @State private var apiKey = ""; @State private var testResult = ""; @State private var testing = false
     @State private var profileResults: [String: String] = [:]; @State private var testingProfiles: Set<String> = []
 
@@ -21,10 +20,6 @@ struct SettingsAccountPane: View {
             Text("Versions SwarmHub has run against are marked “works”; others are “not tested yet”.").font(.caption).foregroundStyle(.secondary)
         }
         .task { await store.loadHermesVersions() }
-        Section("You") {
-            TextField("Your name", text: $accountName, prompt: Text("Konrad"))
-            Text("Its first letter is the round button at the bottom of the sidebar.").font(.caption).foregroundStyle(.secondary)
-        }
         Section("Hermes server") {
             TextField("Base URL", text: $hermesURL)
             SecureField("Default profile API key", text: $apiKey).onChange(of: apiKey) { _, value in KeychainStore.set(value, account: "hermes") }

@@ -23,7 +23,8 @@ private struct FixtureReviewerBackend: AgentBackend {
         snapshotAppearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"]
         let integration = ProcessInfo.processInfo.environment["AGENTAPP_HERMES_INTEGRATION"] == "1"
         let integrationStoreURL = integration ? FileManager.default.temporaryDirectory.appending(path: "AgentApp-Hermes-\(UUID().uuidString)/store.json") : nil
-        let appStore = AppStore(demoMode: ProcessInfo.processInfo.environment["AGENTAPP_SNAPSHOT"] != nil, storeURL: integrationStoreURL, autoConfigureHermes: !integration)
+        let appStore = SetupPreview.isRequested() ? SetupPreview.makeStore()
+            : AppStore(demoMode: ProcessInfo.processInfo.environment["AGENTAPP_SNAPSHOT"] != nil, storeURL: integrationStoreURL, autoConfigureHermes: !integration)
         _store = StateObject(wrappedValue: appStore)
         if let path = UISmoke.reportPath() { UISmoke.start(store: appStore, path: path) }
         PerformanceMetrics.reportReady()
@@ -108,6 +109,7 @@ private struct FixtureReviewerBackend: AgentBackend {
         WindowGroup(AppConstants.name, id: ContentView.windowID) {
             ContentView()
                 .environmentObject(store)
+                .defaultAppStorage(store.defaults)
                 .preferredColorScheme(AppTheme.colorScheme(for: snapshotAppearance ?? appearance))
                 .frame(minWidth: 980, minHeight: 620)
         }
@@ -125,6 +127,13 @@ private struct FixtureReviewerBackend: AgentBackend {
         Window("Keyboard Shortcuts", id: KeyboardShortcutsView.windowID) {
             KeyboardShortcutsView()
                 .preferredColorScheme(AppTheme.colorScheme(for: appearance))
+        }.windowResizability(.contentSize)
+        Window(SetupCopy.windowTitle, id: SetupView.windowID) {
+            SetupView()
+                .environmentObject(store)
+                .defaultAppStorage(store.defaults)
+                .preferredColorScheme(AppTheme.colorScheme(for: appearance))
+                .tint(AppTheme.accentColor(for: accent))
         }.windowResizability(.contentSize)
         Settings {
             SettingsView()

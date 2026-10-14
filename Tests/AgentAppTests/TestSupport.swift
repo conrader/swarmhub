@@ -144,6 +144,12 @@ func isolatedDefaults() -> UserDefaults {
     return defaults
 }
 
+/// Isolated settings whose "Your name" is "Konrad", so group-context expectations hold on any machine (P21 D6).
+func namedDefaults(_ name: String = "Konrad") -> UserDefaults {
+    let defaults = isolatedDefaults(); defaults.set(name, forKey: UserIdentity.key)
+    return defaults
+}
+
 /// Synthetic Hermes server keyed by a unique host per test, so parallel tests never share state.
 final class MockHermesProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) -> (Int, Any)

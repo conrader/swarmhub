@@ -19,13 +19,15 @@ struct ContentView: View {
                 } else if let bot = store.selectedBot {
                     ChatView(bot: bot).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
                 } else {
-                    ContentUnavailableView("Choose an agent", systemImage: "bubble.left.and.bubble.right", description: Text("Select an agent from the sidebar to begin."))
+                    SetupEmptyState()
                         .overlay(alignment: .top) { if store.sidebarHidden { WindowDragArea().frame(height: ChromeMetrics.titleRow).chromeProbe("empty_strip") } }
                 }
             }.ignoresSafeArea(.container, edges: .top)
         }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
-        .task { store.startRoutinePolling() }
-        .sheet(isPresented: $store.showingNewBot) { BotEditorView(bot: nil) }
+        .task { store.startRoutinePolling(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
+        // P21 item 8: "New agent" with no box opens the setup window instead of an editor that could only make a mock.
+        .sheet(isPresented: Binding(get: { store.showingNewBot && store.boxConfigured }, set: { store.showingNewBot = $0 })) { BotEditorView(bot: nil) }
+        .onChange(of: store.showingNewBot) { _, shown in if shown, !store.boxConfigured { store.showingNewBot = false; store.openSetup(openWindow: openWindow) } }
         .sheet(isPresented: $store.showingTemplateImport) { TemplateImportView() }
         .sheet(isPresented: $store.showingGrokImport) { GrokImportSheet(store: store) }
         .sheet(isPresented: $store.showingNewGroup) { NewGroupSheet(preselected: store.selectedGroup == nil ? Set(store.selectedBot.map { [$0.id] } ?? []) : []) }
@@ -39,7 +41,7 @@ struct ContentView: View {
                 pendingCommand = nil
                 command.perform(in: store, openSettings: openSettings, openWindow: openWindow)
             }
-        }) { CommandPaletteView { pendingCommand = $0 } }
+        }) { CommandPaletteView(selectCommand: { pendingCommand = $0 }, openSetup: { store.openSetup(openWindow: openWindow) }) }
         .alert("Backend Error", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) { Button("OK") { store.errorMessage = nil } } message: { Text(store.errorMessage ?? "") }
     }
 }
@@ -47,6 +49,7 @@ struct ContentView: View {
 private struct CommandPaletteView: View {
     @EnvironmentObject private var store: AppStore; @Environment(\.dismiss) private var dismiss
     let selectCommand: (AppCommand) -> Void
+    let openSetup: () -> Void
     @State private var query = ""
     @FocusState private var searchFocused: Bool
     var body: some View {
@@ -61,8 +64,10 @@ private struct CommandPaletteView: View {
                     action(command.title, icon: command.icon, shortcut: command.shortcutText) { selectCommand(command) }
                         .disabled(!command.isEnabled(in: store))
                 }
+                if query.isEmpty || setupTitle.localizedCaseInsensitiveContains(query) { action(setupTitle, icon: "link", perform: openSetup) }
             }.padding(8) }
         }.frame(width: 480, height: 380).background(AppColor.panel).onAppear { searchFocused = true }
     }
+    private var setupTitle: String { store.boxConfigured ? SimpleCopy.changeConnection : SimpleCopy.setUp }
     private func action(_ title: String, icon: String, shortcut: String? = nil, perform: @escaping () -> Void) -> some View { Button { perform(); dismiss() } label: { HStack { Image(systemName: icon).frame(width: 24); Text(title); Spacer(); if let shortcut { Text(shortcut).font(.caption.monospaced()).foregroundStyle(.secondary) } }.padding(9).contentShape(Rectangle()) }.buttonStyle(.plain) }
 }

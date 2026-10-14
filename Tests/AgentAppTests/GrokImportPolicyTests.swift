@@ -130,7 +130,8 @@ private func inApp(_ server: String? = nil, refresh: Bool = false) -> GrokImport
     #expect(demo.bots.count == botCount)
     // A failed write of store.json is an error, not a green run.
     let store = policyStore()
-    try FileManager.default.removeItem(at: store.fileURL)
+    // P21 D3: a fresh store no longer writes sample bots, so store.json may not exist yet.
+    try? FileManager.default.removeItem(at: store.fileURL)
     try FileManager.default.createDirectory(at: store.fileURL, withIntermediateDirectories: true)
     #expect(throws: GrokImportError.saveFailed) { try store.importGrokExport(at: grokGoldenExport) }
     await #expect(throws: GrokImportError.saveFailed) { try await store.importGrokBundles(try native(), policy: inApp()) }

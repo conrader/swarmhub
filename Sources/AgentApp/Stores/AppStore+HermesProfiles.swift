@@ -25,11 +25,9 @@ extension AppStore {
             .probeProfiles(named: namedHermesProfiles, keyFor: { keyStore.key(for: "hermes.\($0)") })
         for probe in probes {
             if probe.status == .prefixIgnored { prefixIgnoredHermesProfiles.insert(probe.id) }
-            guard case .available(let profile) = probe.status else { continue }
-            prefixIgnoredHermesProfiles.remove(profile.id)
-            guard !bots.contains(where: { $0.backend == .hermes && ($0.hermesProfile ?? "default") == profile.id }) else { continue }
-            bots.append(Bot(name: profile.name, title: "Hermes profile", description: "Hermes profile: \(profile.id)", backend: .hermes, hermesProfile: profile.id))
+            if case .available(let profile) = probe.status { prefixIgnoredHermesProfiles.remove(profile.id) }
         }
+        appendAgents(from: probes)
         if let first = probes.first, first.id == "default", case .unavailable(let reason) = first.status { errorMessage = reason }
         if selectedBot == nil, selectedGroup == nil { selectVisibleChat() }
         save()

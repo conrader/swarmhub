@@ -3,7 +3,8 @@ import Foundation
 /// Pure group-chat rules: who a message goes to, which Hermes session each bot uses, and the transcript
 /// a bot receives as context for its turn.
 enum GroupRouting {
-    static let userName = "Konrad"
+    /// The author label of the user's lines when no name is passed (tests); the app passes `AppStore.userName` (P21 D6).
+    static let defaultUserName = "Konrad"
     /// Upper bound for the context sent with one bot's turn.
     static let contextLimit = 8_000
 
@@ -62,7 +63,7 @@ enum GroupRouting {
     /// (oldest lines dropped first; an oversized newest line is cut). The attachment text of the `current`
     /// message (documents and text files) follows its line whole and does not count towards `limit`; the
     /// backend splits long text into parts and guards the request size as in 1:1 chats.
-    static func context(for bot: Member, groupName: String, members: [Member], messages: [ChatMessage], current: UUID? = nil, limit: Int = contextLimit) -> String {
+    static func context(for bot: Member, groupName: String, members: [Member], messages: [ChatMessage], current: UUID? = nil, limit: Int = contextLimit, userName: String = defaultUserName) -> String {
         let names = Dictionary(members.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
         let start = (messages.lastIndex { $0.role == .assistant && $0.authorID == bot.id && !$0.content.isEmpty }).map { $0 + 1 } ?? 0
         let lines: [(label: Int, line: String, files: String?)] = messages[start...].compactMap { message in

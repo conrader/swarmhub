@@ -38,13 +38,13 @@ struct SidebarView: View {
                         }.foregroundStyle(.tertiary).padding(.horizontal, SidebarMetrics.rowPadding).frame(height: 32).contentShape(Rectangle())
                     }.buttonStyle(.plain).padding(.top, 6)
                     if store.showingHiddenBots {
-                        ForEach(store.bots.filter(\.isHidden)) { bot in row(bot) }
+                        ForEach(store.hiddenChatBots) { bot in row(bot) }
                         ForEach(store.groups.filter(\.isHidden)) { group in GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete) }
                     }
                 }.padding(.horizontal, SidebarMetrics.listInset).padding(.top, 4)
             }.chromeProbe("sidebar_list")
             HStack(spacing: 10) {
-                SettingsLink { RoundSidebarLabel(symbol: nil, text: SidebarMetrics.initial(of: accountName)) }
+                SettingsLink { RoundSidebarLabel(symbol: nil, text: UserIdentity.initial(of: accountName)) }
                     .buttonStyle(.plain).help("Account and settings").accessibilityLabel("Account")
                 SettingsLink {
                     Text("Settings").font(.system(size: 13, weight: .medium)).padding(.horizontal, 16)
