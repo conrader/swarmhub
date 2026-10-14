@@ -138,6 +138,7 @@ extension AppStore {
     func releaseSlot(_ token: UUID) {
         guard activeStreamToken == token else { return }
         isStreaming = false; streamTask = nil; activeStreamToken = nil; streamingBotID = nil; streamingAssistant = nil; streamingConversation = nil; steerAvailable = false
+        sendQueuedNextMessage()
     }
 
     // MARK: Launch recovery

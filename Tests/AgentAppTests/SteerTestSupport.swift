@@ -7,8 +7,8 @@ actor ScriptedTurnBackend: AgentBackend {
     nonisolated let kind = BackendKind.hermes
     nonisolated let calls = AwaitableLog<String>()
     private var streams: [AsyncThrowingStream<AgentEvent, Error>.Continuation] = []
-    private let stopFails: Bool
-    init(stopFails: Bool = false) { self.stopFails = stopFails }
+    private let stopFails: Bool, steerFails: Bool
+    init(stopFails: Bool = false, steerFails: Bool = false) { self.stopFails = stopFails; self.steerFails = steerFails }
 
     func sessionTransport() async throws -> HermesTransport? { .nativeSessions }
     func features() async throws -> Set<String> { ["session_chat_streaming", "run_steer"] }
@@ -18,7 +18,10 @@ actor ScriptedTurnBackend: AgentBackend {
         calls.append("send:\(request.messages.last?.content ?? "")")
         return stream
     }
-    func steer(sessionID: String, text: String) async throws { calls.append("steer:\(text)") }
+    func steer(sessionID: String, text: String) async throws {
+        if steerFails { calls.append("steer-failed:\(text)"); throw BackendError.http(409, "no run to steer") }
+        calls.append("steer:\(text)")
+    }
     func stopTarget(sessionID: String) async throws -> StopTarget { .serverRun("run-\(streams.count)") }
     func requestStop(_ target: StopTarget) async throws -> StopOutcome {
         if stopFails { calls.append("stop-failed"); throw BackendError.http(500, "stop broke") }

@@ -12,7 +12,8 @@ enum SteerRoute: Equatable, Sendable {
     static func choose(activity: ToolActivity?) -> SteerRoute { activity?.current == nil ? .stopAndSend : .queued }
 }
 
-/// Bubble metadata: `steer` on a queued steer (sent → queued → delivered | failed | resent), `correction` on a message
+/// Bubble metadata: `steer` on a queued steer (sent → queued → delivered | failed | resent; failed → next → sentNext
+/// after "Send as next message", P32), `correction` on a message
 /// sent after its answer was stopped (stopping → stopped) or after the box handed a steer back (followup).
 enum SteerKey { static let steer = "steer", correction = "correction" }
 
@@ -24,6 +25,7 @@ enum SteerCopy {
     static let hint = "Corrections land after the current step, or stop the answer and continue."
     static let stopFailed = "Couldn't stop the answer, so your correction will land after the current step."
     static let endedFirst = "Steer not delivered: the answer ended first."
+    static let sendAsNext = "Send as next message"
 
     /// The caption over a steer or correction bubble; nil for any other message.
     static func caption(_ message: ChatMessage) -> String? {
@@ -38,6 +40,8 @@ enum SteerCopy {
         case "sent": return "Sending…"
         case "queued": return "Delivered after the current step"
         case "failed": return "Steer not delivered"
+        case "next": return "Sends as the next message when the answer ends"
+        case "sentNext": return "Not delivered as a steer; sent as the next message"
         default: return "Delivered"
         }
     }

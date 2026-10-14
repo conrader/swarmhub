@@ -24,6 +24,7 @@ extension AppStore {
         }
         if groupRun === run { groupRun = nil }
         objectWillChange.send(); save()
+        sendQueuedNextMessage()
     }
 
     /// Members the round did not ask: a `notSent` row each (Retry lives there) and one line naming them.

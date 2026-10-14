@@ -26,6 +26,10 @@ struct MessageView: View {
                 }
                 if !message.attachments.isEmpty { AttachmentThumbnails(attachments: message.attachments) }
                 content
+                if store.canSendAsNextMessage(message) {
+                    Button(SteerCopy.sendAsNext) { store.sendAsNextMessage(message) }
+                        .controlSize(.small).help("Sends this text as a normal message once the current answer ends")
+                }
                 if !message.reactions.isEmpty {
                     HStack(spacing: 3) { ForEach(message.reactions, id: \.self) { emoji in Button { store.toggleReaction(emoji, on: message) } label: { Text(emoji).font(.caption).padding(4).background(AppColor.card, in: Capsule()).overlay(Capsule().stroke(AppColor.separator)) }.buttonStyle(.plain).help("Remove tapback") } }
                 }
