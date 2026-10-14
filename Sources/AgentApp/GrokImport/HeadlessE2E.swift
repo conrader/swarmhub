@@ -38,6 +38,12 @@ import Security
 
     static func run(arguments: [String]) -> Int32 {
         SecKeychainSetUserInteractionAllowed(false)
+        let roles: RolePairs?
+        switch rolePairs(arguments: arguments) {
+        case .failure(let error): print("E2E failed: \(error.text)"); return 2
+        case .success(let pairs): roles = pairs
+        case nil: roles = nil
+        }
         let realURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appending(path: "AgentApp/store.json")
         let saved: StoreFile
         do { saved = try StoreFile.decode(Data(contentsOf: realURL)) } catch { print("E2E failed: cannot read \(realURL.path): \(error.localizedDescription)"); return 1 }
@@ -55,8 +61,8 @@ import Security
         store.bots = [bots.jarvis, bots.dmt, bots.achilles]; store.groups = []; store.selectedBot = nil
         print("E2E: test store \(directory.path) (removed afterwards); real store \(realURL.path) is read only, \(saved.groups.count) groups in it are not loaded")
         return HeadlessRunLoop.wait {
-            let steps = await run(store: store, bots: bots, tag: tag, output: { print($0); fflush(stdout) })
-            return steps.allSatisfy(\.passed) && steps.count == 6 ? 0 : 1
+            let steps = await run(store: store, bots: bots, tag: tag, roles: roles, output: { print($0); fflush(stdout) })
+            return steps.allSatisfy(\.passed) && steps.count == (roles == nil ? 6 : 8) ? 0 : 1
         }
     }
 
@@ -68,8 +74,8 @@ import Security
 
     // MARK: Steps
 
-    /// Runs steps a–f in order, printing one line per step. All bots in `bots` must already be in `store`.
-    static func run(store: AppStore, bots: Participants, tag: String = "test", timing: Timing = .init(), output: (String) -> Void) async -> [Step] {
+    /// Runs steps a–f in order (and g1, g2 with `roles`), printing one line per step. All bots in `bots` must already be in `store`.
+    static func run(store: AppStore, bots: Participants, tag: String = "test", timing: Timing = .init(), roles: RolePairs? = nil, output: (String) -> Void) async -> [Step] {
         store.sessionNamespace = namespace
         var steps: [Step] = []
         func record(_ step: Step) { steps.append(step); output(step.line) }
@@ -80,6 +86,7 @@ import Security
         record(await modelStep(store: store, bot: bots.jarvis, timing: timing))
         record(await groupStep(store: store, bots: bots, tag: tag, timing: timing))
         record(await routinesStep(store: store, bot: bots.jarvis))
+        if let roles { for step in await rolesSteps(store: store, jarvis: bots.jarvis, pairs: roles, timing: timing) { record(step) } }
         output("E2E: \(steps.filter(\.passed).count) passed, \(steps.filter { !$0.passed }.count) failed")
         return steps
     }

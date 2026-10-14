@@ -17,6 +17,11 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         var existingSessions: Set<String> = []
         var catalog: [String: Any]?
         var optionsStatus = 200
+        /// P13 Part C: the `runtime{}` the stream reports (`.full` names the session's locked pair, else the catalog
+        /// default), and a model that replaces it to fake a turn that ran on something else.
+        var runtimeShape: RuntimeShape = .full
+        var runtimeModel: String?
+        var sessionProviders: [String: String] = [:]
         private let steerSignal = NSCondition()
         init(features: [String: Bool]) { self.features = features }
         func with<T>(_ body: (State) -> T) -> T { lock.lock(); defer { lock.unlock() }; return body(self) }
@@ -31,6 +36,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         }
         func requests() -> [(method: String, path: String, body: [String: Any]?)] { with { $0.log } }
     }
+    enum RuntimeShape { case full, empty, absent, wrongTypes }
     private static let lock = NSLock()
     nonisolated(unsafe) private static var states: [String: State] = [:]
 
@@ -73,7 +79,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
             guard status == 200 else {
                 return send(status, ["error": ["message": "cannot route for \(request.value(forHTTPHeaderField: "Authorization") ?? "")", "code": "model_lock_unavailable"]])
             }
-            state.with { $0.sessionModels[path[2]] = model }
+            state.with { $0.sessionModels[path[2]] = model; $0.sessionProviders[path[2]] = body?["provider"] as? String ?? "" }
             send(200, ["runtime": ["model_lock": "accepted", "model": model, "provider": body?["provider"] as? String ?? ""]])
         case ("GET", ["api", "model", "options"]):
             let optionsStatus = state.with { $0.optionsStatus }
@@ -86,7 +92,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
             state.markSteered(path[2])
             send(202, ["accepted": true])
         case ("POST", let path) where path.count == 5 && path[0...1] == ["api", "sessions"] && path[3...] == ["chat", "stream"]:
-            stream(input: body?["input"] as? String ?? "", state: state)
+            stream(input: body?["input"] as? String ?? "", runtime: Self.runtime(session: path[2], state: state), state: state)
         default: send(404, ["error": "no route"])
         }
     }
@@ -94,10 +100,27 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
     /// "Count…" streams "1", then holds the run until it is steered (the ceiling only bounds a hang). Without `run_steer`
     /// no steer can come, so the count ends on its own after 5 s, ample time for the client to see "1" and try.
     /// Anything else answers its `exactly: E2E-…` token.
-    private func stream(input: String, state: State) {
+    /// `{provider, model, route_source, requested, model_lock}` as `run.started` carries it (both versions).
+    private static func runtime(session: String, state: State) -> [String: Any]? {
+        state.with { state in
+            let catalog = state.catalog ?? ["model": "model-a", "provider": "prov"]
+            let model = state.runtimeModel ?? state.sessionModels[session] ?? catalog["model"] as? String ?? ""
+            let provider = state.sessionProviders[session] ?? catalog["provider"] as? String ?? ""
+            switch state.runtimeShape {
+            case .full: return ["provider": provider, "model": model, "route_source": state.sessionModels[session] == nil ? "default" : "session_lock",
+                                "requested": NSNull(), "model_lock": state.sessionModels[session] == nil ? "none" : "accepted"]
+            case .empty: return [:]
+            case .absent: return nil
+            case .wrongTypes: return ["provider": 7, "model": ["id": model]]
+            }
+        }
+    }
+
+    private func stream(input: String, runtime: [String: Any]?, state: State) {
         let run = "run-\(UUID().uuidString.lowercased())"
         respond(200, contentType: "text/event-stream")
-        client?.urlProtocol(self, didLoad: Self.event("run.started", ["run_id": run]))
+        var started: [String: Any] = ["run_id": run]; started["runtime"] = runtime
+        client?.urlProtocol(self, didLoad: Self.event("run.started", started))
         guard input.contains("Count slowly") else {
             let token = input.range(of: #"E2E-[A-Z]+"#, options: .regularExpression).map { String(input[$0]) } ?? "?"
             client?.urlProtocol(self, didLoad: Self.event("assistant.delta", ["run_id": run, "delta": token]) + Self.event("run.completed", ["run_id": run]))

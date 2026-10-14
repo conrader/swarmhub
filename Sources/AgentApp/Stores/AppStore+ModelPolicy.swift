@@ -70,6 +70,22 @@ extension AppStore {
         objectWillChange.send()
     }
 
+    /// Part C: what the last turn of this chat ran on, as the session stream's `runtime{}` reported it (memory only).
+    func lastRuntime(for conversation: any Conversation) async -> HermesRuntime? {
+        guard let sessionID = conversation.hermesSessionID else { return nil }
+        return await HermesRuntimeLog.shared.last(for: sessionID)
+    }
+
+    /// Part C "Use the box default instead": the only way back from a pick that ran on something else is a lock to
+    /// the box's current default pair (Hermes has no unpin).
+    func useBoxDefault(for bot: Bot) async {
+        let options = botInfo.info(for: bot.id)?.modelOptions.value
+        guard let provider = options?.defaultProvider?.slug, let model = options?.model else {
+            botInfo.finishSwitch(botID: bot.id, error: ModelRoleReason.noList.text); return
+        }
+        await switchModel(for: bot, provider: provider, model: model)
+    }
+
     /// Overview "Switch this chat": pins the chat to what the bot resolves to now, or to the box's current default
     /// pair when it resolves to the box default (Hermes has no unpin).
     func switchChatToRoleModel(for bot: Bot) async {
