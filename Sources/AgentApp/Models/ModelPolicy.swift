@@ -86,7 +86,7 @@ enum ModelSource: Sendable, Equatable {
         switch self {
         case .bot: "this bot"
         case .appDefault: "\(AppConstants.name) default"
-        case .boxDefault: "box default"
+        case .boxDefault: CurrentModel.agentDefault
         case .sameAsConversation: "same as conversation"
         }
     }
@@ -130,11 +130,11 @@ enum ModelRoleReason: Sendable, Equatable {
         case .noRow: "This box can't report a chat's model, so \(AppConstants.name) can't tell whether the chat is new."
         case .legacy: "This box only has the older chat API, which has no per-chat model."
         case .noFork: "Coding threads need conversation forks, which this box doesn't offer."
-        case .notOffered(let model): "\(model) isn't offered by this bot's profile."
+        case .notOffered(let model): "\(model) isn't offered by this agent."
         case .permanent: "Hermes can't unpin a chat, and a pinned chat has no fallback model."
         case .boxOnly: "Set on the box. Hermes doesn't let apps read or change it."
         case .subAgentsOff: "Sub-agents are turned off for this bot."
-        case .openClaw: "Managed in OpenClaw."
+        case .openClaw: "Models come from the OpenClaw gateway once connected."
         }
     }
 
@@ -142,10 +142,11 @@ enum ModelRoleReason: Sendable, Equatable {
     /// nothing is loaded yet). Same gates as the apply path: native sessions, the lock, a loaded list, the session row.
     static func blocker(_ info: BotServerInfo?) -> ModelRoleReason? {
         guard let info, info.fetchedAt != nil else { return nil }
+        if info.sourceCatalog != nil { return nil }
         guard let capabilities = info.capabilities else { return info.lastLoadFailed ? nil : .legacy }
         if capabilities.features["session_chat_streaming"] != true { return .legacy }
         if !capabilities.sessionModelLock { return .noLock }
-        if info.modelOptions.value == nil { return .noList }
+        if info.catalog.value == nil { return .noList }
         if capabilities.features["session_resources"] == false { return .noRow }
         return nil
     }
@@ -153,8 +154,5 @@ enum ModelRoleReason: Sendable, Equatable {
 
 extension ModelPickerModel {
     /// P11's listed-only rule as a pure function: the supplier (by slug) lists the id and nothing disables it now.
-    static func offers(_ options: HermesModelOptions, _ choice: ModelChoice) -> Bool {
-        guard let supplier = options.providers.first(where: { $0.slug == choice.provider && !$0.isSkeleton }), supplier.models.contains(choice.model) else { return false }
-        return reason(choice.model, supplier) == nil
-    }
+    static func offers(_ options: HermesModelOptions, _ choice: ModelChoice) -> Bool { options.catalog(profile: "").offers(choice) }
 }

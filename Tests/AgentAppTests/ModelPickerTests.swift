@@ -65,7 +65,7 @@ private final class TestClock: @unchecked Sendable { var now = utc("2026-10-13T1
     #expect(picker.caption == "Models provided by \(expected.count) providers on your Hermes box · default Lab One")
     #expect(picker.footer?.hasPrefix("Profile grok-jarvis · updated ") == true); #expect(picker.footer?.hasSuffix("2 providers not configured on the box") == true)
     #expect(picker.groups[0].items[1].accessibilityLabel == "model-beta, Lab One")
-    #expect(picker.currentModel == "model-alpha"); #expect(picker.currentCaption == "Lab One · server default")
+    #expect(picker.currentModel == "model-alpha"); #expect(picker.currentCaption == "Lab One · agent default")
     #expect(store.modelPicker(for: rapper).caption == "Models provided by Lab Solo on your Hermes box")
     #expect(ModelPickerModel.tag(for: "user-config") == "custom endpoint"); #expect(ModelPickerModel.tag(for: "model-config") == "custom endpoint")
     #expect(ModelPickerModel.tag(for: "configured-current") == "sign-in needed"); #expect(ModelPickerModel.tag(for: "built-in") == nil)
@@ -237,7 +237,7 @@ private final class TestClock: @unchecked Sendable { var now = utc("2026-10-13T1
     await store.loadServerInfo(for: jarvis, force: true)
     #expect(store.currentModel(for: jarvis)?.model == "model-gamma", "a failed session read keeps the last good value")
     jarvis.hermesSessionID = "s2"
-    #expect(store.currentModel(for: jarvis)?.source == "server default", "a model read for another session is ignored")
+    #expect(store.currentModel(for: jarvis)?.source == "agent default", "a model read for another session is ignored")
     server.set(sessionModel: "elsewhere-9", profile: "grok-jarvis", session: "s2")
     await store.loadServerInfo(for: jarvis)
     #expect(store.modelPicker(for: jarvis).currentSupplier == ModelPickerModel.notListed)
@@ -317,7 +317,7 @@ private final class TestClock: @unchecked Sendable { var now = utc("2026-10-13T1
     await store.loadServerInfo(for: jarvis); await store.loadServerInfo(for: rapper)
     #expect(store.modelMenuSummary(for: jarvis) == "Jarvis: model menu Lab One [default] 3 | Relay Router 20 submenu | Box Preset [preset] 1 | Lab Paid 2; hidden 2; profile grok-jarvis; switching off (Send a message first; the model is chosen per chat.)")
     #expect(store.modelMenuSummary(for: rapper) == "Rapper: model menu Lab Solo [default] 2; hidden 0; profile grok-rapper; switching on")
-    #expect(HeadlessSnapshot.overviewSummary(store: store, bot: rapper) == "Rapper: Overview skills 1, toolsets 1, model solo-model (server default), picker on")
+    #expect(HeadlessSnapshot.overviewSummary(store: store, bot: rapper) == "Rapper: Overview skills 1, toolsets 1, model solo-model (agent default), picker on")
     store.prefixIgnoredHermesProfiles = ["grok-rapper"]; await store.loadServerInfo(for: rapper)
     #expect(store.modelMenuSummary(for: rapper).hasPrefix("Rapper: model menu none (grok-rapper: Server ignored the profile prefix"))
 }

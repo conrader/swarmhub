@@ -2,14 +2,20 @@ import Foundation
 
 extension AppStore {
     /// Loads what the bot's Hermes profile reports when the entry is missing, stale (`BotInfoCache.maxAge`), failed,
-    /// or was read for another profile or session; `force` always refreshes. No-op for non-Hermes bots.
+    /// or was read for another profile or session; `force` always refreshes. A backend that supplies its own catalog
+    /// (`ModelCatalogProviding`) loads that; any other bot is a no-op. A Hermes bot without its key sends nothing (P17).
     func loadServerInfo(for bot: Bot, force: Bool = false, includeSkills: Bool = true) async {
-        guard bot.backend == .hermes, !bot.isReadOnlyArchive else { return }
+        guard !bot.isReadOnlyArchive, bot.backend != .mock else { return }
+        if bot.backend == .hermes, !bot.isGrokHistoryOnly, needsKey(bot) { botInfo.setUnavailable(botID: bot.id, reason: ModelCatalog.noKey, failed: false); return }
         do {
-            guard let backend = try backend(for: bot) as? HermesBackend else { return }
-            await botInfo.load(botID: bot.id, sessionID: bot.hermesSessionID, using: backend, force: force, includeSkills: includeSkills)
+            let backend = try backend(for: bot)
+            if let hermes = backend as? HermesBackend {
+                await botInfo.load(botID: bot.id, sessionID: bot.hermesSessionID, using: hermes, force: force, includeSkills: includeSkills)
+            } else if let provider = backend as? ModelCatalogProviding {
+                await botInfo.loadCatalog(botID: bot.id, sessionID: bot.hermesSessionID, using: provider, force: force)
+            }
         } catch {
-            botInfo.setUnavailable(botID: bot.id, reason: error.localizedDescription)
+            if bot.backend == .hermes { botInfo.setUnavailable(botID: bot.id, reason: error.localizedDescription) }
         }
     }
 
@@ -25,11 +31,13 @@ extension AppStore {
         let info = botInfo.info(for: bot.id)
         let aliases = modelAliases(for: bot)
         let sessionModel = info?.sessionModelSessionID == bot.hermesSessionID ? info?.sessionModel : nil
-        return BotInfoCache.currentModel(lock: bot.hermesModelLock, sessionID: bot.hermesSessionID, sessionModel: sessionModel, aliases: aliases, options: info?.modelOptions.value)
+        return BotInfoCache.currentModel(lock: bot.hermesModelLock, sessionID: bot.hermesSessionID, sessionModel: sessionModel, aliases: aliases, catalog: modelCatalog(for: bot).value)
     }
 
     func modelPicker(for bot: Bot) -> ModelPickerModel {
-        ModelPickerModel(info: botInfo.info(for: bot.id), current: currentModel(for: bot), sessionID: bot.hermesSessionID, profile: bot.hermesProfile ?? "default")
+        let profile = bot.hermesProfile ?? "default"
+        if let block = catalogBlock(for: bot) { return ModelPickerModel(reason: block.text, profile: profile) }
+        return ModelPickerModel(info: botInfo.info(for: bot.id), current: currentModel(for: bot), sessionID: bot.hermesSessionID, profile: profile)
     }
 
     /// Locks the bot's current Hermes session to `provider`/`model` via `POST /api/sessions/{id}/model`, then reads
@@ -38,7 +46,8 @@ extension AppStore {
         guard let sessionID = bot.hermesSessionID else { botInfo.finishSwitch(botID: bot.id, error: "Send a message first; the model is set per chat session."); return }
         guard botInfo.info(for: bot.id)?.canLockSessionModel == true else { botInfo.finishSwitch(botID: bot.id, error: "This server cannot switch a chat's model."); return }
         let picker = modelPicker(for: bot)
-        guard let item = picker.item(provider: provider, model: model), item.disabledReason == nil else {
+        // A list kept from before a failed refresh (P17) is shown, never switched from: Retry first.
+        guard botInfo.info(for: bot.id)?.refreshError == nil, let item = picker.item(provider: provider, model: model), item.disabledReason == nil else {
             let supplier = picker.groups.first { $0.slug == provider }?.name ?? provider
             let why = picker.item(provider: provider, model: model)?.disabledReason.map { " (\($0))" } ?? ""
             botInfo.finishSwitch(botID: bot.id, error: "The box does not offer \(model) from \(supplier) right now\(why); nothing was sent."); return
@@ -63,15 +72,16 @@ extension AppStore {
 
     /// Text for `--render-snapshot`, built from the same `ModelPickerModel` the Overview draws.
     func modelMenuSummary(for bot: Bot) -> String {
-        guard bot.backend == .hermes, !bot.isReadOnlyArchive else { return "\(bot.name): model menu none (not a Hermes bot)" }
+        guard bot.backend == .hermes || bot.backend == .openClaw, !bot.isReadOnlyArchive else { return "\(bot.name): model menu none (not a Hermes bot)" }
         return modelPicker(for: bot).headlessLine(botName: bot.name)
     }
 }
 
 extension BotInfoCache {
-    func setUnavailable(botID: UUID, reason: String) {
-        var info = BotServerInfo(); info.isRefreshing = false; info.lastLoadFailed = true
-        info.skills = .failed(reason); info.toolsets = .failed(reason); info.modelOptions = .unavailable(reason)
+    /// `failed: false` (no key): every section reads the reason as unavailable, with no Retry.
+    func setUnavailable(botID: UUID, reason: String, failed: Bool = true) {
+        var info = BotServerInfo(); info.isRefreshing = false; info.lastLoadFailed = failed
+        info.skills = failed ? .failed(reason) : .unavailable(reason); info.toolsets = failed ? .failed(reason) : .unavailable(reason); info.modelOptions = .unavailable(reason)
         replace(botID: botID, with: info)
     }
 }

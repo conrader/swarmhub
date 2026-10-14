@@ -126,8 +126,8 @@ private func botInfoHandler(capabilities: [String: Any]?, modelOptionsStatus: In
                                                                 "/p/grok-jarvis/health", "/p/grok-jarvis/health/detailed"], "P24: the version is read too (this fake has no /health)")
     #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer jarvis-key" })
     // The session row holds the profile's virtual alias, so the server default is shown.
-    #expect(store.currentModel(for: bot) == .init(model: "model-alpha", provider: "lab-one", source: "server default"))
-    #expect(HeadlessSnapshot.overviewSummary(store: store, bot: bot) == "Jarvis: Overview skills 3, toolsets 3, model model-alpha (server default), picker on")
+    #expect(store.currentModel(for: bot) == .init(model: "model-alpha", provider: "lab-one", source: "agent default"))
+    #expect(HeadlessSnapshot.overviewSummary(store: store, bot: bot) == "Jarvis: Overview skills 3, toolsets 3, model model-alpha (agent default), picker on")
     // Imported template skills already installed on the server are not repeated (case-insensitive).
     #expect(BotCapabilitiesView.importedOnly(bot.importedSkills.map(\.name) + bot.skills, server: info?.skills.value ?? []) == ["travel-planner", "local-note"])
     await store.loadServerInfo(for: bot)
@@ -186,7 +186,7 @@ private func botInfoHandler(capabilities: [String: Any]?, modelOptionsStatus: In
     #expect(store.botInfo.info(for: bot.id)?.modelError == nil)
     // A lock recorded for an older session does not describe the new one.
     bot.hermesSessionID = "s2"
-    #expect(store.currentModel(for: bot)?.source == "server default")
+    #expect(store.currentModel(for: bot)?.source == "agent default")
 }
 
 @Test @MainActor func unroutableModelLockIsReportedAndNotStored() async {
@@ -212,7 +212,7 @@ private func botInfoHandler(capabilities: [String: Any]?, modelOptionsStatus: In
     #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s1", sessionModel: "vendor/m-lock", aliases: [], options: options)?.model == "m-lock")
     #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s1", sessionModel: nil, aliases: [], options: options)?.model == "m-lock")
     #expect(BotInfoCache.currentModel(lock: lock, sessionID: "s9", sessionModel: "m-row", aliases: [], options: options) == .init(model: "m-row", provider: nil, source: "this chat"))
-    #expect(BotInfoCache.currentModel(lock: nil, sessionID: "s1", sessionModel: "hermes-agent", aliases: ["hermes-agent"], options: options)?.source == "server default")
+    #expect(BotInfoCache.currentModel(lock: nil, sessionID: "s1", sessionModel: "hermes-agent", aliases: ["hermes-agent"], options: options)?.source == "agent default")
     #expect(BotInfoCache.currentModel(lock: nil, sessionID: nil, sessionModel: nil, aliases: [], options: nil) == nil)
     #expect(HermesBackend.modelLockBody(provider: "", model: "m") as NSDictionary == ["model": "m"] as NSDictionary)
 }

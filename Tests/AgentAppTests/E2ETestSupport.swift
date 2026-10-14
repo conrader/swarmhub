@@ -16,6 +16,8 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         var lockStatus = 200
         var existingSessions: Set<String> = []
         var catalog: [String: Any]?
+        /// P17: a catalog per profile (`/p/<profile>/`), else `catalog`.
+        var catalogs: [String: [String: Any]] = [:]
         var optionsStatus = 200
         /// P13 Part C: the `runtime{}` the stream reports (`.full` names the session's locked pair, else the catalog
         /// default), and a model that replaces it to fake a turn that ran on something else.
@@ -59,6 +61,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         Self.lock.lock(); let state = Self.states[request.url?.host ?? ""]; Self.lock.unlock()
         guard let state, let url = request.url else { return send(404, ["error": "no route"]) }
         var parts = url.path.split(separator: "/").map(String.init)
+        let profile = parts.first == "p" && parts.count > 2 ? parts[1] : "default"
         if parts.first == "p", parts.count > 2 { parts.removeFirst(2) }
         let method = request.httpMethod ?? "GET", body = jsonBody(request)
         state.with { $0.log.append((method, url.path, body)) }
@@ -84,7 +87,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         case ("GET", ["api", "model", "options"]):
             let optionsStatus = state.with { $0.optionsStatus }
             guard optionsStatus == 200 else { return send(optionsStatus, ["error": "no route"]) }
-            if let catalog = state.with({ $0.catalog }) { return send(200, catalog) }
+            if let catalog = state.with({ $0.catalogs[profile] ?? $0.catalog }) { return send(200, catalog) }
             send(200, ["model": "model-a", "provider": "prov", "providers": [["slug": "prov", "name": "Prov", "models": ["model-a", "model-b"], "authenticated": true]]])
         case ("GET", ["api", "jobs"]): send(200, ["jobs": [["id": "job-1", "name": "Daily brief", "schedule": "0 8 * * *", "enabled": true]]])
         case ("POST", let path) where path.count == 4 && path[0...1] == ["v1", "runs"] && path[3] == "steer":

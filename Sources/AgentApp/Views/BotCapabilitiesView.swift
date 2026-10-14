@@ -13,8 +13,9 @@ struct BotCapabilitiesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            // P17: the model section reads any agent's own catalog (or its reason); skills and tools stay Hermes-only.
+            if isHermes || (bot.backend == .openClaw && !bot.isReadOnlyArchive) { ModelSectionView(bot: bot, cache: cache) }
             if isHermes {
-                ModelSectionView(bot: bot, cache: cache)
                 skillsSection
                 toolsetsSection
             }

@@ -12,23 +12,25 @@ struct ModelRolesReadout: View {
 
     var body: some View {
         let row = store.modelRolesRow(for: bot)
-        let options = cache.info(for: bot.id)?.modelOptions.value
-        let ranOn = ModelRolesModel.ranOn(runtime, lock: bot.hermesModelLock, sessionID: bot.hermesSessionID, options: options)
+        let catalog = store.modelCatalog(for: bot).value
+        let ranOn = ModelRolesModel.ranOn(runtime, lock: bot.hermesModelLock, sessionID: bot.hermesSessionID, catalog: catalog)
+        let unpin = catalog?.pinning == .permanent ? ModelRoleReason.permanent.text : nil
         VStack(alignment: .leading, spacing: 3) {
             if let ranOn {
                 Text(ranOn.line).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 if let mismatch = ranOn.mismatch {
                     Text(mismatch).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
-                    let note = ModelRolesModel.boxDefaultNote(options)
+                    let note = ModelRolesModel.boxDefaultNote(catalog: catalog)
                     Button("Use the box default instead") { confirmingBoxDefault = true }.controlSize(.small)
                         .disabled(note == nil || row.blocked != nil || cache.info(for: bot.id)?.isSwitchingModel == true)
                         .confirmationDialog("Use the box default instead?", isPresented: $confirmingBoxDefault) {
                             Button("Use the box default instead") { Task { await store.useBoxDefault(for: bot) } }
-                        } message: { Text([note, ModelRoleReason.permanent.text].compactMap { $0 }.joined(separator: " ")) }
+                        } message: { Text([note, unpin].compactMap { $0 }.joined(separator: " ")) }
                 }
             }
             ForEach([row.conversation, row.coding].compactMap { $0 }, id: \.title) { line in
                 Text(line.text).font(.caption).foregroundStyle(.secondary).accessibilityLabel(line.accessibilityLabel)
+                if let note = line.note { Text(note).font(.caption2).foregroundStyle(.orange) }
             }
             Text("Sub-agents: \(ModelRoleReason.boxOnly.text)").font(.caption).foregroundStyle(.secondary)
             if row.delegationListed {
@@ -40,7 +42,7 @@ struct ModelRolesReadout: View {
                 Button("Switch this chat") { confirming = true }.controlSize(.small).disabled(!row.canSwitch)
                     .confirmationDialog("Switch this chat?", isPresented: $confirming) {
                         Button("Switch this chat") { Task { await store.switchChatToRoleModel(for: bot) } }
-                    } message: { Text([row.switchNote, ModelRoleReason.permanent.text].compactMap { $0 }.joined(separator: " ")) }
+                    } message: { Text([row.switchNote, unpin].compactMap { $0 }.joined(separator: " ")) }
                 if let blocked = row.blocked { Text(blocked.text).font(.caption2).foregroundStyle(.secondary) }
             }
         }

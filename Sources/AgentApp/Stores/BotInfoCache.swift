@@ -5,7 +5,11 @@ enum Loadable<Value: Equatable & Sendable>: Equatable, Sendable {
     var value: Value? { if case .loaded(let value) = self { value } else { nil } }
 }
 
-struct CurrentModel: Equatable, Sendable { let model: String; let provider: String?; let source: String }
+struct CurrentModel: Equatable, Sendable {
+    let model: String; let provider: String?; let source: String
+    /// The source of a chat that runs on what the agent's backend reports as its default.
+    static let agentDefault = "agent default"
+}
 
 /// What the bot's Hermes profile reports about itself: skills, toolsets and model choice.
 struct BotServerInfo: Equatable, Sendable {
@@ -13,6 +17,11 @@ struct BotServerInfo: Equatable, Sendable {
     var skills: Loadable<[HermesSkill]> = .loading
     var toolsets: Loadable<[HermesToolset]> = .loading
     var modelOptions: Loadable<HermesModelOptions> = .loading
+    /// P17: a non-Hermes backend's catalog (`ModelCatalogProviding`); nil for Hermes, whose catalog is mapped.
+    var sourceCatalog: Loadable<ModelCatalog>?
+    /// When the shown list was read, and why the last refresh failed while a good list is kept (memory only).
+    var modelsAsOf: Date?
+    var refreshError: String?
     /// What `/health` said on the last load (P24); nil before the first.
     var hermesVersion: HermesVersionReading?
     /// Known Hermes bugs this load ran into, shown as notes instead of errors (P24).
@@ -35,11 +44,26 @@ struct BotServerInfo: Equatable, Sendable {
         if case .failed = skills { return true }
         if case .failed = toolsets { return true }
         if case .failed = modelOptions { return true }
-        return false
+        if case .failed = sourceCatalog { return true }
+        return refreshError != nil
     }
 
+    /// The neutral catalog every surface reads: the source's own, else `modelOptions` mapped for `profile` (by
+    /// default the profile this entry was read for).
+    func catalog(profile: String? = nil) -> Loadable<ModelCatalog> {
+        if let sourceCatalog { return sourceCatalog }
+        let name = profile ?? scope.flatMap { $0.split(separator: "|").last.map(String.init) } ?? "default"
+        switch modelOptions {
+        case .loading: return .loading
+        case .loaded(let options): return .loaded(options.catalog(profile: name))
+        case .unavailable(let reason): return .unavailable(reason)
+        case .failed(let reason): return .failed(reason)
+        }
+    }
+    var catalog: Loadable<ModelCatalog> { catalog() }
+
     /// The picker shows only when the server offers model options; switching also needs the session lock route.
-    var showsModelPicker: Bool { modelOptions.value != nil }
+    var showsModelPicker: Bool { catalog.value != nil }
     var canLockSessionModel: Bool { capabilities?.sessionModelLock == true }
 }
 
@@ -53,7 +77,8 @@ struct BotServerInfo: Equatable, Sendable {
     /// Entries older than this are fetched again when the Overview appears; never polled.
     static let maxAge: TimeInterval = 300
     var now: () -> Date = { Date() }
-    private var inFlight: Set<UUID> = []
+    /// One load per bot; a second caller joins it instead of returning early (P17).
+    private var inFlight: [UUID: Task<Void, Never>] = [:]
 
     func info(for botID: UUID) -> BotServerInfo? { entries[botID] }
 
@@ -68,27 +93,63 @@ struct BotServerInfo: Equatable, Sendable {
 
     /// `includeSkills: false` (Settings → Models) skips `/v1/skills`; an entry still without skills is then stale for
     /// a full load, so the Overview fetches them when it opens.
+    /// A load already running for the bot is joined; afterwards "due" is checked again (skills included), so a
+    /// skills-less join never leaves the Overview's skills unloaded and a first send never reads `.loading`.
     func load(botID: UUID, sessionID: String?, using backend: HermesBackend, force: Bool = false, includeSkills: Bool = true) async {
         let scope = Self.scope(of: backend)
-        if !force, !isStale(botID: botID, sessionID: sessionID, scope: scope), !(includeSkills && entries[botID]?.skills == .loading) { return }
-        guard inFlight.insert(botID).inserted else { return }
-        defer { inFlight.remove(botID) }
+        await run(botID: botID, sessionID: sessionID, scope: scope, force: force, due: { includeSkills && $0?.skills == .loading }) { previous in
+            await Self.fetch(sessionID: sessionID, using: backend, previous: previous, includeSkills: includeSkills)
+        }
+    }
+
+    /// P17: the same entry, staleness and join for a backend that supplies its own catalog (no skills or toolsets).
+    func loadCatalog(botID: UUID, sessionID: String?, using provider: any ModelCatalogProviding, force: Bool = false) async {
+        await run(botID: botID, sessionID: sessionID, scope: provider.catalogScope, force: force, due: { _ in false }) { previous in
+            var info = previous
+            info.isRefreshing = false; info.lastLoadFailed = false; info.capabilities = nil
+            let reason = "This agent's backend reports no skills or tools here."
+            (info.skills, info.toolsets) = (.unavailable(reason), .unavailable(reason))
+            do { info.sourceCatalog = .loaded(try await provider.modelCatalog(sessionID: sessionID)) }
+            catch BackendError.http(let code, _) where code == 404 || code == 405 { info.sourceCatalog = .unavailable("This agent's backend does not list its models.") }
+            catch BackendError.unavailable(let text) { info.sourceCatalog = .unavailable(Self.describe(BackendError.unavailable(text), secrets: provider.secrets)) }
+            catch { info.sourceCatalog = .failed(Self.describe(error, secrets: provider.secrets)) }
+            return info
+        }
+    }
+
+    private func run(botID: UUID, sessionID: String?, scope: String, force: Bool, due: (BotServerInfo?) -> Bool,
+                     fetch: @escaping @Sendable (BotServerInfo) async -> BotServerInfo) async {
+        var force = force
+        while let running = inFlight[botID] { await running.value; force = false }
+        guard force || isStale(botID: botID, sessionID: sessionID, scope: scope) || due(entries[botID]) else { return }
         var info = entries[botID] ?? BotServerInfo()
         info.isRefreshing = true
         if !info.isSwitchingModel { info.modelError = nil }
         entries[botID] = info
-        let generation = info.switchGeneration
-        let fetched = await Self.fetch(sessionID: sessionID, using: backend, previous: info, includeSkills: includeSkills)
-        merge(fetched, botID: botID, generation: generation, scope: scope, sessionID: sessionID)
+        let generation = info.switchGeneration, previous = info
+        // The task clears its own slot before it completes, so a joiner never sees a finished load as running.
+        let task = Task { @MainActor in
+            let fetched = await fetch(previous)
+            self.merge(fetched, botID: botID, generation: generation, scope: scope, sessionID: sessionID)
+            self.inFlight[botID] = nil
+        }
+        inFlight[botID] = task
+        await task.value
     }
 
     /// Writes a finished fetch into the entry as it is now, so a switch that ran meanwhile keeps its state.
     private func merge(_ fetched: BotServerInfo, botID: UUID, generation: Int, scope: String, sessionID: String?) {
         var info = entries[botID] ?? fetched
+        let previous = info
         info.capabilities = fetched.capabilities
         info.hermesVersion = fetched.hermesVersion
         if let reading = fetched.hermesVersion { versions[scope] = reading }
-        (info.skills, info.toolsets, info.modelOptions) = (fetched.skills, fetched.toolsets, fetched.modelOptions)
+        (info.skills, info.toolsets, info.modelOptions, info.sourceCatalog) = (fetched.skills, fetched.toolsets, fetched.modelOptions, fetched.sourceCatalog)
+        // Keep-last-good: only a `.failed` refresh in the same scope keeps the list; nothing crosses profiles.
+        info.refreshError = nil
+        if case .failed(let reason) = fetched.catalog, previous.scope == scope, previous.catalog.value != nil {
+            (info.modelOptions, info.sourceCatalog, info.refreshError) = (previous.modelOptions, previous.sourceCatalog, reason)
+        } else { info.modelsAsOf = fetched.catalog.value == nil ? nil : now() }
         if info.switchGeneration == generation, !info.isSwitchingModel { (info.sessionModel, info.sessionModelSessionID) = (fetched.sessionModel, fetched.sessionModelSessionID) }
         info.isRefreshing = false
         info.fetchedAt = now(); info.scope = scope; info.sessionID = sessionID
@@ -104,7 +165,7 @@ struct BotServerInfo: Equatable, Sendable {
         do { capabilities = try await backend.capabilities() }
         catch {
             info.hermesVersion = await reading
-            let reason = describe(error, key: backend.apiKey)
+            let reason = describe(error, secrets: [backend.apiKey])
             info.skills = .failed(reason); info.toolsets = .failed(reason); info.modelOptions = .failed(reason)
             info.lastLoadFailed = true
             return info
@@ -148,23 +209,28 @@ struct BotServerInfo: Equatable, Sendable {
         versions[scope] = await backend.hermesVersion()
     }
 
-    nonisolated static func describe(_ error: Error, key: String) -> String {
-        let text: String
+    nonisolated static func describe(_ error: Error, key: String) -> String { describe(error, secrets: [key]) }
+    nonisolated static func describe(_ error: Error, secrets: [String]) -> String {
+        var text: String
         if case BackendError.http(let code, _) = error, code == 401 || code == 403 { text = "HTTP \(code): the server rejected this bot's key." }
         else { text = error.localizedDescription }
-        return key.isEmpty ? text : text.replacingOccurrences(of: key, with: "[key]")
+        for secret in secrets where !secret.isEmpty { text = text.replacingOccurrences(of: secret, with: "[key]") }
+        return text
     }
 
     /// Model shown for the chat: a lock confirmed for this session (unless the session row reports a different
     /// concrete model, i.e. another client changed it), else the session row's model (unless it is the gateway's
     /// virtual alias, which means "server default"), else the server's configured default.
     nonisolated static func currentModel(lock: HermesModelLock?, sessionID: String?, sessionModel: String?, aliases: Set<String>, options: HermesModelOptions?) -> CurrentModel? {
+        currentModel(lock: lock, sessionID: sessionID, sessionModel: sessionModel, aliases: aliases, catalog: options?.catalog(profile: ""))
+    }
+    nonisolated static func currentModel(lock: HermesModelLock?, sessionID: String?, sessionModel: String?, aliases: Set<String>, catalog: ModelCatalog?) -> CurrentModel? {
         let rowModel = sessionModel.flatMap { aliases.contains($0) ? nil : $0 }
-        if let lock, lock.sessionID == sessionID, rowModel.map({ HermesModelOptions.sameModel($0, lock.model) }) ?? true {
+        if let lock, lock.sessionID == sessionID, rowModel.map({ ModelCatalog.sameModel($0, lock.model) }) ?? true {
             return .init(model: lock.model, provider: lock.provider.isEmpty ? nil : lock.provider, source: "chosen for this chat")
         }
         if let rowModel { return .init(model: rowModel, provider: nil, source: "this chat") }
-        if let model = options?.model { return .init(model: model, provider: options?.provider, source: "server default") }
+        if let agentDefault = catalog?.agentDefault { return .init(model: agentDefault.model, provider: agentDefault.supplier, source: CurrentModel.agentDefault) }
         return nil
     }
 

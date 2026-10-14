@@ -8,18 +8,20 @@ struct ModelSectionView: View {
     @ObservedObject var cache: BotInfoCache
 
     private var info: BotServerInfo? { cache.info(for: bot.id) }
+    /// A non-Hermes agent shows only the heading, its catalog notes and where the list comes from.
+    private var isHermes: Bool { bot.backend == .hermes }
 
     var body: some View {
         let picker = store.modelPicker(for: bot)
         VStack(alignment: .leading, spacing: 8) {
-            HStack { Text("Model").font(.headline); Spacer(); refreshButton }
+            HStack { Text("Model").font(.headline); Spacer(); if isHermes { refreshButton } }
             current(picker)
             if picker.showsMenu { menu(picker) }
             if let caption = picker.caption { Text(caption).font(.caption2).foregroundStyle(.secondary) }
             ForEach(Array(picker.notes.enumerated()), id: \.offset) { _, note in noteView(note) }
             if let error = info?.modelError { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
             if let footer = picker.footer { Text(footer).font(.caption2).foregroundStyle(.tertiary) }
-            ModelRolesReadout(bot: bot, cache: cache)
+            if isHermes { ModelRolesReadout(bot: bot, cache: cache) }
         }
     }
 
@@ -49,7 +51,7 @@ struct ModelSectionView: View {
             }
         } label: { Text(picker.isSwitching ? "Switching…" : ModelPickerModel.buttonTitle) }
             .menuStyle(.borderlessButton).fixedSize()
-            .help(ModelPickerModel.buttonHelp)
+            .help(picker.unpinHelp ?? "")
             .disabled(picker.groups.isEmpty)
     }
 
