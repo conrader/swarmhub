@@ -47,7 +47,7 @@ extension AppStore {
                 for start in stride(from: remoteTurns.count - count, through: 0, by: -1) {
                     let candidate = remoteTurns[start..<(start + count)]
                     if zip(suffix, candidate).allSatisfy({ local, remote in
-                        local.role.rawValue == remote.element.role && Self.comparable(local.outgoingText) == Self.comparable(remote.element.content)
+                        local.role.rawValue == remote.element.role && Self.sameText(local.outgoingText, remote.element.content)
                     }) {
                         matchedServerEnd = candidate.last!.offset
                         break
@@ -64,6 +64,18 @@ extension AppStore {
     /// Server rows render image parts as `[Image: …]` lines; local messages keep images as attachments.
     static func comparable(_ content: String) -> String {
         content.components(separatedBy: "\n").filter { !($0.hasPrefix("[Image: ") && $0.hasSuffix("]")) }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// P19: text over `HermesBackend.maxTextPartScalars` went out split; a hard cut (a window without a line
+    /// break or space) comes back from the server with one extra `\n`, possibly inside a word, so long texts
+    /// are compared with all whitespace removed. Short texts compare exactly as before.
+    static func sameText(_ local: String, _ remote: String) -> Bool {
+        let left = comparable(local), right = comparable(remote)
+        if left == right { return true }
+        let limit = HermesBackend.maxTextPartScalars
+        guard left.unicodeScalars.count > limit || right.unicodeScalars.count > limit else { return false }
+        func squeezed(_ text: String) -> String { String(String.UnicodeScalarView(text.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) })) }
+        return squeezed(left) == squeezed(right)
     }
 
     static func chatMessage(_ row: BackendMessage) -> ChatMessage? {

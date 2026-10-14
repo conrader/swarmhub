@@ -23,7 +23,7 @@ struct AttachmentTile: View {
     let attachment: ChatAttachment; let size: CGFloat; var remove: (() -> Void)? = nil
     @State private var previewing = false
     var body: some View {
-        Button { previewing = true } label: { tile }.buttonStyle(.plain).help(attachment.name)
+        Button { previewing = true } label: { tile }.buttonStyle(.plain).help(attachment.summary.map { "\(attachment.name)\n\($0)" } ?? attachment.name)
             .overlay(alignment: .topTrailing) {
                 if let remove { Button(action: remove) { Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary).background(Circle().fill(AppColor.chat)) }.buttonStyle(.plain).padding(3).help("Remove") }
             }
@@ -35,10 +35,12 @@ struct AttachmentTile: View {
                 .overlay(RoundedRectangle(cornerRadius: 9).stroke(AppColor.separator, lineWidth: 0.5))
         } else {
             HStack(spacing: 7) {
-                Image(systemName: attachment.kind == .image ? "photo" : "doc.text").foregroundStyle(.secondary)
+                Image(systemName: AttachmentPreview.symbol(for: attachment)).foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(attachment.name).font(.caption.weight(.medium)).lineLimit(1)
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.byteCount), countStyle: .file)).font(.caption2).foregroundStyle(.secondary)
+                    Text(([attachment.documentLabel].compactMap { $0 } + [ByteCountFormatter.string(fromByteCount: Int64(attachment.byteCount), countStyle: .file)]).joined(separator: " · "))
+                        .font(.caption2).foregroundStyle(.secondary)
+                    if let summary = attachment.summary { Text(summary).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
                 }
             }.padding(.horizontal, 10).padding(.vertical, 7).frame(maxWidth: 220, alignment: .leading)
                 .background(AppColor.card, in: RoundedRectangle(cornerRadius: 9)).overlay(RoundedRectangle(cornerRadius: 9).stroke(AppColor.separator, lineWidth: 0.5))
@@ -48,8 +50,25 @@ struct AttachmentTile: View {
         if attachment.kind == .image, let url = store.attachmentURL(attachment), let image = ThumbnailCache.image(at: url) {
             Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 1000, maxHeight: 760)
         } else {
-            ScrollView { Text(attachment.text ?? "").font(.system(.callout, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(14) }.frame(width: 720, height: 520)
+            let shown = AttachmentPreview.capped(attachment.text ?? "")
+            VStack(alignment: .leading, spacing: 8) {
+                if let note = shown.note { Text(note).font(.caption).foregroundStyle(.secondary) }
+                ScrollView { Text(shown.text).font(.system(.callout, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(14) }
+            }.frame(width: 720, height: 520)
         }
+    }
+}
+
+/// P19: document chips and the text preview (the full text is still what is sent).
+enum AttachmentPreview {
+    static let maxPreviewCharacters = 20_000
+    static func symbol(for attachment: ChatAttachment) -> String {
+        attachment.kind == .image || attachment.mimeType.hasPrefix("image/") ? "photo" : DocumentKind(mimeType: attachment.mimeType) != nil ? "doc.richtext" : "doc.text"
+    }
+    static func capped(_ text: String) -> (text: String, note: String?) {
+        let count = text.count
+        guard count > maxPreviewCharacters else { return (text, nil) }
+        return (String(text.prefix(maxPreviewCharacters)), "Showing the first 20,000 of \(count.formatted(.number.locale(Locale(identifier: "en_US")))) characters.")
     }
 }
 

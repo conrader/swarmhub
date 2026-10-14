@@ -3,7 +3,7 @@ import SwiftUI
 /// A group's shared thread: the user's messages and each member's replies under its own avatar.
 struct GroupChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
-    @State private var draft = ""; @State private var pending: [ChatAttachment] = []
+    @State private var draft = ""; @StateObject private var intake = AttachmentIntake()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
 
     var body: some View {
@@ -38,16 +38,17 @@ struct GroupChatView: View {
                 HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
             }
-            ComposerView(text: $draft, attachments: $pending, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingConversation === group,
-                         send: send, stop: store.stop, attach: { pending += store.prepareAttachments($0) },
-                         pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { pending.append(item) } },
+            ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingConversation === group,
+                         send: send, stop: store.stop, attach: { intake.attach($0, store: store) },
+                         pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
+                         reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                          mentionNames: members.map(\.name))
                 .background(AppColor.chat)
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in
                 let files = urls.filter(\.isFileURL)
                 guard !files.isEmpty else { return false }
-                pending += store.prepareAttachments(files); return true
+                intake.attach(files, store: store); return true
             }
             .task(id: group.id) { draft = store.drafts.text(for: group.id) }
             .onChange(of: draft) { _, value in store.drafts.set(value, for: group.id) }
@@ -61,9 +62,9 @@ struct GroupChatView: View {
         message.role == .user ? "you" : message.authorID.flatMap { id in store.bots.first { $0.id == id }?.name } ?? "bot"
     }
     private func send() {
-        let value = draft; guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pending.isEmpty else { return }
+        let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
         let steering = store.isStreaming
-        if store.send(text: value, attachments: steering ? [] : pending, to: group) { draft = ""; if !steering { pending = [] } }
+        if store.send(text: value, attachments: steering ? [] : intake.items, to: group) { draft = ""; if !steering { intake.items = [] } }
     }
 }
 

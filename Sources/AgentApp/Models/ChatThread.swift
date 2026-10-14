@@ -41,11 +41,34 @@ final class ChatThread: ObservableObject, Identifiable, Codable, Conversation {
 }
 
 /// A file attached to a user message. Images are stored downscaled in `attachments/` next to store.json;
-/// small text files are kept inline because they are sent as a fenced block anyway.
+/// small text files are kept inline because they are sent as a fenced block anyway. P19: a PDF, RTF, DOC
+/// or DOCX is a `.text` attachment with its document MIME type, the text read on the Mac, its page count
+/// and a one-line summary (no new `Kind`, so older builds still decode it).
 struct ChatAttachment: Identifiable, Codable, Equatable, Sendable {
     enum Kind: String, Codable, Sendable { case image, text }
     let id: UUID; let kind: Kind; let name: String; let mimeType: String; let byteCount: Int
     var fileName: String? = nil; var text: String? = nil
+    var pageCount: Int? = nil; var summary: String? = nil
+}
+
+extension ChatAttachment {
+    enum CodingKeys: String, CodingKey { case id, kind, name, mimeType, byteCount, fileName, text, pageCount, summary }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id); kind = try c.decode(Kind.self, forKey: .kind); name = try c.decode(String.self, forKey: .name)
+        mimeType = try c.decode(String.self, forKey: .mimeType); byteCount = try c.decode(Int.self, forKey: .byteCount)
+        fileName = try c.decodeIfPresent(String.self, forKey: .fileName); text = try c.decodeIfPresent(String.self, forKey: .text)
+        pageCount = try c.decodeIfPresent(Int.self, forKey: .pageCount); summary = try c.decodeIfPresent(String.self, forKey: .summary)
+    }
+
+    /// Documents read on the Mac (PDF, RTF, DOC, DOCX), told apart from plain text files by MIME type.
+    var isDocument: Bool { kind == .text && DocumentKind(mimeType: mimeType) != nil }
+    /// "12 pages" for a PDF, else the format ("DOCX").
+    var documentLabel: String? {
+        guard let document = DocumentKind(mimeType: mimeType) else { return nil }
+        if let pageCount { return pageCount == 1 ? "1 page" : "\(pageCount) pages" }
+        return document.label
+    }
 }
 
 extension ChatMessage {

@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft = ""
-    @State private var pending: [ChatAttachment] = []
+    @StateObject private var intake = AttachmentIntake()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     var body: some View {
         let thread = store.openThread(in: bot)
@@ -56,8 +56,9 @@ struct ChatView: View {
                 AddKeyBanner(bot: bot).frame(maxWidth: .infinity).background(AppColor.chat)
             } else {
                 if store.isManager(bot) { BotOffersCard(manager: bot).padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat) }
-                ComposerView(text: $draft, attachments: $pending, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingBotID == bot.id,
-                             send: send, stop: store.stop, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { pending.append(item) } },
+                ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingBotID == bot.id,
+                             send: send, stop: store.stop, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
+                             reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                              manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.allCases : [], manage: manage)
                     .background(AppColor.chat)
             }
@@ -77,11 +78,11 @@ struct ChatView: View {
         guard let fill = store.composerFill, fill.botID == bot.id else { return }
         draft = fill.text; store.composerFill = nil
     }
-    private func attach(_ urls: [URL]) { pending += store.prepareAttachments(urls) }
+    private func attach(_ urls: [URL]) { intake.attach(urls, store: store) }
     private func send() {
-        let value = draft; guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pending.isEmpty else { return }
+        let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
         let steering = store.isStreaming
-        if store.send(text: value, attachments: steering ? [] : pending) { draft = ""; if !steering { pending = [] } }
+        if store.send(text: value, attachments: steering ? [] : intake.items) { draft = ""; if !steering { intake.items = [] } }
     }
 }
 

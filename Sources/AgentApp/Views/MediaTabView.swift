@@ -32,7 +32,7 @@ struct MediaTabView: View {
         } else if item.kind == .image, let url = item.url {
             RemoteOrDataImage(url: url, maxWidth: 40, maxHeight: 40)
         } else {
-            Image(systemName: item.kind == .link ? "link" : item.kind == .image ? "photo" : "doc").foregroundStyle(.secondary)
+            Image(systemName: item.kind == .link ? "link" : item.kind == .image ? "photo" : item.attachment.map { DocumentKind(mimeType: $0.mimeType) != nil } == true ? "doc.richtext" : "doc").foregroundStyle(.secondary)
         }
     }
 }

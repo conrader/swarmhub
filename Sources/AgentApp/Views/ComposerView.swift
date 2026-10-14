@@ -8,6 +8,9 @@ struct ComposerView: View {
     let isStreaming: Bool; var canSteer = false
     let send: () -> Void; let stop: () -> Void
     var attach: ([URL]) -> Void = { _ in }; var pasteImage: (Data, String) -> Void = { _, _ in }
+    /// P19: files still being read ("Reading PDF…" chips; Send waits for them) and chip removal.
+    var reading: [AttachmentIntake.Reading] = []; var cancelReading: (UUID) -> Void = { _ in }
+    var removeAttachment: ((ChatAttachment) -> Void)? = nil
     /// Group chats: member names offered when the user types `@` (Return or Tab picks the first).
     var mentionNames: [String] = []
     /// P22: the manager bot's chat offers the Manage bots menu (each item fills this composer with a plain request).
@@ -28,18 +31,25 @@ struct ComposerView: View {
                     }
                 }.padding(4).background(AppColor.card, in: RoundedRectangle(cornerRadius: 9)).overlay(RoundedRectangle(cornerRadius: 9).stroke(AppColor.separator, lineWidth: 0.5)).frame(maxWidth: 260)
             }
-            if !attachments.isEmpty {
-                ScrollView(.horizontal) { HStack(spacing: 6) { ForEach(attachments) { attachment in AttachmentTile(attachment: attachment, size: 64) { attachments.removeAll { $0.id == attachment.id } } } } }
+            if !attachments.isEmpty || !reading.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 6) {
+                        ForEach(attachments) { attachment in
+                            AttachmentTile(attachment: attachment, size: 64) { if let removeAttachment { removeAttachment(attachment) } else { attachments.removeAll { $0.id == attachment.id } } }
+                        }
+                        ForEach(reading) { item in ReadingChip(label: item.label) { cancelReading(item.id) } }
+                    }
+                }
             }
             HStack(alignment: .bottom, spacing: 7) {
-                Button { importing = true } label: { Image(systemName: "paperclip").frame(width: 28, height: 28) }.buttonStyle(.plain).foregroundStyle(.secondary).help("Attach images or text files")
+                Button { importing = true } label: { Image(systemName: "paperclip").frame(width: 28, height: 28) }.buttonStyle(.plain).foregroundStyle(.secondary).help("Attach PNG, JPEG, GIF, WebP, PDF, RTF, DOC, DOCX and text files")
                 if !manageActions.isEmpty { ManageBotsMenu(actions: manageActions, perform: manage) { Image(systemName: "plus").frame(width: 28, height: 28) } }
                 TextEditor(text: $text).font(.body).scrollContentBackground(.hidden).frame(height: 30).padding(.vertical, 2).focused($focused)
                     .overlay(alignment: .topLeading) { if text.isEmpty { Text(isStreaming && canSteer ? "Steer the running reply…" : "Message " + AppConstants.name + "…").foregroundStyle(.tertiary).allowsHitTesting(false).padding(.top, 5).padding(.leading, 5) } }
                     .onKeyPress(.return, phases: .down) { press in
                         if press.modifiers.contains(.shift) { return .ignored }
                         if let first = suggestions.first { text = GroupRouting.complete(text, with: first); return .handled }
-                        if !isStreaming || canSteer { send() }; return .handled
+                        if (!isStreaming || canSteer) && reading.isEmpty { send() }; return .handled
                     }
                     .onKeyPress(.tab) { guard let first = suggestions.first else { return .ignored }; text = GroupRouting.complete(text, with: first); return .handled }
                 if isStreaming && canSteer && hasContent {
@@ -51,7 +61,7 @@ struct ComposerView: View {
                         .buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.primary).help("Stop response")
                 } else {
                     Button(action: send) { Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold)).frame(width: 28, height: 28) }
-                        .buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.primary).disabled(!hasContent)
+                        .buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.primary).disabled(!hasContent || !reading.isEmpty)
                 }
             }
         }.padding(8).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 16).stroke(AppColor.separator, lineWidth: 0.5))
@@ -78,4 +88,17 @@ struct ComposerView: View {
         }
     }
     private func removePasteMonitor() { if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }; pasteMonitor = nil }
+}
+
+/// A file still being read: text only (no spinner, no animation); the remove button cancels the read.
+private struct ReadingChip: View {
+    let label: String; let cancel: () -> Void
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "doc.richtext").foregroundStyle(.secondary)
+            Text(label).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            Button(action: cancel) { Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary) }.buttonStyle(.plain).help("Stop reading")
+        }.padding(.horizontal, 10).padding(.vertical, 7)
+            .background(AppColor.card, in: RoundedRectangle(cornerRadius: 9)).overlay(RoundedRectangle(cornerRadius: 9).stroke(AppColor.separator, lineWidth: 0.5))
+    }
 }
