@@ -29,6 +29,7 @@ Hermes is supported now; OpenClaw integration is planned.
 - **Images and files:** share images and text files; find chat images and links in Media.
 - **Routines:** schedule recurring tasks and receive their results in chat.
 - **Agent overview:** see skills, tools, and available models.
+- **Models per agent:** configure conversation and coding choices separately for each agent, such as Codex for conversation and Claude Code for coding. Conversation settings are available now; coding settings are planned.
 - **Approvals:** approve or decline requests and set policies for each agent.
 
 Available features depend on what your connected server supports.
