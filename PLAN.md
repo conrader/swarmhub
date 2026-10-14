@@ -9,20 +9,18 @@ Grok Bot is Cursor's hosted Mac agent app; SwarmHub reproduces its features on t
 Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `grok-<slug>`
 (SOUL, skills, imported history), served at `https://konrad.agenthut.net/p/grok-<slug>/`.
 
-## Open work (kept current by Claude; last audit 2026-10-14 08:30 UTC)
+## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 merged 20538ee)
 
 Everything planned that is not merged yet, so nobody has to remember it. Built = merged into `main`.
 **Konrad 2026-10-14: "Build all, defaults"** — every row below is accepted with the recommended defaults (P16, P17, P21, P12 included; P13 Part C's live step has his go). Order: P23 → P19 → P24 → P10c → P10d → P10e → P13 C → D → E → P16 → P21 → P17 → P12; each merged when green; Claude reports results, comes back only for a real blocker.
 
 | What | State | Next step |
 |---|---|---|
-| P23 Codex's menus/shortcuts + app icon, P20 sidebar | built on `p23`, final fix run on the MacBook | merge when green, delete `p23` + `codex/menu-shortcuts-snapshot` |
 | P19 PDF / DOCX / RTF attachments | building now (`p19`, MacBook) | merge when green, install |
 | Hermes 0.22.0 on Konrad's box (+ `/v1/skills` fix) | release session running | canary on Konrad's box, verify, report |
-| Automatic updates (Sparkle) | code merged with P23; no signing key yet | create key, release v0.4.1 on GitHub, prove an update with v0.4.2 |
-| README: bot management, shortcuts, versions, updates | not done | after P23 merge |
-| P24 Hermes version per box + calm skills note | accepted, not started | after P23 |
-| Bug: double-clicking the top bar does not zoom the window (Konrad 2026-10-14) | not fixed | in the P24 run: the custom top row must honour the macOS setting (`AppleActionOnDoubleClick`: Zoom / Minimize / None) on empty top-bar space in every pane, not on buttons |
+| Automatic updates (Sparkle) | code merged (20538ee); no signing key yet | after P19+P24: create key, release v0.4.1 on GitHub, prove an update with v0.4.2 |
+| README: automatic updates line | bot management, shortcuts, versions done (dcbf703) | add once v0.4.1 is published |
+| P24 Hermes version per box + calm skills note + double-click zoom | building (`p24`, MacBook) | merge when green |
 | P10c / P10d / P10e Grok import in the app (command, sheet, live) | P10.0/a/b merged, c/d/e never started | build in order |
 | P13 Parts C / D / E model roles (prove, existing chats, sub-agents) | Parts A+B merged, C/D/E never started | queued; Part C live step has Konrad's go |
 | P16 No reply is lost | accepted (build all) | queued |
