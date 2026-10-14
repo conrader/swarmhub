@@ -61,7 +61,7 @@ import SwiftUI
                         ChatMessage(role: .assistant, content: "Here is the summary: revenue is up 8 %, two hires are pending, and the venue contract needs a decision by Friday.",
                                     createdAt: now.addingTimeInterval(-240), turnState: .finished),
                         ChatMessage(role: .user, content: "Keep it to three bullet points", createdAt: now.addingTimeInterval(-238), metadata: [SteerKey.steer: "failed"]),
-                        ChatMessage(role: .system, content: "Steer not delivered: The answer ended first.", createdAt: now.addingTimeInterval(-237))]
+                        ChatMessage(role: .system, content: SteerCopy.endedFirst, createdAt: now.addingTimeInterval(-237), metadata: [TurnKey.tone: "warning"])]
         store.bots = [ada]; store.selectedBot = ada
         write(names[4], await png(AnyView(ChatView(bot: ada)), store, NSSize(width: 820, height: 620)))
     }

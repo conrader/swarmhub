@@ -26,6 +26,7 @@ import Testing
     #expect(caption(["steer": "queued"]) == "Delivered after the current step")
     #expect(caption(["steer": "delivered"]) == "Delivered")
     #expect(caption(["steer": "failed"]) == "Steer not delivered")
+    #expect(SteerCopy.endedFirst == "The answer ended first.", "the line under a failed steer gives only the reason")
     #expect(caption(["correction": "stopping"]) == "Stopping the answer…")
     #expect(caption(["correction": "stopped"]) == "Stopped the answer and sent your correction")
     #expect(caption(["correction": "followup"]) == "Sent after the answer finished")

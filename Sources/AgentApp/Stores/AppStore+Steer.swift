@@ -24,7 +24,8 @@ enum SteerCopy {
     static let placeholder = "Add to this answer…"
     static let hint = "Corrections land after the current step, or stop the answer and continue."
     static let stopFailed = "Couldn't stop the answer, so your correction will land after the current step."
-    static let endedFirst = "Steer not delivered: the answer ended first."
+    /// The status line under a failed steer: only the reason (the bubble's caption already says "Steer not delivered").
+    static let endedFirst = "The answer ended first."
     static let sendAsNext = "Send as next message"
 
     /// The caption over a steer or correction bubble; nil for any other message.
@@ -101,7 +102,7 @@ extension AppStore {
             } catch {
                 message.metadata[SteerKey.steer] = "failed"
                 for key in turns.steers.keys { turns.steers[key]?.bubbles.removeAll { $0 === message } }
-                conversation.messages.append(ChatMessage(role: .system, content: "Steer not delivered: \(error.localizedDescription)"))
+                addWarning(error.localizedDescription, in: conversation, after: message)
             }
             objectWillChange.send(); save()
         }
