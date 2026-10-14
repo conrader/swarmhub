@@ -6,6 +6,8 @@ import SwiftUI
 struct ComposerView: View {
     @Binding var text: String; @Binding var attachments: [ChatAttachment]
     let isStreaming: Bool; var canSteer = false
+    /// P28 D2: a one-time caption under the composer after the first steer.
+    var hint: String? = nil
     let send: () -> Void; let stop: () -> Void
     var attach: ([URL]) -> Void = { _ in }; var pasteImage: (Data, String) -> Void = { _, _ in }
     /// P19: files still being read ("Reading PDF…" chips; Send waits for them) and chip removal.
@@ -45,7 +47,7 @@ struct ComposerView: View {
                 Button { importing = true } label: { Image(systemName: "paperclip").frame(width: 28, height: 28) }.buttonStyle(.plain).foregroundStyle(.secondary).help("Attach PNG, JPEG, GIF, WebP, PDF, RTF, DOC, DOCX and text files")
                 if !manageActions.isEmpty { ManageBotsMenu(actions: manageActions, perform: manage) { Image(systemName: "plus").frame(width: 28, height: 28) } }
                 TextEditor(text: $text).font(.body).scrollContentBackground(.hidden).frame(height: 30).padding(.vertical, 2).focused($focused)
-                    .overlay(alignment: .topLeading) { if text.isEmpty { Text(isStreaming && canSteer ? "Steer the running reply…" : "Message " + AppConstants.name + "…").foregroundStyle(.tertiary).allowsHitTesting(false).padding(.top, 5).padding(.leading, 5) } }
+                    .overlay(alignment: .topLeading) { if text.isEmpty { Text(isStreaming && canSteer ? SteerCopy.placeholder : "Message " + AppConstants.name + "…").foregroundStyle(.tertiary).allowsHitTesting(false).padding(.top, 5).padding(.leading, 5) } }
                     .onKeyPress(.return, phases: .down) { press in
                         if press.modifiers.contains(.shift) { return .ignored }
                         if let first = suggestions.first { text = GroupRouting.complete(text, with: first); return .handled }
@@ -54,7 +56,7 @@ struct ComposerView: View {
                     .onKeyPress(.tab) { guard let first = suggestions.first else { return .ignored }; text = GroupRouting.complete(text, with: first); return .handled }
                 if isStreaming && canSteer && hasContent {
                     Button(action: send) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)).frame(width: 28, height: 28) }
-                        .buttonStyle(.bordered).buttonBorderShape(.circle).help("Steer the running reply")
+                        .buttonStyle(.bordered).buttonBorderShape(.circle).help("Add to this answer")
                 }
                 if isStreaming {
                     Button(action: stop) { Image(systemName: "stop.fill").font(.system(size: 10, weight: .semibold)).frame(width: 28, height: 28) }
@@ -64,6 +66,7 @@ struct ComposerView: View {
                         .buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.primary).disabled(!hasContent || !reading.isEmpty)
                 }
             }
+            if let hint { Text(hint).font(.caption).foregroundStyle(.secondary).padding(.leading, 35) }
         }.padding(8).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 16).stroke(AppColor.separator, lineWidth: 0.5))
             .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 14).frame(maxWidth: 768)
             .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in

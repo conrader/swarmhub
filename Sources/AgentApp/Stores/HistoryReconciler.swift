@@ -126,9 +126,15 @@ enum HistoryReconciler {
         let isUser: (LocalRow) -> Bool = { $0.role == .user && $0.isTextTurn }
         switch mode {
         case .chat:
+            // P28 D5: a delivered steer followed by a reply part starts a turn of its own (the box keeps the steer as its own
+            // user row); older steer bubbles, which no part follows, stay outside the turns.
+            func startsPart(_ position: Int) -> Bool {
+                local[position].role == .user && local[position].metadata[SteerKey.steer] == "delivered"
+                    && local[(position + 1)...].first { $0.role == .assistant }?.metadata[TurnKey.part] != nil
+            }
             var turns: [LocalTurn] = []
             for (position, row) in local.enumerated() {
-                if isUser(row) { turns.append(.init(position: position, user: row, reply: nil)) }
+                if isUser(row) || startsPart(position) { turns.append(.init(position: position, user: row, reply: nil)) }
                 else if row.role == .assistant, row.isTextTurn, row.authorID == nil, !turns.isEmpty, turns[turns.count - 1].reply == nil {
                     turns[turns.count - 1].reply = row
                 }

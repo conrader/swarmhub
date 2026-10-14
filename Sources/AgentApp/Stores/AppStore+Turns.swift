@@ -18,32 +18,39 @@ import Foundation
     var didLaunchRecovery = false; var roundsAtLaunch: Set<UUID> = []
     var pathDown = false
     var connectivityTask: Task<Void, Never>?; var terminateObserver: NSObjectProtocol?
+    /// P28: queued steers per turn (keyed by the turn's first reply row), the row a split turn now streams into, and the
+    /// turn whose answer is being stopped for a correction.
+    var steers: [UUID: PendingSteer] = [:]; var parts: [UUID: ChatMessage] = [:]; var correcting: UUID?
 }
 
 /// P16 Part 2: one stream consumer and one `finishTurn` for both send paths.
 extension AppStore {
-    /// Reads the stream into `assistant`. Returns how it ended; throws what the backend threw (and cancellation).
+    /// Reads the stream into `assistant` (and the parts a delivered steer opens after it, `endTurnParts`). Returns how it ended; throws what the backend threw (and cancellation).
     func consumeTurn(_ stream: AsyncThrowingStream<AgentEvent, Error>, assistant: ChatMessage, bot: Bot, sessionID: String, backend activeBackend: any AgentBackend,
                      subAgent: (SubAgentTask) -> Void) async throws -> TurnEnd {
         var completed = false; var boxFailure: String?; var sawEvent = false
+        // P28 D5: a delivered steer moves the rest of the reply into a new row below its bubble.
+        var row = assistant
         for try await event in stream {
             guard !Task.isCancelled else { break }
             if !sawEvent {
                 sawEvent = true
                 if let run = await activeBackend.currentRunID(sessionID: sessionID) { assistant.metadata[TurnKey.run] = run }
             }
+            row = steerRow(for: event, origin: assistant, row: row)
             switch event {
-            case .token(let token): assistant.content += token; assistant.lastTextAt = now(); objectWillChange.send(); autosaveIfDue()
-            case .replace(let text): assistant.content = text; assistant.lastTextAt = now(); objectWillChange.send(); autosaveIfDue()
-            case .status(let value): if assistant.content.isEmpty { assistant.metadata["status"] = value }
+            case .token(let token): row.content += token; row.lastTextAt = now(); objectWillChange.send(); autosaveIfDue()
+            case .replace(let text): row.content = text; row.lastTextAt = now(); objectWillChange.send(); autosaveIfDue()
+            case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
-                if assistant.content.isEmpty, ToolActivity.isShown(tool.name) { assistant.metadata["status"] = tool.name }
-                var activity = assistant.activity ?? ToolActivity(); activity.apply(tool, at: now())
-                if activity.total > 0 { assistant.activity = activity }
+                if row.content.isEmpty, ToolActivity.isShown(tool.name) { row.metadata["status"] = tool.name }
+                var activity = row.activity ?? ToolActivity(); activity.apply(tool, at: now())
+                if activity.total > 0 { row.activity = activity }
             case .subAgent(let task): subAgent(task)
             case .approval(var request):
                 request.botID = bot.id; request.profile = bot.hermesProfile ?? "default"; request.sessionID = sessionID
                 await routeApproval(request, for: bot, backend: activeBackend)
+            case .steer: break
             case .completed: completed = true
             case .failed(let value): boxFailure = value
             }
@@ -122,6 +129,7 @@ extension AppStore {
             end = .error(refusal)
         } catch { end = .error(error) }
         if Task.isCancelled { end = .stoppedByUser }
+        let (assistant, steers) = endTurnParts(assistant)
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
         let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation, backend: activeBackend)
@@ -140,6 +148,7 @@ extension AppStore {
             AvatarReactions.shared.completed(bot)
             notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.content))
         }
+        resendReturnedSteers(steers, bot: bot)
     }
 
     /// History for a 1:1 turn: the transcript up to and including `last`, without steer bubbles, warning lines and empty replies.

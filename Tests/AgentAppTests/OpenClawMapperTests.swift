@@ -25,6 +25,7 @@ private func render(_ events: [AgentEvent]) -> [String] {
         case .failed(let text): "failed:\(text)"
         case .approval: "approval"
         case .subAgent: "subagent"
+        case .steer: "steer"
         }
     }
 }

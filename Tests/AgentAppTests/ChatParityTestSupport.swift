@@ -57,13 +57,16 @@ actor ChatParityBackend: AgentBackend {
     let flags: Set<String>
     nonisolated let calls = AwaitableLog<String>()
     private(set) var sentImages: [[String]] = []
-    init(flags: Set<String>) { self.flags = flags }
+    /// What each stream yields before it hangs (P28: a running tool step makes a steer queue instead of Stop and send).
+    let opening: [AgentEvent]
+    init(flags: Set<String>, opening: [AgentEvent] = [.token("working")]) { self.flags = flags; self.opening = opening }
     func sessionTransport() async throws -> HermesTransport? { .nativeSessions }
     func features() async throws -> Set<String> { flags }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         sentImages.append(request.images); calls.append("send:\(request.sessionID):\(request.messages.last?.content ?? "")")
         return AsyncThrowingStream { continuation in
-            let task = Task { continuation.yield(.token("working")); await hangUntilCancelled(); continuation.finish() }
+            let opening = self.opening
+            let task = Task { opening.forEach { continuation.yield($0) }; await hangUntilCancelled(); continuation.finish() }
             continuation.onTermination = { _ in task.cancel() }
         }
     }

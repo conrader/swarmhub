@@ -105,7 +105,7 @@ extension AppStore {
         guard !members.isEmpty else { errorMessage = "Add bots to this group first."; return false }
         let images: [String]
         do { images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
-        let recipients = GroupRouting.recipients(of: text, members: members)
+        let recipients = GroupRouting.recipients(of: text, members: members); steerHint = nil
         let message = ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)
         group.messages.append(message); replyTo = nil
         group.round = GroupRound(userMessageID: message.id, remaining: recipients, active: nil)
@@ -118,13 +118,15 @@ extension AppStore {
         return true
     }
 
-    /// Text typed while a member answers steers that member's running turn (`run_steer`).
+    /// Text typed while a member answers steers that member's running turn (`run_steer`). P28: always queued here (Stop
+    /// would end the whole round); the reply continues below the bubble once the steer lands (D5).
     func steer(text: String, attachments: [ChatAttachment], group: GroupChat) -> Bool {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard steerAvailable, streamingConversation === group, let sessionID = group.hermesSessionID,
               let bot = streamingBotID.flatMap({ id in bots.first { $0.id == id } }) else { return false }
         guard attachments.isEmpty else { errorMessage = "Attachments can’t be added to a running turn; send them after it finishes."; return false }
         guard !value.isEmpty, let activeBackend = try? backend(for: bot) else { return false }
+        noteFirstSteer()
         deliverSteer(value, into: group, sessionID: sessionID, backend: activeBackend)
         return true
     }

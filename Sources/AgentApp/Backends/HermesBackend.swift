@@ -388,6 +388,7 @@ struct HermesBackend: AgentBackend {
         case "subagent.complete": continuation.yield(.subAgent(.init(id: UUID(), title: json["task"] as? String ?? "Delegated task", detail: json["summary"] as? String ?? "", status: (json["status"] as? String) == "completed" ? .completed : .failed)))
         case "assistant.completed":
             if !emittedAssistantDelta, let content = json["content"] as? String, !content.isEmpty { continuation.yield(.token(content)) }
+            if let text = json["pending_steer"] as? String, !text.isEmpty { continuation.yield(.steer(.returned(text))) }
             continuation.yield(.completed)
         case "approval.request":
             // v0.21.7 emits `command` at the top level. Pollable run status and some
@@ -413,7 +414,11 @@ struct HermesBackend: AgentBackend {
             let requestID = (identity["request_id"] as? String) ?? (json["request_id"] as? String)
             let actionKind = firstNonempty("action_kind")?.0 ?? firstNonempty("tool_name")?.0 ?? firstNonempty("action")?.0 ?? "command"
             continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command ?? displayCommandSource?.0 ?? "Command unknown", draft: nil, command: command, runID: runID, requestID: requestID, actionKind: actionKind)))
-        case "run.completed": continuation.yield(.completed)
+        case "run.completed":
+            if let text = json["pending_steer"] as? String, !text.isEmpty { continuation.yield(.steer(.returned(text))) }
+            continuation.yield(.completed)
+        // P28: the box queued a steer for this run (it lands after the current tool batch).
+        case "run.steered": continuation.yield(.steer(.accepted))
         // The box closed the run without a full answer (another client's Stop); the reconcile reads what it kept.
         case "run.cancelled": continuation.yield(.failed("The box cancelled this run."))
         case "run.failed", "error": continuation.yield(.failed(json["error"] as? String ?? json["message"] as? String ?? "Hermes run failed."))

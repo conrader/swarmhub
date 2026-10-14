@@ -78,8 +78,9 @@ extension AppStore {
             group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(refusal.text)")); end = .error(refusal); refused = true
         } catch { end = .error(error) }
         if Task.isCancelled || run.stopped, case .completed = end {} else if Task.isCancelled || run.stopped { end = .stoppedByUser }
-        if case .stoppedByUser = end, assistant.turnState != .stopped { assistant.turnState = .stopped; assistant.metadata[TurnKey.why] = "stopped" }
-        let outcome = finishTurn(end, assistant: assistant, bot: bot, in: group, backend: activeBackend, alertPrefix: "\(bot.name): ", warn: !refused, alert: !refused)
+        let (reply, steers) = endTurnParts(assistant)
+        if case .stoppedByUser = end, reply.turnState != .stopped { reply.turnState = .stopped; reply.metadata[TurnKey.why] = "stopped" }
+        let outcome = finishTurn(end, assistant: reply, bot: bot, in: group, backend: activeBackend, alertPrefix: "\(bot.name): ", warn: !refused, alert: !refused)
         let cancelled = outcome.state == .stopped
         let session = group.session(for: bot.id) ?? wanted
         let abandoned = approvals.filter { $0.botID == bot.id && $0.sessionID == session }
@@ -89,12 +90,13 @@ extension AppStore {
         approvals.removeAll { abandoned.map(\.id).contains($0.id) }
         group.activeMemberID = nil
         if activeStreamToken == token { steerAvailable = false }
-        let reply = assistant.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !reply.isEmpty && (outcome.state == .finished || outcome.state == .incomplete) && selectedGroup?.id != group.id { group.unreadCount += 1 }
-        if outcome.state == .finished && !reply.isEmpty {
+        let text = reply.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty && (outcome.state == .finished || outcome.state == .incomplete) && selectedGroup?.id != group.id { group.unreadCount += 1 }
+        if outcome.state == .finished && !text.isEmpty {
             AvatarReactions.shared.completed(bot)
-            notifyIfNeeded(group: group, bot: bot, message: reply)
+            notifyIfNeeded(group: group, bot: bot, message: text)
         }
+        resendReturnedSteers(steers, bot: nil)
         objectWillChange.send(); save()
         return outcome
     }
