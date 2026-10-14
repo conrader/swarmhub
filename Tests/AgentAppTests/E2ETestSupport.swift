@@ -37,15 +37,19 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         private let steerSignal = NSCondition()
         init(features: [String: Bool]) { self.features = features }
         func with<T>(_ body: (State) -> T) -> T { lock.lock(); defer { lock.unlock() }; return body(self) }
+        /// P28: runs stopped through `POST /v1/runs/{id}/stop`.
+        var stoppedRuns: Set<String> = []
         func markSteered(_ run: String) { with { _ = $0.steeredRuns.insert(run) }; steerSignal.lock(); steerSignal.broadcast(); steerSignal.unlock() }
-        /// Blocks until `run` is steered (woken by `markSteered`, no polling) or `deadline` passes.
+        func markStopped(_ run: String) { with { _ = $0.stoppedRuns.insert(run) }; steerSignal.lock(); steerSignal.broadcast(); steerSignal.unlock() }
+        /// Blocks until `run` is steered or stopped (woken by `markSteered`/`markStopped`, no polling) or `deadline` passes.
         func waitForSteer(of run: String, until deadline: Date) -> Bool {
             steerSignal.lock(); defer { steerSignal.unlock() }
-            while !with({ $0.steeredRuns.contains(run) }) {
-                if !steerSignal.wait(until: deadline) { return with { $0.steeredRuns.contains(run) } }
+            while !with({ $0.steeredRuns.contains(run) || $0.stoppedRuns.contains(run) }) {
+                if !steerSignal.wait(until: deadline) { break }
             }
-            return true
+            return with { $0.steeredRuns.contains(run) }
         }
+        func isStopped(_ run: String) -> Bool { with { $0.stoppedRuns.contains(run) } }
         func requests() -> [(method: String, path: String, body: [String: Any]?)] { with { $0.log } }
     }
     enum RuntimeShape { case full, empty, absent, wrongTypes }
@@ -120,15 +124,19 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
             guard state.with({ $0.features["run_steer"] == true }) else { return send(404, ["error": "no route"]) }
             state.markSteered(path[2])
             send(202, ["accepted": true])
+        case ("POST", let path) where path.count == 4 && path[0...1] == ["v1", "runs"] && path[3] == "stop":
+            state.markStopped(path[2])
+            send(200, ["object": "hermes.run.stop", "run_id": path[2], "status": "stopping"])
         case ("POST", let path) where path.count == 5 && path[0...1] == ["api", "sessions"] && path[3...] == ["chat", "stream"]:
             stream(input: body?["input"] as? String ?? "", runtime: Self.runtime(session: path[2], state: state), state: state)
         default: send(404, ["error": "no route"])
         }
     }
 
-    /// "Count…" streams "1", then holds the run until it is steered (the ceiling only bounds a hang). Without `run_steer`
-    /// no steer can come, so the count ends on its own after 5 s, ample time for the client to see "1" and try.
-    /// Anything else answers its `exactly: E2E-…` token.
+    /// "Count…" streams "1", then holds the run until it is steered or stopped (the ceiling only bounds a hang). Without
+    /// `run_steer` no steer can come, so the count ends on its own after 5 s, ample time for the client to see "1" and try.
+    /// "sleep 15" (b2) starts a terminal step and holds it until steered; then `run.steered`, the step's end and the
+    /// steered text. Anything else answers its `exactly: E2E-…` token.
     /// `{provider, model, route_source, requested, model_lock}` as `run.started` carries it (both versions).
     private static func runtime(session: String, state: State) -> [String: Any]? {
         state.with { state in
@@ -150,6 +158,19 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         respond(200, contentType: "text/event-stream")
         var started: [String: Any] = ["run_id": run]; started["runtime"] = runtime
         client?.urlProtocol(self, didLoad: Self.event("run.started", started))
+        if input.contains("sleep 15") {
+            client?.urlProtocol(self, didLoad: Self.event("tool.started", ["run_id": run, "tool_name": "terminal", "preview": "sleep 15; echo E2E-TOOL", "tool_call_id": "call-1"]))
+            DispatchQueue.global().async { [self] in
+                let hold = state.with { $0.features["run_steer"] == true } ? Double(waitCeiling.components.seconds) : 5
+                let steered = state.waitForSteer(of: run, until: Date(timeIntervalSinceNow: hold))
+                var data = steered ? Self.event("run.steered", ["run_id": run, "accepted": true]) : Data()
+                data += Self.event("tool.completed", ["run_id": run, "tool_name": "terminal", "tool_call_id": "call-1"])
+                data += Self.event("assistant.delta", ["run_id": run, "delta": steered ? "E2E-STEER" : "1\n2"]) + Self.event("run.completed", ["run_id": run])
+                client?.urlProtocol(self, didLoad: data)
+                client?.urlProtocolDidFinishLoading(self)
+            }
+            return
+        }
         guard input.contains("Count slowly") else {
             let token = input.range(of: #"E2E-[A-Z]+"#, options: .regularExpression).map { String(input[$0]) } ?? "?"
             client?.urlProtocol(self, didLoad: Self.event("assistant.delta", ["run_id": run, "delta": token]) + Self.event("run.completed", ["run_id": run]))
@@ -160,7 +181,10 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
             let canSteer = state.with { $0.features["run_steer"] == true }
             let hold = canSteer ? Double(waitCeiling.components.seconds) : 5
             let steered = state.waitForSteer(of: run, until: Date(timeIntervalSinceNow: hold))
-            client?.urlProtocol(self, didLoad: Self.event("assistant.delta", ["run_id": run, "delta": steered ? "E2E-STEER" : "2\n3"]) + Self.event("run.completed", ["run_id": run]))
+            if state.isStopped(run) { client?.urlProtocol(self, didLoad: Self.event("run.cancelled", ["run_id": run])) }
+            // A steer during text waits for a tool batch that never comes: the box hands it back unread (Hermes 0.22.0).
+            else if steered { client?.urlProtocol(self, didLoad: Self.event("assistant.delta", ["run_id": run, "delta": "2\n3"]) + Self.event("run.completed", ["run_id": run, "pending_steer": "steer"])) }
+            else { client?.urlProtocol(self, didLoad: Self.event("assistant.delta", ["run_id": run, "delta": "2\n3"]) + Self.event("run.completed", ["run_id": run])) }
             client?.urlProtocolDidFinishLoading(self)
         }
     }
