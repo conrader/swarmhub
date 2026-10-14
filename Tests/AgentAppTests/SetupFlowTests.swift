@@ -12,7 +12,8 @@ private let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent
     #expect(flow.step == .welcome && flow.canSkip && !flow.canGoBack)
     flow.apply(.newHosted); #expect(flow.step == .hosting && flow.canGoBack && !flow.canSkip)
     flow.apply(.back); #expect(flow.step == .welcome)
-    flow.apply(.connectExisting); #expect(flow.step == .address && flow.canGoBack)
+    flow.apply(.connectExisting); #expect(flow.step == .software && flow.canGoBack)
+    flow.apply(.pick(.hermes)); #expect(flow.step == .address && flow.canGoBack)
     flow.apply(.test(.init(outcome: .unreachable))); #expect(flow.step == .address, "a failed Test stays on the address step")
     let box = URL(string: "https://my-box.example.com")!
     let found = SetupCheckResult(outcome: .connected(place: "my-box.example.com", count: 2), baseURL: box,
@@ -40,17 +41,21 @@ private let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent
     #expect(!same.movesAddress && same.canAdd)
 }
 
-@Test func openClawIsPointedToSettingsAndCannotBeChosenHere() {
-    #expect(!OpenClawBackend.isImplemented && !SetupFlow.offersSoftwareChoice)
-    #expect(SetupFlow.Step.allCases == [.welcome, .hosting, .address, .choose, .done], "no software step until it has an OpenClaw connect screen (P12 connects in Settings)")
-    #expect(SetupCopy.softwareNames == [SetupCopy.softwareLine] && SetupCopy.softwareLine.contains("OpenClaw: add it later in Settings → Advanced."))
+@Test func openClawCanBeChosenAndConnectedHere() {
+    // P25 replaces P21's "OpenClaw: add it later in Settings → Advanced": the software step and its connect screen exist.
+    #expect(OpenClawBackend.isImplemented && SetupFlow.offersSoftwareChoice)
+    #expect(SetupFlow.Step.allCases == [.welcome, .hosting, .software, .address, .openClaw, .choose, .done])
+    #expect(SetupCopy.softwareLine == "Works with Hermes and OpenClaw.")
+    #expect(SetupCopy.softwareNames.contains(SetupCopy.openClawCardTitle) && SetupCopy.softwareNames.contains(SetupCopy.openClawPairing))
+    var flow = SetupFlow(); flow.apply(.connectExisting); flow.apply(.pick(.openClaw))
+    #expect(flow.step == .openClaw && flow.openClaw.url == OpenClawCopy.tunnelURL)
 }
 
 @Test func hostingIsAnInertPlaceholder() {
     #expect(!ManagedHosting.isAvailable && ManagedHosting.providerName == "Managed hosting")
     #expect(ManagedHosting.detail.contains("nothing is created, sent or charged"))
     var flow = SetupFlow(); flow.apply(.newHosted); flow.apply(.connectExisting)
-    #expect(flow.step == .address, "the coming-soon screen leads only back or to connecting a box")
+    #expect(flow.step == .software, "the coming-soon screen leads only back or to connecting a box")
 }
 
 /// Counts every request made through its session.

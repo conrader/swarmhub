@@ -2,7 +2,8 @@ import Foundation
 
 /// Every visible string of the setup window (P21 Part C), in plain words. Banned here (a test checks `all`):
 /// technical words such as the server's internal names, and "bot" (the wizard says "agents", D12). "Box",
-/// "address" and "key" are the three defined terms; Hermes and OpenClaw appear only in the S1 card.
+/// "address" and "key" are the three defined terms; Hermes and OpenClaw appear only in `softwareNames` (the S1 line,
+/// the S2 cards and the S3-OC screen, P25 D6). Commands are shown verbatim in monospace and are not copy.
 enum SetupCopy {
     static let windowTitle = "Set up"
     static let back = "Back"
@@ -13,10 +14,34 @@ enum SetupCopy {
     // S1 Welcome
     static var welcomeTitle: String { "Let's connect \(AppConstants.name) to your agents." }
     static let connectCardTitle = "Connect my existing box"
-    /// The one place "box" is defined, and the only strings that name the agent software.
+    /// The one place "box" is defined.
     static let connectCardDetail = "Your box is the computer or server where your agents run."
-    /// P12: OpenClaw connects in Settings → Advanced (this window has no OpenClaw step yet).
-    static let softwareLine = "Works with Hermes. OpenClaw: add it later in Settings → Advanced."
+    static let softwareLine = "Works with Hermes and OpenClaw."
+
+    // S2 Which software
+    static let softwareTitle = "Which software runs your agents?"
+    static let hermesCardTitle = "Hermes"
+    static let hermesCardDetail = "Connect with the address and key of your box."
+    static let openClawCardTitle = "OpenClaw"
+    static let openClawCardDetail = "Connect this Mac to your OpenClaw and approve it there once."
+
+    // S3-OC OpenClaw address and key
+    static let openClawTitle = "Where is your OpenClaw?"
+    static let openClawAddressLabel = "Address"
+    static let openClawKeyPrompt = "Optional"
+    /// The one place OpenClaw's own name for the key appears (P25 D6).
+    static let openClawKeyCaption = "Your key: the first command below shows it on your OpenClaw computer (OpenClaw calls it the Gateway token). Leave it empty when Tailscale or a proxy signs this Mac in."
+    static let openClawPlainToggle = "Allow plain ws:// on my private network"
+    static let openClawMore = "More"
+    static let openClawDeviceName = "Device name"
+    static let openClawKeepKey = "Keep the key after pairing"
+    static let openClawHelpKey = "Show the key, on your OpenClaw computer:"
+    static let openClawHelpTunnel = "OpenClaw on another computer? Open a tunnel, then use \(OpenClawCopy.tunnelURL) (no approval needed):"
+    static let openClawHelpApprove = "Otherwise approve this Mac on your OpenClaw computer:"
+    static let openClawPairing = "Approve this Mac on your OpenClaw computer, then press Test again."
+    static let testAgain = "Test again"
+    static func openClawFound(_ count: Int) -> String { "Connected to OpenClaw. Found \(count == 1 ? "1 agent" : "\(count) agents")." }
+    static let openClawNoAgents = "OpenClaw answered but offered no agents to add."
 
     // S3 Address and key
     static let addressTitle = "Where are your agents?"
@@ -64,12 +89,21 @@ enum SetupCopy {
     /// Static strings only; the functions are checked with sample arguments by the tests.
     static var all: [String] {
         [windowTitle, back, cancel, skip, sampleLink, welcomeTitle, connectCardTitle, connectCardDetail, softwareLine,
+         softwareTitle, hermesCardTitle, hermesCardDetail, openClawCardTitle, openClawCardDetail] + openClawScreen + [
          addressTitle, addressLabel, addressPlaceholder, keyLabel, keyCaption, keepKeyCaption, helpLine, moreAgents,
          moreAgentsCaption, moreAgentsExample, test, testing, moveConfirm, chooseTitle, alreadyAdded, addLater,
          addButton(1), addButton(3), doneTitle(1), doneTitle(3), openAgent("Ada"), close, badAddress, notEncrypted(port: 8642),
          notEncrypted(port: nil), unreachable, keyRejected, mainOnly("Ada"), noAgents, connected(to: thisMac, found: 2),
          notAdded("Ada"), badLine, failed, thisMac] + ManagedHosting.all
     }
-    /// The S1 card constants: the only copy allowed to name the agent software.
-    static let softwareNames = [softwareLine]
+    /// S3-OC's words (P25), all allowed to name OpenClaw.
+    static var openClawScreen: [String] {
+        [openClawTitle, openClawAddressLabel, openClawKeyPrompt, openClawKeyCaption, openClawPlainToggle, openClawMore, openClawDeviceName,
+         openClawKeepKey, openClawHelpKey, openClawHelpTunnel, openClawHelpApprove, openClawPairing, testAgain, openClawFound(1), openClawFound(3),
+         openClawNoAgents]
+    }
+    /// The only copy allowed to name the agent software: the S1 line, the S2 cards and the S3-OC screen (P25 D6).
+    static var softwareNames: [String] { [softwareLine, hermesCardTitle, hermesCardDetail, openClawCardTitle, openClawCardDetail] + openClawScreen }
+    /// The one phrase of OpenClaw's own vocabulary allowed, once, in `openClawKeyCaption`.
+    static let openClawTermForKey = "Gateway token"
 }

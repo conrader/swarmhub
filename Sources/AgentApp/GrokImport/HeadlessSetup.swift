@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// `AgentApp --render-setup <dir>` (P21 item 16): renders every setup step, the simple Settings page, the empty state,
+/// `AgentApp --render-setup <dir>` (P21 item 16, P25): renders every setup step (OpenClaw's included), the simple Settings page, the empty state,
 /// an agent's settings and the right panel (folded and open, P21b) to PNG. Everything comes from a synthetic in-memory store, key store and
 /// settings suite, and Test results are built in memory: no network, no Keychain, nothing of the real app is read or
 /// written. Refuses a directory inside the repository, like `--render-snapshot`.
@@ -39,6 +39,13 @@ import SwiftUI
         var filled = SetupFlow(prefill: .init(startAtAddress: true)); filled.input = .init(address: "my-box.example.com", key: "synthetic", extra: "research=synthetic-1")
         var shots: [(String, SetupFlow)] = [("s1-welcome", SetupFlow()), ("s3-empty", SetupFlow(prefill: .init(startAtAddress: true))), ("s3-filled", filled)]
         var hosting = SetupFlow(); hosting.apply(.newHosted); shots.append(("s-host", hosting))
+        // P25: S2 and S3-OC, all pure: Test results are built in memory (a fake request id), nothing connects.
+        var software = SetupFlow(); software.apply(.connectExisting); shots.append(("s2-software", software))
+        var openClaw = software; openClaw.apply(.pick(.openClaw)); shots.append(("s3oc-empty", openClaw))
+        var invalid = openClaw; invalid.openClaw.url = "ws://claw.example.com:18789"; shots.append(("s3oc-invalid-url", invalid))
+        var pairing = openClaw; pairing.openClaw.key = "synthetic"
+        pairing.apply(.openClawTest(.pairingRequired(requestId: "req-synthetic-1"), gatewayID: nil)); shots.append(("s3oc-pairing-required", pairing))
+        var refused = openClaw; refused.apply(.openClawTest(.failed(GatewayFailure.tokenRejected.line), gatewayID: nil)); shots.append(("s3oc-error-key-rejected", refused))
         let errors: [(String, SetupCheckResult.Outcome)] = [("bad-address", .badAddress), ("not-encrypted", .notEncrypted(port: 8642)), ("unreachable", .unreachable),
                                                             ("key-rejected", .keyRejected), ("main-only", .mainOnly("Finance")), ("bad-line", .badLine)]
         for (name, outcome) in errors {
@@ -46,6 +53,12 @@ import SwiftUI
         }
         store.bots.append(Bot(name: "Hermes", backend: .hermes, hermesProfile: "default"))
         var choose = filled; choose.apply(.test(sampleResult(baseURL: box))); choose.preselect(alreadyAdded: store.addedProfileIDs); shots.append(("s4-choose", choose))
+        let claw = OpenClawGateway(name: "OpenClaw", url: OpenClawCopy.tunnelURL)
+        store.openClawGateways = [claw]
+        store.bots.append({ let bot = Bot(name: "Alpha", backend: .openClaw); bot.openClaw = .init(gatewayID: claw.id, agentID: "agent-alpha"); return bot }())
+        var clawChoose = openClaw
+        clawChoose.apply(.openClawTest(.connected([.init(id: "agent-alpha", identityName: "Alpha"), .init(id: "agent-beta", name: "Beta"), .init(id: "ops")]), gatewayID: claw.id))
+        clawChoose.preselect(alreadyAdded: store.openClawAgentIDs(boundTo: claw.id)); shots.append(("s4-choose-openclaw", clawChoose))
 
         var failures = 0
         func write(_ name: String, _ data: Data?) {

@@ -37,19 +37,25 @@ private func containsWord(_ text: String, _ word: String) -> Bool {
 
 @Test func simpleAndSetupCopyUsePlainWords() {
     for text in SimpleCopy.all + SetupCopy.all + InspectorCopy.all {
-        for word in banned { #expect(!containsWord(text, word), "“\(text)” contains \(word)") }
+        // P25 D6: OpenClaw's own name for the key may appear once, in the S3-OC key caption only.
+        let checked = text == SetupCopy.openClawKeyCaption ? text.replacingOccurrences(of: SetupCopy.openClawTermForKey, with: "") : text
+        for word in banned { #expect(!containsWord(checked, word), "“\(text)” contains \(word)") }
         if !SetupCopy.softwareNames.contains(text) {
-            #expect(!containsWord(text, "Hermes") && !containsWord(text, "OpenClaw"), "“\(text)” names the software outside the S1 card")
+            #expect(!containsWord(text, "Hermes") && !containsWord(text, "OpenClaw"), "“\(text)” names the software outside the S1 line, S2 cards and S3-OC")
         }
     }
-    #expect(SetupCopy.softwareLine.contains("OpenClaw: add it later in Settings → Advanced."))
+    #expect((SetupCopy.all).filter { $0.contains(SetupCopy.openClawTermForKey) } == [SetupCopy.openClawKeyCaption], "the Gateway's term appears once")
+    // "OpenClaw" is allowed only in the S1 line, the S2 cards and the S3-OC screen.
+    #expect(Set(SetupCopy.all.filter { containsWord($0, "OpenClaw") }).isSubset(of: Set(SetupCopy.softwareNames)))
+    #expect(Set(SetupCopy.softwareNames).isSubset(of: Set(SetupCopy.all)) && SetupCopy.softwareLine == "Works with Hermes and OpenClaw.")
     #expect(!(SimpleCopy.all + SetupCopy.all + InspectorCopy.all).contains { $0.contains("Mock") })
     #expect(SimpleCopy.connected(to: "this Mac", agents: 2).hasPrefix("Connected") && !SimpleCopy.all.contains { $0.localizedCaseInsensitiveContains("key saved") })
 }
 
 @Test func simpleViewsTakeTheirWordsFromTheCopyEnums() throws {
     let files = ["Sources/AgentApp/Views/SettingsSimplePane.swift", "Sources/AgentApp/Views/BotEditorView.swift",
-                 "Sources/AgentApp/Setup/SetupView.swift", "Sources/AgentApp/Setup/SetupSteps.swift", "Sources/AgentApp/Setup/SetupEmptyState.swift"]
+                 "Sources/AgentApp/Setup/SetupView.swift", "Sources/AgentApp/Setup/SetupSteps.swift", "Sources/AgentApp/Setup/SetupEmptyState.swift",
+                 "Sources/AgentApp/Setup/SetupOpenClawSteps.swift"]
                 + inspectorSimpleFiles
     let literal = try NSRegularExpression(pattern: #"(\b(Text|Button|Label|TextField|SecureField|Toggle|Picker|DatePicker|Section|Menu|DisclosureGroup)|\.help)\(\s*""#)
     for file in files {

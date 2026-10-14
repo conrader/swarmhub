@@ -4,9 +4,9 @@ import Foundation
 /// skills, memory and model stay in the Gateway; `bot.persona` and `systemPrompt` are sent nowhere (OpenClaw has no
 /// system-prompt parameter). The session key lives in the bot's `hermesSessionID` (documented reuse).
 struct OpenClawBackend: AgentBackend {
-    /// P21 D4: the setup window's "which software" step stays off until it has an OpenClaw connect screen; OpenClaw is
-    /// added in Settings → Advanced → Servers and keys (P12).
-    static let isImplemented = false
+    /// P21 D4 / P25 D1: the setup window offers the "which software" step and its OpenClaw connect screen; Settings →
+    /// Advanced → Servers and keys still adds Gateways too (P12).
+    static let isImplemented = true
     static let historyLimit = 200, historyMaxChars = 20_000
     static let historyTimeout: Duration = .seconds(15), abortTimeout: Duration = .seconds(10)
     static let unboundMessage = "Choose a Gateway and agent in this bot's settings."
