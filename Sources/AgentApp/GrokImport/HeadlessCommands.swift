@@ -6,6 +6,7 @@ import Foundation
 ///   AgentApp --import-keys <file>      (lines `profile=key`; file must be 0600 and owned by the user)
 ///   AgentApp --check-bots [--chat "<bot name>" "<text>"]   (see HeadlessCheckBots.swift)
 ///   AgentApp --check-server <base-url> --profile <name|default> --key-file <path> [--report <file>]   (see HeadlessCheckServer.swift)
+///   AgentApp --check-openclaw   (each saved OpenClaw Gateway: connect + agents.list, no secrets; see HeadlessOpenClaw.swift)
 ///   AgentApp --render-snapshot <dir> [--bot "<name>"]...         (see HeadlessSnapshot.swift)
 ///   AgentApp --reconcile [--dry-run] [--bot "<name>"] [--group "<name>"] [--store <path>]   (GET only; see HeadlessReconcile.swift)
 ///   AgentApp --migrate-store                                      (see HeadlessGroups.swift)
@@ -18,7 +19,7 @@ import Foundation
 /// Launch arguments of the normal app (window shown): `--ui-smoke <report.json>` and `--setup-preview` (SetupPreview.swift).
 @MainActor enum HeadlessCommands {
     /// Every flag the app recognises; the dispatcher below and the launch arguments read this list.
-    static let flags = ["--check-bots", "--check-server", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--grok-fetch", "--grok-probe",
+    static let flags = ["--check-bots", "--check-server", "--check-openclaw", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--grok-fetch", "--grok-probe",
                         "--grok-parity", "--import-grok", "--import-keys", "--ui-smoke", "--setup-preview", "--render-setup"]
     /// The flags that run without a window and exit.
     static let headless = flags.filter { $0 != "--ui-smoke" && $0 != "--setup-preview" }
@@ -28,6 +29,7 @@ import Foundation
         guard arguments.contains(where: headless.contains) else { return nil }
         if arguments.contains("--check-bots") { return runCheckBots(arguments: arguments) }
         if arguments.contains("--check-server") { return HeadlessCheckServer.run(arguments: arguments) }
+        if arguments.contains("--check-openclaw") { return HeadlessOpenClaw.run(arguments: arguments) }
         if arguments.contains("--render-setup") { return HeadlessSetup.run(arguments: arguments) }
         if arguments.contains("--render-snapshot") { return HeadlessSnapshot.run(arguments: arguments) }
         if arguments.contains("--probe-attachment") { return HeadlessProbeAttachment.run(arguments: arguments) }

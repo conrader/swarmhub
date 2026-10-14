@@ -21,7 +21,7 @@ struct GroupInfoPanel: View {
 
     private var content: some View {
         let members = store.members(of: group)
-        let candidates = store.bots.filter { !group.memberIDs.contains($0.id) && !$0.isReadOnlyArchive && !$0.isDemo }
+        let candidates = store.bots.filter { !group.memberIDs.contains($0.id) && !$0.isReadOnlyArchive && !$0.isDemo && $0.joinsGroups }
         return VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(InspectorCopy.groupName).font(.caption.weight(.semibold)).foregroundStyle(.secondary)

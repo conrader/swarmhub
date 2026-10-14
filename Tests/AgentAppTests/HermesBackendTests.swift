@@ -41,7 +41,7 @@ import Testing
     let backend = TestBackend(transport: .nativeSessions)
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
     let bot = Bot(name: "Unowned", backend: .hermes); store.bots = [bot]
-    store.loadHermesHistory(for: bot)
+    store.loadServerHistory(for: bot)
     try await backend.calls.wait { $0 == ["capabilities"] }
     #expect(await backend.recordedCalls() == ["capabilities"])
     #expect(bot.hermesSessionID == nil)
@@ -108,7 +108,7 @@ import Testing
     let backend = TestBackend(transport: .nativeSessions, rows: [.init(role: "user", content: "different")])
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend })
     let bot = Bot(name: "History", backend: .hermes, messages: [ChatMessage(role: .user, content: "local"), ChatMessage(role: .assistant, content: "partial")], hermesSessionID: "history-1")
-    store.bots = [bot]; store.selectedBot = bot; store.loadHermesHistory(for: bot)
+    store.bots = [bot]; store.selectedBot = bot; store.loadServerHistory(for: bot)
     try await waitUntil { bot.messages.last?.content.contains("was not merged") == true }
     #expect(bot.messages.last?.role == .system)
 }

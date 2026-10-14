@@ -58,11 +58,16 @@ import UserNotifications
     private var stopInProgressForStream: UUID?
     private(set) var persistenceEnabled = true
     let backendFactory: ((Bot) throws -> any AgentBackend)?
+    /// P12: saved OpenClaw Gateways (no secrets) and the hub, created on first use so nothing connects at launch.
+    @Published var openClawGateways: [OpenClawGateway] = []
+    var injectedOpenClawHub: OpenClawHub?; var openClawWakeObserver: NSObjectProtocol?
+    private(set) lazy var openClawHub: OpenClawHub = makeOpenClawHub()
     private let didCancelLocalStream: (() -> Void)?
     let reviewerTimeout: Duration
 
-    init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil) {
+    init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil, openClawHub: OpenClawHub? = nil) {
         self.keyStore = keyStore; self.defaults = defaults; self.hermesSession = hermesSession; self.connectivity = connectivity
+        injectedOpenClawHub = openClawHub
         self.backendFactory = backendFactory
         self.didCancelLocalStream = didCancelLocalStream
         self.reviewerTimeout = reviewerTimeout
@@ -111,7 +116,7 @@ import UserNotifications
             bots = [bot]; save()
         }
         // P21 D3: a fresh install starts empty; the setup window or "Look around with sample agents" fills it.
-        if !demoMode { migrateManagerRole() }
+        if !demoMode { migrateManagerRole(); loadOpenClawGateways() }
         if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys() } }
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
@@ -119,7 +124,7 @@ import UserNotifications
         if connectivity != nil { listenForConnectivity() }
     }
 
-    func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID); avatar.apply(to: bot); bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save() }
+    func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, openClaw: OpenClawBinding? = nil) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID); bot.openClaw = backend == .openClaw ? openClaw : nil; avatar.apply(to: bot); bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save() }
     @discardableResult func importTemplate(_ plan: TemplateImportPlan) -> Bot {
         let manifest = plan.manifest
         let memories = manifest.memories.map { "\($0.name): \($0.value)" }
@@ -154,6 +159,7 @@ import UserNotifications
     /// server has `run_steer`; otherwise sending stays disabled until the turn ends.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
         guard let bot = selectedBot, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
+        if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
         guard !isStreaming, streamTask == nil else { return steer(text: text, attachments: attachments, bot: bot) }
         let activeBackend: any AgentBackend; let images: [String]
         do { activeBackend = try backend(for: bot); images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) }
@@ -191,6 +197,7 @@ import UserNotifications
         let taskToCancel = streamTask
         let stoppedAssistantID = streamingAssistant?.id
         let conversation: any Conversation = streamingConversation ?? bot
+        let server = bot.backend.shortName // "Hermes" texts stay byte-identical (P12)
         Task {
             do {
                 // Capture the run before cancelling the SSE task, whose termination clears it.
@@ -201,9 +208,9 @@ import UserNotifications
                 let outcome = try await activeBackend.requestStop(target)
                 let feedback: String
                 switch outcome {
-                case .requested: feedback = "Stop requested from Hermes."
-                case .disconnectedLegacy: feedback = "Stopped locally; this Hermes version has no run-control endpoint."
-                case .noActiveRun: feedback = "Stopped locally before Hermes supplied a run ID."
+                case .requested: feedback = "Stop requested from \(server)."
+                case .disconnectedLegacy: feedback = bot.backend == .openClaw ? "Stopped locally; this OpenClaw Gateway does not offer chat.abort." : "Stopped locally; this Hermes version has no run-control endpoint."
+                case .noActiveRun: feedback = "Stopped locally before \(server) supplied a run ID."
                 }
                 let message = ChatMessage(role: .system, content: feedback)
                 if let stoppedAssistantID, let index = conversation.messages.firstIndex(where: { $0.id == stoppedAssistantID }) {
@@ -212,14 +219,14 @@ import UserNotifications
                 objectWillChange.send()
             } catch {
                 taskToCancel?.cancel()
-                let message = ChatMessage(role: .system, content: "Hermes Stop failed: \(error.localizedDescription)")
+                let message = ChatMessage(role: .system, content: "\(server) Stop failed: \(error.localizedDescription)")
                 if let stoppedAssistantID, let index = conversation.messages.firstIndex(where: { $0.id == stoppedAssistantID }) {
                     conversation.messages.insert(message, at: index + 1)
                 } else { conversation.messages.append(message) }
                 objectWillChange.send()
                 if activeStreamToken == streamToken {
                     isStreaming = false
-                    errorMessage = "Hermes Stop failed: \(error.localizedDescription)"
+                    errorMessage = "\(server) Stop failed: \(error.localizedDescription)"
                 }
             }
             if stopInProgressForStream == streamToken { stopInProgressForStream = nil }
@@ -238,6 +245,8 @@ import UserNotifications
         let key = keyStore.key(for: Self.keyAccount(forProfile: profile))
         if key.isEmpty, keyStore.needsReentry(Self.keyAccount(forProfile: profile)) { throw BackendError.unavailable(KeychainStore.reenterMessage) }
         return HermesBackend(baseURL: baseURL, apiKey: key, profile: profile, session: hermesSession)
-    case .openClaw: return OpenClawBackend(gatewayURL: URL(string: UserDefaults.standard.string(forKey: "openClawURL") ?? ""))
+    case .openClaw:
+        guard let binding = bot.openClaw, let gateway = gateway(id: binding.gatewayID) else { throw BackendError.unavailable(OpenClawBackend.unboundMessage) }
+        return OpenClawBackend(gateway: gateway, binding: binding, hub: openClawHub)
     } }
 }

@@ -1,11 +1,12 @@
 import SwiftUI
 
 /// Settings → Advanced → Servers and keys (Account before P21; "Your name" moved to the simple page): the connection's Hermes version, the Hermes server, the profiles the bots are bound to (with a
-/// per-profile Test and version), "Add bots from box" (`BoxKeysPasteSection`), Grok Bot and the OpenClaw gateway.
+/// per-profile Test and version), "Add bots from box" (`BoxKeysPasteSection`), Grok Bot and the OpenClaw Gateways
+/// (`OpenClawSettingsSection`, P12).
 struct SettingsAccountPane: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var cache: BotInfoCache
-    @AppStorage("hermesBaseURL") private var hermesURL = AppConstants.defaultHermesURL; @AppStorage("openClawURL") private var openClawURL = "ws://127.0.0.1:18789"
+    @AppStorage("hermesBaseURL") private var hermesURL = AppConstants.defaultHermesURL
     @AppStorage("hermesProfiles") private var hermesProfiles = ""
     @State private var apiKey = ""; @State private var testResult = ""; @State private var testing = false
     @State private var profileResults: [String: String] = [:]; @State private var testingProfiles: Set<String> = []
@@ -48,7 +49,8 @@ struct SettingsAccountPane: View {
         }
         BoxKeysPasteSection()
         SettingsGrokSection()
-        Section("OpenClaw") { TextField("Gateway URL", text: $openClawURL); Text("The OpenClaw WebSocket RPC transport is not implemented yet.").font(.caption).foregroundStyle(.secondary) }
+        // P12: the Gateways' own section (it used to be a URL field here).
+        OpenClawSettingsSection(status: store.openClawStatus)
             .onAppear { apiKey = KeychainStore.get(account: "hermes") }
     }
 

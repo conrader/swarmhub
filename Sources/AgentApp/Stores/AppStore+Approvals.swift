@@ -10,7 +10,8 @@ fileprivate actor ReviewerStopTargetBox {
 extension AppStore {
     func decide(_ approval: ApprovalRequest, approved: Bool) {
         guard !approved || approval.hasKnownCommand else {
-            errorMessage = "Cannot approve a Hermes request without command text."
+            let server = approval.botID.flatMap { id in bots.first { $0.id == id } }?.backend.shortName ?? BackendKind.hermes.shortName
+            errorMessage = "Cannot approve \(server == "OpenClaw" ? "an" : "a") \(server) request without command text."
             return
         }
         guard let botID = approval.botID, let bot = bots.first(where: { $0.id == botID }), let approvalBackend = try? backend(for: bot) else { return }
@@ -96,7 +97,7 @@ extension AppStore {
                     if await stopTargetBox.value() == nil, let target = try? await reviewerBackend.stopTarget(sessionID: reviewerSessionID), case .serverRun = target {
                         await stopTargetBox.capture(target)
                     }
-                    switch event { case .token(let value): answer += value; case .approval(let nested): return .nestedApproval(nested); case .failed(let value): throw BackendError.unavailable(value); case .completed: completed = true; default: break }
+                    switch event { case .token(let value): answer += value; case .replace(let value): answer = value; case .approval(let nested): return .nestedApproval(nested); case .failed(let value): throw BackendError.unavailable(value); case .completed: completed = true; default: break }
                 }
                 guard completed else { throw BackendError.unavailable("Reviewer stream ended without completion.") }
                 let normalized = answer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -129,6 +130,12 @@ extension AppStore {
         else if let liveTarget = try? await backend.stopTarget(sessionID: sessionID) { target = liveTarget }
         else { return }
         _ = try? await backend.requestStop(target)
+    }
+    /// P12: an approval this app did not start (another client's run, the Gateway's automations): always asks, never
+    /// automatic, whatever the bot's policy.
+    func routeUnsolicitedApproval(_ approval: ApprovalRequest, for bot: Bot) {
+        appendAudit(to: bot, approval: approval, outcome: .requested, decidedBy: "system", reason: "Approval requested by a run \(AppConstants.name) did not start.")
+        askUser(approval, bot: bot, reason: "Not started in \(AppConstants.name): ask-only, never automatic.")
     }
     fileprivate func askUser(_ approval: ApprovalRequest, bot: Bot, reason: String, decidedBy: String = "system") {
         approvals.append(approval); appendAudit(to: bot, approval: approval, outcome: .asked, decidedBy: decidedBy, reason: reason)

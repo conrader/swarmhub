@@ -40,10 +40,10 @@ private let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent
     #expect(!same.movesAddress && same.canAdd)
 }
 
-@Test func openClawIsShownAsNotReadyAndCannotBeChosen() {
+@Test func openClawIsPointedToSettingsAndCannotBeChosenHere() {
     #expect(!OpenClawBackend.isImplemented && !SetupFlow.offersSoftwareChoice)
-    #expect(SetupFlow.Step.allCases == [.welcome, .hosting, .address, .choose, .done], "no software step while OpenClaw is not implemented")
-    #expect(SetupCopy.softwareNames == [SetupCopy.softwareLine] && SetupCopy.softwareLine.contains("OpenClaw: not ready yet"))
+    #expect(SetupFlow.Step.allCases == [.welcome, .hosting, .address, .choose, .done], "no software step until it has an OpenClaw connect screen (P12 connects in Settings)")
+    #expect(SetupCopy.softwareNames == [SetupCopy.softwareLine] && SetupCopy.softwareLine.contains("OpenClaw: add it later in Settings → Advanced."))
 }
 
 @Test func hostingIsAnInertPlaceholder() {

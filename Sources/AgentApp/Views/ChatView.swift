@@ -57,11 +57,11 @@ struct ChatView: View {
                 AddKeyBanner(bot: bot).frame(maxWidth: .infinity).background(AppColor.chat)
             } else {
                 if store.isManager(bot) { BotOffersCard(manager: bot).padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat) }
-                ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingBotID == bot.id,
-                             send: send, stop: store.stop, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
-                             reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
-                             manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.allCases : [], manage: manage)
-                    .background(AppColor.chat)
+                if bot.backend == .openClaw {
+                    OpenClawChatGate(status: store.openClawStatus, bot: bot) { composer(thread: thread) }.background(AppColor.chat)
+                } else {
+                    composer(thread: thread).background(AppColor.chat)
+                }
             }
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in
@@ -72,6 +72,12 @@ struct ChatView: View {
             .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); draft = store.drafts.text(for: bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
             .onChange(of: draft) { _, value in store.drafts.set(value, for: bot.id) }
             .onChange(of: store.composerFill) { _, _ in takeComposerFill() }
+    }
+    private func composer(thread: ChatThread?) -> some View {
+        ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingBotID == bot.id,
+                     send: send, stop: store.stop, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
+                     reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
+                     manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.allCases : [], manage: manage)
     }
     private func manage(_ action: ManageBotsAction) { store.startManagement(action, manager: bot) }
     /// A Manage bots request for this chat replaces the draft.

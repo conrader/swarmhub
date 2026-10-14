@@ -5,13 +5,13 @@ extension AppStore {
     // MARK: Capabilities
 
     func refreshFeatures(for bot: Bot) {
-        guard bot.backend == .hermes, !needsKey(bot), let activeBackend = try? backend(for: bot) else { return }
+        guard bot.backend.hasServerSessions, !needsKey(bot), let activeBackend = try? backend(for: bot) else { return }
         Task { if let flags = try? await activeBackend.features() { botFeatures[bot.id] = flags } }
     }
 
     /// "Reply in thread" is offered only when the server reports `session_fork` and the chat has a session.
     func canFork(_ bot: Bot) -> Bool {
-        bot.backend == .hermes && !bot.isReadOnlyArchive && bot.hermesSessionID != nil && botFeatures[bot.id]?.contains("session_fork") == true
+        bot.backend.hasServerSessions && !bot.isReadOnlyArchive && bot.hermesSessionID != nil && botFeatures[bot.id]?.contains("session_fork") == true
     }
 
     // MARK: Steer
@@ -107,7 +107,7 @@ extension AppStore {
         selectedBot = bot; selectedGroup = nil
         if remember { rememberSelection(bot: bot) }
         if bot.unreadCount != 0 || bot.manualUnread { bot.unreadCount = 0; bot.manualUnread = false; save() }
-        loadHermesHistory(for: bot)
+        loadServerHistory(for: bot)
     }
 
     /// Media tab → the message in the main chat or its thread.

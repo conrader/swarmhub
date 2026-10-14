@@ -40,8 +40,9 @@ extension AppStore {
     }
 
     /// Server rows render image parts as `[Image: …]` lines; local messages keep images as attachments.
+    /// P12: OpenClaw's delivery directives and `NO_REPLY` are normalised the same way on both sides.
     nonisolated static func comparable(_ content: String) -> String {
-        content.components(separatedBy: "\n").filter { !($0.hasPrefix("[Image: ") && $0.hasSuffix("]")) }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        OpenClawText.comparable(content).components(separatedBy: "\n").filter { !($0.hasPrefix("[Image: ") && $0.hasSuffix("]")) }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// P19: text over `HermesBackend.maxTextPartScalars` went out split; a hard cut (a window without a line

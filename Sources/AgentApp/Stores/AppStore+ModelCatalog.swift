@@ -23,6 +23,7 @@ extension AppStore {
         if bot.isDemo || bot.backend == .mock { return .noBackend }
         if bot.isGrokHistoryOnly { return .historyOnly("History only — not connected to a Hermes profile yet.") }
         if needsKey(bot) { return .noKey }
+        if bot.backend == .openClaw, backendFactory == nil, gateway(id: bot.openClaw?.gatewayID) == nil { return .openClawStub }
         let backend: any AgentBackend
         do { backend = try self.backend(for: bot) } catch { return .multiplexOff(error.localizedDescription) }
         if backend is HermesBackend || backend is ModelCatalogProviding { return nil }

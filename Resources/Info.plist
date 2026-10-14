@@ -26,6 +26,8 @@
 	<string>11</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>SwarmHub connects to an OpenClaw Gateway on your local network only when you add one in Settings.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>

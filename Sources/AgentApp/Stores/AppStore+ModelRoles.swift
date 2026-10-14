@@ -10,8 +10,8 @@ extension AppStore {
         let current = currentModel(for: bot)
         let locked = bot.hermesModelLock.map { $0.sessionID == bot.hermesSessionID } ?? false
         let block = catalogBlock(for: bot)
-        // Each row sits under its own host; an OpenClaw agent's group reads "OpenClaw" until P12 names its gateway.
-        return .init(id: bot.id, name: bot.name, server: bot.backend == .openClaw ? "OpenClaw" : URL(string: server)?.host ?? server, profile: bot.hermesProfile ?? "default",
+        // Each row sits under its own host; an OpenClaw agent's group is its Gateway's name ("OpenClaw" while unbound).
+        return .init(id: bot.id, name: bot.name, server: bot.backend == .openClaw ? gateway(id: bot.openClaw?.gatewayID)?.name ?? "OpenClaw" : URL(string: server)?.host ?? server, profile: bot.hermesProfile ?? "default",
                      isOpenClaw: bot.backend == .openClaw, catalog: modelCatalog(for: bot), canAsk: block?.countsAsAskable ?? true,
                      info: botInfo.info(for: bot.id), settings: modelSettings(for: bot), defaults: modelDefaultsForRoles, current: current, isLocked: locked)
     }

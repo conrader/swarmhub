@@ -7,7 +7,7 @@ struct NewGroupSheet: View {
     @State private var name = ""; @State private var picked: Set<UUID> = []
 
     var body: some View {
-        let bots = store.bots.filter { !$0.isReadOnlyArchive && (!$0.isDemo || picked.contains($0.id)) }
+        let bots = store.bots.filter { !$0.isReadOnlyArchive && $0.joinsGroups && (!$0.isDemo || picked.contains($0.id)) }
         VStack(alignment: .leading, spacing: 12) {
             Text("New group").font(.title3.weight(.semibold))
             TextField(picked.count >= 2 ? store.defaultGroupName(ordered(bots)) : "Group name (optional)", text: $name).textFieldStyle(.roundedBorder)

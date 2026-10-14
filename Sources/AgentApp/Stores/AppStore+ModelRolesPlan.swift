@@ -74,7 +74,11 @@ extension AppStore {
             if let coding, let reason = await codingRefusal(coding, bot: bot) { errorMessage = failure + reason; return }
             let forkID: String
             do { forkID = try await activeBackend.forkSession(sessionID: sessionID, id: "\(sessionNamespace)agentapp_thread_\(threadID.uuidString.lowercased())") }
-            catch { errorMessage = failure + error.localizedDescription; return }
+            catch {
+                errorMessage = failure + error.localizedDescription
+                refreshFeatures(for: bot) // a Gateway that rejected the fork parameters hides Reply in thread (P12)
+                return
+            }
             let thread = ChatThread(id: threadID, parentMessageID: message.id, parentSessionID: sessionID, hermesSessionID: forkID)
             if let (provider, model, origin) = target {
                 guard let hermes = activeBackend as? HermesBackend else { errorMessage = failure + "This bot is not on Hermes."; return }
