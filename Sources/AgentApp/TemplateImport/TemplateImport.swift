@@ -233,9 +233,9 @@ enum TemplateImportMapper {
                   reason: provided ? mappedReason : "Not provided; default used.")
         }
         var report: [TemplateImportReportItem] = [
-            metadataRow("Name", provided: manifest.nameWasProvided, mappedReason: "Used as AgentApp bot metadata."),
-            metadataRow("Title", provided: manifest.titleWasProvided, mappedReason: "Used as AgentApp bot metadata."),
-            metadataRow("Description", provided: manifest.descriptionWasProvided, mappedReason: "Used as AgentApp bot metadata."),
+            metadataRow("Name", provided: manifest.nameWasProvided, mappedReason: "Used as \(AppConstants.name) bot metadata."),
+            metadataRow("Title", provided: manifest.titleWasProvided, mappedReason: "Used as \(AppConstants.name) bot metadata."),
+            metadataRow("Description", provided: manifest.descriptionWasProvided, mappedReason: "Used as \(AppConstants.name) bot metadata."),
             metadataRow("Persona", provided: manifest.instructionsWereProvided, mappedReason: "Used as the Hermes session system prompt.")
         ]
         let boundProfile = hermesConfigured ? hermesProfile : nil
@@ -246,10 +246,10 @@ enum TemplateImportMapper {
         }
         var avatar: BotAvatarName = .faceCoral
         if let sourceAvatar = manifest.avatar {
-            if let exact = BotAvatarName(rawValue: sourceAvatar) { avatar = exact; report.append(.init(category: "Bot", name: "Avatar", status: .mapped, reason: "Matched an AgentApp avatar.")) }
-            else { report.append(.init(category: "Bot", name: "Avatar", status: .converted, reason: "External avatar data is not copied; the default AgentApp avatar will be used.")) }
+            if let exact = BotAvatarName(rawValue: sourceAvatar) { avatar = exact; report.append(.init(category: "Bot", name: "Avatar", status: .mapped, reason: "Matched a \(AppConstants.name) avatar.")) }
+            else { report.append(.init(category: "Bot", name: "Avatar", status: .converted, reason: "External avatar data is not copied; the default \(AppConstants.name) avatar will be used.")) }
         }
-        for memory in manifest.memories { report.append(.init(category: "Memory", name: memory.name, status: .converted, reason: "Saved with the bot in AgentApp; not yet given to the agent or Hermes memory.")) }
+        for memory in manifest.memories { report.append(.init(category: "Memory", name: memory.name, status: .converted, reason: "Saved with the bot in \(AppConstants.name); not yet given to the agent or Hermes memory.")) }
         for skill in manifest.skills { report.append(.init(category: "Skill", name: skill.name, status: .converted, reason: "Preserved as Markdown in the inert Hermes template configuration; runtime installation is not exposed by the connected API.")) }
         var routines: [BotRoutine] = []
         for routine in manifest.routines {
