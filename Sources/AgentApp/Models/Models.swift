@@ -174,6 +174,8 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     @Published var computerURL: String?
     /// P13 per-bot model roles; nil while every role inherits, so untouched bots encode byte-identically.
     @Published var modelSettings: BotModelSettings? = nil
+    /// P22: this Hermes bot manages the other bots on its connection; its box instructions as last seen; retired on the box.
+    @Published var canManageBots = false; @Published var boxInstructions: BoxInstructions? = nil; @Published var retiredOnBox = false
     var isReadOnlyArchive: Bool { archivedMembers != nil }
     let createdAt: Date; @Published var messages: [ChatMessage]
     init(name: String, title: String = "Personal agent", description: String = "", persona: String = "You are a thoughtful, capable assistant.", backend: BackendKind = .mock, avatarName: BotAvatarName? = nil, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, memorySummary: String = "", skills: [String] = [], importedMemories: [String] = [], importedSkills: [ImportedTemplateSkill] = [], requestedConnectorIDs: [String] = [], gettingStartedSkill: ImportedTemplateSkill? = nil, routines: [BotRoutine] = [], messages: [ChatMessage] = [], hermesProfile: String? = nil, hermesSessionID: String? = nil, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, isDemo: Bool = false) {
@@ -185,7 +187,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     }
     static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -208,6 +210,8 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         archivedMembers = try c.decodeIfPresent([String].self, forKey: .archivedMembers); computerURL = try c.decodeIfPresent(String.self, forKey: .computerURL); hermesModelLock = try c.decodeIfPresent(HermesModelLock.self, forKey: .hermesModelLock)
         routineRunMarks = try c.decodeIfPresent([String: String].self, forKey: .routineRunMarks) ?? [:]
         modelSettings = (try? c.decodeIfPresent(BotModelSettings.self, forKey: .modelSettings)) ?? nil
+        canManageBots = try c.decodeIfPresent(Bool.self, forKey: .canManageBots) ?? false; retiredOnBox = try c.decodeIfPresent(Bool.self, forKey: .retiredOnBox) ?? false
+        boxInstructions = (try? c.decodeIfPresent(BoxInstructions.self, forKey: .boxInstructions)) ?? nil
         threads = try c.decodeIfPresent([ChatThread].self, forKey: .threads) ?? []; manualUnread = try c.decodeIfPresent(Bool.self, forKey: .manualUnread) ?? false
         createdAt = try c.decode(Date.self, forKey: .createdAt); messages = try c.decode([ChatMessage].self, forKey: .messages)
         // A malformed mark must not cost the store; a missing one may be recovered from what the P6 importer wrote.
@@ -232,6 +236,8 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         try c.encode(threads, forKey: .threads); try c.encode(manualUnread, forKey: .manualUnread)
         if let modelSettings, !modelSettings.isEmpty { try c.encode(modelSettings, forKey: .modelSettings) }
         try c.encodeIfPresent(avatarMark, forKey: .avatarMark)
+        if canManageBots { try c.encode(true, forKey: .canManageBots) }; if retiredOnBox { try c.encode(true, forKey: .retiredOnBox) }
+        try c.encodeIfPresent(boxInstructions, forKey: .boxInstructions)
     }
 }
 

@@ -18,7 +18,7 @@ let package = Package(
             path: ".",
             exclude: ["Tests", "scripts", "docs", "Vendor", "README.md", "BRIEF.md", "BRIEF-visual.md", "BRIEF-simplify.md", "BRIEF-parity.md"],
             sources: ["Sources/AgentApp"],
-            resources: [.copy("Resources/Avatars")]
+            resources: [.copy("Resources/Avatars"), .copy("Resources/BotManager")]
         ),
         .testTarget(name: "AgentAppTests", dependencies: ["AgentApp", "BotAvatarsKit"], path: "Tests/AgentAppTests")
     ]

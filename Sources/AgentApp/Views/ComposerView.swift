@@ -10,6 +10,8 @@ struct ComposerView: View {
     var attach: ([URL]) -> Void = { _ in }; var pasteImage: (Data, String) -> Void = { _, _ in }
     /// Group chats: member names offered when the user types `@` (Return or Tab picks the first).
     var mentionNames: [String] = []
+    /// P22: the manager bot's chat offers the Manage bots menu (each item fills this composer with a plain request).
+    var manageActions: [ManageBotsAction] = []; var manage: (ManageBotsAction) -> Void = { _ in }
     @State private var importing = false; @State private var pasteMonitor: Any?; @FocusState private var focused: Bool
     private var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attachments.isEmpty && !isStreaming) }
     private var suggestions: [String] {
@@ -31,6 +33,7 @@ struct ComposerView: View {
             }
             HStack(alignment: .bottom, spacing: 7) {
                 Button { importing = true } label: { Image(systemName: "paperclip").frame(width: 28, height: 28) }.buttonStyle(.plain).foregroundStyle(.secondary).help("Attach images or text files")
+                if !manageActions.isEmpty { ManageBotsMenu(actions: manageActions, perform: manage) { Image(systemName: "plus").frame(width: 28, height: 28) } }
                 TextEditor(text: $text).font(.body).scrollContentBackground(.hidden).frame(height: 30).padding(.vertical, 2).focused($focused)
                     .overlay(alignment: .topLeading) { if text.isEmpty { Text(isStreaming && canSteer ? "Steer the running reply…" : "Message " + AppConstants.name + "…").foregroundStyle(.tertiary).allowsHitTesting(false).padding(.top, 5).padding(.leading, 5) } }
                     .onKeyPress(.return, phases: .down) { press in

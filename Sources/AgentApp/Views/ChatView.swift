@@ -15,6 +15,9 @@ struct ChatView: View {
                 if thread != nil { Text("Thread").font(.system(size: 12)).foregroundStyle(.secondary) }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
+                if store.isManager(bot) {
+                    ManageBotsMenu(actions: ManageBotsAction.allCases, perform: manage) { Label("Manage bots", systemImage: "person.2.badge.gearshape").font(.system(size: 12)) }
+                }
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollViewReader { proxy in
@@ -51,8 +54,10 @@ struct ChatView: View {
             } else if store.needsKey(bot) {
                 AddKeyBanner(bot: bot).frame(maxWidth: .infinity).background(AppColor.chat)
             } else {
+                if store.isManager(bot) { BotOffersCard(manager: bot).padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat) }
                 ComposerView(text: $draft, attachments: $pending, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingBotID == bot.id,
-                             send: send, stop: store.stop, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { pending.append(item) } })
+                             send: send, stop: store.stop, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { pending.append(item) } },
+                             manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.allCases : [], manage: manage)
                     .background(AppColor.chat)
             }
         }.background(AppColor.chat)
@@ -61,7 +66,14 @@ struct ChatView: View {
                 guard !files.isEmpty, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly else { return false }
                 attach(files); return true
             }
-            .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); store.refreshFeatures(for: bot) }
+            .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
+            .onChange(of: store.composerFill) { _, _ in takeComposerFill() }
+    }
+    private func manage(_ action: ManageBotsAction) { store.startManagement(action, manager: bot) }
+    /// A Manage bots request for this chat replaces the draft.
+    private func takeComposerFill() {
+        guard let fill = store.composerFill, fill.botID == bot.id else { return }
+        draft = fill.text; store.composerFill = nil
     }
     private func attach(_ urls: [URL]) { pending += store.prepareAttachments(urls) }
     private func send() {

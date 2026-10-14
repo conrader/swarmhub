@@ -30,4 +30,6 @@ else
   mkdir -p .build/debug/AgentApp.resources
   rm -rf .build/debug/AgentApp.resources/Avatars
   cp -R Resources/Avatars .build/debug/AgentApp.resources/Avatars
+  rm -rf .build/debug/AgentApp.resources/BotManager
+  cp -R Resources/BotManager .build/debug/AgentApp.resources/BotManager
 fi

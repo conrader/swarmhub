@@ -14,7 +14,7 @@ struct MessageView: View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == .user { Spacer(minLength: 110) }
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {
-                if let repliedMessage { HStack(spacing: 5) { Rectangle().fill(.secondary.opacity(0.35)).frame(width: 2, height: 24); Text(repliedMessage.content).lineLimit(1) }.font(.caption).foregroundStyle(.secondary) }
+                if let repliedMessage { HStack(spacing: 5) { Rectangle().fill(.secondary.opacity(0.35)).frame(width: 2, height: 24); Text(SwarmhubBlock.visibleText(repliedMessage.content)).lineLimit(1) }.font(.caption).foregroundStyle(.secondary) }
                 if message.isSteer {
                     Label(message.metadata["steer"] == "failed" ? "Steer not delivered" : "Steered the running turn", systemImage: "arrow.turn.down.right").font(.caption2).foregroundStyle(.secondary)
                 }
