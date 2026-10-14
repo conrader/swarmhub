@@ -14,22 +14,29 @@ import SwiftUI
         while !done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1)) }
     }
 
-    /// The full window content. The sidebar column sits in a glass container whose vibrancy `cacheDisplay`
-    /// cannot reproduce, so that region is drawn from the same `SidebarView` rendered outside the glass.
+    /// The full window content. macOS glass containers need their actual pane content redrawn offscreen.
     static func contentPNG(store: AppStore, size: NSSize, scale: CGFloat = 2, scheme: ColorScheme = .dark, historyExpanded: Bool = false) async -> Data? {
-        await png(ContentView().environmentObject(store).environment(\.grokHistoryExpanded, historyExpanded), size: size, scale: scale, scheme: scheme) { _ in
-            AnyView(SidebarView(selection: .constant(store.selectedBot)).environmentObject(store))
+        await png(ContentView().environmentObject(store).defaultAppStorage(store.defaults).environment(\.grokHistoryExpanded, historyExpanded), size: size, scale: scale, scheme: scheme) { region in
+            if region.midX > size.width / 2 {
+                if let group = store.selectedGroup {
+                    return AnyView(GroupInfoPanel(group: group).environmentObject(store).defaultAppStorage(store.defaults))
+                }
+                if let bot = store.selectedBot {
+                    return AnyView(InfoPanel(bot: bot).environmentObject(store).defaultAppStorage(store.defaults))
+                }
+            }
+            return AnyView(SidebarView(selection: .constant(store.selectedBot)).environmentObject(store).defaultAppStorage(store.defaults))
         }
     }
 
     /// Renders a view offscreen to PNG data at `scale` pixels per point. Uses an `NSHostingView` in a
     /// window that is never ordered on screen: `ImageRenderer` draws AppKit-backed views
     /// (NavigationSplitView, ScrollView, TextField) as placeholders, so it cannot capture the real UI.
-    static func png<V: View>(_ view: V, size: NSSize, scale: CGFloat = 2, scheme: ColorScheme = .dark, glassContent: ((NSSize) -> AnyView)? = nil) async -> Data? {
+    static func png<V: View>(_ view: V, size: NSSize, scale: CGFloat = 2, scheme: ColorScheme = .dark, glassContent: ((NSRect) -> AnyView)? = nil) async -> Data? {
         await render(view, size: size, scale: scale, scheme: scheme, glassContent: glassContent)?.representation(using: .png, properties: [:])
     }
 
-    private static func render<V: View>(_ view: V, size: NSSize, scale: CGFloat, scheme: ColorScheme, glassContent: ((NSSize) -> AnyView)?) async -> NSBitmapImageRep? {
+    private static func render<V: View>(_ view: V, size: NSSize, scale: CGFloat, scheme: ColorScheme, glassContent: ((NSRect) -> AnyView)?) async -> NSBitmapImageRep? {
         _ = NSApplication.shared
         let appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
         let host = NSHostingView(rootView: view.environment(\.colorScheme, scheme).frame(width: size.width, height: size.height))
@@ -48,9 +55,9 @@ import SwiftUI
         return bitmap
     }
 
-    /// `cacheDisplay` paints macOS 26 glass containers (the NavigationSplitView sidebar) as a blank sheet.
-    /// Repaint each glass region with the sidebar colour and draw its content on top.
-    private static func redrawGlass(in host: NSView, onto bitmap: NSBitmapImageRep, scale: CGFloat, scheme: ColorScheme, appearance: NSAppearance?, glassContent: ((NSSize) -> AnyView)?) async {
+    /// `cacheDisplay` cannot reproduce macOS glass. Pass each region's position to the pane renderer
+    /// so nested split views keep their own content instead of receiving another copy of the sidebar.
+    private static func redrawGlass(in host: NSView, onto bitmap: NSBitmapImageRep, scale: CGFloat, scheme: ColorScheme, appearance: NSAppearance?, glassContent: ((NSRect) -> AnyView)?) async {
         let glasses = descendants(of: host).filter { String(describing: type(of: $0)).contains("GlassEffectView") }
         guard !glasses.isEmpty else { return }
         func target(_ view: NSView) -> NSRect {
@@ -60,7 +67,10 @@ import SwiftUI
         var layers: [(NSRect, NSBitmapImageRep)] = []
         for glass in glasses {
             if let glassContent {
-                if let rep = await render(glassContent(glass.bounds.size), size: glass.bounds.size, scale: scale, scheme: scheme, glassContent: nil) { layers.append((target(glass), rep)) }
+                // Glass backdrops can extend past the window; keep the redrawn pane inside the capture.
+                let region = target(glass.superview ?? glass).intersection(host.bounds)
+                guard !region.isEmpty else { continue }
+                if let rep = await render(glassContent(region), size: region.size, scale: scale, scheme: scheme, glassContent: nil) { layers.append((region, rep)) }
                 continue
             }
             // Without an override, draw the app's hosting views; the glass's own `_NSCoreHostingView` is the blank sheet.

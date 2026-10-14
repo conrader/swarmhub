@@ -10,9 +10,12 @@ A desktop interface for your **Hermes** and **OpenClaw** agents. Keep conversati
 Hermes is supported now; OpenClaw integration is planned.
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="SwarmHub demo with a bot sidebar, conversation, and agent details." width="1120" height="760">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/readme/swarmhub-light.png">
+    <img src="docs/readme/swarmhub-dark.png" alt="Current SwarmHub interface with bot marks, chat previews, a group conversation, a draft card, and the agent Overview." width="1440" height="900">
+  </picture>
   <br>
-  <sub>A look inside the macOS prototype.</sub>
+  <sub>Current macOS interface · demo content.</sub>
 </p>
 
 ## Benefits

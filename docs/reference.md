@@ -188,13 +188,9 @@ Current result after the parity pass: **0.01 s warm process launch** and **12.1 
 
 ## Screenshots
 
-![AgentApp default dark appearance](screenshot.png)
+![SwarmHub current dark interface](readme/swarmhub-dark.png)
 
-The managed session has no WindowServer/display access, so the repository includes a deterministic off-screen renderer for the actual SwiftUI hierarchy. Recreate the default capture with:
-
-```bash
-AGENTAPP_APPEARANCE=Dark AGENTAPP_SNAPSHOT="$PWD/docs/screenshot.png" .build/debug/AgentApp
-```
+The README uses current dark and light captures of the app’s SwiftUI views with sample agents and conversations. The capture fixture avoids the saved store and real server connections. See [screenshot provenance and regeneration](readme/SCREENSHOTS.md) to refresh them after UI changes.
 
 The normal interactive app does not invoke this renderer.
 

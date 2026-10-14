@@ -44,7 +44,7 @@ Observed avatar shapes: `blob`, `cylinder`, `shield`, `gem`, `hex`, `leaf`; colo
 
 ## Additions for the Grok Bot app-cache exporter (P6, compatible)
 
-`scripts/export-grokbot.py` reads the Grok Bot Mac app cache (`~/Library/Application Support/Grok Bot/sand-client-persistence/*.blob`, base32 file names) instead of a box snapshot and writes the same layout to `~/Documents/Torvli Grok Export/` (atomic replace, dirs 0700, files 0600, counts-only console output). Unlike the snapshot exporter it maps transcript rows to messages. Fields added; importers that ignore unknown fields are unaffected:
+`scripts/export-grokbot.py` reads the Grok Bot Mac app cache (`~/Library/Application Support/Grok Bot/sand-client-persistence/*.blob`, base32 file names) instead of a box snapshot and writes the same layout to `~/Documents/SwarmHub Grok Export/` (or an existing export folder from before the rename; atomic replace, dirs 0700, files 0600, counts-only console output). Unlike the snapshot exporter it maps transcript rows to messages. Fields added; importers that ignore unknown fields are unaffected:
 
 | Where | Field | Meaning |
 | --- | --- | --- |

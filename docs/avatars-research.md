@@ -8,7 +8,7 @@ Workflow `wf_58412dda-511` (15 agents: recon, 5 search angles, 8 adversarial lic
 
 **Grok's avatars** (reconstructed from code, not seen on screen). Each bot is one flat-colour soft shape (blob, cloud, hexagon...) with two tall capsule eyes cut out as negative space; no mouth, outline or background. Not image or video files: code draws a small 3D shape as a 2D silhouette, animated with squishy idle loops, blinks, glances, pointer-following eyes, busier working motion and a slump when blocked.
 
-| Option | License / credit | Distinct avatars | Animation | Style 0-5 | Torvli effort | Cost |
+| Option | License / credit | Distinct avatars | Animation | Style 0-5 | SwarmHub effort | Cost |
 |---|---|---|---|---|---|---|
 | 1. [BotAvatarsKit](https://github.com/Jakubantalik/Libraries.dev/tree/main/packages/bot-avatars) | MIT; keep notice | 18 bodies, any colour; 17 rendered distinct | Native SwiftUI: blink, look-around, hop, 3D turn; idle/working/sleeping | 4 (flat shading; glossy default about 3) | Vendor ~2,850 lines; fix two iOS-only calls; no dependency | Free |
 | 2. [Blobatar](https://blobatar.dev) | MIT; keep notice | 10 shapes, any hue, 14 expressions; 17 verified | Idle loop, eyes-only expressions incl. thinking, pointer gaze | 4 | Port to SwiftUI (none exists); reference vectors for tests | Free |
@@ -18,7 +18,7 @@ Workflow `wf_58412dda-511` (15 agents: recon, 5 search angles, 8 adversarial lic
 **Pick: BotAvatarsKit.** It is the only candidate already in SwiftUI, has enough shapes, and its bodies turn, hop and flip like Grok's; idle/working/sleeping map onto bot status. Use flat shading and Grok's 11 hex colours. **Runner-up: Blobatar**, if macOS proves painful: same style score and richer eye expressions, but tiny idle motion (only blinks show at 28 px).
 
 **Caveats**
-- **Unverified:** nothing was compiled or run on a Mac; the SwiftUI kit was judged through its web twin. It has two iOS-only calls (fix looks small, untested) and probably needs its own Swift 5-mode target (Torvli is Swift 6). It and Blobatar are young, AI-assisted projects: vendor pinned copies.
+- **Unverified:** nothing was compiled or run on a Mac; the SwiftUI kit was judged through its web twin. It has two iOS-only calls (fix looks small, untested) and probably needs its own Swift 5-mode target (SwarmHub is Swift 6). It and Blobatar are young, AI-assisted projects: vendor pinned copies.
 - **Licenses:** libraries.dev also sells Pro/Studio content (its site calls some shipped features Pro); use none of it. The Rive file stays CC BY, not MIT, and rests on the uploader's ownership claim. Excluded: Bloub, a measured Grok clone whose README leaves the design unlicensed. Unchecked: LottieFiles face sets.
 - **PLAN.md says "No animations"**; you would need to relax that. Suggest a calm variant: animate only a working or hovered bot, keep other rows still, honour macOS Reduce Motion.
 

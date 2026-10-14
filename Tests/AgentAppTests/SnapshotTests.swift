@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import Vision
 @testable import AgentApp
 
 private let exportFolder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../Fixtures/bundles/export").standardizedFileURL
@@ -36,6 +37,15 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     #expect(sidebarBackground.brightnessComponent < 0.2)
     let sidebar = try #require(main.cgImage?.cropping(to: CGRect(x: 0, y: 0, width: 400, height: 1600)))
     #expect(distinctColours(NSBitmapImageRep(cgImage: sidebar)) > 8)
+    // Both split-view columns use macOS glass. The right pane must retain its own content.
+    let rightPane = try #require(main.cgImage?.cropping(to: CGRect(x: main.pixelsWide - 720, y: 0, width: 720, height: 1600)))
+    let recognition = VNRecognizeTextRequest()
+    recognition.recognitionLevel = .accurate
+    recognition.recognitionLanguages = ["en-US"]
+    try VNImageRequestHandler(cgImage: rightPane).perform([recognition])
+    let paneText = recognition.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ") ?? ""
+    #expect(paneText.contains("Overview"), "The right pane must show the Overview, not a duplicate sidebar.")
+    #expect(paneText.contains("Routines"))
     #expect(try Data(contentsOf: directory.appending(path: "jarvis.png")) != Data(contentsOf: directory.appending(path: "main.png")))
     let mode = try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? Int
     #expect(mode == 0o700)
