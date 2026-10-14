@@ -59,12 +59,6 @@ struct MessageView: View {
 
     @ViewBuilder private var content: some View {
         switch message.presentation {
-        case .draftEmail: DraftEmailCard(message: message)
-        case .options: OptionCard(message: message)
-        case .attachment: AttachmentCard(message: message)
-        case .image: ImageCard(message: message)
-        case .links: LegacyLinkPills(message: message)
-        case .voiceMemo: VoiceMemoCard(message: message)
         case .delegation: DelegationCard(message: message)
         case .routineResult: RoutineResultCard(message: message)
         case .text:

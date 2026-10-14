@@ -18,7 +18,12 @@ struct OpenClawBinding: Codable, Equatable, Sendable {
 }
 
 enum MessageRole: String, Codable { case user, assistant, system }
-enum MessagePresentation: String, Codable { case text, draftEmail, options, attachment, image, links, voiceMemo, delegation, routineResult }
+/// P32: the old sample-only cards (draftEmail, options, attachment, image, links, voiceMemo) are gone; a stored message
+/// that still names one reads as text.
+enum MessagePresentation: String, Codable {
+    case text, delegation, routineResult
+    init(from decoder: Decoder) throws { self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .text }
+}
 
 enum ApprovalMode: String, Codable, CaseIterable, Identifiable {
     case ask = "Ask me", rules = "Auto-approve by rules", reviewer = "Reviewer bot"

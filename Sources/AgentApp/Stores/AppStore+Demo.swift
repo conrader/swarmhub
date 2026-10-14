@@ -5,12 +5,9 @@ extension AppStore {
         let conversation = [
             ChatMessage(role: .user, content: "Can you review today’s launch plan and prepare the client update?"),
             ChatMessage(role: .assistant, content: "## Launch check-in\n\nThe release is **ready**. Two items are worth calling out:\n\n- Desktop QA passed on macOS 14 and 15\n- The support playbook needs one final approval\n\n```swift\nlet rollout = Release(stage: .ready, risk: .low)\n```"),
-            ChatMessage(role: .assistant, content: "Draft ready", presentation: .draftEmail, metadata: ["to": "Maya Chen <maya@northstar.co>", "subject": "AgentApp launch update", "body": "Hi Maya,\n\nThe desktop rollout is ready for review. QA is complete and the remaining support item is queued for approval.\n\nBest,\nKonrad"]),
-            ChatMessage(role: .assistant, content: "How would you like me to handle the rollout?", presentation: .options, metadata: ["options": "Ship today|Schedule for Monday|Open launch checklist"]),
-            ChatMessage(role: .user, content: "Schedule it for Monday, please.", reactions: ["👍"], replyToID: nil),
-            ChatMessage(role: .assistant, content: "Voice note", presentation: .voiceMemo, metadata: ["duration": "0:18"]),
-            ChatMessage(role: .assistant, content: "Launch assets", presentation: .attachment, metadata: ["name": "launch-checklist.pdf", "size": "1.8 MB"]),
-            ChatMessage(role: .assistant, content: "Useful links", presentation: .links, metadata: ["links": "Release board|QA report|Support plan"])
+            ChatMessage(role: .assistant, content: "Here is the client update for you to check:\n\n```draft\nTo: Maya Chen <maya@northstar.co>\nSubject: \(AppConstants.name) launch update\n\nHi Maya,\n\nThe desktop rollout is ready for review. QA is complete and the remaining support item is queued for approval.\n\nBest,\nKonrad\n```"),
+            ChatMessage(role: .assistant, content: "```choices\nHow would you like me to handle the rollout?\n1. Ship today\n2. Schedule for Monday\n3. Walk me through the launch checklist\n```"),
+            ChatMessage(role: .user, content: "Schedule it for Monday, please.", reactions: ["👍"], replyToID: nil)
         ]
         bots = [
             Bot(name: "Atlas", title: "Operations lead", description: "Plans launches, coordinates work, and keeps projects moving.", avatarName: .faceCoral, memorySummary: "Knows the launch plan, client preferences, and weekly operating rhythm.", skills: ["Planning", "Email", "Project tracking"], messages: conversation),
