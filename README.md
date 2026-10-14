@@ -5,7 +5,9 @@
   <img src="docs/readme/hero.svg" alt="SwarmHub — your agents, one place to work." width="1280" height="450">
 </picture>
 
-A desktop app for working with your AI agents. Keep conversations, recurring tasks, and approvals together in one place.
+A desktop interface for your **Hermes** and **OpenClaw** agents. Keep conversations, recurring tasks, and approvals together in one place.
+
+Hermes is supported now; OpenClaw integration is planned.
 
 <p align="center">
   <img src="docs/screenshot.png" alt="SwarmHub demo with a bot sidebar, conversation, and agent details." width="1120" height="760">
