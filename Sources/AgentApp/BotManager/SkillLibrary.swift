@@ -35,9 +35,10 @@ struct SkillVersion: Comparable, Hashable, Sendable, CustomStringConvertible {
     static func < (lhs: Self, rhs: Self) -> Bool { (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch) }
 }
 
-/// A bot's copy of one bundled skill, compared with what this build ships.
+/// A bot's copy of one bundled skill, compared with what this build ships. P31: `changed` is the bundled version
+/// installed with another variant (e.g. a coding order changed since).
 enum SkillInstallState: Equatable {
-    case missing, outdated(installed: String), current
+    case missing, outdated(installed: String), changed(installed: String), current
     var needsAction: Bool { self != .current }
 }
 
@@ -112,15 +113,26 @@ enum SkillLibrary {
     }
 
     /// The SKILL.md written into `profile`: the version filled in and, for `swarmhub-manager`, the manager text rendered
-    /// for that profile (`manager-hermes.md` stays the one source of truth). Nil when a needed template is missing.
-    static func render(_ skill: BundledSkill, forProfile profile: String, managerTemplate: String?) -> String? {
+    /// for that profile (`manager-hermes.md` stays the one source of truth). P31: `{{CODING_ORDER}}` (this bot's coding
+    /// agent order), `{{BOT}}` (the profile) and `{{SKILL_DIR}}` (where the skill lives on the box). Nil when a needed
+    /// template is missing.
+    static func render(_ skill: BundledSkill, forProfile profile: String, managerTemplate: String?, codingOrder: CodingOrder = .standard) -> String? {
         var text = skill.template.replacingOccurrences(of: "{{VERSION}}", with: skill.version.description)
         if text.contains("{{MANAGER_TEXT}}") {
             guard let managerTemplate else { return nil }
             let manager = BotManagerText.filled(managerTemplate, managerProfile: profile).trimmingCharacters(in: .whitespacesAndNewlines)
             text = text.replacingOccurrences(of: "{{MANAGER_TEXT}}", with: manager)
         }
+        text = text.replacingOccurrences(of: "{{CODING_ORDER}}", with: codingOrder.argument)
+            .replacingOccurrences(of: "{{SKILL_DIR}}", with: installPath(skill.name, profile: profile))
+            .replacingOccurrences(of: "{{BOT}}", with: profile)
         return text.hasSuffix("\n") ? text : text + "\n"
+    }
+
+    /// P31: what besides the version decides a bot's copy, recorded with the install: the coding order for a skill
+    /// that renders one; nil for the others.
+    static func variant(of skill: BundledSkill, codingOrder: CodingOrder) -> String? {
+        skill.template.contains("{{CODING_ORDER}}") ? codingOrder.argument : nil
     }
 
     /// `~/.hermes/skills` for `default`, else `~/.hermes/profiles/<profile>/skills`.
@@ -130,10 +142,13 @@ enum SkillLibrary {
 
     static func installPath(_ skill: String, profile: String) -> String { "\(skillsRoot(forProfile: profile))/\(category)/\(skill)" }
 
-    /// A bot's copy against the bundled one: absent, older (or unreadable), or current.
-    static func state(installed: String?, bundled: SkillVersion) -> SkillInstallState {
+    /// A bot's copy against the bundled one: absent, older (or unreadable), current, or (P31) current but installed with
+    /// another variant than this bot wants now. A skill without a wanted variant ignores the recorded one, so records
+    /// from before P31 (no variant) stay current for skills that have none.
+    static func state(installed: String?, bundled: SkillVersion, installedVariant: String? = nil, wantedVariant: String? = nil) -> SkillInstallState {
         guard let installed else { return .missing }
         guard let version = SkillVersion(installed), version >= bundled else { return .outdated(installed: installed) }
+        if let wantedVariant, installedVariant != wantedVariant { return .changed(installed: installed) }
         return .current
     }
 

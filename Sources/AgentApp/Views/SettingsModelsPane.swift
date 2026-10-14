@@ -66,6 +66,12 @@ struct SettingsModelsPane: View {
         if let hint = ModelRolesModel.sharedSupplierHint(conversation: store.modelDefaults.conversation, coding: store.modelDefaults.coding, catalog: referenceRow?.catalog) {
             Text(hint).font(.caption).foregroundStyle(.secondary)
         }
+        // P31 D1: the SwarmHub-wide coding agent order; a bot's own choice in its editor wins.
+        Picker("Coding agent", selection: Binding(get: { store.modelDefaults.codingAgent ?? .standard },
+                                                  set: { store.modelDefaults.codingAgent = $0 == .standard ? nil : $0; store.save() })) {
+            ForEach(CodingOrder.allCases) { Text($0.title).tag($0) }
+        }
+        Text(CodingOrder.help + " A bot can choose its own in its settings.").font(.caption).foregroundStyle(.secondary)
     }
 
     private func defaultMenu(_ title: String, _ role: WritableKeyPath<ModelDefaults, ModelChoice?>, fallback: String, picker: ModelPickerModel?, enabled: Bool) -> some View {

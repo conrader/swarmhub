@@ -1,0 +1,200 @@
+#!/bin/sh
+# code-job: run one coding task with the first available coding agent, one of SLOTS jobs at a time on this box.
+# Installed by SwarmHub with the swarmhub-coding skill. POSIX sh (dash, macOS sh); no flock/timeout/setsid.
+#
+#   code-job --bot <name> --order claude,codex,hermes [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- "<task>"
+#
+# Exit: the agent's own code; 124 timeout; 75 + CODE_JOB_USE_DELEGATE on stdout when the order reaches hermes;
+# 69 when every agent in the order was skipped; 64 usage. Box-wide state lives in ~/.hermes/swarmhub/.
+
+usage() { echo "usage: code-job --bot <name> --order claude,codex,hermes [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- \"<task>\"" >&2; exit 64; }
+
+BOT= ORDER= DIR=. TIMEOUT=1800 MAXTURNS=40
+while [ $# -gt 0 ]; do
+  case $1 in
+    --bot|--order|--dir|--timeout|--max-turns)
+      [ $# -ge 2 ] || usage
+      case $1 in --bot) BOT=$2 ;; --order) ORDER=$2 ;; --dir) DIR=$2 ;; --timeout) TIMEOUT=$2 ;; --max-turns) MAXTURNS=$2 ;; esac
+      shift 2 ;;
+    --) shift; break ;;
+    *) usage ;;
+  esac
+done
+[ $# -eq 1 ] && [ -n "$1" ] || usage
+TASK=$1
+case $BOT in ''|*[!A-Za-z0-9_.-]*) echo "code-job: --bot must be a bot name" >&2; exit 64 ;; esac
+case $TIMEOUT in ''|*[!0-9]*|0) echo "code-job: --timeout must be a number of seconds" >&2; exit 64 ;; esac
+case $MAXTURNS in ''|*[!0-9]*|0) echo "code-job: --max-turns must be a number" >&2; exit 64 ;; esac
+[ -n "$ORDER" ] || usage
+for a in $(echo "$ORDER" | tr ',' ' '); do
+  case $a in claude|codex|hermes) ;; *) echo "code-job: unknown agent in --order: $a" >&2; exit 64 ;; esac
+done
+[ -d "$DIR" ] || { echo "code-job: no such directory: $DIR" >&2; exit 64; }
+
+S=$HOME/.hermes/swarmhub
+mkdir -p "$S/slots" && chmod 700 "$S" || exit 1
+SLOTS=$(sed -n 's/^SLOTS=\([0-9][0-9]*\)[[:space:]]*$/\1/p' "$S/coding.conf" 2>/dev/null | tail -n 1)
+case $SLOTS in ''|0) SLOTS=1 ;; esac
+POLL=${CODE_JOB_POLL:-5}
+T=$(mktemp -d "${TMPDIR:-/tmp}/code-job.XXXXXX") || exit 1
+
+SLOT= APID= MPID= O1= O2= AGENT=none SKIPPED= WAITED=0 RAN=0 PEAK=0 LOGGED=
+
+# Every pid in the process tree under $1 (itself included), from one ps listing.
+tree() {
+  ps -A -o pid= -o ppid= 2>/dev/null | awk -v root="$1" '
+    { kids[$2] = kids[$2] " " $1 }
+    END { n = 1; q[1] = root; for (i = 1; i <= n; i++) { print q[i]; c = split(kids[q[i]], k, " "); for (j = 1; j <= c; j++) q[++n] = k[j] } }'
+}
+
+# Summed RSS (KB) of the tree under $1.
+tree_rss() {
+  ps -A -o pid= -o ppid= -o rss= 2>/dev/null | awk -v root="$1" '
+    { kids[$2] = kids[$2] " " $1; rss[$1] = $3 }
+    END { n = 1; q[1] = root; s = 0; for (i = 1; i <= n; i++) { s += rss[q[i]]; c = split(kids[q[i]], k, " "); for (j = 1; j <= c; j++) q[++n] = k[j] } print s + 0 }'
+}
+
+kill_tree() {
+  [ -n "$1" ] || return 0
+  pids=$(tree "$1")
+  kill -TERM $pids 2>/dev/null
+  sleep 1
+  pids="$pids $(tree "$1")"
+  kill -KILL $pids 2>/dev/null
+  return 0
+}
+
+release() {
+  if [ -n "$SLOT" ] && [ "$(cat "$SLOT/pid" 2>/dev/null)" = "$$" ]; then rm -rf "$SLOT"; fi
+  SLOT=
+}
+
+# The last stderr line and the log line; never the task text or a token.
+finish() {
+  rc=$1 word=$2
+  release
+  rm -rf "$T"
+  sk=${SKIPPED#, }
+  line="code-job: $AGENT $word · waited ${WAITED}s · ran ${RAN}s · peak $(( (PEAK + 1023) / 1024 )) MB"
+  [ -n "$sk" ] && line="$line · skipped $sk"
+  if [ -z "$LOGGED" ]; then
+    LOGGED=1
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$BOT" "$AGENT" "$WAITED" "$RAN" \
+      "$(( (PEAK + 1023) / 1024 ))" "$rc" "${sk:--}" >> "$S/coding-jobs.log"
+    chmod 600 "$S/coding-jobs.log" 2>/dev/null
+  fi
+  echo "$line" >&2
+  exit "$rc"
+}
+
+interrupted() {
+  trap '' INT TERM
+  kill_tree "$MPID"; kill_tree "$APID"
+  [ -n "$O1" ] && kill "$O1" 2>/dev/null; [ -n "$O2" ] && kill "$O2" 2>/dev/null
+  finish "$1" interrupted
+}
+trap 'release; rm -rf "$T"' EXIT
+trap 'interrupted 130' INT
+trap 'interrupted 143' TERM
+trap 'interrupted 129' HUP
+
+# One of SLOTS slots: `mkdir slots/<i>.lock` is atomic. A lock whose pid is dead is stale; it is removed under a short
+# reclaim guard so two waiters cannot both remove it (and so one cannot remove the other's fresh lock).
+try_slot() {
+  i=1
+  while [ "$i" -le "$SLOTS" ]; do
+    d=$S/slots/$i.lock
+    if mkdir "$d" 2>/dev/null; then echo $$ > "$d/pid"; SLOT=$d; return 0; fi
+    p=$(cat "$d/pid" 2>/dev/null)
+    if [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null && mkdir "$S/slots/reclaim" 2>/dev/null; then
+      [ "$(cat "$d/pid" 2>/dev/null)" = "$p" ] && rm -rf "$d"
+      rmdir "$S/slots/reclaim"
+      continue
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+
+take_slot() {
+  [ -n "$SLOT" ] && return 0
+  start=$(date +%s) said=
+  until try_slot; do
+    if [ -z "$said" ]; then
+      used=$(ls -d "$S"/slots/*.lock 2>/dev/null | wc -l | tr -d ' ')
+      echo "Waiting for a free coding slot ($used in use)…" >&2; said=1
+    fi
+    # A reclaim guard left by a killed job would block reclaiming forever.
+    [ -d "$S/slots/reclaim" ] && [ -n "$(find "$S/slots/reclaim" -prune -mmin +1 2>/dev/null)" ] && rmdir "$S/slots/reclaim" 2>/dev/null
+    sleep "$POLL"
+  done
+  WAITED=$(( $(date +%s) - start ))
+}
+
+# Runs agent $1 in --dir, streaming its stdout and stderr through; sets RC (124 on timeout) and copies output to $T/out.
+run_agent() {
+  rm -f "$T/o" "$T/e" "$T/timedout" "$T/peak"
+  mkfifo "$T/o" "$T/e" || { RC=1; return; }
+  : > "$T/out"
+  tee -a "$T/out" < "$T/o" & O1=$!
+  tee -a "$T/out" < "$T/e" >&2 & O2=$!
+  (
+    cd "$DIR" || exit 1
+    unset ANTHROPIC_API_KEY
+    case $1 in
+      claude)
+        if [ -f "$S/claude.token" ]; then CLAUDE_CODE_OAUTH_TOKEN=$(cat "$S/claude.token"); export CLAUDE_CODE_OAUTH_TOKEN; fi
+        exec claude -p "$TASK" --permission-mode acceptEdits --allowedTools "Read,Edit,Write,Bash,Glob,Grep" \
+          --max-turns "$MAXTURNS" --output-format text ;;
+      codex) exec codex exec --full-auto "$TASK" ;;
+    esac
+  ) < /dev/null > "$T/o" 2> "$T/e" &
+  APID=$!
+  # Watchdog and sampler: every second check the deadline, every 2 s add up the tree's RSS.
+  (
+    t=0 peak=0
+    while kill -0 "$APID" 2>/dev/null; do
+      if [ $((t % 2)) -eq 0 ]; then
+        r=$(tree_rss "$APID"); [ "${r:-0}" -gt "$peak" ] && { peak=$r; echo "$peak" > "$T/peak"; }
+      fi
+      if [ "$t" -ge "$TIMEOUT" ]; then : > "$T/timedout"; kill_tree "$APID"; break; fi
+      sleep 1; t=$((t + 1))
+    done
+  ) < /dev/null > /dev/null 2>&1 &
+  MPID=$!
+  ran0=$(date +%s)
+  wait "$APID"; RC=$?
+  RAN=$(( RAN + $(date +%s) - ran0 ))
+  wait "$MPID" "$O1" "$O2"
+  APID= MPID= O1= O2=
+  p=$(cat "$T/peak" 2>/dev/null); [ "${p:-0}" -gt "$PEAK" ] && PEAK=$p
+  [ -f "$T/timedout" ] && RC=124
+}
+
+matches() { grep -Eiq "$1" "$T/out"; }
+
+for a in $(echo "$ORDER" | tr ',' ' '); do
+  if [ "$a" = hermes ]; then
+    AGENT=hermes
+    echo CODE_JOB_USE_DELEGATE
+    finish 75 delegate
+  fi
+  if ! command -v "$a" >/dev/null 2>&1; then SKIPPED="$SKIPPED, $a: missing"; continue; fi
+  take_slot
+  AGENT=$a
+  run_agent "$a"
+  [ "$RC" -eq 0 ] && finish 0 ok
+  [ "$RC" -eq 124 ] && finish 124 timeout
+  if [ "$a" = claude ]; then
+    login='not logged in|please run /login|invalid api key|authentication'
+    limit='usage limit|rate limit|limit reached|429|overloaded'
+  else
+    login='not logged in|login required|please run codex login|unauthorized'
+    limit='usage_limit_reached|usage limit|rate limit|429'
+  fi
+  if matches "$login"; then SKIPPED="$SKIPPED, $a: login"; AGENT=none; continue; fi
+  if matches "$limit"; then SKIPPED="$SKIPPED, $a: limit"; AGENT=none; continue; fi
+  finish "$RC" failed
+done
+echo "code-job: no coding agent in --order $ORDER could run" >&2
+finish 69 failed

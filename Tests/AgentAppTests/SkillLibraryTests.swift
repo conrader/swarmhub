@@ -65,8 +65,9 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
 
 @Test func libraryListsTheBundledManagerSkill() throws {
     let skills = SkillLibrary.bundled()
-    #expect(skills.map(\.name) == ["swarmhub-manager"])
-    let skill = try #require(skills.first)
+    #expect(skills.map(\.name) == ["swarmhub-coding", "swarmhub-manager"], "P31: swarmhub-coding joins it")
+    let skill = try #require(skills.first { $0.name == SkillLibrary.managerSkill })
+    #expect(skill.files.isEmpty, "the manager skill is SKILL.md only")
     #expect(skill.version == SkillVersion("1.0.1")!, "P30: the faster model recipe")
     #expect(SkillLibrary.state(installed: "1.0.0", bundled: skill.version) == .outdated(installed: "1.0.0"), "bots on 1.0.0 get the Update banner")
     let fields = SkillLibrary.frontmatter(skill.template)
@@ -75,7 +76,7 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
 }
 
 @Test func renderedSkillIsTheManagerTextForThatProfile() throws {
-    let skill = try #require(SkillLibrary.bundled().first)
+    let skill = try #require(SkillLibrary.bundled().first { $0.name == SkillLibrary.managerSkill })
     let template = try #require(BotManagerText.template())
     for profile in ["default", "grok-jarvis"] {
         let rendered = try #require(SkillLibrary.render(skill, forProfile: profile, managerTemplate: template))

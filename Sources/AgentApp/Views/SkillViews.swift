@@ -50,7 +50,8 @@ struct SwarmHubSkillsSection: View {
                 Text("Instructions \(AppConstants.name) installs into this bot’s own profile, so it follows them instead of improvising. Hermes itself is not changed.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            .task(id: bot.id) { await store.refreshInstalledSkills(for: bot) }
+            // Like the capabilities read: only in the real app, never from previews or offscreen renders.
+            .task(id: bot.id) { if store.botInfo.autoLoad { await store.refreshInstalledSkills(for: bot) } }
         }
     }
 
@@ -58,6 +59,7 @@ struct SwarmHubSkillsSection: View {
         switch state {
         case .missing: "Not installed · v\(bundled) available"
         case .outdated(let installed): "v\(installed) installed · v\(bundled) available"
+        case .changed(let installed): "v\(installed) installed · coding agent changed, needs updating"
         case .current: "v\(bundled) installed"
         }
     }

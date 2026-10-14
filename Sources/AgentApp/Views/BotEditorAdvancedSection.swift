@@ -43,7 +43,8 @@ struct BotEditorAdvancedSection: View {
                 Text("First match wins. Patterns are case-insensitive and support * and ?. Allow rules accept only conservative ASCII commands and reject a short list of known-dangerous programs/options, shell syntax, quotes, escapes, newlines, and redaction markers. Broad wildcards can expose extra files. No match asks you.").font(.caption).foregroundStyle(.secondary)
             }
         }
-        BotModelSettingsSection(cache: store.botInfo, bot: bot, pendingBackend: fields.backend, conversation: $fields.conversationModel, coding: $fields.codingModel)
+        BotModelSettingsSection(cache: store.botInfo, bot: bot, pendingBackend: fields.backend, conversation: $fields.conversationModel, coding: $fields.codingModel,
+                                codingAgent: $fields.codingAgent)
         if let bot { BoxInstructionsSection(bot: bot) }
         if bot != nil, fields.backend == .hermes || fields.backend == .openClaw {
             Section("Bot management") {

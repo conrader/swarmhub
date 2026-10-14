@@ -4,7 +4,14 @@ import os
 /// One action the manager bot reports in a ```swarmhub fence (`Resources/BotManager/manager-hermes.md`).
 enum SwarmhubOp: Equatable {
     struct ListedBot: Equatable { var name: String; var description: String }
-    struct InstalledSkill: Equatable { var name: String; var version: String }
+    struct InstalledSkill: Equatable {
+        var name: String; var version: String
+        /// P31: the variant the install turn wrote (e.g. `claude,codex,hermes`); nil for skills without one.
+        var variant: String? = nil
+        static func isValidVariant(_ text: String) -> Bool {
+            (1...64).contains(text.count) && text.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber || ",._-".contains($0)) }
+        }
+    }
     case botCreated(name: String, description: String, avatar: AvatarMark?)
     case avatar(name: String, mark: AvatarMark)
     case description(name: String, description: String)
@@ -52,7 +59,7 @@ enum SwarmhubOp: Equatable {
             self = .skillsInstalled(bot: bot, skills: rows.compactMap { row in
                 guard let name = row["name"] as? String, HermesKeyPaste.isValidProfileName(name),
                       let version = (row["version"] as? String).flatMap(SkillVersion.init) else { return nil }
-                return InstalledSkill(name: name, version: version.description)
+                return InstalledSkill(name: name, version: version.description, variant: (row["variant"] as? String).flatMap { InstalledSkill.isValidVariant($0) ? $0 : nil })
             })
         default: return nil
         }

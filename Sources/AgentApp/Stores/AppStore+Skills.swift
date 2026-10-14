@@ -23,28 +23,50 @@ extension AppStore {
 
     var skillLibrary: [BundledSkill] { skillLibraryOverride ?? Self.cachedLibrary }
 
-    /// The bundled skills meant for this bot: `swarmhub-manager` only for its connection's manager.
+    /// The bundled skills meant for this bot: `swarmhub-manager` only for its connection's manager; the others (P31:
+    /// `swarmhub-coding`) for every Hermes bot.
     func skills(for bot: Bot) -> [BundledSkill] {
         guard bot.backend == .hermes, !bot.isReadOnlyArchive else { return [] }
         return skillLibrary.filter { $0.name != SkillLibrary.managerSkill || isManager(bot) }
     }
 
+    /// P31 D1: this bot's coding agent order (its own, else the SwarmHub-wide default, else Claude Code first).
+    func codingOrder(for bot: Bot) -> CodingOrder {
+        CodingOrder.resolve(bot: bot.modelSettings?.codingAgent, appDefault: modelDefaults.codingAgent).order
+    }
+
     func skillState(_ skill: BundledSkill, for bot: Bot) -> SkillInstallState {
-        SkillLibrary.state(installed: bot.installedSkills[skill.name], bundled: skill.version)
+        SkillLibrary.state(installed: bot.installedSkills[skill.name], bundled: skill.version, installedVariant: bot.installedSkillVariants[skill.name],
+                           wantedVariant: SkillLibrary.variant(of: skill, codingOrder: codingOrder(for: bot)))
     }
 
-    /// The manager's own `swarmhub-manager` when it needs installing or updating and "Not now" did not hide this version.
+    /// The banner above a bot's composer: for its connection's manager, the first of its skills (its own
+    /// `swarmhub-manager` first) that needs installing or updating; for any other bot (P31), an installed skill that
+    /// needs updating, e.g. after its coding order changed (a missing one is offered in the editor only). Hidden while
+    /// "Not now" covers that version and variant.
     func skillBanner(for bot: Bot) -> (skill: BundledSkill, state: SkillInstallState)? {
-        guard isManager(bot), let skill = skills(for: bot).first(where: { $0.name == SkillLibrary.managerSkill }) else { return nil }
-        let state = skillState(skill, for: bot)
-        guard state.needsAction, bot.skillBannerSnoozed != skill.version.description else { return nil }
-        return (skill, state)
+        let manages = isManager(bot)
+        guard manages || manager(for: bot) != nil else { return nil }
+        let ordered = skills(for: bot).sorted { ($0.name == SkillLibrary.managerSkill ? 0 : 1) < ($1.name == SkillLibrary.managerSkill ? 0 : 1) }
+        for skill in ordered {
+            let state = skillState(skill, for: bot)
+            guard state.needsAction, manages || state != .missing else { continue }
+            guard bot.skillBannerSnoozed != snoozeKey(skill, for: bot) else { continue }
+            return (skill, state)
+        }
+        return nil
     }
 
-    /// "Not now": hidden until a newer bundled version ships.
+    /// "Not now": hidden until a newer bundled version ships (or, P31, the skill's variant changes again).
     func snoozeSkillBanner(for bot: Bot) {
         guard let banner = skillBanner(for: bot) else { return }
-        bot.skillBannerSnoozed = banner.skill.version.description; objectWillChange.send(); save()
+        bot.skillBannerSnoozed = snoozeKey(banner.skill, for: bot); objectWillChange.send(); save()
+    }
+
+    /// The bare version for a skill without a variant (what P27 stored), else name, version and variant.
+    private func snoozeKey(_ skill: BundledSkill, for bot: Bot) -> String {
+        guard let variant = SkillLibrary.variant(of: skill, codingOrder: codingOrder(for: bot)) else { return skill.version.description }
+        return "\(skill.name) \(skill.version) \(variant)"
     }
 
     /// Plain words for the banner and the editor.
@@ -62,7 +84,7 @@ extension AppStore {
         let profile = bot.hermesProfile ?? "default"
         let instructions: String
         do {
-            guard let text = try skillInstallInstructions(skills(for: bot), profile: profile, botName: bot.name) else { return false }
+            guard let text = try skillInstallInstructions(skills(for: bot), profile: profile, botName: bot.name, codingOrder: codingOrder(for: bot)) else { return false }
             instructions = text
         } catch {
             SwarmhubBlock.log.error("Skill install refused: \(error.localizedDescription, privacy: .public)")
@@ -77,13 +99,14 @@ extension AppStore {
 
     /// The install turn's instructions: Konrad's press is the yes, then for each skill `mkdir -p`, a quoted heredoc per
     /// file (SKILL.md rendered for this bot, then its extra files as shipped), `chmod 755` for `scripts/`, and the
-    /// `skills_installed` block to end with. Nil when a skill cannot
+    /// `skills_installed` block to end with (P31: with each skill's variant, e.g. the coding order). Nil when a skill cannot
     /// be rendered; throws when a file contains the heredoc end marker, which would cut the file short on the box.
-    func skillInstallInstructions(_ skills: [BundledSkill], profile: String, botName: String) throws -> String? {
+    func skillInstallInstructions(_ skills: [BundledSkill], profile: String, botName: String, codingOrder: CodingOrder = .standard) throws -> String? {
         guard !skills.isEmpty, HermesKeyPaste.isValidProfileName(profile) else { return nil }
         var commands: [String] = []
         for skill in skills {
-            guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: managerTemplateOverride ?? Self.bundledManagerTemplate) else { return nil }
+            guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: managerTemplateOverride ?? Self.bundledManagerTemplate,
+                                                    codingOrder: codingOrder) else { return nil }
             let folder = SkillLibrary.installPath(skill.name, profile: profile)
             let files = [SkillFile(path: "SKILL.md", content: content)] + skill.files
             if let clash = files.first(where: { $0.content.contains(Self.heredocEnd) }) { throw SkillInstallError.markerInFile(skill: skill.name, path: clash.path) }
@@ -96,7 +119,10 @@ extension AppStore {
             let executables = files.filter(\.isExecutable).map { "\(folder)/\($0.path)" }
             if !executables.isEmpty { commands.append("chmod 755 " + executables.joined(separator: " ")) }
         }
-        let listed = skills.map { #"{"name":"\#($0.name)","version":"\#($0.version)"}"# }.joined(separator: ",")
+        let listed = skills.map { skill in
+            let variant = SkillLibrary.variant(of: skill, codingOrder: codingOrder).map { #","variant":"\#($0)""# } ?? ""
+            return #"{"name":"\#(skill.name)","version":"\#(skill.version)"\#(variant)}"#
+        }.joined(separator: ",")
         return """
         Konrad pressed Install in SwarmHub to install SwarmHub’s instructions (skills) for \(botName) (profile `\(profile)`). \
         That press is his yes: do not ask again. Run exactly these commands in your terminal with the shell (not the file tool), \
@@ -119,6 +145,7 @@ extension AppStore {
         for row in installed {
             guard let skill = skillLibrary.first(where: { $0.name == row.name }), let version = SkillVersion(row.version) else { continue }
             bot.installedSkills[row.name] = min(version, skill.version).description
+            bot.installedSkillVariants[row.name] = row.variant
         }
     }
 
@@ -137,7 +164,8 @@ extension AppStore {
             let advertised = (row.version ?? SkillLibrary.advertisedVersion(in: row.description)).flatMap(SkillVersion.init)
             record[skill.name] = advertised.map { min($0, skill.version).description } ?? bot.installedSkills[skill.name] ?? "0.0.0"
         }
-        guard record != bot.installedSkills else { return }
-        bot.installedSkills = record; objectWillChange.send(); save()
+        let variants = bot.installedSkillVariants.filter { record[$0.key] != nil }
+        guard record != bot.installedSkills || variants != bot.installedSkillVariants else { return }
+        bot.installedSkills = record; bot.installedSkillVariants = variants; objectWillChange.send(); save()
     }
 }
