@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// P27: one skill SwarmHub authors and versions (`Resources/Skills/<name>/SKILL.md`) and installs into a bot's own
 /// profile as an ordinary Hermes skill. Hermes itself is never changed; the file is what a user would install by hand.
@@ -7,6 +8,16 @@ struct BundledSkill: Equatable, Sendable {
     let version: SkillVersion
     /// The SKILL.md template: frontmatter plus `{{VERSION}}` and, for `swarmhub-manager`, `{{MANAGER_TEXT}}`.
     let template: String
+    /// P31: every other file of the skill's folder (e.g. `scripts/code-job`), written next to SKILL.md as is.
+    var files: [SkillFile] = []
+}
+
+/// P31: one extra file of a bundled skill, its path relative to the skill's folder.
+struct SkillFile: Equatable, Sendable {
+    let path: String
+    let content: String
+    /// Files under `scripts/` are installed `chmod 755`.
+    var isExecutable: Bool { path.hasPrefix("scripts/") }
 }
 
 /// A semver `major.minor.patch`; anything else does not parse.
@@ -53,8 +64,37 @@ enum SkillLibrary {
         return names.sorted().compactMap { name in
             guard let text = try? String(contentsOf: folder.appending(path: "\(name)/SKILL.md"), encoding: .utf8) else { return nil }
             let fields = frontmatter(text)
-            guard fields["name"] == name, HermesKeyPaste.isValidProfileName(name), let version = fields["version"].flatMap(SkillVersion.init) else { return nil }
-            return BundledSkill(name: name, version: version, template: text)
+            guard fields["name"] == name, HermesKeyPaste.isValidProfileName(name), let version = fields["version"].flatMap(SkillVersion.init),
+                  let files = extraFiles(in: folder.appending(path: name, directoryHint: .isDirectory)) else { return nil }
+            return BundledSkill(name: name, version: version, template: text, files: files)
+        }
+    }
+
+    /// P31: every regular file of a skill's folder besides the top SKILL.md, sorted by path (dot files skipped). Nil, so
+    /// the skill is not offered, when one is not UTF-8 text or its path has anything but letters, digits, `.`, `_`, `-`.
+    static func extraFiles(in folder: URL) -> [SkillFile]? {
+        let base = folder.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { return [] }
+        var files: [SkillFile] = []
+        for case let url as URL in walker {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            let full = url.standardizedFileURL.resolvingSymlinksInPath().path
+            guard full.hasPrefix(base) else { return nil }
+            let path = String(full.dropFirst(base.count))
+            guard path != "SKILL.md" else { continue }
+            guard isSafeRelativePath(path), let content = try? String(contentsOf: url, encoding: .utf8) else {
+                SwarmhubBlock.log.error("Skill file \(path, privacy: .public) is not installable; skill skipped")
+                return nil
+            }
+            files.append(SkillFile(path: path, content: content))
+        }
+        return files.sorted { $0.path < $1.path }
+    }
+
+    static func isSafeRelativePath(_ path: String) -> Bool {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        return !parts.isEmpty && parts.allSatisfy { part in
+            !part.isEmpty && part != "." && part != ".." && part.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0)) }
         }
     }
 

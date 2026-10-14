@@ -1,5 +1,15 @@
 import Foundation
 
+/// P31: why an Install was refused before anything was sent.
+enum SkillInstallError: LocalizedError, Equatable {
+    case markerInFile(skill: String, path: String)
+    var errorDescription: String? {
+        switch self {
+        case .markerInFile(let skill, let path): "Can’t install \(skill): its file \(path) contains SWARMHUB_EOF, which would cut it short on the box."
+        }
+    }
+}
+
 /// An Install waiting for the manager's next turn: the bot it is for and the turn's instructions.
 struct SkillInstallTurn: Equatable { let profile: String; let instructions: String }
 
@@ -45,11 +55,19 @@ extension AppStore {
     // MARK: Install
 
     /// Install pressed (banner or editor): the bot's connection manager gets one management turn that writes every skill
-    /// meant for `bot`. False when there is no manager, nothing to install, or another turn is still running.
+    /// meant for `bot`. False when there is no manager, nothing to install, or another turn is still running; a skill
+    /// whose content cannot travel in the heredoc also says so in `errorMessage`.
     @discardableResult func installSkills(for bot: Bot) -> Bool {
         guard let manager = manager(for: bot), isIdle else { return false }
         let profile = bot.hermesProfile ?? "default"
-        guard let instructions = skillInstallInstructions(skills(for: bot), profile: profile, botName: bot.name) else { return false }
+        let instructions: String
+        do {
+            guard let text = try skillInstallInstructions(skills(for: bot), profile: profile, botName: bot.name) else { return false }
+            instructions = text
+        } catch {
+            SwarmhubBlock.log.error("Skill install refused: \(error.localizedDescription, privacy: .public)")
+            errorMessage = error.localizedDescription; return false
+        }
         pendingSkillInstalls[manager.id] = SkillInstallTurn(profile: profile, instructions: instructions)
         managementExchanges[manager.id] = nil
         open(manager); openThreadID = nil
@@ -57,17 +75,26 @@ extension AppStore {
         return true
     }
 
-    /// The install turn's instructions: Konrad's press is the yes, then for each skill `mkdir -p` and a quoted heredoc
-    /// with the library's rendered content, and the `skills_installed` block to end with. Nil when a skill cannot be
-    /// rendered or its text would close the heredoc early.
-    func skillInstallInstructions(_ skills: [BundledSkill], profile: String, botName: String) -> String? {
+    /// The install turn's instructions: Konrad's press is the yes, then for each skill `mkdir -p`, a quoted heredoc per
+    /// file (SKILL.md rendered for this bot, then its extra files as shipped), `chmod 755` for `scripts/`, and the
+    /// `skills_installed` block to end with. Nil when a skill cannot
+    /// be rendered; throws when a file contains the heredoc end marker, which would cut the file short on the box.
+    func skillInstallInstructions(_ skills: [BundledSkill], profile: String, botName: String) throws -> String? {
         guard !skills.isEmpty, HermesKeyPaste.isValidProfileName(profile) else { return nil }
         var commands: [String] = []
         for skill in skills {
-            guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: managerTemplateOverride ?? Self.bundledManagerTemplate),
-                  !content.components(separatedBy: "\n").contains(Self.heredocEnd) else { return nil }
+            guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: managerTemplateOverride ?? Self.bundledManagerTemplate) else { return nil }
             let folder = SkillLibrary.installPath(skill.name, profile: profile)
-            commands.append("mkdir -p \(folder)\ncat > \(folder)/SKILL.md <<'\(Self.heredocEnd)'\n\(content)\(Self.heredocEnd)")
+            let files = [SkillFile(path: "SKILL.md", content: content)] + skill.files
+            if let clash = files.first(where: { $0.content.contains(Self.heredocEnd) }) { throw SkillInstallError.markerInFile(skill: skill.name, path: clash.path) }
+            let folders = Set(files.map { ($0.path as NSString).deletingLastPathComponent }.filter { !$0.isEmpty })
+            commands.append("mkdir -p " + ([folder] + folders.sorted().map { "\(folder)/\($0)" }).joined(separator: " "))
+            for file in files {
+                let text = file.content.hasSuffix("\n") ? file.content : file.content + "\n"
+                commands.append("cat > \(folder)/\(file.path) <<'\(Self.heredocEnd)'\n\(text)\(Self.heredocEnd)")
+            }
+            let executables = files.filter(\.isExecutable).map { "\(folder)/\($0.path)" }
+            if !executables.isEmpty { commands.append("chmod 755 " + executables.joined(separator: " ")) }
         }
         let listed = skills.map { #"{"name":"\#($0.name)","version":"\#($0.version)"}"# }.joined(separator: ",")
         return """
