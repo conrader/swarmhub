@@ -29,7 +29,7 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | P28 Steer that actually lands (+ reply order, 401 loop, hermetic tests) | shipped in 0.4.9 (merge da8bcb6, 783 green x3; live e2e 9/9 from the notarized build incl. b1 steer-during-text and b2 steer-during-tool) | — |
 | P29 Steps row unfolds while working + P30 model label of an unpinned chat + faster model recipe (skill 1.0.1) | P29 built (5f3531b, 785 green x2); P30 Part A built (a3fbf72), Part B on the Mac | merge both into `main` when green; ship with the next release Konrad names |
 | P32 Keep what the app promises (12 items from the 2026-10-14 audit: dead demo controls, Overview delegated/memory, ⌘K keys, imported-skill install, AgentApp strings, moved Settings links, failed-steer resend, docs, test defaults, stale model line) | accepted (Konrad: "Do them"), `briefs/P32.md` | build on the Mac after P30 merges |
-| P31 Coding agents (Claude Code via `claude -p`, Codex CLI), logins through SwarmHub, sub-agent model, box capacity | proposed (`briefs/P31.md`) | Konrad's yes on D1–D6 |
+| P31 Coding agents (Claude Code via `claude -p`, Codex CLI), logins through SwarmHub, sub-agent model, box capacity | accepted 2026-10-14 (`briefs/P31.md`) | A+B on the Mac (branch p31), then C–E; F live with Konrad for the logins |
 | Box/ops: Codex login has no refresh token (Konrad re-logs in), DB password in plain text in the context-api unit, staged P9 bundles on the box to delete | open | flagged to Konrad |
 
 ## Standing constraints (from BRIEF*.md and SPEC-6.1)
