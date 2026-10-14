@@ -22,6 +22,7 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | Automatic updates (Sparkle) | code merged with P23; no signing key yet | create key, release v0.4.1 on GitHub, prove an update with v0.4.2 |
 | README: bot management, shortcuts, versions, updates | not done | after P23 merge |
 | P24 Hermes version per box + calm skills note | accepted, not started | after P23 |
+| Bug: double-clicking the top bar does not zoom the window (Konrad 2026-10-14) | not fixed | in the P24 run: the custom top row must honour the macOS setting (`AppleActionOnDoubleClick`: Zoom / Minimize / None) on empty top-bar space in every pane, not on buttons |
 | P10c / P10d / P10e Grok import in the app (command, sheet, live) | P10.0/a/b merged, c/d/e never started | build in order |
 | P13 Parts C / D / E model roles (prove, existing chats, sub-agents) | Parts A+B merged, C/D/E never started | queued; Part C live step has Konrad's go |
 | P16 No reply is lost | accepted (build all) | queued |
