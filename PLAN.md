@@ -54,6 +54,11 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 - The orchestrator on OVH fetches the branch over ssh, reviews it (adversarial verifier),
   merges to `main` in the orchestrator checkout, pushes to `github.com/conrader/swarmhub`,
   and the next phase starts from that `main`.
+- **Never leave a test-mode SwarmHub running** (Konrad 2026-10-14: "check for updates" was greyed out because the open copy
+  was the `--ui-smoke` launch, where updates are off by design). After any `--ui-smoke` / `--render-snapshot` / probe launch, quit
+  that instance by pid and reopen the app normally with `open ~/Applications/SwarmHub.app`; report the normal instance's pid.
+- **Ship through the updater:** a merged change reaches Konrad as a new notarized release (Developer ID, `plainsay-notary`,
+  build number +1, appcast) that his installed app updates to; no hand-installs over his app once updates work.
 - Hermes API reference: upstream tag `v2026.8.19` (byte-identical to the box's 0.20.5
   `gateway/platforms/api_server.py`); for 0.21.x, tag `v0.21.7`.
 
