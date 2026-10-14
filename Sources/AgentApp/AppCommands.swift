@@ -119,7 +119,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
 
     @MainActor func isEnabled(in store: AppStore) -> Bool {
         if self == .settings || self == .keyboardShortcuts { return true }
-        guard !store.showingNewBot, !store.showingNewGroup, !store.showingTemplateImport,
+        guard !store.showingNewBot, !store.showingNewGroup, !store.showingTemplateImport, !store.showingGrokImport,
               store.editingBot == nil, store.errorMessage == nil else { return false }
         switch self {
         case .agentSettings: return store.selectedGroup == nil && store.selectedBot != nil

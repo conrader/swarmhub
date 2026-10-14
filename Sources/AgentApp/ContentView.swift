@@ -27,6 +27,7 @@ struct ContentView: View {
         .task { store.startRoutinePolling() }
         .sheet(isPresented: $store.showingNewBot) { BotEditorView(bot: nil) }
         .sheet(isPresented: $store.showingTemplateImport) { TemplateImportView() }
+        .sheet(isPresented: $store.showingGrokImport) { GrokImportSheet(store: store) }
         .sheet(isPresented: $store.showingNewGroup) { NewGroupSheet(preselected: store.selectedGroup == nil ? Set(store.selectedBot.map { [$0.id] } ?? []) : []) }
         .sheet(item: $store.editingBot) { BotEditorView(bot: $0) }
         .onReceive(NotificationCenter.default.publisher(for: .toggleInfo)) { _ in store.showInfo.toggle() }

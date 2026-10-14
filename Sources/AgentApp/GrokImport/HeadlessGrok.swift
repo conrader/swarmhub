@@ -78,7 +78,7 @@ import Foundation
             switch event {
             case .keychainReadComing: output(keychainNotice)
             case .committed(let row): output("conversation \(run.rows.count): " + describe(row))
-            case .conversation, .page: break
+            case .conversation, .page, .saving: break
             }
         }
         let state = await run.start()

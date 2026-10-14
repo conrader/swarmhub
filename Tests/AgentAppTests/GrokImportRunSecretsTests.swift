@@ -65,11 +65,11 @@ import Testing
 }
 
 /// Every secret the synthetic world holds, plus the markers that would mean one leaked.
-private func secrets(_ tokens: [String]) -> [String] {
+func grokLeakSecrets(_ tokens: [String]) -> [String] {
     tokens + [GrokFixtureSecrets.machineID, FakePasswords.password, "refresh-SECRET-never-read", "Bearer "]
 }
 
-private func filesText(under folder: URL) -> [String] {
+func grokFilesText(under folder: URL) -> [String] {
     guard let names = FileManager.default.subpaths(atPath: folder.path) else { return [] }
     return names.compactMap { try? String(contentsOf: folder.appending(path: $0), encoding: .utf8) }
 }
@@ -119,14 +119,14 @@ private func filesText(under folder: URL) -> [String] {
         let probeReport = world.root.appending(path: "reports/probe.json").path
         _ = await HeadlessGrok.probe(arguments: ["--grok-probe", "--live", "--report", probeReport],
                                      environment: world.environment(), output: { lines.add($0) })
-        texts += lines.read() + filesText(under: world.root.appending(path: "reports"))
+        texts += lines.read() + grokFilesText(under: world.root.appending(path: "reports"))
     }
-    texts += filesText(under: storeURL.deletingLastPathComponent())
+    texts += grokFilesText(under: storeURL.deletingLastPathComponent())
     texts.append(String(describing: defaults.dictionaryRepresentation()))
     #expect(texts.contains { $0.contains("grokSourceID") } && texts.contains { $0.contains("Ledger checked") },
             "the scan saw the store and archives")
     for text in texts {
-        for secret in secrets([fresh, expired]) { #expect(!text.contains(secret), "a secret leaked: \(secret.prefix(6))…") }
+        for secret in grokLeakSecrets([fresh, expired]) { #expect(!text.contains(secret), "a secret leaked: \(secret.prefix(6))…") }
         #expect(!text.contains("eyJzeW50aGV0aWMi"), "a JWT-shaped string leaked")
     }
 }

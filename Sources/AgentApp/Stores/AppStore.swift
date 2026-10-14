@@ -10,6 +10,10 @@ import UserNotifications
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false; @Published var replyTo: ChatMessage?
+    /// P10d: the Grok Bot import sheet, and whether Grok Bot is on this Mac at all (Tier 1: existence checks only,
+    /// run once, on first use; false hides every door).
+    @Published var showingGrokImport = false
+    lazy var grokBotPresent: Bool = GrokLocator.live().isPresent
     /// P14: the sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false
     @Published var infoTab = AgentInfoTab.overview

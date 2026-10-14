@@ -19,6 +19,9 @@ struct SidebarView: View {
                 Menu {
                     Button("New Bot", systemImage: "plus") { store.showingNewBot = true }
                     Button("New Group", systemImage: "person.3") { store.showingNewGroup = true }
+                    if store.grokBotPresent {
+                        Button("Import from Grok Bot…", systemImage: "tray.and.arrow.down") { store.showingGrokImport = true }
+                    }
                     Button("Import Template", systemImage: "square.and.arrow.down") { store.showingTemplateImport = true }
                 } label: { RoundSidebarLabel(symbol: "plus") }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
