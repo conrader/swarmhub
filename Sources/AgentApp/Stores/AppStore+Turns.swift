@@ -87,7 +87,7 @@ extension AppStore {
 
     /// The 1:1 and thread turn behind `send(text:)` and Retry: session setup, the stream, `finishTurn`, approvals, release.
     func runChatTurn(bot: Bot, conversation: any Conversation, assistant: ChatMessage, history: [(role: String, content: String)], images: [String],
-                     systemPrompt: String, backend activeBackend: any AgentBackend, token: UUID) async {
+                     systemPrompt: String, managementText: String? = nil, backend activeBackend: any AgentBackend, token: UUID) async {
         var end: TurnEnd
         let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
         do {
@@ -100,7 +100,7 @@ extension AppStore {
                 save()
             }
             let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
-            let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: systemPrompt, messages: history, images: images))
+            let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: systemPrompt, messages: history, images: images, managementText: managementText))
             if activeStreamToken == token {
                 let flags = try? await activeBackend.features()
                 steerAvailable = flags?.contains("run_steer") == true

@@ -283,7 +283,7 @@ struct HermesBackend: AgentBackend {
         let escaped = request.sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? request.sessionID
         var urlRequest = try makeRequest(path: "api/sessions/\(escaped)/chat/stream", method: "POST")
         let input = request.messages.last(where: { $0.role == "user" })?.content ?? ""
-        urlRequest.httpBody = try Self.requestBody(["input": Self.contentParts(text: input, images: request.images), "instructions": request.systemPrompt])
+        urlRequest.httpBody = try Self.requestBody(["input": Self.contentParts(text: input, images: request.images), "instructions": request.effectiveSystemPrompt])
         return sseStream(urlRequest, sessionID: request.sessionID, legacy: false)
     }
 
@@ -293,7 +293,7 @@ struct HermesBackend: AgentBackend {
         urlRequest.setValue(request.sessionID, forHTTPHeaderField: "X-Hermes-Session-Id")
         // The persona stays one system string; every history message is split too, since Hermes cuts plain strings as well.
         let lastUser = request.messages.lastIndex { $0.role == "user" }
-        var messages: [[String: Any]] = [["role": "system", "content": request.systemPrompt]]
+        var messages: [[String: Any]] = [["role": "system", "content": request.effectiveSystemPrompt]]
         messages.append(contentsOf: request.messages.enumerated().map { index, message in
             ["role": message.role, "content": Self.contentParts(text: message.content, images: index == lastUser ? request.images : [])]
         })

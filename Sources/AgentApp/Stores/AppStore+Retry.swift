@@ -130,8 +130,9 @@ extension AppStore {
         row.turnState = .incomplete; row.isStreaming = true
         [TurnKey.why, TurnKey.ambiguous, TurnKey.retry, TurnKey.end].forEach { row.metadata[$0] = nil }
         let history = chatHistory(conversation, upTo: trigger, excluding: row)
-        let prompt = managementPrompt(for: bot, text: trigger.content, conversation: conversation)
-        await runChatTurn(bot: bot, conversation: conversation, assistant: row, history: history, images: images, systemPrompt: prompt, backend: activeBackend, token: token)
+        let managementText = self.managementText(for: bot, text: trigger.content, conversation: conversation)
+        await runChatTurn(bot: bot, conversation: conversation, assistant: row, history: history, images: images, systemPrompt: bot.persona,
+                          managementText: managementText, backend: activeBackend, token: token)
     }
 
     func releaseSlot(_ token: UUID) {

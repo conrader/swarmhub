@@ -3,7 +3,7 @@ import Foundation
 /// P12: an OpenClaw session's transcript, threads and model list.
 extension OpenClawBackend: ModelCatalogProviding {
     /// `chat.history` mapped to rows: user and assistant rows with visible text (`[Image: …]` lines for image blocks);
-    /// tool and system rows are skipped. Opening the chat connects (a user action); the launch sweep is Hermes-only.
+    /// a user row's leading P26 manager block is removed; tool and system rows are skipped. Opening the chat connects (a user action); the launch sweep is Hermes-only.
     func loadMessages(sessionID: String) async throws -> [BackendMessage] {
         let (connection, capabilities) = try await connected()
         try require(.history, in: capabilities)
@@ -46,7 +46,8 @@ enum OpenClawHistory {
     static func rows(_ page: GatewayJSON) -> [BackendMessage] {
         (page["messages"]?.array ?? []).compactMap { row in
             guard let role = row["role"]?.string, role == "user" || role == "assistant" else { return nil }
-            let text = OpenClawText.visible(row) ?? ""
+            let shown = OpenClawText.visible(row) ?? ""
+            let text = role == "user" ? ManagerEnvelope.strip(shown) : shown
             let content = ([text] + OpenClawText.imageLines(row)).filter { !$0.isEmpty }.joined(separator: "\n")
             guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             return BackendMessage(role: role, content: content, createdAt: date(row["timestamp"] ?? row["createdAt"]), finishReason: row["stopReason"]?.string)

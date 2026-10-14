@@ -169,10 +169,11 @@ import UserNotifications
         conversation.messages.append(ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)); replyTo = nil; let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete); conversation.messages.append(assistant)
         objectWillChange.send(); save(); isStreaming = true; streamingBotID = bot.id; streamingAssistant = assistant; streamingConversation = conversation
         let streamToken = UUID(); activeStreamToken = streamToken
-        let systemPrompt = managementPrompt(for: bot, text: text, conversation: conversation)
+        let managementText = self.managementText(for: bot, text: text, conversation: conversation)
         let history = chatHistory(conversation, excluding: assistant)
         streamTask = Task { [weak self] in
-            await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: systemPrompt, backend: activeBackend, token: streamToken)
+            await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.persona,
+                                    managementText: managementText, backend: activeBackend, token: streamToken)
         }
         return true
     }

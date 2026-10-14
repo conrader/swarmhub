@@ -18,6 +18,7 @@ struct BotOffer: Identifiable, Equatable {
 extension AppStore {
     static let managerMigrationKey = "p22.managerRoleMigrated"
     private static let cachedTemplate = BotManagerText.template()
+    private static let cachedOpenClawTemplate = BotManagerText.template(for: .openClaw)
 
     // MARK: Manager role
 
@@ -56,19 +57,22 @@ extension AppStore {
 
     // MARK: On demand
 
-    /// The manager text for this bot's profile, placeholders filled; nil when the resource is missing.
+    /// The manager text for this bot (its profile, or its agent id on OpenClaw), placeholders filled; nil when the
+    /// resource is missing.
     func managerText(for bot: Bot) -> String? {
-        (managerTemplateOverride ?? Self.cachedTemplate).map { BotManagerText.filled($0, managerProfile: bot.hermesProfile ?? "default") }
+        if bot.backend == .openClaw {
+            return (managerTemplateOverride ?? Self.cachedOpenClawTemplate).map { BotManagerText.filled($0, managerAgent: bot.openClaw?.agentID ?? "") }
+        }
+        return (managerTemplateOverride ?? Self.cachedTemplate).map { BotManagerText.filled($0, managerProfile: bot.hermesProfile ?? "default") }
     }
 
-    /// The turn's system prompt: the bot's instructions, plus the manager text only on a management turn of the manager's
-    /// main chat (an intent match, a menu request, or a follow-up while the exchange is open).
-    func managementPrompt(for bot: Bot, text: String, conversation: any Conversation) -> String {
-        guard isManager(bot), conversation === bot else { return bot.persona }
+    /// The manager text for this turn: only on a management turn of the manager's main chat (an intent match, a menu
+    /// request, or a follow-up while the exchange is open); nil otherwise. The backend decides where it goes (P26 D3).
+    func managementText(for bot: Bot, text: String, conversation: any Conversation) -> String? {
+        guard isManager(bot), conversation === bot else { return nil }
         let decision = ManagementExchange.decide(text: text, exchange: managementExchanges[bot.id], now: now())
         managementExchanges[bot.id] = decision.next
-        guard decision.attach, let managerText = managerText(for: bot) else { return bot.persona }
-        return bot.persona + "\n\n" + managerText
+        return decision.attach ? managerText(for: bot) : nil
     }
 
     /// Opens a management exchange in the manager's chat and fills its composer (or sends at once when `send`).
