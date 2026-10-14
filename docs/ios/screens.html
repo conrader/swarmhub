@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>SwarmHub iOS screen drawings</title>
+  <link rel="stylesheet" href="screens.css">
+  <script defer src="ui.js"></script>
+  <script defer src="screens-core.js"></script>
+  <script defer src="screens-work.js"></script>
+  <script defer src="screens-settings.js"></script>
+  <script defer src="prototype.js"></script>
+</head>
+<body>
+  <header class="studio-header">
+    <a class="wordmark" href="#chats"><span class="brand-mark" aria-hidden="true">s</span> SwarmHub <span class="platform">/ iOS</span></a>
+    <div class="studio-actions">
+      <span class="design-status">Design v0.1</span>
+      <button id="theme-toggle" type="button" aria-label="Switch to light appearance">Light</button>
+      <a href="specsheet.md">Specsheet ↗</a>
+    </div>
+  </header>
+  <main>
+    <div class="intro">
+      <p class="eyebrow">MOBILE DEVELOPMENT · 14 OCT 2026</p>
+      <h1>Your agents. With you.</h1>
+      <p>The SwarmHub workspace, drawn for iPhone. Conversations first. Every feature within reach.</p>
+    </div>
+    <div class="view-switch" role="group" aria-label="Drawing view">
+      <button data-mode="explore" aria-pressed="true">Explore screens</button>
+      <button data-mode="core" aria-pressed="false">Core board</button>
+      <button data-mode="work" aria-pressed="false">Work board</button>
+      <button data-mode="all" aria-pressed="false">All drawings</button>
+    </div>
+    <div id="explorer" class="explorer">
+      <nav id="screen-index" class="screen-index" aria-label="Screen index"></nav>
+      <section class="phone-stage" aria-label="Selected screen drawing">
+        <div id="phone-mount"></div>
+        <p class="sample-caption">Interactive drawing · sample content · no server connection</p>
+      </section>
+      <aside id="screen-notes" class="screen-notes" aria-label="Screen design notes"></aside>
+    </div>
+    <section id="board" class="board" hidden aria-label="Screen drawing board"></section>
+  </main>
+  <div id="feedback" class="feedback" role="status" aria-live="polite" hidden></div>
+  <footer class="studio-footer"><span>iOS + Android in development</span><span>Original UI drawings · native implementation follows</span></footer>
+</body>
+</html>

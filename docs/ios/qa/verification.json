@@ -1,0 +1,18 @@
+{
+  "screens": 37,
+  "viewport_checks": "Every screen at 1440 px and 390 px in light and dark appearances",
+  "syntax_errors": [],
+  "layout_failures": [],
+  "interactions": [
+    "sample composer",
+    "agent selection",
+    "notification toggle",
+    "model catalog",
+    "approval receipt",
+    "new conversation sheet",
+    "theme change",
+    "reduced motion media"
+  ],
+  "limitations": "Design prototype only; no native iOS build or backend integration tested.",
+  "missing_routes": []
+}
