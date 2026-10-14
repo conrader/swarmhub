@@ -1,6 +1,6 @@
 # SwarmHub mobile development
 
-The iOS and Android apps are in development. The first iOS milestone is a feature specification and an editable set of screen drawings. These are design prototypes; there is no native mobile build or store release yet.
+The iOS and Android apps are in development. The first native iOS foundation now lives in [Apps/iOS](../../Apps/iOS/README.md), with shared Swift code in [Packages/SwarmHubCore](../../Packages/SwarmHubCore/README.md). It includes secure profile setup, server sessions, cached history/drafts, streaming text chat and manual approvals. The drawings below describe the full feature target; store distribution and the remaining feature milestones follow.
 
 - [iOS specsheet](specsheet.md): scope, feature parity, screen inventory, architecture, acceptance criteria, and implementation milestones.
 - [Interactive screen drawings](screens.html): 37 screens with navigation, light and dark appearances, and local sample interactions. Open the file in a browser; no server or installation is needed.
@@ -20,7 +20,7 @@ Open `screens.html`, choose a screen in the index, and follow the controls insid
 
 Screen sources are split into `screens-core.js`, `screens-work.js`, and `screens-settings.js`, with reusable UI in `ui.js`, navigation in `prototype.js`, and appearance in `screens.css`. Exported PNGs are browser captures of these drawings, not captures of a running iOS app.
 
-[Drawing verification](qa/verification.json) covers all 37 screens at 390 px and 1440 px in light and dark appearances, route availability, and selected local interactions. Native app builds and backend integration are subsequent milestones.
+[Drawing verification](qa/verification.json) covers all 37 screens at 390 px and 1440 px in light and dark appearances, route availability, and selected local interactions. [Native verification](native-verification.md) records the build/fixture results and remaining simulator/device checks separately.
 
 ## Sources
 

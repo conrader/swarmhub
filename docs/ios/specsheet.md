@@ -1,6 +1,8 @@
 # SwarmHub iOS specsheet
 
-Version 0.1 · 14 October 2026 · Status: specification and screen design
+Version 0.1 · 14 October 2026 · Status: native iOS foundation implemented; full feature rollout in progress
+
+The [first native implementation](../../Apps/iOS/README.md) provides setup, session selection/creation, cached history and drafts, streaming text chat, supported Stop and manual live-run approvals. [Build and fixture verification](native-verification.md) is separate from simulator/device UI acceptance. The remaining rows below retain their planned scope.
 
 SwarmHub for iPhone gives the owner access to the same agents, conversations, scheduled work, approvals, and remote computers as desktop. Agents run on the user's server. The phone manages work and presents results; it does not host the agent or a model. The feature target includes the existing desktop surface and Grok Bot-style workflows, with explicit backend work for features the current adapters cannot provide.
 
@@ -11,7 +13,7 @@ Android is also in development. This specification defines its eventual feature 
 | Item | Proposed decision |
 | --- | --- |
 | App name | SwarmHub; retain the existing brand and original assets |
-| First platform | Native iPhone app, SwiftUI, proposed minimum iOS 18; confirm the final deployment target during the Xcode scaffold |
+| First platform | Native iPhone app, SwiftUI, iOS 18 minimum; Xcode target in `Apps/iOS` |
 | Other mobile platform | Native Android follows the same backend contract and feature acceptance criteria |
 | Main navigation | Chats, Approvals, Settings; badges count unread conversations and actionable approval requests |
 | Agent navigation | Tap the agent name in chat for Overview, Routines, Media, Computer, and group membership |
