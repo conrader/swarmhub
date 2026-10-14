@@ -24,7 +24,7 @@ struct ContentView: View {
                 }
             }.ignoresSafeArea(.container, edges: .top)
         }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
-        .task { store.startRoutinePolling(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
+        .task { store.startRoutinePolling(); store.startLaunchWork(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
         // P21 item 8: "New agent" with no box opens the setup window instead of an editor that could only make a mock.
         .sheet(isPresented: Binding(get: { store.showingNewBot && store.boxConfigured }, set: { store.showingNewBot = $0 })) { BotEditorView(bot: nil) }
         .onChange(of: store.showingNewBot) { _, shown in if shown, !store.boxConfigured { store.showingNewBot = false; store.openSetup(openWindow: openWindow) } }

@@ -1,28 +1,6 @@
 import Foundation
 
 extension AppStore {
-    func loadHermesHistory(for bot: Bot) {
-        guard bot.backend == .hermes, !isStreaming, !needsKey(bot) else { return }
-        refreshFeatures(for: bot)
-        let token = UUID(); historyLoadTokens[bot.id] = token
-        let originalMessageIDs = bot.messages.map(\.id)
-        let originalSessionID = bot.hermesSessionID
-        Task {
-            do {
-                let activeBackend = try backend(for: bot)
-                if try await activeBackend.sessionTransport() == .legacyChatCompletions { return }
-                guard let sessionID = bot.hermesSessionID else { return }
-                let rows = try await activeBackend.loadMessages(sessionID: sessionID)
-                guard historyLoadTokens[bot.id] == token, !isStreaming, bot.hermesSessionID == originalSessionID, bot.messages.map(\.id) == originalMessageIDs else { return }
-                guard let merged = Self.mergeHermesHistory(local: bot.messages, server: rows) else {
-                    let note = "Hermes history was not merged because it diverges from this local conversation."
-                    if bot.messages.last?.content != note { bot.messages.append(ChatMessage(role: .system, content: note)); objectWillChange.send(); save() }
-                    return
-                }
-                bot.messages = merged; objectWillChange.send(); save()
-            } catch { errorMessage = error.localizedDescription }
-        }
-    }
     static func mergeHermesHistory(local: [ChatMessage], server: [BackendMessage]) -> [ChatMessage]? {
         guard !server.isEmpty else { return local.isEmpty ? [] : nil }
         let remoteTurns = server.enumerated().filter { ["user", "assistant"].contains($0.element.role) }
@@ -80,6 +58,6 @@ extension AppStore {
 
     static func chatMessage(_ row: BackendMessage) -> ChatMessage? {
         guard let role = MessageRole(rawValue: row.role), !row.content.isEmpty else { return nil }
-        return ChatMessage(id: row.id.flatMap(UUID.init(uuidString:)) ?? UUID(), role: role, content: row.content, createdAt: row.createdAt ?? .now)
+        return ChatMessage(role: role, content: row.content, createdAt: row.createdAt ?? .now)
     }
 }

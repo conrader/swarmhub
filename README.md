@@ -36,6 +36,7 @@ Hermes is supported now; OpenClaw integration is planned.
 - **Approvals:** approve or decline requests and set policies for each agent.
 - **Agents that manage agents:** ask your main agent to create a new agent, change an agent's instructions or avatar, or retire one. It asks you first, and the new agent appears in the sidebar with its own key. Works with stock Hermes; nothing is installed on your server.
 - **Import from Grok Bot:** bring your Grok bots, their avatars and their history into SwarmHub (sidebar + → Import from Grok Bot…). Read-only; the full history needs one macOS Keychain prompt for Grok Bot's sign-in, which stays in memory and is never saved. It uses Grok Bot's private interface, so it can stop working when Grok changes it; recent messages from this Mac always import without it.
+- **No reply is lost:** every reply says whether it finished, is incomplete or was not sent; cut replies complete themselves from your server, and Retry checks the server before it sends anything ([how it works](docs/reference.md#never-losing-a-reply)).
 - **Sidebar and shortcuts:** every chat shows its latest message or your unsent draft; Navigate and Chat menus with keyboard shortcuts (Help → Keyboard Shortcuts).
 
 Available features depend on what your connected server supports. See the [Hermes versions SwarmHub works with](docs/hermes-versions.md).

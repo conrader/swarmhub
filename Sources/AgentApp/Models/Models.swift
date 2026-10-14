@@ -114,15 +114,18 @@ enum BotAvatarName: String, Codable, CaseIterable, Identifiable {
 
 final class ChatMessage: ObservableObject, Identifiable, Codable {
     let id: UUID; let role: MessageRole; @Published var content: String; let createdAt: Date
-    @Published var isStreaming: Bool; var presentation: MessagePresentation; var metadata: [String: String]
+    @Published var isStreaming: Bool; var presentation: MessagePresentation; @Published var metadata: [String: String]
     @Published var reactions: [String]; var replyToID: UUID?; var attachments: [ChatAttachment]
     /// Group chats: the bot that wrote an assistant message (nil = the user, or a one-bot chat).
     var authorID: UUID?
-    init(id: UUID = UUID(), role: MessageRole, content: String, createdAt: Date = .now, isStreaming: Bool = false, presentation: MessagePresentation = .text, metadata: [String: String] = [:], reactions: [String] = [], replyToID: UUID? = nil, attachments: [ChatAttachment] = [], authorID: UUID? = nil) {
+    /// P16: the state of the turn whose reply this row holds (nil = written before P16); encoded only when set.
+    @Published var turnState: TurnState?
+    init(id: UUID = UUID(), role: MessageRole, content: String, createdAt: Date = .now, isStreaming: Bool = false, presentation: MessagePresentation = .text, metadata: [String: String] = [:], reactions: [String] = [], replyToID: UUID? = nil, attachments: [ChatAttachment] = [], authorID: UUID? = nil, turnState: TurnState? = nil) {
         self.id = id; self.role = role; self.content = content; self.createdAt = createdAt; self.isStreaming = isStreaming
         self.presentation = presentation; self.metadata = metadata; self.reactions = reactions; self.replyToID = replyToID; self.attachments = attachments; self.authorID = authorID
+        self.turnState = turnState
     }
-    enum CodingKeys: CodingKey { case id, role, content, createdAt, presentation, metadata, reactions, replyToID, attachments, authorID }
+    enum CodingKeys: CodingKey { case id, role, content, createdAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); role = try c.decode(MessageRole.self, forKey: .role)
@@ -133,6 +136,8 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         replyToID = try c.decodeIfPresent(UUID.self, forKey: .replyToID)
         attachments = try c.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? []
         authorID = try c.decodeIfPresent(UUID.self, forKey: .authorID)
+        // An unknown value (a newer build's state) must not make the whole store undecodable.
+        turnState = (try? c.decodeIfPresent(TurnState.self, forKey: .turnState)) ?? nil
         isStreaming = false
     }
     func encode(to encoder: Encoder) throws {
@@ -141,7 +146,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         try c.encode(metadata, forKey: .metadata)
         try c.encode(reactions, forKey: .reactions); try c.encodeIfPresent(replyToID, forKey: .replyToID)
         if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
-        try c.encodeIfPresent(authorID, forKey: .authorID)
+        try c.encodeIfPresent(authorID, forKey: .authorID); try c.encodeIfPresent(turnState, forKey: .turnState)
     }
 }
 
@@ -268,9 +273,10 @@ struct ApprovalRequest: Identifiable, Codable, Sendable {
 }
 struct BackendSession: Identifiable, Sendable { let id: String; let title: String }
 struct BackendMessage: Sendable, Equatable {
-    let id: String?; let role: String; let content: String; let createdAt: Date?
-    init(id: String? = nil, role: String, content: String, createdAt: Date? = nil) {
-        self.id = id; self.role = role; self.content = content; self.createdAt = createdAt
+    /// The box's integer row id (0.20.5 returns integers) and how the model ended the row (`stop`, `length`, `error`, …).
+    let id: Int?; let role: String; let content: String; let createdAt: Date?; var finishReason: String? = nil
+    init(id: Int? = nil, role: String, content: String, createdAt: Date? = nil, finishReason: String? = nil) {
+        self.id = id; self.role = role; self.content = content; self.createdAt = createdAt; self.finishReason = finishReason
     }
 }
 enum StopTarget: Sendable, Equatable { case serverRun(String), disconnectedLegacy, noActiveRun }

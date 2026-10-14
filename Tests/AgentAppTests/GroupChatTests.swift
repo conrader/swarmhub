@@ -137,7 +137,11 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
     try await waitUntil { group.messages.contains { $0.role == .system && $0.content.contains("Stop requested") } }
     #expect(await backends[bots[1].id]!.stopCount() == 1)
     #expect(await backends[bots[2].id]!.turns().isEmpty, "Jarvis was skipped")
-    #expect(group.messages.compactMap(\.authorID) == [bots[0].id, bots[1].id])
+    // P16: the skipped member keeps a `notSent` row (why `stopped`) and the round leaves one line.
+    #expect(group.messages.compactMap(\.authorID) == [bots[0].id, bots[1].id, bots[2].id])
+    let skipped = try #require(group.messages.last { $0.authorID == bots[2].id })
+    #expect(skipped.turnState == .notSent && skipped.metadata["why"] == "stopped" && skipped.content.isEmpty)
+    #expect(group.messages.contains { $0.role == .system && $0.content == "Stopped. Skipped: Jarvis." })
     #expect(store.groupRun == nil && group.activeMemberID == nil)
     #expect(AvatarReactions.shared.completions[bots[0].id] != nil)
     #expect(AvatarReactions.shared.completions[bots[1].id] == nil && AvatarReactions.shared.completions[bots[2].id] == nil)

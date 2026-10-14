@@ -11,6 +11,32 @@ private actor HermesRunRegistry {
     }
 }
 
+/// Forwards stream events and remembers whether a terminal one (`.completed` or `.failed`) went out.
+final class EventSink: @unchecked Sendable {
+    private let continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
+    private let lock = NSLock(); private var terminal = false
+    init(_ continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation) { self.continuation = continuation }
+    var sawTerminal: Bool { lock.withLock { terminal } }
+    func yield(_ event: AgentEvent) {
+        switch event { case .completed, .failed: lock.withLock { terminal = true }; default: break }
+        continuation.yield(event)
+    }
+}
+
+/// Whether the response headers arrived, and whether `URLSessionTaskMetrics` show the request ever started.
+final class StreamProbe: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock(); private var open = false; private var started: Bool?
+    var isOpen: Bool { lock.withLock { open } }
+    var requestStarted: Bool? { lock.withLock { started } }
+    func opened() { lock.withLock { open = true } }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        // Only a real transaction list counts; mock protocols report none, which says nothing.
+        guard !metrics.transactionMetrics.isEmpty else { return }
+        let value = metrics.transactionMetrics.contains { $0.requestStartDate != nil }
+        lock.withLock { started = value }
+    }
+}
+
 private actor HermesCapabilityRegistry {
     static let shared = HermesCapabilityRegistry()
     private var values: [String: Set<String>] = [:]
@@ -41,7 +67,8 @@ struct HermesBackend: AgentBackend {
     let baseURL: URL
     let apiKey: String
     var profile: String = "default"
-    var session: URLSession = .shared
+    var session: URLSession = HermesURLSession.shared
+    var timeouts = HermesTimeouts.standard
 
     static func validatedBaseURL(_ value: String) -> URL? {
         guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme), url.host != nil else { return nil }
@@ -77,7 +104,7 @@ struct HermesBackend: AgentBackend {
     func steer(sessionID: String, text: String) async throws {
         guard try await features().contains("run_steer") else { throw BackendError.unavailable("This Hermes server cannot steer a running turn.") }
         guard let runID = await HermesRunRegistry.shared.get(sessionID) else { throw BackendError.unavailable("Hermes has not reported a run for this turn yet.") }
-        let json = try await jsonRequest(path: "v1/runs/\(runID)/steer", method: "POST", body: ["input": text], timeout: 8)
+        let json = try await jsonRequest(path: "v1/runs/\(runID)/steer", method: "POST", body: ["input": text], timeout: timeouts.control)
         if (json["accepted"] as? Bool) == false { throw BackendError.unavailable("Hermes did not accept the steer message.") }
     }
 
@@ -92,6 +119,7 @@ struct HermesBackend: AgentBackend {
     }
 
     func sessionTransport() async throws -> HermesTransport? { try await transport() }
+    func currentRunID(sessionID: String) async -> String? { await HermesRunRegistry.shared.get(sessionID) }
 
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         if try await transport() == .nativeSessions { return try await sendSession(request) }
@@ -135,7 +163,7 @@ struct HermesBackend: AgentBackend {
         var body: [String: Any] = ["title": title, "system_prompt": systemPrompt, "source": "api_server"]
         if let id { body["id"] = id }
         let json: [String: Any]
-        do { json = try await jsonRequest(path: "api/sessions", method: "POST", body: body) }
+        do { json = try await jsonRequest(path: "api/sessions", method: "POST", body: body, timeout: timeouts.read) }
         catch BackendError.http(let code, _) where code == 409 && id != nil { return id! }
         guard let session = json["session"] as? [String: Any], let id = session["id"] as? String else { throw BackendError.unavailable("Hermes returned no session ID.") }
         return id
@@ -154,23 +182,30 @@ struct HermesBackend: AgentBackend {
     func requestStop(_ target: StopTarget) async throws -> StopOutcome {
         switch target {
         case .serverRun(let runID):
-            _ = try await jsonRequest(path: "v1/runs/\(runID)/stop", method: "POST", body: [:], timeout: 8)
+            _ = try await jsonRequest(path: "v1/runs/\(runID)/stop", method: "POST", body: [:], timeout: timeouts.control)
             return .requested
         case .disconnectedLegacy: return .disconnectedLegacy
         case .noActiveRun: return .noActiveRun
         }
     }
 
-    private static func parseMessage(_ row: [String: Any]) -> BackendMessage? {
+    /// A box row: integer `id` (a numeric string is accepted too), `finish_reason` kept; image data URLs in user rows
+    /// (the box returns them whole) become a bare `[Image: inline]` line, which `comparable` ignores.
+    static func parseMessage(_ row: [String: Any]) -> BackendMessage? {
         guard let role = row["role"] as? String, ["user", "assistant", "system"].contains(role),
-              let content = normalizedContent(row["content"]), !content.isEmpty else { return nil }
+              var content = normalizedContent(row["content"]), !content.isEmpty else { return nil }
+        if role == "user", content.contains("[Image: data:") {
+            content = content.components(separatedBy: "\n").map { $0.hasPrefix("[Image: data:") ? "[Image: inline]" : $0 }.joined(separator: "\n")
+        }
         let rawDate = row["created_at"] ?? row["timestamp"]
         let date: Date?
         if let seconds = rawDate as? Double { date = Date(timeIntervalSince1970: seconds) }
         else if let seconds = rawDate as? Int { date = Date(timeIntervalSince1970: Double(seconds)) }
         else if let value = rawDate as? String { date = ISO8601DateFormatter().date(from: value) }
         else { date = nil }
-        return .init(id: (row["id"] ?? row["message_id"]) as? String, role: role, content: content, createdAt: date)
+        let rawID = row["id"] ?? row["message_id"]
+        let id = (rawID as? Int) ?? (rawID as? String).flatMap { Int($0) }
+        return .init(id: id, role: role, content: content, createdAt: date, finishReason: row["finish_reason"] as? String)
     }
 
     static func normalizedContent(_ value: Any?) -> String? {
@@ -266,26 +301,36 @@ struct HermesBackend: AgentBackend {
         return sseStream(urlRequest, sessionID: request.sessionID, legacy: true)
     }
 
+    /// The chat stream. A turn ends only with a terminal event (`assistant.completed`, `run.completed`, the box's `error` /
+    /// `run.failed`, legacy `[DONE]` or a failed finish chunk); EOF without one throws `StreamBreak(delivered: true)`, so
+    /// does any error after the headers. An error before them is `StreamBreak(delivered: false)`; HTTP status errors stay
+    /// `BackendError.http` and cancellation stays cancellation. Headers must arrive within the open deadline.
     private func sseStream(_ request: URLRequest, sessionID: String, legacy: Bool) -> AsyncThrowingStream<AgentEvent, Error> {
-        AsyncThrowingStream { continuation in
-            let streamToken = UUID()
+        var streamRequest = request; streamRequest.timeoutInterval = timeouts.streamIdle
+        let request = streamRequest
+        let deadline = timeouts.openDeadline(bodyBytes: request.httpBody?.count ?? 0)
+        return AsyncThrowingStream { continuation in
+            let streamToken = UUID(); let sink = EventSink(continuation); let probe = StreamProbe()
             let task = Task {
                 do {
-                    let (bytes, response) = try await session.bytes(for: request); try validate(response)
-                    var eventName = "message"
-                    var emittedAssistantDelta = false
-                    for try await line in bytes.lines {
-                        if line.hasPrefix("event:") { eventName = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces); continue }
-                        guard line.hasPrefix("data:") else { continue }
-                        let text = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                        if text == "[DONE]" { continuation.yield(.completed); break }
-                        guard let data = text.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-                        if let runID = json["run_id"] as? String { await HermesRunRegistry.shared.set(runID, for: sessionID, token: streamToken) }
-                        if !legacy, HermesRuntime.events.contains(eventName), let runtime = HermesRuntime.parse(json["runtime"]) {
-                            await HermesRuntimeLog.shared.record(runtime, for: sessionID)
+                    try await withThrowingTaskGroup(of: Bool.self) { group in
+                        group.addTask {
+                            let bytes: URLSession.AsyncBytes, response: URLResponse
+                            do { (bytes, response) = try await session.bytes(for: request, delegate: probe) }
+                            catch let error as URLError where error.code != .cancelled { throw StreamBreak(delivered: false, underlying: error, requestStarted: probe.requestStarted) }
+                            probe.opened()
+                            try validate(response)
+                            try await readEvents(bytes, sessionID: sessionID, legacy: legacy, token: streamToken, sink: sink)
+                            return true
                         }
-                        if legacy { parseLegacy(eventName, json, continuation) } else { parseNative(eventName, json, continuation, emittedAssistantDelta: &emittedAssistantDelta) }
-                        eventName = "message"
+                        group.addTask {
+                            try await Task.sleep(for: .seconds(deadline))
+                            if !probe.isOpen { throw StreamBreak(delivered: false, underlying: URLError(.timedOut)) }
+                            return false
+                        }
+                        // The reader finishing first ends the deadline; the deadline passing after the headers waits for the reader.
+                        if try await group.next() == false { _ = try await group.next() }
+                        group.cancelAll()
                     }
                     await HermesRunRegistry.shared.clear(sessionID, token: streamToken); continuation.finish()
                 } catch is CancellationError { await HermesRunRegistry.shared.clear(sessionID, token: streamToken); continuation.finish() }
@@ -294,6 +339,7 @@ struct HermesBackend: AgentBackend {
                     // than CancellationError. Any terminal stream error must release the run ID.
                     await HermesRunRegistry.shared.clear(sessionID, token: streamToken)
                     if let urlError = error as? URLError, urlError.code == .cancelled, Task.isCancelled { continuation.finish() }
+                    else if Task.isCancelled { continuation.finish() }
                     else { continuation.finish(throwing: error) }
                 }
             }
@@ -301,19 +347,47 @@ struct HermesBackend: AgentBackend {
         }
     }
 
-    private func parseLegacy(_ event: String, _ json: [String: Any], _ continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation) {
-        if event == "hermes.tool.progress" { continuation.yield(.status(json["message"] as? String ?? json["name"] as? String ?? "Using tool")); return }
-        if let choices = json["choices"] as? [[String: Any]], let delta = choices.first?["delta"] as? [String: Any], let content = delta["content"] as? String { continuation.yield(.token(content)) }
+    private func readEvents(_ bytes: URLSession.AsyncBytes, sessionID: String, legacy: Bool, token: UUID, sink: EventSink) async throws {
+        var eventName = "message"
+        var emittedAssistantDelta = false
+        do {
+            for try await line in bytes.lines {
+                if line.hasPrefix("event:") { eventName = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces); continue }
+                guard line.hasPrefix("data:") else { continue }
+                let text = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                if text == "[DONE]" { sink.yield(.completed); return }
+                guard let data = text.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                if let runID = json["run_id"] as? String { await HermesRunRegistry.shared.set(runID, for: sessionID, token: token) }
+                if !legacy, HermesRuntime.events.contains(eventName), let runtime = HermesRuntime.parse(json["runtime"]) {
+                    await HermesRuntimeLog.shared.record(runtime, for: sessionID)
+                }
+                if legacy { parseLegacy(eventName, json, sink) } else { parseNative(eventName, json, sink, emittedAssistantDelta: &emittedAssistantDelta) }
+                eventName = "message"
+            }
+        } catch is CancellationError { throw CancellationError() }
+        catch let error as URLError where error.code == .cancelled && Task.isCancelled { throw error }
+        catch { throw StreamBreak(delivered: true, underlying: error) }
+        if !sink.sawTerminal && !Task.isCancelled { throw StreamBreak(delivered: true, underlying: StreamBreak.EndOfStream()) }
     }
 
-    private func parseNative(_ event: String, _ json: [String: Any], _ continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation, emittedAssistantDelta: inout Bool) {
+    private func parseLegacy(_ event: String, _ json: [String: Any], _ continuation: EventSink) {
+        if event == "hermes.tool.progress" { continuation.yield(.status(json["message"] as? String ?? json["name"] as? String ?? "Using tool")); return }
+        if event == "hermes.failed" { continuation.yield(.failed(json["error"] as? String ?? json["message"] as? String ?? "Hermes run failed.")); return }
+        let choice = (json["choices"] as? [[String: Any]])?.first
+        if let delta = choice?["delta"] as? [String: Any], let content = delta["content"] as? String { continuation.yield(.token(content)) }
+        if (choice?["finish_reason"] as? String) == "error" { continuation.yield(.failed("Hermes ended the reply with an error.")) }
+    }
+
+    private func parseNative(_ event: String, _ json: [String: Any], _ continuation: EventSink, emittedAssistantDelta: inout Bool) {
         switch event {
         case "assistant.delta", "message.delta": if let token = (json["delta"] ?? json["text"]) as? String { emittedAssistantDelta = true; continuation.yield(.token(token)) }
         case "tool.started", "tool.completed", "tool.failed", "tool.progress": continuation.yield(.status((json["tool_name"] ?? json["tool"]) as? String ?? event))
         case "assistant.commentary": if (json["already_streamed"] as? Bool) != true, let text = json["text"] as? String { continuation.yield(.token(text)) }
         case "subagent.start": continuation.yield(.subAgent(.init(id: UUID(), title: json["task"] as? String ?? json["label"] as? String ?? "Delegated task", detail: json["profile"] as? String ?? "", status: .running)))
         case "subagent.complete": continuation.yield(.subAgent(.init(id: UUID(), title: json["task"] as? String ?? "Delegated task", detail: json["summary"] as? String ?? "", status: (json["status"] as? String) == "completed" ? .completed : .failed)))
-        case "assistant.completed": if !emittedAssistantDelta, let content = json["content"] as? String, !content.isEmpty { continuation.yield(.token(content)) }
+        case "assistant.completed":
+            if !emittedAssistantDelta, let content = json["content"] as? String, !content.isEmpty { continuation.yield(.token(content)) }
+            continuation.yield(.completed)
         case "approval.request":
             // v0.21.7 emits `command` at the top level. Pollable run status and some
             // compatible gateways wrap the same approval object, so inspect those too.
@@ -339,7 +413,8 @@ struct HermesBackend: AgentBackend {
             let actionKind = firstNonempty("action_kind")?.0 ?? firstNonempty("tool_name")?.0 ?? firstNonempty("action")?.0 ?? "command"
             continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command ?? displayCommandSource?.0 ?? "Command unknown", draft: nil, command: command, runID: runID, requestID: requestID, actionKind: actionKind)))
         case "run.completed": continuation.yield(.completed)
-        case "run.cancelled": continuation.yield(.completed)
+        // The box closed the run without a full answer (another client's Stop); the reconcile reads what it kept.
+        case "run.cancelled": continuation.yield(.failed("The box cancelled this run."))
         case "run.failed", "error": continuation.yield(.failed(json["error"] as? String ?? json["message"] as? String ?? "Hermes run failed."))
         default: break
         }
@@ -362,7 +437,7 @@ struct HermesBackend: AgentBackend {
     private func makeRequest(path: String, method: String) throws -> URLRequest {
         guard Self.permitsAPIKey(apiKey, at: baseURL) else { throw BackendError.unavailable("Hermes API keys require HTTPS unless the server is loopback.") }
         guard let url = endpoint(path) else { throw BackendError.invalidURL }
-        var request = URLRequest(url: url); request.httpMethod = method
+        var request = URLRequest(url: url); request.httpMethod = method; request.timeoutInterval = timeouts.timeout(forMethod: method)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.setValue("application/json", forHTTPHeaderField: "Accept")
         if !apiKey.isEmpty { request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
         return request

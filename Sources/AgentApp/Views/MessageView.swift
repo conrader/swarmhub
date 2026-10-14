@@ -23,11 +23,17 @@ struct MessageView: View {
                 if !message.reactions.isEmpty {
                     HStack(spacing: 3) { ForEach(message.reactions, id: \.self) { emoji in Button { store.toggleReaction(emoji, on: message) } label: { Text(emoji).font(.caption).padding(4).background(AppColor.card, in: Capsule()).overlay(Capsule().stroke(AppColor.separator)) }.buttonStyle(.plain).help("Remove tapback") } }
                 }
-                if message.role != .system && !message.isStreaming { actions }
+                if TurnStateFooter.isShown(for: message) { TurnStateFooter(message: message) }
+                if message.role != .system && !message.isStreaming && !isEmptyReply { actions }
                 if let thread { ThreadLink(thread: thread, open: openThread) }
             }
             if message.role != .user { Spacer(minLength: 80) }
         }.padding(.horizontal, 28).padding(.vertical, 10)
+    }
+
+    /// P16: an empty assistant text row (not sent, stopped before a token) offers no tapback or reply.
+    private var isEmptyReply: Bool {
+        message.role == .assistant && message.presentation == .text && message.attachments.isEmpty && message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var actions: some View {
@@ -53,7 +59,7 @@ struct MessageView: View {
         case .routineResult: RoutineResultCard(message: message)
         case .text:
             if message.role == .system {
-                Label(message.content, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
+                Label(message.content, systemImage: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
             } else if message.role == .user {
                 if !message.content.isEmpty {
                     Text(markdown).textSelection(.enabled).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)

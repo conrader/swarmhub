@@ -50,14 +50,14 @@ struct BotRow: View {
     let selected: Bool; @Binding var botToDelete: Bot?
     @State private var hovering = false
     var body: some View {
-        let working = store.isWorking(bot), attention = store.hasPendingApproval(bot)
+        let working = store.isWorking(bot), attention = store.needsAttention(bot)
         // P21 D3: sample bots say so instead of showing their canned last message.
         let fragment = bot.isDemo ? SimpleCopy.sampleLabel : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: working,
                                             archiveNewest: store.grokHistory.newestVisible(for: bot.id))
         Button { store.open(bot) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
                 BotAvatar(bot: bot, size: SidebarMetrics.mark, motion: .list, isWorking: working, isHovered: hovering, probe: "sidebar",
-                          isWaiting: attention)
+                          isWaiting: store.hasPendingApproval(bot))
                     .overlay(alignment: .bottomTrailing) {
                         if attention {
                             Circle().fill(Color.orange).frame(width: SidebarMetrics.badge, height: SidebarMetrics.badge)

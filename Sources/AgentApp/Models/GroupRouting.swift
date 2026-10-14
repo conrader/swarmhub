@@ -95,6 +95,29 @@ enum GroupRouting {
         return ([header] + kept.reversed()).joined(separator: "\n")
     }
 
+    /// One entry of a context blob: `author` nil is the "[… earlier messages omitted]" marker.
+    struct ContextEntry: Equatable { var author: String?; var text: String }
+    static let omittedMarker = "[… earlier messages omitted]"
+
+    /// P16: the entries of a blob built by `context`, split at lines that start with a known author's "Name:" (longest
+    /// name first); other lines continue the entry above. nil when the text is not a group context.
+    static func parseContext(_ blob: String, names: [String], userName: String = defaultUserName) -> [ContextEntry]? {
+        var lines = blob.components(separatedBy: "\n")
+        guard let header = lines.first, header.hasPrefix("[Group chat “") else { return nil }
+        lines.removeFirst()
+        let authors = Array(Set(names + [userName, "Bot"])).filter { !$0.isEmpty }.sorted { $0.count > $1.count }
+        var entries: [ContextEntry] = []
+        for line in lines {
+            if line == omittedMarker { entries.append(.init(author: nil, text: "")); continue }
+            if let author = authors.first(where: { line == "\($0):" || line.hasPrefix("\($0): ") }) {
+                entries.append(.init(author: author, text: String(line.dropFirst(author.count + 1)).trimmingCharacters(in: .whitespaces)))
+            } else if !entries.isEmpty, entries[entries.count - 1].author != nil {
+                entries[entries.count - 1].text += "\n" + line
+            }
+        }
+        return entries.map { .init(author: $0.author, text: $0.text.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
     private static func isWordLike(_ character: Character) -> Bool { character.isLetter || character.isNumber || "._-+@".contains(character) }
     private static func endsAtBoundary(_ text: String, _ end: String.Index) -> Bool {
         guard end < text.endIndex else { return true }

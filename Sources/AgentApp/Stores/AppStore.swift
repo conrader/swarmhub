@@ -45,6 +45,9 @@ import UserNotifications
     let drafts = ComposerDrafts()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
+    /// P16: turn bookkeeping, the token autosave interval, the connectivity events and the reconcile timing (injectable).
+    let turns = TurnBook(); var autosaveInterval: Duration = .seconds(2); var connectivity: (any ConnectivitySource)?
+    var reconcileTiming = ReconcileTiming.standard
     var streamTask: Task<Void, Never>?; let fileURL: URL
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     var streamingBotID: UUID?; var streamingAssistant: ChatMessage?; var streamingConversation: (any Conversation)?
@@ -58,8 +61,8 @@ import UserNotifications
     private let didCancelLocalStream: (() -> Void)?
     let reviewerTimeout: Duration
 
-    init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = .shared) {
-        self.keyStore = keyStore; self.defaults = defaults; self.hermesSession = hermesSession
+    init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil) {
+        self.keyStore = keyStore; self.defaults = defaults; self.hermesSession = hermesSession; self.connectivity = connectivity
         self.backendFactory = backendFactory
         self.didCancelLocalStream = didCancelLocalStream
         self.reviewerTimeout = reviewerTimeout
@@ -71,6 +74,7 @@ import UserNotifications
         } else if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
                 let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
+                turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
                 if !migrateArchivedGroups().isEmpty { save() }
                 var migratedLegacyApprovalRules = false
                 for bot in bots {
@@ -112,6 +116,7 @@ import UserNotifications
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
         botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad
+        if connectivity != nil { listenForConnectivity() }
     }
 
     func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID); avatar.apply(to: bot); bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save() }
@@ -134,7 +139,17 @@ import UserNotifications
         bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save(); return bot
     }
     func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }; save() }
-    func save() { guard persistenceEnabled, let data = try? JSONEncoder().encode(storeFile) else { return }; try? data.write(to: fileURL, options: .atomic) }
+    /// Writes store.json; a failed write is reported once per streak (P16) instead of being swallowed.
+    func save() {
+        guard persistenceEnabled else { return }
+        do {
+            try JSONEncoder().encode(storeFile).write(to: fileURL, options: .atomic)
+            turns.saveFailing = false
+        } catch {
+            if !turns.saveFailing { errorMessage = "Could not save your chats: \(error.localizedDescription)" }
+            turns.saveFailing = true
+        }
+    }
     /// Sends into the open thread or the main chat. While a turn streams, the text steers it when the
     /// server has `run_steer`; otherwise sending stays disabled until the turn ends.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
@@ -145,59 +160,13 @@ import UserNotifications
         catch { errorMessage = error.localizedDescription; return false }
         let conversation: any Conversation = openThread(in: bot) ?? bot
         historyLoadTokens[bot.id] = nil
-        conversation.messages.append(ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)); replyTo = nil; let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true); conversation.messages.append(assistant)
+        conversation.messages.append(ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)); replyTo = nil; let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete); conversation.messages.append(assistant)
         objectWillChange.send(); save(); isStreaming = true; streamingBotID = bot.id; streamingAssistant = assistant; streamingConversation = conversation
         let streamToken = UUID(); activeStreamToken = streamToken
         let systemPrompt = managementPrompt(for: bot, text: text, conversation: conversation)
-        let history = conversation.messages.filter { $0.id != assistant.id && !$0.isSteer }.map { (role: $0.role.rawValue, content: $0.outgoingText) }
+        let history = chatHistory(conversation, excluding: assistant)
         streamTask = Task { [weak self] in
-            guard let self else { return }
-            var failed = false
-            do {
-                if conversation.hermesSessionID == nil, conversation === bot, try await activeBackend.sessionTransport() == .nativeSessions {
-                    let note = { [unowned self] (text: String) in insertNote(text, in: bot, before: assistant) }
-                    let plan = try await prepareModel(for: bot, backend: activeBackend, note: note)
-                    let created = try await activeBackend.createSession(title: bot.name, systemPrompt: bot.persona, id: "\(sessionNamespace)agentapp_\(bot.id.uuidString.lowercased())")
-                    if let plan { try await applyModel(plan, bot: bot, sessionID: created, record: true, note: note) }
-                    conversation.hermesSessionID = created
-                    save()
-                }
-                let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
-                let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: systemPrompt, messages: history, images: images))
-                if activeStreamToken == streamToken { steerAvailable = (try? await activeBackend.features())?.contains("run_steer") == true }
-                for try await event in stream { guard !Task.isCancelled else { break }; switch event {
-                case .token(let token): assistant.content += token; objectWillChange.send()
-                case .status(let value): if assistant.content.isEmpty { assistant.metadata["status"] = value }
-                case .subAgent(let task):
-                    subAgentTasks[bot.id, default: []].append(task)
-                    conversation.messages.append(ChatMessage(role: .assistant, content: task.title, presentation: .delegation, metadata: ["detail": task.detail, "status": task.status.rawValue]))
-                case .approval(var request):
-                    request.botID = bot.id; request.profile = bot.hermesProfile ?? "default"; request.sessionID = sessionID
-                    await routeApproval(request, for: bot, backend: activeBackend)
-                case .completed: break
-                case .failed(let value): errorMessage = value; failed = true
-                } }
-            } catch is CancellationError {
-                // User-initiated cancellation is not an error and must not notify.
-            } catch let error as URLError where error.code == .cancelled && Task.isCancelled {
-                // URLSession reports cancellation this way when Stop lands during setup/first turn.
-            } catch { errorMessage = error.localizedDescription; failed = true }
-            let cancelled = Task.isCancelled
-            let abandoned = approvals.filter { $0.botID == bot.id && ($0.sessionID == nil || $0.sessionID == (conversation.hermesSessionID ?? bot.id.uuidString)) }
-            for approval in abandoned {
-                appendAudit(to: bot, approval: approval, outcome: .denied, decidedBy: "system", reason: cancelled ? "Run stopped; pending approval was cancelled." : "Run ended; pending approval was cancelled.")
-            }
-            approvals.removeAll { abandoned.map(\.id).contains($0.id) }
-            assistant.isStreaming = false
-            if activeStreamToken == streamToken {
-                isStreaming = false; streamTask = nil; activeStreamToken = nil; streamingBotID = nil; streamingAssistant = nil; streamingConversation = nil; steerAvailable = false
-            }
-            save()
-            if !cancelled && !failed { handleManagerReply(assistant, from: bot, in: conversation) }
-            if !cancelled && !failed && !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                AvatarReactions.shared.completed(bot)
-                notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.content))
-            }
+            await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: systemPrompt, backend: activeBackend, token: streamToken)
         }
         return true
     }
@@ -212,6 +181,8 @@ import UserNotifications
         stopInProgressForStream = streamToken; groupRun?.stopped = true
         let bot = streamingBotID.flatMap { id in bots.first { $0.id == id } }
         streamingAssistant?.isStreaming = false; steerAvailable = false
+        // P16: the row is `stopped` at once and never extended; a Retry still reading the box keeps its `notSent` row.
+        if let row = streamingAssistant, row.turnState != .notSent { row.turnState = .stopped; row.metadata[TurnKey.why] = "stopped" }
         guard let bot, let activeBackend = try? backend(for: bot) else {
             streamTask?.cancel(); isStreaming = false
             if stopInProgressForStream == streamToken { stopInProgressForStream = nil }

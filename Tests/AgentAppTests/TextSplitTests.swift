@@ -93,7 +93,8 @@ private func checkShape(_ host: String) {
 }
 
 @Test func legacyHistoryMessagesAreSplitToo() async throws {
-    let (host, backend) = ChatParityServer.serve(features: [:]) { _, _ in .sse([]) }
+    // P16: EOF without a terminal event is a break, so the legacy fixture ends with `[DONE]` like a real stream.
+    let (host, backend) = ChatParityServer.serve(features: [:]) { _, _ in ChatParityServer.Reply(body: Data("data: [DONE]\n\n".utf8)) }
     let earlier = mixedText(scalars: 125_000), latest = mixedText(scalars: 61_000, lineEvery: nil)
     let messages: [(role: String, content: String)] = [(role: "user", content: earlier), (role: "assistant", content: "ok"), (role: "user", content: latest)]
     for try await _ in try await backend.send(.init(sessionID: "s1", systemPrompt: "persona", messages: messages)) {}
