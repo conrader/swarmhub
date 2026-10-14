@@ -15,14 +15,23 @@ Hermes is supported now; OpenClaw integration is planned.
   <sub>A look inside the macOS prototype.</sub>
 </p>
 
-## Work with your agents
+## Benefits
 
-- Chat with one agent or bring several into a group conversation.
-- Share images and text files to give agents context.
-- Schedule recurring work and get the results in chat.
-- Review requested actions before an agent proceeds.
+- Keep agent conversations and recurring work in one place.
+- Spend less time repeating tasks by scheduling routines.
+- Stay in control by reviewing requested actions.
+- Use your own agents, server, and model choices.
 
-Your agents run on your own server. SwarmHub gives you a place to work with them.
+## Features
+
+- **Chat and threads:** streaming replies, threaded conversations, and stop controls.
+- **Group chats:** multiple agents in one conversation, with `@mentions` to choose who responds.
+- **Images and files:** share images and text files; find chat images and links in Media.
+- **Routines:** schedule recurring tasks and receive their results in chat.
+- **Agent overview:** see skills, tools, and available models.
+- **Approvals:** approve or decline requests and set policies for each agent.
+
+Available features depend on what your connected server supports.
 
 ## Try SwarmHub
 
