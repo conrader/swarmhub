@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-// P32 item 5: an imported template's skills install on the bot through its
+// P32 items 5 and 6: an imported template's skills (and its getting-started skill) install on the bot through its
 // connection's Hermes manager, one SKILL.md each under `imported`, with the skills_installed block marking them installed.
 // Synthetic servers only; nothing is written to a box.
 
@@ -24,6 +24,7 @@ import Testing
     jarvis.canManageBots = true
     let travel = Bot(name: "Trip Planner", backend: .hermes, skills: ["Travel Planner"],
                      importedSkills: [ImportedTemplateSkill(name: "Travel Planner", markdown: "Plan trips step by step.")],
+                     gettingStartedSkill: ImportedTemplateSkill(name: "Getting started", markdown: "Ask where they want to go.", isGettingStarted: true),
                      hermesProfile: "travel")
     store.bots = [jarvis, travel]; store.selectedBot = travel
     return (store, jarvis, travel, host)
@@ -62,7 +63,18 @@ private func sentInstructions(_ host: String) -> [String] {
     #expect(sent.contains(#"{"op":"skills_installed","bot":"travel","skills":[{"name":"travel-planner","version":"1.0.0"}]}"#))
     #expect(store.selectedBot === jarvis, "the turn runs in the manager's chat")
     #expect(jarvis.messages.first { $0.role == .user }?.content == "Install the imported skill travel-planner on travel.")
+    #expect(travel.gettingStartedSkill?.isEnabled == false, "only the named skill is marked")
     #expect(travel.installedSkills.isEmpty, "imported skills are not recorded as SwarmHub library skills")
+}
+
+@Test @MainActor func gettingStartedSkillInstallsTheSameWay() async throws {
+    let block = "```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"travel\",\"skills\":[{\"name\":\"getting-started\",\"version\":\"1.0.0\"}]}\n```"
+    let (store, _, travel, host) = importedStore(replies: [block])
+    #expect(store.importedSkills(for: travel).map(\.name) == ["Travel Planner", "Getting started"])
+    #expect(store.installImportedSkill(try #require(travel.gettingStartedSkill), on: travel))
+    try await waitUntil { store.isIdle && travel.gettingStartedSkill?.isEnabled == true }
+    #expect(try #require(sentInstructions(host).first).contains("skills/imported/getting-started/SKILL.md"))
+    #expect(travel.importedSkills[0].isEnabled == false)
 }
 
 @Test @MainActor func templateTextNeverReachesTheManagerReadable() throws {
@@ -96,7 +108,8 @@ private func sentInstructions(_ host: String) -> [String] {
 @Test func importReportNoLongerSaysInstallationIsNotExposed() {
     var manifest = ImportedTemplateManifest(name: "Trip Planner")
     manifest.skills = [ImportedTemplateSkill(name: "Travel Planner", markdown: "x")]
+    manifest.gettingStartedSkill = ImportedTemplateSkill(name: "Getting started", markdown: "y", isGettingStarted: true)
     let reasons = TemplateImportMapper.makePlan(from: manifest).report.map(\.reason)
-    #expect(!reasons.contains { $0.contains("not exposed") })
-    #expect(reasons.filter { $0.contains("Overview → Imported skills") }.count == 1)
+    #expect(!reasons.contains { $0.contains("not exposed") || $0.contains("activates it") })
+    #expect(reasons.filter { $0.contains("Overview → Imported skills") }.count == 2)
 }

@@ -151,8 +151,8 @@ import UserNotifications
             gettingStartedSkill: manifest.gettingStartedSkill, routines: plan.routines,
             hermesProfile: hermesConfigured ? (plan.hermesProfile ?? "default") : nil
         )
-        // Imported data remains inert: connectors require grants, cron routines and the
-        // first-conversation skill remain disabled, and no server mutation occurs here.
+        // Imported data remains inert: connectors require grants, cron routines stay disabled, and skills (the
+        // getting-started one included) stay uninstalled until Install in the Overview (P32); no server mutation here.
         bot.routines.indices.forEach { bot.routines[$0].isEnabled = false }
         bot.gettingStartedSkill?.isEnabled = false
         bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save(); return bot

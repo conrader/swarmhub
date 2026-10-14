@@ -270,7 +270,7 @@ enum TemplateImportMapper {
             } else { report.append(.init(category: "Connector", name: connector, status: .unsupported, reason: "Unknown connector ID; it is not carried over.")) }
         }
         if let skill = manifest.gettingStartedSkill {
-            report.append(.init(category: "Getting started", name: skill.name, status: .converted, reason: "Preserved but disabled until the owner reviews and activates it for the first conversation."))
+            report.append(.init(category: "Getting started", name: skill.name, status: .converted, reason: "Kept with the bot, not installed. Overview → Imported skills shows it and installs it through the manager bot, like the other imported skills (Hermes only)."))
         }
         if manifest.rejectedSecretCount > 0 {
             let noun = manifest.rejectedSecretCount == 1 ? "field or value was" : "fields or values were"

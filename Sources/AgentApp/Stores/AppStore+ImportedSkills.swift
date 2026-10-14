@@ -1,14 +1,16 @@
 import Foundation
 
-/// P32: skills that came with an imported template installed on the bot through its
+/// P32: skills that came with an imported template (and its getting-started skill) installed on the bot through its
 /// connection's manager, the same path as SwarmHub's own skills (AppStore+Skills.swift). They are user content, so the
 /// sheet shows the SKILL.md before Install; each lands as one SKILL.md under the `imported` category. Hermes only.
 extension AppStore {
     nonisolated static let importedCategory = "imported"
     nonisolated static let importedVersion = "1.0.0"
 
-    /// The bot's imported skills that carry Markdown.
-    func importedSkills(for bot: Bot) -> [ImportedTemplateSkill] { bot.importedSkills }
+    /// The bot's imported skills that carry Markdown: the template's skills, then its getting-started skill.
+    func importedSkills(for bot: Bot) -> [ImportedTemplateSkill] {
+        bot.importedSkills + (bot.gettingStartedSkill.map { [$0] } ?? [])
+    }
 
     /// Install is offered for a Hermes bot whose connection has a Hermes manager.
     func canInstallImported(on bot: Bot) -> Bool {
@@ -86,6 +88,9 @@ extension AppStore {
         let names = Set(installed.map(\.name))
         for index in bot.importedSkills.indices where Self.importedSkillFolder(bot.importedSkills[index].name).map(names.contains) == true {
             bot.importedSkills[index].isEnabled = true
+        }
+        if let started = bot.gettingStartedSkill, Self.importedSkillFolder(started.name).map(names.contains) == true {
+            bot.gettingStartedSkill?.isEnabled = true
         }
     }
 }
