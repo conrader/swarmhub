@@ -131,12 +131,14 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
     var authorID: UUID?
     /// P16: the state of the turn whose reply this row holds (nil = written before P16); encoded only when set.
     @Published var turnState: TurnState?
+    /// P27: the tools this reply ran (bounded); encoded only when set. `lastTextAt` (memory only): when text last arrived.
+    @Published var activity: ToolActivity?; var lastTextAt: Date?
     init(id: UUID = UUID(), role: MessageRole, content: String, createdAt: Date = .now, isStreaming: Bool = false, presentation: MessagePresentation = .text, metadata: [String: String] = [:], reactions: [String] = [], replyToID: UUID? = nil, attachments: [ChatAttachment] = [], authorID: UUID? = nil, turnState: TurnState? = nil) {
         self.id = id; self.role = role; self.content = content; self.createdAt = createdAt; self.isStreaming = isStreaming
         self.presentation = presentation; self.metadata = metadata; self.reactions = reactions; self.replyToID = replyToID; self.attachments = attachments; self.authorID = authorID
         self.turnState = turnState
     }
-    enum CodingKeys: CodingKey { case id, role, content, createdAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState }
+    enum CodingKeys: CodingKey { case id, role, content, createdAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState, activity }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); role = try c.decode(MessageRole.self, forKey: .role)
@@ -149,6 +151,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         authorID = try c.decodeIfPresent(UUID.self, forKey: .authorID)
         // An unknown value (a newer build's state) must not make the whole store undecodable.
         turnState = (try? c.decodeIfPresent(TurnState.self, forKey: .turnState)) ?? nil
+        activity = (try? c.decodeIfPresent(ToolActivity.self, forKey: .activity)) ?? nil
         isStreaming = false
     }
     func encode(to encoder: Encoder) throws {
@@ -158,6 +161,7 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         try c.encode(reactions, forKey: .reactions); try c.encodeIfPresent(replyToID, forKey: .replyToID)
         if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
         try c.encodeIfPresent(authorID, forKey: .authorID); try c.encodeIfPresent(turnState, forKey: .turnState)
+        try c.encodeIfPresent(activity, forKey: .activity)
     }
 }
 
@@ -302,4 +306,5 @@ struct BackendMessage: Sendable, Equatable {
 enum StopTarget: Sendable, Equatable { case serverRun(String), disconnectedLegacy, noActiveRun }
 enum StopOutcome: Sendable, Equatable { case requested, disconnectedLegacy, noActiveRun }
 /// `replace` (P12): the whole reply text so far, when a backend's snapshot no longer extends what was streamed.
-enum AgentEvent: Sendable { case token(String), replace(String), status(String), subAgent(SubAgentTask), approval(ApprovalRequest), completed, failed(String) }
+/// `tool` (P27): a tool started, progressed or finished; the reply keeps these as its activity steps.
+enum AgentEvent: Sendable { case token(String), replace(String), status(String), tool(ToolEvent), subAgent(SubAgentTask), approval(ApprovalRequest), completed, failed(String) }

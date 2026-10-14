@@ -33,9 +33,13 @@ extension AppStore {
                 if let run = await activeBackend.currentRunID(sessionID: sessionID) { assistant.metadata[TurnKey.run] = run }
             }
             switch event {
-            case .token(let token): assistant.content += token; objectWillChange.send(); autosaveIfDue()
-            case .replace(let text): assistant.content = text; objectWillChange.send(); autosaveIfDue()
+            case .token(let token): assistant.content += token; assistant.lastTextAt = now(); objectWillChange.send(); autosaveIfDue()
+            case .replace(let text): assistant.content = text; assistant.lastTextAt = now(); objectWillChange.send(); autosaveIfDue()
             case .status(let value): if assistant.content.isEmpty { assistant.metadata["status"] = value }
+            case .tool(let tool):
+                if assistant.content.isEmpty, ToolActivity.isShown(tool.name) { assistant.metadata["status"] = tool.name }
+                var activity = assistant.activity ?? ToolActivity(); activity.apply(tool, at: now())
+                if activity.total > 0 { assistant.activity = activity }
             case .subAgent(let task): subAgent(task)
             case .approval(var request):
                 request.botID = bot.id; request.profile = bot.hermesProfile ?? "default"; request.sessionID = sessionID
@@ -55,6 +59,7 @@ extension AppStore {
     @discardableResult func finishTurn(_ end: TurnEnd, assistant: ChatMessage, bot: Bot, in conversation: any Conversation, backend activeBackend: (any AgentBackend)?,
                                        alertPrefix: String = "", warn: Bool = true, alert: Bool = true) -> TurnOutcome {
         assistant.isStreaming = false
+        if var activity = assistant.activity { activity.finish(at: now()); assistant.activity = activity }
         if assistant.turnState == .stopped { return TurnOutcome.classify(.stoppedByUser) }
         let outcome = TurnOutcome.classify(end)
         assistant.turnState = outcome.state
