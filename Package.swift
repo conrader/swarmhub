@@ -19,7 +19,9 @@ let package = Package(
             name: "AgentApp",
             dependencies: ["BotAvatarsKit", .product(name: "Sparkle", package: "Sparkle")],
             path: ".",
-            exclude: ["Tests", "scripts", "docs", "Vendor", "README.md", "BRIEF.md", "BRIEF-visual.md", "BRIEF-simplify.md", "BRIEF-parity.md"],
+            // Output folders too: dist/ holds packaged .app bundles whose Sparkle nibs/lproj SwiftPM would treat as resources
+            // (hidden .build* folders, incl. .build-release, are skipped by SwiftPM anyway). Guarded by PackageManifestTests.
+            exclude: ["Tests", "scripts", "docs", "Vendor", "dist", "briefs", "README.md", "BRIEF.md", "BRIEF-visual.md", "BRIEF-simplify.md", "BRIEF-parity.md"],
             sources: ["Sources/AgentApp"],
             resources: [.copy("Resources/Avatars"), .copy("Resources/BotManager")],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
