@@ -9,19 +9,19 @@ Grok Bot is Cursor's hosted Mac agent app; SwarmHub reproduces its features on t
 Hermes box. Konrad's 16 Grok bots already live on his box as Hermes profiles `grok-<slug>`
 (SOUL, skills, imported history), served at `https://konrad.agenthut.net/p/grok-<slug>/`.
 
-## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 merged 20538ee)
+## Open work (kept current by Claude; last update 2026-10-14 08:45 UTC; P23+P20 20538ee, P19 c31d0c0 merged)
 
 Everything planned that is not merged yet, so nobody has to remember it. Built = merged into `main`.
 **Konrad 2026-10-14: "Build all, defaults"** — every row below is accepted with the recommended defaults (P16, P17, P21, P12 included; P13 Part C's live step has his go). Order: P23 → P19 → P24 → P10c → P10d → P10e → P13 C → D → E → P16 → P21 → P17 → P12; each merged when green; Claude reports results, comes back only for a real blocker.
 
 | What | State | Next step |
 |---|---|---|
-| P19 PDF / DOCX / RTF attachments | building now (`p19`, MacBook) | merge when green, install |
+| Group chats cut documents at 8,000 characters (P19 left the group context cap unchanged) | not fixed | after P10c: send attachments whole to the addressed bot(s) in groups |
 | Hermes 0.22.0 on Konrad's box (+ `/v1/skills` fix) | release session running | canary on Konrad's box, verify, report |
-| Automatic updates (Sparkle) | code merged (20538ee); no signing key yet | after P19+P24: create key, release v0.4.1 on GitHub, prove an update with v0.4.2 |
+| Automatic updates (Sparkle) | running: key + v0.4.1 build on the MacBook | publish GitHub release v0.4.1, then prove an update with v0.4.2 |
 | README: automatic updates line | bot management, shortcuts, versions done (dcbf703) | add once v0.4.1 is published |
-| P24 Hermes version per box + calm skills note + double-click zoom | building (`p24`, MacBook) | merge when green |
-| P10c / P10d / P10e Grok import in the app (command, sheet, live) | P10.0/a/b merged, c/d/e never started | build in order |
+| P24 Hermes version + calm skills note + double-click zoom | green on `p24` (396); merged with P19 on `p24-merge`, being tested | fast-forward main when green |
+| P10c / P10d / P10e Grok import in the app (command, sheet, live) | P10c building (`p10c`, MacBook); live steps need Konrad's Keychain click | then P10d, P10e |
 | P13 Parts C / D / E model roles (prove, existing chats, sub-agents) | Parts A+B merged, C/D/E never started | queued; Part C live step has Konrad's go |
 | P16 No reply is lost | accepted (build all) | queued |
 | P17 Models from the agent's own backend | accepted (build all) | queued |
