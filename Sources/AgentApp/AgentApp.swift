@@ -19,6 +19,7 @@ private struct FixtureReviewerBackend: AgentBackend {
     private let snapshotAppearance: String?
     init() {
         if let code = HeadlessCommands.runIfRequested() { exit(code) }
+        SidebarWidth.dropStaleSavedWidths()
         snapshotAppearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"]
         let integration = ProcessInfo.processInfo.environment["AGENTAPP_HERMES_INTEGRATION"] == "1"
         let integrationStoreURL = integration ? FileManager.default.temporaryDirectory.appending(path: "AgentApp-Hermes-\(UUID().uuidString)/store.json") : nil
