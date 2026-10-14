@@ -118,6 +118,24 @@ struct ModelRolesModel: Equatable, Sendable {
         return "delegation toolset on for \(listed.filter { $0.delegation == true }.count) of \(hermesRows.count) bots"
     }
 
+    /// Part C: "Last turn ran on <model> · <supplier>" from the session's last `runtime{}`, and, when it differs from
+    /// the lock the app recorded for that session, "Ran on A, not the B you chose."
+    struct RanOn: Equatable, Sendable { let line: String; let mismatch: String? }
+
+    static func ranOn(_ runtime: HermesRuntime?, lock: HermesModelLock?, sessionID: String?, options: HermesModelOptions?) -> RanOn? {
+        guard let runtime, let sessionID else { return nil }
+        let supplier = runtime.provider.map { slug in options?.providers.first { $0.answers(to: slug) }?.name ?? slug }
+        let line = "Last turn ran on " + [runtime.model, supplier].compactMap { $0 }.joined(separator: " · ")
+        guard let lock, lock.sessionID == sessionID, !HermesModelOptions.sameModel(runtime.model, lock.model) else { return .init(line: line, mismatch: nil) }
+        return .init(line: line, mismatch: "Ran on \(runtime.model), not the \(lock.model) you chose.")
+    }
+
+    /// The confirmation for "Use the box default instead": a lock to the box's current default pair, which pins.
+    static func boxDefaultNote(_ options: HermesModelOptions?) -> String? {
+        guard let model = options?.model, options?.defaultProvider != nil else { return nil }
+        return "Hermes can't unpin a chat; this pins it to the box's current default (\(model))."
+    }
+
     /// One line per bot for `--render-snapshot`: names and counts only.
     static func headlessLine(_ row: Row) -> String {
         guard !row.isOpenClaw else { return "\(row.name): roles \(ModelRoleReason.openClaw.text)" }
