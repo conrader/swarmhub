@@ -36,7 +36,7 @@ extension AppStore {
             case .overview, .media, .computer: true
             case .model: !bot.isReadOnlyArchive
             case .skills: !importedSkills(for: bot).isEmpty || !bot.skills.isEmpty
-            case .activity: !bot.approvalAudit.isEmpty || !threadSummaries(for: bot).isEmpty
+            case .activity: !bot.approvalAudit.isEmpty
             case .routines: !bot.routines.isEmpty
             }
         }
