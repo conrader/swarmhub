@@ -16,6 +16,8 @@ import UserNotifications
     /// P21: what the setup window opens with (bumping `setupGeneration` restarts it), and `--setup-preview` (throwaway
     /// store, keys and settings; Settings are off).
     @Published var setupPrefill = SetupPrefill(); @Published var setupGeneration = 0; var isSetupPreview = false
+    /// P25: the Gateway this setup-window run saved at Test; forgotten again unless Add keeps it.
+    var setupCreatedGatewayID: String?
     lazy var grokBotPresent: Bool = GrokLocator.live().isPresent
     /// P14: the sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false

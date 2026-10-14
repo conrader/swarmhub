@@ -74,14 +74,14 @@ struct SetupAddressStep: View {
     }
 }
 
-/// S4: one tick per agent the test found; agents already on this app are shown, disabled.
+/// S4: one tick per agent the test found (Hermes agents or OpenClaw agents); agents already on this app are shown, disabled.
 struct SetupChooseStep: View {
     @Binding var flow: SetupFlow
     let added: Set<String>
     var body: some View {
         Form {
             Section {
-                ForEach(flow.result?.available ?? [], id: \.id) { agent in
+                ForEach(flow.choices) { agent in
                     let present = added.contains(agent.id)
                     Toggle(isOn: Binding(get: { present || flow.chosen.contains(agent.id) }, set: { on in
                         if on { flow.chosen.insert(agent.id) } else { flow.chosen.remove(agent.id) }
@@ -89,11 +89,18 @@ struct SetupChooseStep: View {
                         HStack { Text(agent.name); if present { Text(SetupCopy.alreadyAdded).font(.caption).foregroundStyle(.secondary) } }
                     }.disabled(present)
                 }
-                ForEach(flow.result?.problems ?? [], id: \.self) { line in Text(line).font(.caption).foregroundStyle(.orange) }
-            } header: { Text(SetupCopy.chooseTitle) } footer: { Text(flow.result?.message ?? "").font(.caption) }
+                if flow.software != .openClaw {
+                    ForEach(flow.result?.problems ?? [], id: \.self) { line in Text(line).font(.caption).foregroundStyle(.orange) }
+                }
+            } header: { Text(SetupCopy.chooseTitle) } footer: { Text(footer).font(.caption) }
             if flow.movesAddress { Section { Toggle(SetupCopy.moveConfirm, isOn: $flow.confirmMove) } }
             Text(SetupCopy.addLater).font(.caption).foregroundStyle(.secondary)
         }.formStyle(.grouped).scrollContentBackground(.hidden).padding(-20)
+    }
+
+    private var footer: String {
+        guard flow.software == .openClaw else { return flow.result?.message ?? "" }
+        return flow.choices.isEmpty ? SetupCopy.openClawNoAgents : SetupCopy.openClawFound(flow.choices.count)
     }
 }
 
