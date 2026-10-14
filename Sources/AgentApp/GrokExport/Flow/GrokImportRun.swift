@@ -12,8 +12,10 @@ import Foundation
     enum Event: Sendable {
         /// Printed or shown before the read that may raise the macOS dialog.
         case keychainReadComing
-        case conversation(index: Int, total: Int, name: String)
+        case conversation(index: Int, total: Int, name: String, sourceID: String)
         case page(pages: Int, oldestSeq: Int64)
+        /// Fetching is over for this conversation: merge, map, redact and commit.
+        case saving(sourceID: String)
         case committed(GrokImportRunRow)
     }
 
@@ -41,6 +43,9 @@ import Foundation
         self.options = options
         holder = GrokSecretHolder(hold: environment.hold, clock: environment.clock)
     }
+
+    /// After Cancel: part of a conversation was fetched and `importWhatWasFetched()` can commit it.
+    var hasFetchedPart: Bool { progress != nil }
 
     /// Every request sent to Grok so far in this run, retries and blob GETs included.
     func requestCount() async -> Int { requestsBefore + (await client?.requestCount ?? 0) }
@@ -136,12 +141,13 @@ import Foundation
         while let id = queue?.first {
             if Task.isCancelled { state = .cancelled; return }
             let name = cache.roster.first { $0["id"]?.stringValue == id }?["name"]?.stringValue ?? "Grok bot"
-            onEvent?(.conversation(index: rows.count + 1, total: total, name: name))
+            onEvent?(.conversation(index: rows.count + 1, total: total, name: name, sourceID: id))
             var fetched: GrokHistoryFetcher.Result?
             if options.mode == .full {
                 guard let result = await fetch(id) else { return }
                 fetched = result
             }
+            onEvent?(.saving(sourceID: id))
             guard await commit(id, cache: cache, fetched: fetched) else { return }
             queue?.removeFirst()
         }
@@ -298,7 +304,7 @@ import Foundation
         switch merge?.coverage {
         case .complete?: row.coverage = .complete
         case .serverGaps?: row.coverage = .serverGaps
-        case .incomplete?: row.coverage = .incomplete; row.status = .incomplete
+        case .incomplete(let stoppedAt, _)?: row.coverage = .incomplete; row.status = .incomplete; row.stoppedAtSeq = stoppedAt
         case nil: break
         }
         let gaps = merge?.summary.gaps ?? []
@@ -310,6 +316,9 @@ import Foundation
             return record(row)
         }
         row.messages = built.messages.count
+        row.droppedByKind = built.statistics.droppedByKind
+        row.redactions = built.redactions.values.reduce(0, +)
+        row.hiddenMessages = built.statistics.hiddenMessages
         let before = store.grokArchiveLines(sourceID: id)
         do {
             let policy = GrokImportPolicy.inApp(serverURL: store.grokSettingsServerURL, refreshIdentity: options.refreshIdentity)

@@ -110,7 +110,14 @@ struct GrokImportRunRow: Sendable, Equatable {
     var addedLines = 0
     var gapRanges = 0
     var missingSeqs: Int64 = 0
+    /// Incomplete coverage: the oldest seq fetched (nothing older was).
+    var stoppedAtSeq: Int64?
     var stats = GrokHistoryFetcher.Stats()
+    /// Entries not imported, by kind (and card type), as the mapper counted them.
+    var droppedByKind: [String: Int] = [:]
+    /// Secret-like text replaced by `[REDACTED]`, and hidden prompts kept and marked.
+    var redactions = 0
+    var hiddenMessages = 0
 }
 
 /// The injected world of a run: Grok Bot's location, the password provider, the transport and clocks.

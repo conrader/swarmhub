@@ -68,6 +68,9 @@ struct GrokHistoryFile: Codable, Sendable { var sourceID: String; var messages: 
         (try? FileManager.default.attributesOfItem(atPath: fileURL(for: botID).path))?[.modificationDate] as? Date
     }
 
+    /// Lines in the archive file as it is on disk now (the Done step reads counts back from the files); nil = no file.
+    func lineCountOnDisk(for botID: UUID) -> Int? { read(botID)?.messages.count }
+
     func remove(_ botID: UUID) { try? FileManager.default.removeItem(at: fileURL(for: botID)); loaded[botID] = nil; newestCache[botID] = nil }
 
     private func read(_ botID: UUID) -> GrokHistoryFile? { Self.read(fileURL(for: botID)) }

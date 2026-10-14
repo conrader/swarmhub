@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Settings → Account: the connection's Hermes version, the Hermes server, the profiles the bots are bound to (with a
-/// per-profile Test and version), "Add bots from box" and the OpenClaw gateway.
+/// per-profile Test and version), "Add bots from box" (`BoxKeysPasteSection`), Grok Bot and the OpenClaw gateway.
 struct SettingsAccountPane: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var cache: BotInfoCache
@@ -9,7 +9,6 @@ struct SettingsAccountPane: View {
     @AppStorage("hermesProfiles") private var hermesProfiles = ""
     @AppStorage(SidebarMetrics.accountNameKey) private var accountName = ""
     @State private var apiKey = ""; @State private var testResult = ""; @State private var testing = false
-    @State private var boxPaste = ""; @State private var addResults: [HermesBotAddResult] = []; @State private var adding = false
     @State private var profileResults: [String: String] = [:]; @State private var testingProfiles: Set<String> = []
 
     var body: some View {
@@ -52,12 +51,8 @@ struct SettingsAccountPane: View {
                 }
             }
         }
-        Section("Add bots from box") {
-            TextEditor(text: $boxPaste).font(.system(.callout, design: .monospaced)).frame(minHeight: 64)
-            Text("One profile=key per line (commas also work). Keys are saved to the Keychain, each profile is checked, and new bots are named from the profile slug.").font(.caption).foregroundStyle(.secondary)
-            HStack { Button("Add bots") { addBots() }.disabled(adding || boxPaste.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty); if adding { ProgressView().controlSize(.small) } }
-            ForEach(addResults) { result in Text("\(result.label): \(result.summary)").font(.caption).foregroundStyle(.secondary) }
-        }
+        BoxKeysPasteSection()
+        SettingsGrokSection()
         Section("OpenClaw") { TextField("Gateway URL", text: $openClawURL); Text("The OpenClaw WebSocket RPC transport is not implemented yet.").font(.caption).foregroundStyle(.secondary) }
             .onAppear { apiKey = KeychainStore.get(account: "hermes") }
     }
@@ -82,11 +77,6 @@ struct SettingsAccountPane: View {
             profileResults[id] = check.ok ? "OK — model \(check.modelID ?? "?")" + (check.routines.map { ", routines \($0)" } ?? "") : HeadlessCommands.line(check).components(separatedBy: " | ").dropFirst(2).joined(separator: " · ")
             testingProfiles.remove(id)
         }
-    }
-
-    private func addBots() {
-        adding = true; let text = boxPaste; boxPaste = ""
-        Task { addResults = await store.addBotsFromBox(text); adding = false }
     }
 
     private func testHermes() {
