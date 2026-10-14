@@ -3,7 +3,7 @@ import Foundation
 /// C1-C12 of briefs/P14.md item 4, read from the `chrome` facts only; each failure is one line for `errors` (0.5 pt tolerance).
 enum ChromeChecks {
     static let tolerance = 0.5
-    static let rowButtons = ["hide_sidebar", "import_template", "new_bot"]
+    static let rowButtons = ["hide_sidebar", "search", "new_bot"]
     static let topEdges = ["sidebar_row", "chat_header", "details_header"]
 
     static func run(_ facts: [String: Any]) -> (passed: [String: Bool], errors: [String]) {

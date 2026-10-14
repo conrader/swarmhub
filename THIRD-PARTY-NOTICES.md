@@ -2,6 +2,13 @@
 
 SwarmHub includes the following third-party code.
 
+## Sparkle
+
+- Source: https://github.com/sparkle-project/Sparkle/tree/2.10.0
+- Version: 2.10.0, via Swift Package Manager (or the checksum-verified official binary distribution for the direct compiler fallback).
+- Copyright © Sparkle contributors. Sparkle is distributed under the MIT licence and includes additional third-party notices.
+- The full, unmodified Sparkle licence and bundled component notices are included in the installed app at `Contents/Resources/SPARKLE-LICENSE.txt`.
+
 ## BotAvatarsKit
 
 - Author: Jakub Antalik (Libraries.dev)

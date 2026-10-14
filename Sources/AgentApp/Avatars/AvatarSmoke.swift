@@ -9,7 +9,8 @@ enum AvatarFacts {
         return bot.avatarMarkMigrated ? "migrated" : "stored"
     }
 
-    @MainActor static func facts(bot: Bot, look: AvatarLook, mode: AvatarMotionMode, size: CGFloat, place: String) -> [String: Any] {
+    @MainActor static func facts(bot: Bot, look: AvatarLook, mode: AvatarMotionMode, size: CGFloat, place: String,
+                                 facing: AvatarFacing = .right, context: AvatarMotionContext = .list, calm: Bool = false) -> [String: Any] {
         var facts: [String: Any] = ["name": bot.name, "origin": origin(bot, look: look), "mode": mode.rawValue, "size": Double(size), "place": place]
         switch look {
         case .mark(let shape, let colour):
@@ -18,6 +19,11 @@ enum AvatarFacts {
             facts["stored_words"] = bot.avatarMark.map { "\($0.shape)/\($0.colour)" } ?? NSNull()
             facts["body"] = body.type.rawValue
             facts["approximate"] = body.approximate
+            facts["facing"] = facing.rawValue
+            let playback = AvatarMotion.playback(mode: mode, context: context, calm: calm)
+            facts["scenario"] = mode == .still ? "still" : playback.scenario
+            facts["kit_state"] = mode == .still ? "still" : playback.state.rawValue
+            facts["calm"] = calm
         case .classic(let name):
             facts["words"] = name.rawValue
             facts["body"] = "classic"
@@ -54,7 +60,7 @@ enum AvatarFacts {
         report["calm"] = clock()
 
         if let bot, case .mark = bot.avatarLook {
-            report["working"] = await workingProbe(store: store, bot: bot, budget: budget)
+            report["working"] = await workingProbe(store: store, bot: bot, budget: budget, settings: settings)
         } else {
             report["working"] = ["skipped": "no bot with a mark"]
         }
@@ -62,8 +68,8 @@ enum AvatarFacts {
         return report
     }
 
-    /// Under Calm (no idle views), forces `bot` to working: the display link must start and tick, then stop.
-    private static func workingProbe(store: AppStore, bot: Bot, budget: Budget) async -> [String: Any] {
+    /// Under Calm, forces work and checks advancing frames and the return to idle. Off must stop the clock.
+    private static func workingProbe(store: AppStore, bot: Bot, budget: Budget, settings: AvatarMotionSettings) async -> [String: Any] {
         let key = "sidebar|\(bot.id)"
         UISmokeProbe.forcedWorking = bot.id; store.objectWillChange.send()
         try? await Task.sleep(for: .milliseconds(500))
@@ -73,15 +79,19 @@ enum AvatarFacts {
         try? await Task.sleep(for: budget.working - .milliseconds(500))
         let lastFrame = BotAvatarClock.shared.frame
         UISmokeProbe.forcedWorking = nil; store.objectWillChange.send()
-        let started = ContinuousClock.now
-        let stopped = await HeadlessE2E.wait(budget.stop, poll: .milliseconds(50)) {
-            !BotAvatarClock.shared.isRunning && (UISmokeProbe.avatarFacts[key]?["mode"] as? String ?? "still") == "still"
+        let returned = await HeadlessE2E.wait(budget.stop, poll: .milliseconds(50)) {
+            (UISmokeProbe.avatarFacts[key]?["mode"] as? String ?? "still") != "working"
         }
+        let after: [String: Any] = ["mode": UISmokeProbe.avatarFacts[key]?["mode"] ?? NSNull(),
+                                    "clock_running": BotAvatarClock.shared.isRunning, "returned_within_budget": returned]
+        settings.probeOverride = .off
+        let started = ContinuousClock.now
+        let stopped = await HeadlessE2E.wait(budget.stop, poll: .milliseconds(50)) { !BotAvatarClock.shared.isRunning }
         let elapsed = ContinuousClock.now - started
         return ["bot": bot.name, "during": during.merging(["frames_advanced": lastFrame - firstFrame, "frame_advancing": lastFrame > firstFrame]) { $1 },
-                "after": ["mode": UISmokeProbe.avatarFacts[key]?["mode"] ?? NSNull(), "clock_running": BotAvatarClock.shared.isRunning,
-                          "stopped_within_budget": stopped,
-                          "seconds": Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18] as [String: Any]]
+                "after": after,
+                "off": ["clock_running": BotAvatarClock.shared.isRunning, "stopped_within_budget": stopped,
+                        "seconds": Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18] as [String: Any]]
     }
 
     private static func clock() -> [String: Any] {

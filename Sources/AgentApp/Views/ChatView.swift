@@ -10,7 +10,8 @@ struct ChatView: View {
             HStack(spacing: 11) {
                 ShowSidebarItem()
                 if thread != nil { Button { store.closeThread() } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22) }.buttonStyle(.plain).help("Back to chat") }
-                BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: store.isWorking(bot), probe: "chat_header")
+                BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: store.isWorking(bot), probe: "chat_header",
+                          isWaiting: store.hasPendingApproval(bot))
                 Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)) }.buttonStyle(.plain)
                 if thread != nil { Text("Thread").font(.system(size: 12)).foregroundStyle(.secondary) }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
@@ -66,7 +67,8 @@ struct ChatView: View {
                 guard !files.isEmpty, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly else { return false }
                 attach(files); return true
             }
-            .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
+            .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); draft = store.drafts.text(for: bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
+            .onChange(of: draft) { _, value in store.drafts.set(value, for: bot.id) }
             .onChange(of: store.composerFill) { _, _ in takeComposerFill() }
     }
     private func manage(_ action: ManageBotsAction) { store.startManagement(action, manager: bot) }

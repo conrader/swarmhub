@@ -5,6 +5,9 @@ let package = Package(
     name: "AgentApp",
     platforms: [.macOS(.v14)],
     products: [.executable(name: "AgentApp", targets: ["AgentApp"])],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
+    ],
     targets: [
         // Vendored, pinned BotAvatarsKit (MIT, see Vendor/BotAvatarsKit/VENDORED.md); Swift 5 mode, the app stays Swift 6.
         .target(
@@ -14,11 +17,15 @@ let package = Package(
         ),
         .executableTarget(
             name: "AgentApp",
-            dependencies: ["BotAvatarsKit"],
+            dependencies: ["BotAvatarsKit", .product(name: "Sparkle", package: "Sparkle")],
             path: ".",
-            exclude: ["Tests", "scripts", "docs", "Vendor", "README.md", "BRIEF.md", "BRIEF-visual.md", "BRIEF-simplify.md", "BRIEF-parity.md"],
+            // Output folders too: dist/ holds packaged .app bundles whose Sparkle nibs/lproj SwiftPM would treat as resources
+            // (hidden .build* folders, incl. .build-release, are skipped by SwiftPM anyway). Guarded by PackageManifestTests.
+            exclude: ["Tests", "scripts", "docs", "Vendor", "dist", "briefs", "README.md", "BRIEF.md", "BRIEF-visual.md", "BRIEF-simplify.md", "BRIEF-parity.md"],
             sources: ["Sources/AgentApp"],
-            resources: [.copy("Resources/Avatars"), .copy("Resources/BotManager")]
+            resources: [.copy("Resources/Avatars"), .copy("Resources/BotManager")],
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
+                                          "-Xlinker", "-rpath", "-Xlinker", "@executable_path"])]
         ),
         .testTarget(name: "AgentAppTests", dependencies: ["AgentApp", "BotAvatarsKit"], path: "Tests/AgentAppTests")
     ]

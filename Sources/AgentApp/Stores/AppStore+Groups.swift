@@ -177,6 +177,7 @@ extension AppStore {
         let reply = assistant.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if reply.isEmpty && !cancelled { group.messages.removeAll { $0.id == assistant.id } }
         if !cancelled && !failed && !reply.isEmpty {
+            AvatarReactions.shared.completed(bot)
             if selectedGroup?.id != group.id { group.unreadCount += 1 }
             notifyIfNeeded(group: group, bot: bot, message: reply)
         }

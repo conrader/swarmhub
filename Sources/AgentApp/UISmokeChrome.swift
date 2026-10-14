@@ -173,7 +173,7 @@ enum ChromeGeometry {
 
 /// What a click at a point would land on: app content, our drag strip, the system's title zone, or other chrome.
 enum ChromeHit {
-    static let buttons = ["hide_sidebar", "import_template", "new_bot", "show_sidebar"]
+    static let buttons = ["hide_sidebar", "search", "new_bot", "show_sidebar"]
 
     /// `chain` is the hit view's class name, then its ancestors' up to the theme frame.
     static func classify(chain: [String], inContent: Bool, yFromTop: Double, systemZone: Double) -> [String: Any] {

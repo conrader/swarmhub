@@ -5,12 +5,16 @@ import SwiftUI
 /// when run from the package root, as `AvatarAssets` finds its PNGs.
 enum ThirdPartyNotices {
     static let fileName = "THIRD-PARTY-NOTICES.md"
-    static let credit = "Bot avatars: BotAvatarsKit by Jakub Antalik (Libraries.dev), MIT licence."
+    static let credit = "Bot avatars: BotAvatarsKit by Jakub Antalik (Libraries.dev), MIT licence. Software updates: Sparkle, MIT licence."
 
     static func text(bundleResources: URL? = Bundle.main.resourceURL, checkout: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)) -> String? {
         let executable = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
         let candidates = [bundleResources?.appending(path: fileName), executable.appending(path: "../../\(fileName)").standardizedFileURL, checkout.appending(path: fileName)].compactMap { $0 }
-        return candidates.lazy.compactMap { try? String(contentsOf: $0, encoding: .utf8) }.first
+        guard var notices = candidates.lazy.compactMap({ try? String(contentsOf: $0, encoding: .utf8) }).first else { return nil }
+        if let licence = bundleResources?.appending(path: "SPARKLE-LICENSE.txt"), let text = try? String(contentsOf: licence, encoding: .utf8) {
+            notices += "\n\nSparkle licence and component notices\n\n" + text
+        }
+        return notices
     }
 }
 

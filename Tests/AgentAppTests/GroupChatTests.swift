@@ -96,6 +96,7 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
     #expect(group.messages.map(\.content) == ["Morning, team", "DMT says hi", "Achilles says hi", "Jarvis says hi"])
     #expect(group.messages.dropFirst().map(\.authorID) == bots.map(\.id))
     for bot in bots {
+        #expect(AvatarReactions.shared.completions[bot.id] != nil)
         let expected = "group-\(group.id.uuidString.lowercased())-\(bot.id.uuidString.lowercased())"
         #expect(GroupRouting.sessionID(group: group.id, bot: bot.id) == expected)
         #expect(await backends[bot.id]!.sessions() == [expected])
@@ -130,6 +131,8 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
     #expect(await backends[bots[2].id]!.turns().isEmpty, "Jarvis was skipped")
     #expect(group.messages.compactMap(\.authorID) == [bots[0].id, bots[1].id])
     #expect(store.groupRun == nil && group.activeMemberID == nil)
+    #expect(AvatarReactions.shared.completions[bots[0].id] != nil)
+    #expect(AvatarReactions.shared.completions[bots[1].id] == nil && AvatarReactions.shared.completions[bots[2].id] == nil)
 }
 
 @MainActor @Test func groupsNeedTwoBotsAndMembershipCanChange() throws {

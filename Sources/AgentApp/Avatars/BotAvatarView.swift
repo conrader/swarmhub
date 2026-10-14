@@ -7,13 +7,18 @@ import SwiftUI
 struct BotAvatar: View {
     let bot: Bot; var size: CGFloat = 38; var motion: AvatarMotionContext = .still
     var isWorking = false; var isHovered = false; var probe: String? = nil
+    var facing: AvatarFacing = .right; var isWaiting = false
     @ObservedObject private var settings = AvatarMotionSettings.shared
     @ObservedObject private var activity = AvatarActivity.shared
+    @ObservedObject private var reactions = AvatarReactions.shared
+    @State private var isCelebrating = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var mode: AvatarMotionMode {
-        let resolved = AvatarMotion.resolve(context: motion, isWorking: isWorking, isHovered: isHovered, reduceMotion: reduceMotion, preference: settings.effective)
-        return resolved == .idle && !activity.canIdle ? .still : resolved
+        if case .classic = bot.avatarLook { return .still }
+        let resolved = AvatarMotion.resolve(context: motion, isWorking: isWorking, isHovered: isHovered, reduceMotion: reduceMotion,
+                                            preference: settings.effective, isWaiting: isWaiting, isCelebrating: isCelebrating)
+        return activity.canIdle ? resolved : .still
     }
 
     var body: some View {
@@ -21,7 +26,8 @@ struct BotAvatar: View {
         Group {
             switch look {
             case .mark(let shape, let colour):
-                AvatarMarkView(shape: shape, colour: colour, size: size, mode: mode, seed: bot.avatarSeed)
+                AvatarMarkView(shape: shape, colour: colour, size: size, mode: mode, seed: bot.avatarSeed,
+                               facing: facing, context: motion, calm: settings.effective == .calm)
             case .classic(let name):
                 AvatarImage(name: name)
                     .scaledToFill().frame(width: size, height: size).clipShape(Circle())
@@ -36,6 +42,17 @@ struct BotAvatar: View {
         .onAppear { report(look, mode) }
         .onChange(of: mode) { _, next in report(look, next) }
         .onChange(of: look) { _, next in report(next, mode) }
+        .onChange(of: facing) { _, _ in report(look, mode) }
+        .onChange(of: settings.effective) { _, _ in report(look, mode) }
+        .task(id: "\(bot.id)|\(reactions.completions[bot.id]?.timeIntervalSinceReferenceDate ?? 0)") {
+            isCelebrating = false
+            guard motion != .still, let completed = reactions.completions[bot.id] else { return }
+            let remaining = AvatarReactions.celebrationDuration - Date.now.timeIntervalSince(completed)
+            guard remaining > 0 else { return }
+            isCelebrating = true
+            do { try await Task.sleep(for: .seconds(remaining)) } catch { return }
+            isCelebrating = false
+        }
         .onChange(of: bot.id) { old, _ in
             // The same view now shows another bot (ChatView keeps its identity across selections): drop the old fact.
             if let probe { UISmokeProbe.avatarFacts.removeValue(forKey: "\(probe)|\(old)") }
@@ -46,17 +63,18 @@ struct BotAvatar: View {
 
     private func report(_ look: AvatarLook, _ mode: AvatarMotionMode) {
         guard let probe else { return }
-        UISmokeProbe.avatarFacts["\(probe)|\(bot.id)"] = AvatarFacts.facts(bot: bot, look: look, mode: mode, size: size, place: probe)
+        UISmokeProbe.avatarFacts["\(probe)|\(bot.id)"] = AvatarFacts.facts(bot: bot, look: look, mode: mode, size: size, place: probe,
+                                                                        facing: facing, context: motion, calm: settings.effective == .calm)
     }
 }
 
 /// Up to four member marks with no disc (Grok's arrangement is unobserved): one at full size, two on the diagonal at
 /// 0.68, three or four in a 2×2 grid at 0.5, each with a thin halo in the row's background colour where they overlap.
-/// The answering member is live while the group works; all idle while the row is hovered (the list rule).
+/// Every member idles independently; the answering member reacts to work and approvals.
 struct GroupAvatarStack: View {
     @EnvironmentObject private var store: AppStore
     let group: GroupChat; let members: [Bot]; var size: CGFloat = 28; var isHovered = false
-    var halo: Color = AppColor.sidebar; var probe: String? = nil
+    var halo: Color = AppColor.sidebar; var probe: String? = nil; var facing: AvatarFacing = .right
 
     var body: some View {
         let shown = Array(members.prefix(4))
@@ -66,7 +84,7 @@ struct GroupAvatarStack: View {
             if shown.isEmpty { Circle().fill(AppColor.raised).overlay(Image(systemName: "person.3").font(.system(size: size * 0.35))) }
             ForEach(Array(shown.enumerated()), id: \.element.id) { index, bot in
                 BotAvatar(bot: bot, size: small, motion: .list, isWorking: store.isWorking(bot, in: group), isHovered: isHovered,
-                          probe: probe.map { "\($0)#\(index)" })
+                          probe: probe.map { "\($0)#\(index)" }, facing: facing, isWaiting: store.hasPendingApproval(bot, in: group))
                     .shadow(color: shown.count > 1 ? halo : .clear, radius: 0.6).shadow(color: shown.count > 1 ? halo : .clear, radius: 0.6)
                     .offset(offset(index, count: shown.count, small: small))
             }
@@ -86,6 +104,12 @@ extension AppStore {
     func isWorking(_ bot: Bot, in group: GroupChat) -> Bool {
         UISmokeProbe.forcedWorking == bot.id || (isStreaming && streamingBotID == bot.id && streamingConversation === group)
     }
+
+    func hasPendingApproval(_ bot: Bot) -> Bool { approvals.contains { $0.botID == bot.id } }
+    func hasPendingApproval(_ bot: Bot, in group: GroupChat) -> Bool {
+        let session = group.session(for: bot.id) ?? sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id)
+        return approvals.contains { $0.botID == bot.id && $0.sessionID == session }
+    }
 }
 
 /// A mark that belongs to no bot yet (the Grok import preview): showcase context, idling gently by default.
@@ -98,7 +122,8 @@ struct ShowcaseMark: View {
     var body: some View {
         let resolved = AvatarMotion.resolve(context: .showcase, isWorking: false, isHovered: false, reduceMotion: reduceMotion, preference: settings.effective)
         if case .mark(let shape, let colour) = AvatarLook.resolve(mark: mark, classic: .faceCoral, seed: seed) {
-            AvatarMarkView(shape: shape, colour: colour, size: size, mode: resolved == .idle && !activity.canIdle ? .still : resolved, seed: seed)
+            AvatarMarkView(shape: shape, colour: colour, size: size, mode: activity.canIdle ? resolved : .still, seed: seed,
+                           facing: .right, context: .showcase, calm: settings.effective == .calm)
         }
     }
 }
@@ -109,7 +134,8 @@ struct ChatWelcome: View {
     let bot: Bot
     var body: some View {
         VStack(spacing: 10) {
-            BotAvatar(bot: bot, size: 72, motion: .showcase, isWorking: store.isWorking(bot), probe: "showcase")
+            BotAvatar(bot: bot, size: 72, motion: .showcase, isWorking: store.isWorking(bot), probe: "showcase", facing: .down,
+                      isWaiting: store.hasPendingApproval(bot))
             Text(bot.name).font(.system(size: 15, weight: .semibold))
             Text("Send a message to start.").font(.caption).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity).padding(.vertical, 36)

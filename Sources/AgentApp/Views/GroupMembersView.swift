@@ -35,7 +35,8 @@ struct GroupInfoPanel: View {
             }
             ForEach(members) { bot in
                 HStack(spacing: 10) {
-                    BotAvatar(bot: bot, size: 30, motion: .list, isWorking: store.isWorking(bot, in: group))
+                    BotAvatar(bot: bot, size: 30, motion: .list, isWorking: store.isWorking(bot, in: group), facing: .left,
+                              isWaiting: store.hasPendingApproval(bot, in: group))
                     VStack(alignment: .leading) { Text(bot.name); Text(profileLabel(bot)).font(.caption).foregroundStyle(.secondary) }
                     Spacer()
                     Button { store.removeMember(bot.id, from: group) } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain).foregroundStyle(.secondary)

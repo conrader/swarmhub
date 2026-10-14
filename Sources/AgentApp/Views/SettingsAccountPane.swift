@@ -6,11 +6,16 @@ struct SettingsAccountPane: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage("hermesBaseURL") private var hermesURL = AppConstants.defaultHermesURL; @AppStorage("openClawURL") private var openClawURL = "ws://127.0.0.1:18789"
     @AppStorage("hermesProfiles") private var hermesProfiles = ""
+    @AppStorage(SidebarMetrics.accountNameKey) private var accountName = ""
     @State private var apiKey = ""; @State private var testResult = ""; @State private var testing = false
     @State private var boxPaste = ""; @State private var addResults: [HermesBotAddResult] = []; @State private var adding = false
     @State private var profileResults: [String: String] = [:]; @State private var testingProfiles: Set<String> = []
 
     var body: some View {
+        Section("You") {
+            TextField("Your name", text: $accountName, prompt: Text("Konrad"))
+            Text("Its first letter is the round button at the bottom of the sidebar.").font(.caption).foregroundStyle(.secondary)
+        }
         Section("Hermes server") {
             TextField("Base URL", text: $hermesURL)
             SecureField("Default profile API key", text: $apiKey).onChange(of: apiKey) { _, value in KeychainStore.set(value, account: "hermes") }

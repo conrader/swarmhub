@@ -2,7 +2,18 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-"$ROOT_DIR/scripts/build.sh"
+mkdir -p "$ROOT_DIR/.build"
+CONFIGURED_PLIST="$(mktemp "$ROOT_DIR/.build/release-info.XXXXXX")"
+trap 'rm -f "$CONFIGURED_PLIST"' EXIT
+cp "$ROOT_DIR/Resources/Info.plist" "$CONFIGURED_PLIST"
+# Fail before building if a distributable bundle would have a missing key or an invalid feed.
+CONFIG_ARGS=()
+[[ "${SWARMHUB_ALLOW_MISSING_UPDATE_KEY:-}" != 1 ]] || CONFIG_ARGS=(--allow-missing-key)
+python3 "$ROOT_DIR/scripts/configure-updates.py" "$CONFIGURED_PLIST" "${CONFIG_ARGS[@]}"
+SWARMHUB_BUILD_CONFIGURATION="${SWARMHUB_BUILD_CONFIGURATION:-release}" "$ROOT_DIR/scripts/build.sh"
+BUILD_DIR="$(cat "$ROOT_DIR/.build/agentapp-bin-path")"
+source "$ROOT_DIR/scripts/sparkle-tools.sh"
+ensure_sparkle
 
 SOURCE_SHA="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
 DIRTY_SUFFIX=""
@@ -14,20 +25,28 @@ DIRTY_SUMMARY_SHA="$(printf '%s' "$DIRTY_SUMMARY" | shasum -a 256 | awk '{print 
 # The bundle is named after CFBundleName (AppConstants.name; a test keeps them equal), so a rename touches no script.
 APP_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$ROOT_DIR/Resources/Info.plist")"
 APP_DIR="$ROOT_DIR/dist/$APP_NAME.app"
-ZIP_PATH="$ROOT_DIR/dist/$APP_NAME-${SOURCE_SHA}${DIRTY_SUFFIX}-arm64.zip"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$CONFIGURED_PLIST")"
+BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$CONFIGURED_PLIST")"
+ARCHITECTURES="$(/usr/bin/lipo -archs "$BUILD_DIR/AgentApp" | tr ' ' '-')"
+ZIP_PATH="$ROOT_DIR/dist/$APP_NAME-$VERSION-$BUILD_NUMBER-${SOURCE_SHA}${DIRTY_SUFFIX}-$ARCHITECTURES.zip"
 
 rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
-cp "$ROOT_DIR/.build/debug/AgentApp" "$APP_DIR/Contents/MacOS/AgentApp"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$APP_DIR/Contents/Frameworks"
+cp "$BUILD_DIR/AgentApp" "$APP_DIR/Contents/MacOS/AgentApp"
+/usr/bin/ditto "$BUILD_DIR/Sparkle.framework" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
 rm -rf "$APP_DIR/Contents/MacOS/AgentApp.resources" "$APP_DIR/Contents/Resources/Avatars" "$APP_DIR/Contents/Resources/BotManager"
 cp -R "$ROOT_DIR/Resources/Avatars" "$APP_DIR/Contents/Resources/Avatars"
 # P22: the bot-manager text SwarmHub sends the manager bot on demand.
 cp -R "$ROOT_DIR/Resources/BotManager" "$APP_DIR/Contents/Resources/BotManager"
+# P23: the Swarm app icon (CFBundleIconFile/CFBundleIconName = AppIcon in Info.plist).
+/usr/bin/iconutil -c icns "$ROOT_DIR/Resources/AppIcon/AppIcon.iconset" -o "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp "$ROOT_DIR/THIRD-PARTY-NOTICES.md" "$APP_DIR/Contents/Resources/THIRD-PARTY-NOTICES.md"
-cp "$ROOT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
+cp "$SPARKLE_DIR/LICENSE" "$APP_DIR/Contents/Resources/SPARKLE-LICENSE.txt"
+cp "$CONFIGURED_PLIST" "$APP_DIR/Contents/Info.plist"
 {
   echo "source_sha=$(git -C "$ROOT_DIR" rev-parse HEAD)"
-  echo "version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Resources/Info.plist")"
+  echo "version=$VERSION"
+  echo "build=$BUILD_NUMBER"
   echo "dirty=$([[ -n "$DIRTY_SUFFIX" ]] && echo true || echo false)"
   echo "dirty_summary_sha256=$DIRTY_SUMMARY_SHA"
   if [[ -n "$DIRTY_SUMMARY" ]]; then
@@ -50,12 +69,34 @@ elif ! /usr/bin/security show-keychain-info "$HOME/Library/Keychains/login.keych
   echo "ERROR: login keychain is locked; unlock it and rerun (not falling back to ad-hoc)." >&2
   exit 1
 fi
-SIGN_ARGS=(--force --sign "$SIGN_ID" --identifier com.konrad.agentapp)
-/usr/bin/codesign "${SIGN_ARGS[@]}" "$APP_DIR/Contents/MacOS/AgentApp"
+SIGN_ARGS=(--force --sign "$SIGN_ID")
+if [[ "$SIGN_ID" != - ]]; then
+  SIGN_ARGS+=(--options runtime --timestamp)
+fi
+# Sign inside out, preserving the helpers' own identifiers and entitlements.
+# --deep is only used to verify, never to apply the app's identity to nested helpers.
+FRAMEWORK="$APP_DIR/Contents/Frameworks/Sparkle.framework"
+for SERVICE in "$FRAMEWORK"/Versions/B/XPCServices/*.xpc; do
+  /usr/bin/codesign "${SIGN_ARGS[@]}" --preserve-metadata=entitlements "$SERVICE"
+done
+/usr/bin/codesign "${SIGN_ARGS[@]}" "$FRAMEWORK/Versions/B/Autoupdate"
+/usr/bin/codesign "${SIGN_ARGS[@]}" "$FRAMEWORK/Versions/B/Updater.app"
+/usr/bin/codesign "${SIGN_ARGS[@]}" "$FRAMEWORK"
+/usr/bin/codesign "${SIGN_ARGS[@]}" --identifier com.konrad.agentapp "$APP_DIR/Contents/MacOS/AgentApp"
 TEAM_ID="$(/usr/bin/codesign -dv "$APP_DIR/Contents/MacOS/AgentApp" 2>&1 | awk -F= '/^TeamIdentifier=/ {print $2}')"
 echo "signing_team=${TEAM_ID:-adhoc}" >> "$APP_DIR/Contents/Resources/SOURCE.txt"
-/usr/bin/codesign "${SIGN_ARGS[@]}" "$APP_DIR"
+/usr/bin/codesign "${SIGN_ARGS[@]}" --identifier com.konrad.agentapp "$APP_DIR"
+/usr/bin/codesign --verify --deep --strict "$APP_DIR"
+if [[ ! -s "$APP_DIR/Contents/Resources/AppIcon.icns" ]]; then
+  echo "ERROR: $APP_DIR lacks Contents/Resources/AppIcon.icns." >&2
+  exit 1
+fi
 rm -f "$ZIP_PATH"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
-/usr/bin/codesign --verify --strict "$APP_DIR"
+if [[ -n "${SWARMHUB_NOTARY_PROFILE:-}" ]]; then
+  /usr/bin/xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$SWARMHUB_NOTARY_PROFILE" --wait
+  /usr/bin/xcrun stapler staple "$APP_DIR"
+  rm -f "$ZIP_PATH"
+  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
+fi
 echo "$ZIP_PATH"

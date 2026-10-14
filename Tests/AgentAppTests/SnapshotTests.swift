@@ -21,7 +21,7 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppSnapshots-\(UUID().uuidString)")
     var lines: [String] = []
     #expect(await HeadlessSnapshot.render(store: store, to: directory, botNames: ["jarvis", "Finance Controller"], output: { lines.append($0) }) == 0)
-    let expected = ["main.png": (2560, 1600), "jarvis.png": (2560, 1600), "info-jarvis.png": (720, 1600),
+    let expected = ["main.png": (2560, 1600), "sidebar.png": (560, 1600), "jarvis.png": (2560, 1600), "info-jarvis.png": (720, 1600),
                     "finance-controller.png": (2560, 1600), "info-finance-controller.png": (720, 1600)]
     for (file, size) in expected {
         let data = try Data(contentsOf: directory.appending(path: file))

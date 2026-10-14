@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Where a mark is shown. `still` marks never move (message authors, pickers); the other three follow `AvatarMotion`.
+/// Where a mark is shown. Message authors and pickers stay still; visible conversational marks stay alive.
 enum AvatarMotionContext: String, Sendable { case still, list, focus, showcase }
 
 /// Settings → Appearance → Avatar motion.
@@ -14,28 +14,29 @@ enum AvatarMotionPreference: String, CaseIterable, Identifiable, Sendable {
     }
     var caption: String {
         switch self {
-        case .byContext: "List rows stay still unless that bot is working or hovered; the open bot's large mark and welcome views idle gently."
-        case .calm: "Every mark behaves like a list row: still unless its bot is working or hovered."
+        case .byContext: "Avatars breathe and blink on their own, look toward the conversation, and react to hover, work, approvals and completed replies."
+        case .calm: "Slower animation everywhere, with breathing and blinks, and no idle jumps or hover and completion reactions."
         case .off: "Marks never move."
         }
     }
 }
 
-/// What a mark does right now: drawn still, or a live kit view idling (blinks, glances) or working (hops).
-enum AvatarMotionMode: String, Sendable { case still, idle, working }
+/// Scenarios are selected from real activity; hover adds a greeting without enabling the clock.
+enum AvatarMotionMode: String, CaseIterable, Sendable { case still, idle, hovered, working, waiting, celebrating }
+
+/// The avatar's relationship to its content, independent of animation and pointer position.
+enum AvatarFacing: String, CaseIterable, Sendable { case forward, left, right, down }
 
 enum AvatarMotion {
-    /// The truth table of briefs/P15.md item 10: Reduce Motion or Off → still; working → hops everywhere;
-    /// Calm makes every context a list; a list row idles only while hovered; focus and showcase idle continuously.
-    static func resolve(context: AvatarMotionContext, isWorking: Bool, isHovered: Bool, reduceMotion: Bool, preference: AvatarMotionPreference) -> AvatarMotionMode {
+    /// Accessibility wins, then approval, work, completion and hover. Idle never needs a pointer.
+    static func resolve(context: AvatarMotionContext, isWorking: Bool, isHovered: Bool, reduceMotion: Bool, preference: AvatarMotionPreference,
+                        isWaiting: Bool = false, isCelebrating: Bool = false) -> AvatarMotionMode {
         if context == .still || reduceMotion || preference == .off { return .still }
+        if isWaiting { return .waiting }
         if isWorking { return .working }
-        let effective = preference == .calm ? AvatarMotionContext.list : context
-        switch effective {
-        case .list: return isHovered ? .idle : .still
-        case .focus, .showcase: return .idle
-        case .still: return .still
-        }
+        if isCelebrating && preference != .calm { return .celebrating }
+        if isHovered && preference != .calm { return .hovered }
+        return .idle
     }
 }
 
@@ -56,8 +57,8 @@ enum AvatarMotion {
     }
 }
 
-/// Whether idle marks may run: the app is active and its main window is visible (not occluded or minimised).
-/// Working marks ignore this; idle marks draw still while it is false, so the clock stops in the background.
+/// Whether marks may animate: the app is active and a main window is visible, not occluded or minimised.
+/// All scenarios draw still in the background so the shared clock can stop.
 @MainActor final class AvatarActivity: ObservableObject {
     static let shared = AvatarActivity()
     @Published private(set) var canIdle = true
@@ -81,4 +82,13 @@ enum AvatarMotion {
         let next = app.isActive && visible
         if next != canIdle { canIdle = next }
     }
+}
+
+/// Successful replies publish a short-lived, presentation-only reaction. Never saved to the bot or store.
+@MainActor final class AvatarReactions: ObservableObject {
+    static let shared = AvatarReactions()
+    static let celebrationDuration: TimeInterval = 2
+    @Published private(set) var completions: [UUID: Date] = [:]
+
+    func completed(_ bot: Bot) { completions[bot.id] = .now }
 }

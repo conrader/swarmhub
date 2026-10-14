@@ -55,21 +55,26 @@ public struct BotAvatar: View {
     public var whirl: BotAvatarWhirl = .off
     /// The jump's numbers (an idle flip's and a tap's).
     public var jump: BotAvatarJumpConfig = .defaults
+    // TORVLI: aim with the existing pointer-following rig; nil keeps pointer behaviour.
+    public var gaze: BotAvatarGaze? = nil
+    // TORVLI: changing a nonzero signal triggers the library's existing tap hop and turn.
+    public var reaction: Int = 0
 
     @State private var model = BotAvatarModel()
     @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(type: BotAvatarType = .clover, face: BotAvatarFace? = nil, state: BotAvatarState = .default, size: Double = 64, color: BotColor? = nil, ink: BotColor? = nil, brightness: Double = 1, saturation: Double = 1.5, speed: Double = 1, paused: Bool = false, seed: Double? = nil, shading: BotAvatarShading = .plastic, shadow: Double = 0.35, highlight: Double = 1.3, depth: Double = 0.65, light: Double = 265, rim: Double = 0.5, spread: Double = 1.55, interactive: Bool = true, theme: ColorScheme? = nil, whirl: BotAvatarWhirl = .off, jump: BotAvatarJumpConfig = .defaults) {
+    public init(type: BotAvatarType = .clover, face: BotAvatarFace? = nil, state: BotAvatarState = .default, size: Double = 64, color: BotColor? = nil, ink: BotColor? = nil, brightness: Double = 1, saturation: Double = 1.5, speed: Double = 1, paused: Bool = false, seed: Double? = nil, shading: BotAvatarShading = .plastic, shadow: Double = 0.35, highlight: Double = 1.3, depth: Double = 0.65, light: Double = 265, rim: Double = 0.5, spread: Double = 1.55, interactive: Bool = true, theme: ColorScheme? = nil, whirl: BotAvatarWhirl = .off, jump: BotAvatarJumpConfig = .defaults, gaze: BotAvatarGaze? = nil, reaction: Int = 0) {
         self.type = type; self.face = face; self.state = state; self.size = size; self.color = color; self.ink = ink
         self.brightness = brightness; self.saturation = saturation; self.speed = speed; self.paused = paused; self.seed = seed
         self.shading = shading; self.shadow = shadow; self.highlight = highlight; self.depth = depth; self.light = light; self.rim = rim; self.spread = spread
         self.interactive = interactive; self.theme = theme; self.whirl = whirl; self.jump = jump
+        self.gaze = gaze; self.reaction = reaction // TORVLI: content target and native tap signal.
     }
 
     private var props: BotAvatarProps {
-        BotAvatarProps(type: type, face: face, state: state, size: size, color: color, ink: ink, brightness: brightness, saturation: saturation, speed: speed, paused: paused, seed: seed, shading: shading, shadow: shadow, highlight: highlight, depth: depth, light: light, rim: rim, spread: spread, interactive: interactive, theme: theme ?? colorScheme, whirl: whirl, jump: jump, scale: min(2, displayScale), reduceMotion: reduceMotion)
+        BotAvatarProps(type: type, face: face, state: state, size: size, color: color, ink: ink, brightness: brightness, saturation: saturation, speed: speed, paused: paused, seed: seed, shading: shading, shadow: shadow, highlight: highlight, depth: depth, light: light, rim: rim, spread: spread, interactive: interactive, theme: theme ?? colorScheme, whirl: whirl, jump: jump, scale: min(2, displayScale), reduceMotion: reduceMotion, gaze: gaze, reaction: reaction)
     }
 
     public var body: some View {
@@ -148,6 +153,8 @@ struct BotAvatarProps: Equatable {
     var jump: BotAvatarJumpConfig
     var scale: Double
     var reduceMotion: Bool
+    var gaze: BotAvatarGaze? // TORVLI: part of the compared props.
+    var reaction: Int // TORVLI: native tap signal.
 }
 
 /// The canvas: observes the shared clock and draws the model's pose.
@@ -226,6 +233,8 @@ final class BotAvatarModel {
         j.squashTime = max(0.05, j.squashTime)
         j.clickSquashTime = max(0.05, j.clickSquashTime)
         sim.setJump(j)
+        // TORVLI: reuse the existing tap event; never replace the rig's output pose.
+        if !frozen && !restOnly && p.reaction != 0 && (old?.reaction != p.reaction || old?.seed != p.seed) { sim.poke() }
         /* plastic bakes its form per type; start that in the background now */
         if p.shading == .plastic && !c.still {
             warmBotAvatarPlastic(p.type, devicePx: p.size * p.scale, depth: c.depth)
@@ -247,7 +256,10 @@ final class BotAvatarModel {
     private func tick(_ dt: Double) {
         guard let p = props else { return }
         let t0 = CFAbsoluteTimeGetCurrent()
-        if p.interactive, let ptr = BotAvatarPointer.shared.location, globalFrame.width > 0 {
+        // TORVLI: a content target uses the same smoothed head/eye controls as a pointer.
+        if let gaze = p.gaze {
+            gaze.apply(to: sim)
+        } else if p.interactive, let ptr = BotAvatarPointer.shared.location, globalFrame.width > 0 {
             let box = globalFrame.width
             let dx = (ptr.x - globalFrame.midX) / box
             let dy = (ptr.y - globalFrame.midY) / box
@@ -269,7 +281,8 @@ final class BotAvatarModel {
         guard let p = props else { return }
         let t0 = CFAbsoluteTimeGetCurrent()
         let box = size.width / BOT_AVATAR_OVERSCAN
-        let pose = restOnly ? BotAvatarPose.rest(p.state) : sim.pose
+        // TORVLI: retain the inward target under Reduce Motion. Live poses come directly from the rig.
+        let pose = restOnly ? (p.gaze?.restPose(p.state) ?? BotAvatarPose.rest(p.state)) : sim.pose
         drawBotAvatarFrame(&ctx, box: box, pose: pose, cfg: cfg, state: render)
         let cost = CFAbsoluteTimeGetCurrent() - t0
         lastDraw = cost

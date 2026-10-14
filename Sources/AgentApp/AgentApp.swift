@@ -13,11 +13,13 @@ private struct FixtureReviewerBackend: AgentBackend {
 
 @main struct AgentAppMain: App {
     @StateObject private var store: AppStore
+    @StateObject private var updater: AppUpdater
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
     private let snapshotAppearance: String?
     init() {
         if let code = HeadlessCommands.runIfRequested() { exit(code) }
+        SidebarWidth.dropStaleSavedWidths()
         snapshotAppearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"]
         let integration = ProcessInfo.processInfo.environment["AGENTAPP_HERMES_INTEGRATION"] == "1"
         let integrationStoreURL = integration ? FileManager.default.temporaryDirectory.appending(path: "AgentApp-Hermes-\(UUID().uuidString)/store.json") : nil
@@ -30,6 +32,7 @@ private struct FixtureReviewerBackend: AgentBackend {
         }
         if ProcessInfo.processInfo.environment["AGENTAPP_BENCHMARK"] == "1" { exit(0) }
         if let path = ProcessInfo.processInfo.environment["AGENTAPP_SNAPSHOT"] { SnapshotRenderer.capture(store: appStore, to: path); exit(0) }
+        _updater = StateObject(wrappedValue: AppUpdater())
     }
     private static func runHermesIntegration(storeURL: URL) async -> Bool {
         let env = ProcessInfo.processInfo.environment
@@ -102,7 +105,7 @@ private struct FixtureReviewerBackend: AgentBackend {
         } catch { print("Hermes integration failed: \(error.localizedDescription)"); return false }
     }
     var body: some Scene {
-        WindowGroup(AppConstants.name) {
+        WindowGroup(AppConstants.name, id: ContentView.windowID) {
             ContentView()
                 .environmentObject(store)
                 .preferredColorScheme(AppTheme.colorScheme(for: snapshotAppearance ?? appearance))
@@ -110,14 +113,7 @@ private struct FixtureReviewerBackend: AgentBackend {
         }
             .defaultSize(width: 1120, height: 760)
             .windowStyle(.hiddenTitleBar)
-            .commands {
-                CommandGroup(replacing: .sidebar) { Button("Toggle Sidebar") { NotificationCenter.default.post(name: .toggleSidebar, object: nil) }.keyboardShortcut("s", modifiers: [.control, .command]) }
-                CommandGroup(after: .newItem) { Button("New Agent") { NotificationCenter.default.post(name: .newBot, object: nil) }.keyboardShortcut("n") }
-                CommandMenu("Navigate") {
-                    Button("Quick Switcher") { NotificationCenter.default.post(name: .commandPalette, object: nil) }.keyboardShortcut("k")
-                    Button("Toggle Agent Info") { NotificationCenter.default.post(name: .toggleInfo, object: nil) }.keyboardShortcut("i", modifiers: [.command, .shift])
-                }
-            }
+            .commands { AppCommands(store: store, updater: updater) }
         WindowGroup("Computer", id: ComputerWindow.id, for: UUID.self) { $botID in
             ComputerWindow(botID: botID)
                 .environmentObject(store)
@@ -126,9 +122,14 @@ private struct FixtureReviewerBackend: AgentBackend {
                 .frame(minWidth: 800, minHeight: 560)
         }
             .defaultSize(width: 1280, height: 820)
+        Window("Keyboard Shortcuts", id: KeyboardShortcutsView.windowID) {
+            KeyboardShortcutsView()
+                .preferredColorScheme(AppTheme.colorScheme(for: appearance))
+        }.windowResizability(.contentSize)
         Settings {
             SettingsView()
                 .environmentObject(store)
+                .environmentObject(updater)
                 .preferredColorScheme(AppTheme.colorScheme(for: appearance))
         }
     }
