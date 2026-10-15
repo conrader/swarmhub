@@ -81,6 +81,20 @@ flowchart TD
     class saved local
 ```
 
+### Messages waiting to be sent
+
+A steer that could not be delivered offers **Send as next message**, and a review card offers to send its notes; both wait until the running answer ends. Waiting messages survive a quit: when SwarmHub reopens they resume in order once your server has been checked. If an earlier reply is still unconfirmed, or the waiting text changed, the message is not sent; a line says why and its button returns, so you can **Refresh** that reply and send it again. A group round the quit interrupted keeps its finished replies; members not yet asked show **Retry**.
+
+### Coordinate work across bots
+
+In a group, choose **Plan a workflow**, write the request and pick a coordinator. The coordinator proposes tasks and assignments; nothing runs until you choose **Approve plan and run**. Each task runs in its own thread, one after another, and the coordinator posts one consolidated answer in the group.
+
+While working, an agent can ask another member for help or for a review, and the coordinator can assign more work. A help request adds a helper task and then a continuation for the original agent. A review can ask for one revision followed by a second review. New tasks pause the workflow until you review the expanded plan; work already sent may finish. Expand a workflow to see each task's input, result, dependencies, review round and verdict, and the handoff history.
+
+If the second review still finds problems, the final answer waits. Read the findings, then choose **Accept review with noted limitations** or **Cancel workflow**; accepting keeps the findings and tells the final answer about your decision. A reviewer that finishes without a verdict needs the same decision. **Refresh from server** checks a task whose completion is uncertain without sending it again; a task that certainly was not sent can be sent again or given to another member.
+
+A workflow allows 12 tasks, three handoff levels, two review rounds per piece of work and 30 minutes. The token allowance limits further sending; it counts the hidden handoff and tool exchanges too, estimated where your server reports no usage, so it is not a billing cap. After a restart, unfinished tasks wait for **Refresh** and the workflow stays paused until you resume it.
+
 ## Project status
 
 **This is a prototype.** Windows and Linux versions are planned. Hermes and OpenClaw are implemented; the OpenClaw connection was built against the published protocol and a test Gateway, and still needs a check against a real Gateway. Interrupted replies are recovered from your server ([how](reference.md#never-losing-a-reply)), and coding threads use each agent's coding model.
