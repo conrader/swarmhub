@@ -106,8 +106,14 @@ fileprivate extension Array {
 /// One thread between two bots: the recipient's session `swarmhub-from-<from>` titled "From <from>" (profile names).
 struct BotThreadKey: Hashable, Identifiable, Sendable {
     var from: String; var to: String
-    var id: String { "\(from)→\(to)" }
-    var sessionID: String { Self.sessionID(from: from) }
+    /// P42: a session other than `swarmhub-from-<from>` (a oneshot command's); nil for the usual one.
+    private(set) var session: String?
+    init(from: String, to: String, session: String? = nil) {
+        self.from = from; self.to = to
+        self.session = session == Self.sessionID(from: from) || session?.isEmpty == true ? nil : session
+    }
+    var id: String { "\(from)→\(to)" + (session.map { "|\($0)" } ?? "") }
+    var sessionID: String { session ?? Self.sessionID(from: from) }
     static let sessionPrefix = "swarmhub-from-"
     static func sessionID(from sender: String) -> String { sessionPrefix + sender }
     /// The sender of a recipient session, from its id (`swarmhub-from-<bot>`) or its title (`From <bot>`).

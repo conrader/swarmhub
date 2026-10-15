@@ -62,6 +62,10 @@ struct BotArrivalLine: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage
     var body: some View {
+        // P42: once its exchange is read, the line is the whole card.
+        if BotExchangeCard.isExchange(message) { BotExchangeCard(message: message) } else { line }
+    }
+    @ViewBuilder private var line: some View {
         let from = message.metadata[BotMessageKey.from] ?? "", to = message.metadata[BotMessageKey.to] ?? ""
         HStack(spacing: 6) {
             BotMark(profile: from, size: 16)

@@ -19,6 +19,8 @@ import Foundation
     var lastPoll: [UUID: Date] = [:]
     var autoLoad = true
     var pollInterval: TimeInterval = 20
+    /// P42: while a bot on the connection works.
+    var busyPollInterval: TimeInterval = 5
 }
 
 enum BotMessageKey {
@@ -116,10 +118,17 @@ extension AppStore {
     func pollBotMessagesOnce(now: Date = .now) async {
         guard botMessages.autoLoad else { return }
         for bot in bots where bot.backend == .hermes && !bot.isReadOnlyArchive && !needsKey(bot) {
-            if let last = botMessages.lastPoll[bot.id], now.timeIntervalSince(last) < botMessages.pollInterval { continue }
+            if let last = botMessages.lastPoll[bot.id], now.timeIntervalSince(last) < botMessagePollInterval(for: bot) { continue }
             botMessages.lastPoll[bot.id] = now
             await checkBotMessages(for: bot)
         }
+    }
+
+    /// P42: 5 s while any bot on `bot`'s connection works (a turn, a live card, a sender's step), else `pollInterval`.
+    func botMessagePollInterval(for bot: Bot) -> TimeInterval {
+        let connection = connection(of: bot)
+        let busy = bots.contains { $0.backend == .hermes && self.connection(of: $0) == connection && (isWorking($0) || botWorkLive(for: $0) != nil) }
+        return busy ? botMessages.busyPollInterval : botMessages.pollInterval
     }
 
     /// Lists `recipient`'s threads; a new or changed one is an arrival. A failure is kept as one quiet line for the
@@ -142,11 +151,17 @@ extension AppStore {
         let markKey = botMessageMarkKey(recipient), baseline = botMessages.marks[markKey]
         let recent = now().addingTimeInterval(-botMessages.firstListWindow)
         var marks = baseline ?? [:]
+        // P42: the first list since launch also reopens a run still going in a thread changed in the last 30 min.
+        let firstSinceLaunch = botWork.checkedSinceLaunch.insert(recipient.id).inserted
+        let running = now().addingTimeInterval(-BotWorkSchedule.recent)
         for row in rows {
             let old = marks[row.sessionID]
             marks[row.sessionID] = row.mark
             let arrived = baseline == nil ? row.sender == sender || (row.updatedAt.map { $0 >= recent } ?? false) : old != row.mark
             if arrived { postArrival(from: row.sender, recipient: recipient, session: row.sessionID) }
+            else if firstSinceLaunch, row.updatedAt.map({ $0 >= running }) ?? false {
+                watchBotWork(recipient, target: .session(row.sessionID), origin: .bot(row.sender), showFinished: false)
+            }
         }
         if botMessages.rows[recipient.id] != rows { botMessages.rows[recipient.id] = rows }
         if baseline != marks { botMessages.marks[markKey] = marks; save() }
@@ -164,6 +179,8 @@ extension AppStore {
         }
         if openBotThread != BotThreadKey(from: sender, to: profile(of: recipient)) { botMessages.unread[recipient.id, default: []].insert(session) }
         objectWillChange.send(); save()
+        // P42: the exchange unfolds on this line: the request, the steps, the reply.
+        watchBotWork(recipient, target: .session(session), origin: .bot(sender))
     }
 
     func hasBotMessageBadge(_ bot: Bot) -> Bool { !(botMessages.unread[bot.id] ?? []).isEmpty }

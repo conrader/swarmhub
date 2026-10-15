@@ -9,8 +9,10 @@ extension HistoryReconciler.ServerTurn {
         for row in rows {
             if !row.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { text += (text.isEmpty ? "" : "\n\n") + row.content }
             let time = row.createdAt ?? .distantPast
-            for name in row.tools where ToolActivity.isShown(name) {
-                activity.steps.append(ToolStep(name: name, startedAt: time, finishedAt: time, textOffset: text.utf16.count)); activity.total += 1
+            for (index, name) in row.tools.enumerated() where ToolActivity.isShown(name) {
+                // P42: what the call ran on, when the read kept it (live work); reconcile reads leave it out.
+                let preview = index < row.toolPreviews.count ? row.toolPreviews[index] : nil
+                activity.steps.append(ToolStep(name: name, preview: preview, startedAt: time, finishedAt: time, textOffset: text.utf16.count)); activity.total += 1
             }
         }
         guard activity.total > 0 else { return nil }
