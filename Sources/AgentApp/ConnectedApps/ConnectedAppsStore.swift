@@ -68,6 +68,8 @@ struct ComposioRunScope: Sendable {
     /// Something can connect: a key is saved, or this build has the SwarmHub connection service.
     var isAvailable: Bool { hasKey || provisioner != nil }
     var hasKey: Bool { keyStore.hasKey(for: Self.keyAccount) }
+    /// The user's own Composio key (Advanced), not the project key SwarmHub provisioned, which always records its project.
+    var usesOwnKey: Bool { hasKey && configuration.projectID == nil }
     var canConfigure: Bool { persistenceEnabled }
     func savedKey() -> String { keyStore.key(for: Self.keyAccount) }
     var client: ComposioClient { .init(apiKey: savedKey(), session: session, baseURL: apiURL) }

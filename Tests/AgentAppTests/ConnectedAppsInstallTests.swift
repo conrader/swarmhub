@@ -59,7 +59,9 @@ private func swarmHub(provision: @escaping @Sendable () -> (Int, Any) = { (200, 
     let (composio, session) = MockHermesProtocol.serve(composioHandler)
     let directory = temporaryStore().deletingLastPathComponent()
     let apps = ConnectedAppsStore(directory: directory, keyStore: keys, session: session, apiURL: URL(string: "https://\(composio)/api/v3.1/")!, provisioner: provisioner)
+    #expect(!apps.usesOwnKey)
     #expect(await apps.connect("gmail")?.host == "connect.composio.dev")
+    #expect(!apps.usesOwnKey, "SwarmHub's project key is not the user's own: no remove-the-key footer")
     #expect(keys.key(for: ConnectedAppsStore.keyAccount) == projectKey && apps.configuration.projectID == "pr_p40" && apps.configuration.userID == "swarmhub_p40")
     #expect(MockHermesProtocol.recorded(composio).allSatisfy { $0.value(forHTTPHeaderField: "x-api-key") == projectKey })
     #expect(await apps.connect("slack")?.host == "connect.composio.dev")
@@ -134,4 +136,11 @@ private func swarmHub(provision: @escaping @Sendable () -> (Int, Any) = { (200, 
     for line in [ConnectedAppsCopy.notAvailable, ConnectedAppsCopy.tooManyConnections, ConnectedAppsCopy.backgroundNotAvailable, ConnectedAppsCopy.serviceNotConfigured] {
         #expect(!line.localizedCaseInsensitiveContains("sign"))
     }
+}
+
+@MainActor @Test func p40OwnKeyUnderAdvancedIsTheOnlyOwnKey() {
+    let apps = ConnectedAppsStore(directory: temporaryStore().deletingLastPathComponent(), keyStore: InMemoryKeyStore())
+    #expect(!apps.usesOwnKey)
+    #expect(apps.saveKey("ak_p40_own_synthetic") && apps.usesOwnKey, "the remove-the-key footer shows with the user's own key")
+    #expect(apps.saveKey("") && !apps.usesOwnKey)
 }

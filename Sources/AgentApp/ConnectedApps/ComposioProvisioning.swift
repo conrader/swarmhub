@@ -129,4 +129,5 @@ enum ConnectedAppsCopy {
     static let tooManyConnections = "Too many new app connections right now. Try again in a while."
     static let backgroundNotAvailable = "Background app actions are not available yet."
     static let serviceNotConfigured = "App connections through SwarmHub are not set up in this build. Add your own Composio key under Advanced to connect apps."
+    static let ownKeyFooter = "App connections belong to SwarmHub. Connected accounts remain in Composio when you remove the key."
 }

@@ -102,9 +102,6 @@ struct SettingsConnectedAppsPane: View {
             }
         }
         BackgroundExecutionView()
-        Section {
-            Text("App connections belong to SwarmHub. Connected accounts remain in Composio when you remove the key.").font(.caption).foregroundStyle(.secondary)
-        }
         .task {
             if selectedBotID == nil { selectedBotID = availableBots.first?.id }
             if checksOnAppear { await store.checkConnectedAppsService(); await load() }
@@ -117,6 +114,12 @@ struct SettingsConnectedAppsPane: View {
                 Button("Disconnect \(account.label)", role: .destructive) { disconnecting = nil; Task { await apps.disconnect(account) } }
             }
         } message: { Text("All agents lose access to this connection. To revoke the provider's OAuth consent, use that app's account settings.") }
+        // Only the user's own key can be removed meaningfully; with SwarmHub's project key there is no footer.
+        if apps.usesOwnKey {
+            Section {
+                Text(ConnectedAppsCopy.ownKeyFooter).font(.caption).foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// The first connection's route: the server not set up, this build without the service, or ready.
