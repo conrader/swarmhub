@@ -75,7 +75,7 @@ private func encoded<T: Encodable>(_ value: T) throws -> String {
 
 // MARK: Reasons and the listed-only rule
 
-@Test func reasonStringsArePinned() {
+@Test func reasonStringsArePinned() throws {
     let expected: [(ModelRoleReason, String)] = [
         (.noLock, "This box can't switch a chat's model, so \(AppConstants.name) can't apply a model here."),
         (.noList, "This box doesn't list its models, so \(AppConstants.name) can't check a choice before using it."),
@@ -91,7 +91,12 @@ private func encoded<T: Encodable>(_ value: T) throws -> String {
     for (reason, text) in expected { #expect(reason.text == text) }
     #expect(ModelRolesModel.caption == "\(AppConstants.name) remembers these choices and applies them when it starts a chat. It does not change your box's own settings.")
     #expect(ModelRolesModel.conversationHelp == "Used for chats, group chats and threads \(AppConstants.name) starts.")
-    #expect(ModelRolesModel.codingHelp == "Used for coding threads. Sub-agents use whatever the box sets.")
+    #expect(ModelRolesModel.codingHelp == "Used for coding threads.")
+    #expect(ModelRolesModel.codingNote == "Each bot's coding model is shown under its name.")
+    // Settings → Models "All bots": the coding-threads picker is not named like the per-bot "Coding model: …" lines.
+    let pane = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../Sources/AgentApp/Views/SettingsModelsPane.swift"), encoding: .utf8)
+    #expect(pane.contains(#"defaultMenu("Coding threads model", \.coding"#) && !pane.contains(#"defaultMenu("Coding model""#))
+    #expect(pane.contains("ModelRolesModel.codingHelp + \" \" + ModelRolesModel.codingNote"))
 }
 
 @Test func blockerFollowsTheApplyGates() {

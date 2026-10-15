@@ -66,9 +66,9 @@ struct SettingsModelsPane: View {
         if referenceRow != nil, !permanent { Text(ModelCatalog.switchingLater).font(.caption).foregroundStyle(.secondary) }
         Text(ModelRolesModel.conversationHelp + (loaded.isEmpty ? " Press Load to list each agent's models." : "") + (permanent ? " " + ModelRoleReason.permanent.text : ""))
             .font(.caption).foregroundStyle(.secondary)
-        defaultMenu("Coding model", \.coding, fallback: RoleModelEditorModel.sameAsConversation, picker: picker, enabled: enabled)
+        defaultMenu("Coding threads model", \.coding, fallback: RoleModelEditorModel.sameAsConversation, picker: picker, enabled: enabled)
         if let offered = model.offerSummary(store.modelDefaults.coding) { Text(offered).font(.caption).foregroundStyle(.secondary) }
-        Text(ModelRolesModel.codingHelp).font(.caption).foregroundStyle(.secondary)
+        Text(ModelRolesModel.codingHelp + " " + ModelRolesModel.codingNote).font(.caption).foregroundStyle(.secondary)
         if let hint = ModelRolesModel.sharedSupplierHint(conversation: store.modelDefaults.conversation, coding: store.modelDefaults.coding, catalog: referenceRow?.catalog) {
             Text(hint).font(.caption).foregroundStyle(.secondary)
         }
