@@ -5,7 +5,8 @@ import Foundation
 struct ToolEvent: Sendable, Equatable {
     enum Phase: String, Sendable { case started, progress, completed, failed }
     var phase: Phase; var name: String; var preview: String? = nil; var callID: String? = nil
-    /// P34: a started step's full command when it runs bot-msg, and an ended step's result (kept for bot-msg steps only).
+    /// P34: a started step's full command when it runs bot-msg (P41: from the args, else the uncut first line of the
+    /// display text), and an ended step's result (kept for bot-msg steps only).
     var command: String? = nil; var result: String? = nil
 
     static let previewLimit = 80
@@ -14,14 +15,19 @@ struct ToolEvent: Sendable, Equatable {
     /// key), at most `previewLimit` characters. Nil when nothing is left.
     static func preview(_ raw: String?, key: String = "") -> String? {
         guard let raw else { return nil }
-        var text = raw.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let text = redacted(raw.split(whereSeparator: \.isNewline).first.map(String.init) ?? "", key: key)
+        guard !text.isEmpty else { return nil }
+        return text.count > previewLimit ? String(text.prefix(previewLimit - 1)) + "…" : text
+    }
+
+    /// One line with secrets removed (the shared filter and the connection's own key), not cut.
+    static func redacted(_ line: String, key: String = "") -> String {
+        var text = line
         if key.count >= 4 { text = text.replacingOccurrences(of: key, with: "[key]") }
         text = GrokTemplateParser.redactSecrets(text).text
         // `API_SERVER_KEY=…`, `token: …`: the value after any key-ish name goes too.
-        text = text.replacingOccurrences(of: #"(?i)\b([A-Z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Z0-9_.-]*\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)"#,
+        return text.replacingOccurrences(of: #"(?i)\b([A-Z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Z0-9_.-]*\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)"#,
                                          with: "$1[removed]", options: .regularExpression).trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty else { return nil }
-        return text.count > previewLimit ? String(text.prefix(previewLimit - 1)) + "…" : text
     }
 }
 
@@ -49,7 +55,8 @@ struct ToolActivity: Codable, Equatable, Sendable {
         switch event.phase {
         case .started:
             if let id = event.callID, steps.contains(where: { $0.callID == id }) { return }
-            let call = (event.command ?? event.preview).flatMap(BotMessageCall.parse(command:))
+            // P41: never the cut preview; its 80 characters lose `--to` behind a long script path.
+            let call = event.command.flatMap(BotMessageCall.parse(command:))
             steps.append(ToolStep(name: event.name, preview: event.preview, startedAt: now, callID: event.callID, botMessage: call, textOffset: textOffset)); total += 1
             if steps.count > Self.limit { steps.removeFirst(steps.count - Self.limit) }
         case .progress:

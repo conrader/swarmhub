@@ -51,11 +51,13 @@ struct BotRow: View {
     let selected: Bool; @Binding var botToDelete: Bot?
     @State private var hovering = false
     var body: some View {
-        let working = store.isWorking(bot), attention = store.needsAttention(bot)
+        // P41: a bot another bot is waiting on works too ("Working… · message from Jarvis").
+        let incoming = store.incomingBotMessageLine(for: bot)
+        let working = store.isWorking(bot) || incoming != nil, attention = store.needsAttention(bot)
         // P21 D3: sample bots say so instead of showing their canned last message.
         let fragment = { (now: Date) in
             bot.isDemo ? SimpleCopy.sampleLabel : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: working,
-                                                                       archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now))
+                                                                       archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now) ?? incoming)
         }
         Button { store.open(bot) } label: {
             HStack(spacing: SidebarMetrics.markGap) {

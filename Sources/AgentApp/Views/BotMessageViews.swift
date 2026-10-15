@@ -14,15 +14,17 @@ struct BotMark: View {
     }
 }
 
-/// D4: "<avatar> → Infra" on a bot-msg step and under the reply; click opens the thread.
+/// D4: "<avatar> → Infra" on a bot-msg step and under the reply; click opens the thread. P41: "Asked Infra…" while the
+/// step waits, "Infra replied" once it answered.
 struct BotMessageChip: View {
     @EnvironmentObject private var store: AppStore
-    let key: BotThreadKey
+    let key: BotThreadKey; var state = BotMessageChipState.sent
     var body: some View {
+        let name = store.displayName(forProfile: key.to)
         Button { store.openThread(key) } label: {
             HStack(spacing: 4) {
                 BotMark(profile: key.to, size: 14)
-                Text(BotMessageCopy.chip(store.displayName(forProfile: key.to))).font(.caption.weight(.medium))
+                Text(BotMessageCopy.chip(name, state)).font(.caption.weight(.medium))
             }.padding(.leading, 3).padding(.trailing, 7).padding(.vertical, 2)
             .background(AppColor.card, in: Capsule()).overlay(Capsule().stroke(AppColor.separator, lineWidth: 0.5)).contentShape(Capsule())
         }.buttonStyle(.plain).help("Open the thread with \(store.displayName(forProfile: key.to))")
@@ -42,13 +44,20 @@ struct BotMessageChipsRow: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage
     var body: some View {
-        let keys = (message.activity?.steps ?? []).compactMap { $0.botMessage.flatMap { store.threadKey(for: $0, in: message) } }
-            .reduce(into: [BotThreadKey]()) { if !$0.contains($1) { $0.append($1) } }
-        if !keys.isEmpty { HStack(spacing: 6) { ForEach(keys) { BotMessageChip(key: $0) } } }
+        // Each recipient once, with its latest step's state.
+        let chips = (message.activity?.steps ?? []).compactMap { step in step.botMessage.flatMap { store.threadKey(for: $0, in: message) }.map { (key: $0, step: step) } }
+            .reduce(into: [(key: BotThreadKey, step: ToolStep)]()) { list, item in
+                if let index = list.firstIndex(where: { $0.key == item.key }) { list[index] = item } else { list.append(item) }
+            }
+        if !chips.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(chips, id: \.key) { BotMessageChip(key: $0.key, state: store.chipState(for: $0.step, key: $0.key, streaming: message.isStreaming)) }
+            }
+        }
     }
 }
 
-/// D6: "<avatar> Jarvis wrote to Infra · Open thread" in the recipient's chat.
+/// D6: "<avatar> Jarvis wrote to Infra · Open conversation" in the recipient’s chat (P41: also above an open side thread).
 struct BotArrivalLine: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage
@@ -157,6 +166,8 @@ struct BotMessagesSection: View {
                 }.buttonStyle(.plain)
             }
             if threads.isEmpty { Text(BotMessageCopy.empty).font(.caption).foregroundStyle(.secondary) }
+            // P41: a failed session list is one quiet line, not silence.
+            if let problem = center.errors[bot.id] { Text(BotMessageCopy.pollFailed(problem)).font(.caption2).foregroundStyle(.tertiary).lineLimit(2) }
         }
     }
 }

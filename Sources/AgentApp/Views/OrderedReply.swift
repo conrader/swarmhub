@@ -6,6 +6,8 @@ struct OrderedReply: View {
     @ObservedObject var message: ChatMessage
     var actionTarget: ConversationActionTarget?
     var stepsExpanded = false
+    /// P41: renders open the bot-msg replies too.
+    var botRepliesExpanded = false
 
     var body: some View {
         if let segments = ReplyLayout.segments(content: message.content, activity: message.activity) {
@@ -13,7 +15,7 @@ struct OrderedReply: View {
             ForEach(Array(segments.enumerated()), id: \.offset) { position, segment in
                 switch segment {
                 case .text(let text): MarkdownContent(message: message, actionTarget: actionTarget, text: text, indexBase: bases[position])
-                case .steps(let range): ActivityRow(message: message, expanded: stepsExpanded, range: range, live: position == segments.count - 1)
+                case .steps(let range): ActivityRow(message: message, expanded: stepsExpanded, range: range, live: position == segments.count - 1, repliesExpanded: botRepliesExpanded)
                 }
             }
             // Text arrived after the last steps: the live line moves below it.
@@ -21,7 +23,7 @@ struct OrderedReply: View {
         } else {
             MarkdownContent(message: message, actionTarget: actionTarget)
             // P29: one row while streaming and after, so an open row stays open when the turn ends.
-            ActivityRow(message: message, expanded: stepsExpanded)
+            ActivityRow(message: message, expanded: stepsExpanded, repliesExpanded: botRepliesExpanded)
         }
     }
 

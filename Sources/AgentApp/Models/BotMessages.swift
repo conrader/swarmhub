@@ -1,18 +1,30 @@
 import Foundation
 
-/// P34 D4: one `bot-msg --to X` call, read from the command of a step (`tool.started` args, else its preview), and,
-/// once the step ends, what the other bot answered (or the queued thread id).
+/// P34 D4: one `bot-msg --to X` call, read from the full command of a step (`tool.started` args, else the uncut first
+/// line Hermes showed; never the 80-character preview, P41), and, once the step ends, what the other bot answered (or
+/// the queued thread id).
 struct BotMessageCall: Codable, Equatable, Sendable {
     var to: String; var from: String?; var text: String; var noWait = false; var reply: String?
 
     static let textLimit = 4000
 
-    /// The call in a shell command: the first word naming `bot-msg` (any path), its options up to `--`, and the text
-    /// after it (one word, or the rest joined). Nil when the command does not run bot-msg or names no recipient.
+    /// The script's file names (P41: `.sh`/`.py` wrappers too).
+    static let scriptNames: Set<String> = ["bot-msg", "bot-msg.sh", "bot-msg.py"]
+
+    /// Whether a shell word runs the script: its last path component is the script, at any path (a quoted word only
+    /// when it is a path, so `echo 'bot-msg …'` stays text).
+    static func isScript(_ word: String, quoted: Bool) -> Bool {
+        guard let name = word.split(separator: "/").last, scriptNames.contains(String(name)) else { return false }
+        return !quoted || word.contains("/")
+    }
+
+    /// The call in a shell command: the first word naming `bot-msg` anywhere in the command (any path), its options
+    /// in any order up to `--`, and the text after it (one word, or the rest joined; a `--to` inside the text is text).
+    /// Nil when the command does not run bot-msg or names no recipient.
     static func parse(command: String) -> BotMessageCall? {
         guard command.contains("bot-msg") else { return nil }
         let words = ShellWords.split(command)
-        guard let start = words.firstIndex(where: { $0.word.split(separator: "/").last == "bot-msg" && !$0.quoted }) else { return nil }
+        guard let start = words.firstIndex(where: { isScript($0.word, quoted: $0.quoted) }) else { return nil }
         var to: String?, from: String?, noWait = false, text: [String] = []
         var index = start + 1, afterDashes = false
         while index < words.count {
@@ -125,7 +137,20 @@ struct BotThreadRow: Equatable, Sendable {
 enum BotMessageCopy {
     static func chip(_ name: String) -> String { "→ \(name)" }
     static func arrival(from: String, to: String) -> String { "\(from) wrote to \(to)" }
-    static let openThread = "Open thread"
+    static let openThread = "Open conversation"
+    /// P41: the sender's step while bot-msg waits, and once the recipient answered.
+    static func asking(_ name: String) -> String { "Asked \(name)…" }
+    static func replied(_ name: String) -> String { "\(name) replied" }
+    static func chip(_ name: String, _ state: BotMessageChipState) -> String {
+        switch state {
+        case .sent: chip(name)
+        case .asking: asking(name)
+        case .replied: replied(name)
+        }
+    }
+    /// P41: the recipient while a sender's bot-msg step runs (sidebar and chat header).
+    static func incoming(from name: String) -> String { "\(ChatActivityPhase.working.label) · message from \(name)" }
+    static func pollFailed(_ reason: String) -> String { "Couldn’t check bot messages: \(reason)" }
     static func paletteTitle(_ a: String, _ b: String) -> String { "\(a) ↔ \(b)" }
     static let sectionTitle = "Bot messages"
     static let empty = "No messages between bots yet."

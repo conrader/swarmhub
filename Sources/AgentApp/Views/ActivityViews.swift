@@ -21,10 +21,11 @@ struct ActivityRow: View {
     @ObservedObject var message: ChatMessage
     @State private var expanded: Bool
     /// P43: the burst of steps this row shows (nil = every step), whether it carries the live line while the reply streams,
-    /// and a header-only live line after the reply's last text.
-    let range: Range<Int>?; let live: Bool; let headerOnly: Bool
-    init(message: ChatMessage, expanded: Bool = false, range: Range<Int>? = nil, live: Bool = true, headerOnly: Bool = false) {
+    /// and a header-only live line after the reply's last text. P41: renders open the bot-msg replies too.
+    let range: Range<Int>?; let live: Bool; let headerOnly: Bool; let repliesExpanded: Bool
+    init(message: ChatMessage, expanded: Bool = false, range: Range<Int>? = nil, live: Bool = true, headerOnly: Bool = false, repliesExpanded: Bool = false) {
         self.message = message; _expanded = State(initialValue: expanded); self.range = range; self.live = live; self.headerOnly = headerOnly
+        self.repliesExpanded = repliesExpanded
     }
 
     private var streaming: Bool { message.isStreaming && live }
@@ -47,8 +48,10 @@ struct ActivityRow: View {
                     VStack(alignment: .leading, spacing: 4) {
                         if (range?.lowerBound ?? 0) == 0, activity.total > activity.steps.count { Text("Earlier \(activity.total - activity.steps.count) steps not kept").font(.caption2).foregroundStyle(.tertiary) }
                         ForEach(Array(shown.steps.enumerated()), id: \.offset) { _, step in
+                            let thread = step.botMessage.flatMap { store.threadKey(for: $0, in: message) }
                             StepLine(step: step, number: activity.number(of: step), running: ActivityCopy.isRunning(step, streaming: message.isStreaming),
-                                     thread: step.botMessage.flatMap { store.threadKey(for: $0, in: message) })
+                                     thread: thread, chip: thread.map { store.chipState(for: step, key: $0, streaming: message.isStreaming) } ?? .sent,
+                                     replyExpanded: repliesExpanded)
                         }
                     }.padding(.leading, 14)
                 }
@@ -87,9 +90,22 @@ struct ActivityRow: View {
 
 private struct StepLine: View {
     let step: ToolStep; let number: Int; let running: Bool
-    /// P34 D4: the thread a bot-msg step wrote to.
-    var thread: BotThreadKey? = nil
+    /// P34 D4: the thread a bot-msg step wrote to; P41: its chip's state and whether the reply is open.
+    var thread: BotThreadKey? = nil; var chip = BotMessageChipState.sent
+    @State private var replyShown: Bool
+    init(step: ToolStep, number: Int, running: Bool, thread: BotThreadKey? = nil, chip: BotMessageChipState = .sent, replyExpanded: Bool = false) {
+        self.step = step; self.number = number; self.running = running; self.thread = thread; self.chip = chip; _replyShown = State(initialValue: replyExpanded)
+    }
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            line
+            if replyShown, case .replied(let reply) = chip {
+                Text(reply).font(.caption).textSelection(.enabled).padding(.horizontal, 9).padding(.vertical, 6)
+                    .background(AppColor.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous)).padding(.leading, 40).frame(maxWidth: 560, alignment: .leading)
+            }
+        }
+    }
+    private var line: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text("\(number)").font(.caption2).foregroundStyle(.tertiary).frame(minWidth: 16, alignment: .trailing).monospacedDigit()
             if running {
@@ -99,7 +115,12 @@ private struct StepLine: View {
             }
             Text(ActivityCopy.label(step.name)).font(.caption)
             Text(step.name).font(.caption2.monospaced()).foregroundStyle(.tertiary)
-            if let thread { BotMessageChip(key: thread) }
+            if let thread { BotMessageChip(key: thread, state: chip) }
+            if case .replied = chip {
+                Button { withAnimation(.easeOut(duration: 0.15)) { replyShown.toggle() } } label: {
+                    Image(systemName: "chevron.right").rotationEffect(.degrees(replyShown ? 90 : 0)).font(.system(size: 9, weight: .semibold)).frame(width: 16, height: 16).contentShape(Rectangle())
+                }.buttonStyle(.plain).foregroundStyle(.secondary).help(replyShown ? "Hide the reply" : "Show the reply").accessibilityLabel(replyShown ? "Hide the reply" : "Show the reply")
+            }
             if let preview = step.preview, thread == nil { Text(preview).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
             if !running, let end = step.finishedAt { Text(ActivityCopy.duration(end.timeIntervalSince(step.startedAt))).font(.caption2).foregroundStyle(.tertiary).monospacedDigit() }
         }

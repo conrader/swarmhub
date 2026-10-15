@@ -64,14 +64,16 @@ struct StoreFile: Codable {
     var approvalRoutes: [ApprovalRoute]?; var reviewAfter: [ReviewAfterRule]?
     /// P31 D+E: each box's last models and capacity reports (keyed by connection); absent while empty.
     var boxReadings: [String: BoxReadings]?
+    /// P41: bot-message seen marks (connection|profile → session id → mark); absent while empty.
+    var botMessageMarks: [String: [String: String]]?
 
     init(bots: [Bot], groups: [GroupChat], modelDefaults: ModelDefaults? = nil, approvalRoutes: [ApprovalRoute]? = nil, reviewAfter: [ReviewAfterRule]? = nil,
-         boxReadings: [String: BoxReadings]? = nil) {
+         boxReadings: [String: BoxReadings]? = nil, botMessageMarks: [String: [String: String]]? = nil) {
         self.bots = bots; self.groups = groups; self.modelDefaults = modelDefaults; self.approvalRoutes = approvalRoutes; self.reviewAfter = reviewAfter
-        self.boxReadings = boxReadings
+        self.boxReadings = boxReadings; self.botMessageMarks = botMessageMarks
     }
 
-    enum CodingKeys: CodingKey { case version, bots, groups, modelDefaults, approvalRoutes, reviewAfter, boxReadings }
+    enum CodingKeys: CodingKey { case version, bots, groups, modelDefaults, approvalRoutes, reviewAfter, boxReadings, botMessageMarks }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
@@ -80,6 +82,7 @@ struct StoreFile: Codable {
         approvalRoutes = (try? c.decodeIfPresent([ApprovalRoute].self, forKey: .approvalRoutes)) ?? nil
         reviewAfter = (try? c.decodeIfPresent([ReviewAfterRule].self, forKey: .reviewAfter)) ?? nil
         boxReadings = (try? c.decodeIfPresent([String: BoxReadings].self, forKey: .boxReadings)) ?? nil
+        botMessageMarks = (try? c.decodeIfPresent([String: [String: String]].self, forKey: .botMessageMarks)) ?? nil
     }
 
     static func decode(_ data: Data) throws -> StoreFile {

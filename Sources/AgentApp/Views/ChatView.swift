@@ -6,14 +6,16 @@ struct ChatView: View {
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     var body: some View {
         let thread = store.openThread(in: bot), coding = store.codingThreadChoice(for: bot)
+        let incoming = store.isWorking(bot) ? nil : store.incomingBotMessageLine(for: bot)
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
-                if thread != nil { Button { store.closeThread() } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22) }.buttonStyle(.plain).help("Back to chat") }
-                BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: store.isWorking(bot), probe: "chat_header",
+                if thread != nil { ThreadBackButton() }
+                BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: store.isWorking(bot) || incoming != nil, probe: "chat_header",
                           isWaiting: store.hasPendingApproval(bot))
                 Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)) }.buttonStyle(.plain)
                 if let thread { Text(thread.headerTitle).font(.system(size: 12)).foregroundStyle(.secondary) }
+                if let incoming { Text(incoming).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
                 OpenVoiceButton(name: bot.name, target: .bot(botID: bot.id, threadID: thread?.id),
@@ -28,6 +30,8 @@ struct ChatView: View {
                     LazyVStack(spacing: 0) {
                         Color.clear.frame(height: 20)
                         if let thread {
+                            // P41: an arrival shows here too, whatever thread is open.
+                            ForEach(store.arrivalsAboveThread(in: bot)) { MessageView(message: $0).id($0.id) }
                             ThreadTranscript(thread: thread, parent: bot.messages.first { $0.id == thread.parentMessageID }, botID: bot.id) { proxy.scrollTo("bottom", anchor: .bottom) }
                         } else {
                             if GrokServerArchive.choice(hasLocalArchive: bot.grokSourceID != nil) == .local { GrokHistoryView(bot: bot, expanded: historyExpanded) }

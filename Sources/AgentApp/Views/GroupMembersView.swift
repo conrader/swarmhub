@@ -11,7 +11,7 @@ struct GroupInfoPanel: View {
         VStack(spacing: 0) {
             HStack {
                 Text(InspectorCopy.members).font(.system(size: 14, weight: .semibold)); Spacer()
-                Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }.buttonStyle(.plain).help(InspectorCopy.close)
+                Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24).contentShape(Rectangle()) }.buttonStyle(.plain).help(InspectorCopy.close).accessibilityLabel(InspectorCopy.close)
             }.padding(.horizontal, 14).frame(height: 54).windowDragStrip(probe: "details_header")
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollView { content.padding(14).frame(maxWidth: .infinity, alignment: .leading) }

@@ -36,7 +36,7 @@ extension HermesBackend {
         }
         let preview = phase == .progress ? nil : ToolEvent.preview(json["preview"] as? String, key: apiKey)
         return ToolEvent(phase: phase, name: name, preview: preview, callID: (json["tool_call_id"] ?? json["toolCallId"]) as? String,
-                         command: phase == .started ? Self.botMessageCommand(json["args"] ?? json["arguments"]) : nil,
+                         command: phase == .started ? Self.botMessageCommand(json["args"] ?? json["arguments"]) ?? Self.botMessageLine(json["preview"], key: apiKey) : nil,
                          result: phase == .completed || phase == .failed ? Self.toolResult(json) : nil)
     }
 
@@ -46,6 +46,16 @@ extension HermesBackend {
         if object == nil, let text = args as? String, let data = text.data(using: .utf8) { object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] }
         guard let command = (object?["command"] ?? object?["cmd"]) as? String, command.contains("bot-msg") else { return nil }
         return command
+    }
+
+    /// P41: a display line that runs bot-msg, uncut (its first line, secrets removed like a preview). A stream without
+    /// args still gives the whole command this way; the 80-character preview would lose `--to`.
+    static func botMessageLine(_ raw: Any?, key: String) -> String? {
+        guard let raw = raw as? String, raw.contains("bot-msg") else { return nil }
+        let first = raw.split(whereSeparator: \.isNewline).first.map(String.init) ?? raw
+        // The cut-free twin of `ToolEvent.preview`: same redaction, no length limit.
+        let redacted = ToolEvent.redacted(first, key: key)
+        return BotMessageCall.parse(command: redacted) != nil ? redacted : nil
     }
 
     /// An ended step's result text (`result`, `output` or `content`; an object is passed on as JSON).
@@ -67,6 +77,7 @@ extension HermesBackend {
         default: .started
         }
         let label = (json["label"] as? String).flatMap { $0 == name ? nil : $0 } ?? json["message"] as? String
-        return ToolEvent(phase: phase, name: name, preview: phase == .started ? ToolEvent.preview(label, key: apiKey) : nil, callID: json["toolCallId"] as? String)
+        return ToolEvent(phase: phase, name: name, preview: phase == .started ? ToolEvent.preview(label, key: apiKey) : nil, callID: json["toolCallId"] as? String,
+                         command: phase == .started ? Self.botMessageCommand(json["args"] ?? json["arguments"]) ?? Self.botMessageLine(label, key: apiKey) : nil)
     }
 }

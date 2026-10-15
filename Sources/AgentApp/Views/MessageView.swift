@@ -9,6 +9,8 @@ struct MessageView: View {
     let reply: () -> Void; let openThread: () -> Void; let codeInThread: () -> Void
     /// P27: renders open the steps row.
     var stepsExpanded = false
+    /// P41: renders open the bot-msg replies on those steps.
+    var botRepliesExpanded = false
     /// P38: the chat its cards answer into.
     let actionTarget: ConversationActionTarget?
     @State private var showingReactions = false
@@ -81,7 +83,7 @@ struct MessageView: View {
                         .overlay { if message.isSteer || message.isCorrection { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColor.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3])) } }
                 }
             } else {
-                OrderedReply(message: message, actionTarget: actionTarget, stepsExpanded: stepsExpanded)
+                OrderedReply(message: message, actionTarget: actionTarget, stepsExpanded: stepsExpanded, botRepliesExpanded: botRepliesExpanded)
                 BotMessageChipsRow(message: message)
             }
         }

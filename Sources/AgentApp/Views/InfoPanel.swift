@@ -9,9 +9,9 @@ struct InfoPanel: View {
             HStack {
                 Text("Details").font(.system(size: 14, weight: .semibold))
                 Spacer()
-                Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24) }.buttonStyle(.plain).help(SimpleCopy.agentSettings)
-                Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
-                    .buttonStyle(.plain).help("Close")
+                Button { store.editingBot = bot } label: { Image(systemName: "gearshape").frame(width: 24, height: 24).contentShape(Rectangle()) }.buttonStyle(.plain).help(SimpleCopy.agentSettings).accessibilityLabel(SimpleCopy.agentSettings)
+                Button { store.showInfo = false } label: { Image(systemName: "xmark").frame(width: 24, height: 24).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).help("Close").accessibilityLabel("Close")
             }.padding(.horizontal, 14).frame(height: 54).windowDragStrip(probe: "details_header")
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             InfoTabBar(tabs: store.infoTabs(for: bot), selection: store.visibleInfoTab(for: bot)) { store.infoTab = $0 }
