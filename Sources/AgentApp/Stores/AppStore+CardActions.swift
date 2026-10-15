@@ -14,6 +14,9 @@ enum ConversationActionTarget: Hashable, Codable, Sendable {
 }
 
 extension AppStore {
+    /// P39: a card's target chat streams (its pick waits for that turn only).
+    func isStreaming(for target: ConversationActionTarget) -> Bool { actionConversation(target).map { isStreaming(in: $0.1) } ?? false }
+
     /// The bot and conversation a target names, or nil once the bot, thread or group (or the bot's membership) is gone.
     func actionConversation(_ target: ConversationActionTarget) -> (Bot, any Conversation)? {
         switch target {

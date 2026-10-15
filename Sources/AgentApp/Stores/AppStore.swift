@@ -8,7 +8,8 @@ import UserNotifications
     @Published var bots: [Bot] = []
     @Published var selectedBot: Bot? { didSet { if selectedBot != nil { selectedBoxProfile = nil } } }
     @Published var selectedBoxProfile: BoxProfileSelection?
-    @Published var isStreaming = false
+    /// P39: the running turn of each conversation, keyed by its id (`AppStore+TurnSlots.swift`), and how many may run at once.
+    @Published var runningTurns: [UUID: ConversationTurn] = [:]; var turnLimits = TurnLimits()
     @Published var approvals: [ApprovalRequest] = []
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
@@ -30,10 +31,10 @@ import UserNotifications
     @Published var editingBot: Bot?; @Published var errorMessage: String?
     /// Profiles whose `/p/<profile>/` prefix the server ignored (multiplexing off). Never routed to.
     @Published var prefixIgnoredHermesProfiles: Set<String> = []
-    /// P4 chat: per-bot `/v1/capabilities` flags, the open thread of the selected bot, whether the running
-    /// turn takes steer messages, and a message the transcript should scroll to (Media tab).
+    /// P4 chat: per-bot `/v1/capabilities` flags, the open thread of the selected bot, and a message the transcript
+    /// should scroll to (Media tab). Whether a running turn takes steers lives on its slot (P39).
     @Published var botFeatures: [UUID: Set<String>] = [:]; @Published var openThreadID: UUID?
-    @Published var steerAvailable = false; @Published var scrollTarget: UUID?
+    @Published var scrollTarget: UUID?
     /// P38: a saved document on its way from the Media tab into a chat's composer.
     @Published var pendingComposerAttachment: PendingComposerAttachment?
     /// P38: each agent's last token-usage reading, shown at once when its Activity tab opens again.
@@ -44,7 +45,7 @@ import UserNotifications
     @Published var groups: [GroupChat] = []
     @Published var selectedGroup: GroupChat? { didSet { if selectedGroup != nil { selectedBoxProfile = nil } } }
     @Published var showingNewGroup = false
-    var groupRun: GroupRun?; var migratedGroupNames: [String] = []
+    var migratedGroupNames: [String] = []
     private(set) lazy var attachmentEncoder = AttachmentEncoder(directory: fileURL.deletingLastPathComponent().appending(path: "attachments", directoryHint: .isDirectory))
     let botInfo = BotInfoCache()
     /// P34: bot-to-bot threads (session lists, arrivals, loaded lines) and the thread sheet open now.
@@ -87,14 +88,11 @@ import UserNotifications
     var reconcileTiming = ReconcileTiming.standard
     /// P38 D: the execution ledger (`runtime.sqlite`, opened by `journal()`), and the workflows it holds.
     var runtime: (any RuntimeStoring)?; @Published var workflows: [UUID: Workflow] = [:]
-    var streamTask: Task<Void, Never>?; let fileURL: URL
+    let fileURL: URL
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
-    var streamingBotID: UUID?; var streamingAssistant: ChatMessage?; var streamingConversation: (any Conversation)?
     var historyLoadTokens: [UUID: UUID] = [:]
     /// Prepended to every session id the app creates (chat, thread, group); `--e2e` sets `AppConstants.selfTestPrefix`.
     var sessionNamespace = ""
-    var activeStreamToken: UUID?
-    private var stopInProgressForStream: UUID?
     private(set) var persistenceEnabled = true
     let backendFactory: ((Bot) throws -> any AgentBackend)?
     /// P12: saved OpenClaw Gateways (no secrets) and the hub, created on first use so nothing connects at launch.
@@ -207,21 +205,27 @@ import UserNotifications
             turns.saveFailing = true
         }
     }
-    /// Sends into the open thread or the main chat. While a turn streams, the text steers it when the
-    /// server has `run_steer`; otherwise sending stays disabled until the turn ends.
+    /// Sends into the open thread or the main chat. While that chat's turn streams, the text steers it when the
+    /// server has `run_steer`; otherwise sending there stays disabled until its turn ends. Other chats never block it
+    /// (P39); when the turn limit is reached the message waits as the chat's next message.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
         guard let bot = selectedBot, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
-        guard !isStreaming, streamTask == nil else { return steer(text: text, attachments: attachments, bot: bot) }
-        guard send(text: text, attachments: attachments, bot: bot, conversation: openThread(in: bot) ?? bot, replyToID: replyTo?.id) else { return false }
+        let conversation = currentConversation(of: bot)
+        guard isIdle(conversation) else { return steer(text: text, attachments: attachments, bot: bot) }
+        guard send(text: text, attachments: attachments, bot: bot, conversation: conversation, replyToID: replyTo?.id, waitWhenFull: true) else { return false }
         replyTo = nil
         return true
     }
     /// P38: a new turn in `conversation` (the bot's chat or one of its threads), whatever is selected; never steers.
-    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], bot: Bot, conversation: any Conversation, replyToID: UUID?) -> Bool {
+    /// P39: refused while that chat has a turn; at the turn limit it is refused, or waits as the chat's next message
+    /// (`waitWhenFull`, the composer), as does a message sent while earlier ones still wait there.
+    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], bot: Bot, conversation: any Conversation, replyToID: UUID?, waitWhenFull: Bool = false) -> Bool {
         guard !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
-        guard !isStreaming, streamTask == nil else { return false }
+        guard isIdle(conversation) else { return false }
+        let full = turnCapacityProblem(for: [bot])
+        if let full, !waitWhenFull { errorMessage = full; return false }
         guard !isRetiredWorkflowThread((conversation as? ChatThread)?.id ?? bot.id) else { errorMessage = "This workflow task was reassigned. Continue from the workflow."; return false }
         let user = ChatMessage(role: .user, content: text, replyToID: replyToID, attachments: attachments)
         let activeBackend: any AgentBackend; let images: [String]
@@ -232,77 +236,27 @@ import UserNotifications
         historyLoadTokens[bot.id] = nil; steerHint = nil
         captureAttachments(user, readers: [bot.id])
         conversation.messages.append(user)
+        if let reason = full ?? (hasWaitingTurn(in: conversation) ? TurnWaitCopy.behind : nil) { return waitForTurn(user, in: conversation, reason: reason) }
         startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
         return true
     }
     /// Starts the 1:1 or thread turn answering `user`, which is already the last user row of `conversation`.
     func startChatTurn(bot: Bot, conversation: any Conversation, user: ChatMessage, images: [String] = [], backend activeBackend: any AgentBackend) {
         let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete); conversation.messages.append(assistant)
-        objectWillChange.send(); save(); isStreaming = true; streamingBotID = bot.id; streamingAssistant = assistant; streamingConversation = conversation
-        let streamToken = UUID(); activeStreamToken = streamToken
+        let turn = beginTurn(in: conversation, bot: bot, assistant: assistant)
+        objectWillChange.send(); save()
+        let streamToken = turn.token
         let managementText = self.managementText(for: bot, text: user.content, conversation: conversation)
         let history = chatHistory(conversation, excluding: assistant)
-        streamTask = Task { [weak self] in
+        turn.task = Task { [weak self] in
             await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.persona,
                                     managementText: managementText, backend: activeBackend, token: streamToken)
         }
     }
-    var isIdle: Bool { streamTask == nil }
     func notifyIfNeeded(bot: Bot, message: String) {
         guard Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
         let content = UNMutableNotificationContent(); content.title = bot.name; content.body = String(message.prefix(140)); content.sound = .default
         UNUserNotificationCenter.current().add(.init(identifier: UUID().uuidString, content: content, trigger: nil))
-    }
-    func stop() {
-        guard isStreaming, let streamToken = activeStreamToken, stopInProgressForStream != streamToken else { return }
-        stopInProgressForStream = streamToken; groupRun?.stopped = true
-        let bot = streamingBotID.flatMap { id in bots.first { $0.id == id } }
-        streamingAssistant?.isStreaming = false; steerAvailable = false
-        // P16: the row is `stopped` at once and never extended; a Retry still reading the box keeps its `notSent` row.
-        if let row = streamingAssistant, row.turnState != .notSent { row.turnState = .stopped; row.metadata[TurnKey.why] = "stopped" }
-        guard let bot, let activeBackend = try? backend(for: bot) else {
-            streamTask?.cancel(); isStreaming = false
-            if stopInProgressForStream == streamToken { stopInProgressForStream = nil }
-            return
-        }
-        let taskToCancel = streamTask
-        let stoppedAssistantID = streamingAssistant?.id
-        let conversation: any Conversation = streamingConversation ?? bot
-        let server = bot.backend.shortName // "Hermes" texts stay byte-identical (P12)
-        Task {
-            do {
-                // Capture the run before cancelling the SSE task, whose termination clears it.
-                let target = try await activeBackend.stopTarget(sessionID: conversation.hermesSessionID ?? bot.id.uuidString)
-                taskToCancel?.cancel()
-                didCancelLocalStream?()
-                if activeStreamToken == streamToken { isStreaming = false }
-                let outcome = try await activeBackend.requestStop(target)
-                let feedback: String
-                switch outcome {
-                case .requested: feedback = "Stop requested from \(server)."
-                case .disconnectedLegacy: feedback = bot.backend == .openClaw ? "Stopped locally; this OpenClaw Gateway does not offer chat.abort." : "Stopped locally; this Hermes version has no run-control endpoint."
-                case .noActiveRun: feedback = "Stopped locally before \(server) supplied a run ID."
-                }
-                let message = ChatMessage(role: .system, content: feedback)
-                if let stoppedAssistantID, let index = conversation.messages.firstIndex(where: { $0.id == stoppedAssistantID }) {
-                    conversation.messages.insert(message, at: index + 1)
-                } else { conversation.messages.append(message) }
-                objectWillChange.send()
-            } catch {
-                taskToCancel?.cancel()
-                let message = ChatMessage(role: .system, content: "\(server) Stop failed: \(error.localizedDescription)")
-                if let stoppedAssistantID, let index = conversation.messages.firstIndex(where: { $0.id == stoppedAssistantID }) {
-                    conversation.messages.insert(message, at: index + 1)
-                } else { conversation.messages.append(message) }
-                objectWillChange.send()
-                if activeStreamToken == streamToken {
-                    isStreaming = false
-                    errorMessage = "\(server) Stop failed: \(error.localizedDescription)"
-                }
-            }
-            if stopInProgressForStream == streamToken { stopInProgressForStream = nil }
-            save()
-        }
     }
     func backend(for bot: Bot) throws -> any AgentBackend {
         if bot.backend == .hermes, let profile = bot.hermesProfile, prefixIgnoredHermesProfiles.contains(profile) { throw BackendError.unavailable("\(profile): \(HermesBackend.multiplexOffMessage)") }

@@ -106,7 +106,7 @@ private func notes(_ bot: Bot) -> [String] { bot.messages.filter { $0.role == .s
     // Legacy transport: no sessions, so nothing is created or locked; the pane says why.
     let (store, jarvis, _, _, state, _) = applyStore(shape, features: applyFeatures.merging(["session_chat_streaming": false]) { $1 })
     store.modelDefaults.conversation = beta
-    store.selectedBot = jarvis; _ = store.send(text: "hi"); try await waitUntil { store.isIdle }
+    store.selectedBot = jarvis; _ = store.send(text: "hi"); try await waitUntil { !store.anyTurnRunning }
     #expect(lockPosts(state).isEmpty && !lines(state).contains("POST /p/grok-jarvis/api/sessions"))
     await store.loadServerInfo(for: jarvis)
     #expect(store.modelRolesRow(for: jarvis).blocked == .legacy)
@@ -116,14 +116,14 @@ private func notes(_ bot: Bot) -> [String] { bot.messages.filter { $0.role == .s
     let (store, jarvis, dmt, _, state, _) = applyStore(shape)
     jarvis.modelSettings = .init(conversation: .choice(beta))
     let group = try #require(store.createGroup(name: "Lab", memberIDs: [jarvis.id, dmt.id]))
-    #expect(store.send(text: "hi E2E-GROUP", to: group)); try await waitUntil { store.isIdle }
+    #expect(store.send(text: "hi E2E-GROUP", to: group)); try await waitUntil { !store.anyTurnRunning }
     let jarvisSession = try #require(group.session(for: jarvis.id))
     #expect(lockPosts(state).map(\.path) == ["/p/grok-jarvis/api/sessions/\(jarvisSession)/model"])
     #expect(jarvis.hermesModelLock == nil, "a group session's lock is not the main chat's")
 
     state.with { $0.lockStatus = 409 }
     let second = try #require(store.createGroup(name: "Lab 2", memberIDs: [jarvis.id, dmt.id]))
-    #expect(store.send(text: "again E2E-SKIP", to: second)); try await waitUntil { store.isIdle }
+    #expect(store.send(text: "again E2E-SKIP", to: second)); try await waitUntil { !store.anyTurnRunning }
     #expect(second.messages.contains { $0.role == .system && $0.content.hasPrefix("Jarvis was skipped: model-beta, this bot's model, was not applied") })
     #expect(second.session(for: jarvis.id) == nil && second.messages.last?.authorID == dmt.id, "the other member still answers")
 }

@@ -40,7 +40,7 @@ struct ConnectAppCard: View {
                 Spacer(minLength: 8)
                 Button(allowed ? "Manage" : "Connect \(name)") { connecting = true }
                     .buttonStyle(NeutralPrimaryButtonStyle())
-                    .disabled(bot == nil || message.role != .assistant || message.isStreaming || store.isStreaming || !apps.canConfigure || !apps.isAvailable)
+                    .disabled(bot == nil || message.role != .assistant || message.isStreaming || store.conversation(containing: message.id).map(store.isStreaming(in:)) == true || !apps.canConfigure || !apps.isAvailable)
             }
         }.padding(14).frame(maxWidth: 500, alignment: .leading)
             .background(AppColor.card, in: RoundedRectangle(cornerRadius: 12))

@@ -64,14 +64,15 @@ extension AppStore {
     /// Text typed while this bot's turn streams: queued when a step is running, else Stop and send (D1).
     func steer(text: String, attachments: [ChatAttachment], bot: Bot) -> Bool {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard steerAvailable, streamingBotID == bot.id, let conversation = streamingConversation, conversation === currentConversation(of: bot) else { return false }
+        let conversation = currentConversation(of: bot)
+        guard let turn = turn(in: conversation), turn.steerAvailable, turn.botID == bot.id else { return false }
         guard attachments.isEmpty else { errorMessage = "Attachments can’t be added to a running turn; send them after it finishes."; return false }
-        guard !value.isEmpty, turns.correcting == nil, let row = streamingAssistant, let activeBackend = try? backend(for: bot) else { return false }
+        guard !value.isEmpty, !turns.correcting.contains(turn.token), let row = turn.assistant, let activeBackend = try? backend(for: bot) else { return false }
         noteFirstSteer()
         let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
         switch SteerRoute.choose(activity: row.activity) {
         case .queued: deliverSteer(value, into: conversation, sessionID: sessionID, backend: activeBackend)
-        case .stopAndSend: stopAndSend(value, bot: bot, conversation: conversation, sessionID: sessionID, backend: activeBackend)
+        case .stopAndSend: stopAndSend(value, bot: bot, conversation: conversation, turn: turn, sessionID: sessionID, backend: activeBackend)
         }
         return true
     }
@@ -81,9 +82,9 @@ extension AppStore {
         defaults.set(true, forKey: "steerHintShown"); steerHint = SteerCopy.hint
     }
 
-    /// The first reply row of the running turn (the key of its steers and parts).
-    var streamingTurnOrigin: UUID? {
-        guard let row = streamingAssistant else { return nil }
+    /// The first reply row of `conversation`'s running turn (the key of its steers and parts).
+    func streamingTurnOrigin(in conversation: any Conversation) -> UUID? {
+        guard let row = turn(in: conversation)?.assistant else { return nil }
         return turns.parts.first { $0.value === row }?.key ?? row.id
     }
 
@@ -93,7 +94,7 @@ extension AppStore {
     func deliverSteer(_ value: String, into conversation: any Conversation, sessionID: String, backend activeBackend: any AgentBackend, bubble: ChatMessage? = nil) {
         let message = bubble ?? ChatMessage(role: .user, content: value, metadata: [SteerKey.steer: "sent"])
         if bubble == nil { conversation.messages.append(message) }
-        if let origin = streamingTurnOrigin { turns.steers[origin, default: PendingSteer(conversation: conversation)].bubbles.append(message) }
+        if let origin = streamingTurnOrigin(in: conversation) { turns.steers[origin, default: PendingSteer(conversation: conversation)].bubbles.append(message) }
         objectWillChange.send(); save()
         Task {
             do {
@@ -145,7 +146,7 @@ extension AppStore {
         let next = ChatMessage(role: .assistant, content: "", isStreaming: true, metadata: metadata, authorID: row.authorID, turnState: .incomplete)
         conversation.messages.insert(next, at: index + 1)
         turns.parts[origin.id] = next
-        if streamingAssistant === row { streamingAssistant = next }
+        if let turn = turn(in: conversation), turn.assistant === row { turn.assistant = next }
         objectWillChange.send(); save()
         return next
     }
@@ -156,52 +157,58 @@ extension AppStore {
     }
 
     /// After a turn: steers the box handed back are sent as the next message of a 1:1 chat or thread; in a group (and
-    /// when another turn already runs) they are marked not delivered.
+    /// when another turn already runs in that chat) they are marked not delivered. At the turn limit the message waits.
     func resendReturnedSteers(_ pending: PendingSteer?, bot: Bot?) {
         guard let pending, pending.returned else { return }
         let waiting = pending.bubbles.filter { ["sent", "queued"].contains($0.metadata[SteerKey.steer]) }
         guard let last = waiting.last else { return }
-        guard let bot, !(pending.conversation is GroupChat), isIdle, !isStreaming, let activeBackend = try? backend(for: bot) else {
+        guard let bot, !(pending.conversation is GroupChat), isIdle(pending.conversation), let activeBackend = try? backend(for: bot) else {
             waiting.forEach { $0.metadata[SteerKey.steer] = "failed" }
             addWarning(SteerCopy.endedFirst, in: pending.conversation, after: last); save(); return
         }
         waiting.dropLast().forEach { $0.metadata[SteerKey.steer] = "resent" }
         last.metadata[SteerKey.steer] = nil; last.metadata[SteerKey.correction] = "followup"
         if waiting.count > 1 { last.content = waiting.map(\.content).joined(separator: "\n") }
-        startChatTurn(bot: bot, conversation: pending.conversation, user: last, backend: activeBackend)
+        startOrWait(bot: bot, conversation: pending.conversation, user: last, backend: activeBackend)
+    }
+
+    /// A turn answering `user` (already in the chat), or, at the turn limit, a wait as the chat's next message.
+    func startOrWait(bot: Bot, conversation: any Conversation, user: ChatMessage, backend activeBackend: any AgentBackend) {
+        if let full = turnCapacityProblem(for: [bot]) { _ = waitForTurn(user, in: conversation, reason: full); return }
+        startChatTurn(bot: bot, conversation: conversation, user: user, backend: activeBackend)
     }
 
     // MARK: Stop and send
 
     /// Requests Stop for the run first, keeps the partial (stopped), then sends the correction as the next message with a
     /// lead line only the model sees. If Stop fails while the turn still runs, the steer is queued instead (one line says so).
-    func stopAndSend(_ value: String, bot: Bot, conversation: any Conversation, sessionID: String, backend activeBackend: any AgentBackend) {
-        guard let token = activeStreamToken else { return }
+    func stopAndSend(_ value: String, bot: Bot, conversation: any Conversation, turn: ConversationTurn, sessionID: String, backend activeBackend: any AgentBackend) {
+        let token = turn.token
         let bubble = ChatMessage(role: .user, content: value, metadata: [SteerKey.correction: "stopping"])
         conversation.messages.append(bubble); objectWillChange.send(); save()
-        turns.correcting = token
-        let task = streamTask
+        turns.correcting.insert(token)
+        let task = turn.task
         Task {
-            defer { if turns.correcting == token { turns.correcting = nil } }
+            defer { turns.correcting.remove(token) }
             do {
                 let target = try await activeBackend.stopTarget(sessionID: sessionID)
                 _ = try await activeBackend.requestStop(target)
             } catch {
-                if activeStreamToken == token {
+                if isCurrent(token) {
                     bubble.metadata[SteerKey.correction] = nil; bubble.metadata[SteerKey.steer] = "sent"
                     addWarning(SteerCopy.stopFailed, in: conversation, after: bubble)
                     deliverSteer(value, into: conversation, sessionID: sessionID, backend: activeBackend, bubble: bubble)
                     return
                 }
             }
-            if activeStreamToken == token {
-                if let row = streamingAssistant, row.turnState != .notSent { row.isStreaming = false; row.turnState = .stopped; row.metadata[TurnKey.why] = "stopped" }
+            if let current = self.turn(token: token) {
+                if let row = current.assistant, row.turnState != .notSent { row.isStreaming = false; row.turnState = .stopped; row.metadata[TurnKey.why] = "stopped" }
                 task?.cancel(); didCancelLocalStream?()
             }
             await task?.value
             bubble.metadata[SteerKey.correction] = "stopped"
-            guard isIdle, !isStreaming else { save(); return }
-            startChatTurn(bot: bot, conversation: conversation, user: bubble, backend: activeBackend)
+            guard isIdle(conversation) else { save(); return }
+            startOrWait(bot: bot, conversation: conversation, user: bubble, backend: activeBackend)
         }
     }
 }

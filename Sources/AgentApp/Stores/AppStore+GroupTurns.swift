@@ -19,10 +19,7 @@ extension AppStore {
         }
         markSkipped(skipped, in: group, trigger: trigger, why: skipWhy)
         group.round = nil; group.activeMemberID = nil
-        if activeStreamToken == token {
-            isStreaming = false; streamTask = nil; activeStreamToken = nil; streamingBotID = nil; streamingAssistant = nil; streamingConversation = nil; steerAvailable = false
-        }
-        if groupRun === run { groupRun = nil }
+        endTurn(token)
         objectWillChange.send(); save()
         sendQueuedNextMessage()
     }
@@ -57,7 +54,7 @@ extension AppStore {
             group.messages.append(assistant)
         }
         group.activeMemberID = bot.id
-        if activeStreamToken == token { streamingBotID = bot.id; streamingAssistant = assistant }
+        if let turn = turn(token: token) { turn.botID = bot.id; turn.assistant = assistant }
         objectWillChange.send(); save()
         let wanted = sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id)
         var end: TurnEnd; var refused = false
@@ -73,7 +70,7 @@ extension AppStore {
             try Task.checkCancellation()
             let sessionID = group.session(for: bot.id) ?? wanted
             let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: bot.persona, messages: [(role: "user", content: context)], images: images))
-            if activeStreamToken == token { steerAvailable = (try? await activeBackend.features())?.contains("run_steer") == true }
+            if isCurrent(token) { setSteerAvailable((try? await activeBackend.features())?.contains("run_steer") == true, token: token) }
             end = try await consumeTurn(stream, assistant: assistant, bot: bot, sessionID: sessionID, backend: activeBackend) { [unowned self] task in upsertSubAgent(task, bot: bot, in: group, row: false) }
         } catch is CancellationError { end = .stoppedByUser
         } catch let error as URLError where error.code == .cancelled && Task.isCancelled { end = .stoppedByUser
@@ -92,7 +89,7 @@ extension AppStore {
         }
         approvals.removeAll { abandoned.map(\.id).contains($0.id) }
         group.activeMemberID = nil
-        if activeStreamToken == token { steerAvailable = false }
+        setSteerAvailable(false, token: token)
         let text = reply.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty && (outcome.state == .finished || outcome.state == .incomplete) && selectedGroup?.id != group.id { group.unreadCount += 1 }
         if outcome.state == .finished && !text.isEmpty {

@@ -16,17 +16,17 @@ extension HeadlessE2E {
         store.bots.append(bot); select(bot, in: store)
         store.errorMessage = nil
         guard store.send(text: message("Count slowly from 1 to 20, one number per line")) else { step.detail = "not sent: \(store.errorMessage ?? "send refused")"; return step }
-        let partial = store.streamingAssistant
-        let tokens = await wait(timing.steerStart, poll: timing.poll) { store.isIdle || !(partial?.content.isEmpty ?? true) }
-        guard tokens, !store.isIdle else {
-            if !tokens { store.stop() }
+        let partial = store.turn(in: bot)?.assistant
+        let tokens = await wait(timing.steerStart, poll: timing.poll) { store.isIdle(bot) || !(partial?.content.isEmpty ?? true) }
+        guard tokens, !store.isIdle(bot) else {
+            if !tokens { store.stop(bot) }
             await finish(store, timing: timing)
             step.detail = "session \(bot.hermesSessionID ?? "-") | " + (tokens ? "turn ended before the first tokens could be steered" : "no tokens within \(timing.steerStart)") + (store.errorMessage.map { " (\($0))" } ?? "")
             return step
         }
         guard store.send(text: message(steerCorrection)) else {
             await finish(store, timing: timing)
-            step.detail = "session \(bot.hermesSessionID ?? "-") | steer not offered (run_steer=\(store.steerAvailable))"; return step
+            step.detail = "session \(bot.hermesSessionID ?? "-") | steer not offered (run_steer=\(store.canSteer(in: bot)))"; return step
         }
         let bubble = bot.messages.last { $0.isCorrection || $0.isSteer }
         _ = await wait(timing.request, poll: timing.poll) { bubble?.metadata[SteerKey.correction] != "stopping" }
@@ -42,17 +42,17 @@ extension HeadlessE2E {
         store.bots.append(bot); select(bot, in: store)
         store.errorMessage = nil
         guard store.send(text: message(toolPrompt)) else { step.detail = "not sent: \(store.errorMessage ?? "send refused")"; return step }
-        let reply = store.streamingAssistant
-        let running = await wait(timing.steerStart, poll: timing.poll) { store.isIdle || store.streamingAssistant?.activity?.current != nil }
-        guard running, !store.isIdle, let tool = store.streamingAssistant?.activity?.current?.name else {
-            if !running { store.stop() }
+        let reply = store.turn(in: bot)?.assistant
+        let running = await wait(timing.steerStart, poll: timing.poll) { store.isIdle(bot) || store.turn(in: bot)?.assistant?.activity?.current != nil }
+        guard running, !store.isIdle(bot), let tool = store.turn(in: bot)?.assistant?.activity?.current?.name else {
+            if !running { store.stop(bot) }
             await finish(store, timing: timing)
             step.detail = "session \(bot.hermesSessionID ?? "-") | " + (running ? "no tool step ran (\(snippet(oneLine(reply?.content ?? ""))))" : "no tool step within \(timing.steerStart)")
             return step
         }
         guard store.send(text: message("After that step, reply with exactly: \(steerToken)")) else {
             await finish(store, timing: timing)
-            step.detail = "session \(bot.hermesSessionID ?? "-") | steer not offered (run_steer=\(store.steerAvailable))"; return step
+            step.detail = "session \(bot.hermesSessionID ?? "-") | steer not offered (run_steer=\(store.canSteer(in: bot)))"; return step
         }
         await finish(store, timing: timing)
         // A steer the box handed back starts a follow-up turn; let it end too.

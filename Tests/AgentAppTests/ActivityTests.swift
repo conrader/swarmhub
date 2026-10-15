@@ -41,7 +41,7 @@ private func completed(_ tool: String, event: String = "tool.completed", extra: 
         started("terminal", long),
         ("assistant.delta", ["delta": "Done."]), ("run.completed", [:])
     ], url: url)
-    #expect(store.send(text: "go")); try await waitUntil { store.isIdle }
+    #expect(store.send(text: "go")); try await waitUntil { !store.anyTurnRunning }
     let reply = try #require(bot.messages.last { $0.role == .assistant })
     let activity = try #require(reply.activity)
     #expect(activity.steps.map(\.name) == ["terminal", "read_file", "web_search", "terminal"] && activity.total == 4, "_thinking is not a step")
@@ -65,7 +65,7 @@ private func completed(_ tool: String, event: String = "tool.completed", extra: 
         ("hermes.tool.progress", ["tool": "terminal", "toolCallId": "call_2", "status": "completed"]),
         ("message", ["choices": [["delta": ["content": "ok"]]]])
     ], legacy: true)
-    #expect(store.send(text: "go")); try await waitUntil { store.isIdle }
+    #expect(store.send(text: "go")); try await waitUntil { !store.anyTurnRunning }
     let activity = try #require(bot.messages.last { $0.role == .assistant }?.activity)
     #expect(activity.steps.map(\.preview) == ["git status", "git log"] && activity.steps.map(\.callID) == ["call_1", "call_2"])
 }
@@ -127,7 +127,7 @@ private func completed(_ tool: String, event: String = "tool.completed", extra: 
     let bot = Bot(name: "Worker", backend: .hermes, hermesProfile: "default"); store.bots = [bot]
     let assistant = ChatMessage(role: .assistant, content: "", createdAt: t0, isStreaming: true); assistant.activity = activity
     bot.messages = [ChatMessage(role: .user, content: "go"), assistant]
-    store.streamingBotID = bot.id; store.streamingAssistant = assistant
+    store.beginTurn(in: bot, bot: bot, assistant: assistant)
     let line = store.workingLine(for: bot, now: t0.addingTimeInterval(61))
     #expect(line == "Working… · Running a command · ls -la")
     #expect(SidebarFragment.text(messages: bot.messages, draft: nil, isWorking: true, archiveNewest: nil, working: line) == "Working… · Running a command · ls -la")

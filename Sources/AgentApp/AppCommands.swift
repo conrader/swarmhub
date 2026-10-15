@@ -144,7 +144,7 @@ enum AppCommand: String, CaseIterable, Identifiable {
         case .members, .toggleInfo: return store.selectedGroup != nil || store.selectedBot != nil
         case .openComputer:
             return store.selectedGroup == nil && store.selectedBot.map { ComputerURL.validURL($0.computerURL) != nil } == true
-        case .stopResponse: return store.isStreaming
+        case .stopResponse: return store.openConversation.map(store.isStreaming(in:)) == true
         case .previousChat, .nextChat: return store.visibleChatCount > 1
         case .backToChat: return store.selectedGroup == nil && store.openThreadID != nil
         default: return true

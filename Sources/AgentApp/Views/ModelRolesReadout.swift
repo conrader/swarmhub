@@ -47,7 +47,7 @@ struct ModelRolesReadout: View {
                 if let blocked = row.blocked { Text(blocked.text).font(.caption2).foregroundStyle(.secondary) }
             }
         }
-        .task(id: "\(bot.hermesSessionID ?? "")|\(bot.messages.last?.id.uuidString ?? "")|\(store.isIdle)|\(bot.hermesModelLock?.model ?? "")") {
+        .task(id: "\(bot.hermesSessionID ?? "")|\(bot.messages.last?.id.uuidString ?? "")|\(store.isIdle(bot))|\(bot.hermesModelLock?.model ?? "")") {
             runtime = await store.lastRuntime(for: bot)
         }
     }

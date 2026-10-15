@@ -79,7 +79,8 @@ extension AppStore {
         guard !request.isEmpty else { return false }
         guard group.memberIDs.contains(coordinator.id), bots.contains(where: { $0 === coordinator }) else { errorMessage = "Choose a coordinator from this group's members."; return false }
         guard !workflows(in: group).contains(where: \.isActive) else { errorMessage = "Pause or finish the current workflow first."; return false }
-        guard isIdle, !isStreaming else { errorMessage = "Wait for the current reply to finish before planning a workflow."; return false }
+        // P39: other chats may be answering; only the turn limit holds the plan back.
+        if let full = turnCapacityProblem(for: [coordinator]) { errorMessage = full; return false }
         var workflow = Workflow(id: UUID(), groupID: group.id, coordinatorID: coordinator.id, request: request, createdAt: now(),
                                 budget: .init(id: UUID(), tokenLimit: max(8_000, defaults.object(forKey: "workflowTokenBudget") as? Int ?? Self.workflowDefaultBudget)))
         let planThread = UUID(); workflow.planThreadID = planThread
@@ -169,8 +170,11 @@ extension AppStore {
         }
         // The parent state is saved before Stop can end a turn and settle it.
         commitWorkflow(workflow)
-        guard cancel, isStreaming, let conversation = streamingConversation as? ChatThread else { return }
-        if conversation.id == workflow.planThreadID || workflow.tasks.contains(where: { $0.threadID == conversation.id }) { stop() }
+        guard cancel else { return }
+        for turn in runningTurns.values {
+            guard let thread = turn.conversation as? ChatThread else { continue }
+            if thread.id == workflow.planThreadID || workflow.tasks.contains(where: { $0.threadID == thread.id }) { stop(thread) }
+        }
     }
 
     /// Settles every ended reply a workflow waits for (and a blocked task whose reply Retry or reconcile has since
@@ -232,16 +236,17 @@ extension AppStore {
         workflow.tasks[index].resultArtifactID = artifact.id
     }
 
-    /// Sends the next ready task of the oldest running workflow, or finishes a workflow whose tasks are all done.
+    /// Sends the next ready task of each running workflow (oldest first; one task turn at a time per workflow), or
+    /// finishes a workflow whose tasks are all done. P39: other chats' turns no longer hold it back, the turn limit does.
     func dispatchWorkflows() {
         for workflow in workflows.values.filter({ $0.state == .running }).sorted(by: { $0.createdAt < $1.createdAt }) {
-            guard isIdle, !isStreaming else { return }
-            if dispatchNext(workflow.id) { return }
+            guard turnCapacityProblem(for: []) == nil else { return }
+            dispatchNext(workflow.id)
         }
     }
 
     /// True when it started a turn.
-    private func dispatchNext(_ id: UUID) -> Bool {
+    @discardableResult private func dispatchNext(_ id: UUID) -> Bool {
         guard var workflow = workflows[id], let group = groups.first(where: { $0.id == workflow.groupID }) else { return false }
         guard workflow.deadline.map({ $0 > now() }) ?? true else {
             workflow.state = .paused; workflow.error = "The 30-minute limit passed. Review the partial results."; commitWorkflow(workflow); return false
@@ -258,6 +263,8 @@ extension AppStore {
             workflow.tasks[index].state = .blocked; workflow.tasks[index].error = "The assigned agent is no longer in the group."
             workflow.state = .paused; commitWorkflow(workflow); return false
         }
+        // The bot's connection is at its limit: the task waits for the next turn end.
+        guard turnCapacityProblem(for: [bot]) == nil else { return false }
         do {
             let inputs = try workflow.tasks.filter { task.dependencies.contains($0.id) }.map { dependency in
                 let text = try dependency.resultArtifactID.map { String(decoding: try artifacts().read($0, botID: bot.id), as: UTF8.self) } ?? dependency.result ?? ""

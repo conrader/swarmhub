@@ -47,7 +47,7 @@ private func installedBlock(_ bot: String, _ version: String) -> String {
 @Test @MainActor func installTurnCarriesTheLibraryContentForANamedProfile() async throws {
     let (store, jarvis, host) = skillStore(replies: [installedBlock("grok-jarvis", "1.2.0")])
     #expect(store.installSkills(for: jarvis))
-    try await waitUntil { store.isIdle && jarvis.installedSkills["swarmhub-manager"] != nil }
+    try await waitUntil { !store.anyTurnRunning && jarvis.installedSkills["swarmhub-manager"] != nil }
     let sent = try #require(sentInstructions(host).first)
     let rendered = try #require(SkillLibrary.render(skill, forProfile: "grok-jarvis", managerTemplate: store.managerTemplateOverride))
     let folder = "~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-manager"
@@ -62,7 +62,7 @@ private func installedBlock(_ bot: String, _ version: String) -> String {
     let (store, jarvis, host) = skillStore()
     jarvis.hermesProfile = "default"
     #expect(store.installSkills(for: jarvis))
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     let sent = try #require(sentInstructions(host).first)
     #expect(sent.contains("mkdir -p ~/.hermes/skills/swarmhub/swarmhub-manager\ncat > ~/.hermes/skills/swarmhub/swarmhub-manager/SKILL.md <<'SWARMHUB_EOF'"))
     #expect(!sent.contains("profiles/default"))
@@ -72,7 +72,7 @@ private func installedBlock(_ bot: String, _ version: String) -> String {
     let other = "```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"grok-jarvis\",\"skills\":[{\"name\":\"evil-skill\",\"version\":\"9.0.0\"},{\"name\":\"swarmhub-manager\",\"version\":\"7.0.0\"}]}\n```"
     let (store, jarvis, _) = skillStore(replies: [other])
     #expect(store.installSkills(for: jarvis))
-    try await waitUntil { store.isIdle && !jarvis.installedSkills.isEmpty }
+    try await waitUntil { !store.anyTurnRunning && !jarvis.installedSkills.isEmpty }
     // Unknown names are dropped; a version newer than this build ships is recorded as the bundled one.
     #expect(jarvis.installedSkills == ["swarmhub-manager": "1.2.0"])
 }
@@ -85,7 +85,7 @@ private func installedBlock(_ bot: String, _ version: String) -> String {
     store.bots.insert(remote, at: 0)
     #expect(store.isManager(remote) && store.manager(for: jarvis)?.id == jarvis.id)
     #expect(store.installSkills(for: jarvis))
-    try await waitUntil { store.isIdle && !jarvis.installedSkills.isEmpty }
+    try await waitUntil { !store.anyTurnRunning && !jarvis.installedSkills.isEmpty }
     #expect(jarvis.installedSkills == ["swarmhub-manager": "1.2.0"] && remote.installedSkills.isEmpty)
 }
 
@@ -136,7 +136,7 @@ private func installedBlock(_ bot: String, _ version: String) -> String {
 
 @Test @MainActor func installedAtAnyVersionSendsThePointerMissingTheFullText() async throws {
     let (store, jarvis, host) = skillStore()
-    func turn(_ text: String) async throws { #expect(store.send(text: text)); try await waitUntil { store.isIdle } }
+    func turn(_ text: String) async throws { #expect(store.send(text: text)); try await waitUntil { !store.anyTurnRunning } }
     try await turn("list bots")                                   // missing → full text
     jarvis.installedSkills = ["swarmhub-manager": "1.1.0"]; store.managementExchanges = [:]
     try await turn("list bots")                                   // outdated → pointer (P31 C; the banner updates it)

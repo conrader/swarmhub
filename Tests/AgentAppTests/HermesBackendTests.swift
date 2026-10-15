@@ -31,7 +31,7 @@ import Testing
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let bot = Bot(name: "Legacy", backend: .hermes); store.bots = [bot]; store.selectedBot = bot
     store.send(text: "hello")
-    try await waitUntil { !store.isStreaming }
+    try await waitUntil { !store.anyTurnRunning }
     let calls = await backend.recordedCalls()
     #expect(calls.contains("send")); #expect(!calls.contains("create")); #expect(!calls.contains("list")); #expect(!calls.contains("history"))
     #expect(bot.hermesSessionID == nil)

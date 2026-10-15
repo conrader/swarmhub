@@ -85,7 +85,7 @@ extension AppStore {
 
     /// Opens the manager's chat and sends `request`; that turn and its follow-ups carry `instructions`.
     private func startRecipeTurn(_ request: String, instructions: String, manager: Bot) -> Bool {
-        guard isManager(manager), manager.backend == .hermes, isIdle else { return false }
+        guard isManager(manager), manager.backend == .hermes, isIdle(manager) else { return false }
         managementExchanges[manager.id] = ManagementExchange(openedAt: now(), awaitingOpening: true, recipe: instructions)
         open(manager); openThreadID = nil
         guard send(text: request) else { managementExchanges[manager.id] = nil; return false }

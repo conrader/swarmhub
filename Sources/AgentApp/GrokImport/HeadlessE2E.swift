@@ -62,7 +62,7 @@ import Security
         print("E2E: test store \(directory.path) (removed afterwards); real store \(realURL.path) is read only, \(saved.groups.count) groups in it are not loaded")
         return HeadlessRunLoop.wait {
             let steps = await run(store: store, bots: bots, tag: tag, roles: roles, output: { print($0); fflush(stdout) })
-            return steps.allSatisfy(\.passed) && steps.count == (roles == nil ? 7 : 9) ? 0 : 1
+            return steps.allSatisfy(\.passed) && steps.count == (roles == nil ? 8 : 10) ? 0 : 1
         }
     }
 
@@ -74,7 +74,7 @@ import Security
 
     // MARK: Steps
 
-    /// Runs steps a, b1, b2, c–f in order (and g1, g2 with `roles`), printing one line per step. All bots in `bots` must already be in `store`.
+    /// Runs steps a, b1, b2, c–f, h in order (and g1, g2 with `roles`), printing one line per step. All bots in `bots` must already be in `store`.
     static func run(store: AppStore, bots: Participants, tag: String = "test", timing: Timing = .init(), roles: RolePairs? = nil, output: (String) -> Void) async -> [Step] {
         store.sessionNamespace = namespace
         var steps: [Step] = []
@@ -87,6 +87,7 @@ import Security
         record(await modelStep(store: store, bot: bots.jarvis, timing: timing))
         record(await groupStep(store: store, bots: bots, tag: tag, timing: timing))
         record(await routinesStep(store: store, bot: bots.jarvis))
+        record(await concurrentStep(store: store, bots: bots, tag: tag, timing: timing))
         if let roles { for step in await rolesSteps(store: store, jarvis: bots.jarvis, pairs: roles, timing: timing) { record(step) } }
         output("E2E: \(steps.filter(\.passed).count) passed, \(steps.filter { !$0.passed }.count) failed")
         return steps
@@ -163,8 +164,8 @@ import Security
         guard let group = store.createGroup(name: "\(namespace)group \(tag)", memberIDs: [bots.dmt.id, bots.achilles.id]) else { step.detail = store.errorMessage ?? "group not created"; return step }
         let before = Set(group.messages.map(\.id))
         if store.send(text: message("@\(bots.dmt.name) reply with exactly: E2E-GROUP"), to: group) {
-            let ended = await wait(timing.turn, poll: timing.poll) { store.isIdle }
-            if !ended { store.stop(); _ = await finish(store, timing: timing) }
+            let ended = await wait(timing.turn, poll: timing.poll) { store.isIdle(group) }
+            if !ended { store.stop(group); _ = await finish(store, timing: timing) }
         } else { step.detail = "not sent: \(store.errorMessage ?? "send refused")" }
         let answers = group.messages.filter { !before.contains($0.id) && $0.role == .assistant && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         let notes = group.messages.filter { !before.contains($0.id) && $0.role == .system }.map(\.content)
@@ -208,8 +209,8 @@ import Security
         store.errorMessage = nil
         let before = Set(conversation.messages.map(\.id))
         guard store.send(text: text) else { return .init(error: "not sent: \(store.errorMessage ?? "send refused")", session: conversation.hermesSessionID) }
-        guard await wait(timing.turn, poll: timing.poll, { store.isIdle }) else {
-            store.stop(); _ = await finish(store, timing: timing)
+        guard await wait(timing.turn, poll: timing.poll, { store.isIdle(conversation) }) else {
+            store.stop(conversation); _ = await finish(store, timing: timing)
             return .init(error: "no reply within \(timing.turn)", session: conversation.hermesSessionID)
         }
         let assistant = conversation.messages.last { !before.contains($0.id) && $0.role == .assistant && $0.presentation == .text }
@@ -229,7 +230,7 @@ import Security
         store.selectedBot = bot; store.selectedGroup = nil
     }
 
-    @discardableResult static func finish(_ store: AppStore, timing: Timing) async -> Bool { await wait(timing.turn, poll: timing.poll) { store.isIdle } }
+    @discardableResult static func finish(_ store: AppStore, timing: Timing) async -> Bool { await wait(timing.turn, poll: timing.poll) { !store.anyTurnRunning } }
 
     static func wait(_ timeout: Duration, poll: Duration, _ condition: () -> Bool) async -> Bool {
         let clock = ContinuousClock(); let deadline = clock.now.advanced(by: timeout)

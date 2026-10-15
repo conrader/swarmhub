@@ -42,7 +42,7 @@ struct GroupInfoPanel: View {
                     Text(bot.name)
                     Spacer()
                     Button(InspectorCopy.remove) { store.removeMember(bot.id, from: group) }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
-                        .help(InspectorCopy.removeHelp(bot.name)).disabled(store.streamingConversation === group)
+                        .help(InspectorCopy.removeHelp(bot.name)).disabled(!store.isIdle(group))
                 }
             }
             Menu {

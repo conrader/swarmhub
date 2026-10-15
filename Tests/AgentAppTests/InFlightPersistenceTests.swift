@@ -18,7 +18,7 @@ import Testing
     #expect(copy.round?.active == bots[0].id && copy.round?.remaining == [bots[1].id])
     #expect(copy.messages.first { $0.authorID == bots[0].id }?.turnState == .incomplete)
     store.stop()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
 }
 
 @MainActor @Test func tokenAppendsAutosaveTheIncompletePartial() async throws {
@@ -33,7 +33,7 @@ import Testing
     let reply = try #require(reloaded.bots.first?.messages.last)
     #expect(reply.content == "running" && reply.turnState == .incomplete)
     store.stop()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
 }
 
 @MainActor @Test func launchRecoveryMarksMembersNotAskedAndSendsNothing() async throws {

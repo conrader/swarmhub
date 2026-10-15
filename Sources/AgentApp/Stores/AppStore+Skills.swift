@@ -80,7 +80,7 @@ extension AppStore {
     /// meant for `bot`. False when there is no manager, nothing to install, or another turn is still running; a skill
     /// whose content cannot travel in the heredoc also says so in `errorMessage`.
     @discardableResult func installSkills(for bot: Bot) -> Bool {
-        guard let manager = manager(for: bot), isIdle else { return false }
+        guard let manager = manager(for: bot), isIdle(manager) else { return false }
         let profile = bot.hermesProfile ?? "default"
         let instructions: String
         do {

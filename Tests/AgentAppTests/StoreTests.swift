@@ -34,9 +34,9 @@ import Testing
     let bot = Bot(name: "Stop twice", backend: .hermes, hermesSessionID: "session-2"); store.bots = [bot]; store.selectedBot = bot
 
     store.send(text: "first"); try await backend.calls.wait { $0.contains("send") }; store.stop()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     store.send(text: "second"); try await backend.calls.wait { $0.filter { $0 == "send" }.count == 2 }; store.stop()
-    try await backend.calls.wait { $0.filter { $0 == "post" }.count == 2 }; try await waitUntil { !store.isStreaming }
+    try await backend.calls.wait { $0.filter { $0 == "post" }.count == 2 }; try await waitUntil { !store.anyTurnRunning }
 
     #expect(trace.read() == ["cancel", "post", "cancel", "post"])
     #expect(await backend.recordedCalls().filter { $0 == "post" }.count == 2)
@@ -48,17 +48,17 @@ import Testing
     let bot = Bot(name: "Stop race", backend: .hermes, hermesSessionID: "session-race"); store.bots = [bot]; store.selectedBot = bot
 
     store.send(text: "first"); try await backend.calls.wait { $0.contains("send") }; store.stop()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     store.send(text: "second"); try await backend.calls.wait { $0.filter { $0 == "send" }.count == 2 }
     try await backend.calls.wait { $0.contains("post-failed") }
     // The mock records the failure before throwing it; the store reports it once the throw reaches it.
     try await waitUntil { bot.messages.contains { $0.role == .system && $0.content.contains("Hermes Stop failed") } }
 
-    #expect(store.isStreaming)
+    #expect(store.anyTurnRunning)
     #expect(store.errorMessage == nil)
     #expect(bot.messages.dropLast(2).contains { $0.role == .system && $0.content.contains("Hermes Stop failed") })
     store.stop()
-    try await waitUntil { !store.isStreaming }
+    try await waitUntil { !store.anyTurnRunning }
 }
 
 @Test @MainActor func failedCurrentStopIsReportedBesideStoppedTurn() async throws {

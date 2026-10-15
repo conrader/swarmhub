@@ -18,8 +18,8 @@ import Testing
     let (store, bot, box, row) = unsentChat()
     box.add("s-alpha", "user", "please answer"); box.add("s-alpha", "assistant", "the box answered", finish: "stop")
     store.retry(row)
-    #expect(store.isStreaming && row.metadata["check"] == "checking", "the slot is claimed before the first await")
-    try await waitUntil { store.isIdle }
+    #expect(store.anyTurnRunning && row.metadata["check"] == "checking", "the slot is claimed before the first await")
+    try await waitUntil { !store.anyTurnRunning }
     #expect(box.chatPosts.isEmpty && row.content == "the box answered" && row.turnState == .finished)
     #expect(bot.messages.filter { $0.role == .user }.count == 1)
 }
@@ -28,7 +28,7 @@ import Testing
     let (store, _, box, row) = unsentChat()
     box.add("s-alpha", "user", "please answer")
     store.retry(row)
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(box.chatPosts.isEmpty && row.turnState == .incomplete)
 }
 
@@ -36,7 +36,7 @@ import Testing
     let (store, bot, box, row) = unsentChat()
     box.with { $0.networkDown = true }
     store.retry(row)
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(box.chatPosts.isEmpty && row.turnState == .notSent && bot.messages.last?.content == "Alpha: Can't reach the box; nothing was sent.")
     // The read does not reach back past the row.
     let (short, shortBot, shortBox, old) = unsentChat()
@@ -46,7 +46,7 @@ import Testing
     for index in 0..<4 { shortBox.add("s-alpha", "user", "later \(index)"); shortBox.add("s-alpha", "assistant", "reply \(index)", finish: "stop") }
     shortBot.messages += (0..<4).flatMap { [ChatMessage(role: .user, content: "later \($0)"), ChatMessage(role: .assistant, content: "reply \($0)", turnState: .finished)] }
     short.retry(oldRow)
-    try await waitUntil { short.isIdle }
+    try await waitUntil { !short.anyTurnRunning }
     #expect(shortBox.chatPosts.isEmpty && oldRow.turnState == .notSent && shortBot.messages.contains { $0.content.hasSuffix("Can't reach the box; nothing was sent.") })
 }
 
@@ -55,7 +55,7 @@ import Testing
     box.with { $0.scripts = [.reply(chunks: ["sent ", "now"])] }
     store.retry(row); store.retry(row)
     #expect(store.send(text: "typed meanwhile") == false, "a Send during the read sees a turn in progress")
-    try await waitUntil { store.isIdle && row.turnState == .finished }
+    try await waitUntil { !store.anyTurnRunning && row.turnState == .finished }
     #expect(box.chatPosts.count == 1 && row.content == "sent now")
     #expect(SessionServer.inputText(box.chatPosts[0].body?["input"]) == "please answer", "the original row's text")
     #expect(bot.messages.filter { $0.role == .user }.count == 1 && bot.messages.filter { $0.role == .assistant }.count == 1)
@@ -64,14 +64,14 @@ import Testing
 @MainActor @Test func aChatWithoutASessionCountsAsTheBoxLackingTheTurn() async throws {
     let (store, bot, box, row) = unsentChat(boxSession: false)
     store.retry(row)
-    try await waitUntil { store.isIdle && row.turnState == .finished }
+    try await waitUntil { !store.anyTurnRunning && row.turnState == .finished }
     #expect(box.chatPosts.count == 1 && bot.hermesSessionID != nil)
 }
 
 @MainActor @Test func aStopDuringTheReadSendsNothing() async throws {
     let (store, _, box, row) = unsentChat()
     store.retry(row); store.stop()
-    try await waitUntil { store.isIdle && !store.isStreaming }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(box.chatPosts.isEmpty && row.turnState == .notSent)
 }
 
@@ -80,7 +80,7 @@ import Testing
     let image = try #require(store.prepareAttachment(imageData: syntheticImage(width: 8, height: 8, alpha: false), name: "dot.png"))
     bot.messages[0] = ChatMessage(role: .user, content: "see", attachments: [image])
     store.retry(row)
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     let parts = try #require(box.chatPosts.first?.body?["input"] as? [[String: Any]])
     #expect(parts.contains { $0["type"] as? String == "image_url" } && parts.contains { $0["text"] as? String == "see" })
 }
@@ -89,20 +89,20 @@ import Testing
     let (store, bot, box, row) = unsentChat()
     box.add("s-alpha", "user", "typed on another device"); box.add("s-alpha", "assistant", "answered there", finish: "stop")
     store.retry(row)
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(box.chatPosts.isEmpty && row.metadata["retry"] == "blocked")
     #expect(bot.messages.contains { $0.content == "Alpha: Can't match the box's newest message; nothing was sent." })
     store.retry(row, sendAnyway: true)
-    try await waitUntil { store.isIdle && box.chatPosts.count == 1 }
+    try await waitUntil { !store.anyTurnRunning && box.chatPosts.count == 1 }
 }
 
 @MainActor @Test func anAmbiguousRowNeedsASecondTap() async throws {
     let (store, _, box, row) = unsentChat()
     row.metadata["ambiguous"] = "1"
     store.retry(row)
-    #expect(!store.isStreaming && row.metadata["retry"] == "confirm" && box.log.all.isEmpty, "the first tap only asks")
+    #expect(!store.anyTurnRunning && row.metadata["retry"] == "confirm" && box.log.all.isEmpty, "the first tap only asks")
     store.retry(row)
-    try await waitUntil { store.isIdle && box.chatPosts.count == 1 }
+    try await waitUntil { !store.anyTurnRunning && box.chatPosts.count == 1 }
 }
 
 @MainActor @Test func retryIsOfferedOnlyWhereItCanWork() async throws {
@@ -131,7 +131,7 @@ import Testing
     states[0].with { $0.scripts = [.eof(chunks: ["half"])] }
     store.selectedBot = bot
     #expect(store.send(text: "go"))
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(bot.messages.first { $0.role == .assistant }?.turnState != nil)
     store.save()
     let posts = states[0].posts.count

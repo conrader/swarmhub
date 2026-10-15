@@ -133,9 +133,9 @@ private func checkShape(_ host: String) {
     let pdf = ChatAttachment(id: UUID(), kind: .text, name: "POZNAN-synthetic.pdf", mimeType: "application/pdf", byteCount: 900_000, text: pdfText, pageCount: 40, summary: "PDF: 40 pages, text extracted")
     let notes = ChatAttachment(id: UUID(), kind: .text, name: "notes.txt", mimeType: "text/plain", byteCount: 130_000, text: mixedText(scalars: 130_000))
     #expect(store.send(text: "Summarise these", attachments: [pdf, notes]))
-    try await waitUntil { !store.isStreaming }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(store.send(text: "And the totals?"))
-    try await waitUntil { !store.isStreaming && ChatParityServer.requests(host).filter { $0.path == "/v1/chat/completions" }.count == 2 }
+    try await waitUntil { !store.anyTurnRunning && ChatParityServer.requests(host).filter { $0.path == "/v1/chat/completions" }.count == 2 }
     let bodies = ChatParityServer.requests(host).filter { $0.path == "/v1/chat/completions" }.compactMap(\.body)
     let second = try #require(bodies.last?["messages"] as? [[String: Any]])
     #expect(second.allSatisfy { scalarCount($0["content"]).allSatisfy { $0 <= HermesBackend.maxTextPartScalars } })
@@ -151,7 +151,7 @@ private func checkShape(_ host: String) {
     let group = try #require(store.createGroup(name: "Split group", memberIDs: [bot.id, other.id]))
     let notes = ChatAttachment(id: UUID(), kind: .text, name: "big.txt", mimeType: "text/plain", byteCount: 130_000, text: mixedText(scalars: 130_000))
     #expect(store.send(text: "Read this", attachments: [notes], to: group))
-    try await waitUntil { !store.isStreaming }
+    try await waitUntil { !store.anyTurnRunning }
     let bodies = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.compactMap(\.body)
     #expect(bodies.count == 2, "each member gets the group context")
     // The current message's attachments are exempt from the 8,000-character cap and go through the splitter.
@@ -173,7 +173,7 @@ private func checkShape(_ host: String) {
                              byteCount: 80_000, text: docText, pageCount: 12, summary: "DOCX: 12 pages, text extracted")
     #expect((30_000..<HermesBackend.maxTextPartScalars).contains(docText.unicodeScalars.count))
     #expect(store.send(text: "Check this contract", attachments: [doc], to: group))
-    try await waitUntil { !store.isStreaming }
+    try await waitUntil { !store.anyTurnRunning }
     let bodies = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.compactMap(\.body)
     #expect(bodies.count == 2, "every member is asked")
     let block = AttachmentEncoder.compose(text: "", attachments: [doc])

@@ -40,14 +40,25 @@ extension AppStore {
     /// P38 D: workflow replies that ended are settled first; the next workflow task goes only after the user's own.
     /// P38 E: an entry is marked sent in the ledger before it goes (a refused write keeps it queued); entries restored
     /// after a quit wait for `resumeRestoredNextMessages`.
+    /// P39: per chat. Each chat's oldest entry goes once that chat has no turn and the turn limits allow it; a chat's later
+    /// entries wait behind its first, and a restored entry holds its own chat only.
     func sendQueuedNextMessage() {
         settleWorkflows()
-        while isIdle, !isStreaming, let next = turns.nextMessages.first, !next.restored {
+        var held: Set<UUID> = []; var index = 0
+        while index < turns.nextMessages.count {
+            let next = turns.nextMessages[index], key = next.conversation.id
+            guard !held.contains(key), !next.restored, isIdle(next.conversation), turnCapacityProblem(for: waitingBots(next)) == nil else {
+                held.insert(key); index += 1; continue
+            }
             guard recordNextMessage(next, .sent) else { break }
-            turns.nextMessages.removeFirst()
-            if startNextMessage(next) { next.bubble.metadata[SteerKey.steer] = "sentNext"; objectWillChange.send(); save(); return }
+            turns.nextMessages.remove(at: index)
+            if startNextMessage(next) {
+                if next.kind != .turn { next.bubble.metadata[SteerKey.steer] = "sentNext" }
+                held.insert(key); objectWillChange.send(); save(); continue
+            }
             recordNextMessage(next, .removed)
-            next.bubble.metadata[SteerKey.steer] = "failed"; objectWillChange.send(); save()
+            if next.kind == .turn { giveBackBubble(next) } else { next.bubble.metadata[SteerKey.steer] = "failed" }
+            objectWillChange.send(); save()
         }
         dispatchWorkflows()
     }
@@ -56,13 +67,57 @@ extension AppStore {
         let text = next.bubble.content
         if let group = next.conversation as? GroupChat {
             guard groups.contains(where: { $0 === group }) else { return false }
-            return send(text: text, to: group)
+            guard next.kind == .turn else { return send(text: text, to: group) }
+            endWait(next.bubble, in: group)
+            return startGroupRound(group, message: next.bubble, recipients: GroupRouting.recipients(of: text, members: routingMembers(of: group)))
         }
         guard let bot = owner(of: next.conversation), bots.contains(where: { $0 === bot }), !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly,
               !needsKey(bot), openClawBlock(bot) == nil, let activeBackend = try? backend(for: bot) else { return false }
-        let user = ChatMessage(role: .user, content: text)
-        next.conversation.messages.append(user)
-        startChatTurn(bot: bot, conversation: next.conversation, user: user, backend: activeBackend)
+        let user: ChatMessage
+        if next.kind == .turn {
+            user = next.bubble; endWait(user, in: next.conversation)
+        } else {
+            user = ChatMessage(role: .user, content: text); next.conversation.messages.append(user)
+        }
+        let images = (try? user.attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))) ?? []
+        startChatTurn(bot: bot, conversation: next.conversation, user: user, images: images, backend: activeBackend)
         return true
     }
+
+    /// The bots a queued entry would start a turn for (its chat's owner, or the group members it names).
+    private func waitingBots(_ next: QueuedNextMessage) -> [Bot] {
+        guard let group = next.conversation as? GroupChat else { return owner(of: next.conversation).map { [$0] } ?? [] }
+        let ids = GroupRouting.recipients(of: next.bubble.content, members: routingMembers(of: group))
+        return ids.compactMap { id in bots.first { $0.id == id } }
+    }
+
+    // MARK: P39 turn limit
+
+    /// The user's message is already in `conversation`; it waits there with one line until a turn may start.
+    func waitForTurn(_ user: ChatMessage, in conversation: any Conversation, reason: String) -> Bool {
+        user.metadata[TurnWaitCopy.key] = "waiting"
+        let next = QueuedNextMessage(conversation: conversation, bubble: user, kind: .turn)
+        guard enqueueNextMessage(next) else { user.metadata[TurnWaitCopy.key] = nil; conversation.messages.removeAll { $0 === user }; return false }
+        if let index = conversation.messages.firstIndex(where: { $0 === user }) {
+            conversation.messages.insert(ChatMessage(role: .system, content: reason, metadata: [TurnWaitCopy.key: "line"]), at: index + 1)
+        }
+        replyTo = nil; objectWillChange.send(); save()
+        return true
+    }
+
+    func hasWaitingTurn(in conversation: any Conversation) -> Bool { turns.nextMessages.contains { $0.conversation === conversation } }
+
+    /// The message leaves the wait: its marker and the "Waiting" line go.
+    func endWait(_ user: ChatMessage, in conversation: any Conversation) {
+        user.metadata[TurnWaitCopy.key] = nil
+        if let index = conversation.messages.firstIndex(where: { $0 === user }), index + 1 < conversation.messages.endIndex,
+           conversation.messages[index + 1].metadata[TurnWaitCopy.key] == "line" { conversation.messages.remove(at: index + 1) }
+    }
+}
+
+/// P39 6: the line under a message that waits for a free turn.
+enum TurnWaitCopy {
+    static let key = "turnWait"
+    static let behind = "Waiting: an earlier message in this chat goes first."
+    static let notSent = "Not sent: it was still waiting for a free turn."
 }

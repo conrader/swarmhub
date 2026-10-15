@@ -64,7 +64,7 @@ let applyKeys = ["grok-jarvis": "jarvis-key-77", "grok-dmt": "dmt-key-88", "grok
 @MainActor func sendAndWait(_ store: AppStore, _ bot: Bot, _ text: String) async throws {
     store.selectedBot = bot; store.selectedGroup = nil
     precondition(store.send(text: text), "send refused")
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
 }
 
 func lines(_ state: E2EServer.State, from mark: Int = 0) -> [String] { state.requests().dropFirst(mark).map { "\($0.method) \($0.path)" } }

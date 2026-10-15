@@ -40,7 +40,7 @@ private func steps(_ previews: String?...) -> [ToolStep] { previews.map { ToolSt
     let (store, jarvis, mira, host) = recipeStore(reply: "Changed.\n```swarmhub\n{\"op\":\"description\",\"bot\":\"mira\",\"description\":\"x\"}\n```")
     #expect(store.send(text: "set everyone to grok-4"))
     // The turn's own feature check reads capabilities once; the refresh adds one read per bot.
-    try await waitUntil { store.isIdle && capabilityReads(host) >= 3 }
+    try await waitUntil { !store.anyTurnRunning && capabilityReads(host) >= 3 }
     #expect(!reads(host).contains { $0.hasSuffix("/v1/skills") }, "skills are not read")
     #expect(store.refreshModelsAfterRecipe(try #require(jarvis.messages.last), from: jarvis, in: jarvis).map(\.id) == [jarvis.id, mira.id])
 }
@@ -48,7 +48,7 @@ private func steps(_ previews: String?...) -> [ToolStep] { previews.map { ToolSt
 @Test @MainActor func anOrdinaryReplyRefreshesNothing() async throws {
     let (store, _, _, host) = recipeStore(reply: "Hello.")
     #expect(store.send(text: "hi"))
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     try await Task.sleep(for: .milliseconds(100))
     #expect(capabilityReads(host) == 1, "only the turn's own feature check: \(reads(host))")
 }

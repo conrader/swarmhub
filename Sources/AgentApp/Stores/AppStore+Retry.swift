@@ -79,26 +79,25 @@ extension AppStore {
     /// newer box turn is unmatched (`sendAnyway` overrides only that last check). An ambiguous row younger than 30 min needs
     /// a second tap.
     func retry(_ row: ChatMessage, sendAnyway: Bool = false) {
-        guard canRetry(row), !isStreaming, streamTask == nil, let conversation = conversation(containing: row.id) else { return }
+        guard canRetry(row), let conversation = conversation(containing: row.id), isIdle(conversation) else { return }
         let group = conversation as? GroupChat
         guard let bot = group.flatMap({ _ in row.authorID.flatMap { id in bots.first { $0.id == id } } }) ?? owner(of: conversation),
               let trigger = trigger(of: row, in: conversation) else { return }
         if row.metadata[TurnKey.ambiguous] == "1", now().timeIntervalSince(row.createdAt) < 1_800, row.metadata[TurnKey.retry] != "confirm", !sendAnyway {
             row.metadata[TurnKey.retry] = "confirm"; return
         }
+        if let full = turnCapacityProblem(for: [bot]) { errorMessage = full; return }
         let ledger = "\(ObjectIdentifier(conversation).hashValue)|\(bot.id)|\(trigger.id)"
         guard turns.retryLedger.insert(ledger).inserted else { return }
-        let token = UUID(); activeStreamToken = token; isStreaming = true
-        streamingConversation = conversation; streamingBotID = bot.id; streamingAssistant = row
-        let run = group.map { GroupRun(groupID: $0.id) }; if let run { groupRun = run }
+        let run = group.map { GroupRun(groupID: $0.id) }
+        let turn = beginTurn(in: conversation, bot: bot, assistant: row, groupRun: run), token = turn.token
         row.metadata[TurnKey.check] = "checking"; row.metadata[TurnKey.retry] = nil
         let content = row.content
         objectWillChange.send()
-        streamTask = Task { [weak self] in
+        turn.task = Task { [weak self] in
             guard let self else { return }
             await performRetry(row, content: content, bot: bot, trigger: trigger, conversation: conversation, group: group, run: run, token: token, sendAnyway: sendAnyway)
             turns.retryLedger.remove(ledger)
-            if let run, groupRun === run { groupRun = nil }
             releaseSlot(token)
             objectWillChange.send(); save()
         }
@@ -107,7 +106,7 @@ extension AppStore {
     private func performRetry(_ row: ChatMessage, content: String, bot: Bot, trigger: ChatMessage, conversation: any Conversation, group: GroupChat?, run: GroupRun?, token: UUID, sendAnyway: Bool) async {
         let report = await reconcile(conversation, reason: .retry, ignoringStream: true, member: group == nil ? nil : bot.id)
         if row.metadata[TurnKey.check] == "checking" { row.metadata[TurnKey.check] = nil }
-        guard !Task.isCancelled, activeStreamToken == token, !(run?.stopped ?? false) else { return }
+        guard !Task.isCancelled, isCurrent(token), !(run?.stopped ?? false) else { return }
         // The box had the turn (adopted, or still running): nothing is sent.
         guard row.turnState == .notSent, row.content == content else { return }
         let covers = report.coversFrom.map { $0 <= row.createdAt.addingTimeInterval(report.skew) } ?? true
@@ -136,18 +135,17 @@ extension AppStore {
     }
 
     func releaseSlot(_ token: UUID) {
-        guard activeStreamToken == token else { return }
-        isStreaming = false; streamTask = nil; activeStreamToken = nil; streamingBotID = nil; streamingAssistant = nil; streamingConversation = nil; steerAvailable = false
+        guard isCurrent(token) else { return }
+        endTurn(token)
         sendQueuedNextMessage()
     }
 
     // MARK: Launch recovery
 
     /// Groups whose round was on disk at launch: the active member's row goes to the reconcile; everyone not asked gets
-    /// a `notSent` row (why `quit`) and one line. Nothing is sent. A no-op while a turn runs.
+    /// a `notSent` row (why `quit`) and one line. Nothing is sent. A group whose own turn already runs is left alone.
     func recoverInterruptedRounds() {
-        guard !isStreaming, streamTask == nil, groupRun == nil else { return }
-        for group in groups where turns.roundsAtLaunch.contains(group.id) {
+        for group in groups where turns.roundsAtLaunch.contains(group.id) && isIdle(group) {
             guard let round = group.round else { continue }
             var remaining = round.remaining
             if let active = round.active, !group.messages.contains(where: { $0.authorID == active && $0.metadata[TurnKey.forUser] == round.userMessageID.uuidString }) {

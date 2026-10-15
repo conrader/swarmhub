@@ -32,7 +32,7 @@ import Testing
         #expect(!store.handoffVoice(value, text: "Do it", target: .bot(botID: other.id, threadID: nil)), "never to another chat")
         #expect(!store.handoffVoice(value, text: "  ", target: value.target!))
         #expect(store.handoffVoice(value, text: "Check the backups first", target: value.target!))
-        try await waitUntil { store.isIdle }
+        try await waitUntil { !store.anyTurnRunning }
         let sent = try #require(owner.messages.first { $0.role == .user })
         #expect(sent.content.hasPrefix("Reviewed voice handoff from Planning") && sent.content.hasSuffix("Check the backups first"))
         #expect(sent.metadata[AppStore.voiceSourceKey] == value.id.uuidString && other.messages.isEmpty)
@@ -50,7 +50,7 @@ import Testing
         let value = saved(.group(groupID: group.id, botID: a.id))
         #expect(!store.handoffVoice(value, text: "Go", target: .group(groupID: elsewhere.id, botID: b.id)))
         #expect(store.handoffVoice(value, text: "Go", target: .group(groupID: group.id, botID: b.id)))
-        try await waitUntil { store.isIdle }
+        try await waitUntil { !store.anyTurnRunning }
         #expect(backend.sent.all.count == 1 && backend.sent.all.first?.session.contains(b.id.uuidString.lowercased()) == true)
         #expect(group.messages.first { $0.role == .user }?.metadata[AppStore.voiceSourceKey] == value.id.uuidString && elsewhere.messages.isEmpty)
     }

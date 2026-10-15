@@ -16,7 +16,7 @@ import Testing
     source.send(.pathDown)
     try await waitUntil { store.turns.pathDown }
     store.send(text: "anyone there", to: group)
-    try await waitUntil { store.isIdle && group.round == nil }
+    try await waitUntil { !store.anyTurnRunning && group.round == nil }
     #expect(states.allSatisfy { $0.posts.isEmpty })
     for bot in bots { #expect(group.messages.first { $0.authorID == bot.id }?.metadata["why"] == "offline") }
     #expect(group.messages.last?.content == "Not sent to Alpha, Beta (offline).")
@@ -26,7 +26,7 @@ import Testing
     let (store, bots, states, group, source) = try connectedGroup(["Alpha", "Beta"])
     states[0].with { $0.scripts = [.fail(.notConnectedToInternet)] }
     store.send(text: "status", to: group)
-    try await waitUntil { store.isIdle && group.round == nil }
+    try await waitUntil { !store.anyTurnRunning && group.round == nil }
     let alpha = try #require(group.messages.first { $0.authorID == bots[0].id }), beta = try #require(group.messages.first { $0.authorID == bots[1].id })
     #expect(alpha.turnState == .notSent && alpha.metadata["why"] == "offline" && beta.turnState == .notSent && states[1].posts.isEmpty)
     #expect(group.messages.contains { $0.content.hasPrefix("Alpha: ") && $0.metadata["tone"] == "warning" })
@@ -36,7 +36,7 @@ import Testing
     #expect(states[0].chatPosts.count == 1 && states[1].chatPosts.isEmpty, "only the original failed attempt; nothing resent")
     // Retry on Beta's newest row sends exactly once, with a context built now.
     store.retry(beta)
-    try await waitUntil { store.isIdle && beta.turnState == .finished }
+    try await waitUntil { !store.anyTurnRunning && beta.turnState == .finished }
     #expect(states[1].chatPosts.count == 1 && SessionServer.inputText(states[1].chatPosts[0].body?["input"]).hasSuffix("Konrad: status"))
     #expect(group.messages.filter { $0.authorID == bots[1].id }.count == 1, "into the same row")
 }
@@ -65,12 +65,12 @@ import Testing
     try await waitUntil { states[0].chatPosts.count == 1 }
     for event in [ConnectivityEvent.pathDown, .willSleep, .didWake, .pathUp] { source.send(event) }
     try await waitUntil { !store.turns.pathDown }
-    #expect(store.isStreaming && store.streamTask != nil, "pathDown, sleep and wake cancel nothing")
+    #expect(store.isStreaming(in: bot) && store.turn(in: bot)?.task != nil, "pathDown, sleep and wake cancel nothing")
     bot.name = "Renamed before sleep"
     source.send(.willSleep)
     try await waitUntil { (try? String(contentsOf: url, encoding: .utf8))?.contains("Renamed before sleep") == true }
     store.stop()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
 }
 
 @MainActor @Test func launchWorkRunsOnceAndNeverMidRound() async throws {
@@ -89,5 +89,5 @@ import Testing
     store.startLaunchWork(makeConnectivity: { ManualConnectivity() }); store.startLaunchWork(makeConnectivity: { Issue.record("a second .task must not run it"); return nil })
     #expect(store.turns.didLaunchRecovery)
     store.stop()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
 }

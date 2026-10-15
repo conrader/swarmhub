@@ -21,7 +21,7 @@ import Testing
     try await waitUntil { bot.hermesSessionID != nil }
     let key = bot.hermesSessionID ?? ""
     fake.emit("chat", chatEvent("delta", seq: 1, session: key, ["message": assistant("1 2 ")]))
-    try await waitUntil { store.steerAvailable && store.streamingAssistant?.content == "1 2 " }
+    try await waitUntil { (store.soleTurn?.steerAvailable == true) && store.soleTurn?.assistant?.content == "1 2 " }
     return (store, bot, fake, key)
 }
 
@@ -36,18 +36,18 @@ import Testing
     #expect(correction["queueMode"] == nil && correction["message"]?.string == SteerCopy.lead + "\nstop counting" && correction["sessionKey"]?.string == key)
     #expect(bot.messages[1].content == "1 2 " && bot.messages[1].turnState == .stopped)
     #expect(bot.messages[2].isCorrection && bot.messages[2].content == "stop counting")
-    store.stop(); try await waitUntil { store.isIdle }
+    store.stop(); try await waitUntil { !store.anyTurnRunning }
 }
 
 @MainActor @Test func anOpenClawSteerDuringAToolStepIsQueued() async throws {
     let (store, bot, fake, _) = try await steerableClaw()
     fake.emit("agent", ["runId": "run-1", "seq": 2, "stream": "tool", "ts": 1, "data": ["phase": "start", "name": "exec", "toolCallId": "t1"]])
-    try await waitUntil { store.streamingAssistant?.activity?.current != nil }
+    try await waitUntil { store.soleTurn?.assistant?.activity?.current != nil }
     #expect(store.send(text: "shorter please"))
     try await waitUntil { fake.requestsFor("chat.send").count == 2 }
     let steer = try #require(fake.requestsFor("chat.send").last)
     #expect(steer["queueMode"] == "steer" && steer["message"] == "shorter please")
     #expect(fake.requestsFor("chat.abort").isEmpty)
     try await waitUntil { bot.messages.last?.metadata["steer"] == "queued" }
-    store.stop(); try await waitUntil { store.isIdle }
+    store.stop(); try await waitUntil { !store.anyTurnRunning }
 }

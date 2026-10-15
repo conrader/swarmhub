@@ -39,7 +39,7 @@ import Testing
     let bot = Bot(name: "Fixture")
     let group = GroupChat(name: "Team", memberIDs: [bot.id])
     let assistant = ChatMessage(role: .assistant, content: "", createdAt: start, isStreaming: true)
-    store.streamingBotID = bot.id; store.streamingAssistant = assistant; store.streamingConversation = group; store.isStreaming = true
+    store.beginTurn(in: group, bot: bot, assistant: assistant)
     #expect(store.workingLine(for: bot, now: start) == "Thinking…")
     #expect(store.workingLine(for: group, now: start) == "Thinking…")
     assistant.lastTextAt = start
@@ -47,7 +47,7 @@ import Testing
     #expect(store.workingLine(for: group, now: start) == "Typing…")
     #expect(store.workingLine(for: group, now: start.addingTimeInterval(3)) == "Thinking…")
     let thread = ChatThread(parentMessageID: UUID(), parentSessionID: "parent", hermesSessionID: "thread", messages: [assistant])
-    store.streamingConversation = thread
+    store.runningTurns = [:]; store.beginTurn(in: thread, bot: bot, assistant: assistant)
     #expect(store.workingLine(for: bot, now: start) == "Typing…")
     #expect(store.workingLine(for: group, now: start) == nil)
     assistant.isStreaming = false
@@ -62,7 +62,7 @@ import Testing
     store.bots = [bot]; store.selectedBot = bot
     #expect(store.send(text: "Test")); defer { store.stop() }
     try await waitUntil { await backend.ready }
-    let assistant = try #require(store.streamingAssistant)
+    let assistant = try #require(store.turn(in: bot)?.assistant)
     #expect(store.workingLine(for: bot) == "Thinking…")
     await backend.emit(.token("")); await backend.emit(.status("empty chunk consumed"))
     try await waitUntil { assistant.metadata["status"] == "empty chunk consumed" }
@@ -89,7 +89,7 @@ import Testing
     try await waitUntil { assistant.content.isEmpty }
     #expect(assistant.lastTextAt == nil && store.workingLine(for: bot) == "Thinking…")
     await backend.finish()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(store.workingLine(for: bot) == nil)
     withExtendedLifetime(subscription) {}
 }

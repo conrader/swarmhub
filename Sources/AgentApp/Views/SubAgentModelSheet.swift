@@ -87,7 +87,7 @@ struct SubAgentModelSheet: View {
                 Button("Ask \(manager?.name ?? "the manager")") {
                     if let manager, store.requestSubAgentModel(change, manager: manager) { dismiss() }
                 }
-                .keyboardShortcut(.defaultAction).disabled(manager == nil || !change.isValid || !store.isIdle)
+                .keyboardShortcut(.defaultAction).disabled(!change.isValid || manager.map { !store.isIdle($0) } ?? true)
             }
         }
         .padding(20)

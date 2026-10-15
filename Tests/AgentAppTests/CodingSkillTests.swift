@@ -169,7 +169,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let (store, jarvis, coder, host) = codingStore(reply: reply)
     coder.modelSettings = BotModelSettings(codingAgent: .codexOnly)
     #expect(store.installSkills(for: coder))
-    try await waitUntil { store.isIdle && coder.installedSkills["swarmhub-coding"] != nil }
+    try await waitUntil { !store.anyTurnRunning && coder.installedSkills["swarmhub-coding"] != nil }
     let sent = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.compactMap { $0.body?["instructions"] as? String }
     #expect(sent.count == 1 && sent[0].contains("--order codex --dir") && sent[0].contains("for Coder (profile `coder`)"))
     #expect(jarvis.messages.first { $0.role == .user }?.content == "Install SwarmHub’s instructions for Coder.")

@@ -94,12 +94,12 @@ import Testing
         let a = Bot(name: "A"), b = Bot(name: "B")
         let group = GroupChat(name: "G", memberIDs: [a.id, b.id]), other = GroupChat(name: "H", memberIDs: [a.id])
         #expect(!store.isWorking(a))
-        store.isStreaming = true; store.streamingBotID = a.id; store.streamingConversation = group
+        store.beginTurn(in: group, bot: a, assistant: nil)
         #expect(store.isWorking(a) && !store.isWorking(b))
         #expect(store.isWorking(a, in: group) && !store.isWorking(a, in: other) && !store.isWorking(b, in: group))
-        store.streamingConversation = a
+        store.runningTurns = [:]; store.beginTurn(in: a, bot: a, assistant: nil)
         #expect(store.isWorking(a) && !store.isWorking(a, in: group))
-        store.isStreaming = false
+        store.runningTurns = [:]
         #expect(!store.isWorking(a))
     }
 }

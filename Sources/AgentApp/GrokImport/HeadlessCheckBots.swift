@@ -126,8 +126,8 @@ extension HeadlessCommands {
         let before = Set(bot.messages.map(\.id))
         guard store.send(text: text) else { output("Chat failed: \(store.errorMessage ?? (store.needsKey(bot) ? "no readable key for \(bot.hermesProfile ?? "default")" : "the message was not sent"))"); return 1 }
         let clock = ContinuousClock(); let deadline = clock.now.advanced(by: timeout)
-        while !store.isIdle && clock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
-        if !store.isIdle { store.stop(); output("Chat failed: no reply within \(timeout)"); return 1 }
+        while !store.isIdle(bot) && clock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
+        if !store.isIdle(bot) { store.stop(bot); output("Chat failed: no reply within \(timeout)"); return 1 }
         let reply = bot.messages.last { !before.contains($0.id) && $0.role == .assistant }?.content.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let session = bot.hermesSessionID ?? "\(bot.id.uuidString) (legacy, no server session)"
         if let error = store.errorMessage { output("Chat failed: \(error) | session \(session)"); return 1 }

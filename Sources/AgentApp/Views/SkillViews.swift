@@ -13,7 +13,7 @@ struct SkillInstallBanner: View {
             Spacer()
             Button("Not now") { store.snoozeSkillBanner(for: bot) }
             Button(state == .missing ? "Install" : "Update") { store.installSkills(for: bot) }
-                .buttonStyle(.borderedProminent).disabled(!store.isIdle)
+                .buttonStyle(.borderedProminent).disabled(!store.managerIdle(for: bot))
         }
         .controlSize(.small).padding(.horizontal, 14).padding(.vertical, 9)
         .background(AppColor.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -82,7 +82,7 @@ struct SwarmHubSkillRows: View {
                 if store.manager(for: bot) == nil {
                     Text("Needs a manager bot to install").font(.caption).foregroundStyle(.secondary)
                 } else if state.needsAction {
-                    Button(state == .missing ? "Install" : "Update") { store.installSkills(for: bot) }.disabled(!store.isIdle)
+                    Button(state == .missing ? "Install" : "Update") { store.installSkills(for: bot) }.disabled(!store.managerIdle(for: bot))
                 }
             }
         }

@@ -46,7 +46,7 @@ struct SessionRead: Sendable { var rows: [BackendMessage]; var coversFrom: Date?
 extension AppStore {
     /// Opening a chat (a user action) reads its server history; for OpenClaw this may connect the Gateway (P12).
     func loadServerHistory(for bot: Bot) {
-        guard bot.backend.hasServerSessions, !isStreaming, !needsKey(bot), bot.backend != .openClaw || bot.openClaw != nil else { return }
+        guard bot.backend.hasServerSessions, isIdle(bot), bot.threads.allSatisfy(isIdle), !needsKey(bot), bot.backend != .openClaw || bot.openClaw != nil else { return }
         refreshFeatures(for: bot)
         let token = UUID(); historyLoadTokens[bot.id] = token
         Task {
@@ -79,7 +79,7 @@ extension AppStore {
     }
 
     func isStreamingIn(_ conversation: any Conversation) -> Bool {
-        (isStreaming && streamingConversation === conversation) || conversation.messages.contains(where: \.isStreaming)
+        isStreaming(in: conversation) || conversation.messages.contains(where: \.isStreaming)
     }
 
     /// One pass over a conversation. Automatic passes keep a floor per session and never raise `errorMessage`.
@@ -88,6 +88,8 @@ extension AppStore {
         guard ignoringStream || !isStreamingIn(conversation) else { report.skipped = true; return report }
         for unit in reconcileUnits(for: conversation) where member == nil || unit.bot.id == member {
             report.total += 1
+            // P39: a thread can stream while its bot's chat is read; its own turn is never adopted mid-stream.
+            if !ignoringStream, unit.conversation !== conversation, isStreamingIn(unit.conversation) { report.skipped = true; continue }
             let key = "\(unit.bot.id)|\(unit.sessionID)"
             if turns.running.contains(key) { report.skipped = true; continue }
             if reason.isAutomatic, let last = turns.lastPass[key], ContinuousClock.now - last < (reason == .open ? reconcileTiming.openFloor : reconcileTiming.floor) { continue }

@@ -46,8 +46,8 @@ struct GroupChatView: View {
                 HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
             }
-            ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingConversation === group, hint: store.steerHint,
-                         send: send, stop: store.stop, attach: { intake.attach($0, store: store) },
+            ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: group), canSteer: store.canSteer(in: group), hint: store.steerHint,
+                         send: send, stop: { store.stop(group) }, attach: { intake.attach($0, store: store) },
                          pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                          reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                          mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name),
@@ -73,7 +73,7 @@ struct GroupChatView: View {
     }
     private func send() {
         let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
-        let steering = store.isStreaming
+        let steering = !store.isIdle(group)
         if store.send(text: value, attachments: steering ? [] : intake.items, to: group) { draft = ""; if !steering { intake.items = [] } }
     }
 }

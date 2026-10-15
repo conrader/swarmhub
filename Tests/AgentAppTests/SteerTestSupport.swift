@@ -58,5 +58,5 @@ func step(_ phase: ToolEvent.Phase, _ name: String = "terminal", id: String = "c
     try await backend.calls.wait { $0.contains("send:\(text)") }
     await backend.emit(.token("Before. "))
     if running { await backend.emit(step(.started)) }
-    try await waitUntil { store.steerAvailable && store.streamingAssistant?.content == "Before. " && (store.streamingAssistant?.activity?.current != nil) == running }
+    try await waitUntil { (store.soleTurn?.steerAvailable == true) && store.soleTurn?.assistant?.content == "Before. " && (store.soleTurn?.assistant?.activity?.current != nil) == running }
 }

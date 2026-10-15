@@ -10,21 +10,23 @@ import Testing
     var lines: [String] = []
     let steps = await HeadlessE2E.run(store: store, bots: bots, timing: .fast, output: { lines.append($0) })
 
-    #expect(steps.map { $0.id } == ["a", "b1", "b2", "c", "d", "e", "f"])
+    #expect(steps.map { $0.id } == ["a", "b1", "b2", "c", "d", "e", "f", "h"])
     #expect(steps.allSatisfy { $0.passed }, "\(lines)")
-    #expect(lines.prefix(7).allSatisfy { $0.hasPrefix("PASS ") })
-    #expect(lines.last == "E2E: 7 passed, 0 failed")
+    #expect(lines.prefix(8).allSatisfy { $0.hasPrefix("PASS ") })
+    #expect(lines.last == "E2E: 8 passed, 0 failed")
     // P28 D4: b1 stopped the count and sent the correction; b2's steer landed after the terminal step.
     #expect(steps[1].detail.contains("partial kept") && steps[1].detail.contains("E2E-STEER"))
     #expect(steps[2].detail.contains("after the terminal step") && steps[2].detail.contains("E2E-STEER"))
+    // P39 h: both copies answered at once; Stop on the first left the second complete.
+    #expect(steps[7].detail.contains("first stopped") && steps[7].detail.contains("second complete: E2E-CONCURRENT"))
 
     let requests = state.requests()
     // Every session created or forked is a new AppConstants.selfTestPrefix session; every message carries the preamble.
     let created = requests.filter { $0.method == "POST" && ($0.path.hasSuffix("/api/sessions") || $0.path.hasSuffix("/fork")) }.compactMap { $0.body?["id"] as? String }
-    #expect(created.count == 5, "a, b1, b2 and the group create a session; c forks one")
+    #expect(created.count == 7, "a, b1, b2, the group and h's two bots create a session; c forks one")
     #expect(created.allSatisfy { $0.hasPrefix(AppConstants.selfTestPrefix) })
     let inputs = requests.filter { $0.path.hasSuffix("/chat/stream") }.map { $0.body?["input"] as? String ?? "" }
-    #expect(inputs.count == 7, "a, b1, b1's correction, b2, c, d, e")
+    #expect(inputs.count == 9, "a, b1, b1's correction, b2, c, d, e and h's two")
     #expect(inputs.allSatisfy { $0.contains(HeadlessE2E.preamble) })
     // b1: Stop was requested for the count's run before the correction went out, with its lead line.
     let stop = try #require(requests.firstIndex { $0.path.hasSuffix("/stop") })
@@ -51,7 +53,7 @@ import Testing
     #expect(lines.contains { $0.hasPrefix("FAIL b1 steer during text") && $0.contains("steer not offered") })
     #expect(lines.contains { $0.hasPrefix("FAIL b2 steer during a tool step") && $0.contains("steer not offered") })
     #expect(lines.contains { $0.hasPrefix("FAIL c fork") && $0.contains("session_fork") })
-    #expect(lines.last == "E2E: 4 passed, 3 failed")
+    #expect(lines.last == "E2E: 5 passed, 3 failed")
     #expect(!state.requests().contains { $0.path.hasSuffix("/fork") || $0.path.hasSuffix("/steer") })
 }
 
@@ -103,4 +105,30 @@ import Testing
     #expect(UISmoke.reportPath(arguments: [AppConstants.name, "--ui-smoke", "~/x/ui.json"]) == ("~/x/ui.json" as NSString).expandingTildeInPath)
     #expect(UISmoke.reportPath(arguments: [AppConstants.name, "--ui-smoke"]) == nil)
     #expect(UISmoke.reportPath(arguments: [AppConstants.name]) == nil)
+}
+
+// MARK: P39 h
+
+/// Case h against the fake backend: the held count and the second bot's reply run at once; only the first is stopped.
+@MainActor @Test func e2eConcurrentCaseStopsOneAndLeavesTheOtherComplete() async throws {
+    let (store, bots, state) = e2eStore()
+    store.sessionNamespace = HeadlessE2E.namespace
+    let step = await HeadlessE2E.concurrentStep(store: store, bots: bots, tag: "unit", timing: .fast)
+    #expect(step.passed, "\(step.line)")
+    #expect(step.id == "h" && step.detail.contains("first stopped"))
+    let requests = state.requests()
+    let streams = requests.filter { $0.path.hasSuffix("/chat/stream") }
+    #expect(streams.count == 2 && Set(streams.map { $0.path.split(separator: "/")[1] }).count == 2, "two bots, two profiles")
+    #expect(requests.filter { $0.path.hasSuffix("/stop") }.count == 1, "only the first turn is stopped")
+    #expect(!store.anyTurnRunning && !store.bots.contains { $0.name.contains(" h unit") }, "the copies are removed afterwards")
+}
+
+@MainActor @Test func e2eConcurrentVerdictNeedsBothTurnsAtOnceAndACompleteSecondReply() {
+    let partial = ChatMessage(role: .assistant, content: "1\n", turnState: .stopped)
+    let done = ChatMessage(role: .assistant, content: "1 2 3 4 5 \(HeadlessE2E.concurrentToken)", turnState: .finished)
+    let cut = ChatMessage(role: .assistant, content: "1 2", turnState: .stopped)
+    #expect(HeadlessE2E.concurrentOutcome(first: [partial], second: [done], both: true, stopped: true, ended: true).passed)
+    #expect(!HeadlessE2E.concurrentOutcome(first: [partial], second: [done], both: false, stopped: true, ended: true).passed)
+    #expect(HeadlessE2E.concurrentOutcome(first: [partial], second: [cut], both: true, stopped: true, ended: true).detail.contains("left the second incomplete"))
+    #expect(!HeadlessE2E.concurrentOutcome(first: [done], second: [done], both: true, stopped: false, ended: true).passed)
 }

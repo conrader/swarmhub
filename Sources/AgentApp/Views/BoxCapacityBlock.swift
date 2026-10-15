@@ -28,7 +28,7 @@ struct BoxCapacityBlock: View {
                 if checking { ProgressView().controlSize(.small) }
                 Button("Check") { Task { await store.checkCapacity(on: target) } }.disabled(checking)
                 if let capacity, capacity.offersAdvised {
-                    Button("Use advised") { store.requestCodingLimit(capacity.advised, on: target) }.disabled(!store.isIdle)
+                    Button("Use advised") { store.requestCodingLimit(capacity.advised, on: target) }.disabled(!store.managerIdle(on: target))
                 }
                 Button("Set limit…") { limit = capacity?.slots ?? 1; settingLimit = true }.disabled(capacity == nil)
                     .popover(isPresented: $settingLimit) { if let capacity { limitPopover(capacity) } }
@@ -44,7 +44,7 @@ struct BoxCapacityBlock: View {
                 Spacer()
                 Button("Cancel") { settingLimit = false }
                 Button("Ask the manager") { if store.requestCodingLimit(limit, on: target) { settingLimit = false } }
-                    .keyboardShortcut(.defaultAction).disabled(!store.isIdle)
+                    .keyboardShortcut(.defaultAction).disabled(!store.managerIdle(on: target))
             }
         }
         .padding(16).frame(width: 340)

@@ -101,11 +101,11 @@ struct GroupAvatarStack: View {
 }
 
 extension AppStore {
-    /// The bot is answering right now (anywhere). `UISmokeProbe.forcedWorking` is the smoke's 2 s override.
-    func isWorking(_ bot: Bot) -> Bool { UISmokeProbe.forcedWorking == bot.id || (isStreaming && streamingBotID == bot.id) }
+    /// The bot is answering right now (anywhere; P39: several bots at once). `UISmokeProbe.forcedWorking` is the smoke's 2 s override.
+    func isWorking(_ bot: Bot) -> Bool { UISmokeProbe.forcedWorking == bot.id || runningTurns.values.contains { $0.botID == bot.id && !$0.stopping } }
     /// The bot is answering in this group.
     func isWorking(_ bot: Bot, in group: GroupChat) -> Bool {
-        UISmokeProbe.forcedWorking == bot.id || (isStreaming && streamingBotID == bot.id && streamingConversation === group)
+        UISmokeProbe.forcedWorking == bot.id || turn(in: group).map { $0.botID == bot.id && !$0.stopping } == true
     }
 
     func hasPendingApproval(_ bot: Bot) -> Bool { approvals.contains { $0.botID == bot.id } }

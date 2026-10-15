@@ -174,7 +174,7 @@ struct WorkflowStartSheet: View {
     private var reason: String? {
         if store.members(of: group).isEmpty { return nil }
         if store.workflows(in: group).contains(where: \.isActive) { return "This group already has a workflow running. Pause or finish it first." }
-        if store.isStreaming { return "Wait for the current reply to finish." }
+        if let full = store.turnCapacityProblem(for: []) { return full }
         return nil
     }
 }

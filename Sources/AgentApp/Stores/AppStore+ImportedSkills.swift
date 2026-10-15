@@ -72,7 +72,7 @@ extension AppStore {
     /// Install pressed in the sheet: one management turn in the manager's chat. False when there is no Hermes manager,
     /// another turn is running, or the skill cannot be written safely.
     @discardableResult func installImportedSkill(_ skill: ImportedTemplateSkill, on bot: Bot) -> Bool {
-        guard canInstallImported(on: bot), let manager = manager(for: bot), isIdle else { return false }
+        guard canInstallImported(on: bot), let manager = manager(for: bot), isIdle(manager) else { return false }
         let profile = bot.hermesProfile ?? "default"
         guard let instructions = importedSkillInstallInstructions(skill, profile: profile, botName: bot.name) else { return false }
         pendingSkillInstalls[manager.id] = SkillInstallTurn(profile: profile, instructions: instructions)

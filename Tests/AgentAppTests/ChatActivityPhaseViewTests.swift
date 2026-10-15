@@ -10,7 +10,7 @@ import Testing
     let bot = Bot(name: "Bot fixture"), group = GroupChat(name: "Group fixture", memberIDs: [bot.id])
     let reply = ChatMessage(role: .assistant, content: "", isStreaming: true)
     bot.messages = [reply]; group.messages = [reply]; store.bots = [bot]; store.groups = [group]
-    store.isStreaming = true; store.streamingBotID = bot.id; store.streamingAssistant = reply; store.streamingConversation = group
+    store.beginTurn(in: group, bot: bot, assistant: reply)
     let size = NSSize(width: 720, height: 360)
     // One fixed clock for the views and the events: the text arrives at `typedAt`, and the views read the phase then,
     // however long a render takes on a loaded Mac.
@@ -40,7 +40,7 @@ import Testing
 
     reply.content = "Reply text arrives in pieces."; reply.lastTextAt = typedAt; store.objectWillChange.send()
     #expect(try await phaseLabels(in: host, named: "Typing") >= 3)
-    reply.isStreaming = false; store.isStreaming = false
+    reply.isStreaming = false; store.runningTurns = [:]
     #expect(try await phaseLabels(in: host, named: "Typing") == 0)
 }
 

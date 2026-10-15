@@ -19,7 +19,7 @@ extension AppStore {
             // A removed assignee could still be working remotely: only work that was never sent moves.
             return task.state == .queued || task.replyID == nil
         }
-        guard !(isStreaming && streamingConversation === thread) else { return false }
+        guard isIdle(thread) else { return false }
         return thread.messages.filter { $0.role == .assistant && $0.presentation == .text }
             .allSatisfy { $0.turnState == .notSent && $0.metadata[TurnKey.ambiguous] != "1" }
     }

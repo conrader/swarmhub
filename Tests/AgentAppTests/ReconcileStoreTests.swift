@@ -131,7 +131,7 @@ import Testing
     let full = syntheticParagraph(98, seed: 3) + "\n\n" + syntheticParagraph(193, seed: 4)
     states[0].with { $0.scripts = [.cut(chunks: [String(full.prefix(98)) + "\n\n"], persist: full)] }
     #expect(store.send(text: "tell me"))
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     try await waitUntil { bot.messages.first { $0.role == .assistant }?.content == full }
     let reply = try #require(bot.messages.first { $0.role == .assistant })
     #expect(reply.turnState == .finished && reply.metadata["restored"] == "extended")

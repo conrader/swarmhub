@@ -90,7 +90,7 @@ actor ReportThenDisconnectBackend: AgentBackend {
 
     func resumeAndSettle(_ store: AppStore, _ id: UUID) async throws {
         store.resumeWorkflow(id)
-        try await waitUntil { store.isIdle && store.workflows[id]?.state != .running && store.workflows[id]?.tasks.contains { $0.state == .running } == false }
+        try await waitUntil { !store.anyTurnRunning && store.workflows[id]?.state != .running && store.workflows[id]?.tasks.contains { $0.state == .running } == false }
     }
 
     @Test func helpReviewRevisionAndSynthesisRunWithoutConnectedAppCredentials() async throws {
@@ -135,7 +135,7 @@ actor ReportThenDisconnectBackend: AgentBackend {
     @Test func hiddenOperationTurnsAreChargedToTheAllowance() async throws {
         let (store, _, id) = try fixture()
         store.resumeWorkflow(id)
-        try await waitUntil { store.isIdle && store.workflows[id]?.state == .paused && store.workflows[id]?.tasks.first?.state == .completed }
+        try await waitUntil { !store.anyTurnRunning && store.workflows[id]?.state == .paused && store.workflows[id]?.tasks.first?.state == .completed }
         let workflow = try #require(store.workflows[id])
         let reply = try #require(store.bots[0].threads.first { $0.id == workflow.tasks[0].threadID }?.messages.last { $0.role == .assistant })
         let hidden = try #require(Int(reply.metadata[TurnKey.toolTokens] ?? ""))

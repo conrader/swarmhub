@@ -117,7 +117,7 @@ actor EndingBackend: AgentBackend {
     for (ending, state, warns, alertOrWhy) in cases {
         let (store, bot) = endingStore(ending)
         #expect(store.send(text: "question"))
-        try await waitUntil { store.isIdle }
+        try await waitUntil { !store.anyTurnRunning }
         let reply = try #require(bot.messages.first { $0.role == .assistant })
         #expect(reply.turnState == state, "\(ending)")
         #expect(bot.messages.count == (warns ? 3 : 2), "the placeholder is never deleted; one warning line per failure (\(ending))")
@@ -146,7 +146,7 @@ actor EndingBackend: AgentBackend {
     try await waitUntil { bot.messages.last?.content == "running" }
     store.stop()
     #expect(bot.messages.first { $0.role == .assistant }?.turnState == .stopped, "set synchronously in stop()")
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(bot.messages.first { $0.role == .assistant }?.turnState == .stopped && bot.messages.first { $0.role == .assistant }?.content == "running")
 }
 
@@ -155,7 +155,7 @@ actor EndingBackend: AgentBackend {
     states[0].with { $0.scripts = [.status(403)] }
     let group = try #require(store.createGroup(name: "", memberIDs: bots.map(\.id)))
     store.send(text: "hello all", to: group)
-    try await waitUntil { store.isIdle && group.round == nil }
+    try await waitUntil { !store.anyTurnRunning && group.round == nil }
     let alpha = try #require(group.messages.first { $0.authorID == bots[0].id })
     #expect(alpha.turnState == .notSent && alpha.metadata["why"] == "refused" && alpha.content.isEmpty, "kept, not deleted")
     #expect(group.messages.contains { $0.metadata["tone"] == "warning" && $0.content.hasPrefix("Alpha: HTTP 403") })

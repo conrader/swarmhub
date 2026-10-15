@@ -40,7 +40,7 @@ private final class GatewayScript: @unchecked Sendable {
 
 @MainActor private func turn(_ store: AppStore, _ text: String) async throws {
     #expect(store.send(text: text))
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
 }
 
 private func block(_ json: String) -> String { "Done.\n```swarmhub\n\(json)\n```" }

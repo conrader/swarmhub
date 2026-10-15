@@ -4,7 +4,8 @@ import Foundation
 /// before it is sent, so a quit never loses or repeats it. `anchorID` is the row that offered it: the failed steer
 /// bubble, or the review card whose notes go out.
 struct NextMessageRecord: Codable, Equatable, Sendable {
-    enum Kind: String, Codable, Sendable { case steer, reviewNotes }
+    /// `turn` (P39): a user message that waits at the turn limit; the anchor is the message itself.
+    enum Kind: String, Codable, Sendable { case steer, reviewNotes, turn }
     enum State: String, Codable, Sendable { case waiting, sent, removed }
     var id: UUID
     var anchorID: UUID
@@ -60,6 +61,12 @@ extension AppStore {
                         try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString); continue
                     }
                     bubble = ChatMessage(role: .user, content: record.text)
+                case .turn:
+                    guard anchor.metadata[TurnWaitCopy.key] == "waiting", anchor.content == record.text else {
+                        endWait(anchor, in: conversation)
+                        try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString); continue
+                    }
+                    bubble = anchor
                 }
                 turns.nextMessages.append(QueuedNextMessage(id: record.id, conversation: conversation, bubble: bubble, kind: record.kind, anchorID: anchor.id, restored: true))
             }
@@ -97,9 +104,18 @@ extension AppStore {
     /// The entry leaves the queue; its button (Send as next message, Send notes) offers it again.
     func giveBack(_ next: QueuedNextMessage) {
         recordNextMessage(next, .removed)
+        giveBackBubble(next)
+    }
+
+    /// What a removed entry leaves behind: the steer's button returns, the review card's notes can go again, and a message
+    /// that waited for a turn says it was not sent.
+    func giveBackBubble(_ next: QueuedNextMessage) {
         switch next.kind {
         case .steer: next.bubble.metadata[SteerKey.steer] = "failed"
         case .reviewNotes: conversation(containing: next.anchorID)?.messages.first { $0.id == next.anchorID }?.metadata[ReviewKey.sent] = nil
+        case .turn:
+            endWait(next.bubble, in: next.conversation)
+            addWarning(TurnWaitCopy.notSent, in: next.conversation, after: next.bubble)
         }
     }
 }

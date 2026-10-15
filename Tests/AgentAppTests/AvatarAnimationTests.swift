@@ -179,7 +179,7 @@ import Testing
                 try await waitUntil { bot.messages.last?.content == "Partial reply" }
                 store.stop()
             }
-            try await waitUntil { store.isIdle }
+            try await waitUntil { !store.anyTurnRunning }
             #expect((AvatarReactions.shared.completions[bot.id] != nil) == (result == "success"))
         }
     }
