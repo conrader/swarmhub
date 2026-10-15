@@ -37,6 +37,7 @@ struct ContentView: View {
         .sheet(item: $store.editingBot) { BotEditorView(bot: $0) }
         .sheet(item: $store.openBotThread) { BotThreadSheet(center: store.botMessages, key: $0) }
         .sheet(item: $store.adoptionOffer) { AdoptionSheet(offer: $0) { store.adoptionOffer = nil } }
+        .sheet(item: $store.subAgentModelRequest) { SubAgentModelSheet(request: $0) }
         .onReceive(NotificationCenter.default.publisher(for: .toggleInfo)) { _ in store.showInfo.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in store.sidebarHidden.toggle() }
         .onReceive(NotificationCenter.default.publisher(for: .newBot)) { _ in store.showingNewBot = true }

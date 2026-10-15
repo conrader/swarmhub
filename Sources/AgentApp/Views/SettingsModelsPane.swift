@@ -38,7 +38,7 @@ struct SettingsModelsPane: View {
         }
         Section("Set on the box (read-only)") {
             boxLine("Agent default", model.fleetSummary, note: nil)
-            boxLine("Sub-agents", model.subAgentSummary, note: ModelRoleReason.boxOnly.text)
+            boxLine("Sub-agents", model.subAgentSummary, note: "Each bot's sub-agent model is under its name above.")
             boxLine("Compaction", nil, note: ModelRoleReason.boxOnly.text)
             boxLine("Routines", nil, note: ModelRoleReason.boxOnly.text)
         }
@@ -72,6 +72,8 @@ struct SettingsModelsPane: View {
             ForEach(CodingOrder.allCases) { Text($0.title).tag($0) }
         }
         Text(CodingOrder.help + " A bot can choose its own in its settings.").font(.caption).foregroundStyle(.secondary)
+        // P31 E: how many coding jobs each Hermes box runs side by side (nothing about other boxes; OpenClaw has none).
+        ForEach(store.hermesConnections, id: \.target) { connection in BoxCapacityBlock(target: connection.target, host: connection.host) }
     }
 
     private func defaultMenu(_ title: String, _ role: WritableKeyPath<ModelDefaults, ModelChoice?>, fallback: String, picker: ModelPickerModel?, enabled: Bool) -> some View {
@@ -100,6 +102,8 @@ struct SettingsModelsPane: View {
                     if let readOnly = row.readOnly { Text(readOnly).font(.caption2).foregroundStyle(.secondary) }
                     if let error = row.loadError { Text(error).font(.caption2).foregroundStyle(.orange) }
                     if let blocked = row.blocked { Text(blocked.text).font(.caption2).foregroundStyle(.secondary) }
+                    // P31 D: the sub-agent model the manager reported.
+                    if !row.isOpenClaw, let bot = store.bots.first(where: { $0.id == row.id }) { SubAgentLineView(bot: bot, delegationOff: row.delegation == false) }
                 }
             }
             Spacer()

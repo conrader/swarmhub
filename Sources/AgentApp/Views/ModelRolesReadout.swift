@@ -32,9 +32,10 @@ struct ModelRolesReadout: View {
                 Text(line.text).font(.caption).foregroundStyle(.secondary).accessibilityLabel(line.accessibilityLabel)
                 if let note = line.note { Text(note).font(.caption2).foregroundStyle(.orange) }
             }
-            Text("Sub-agents: \(ModelRoleReason.boxOnly.text)").font(.caption).foregroundStyle(.secondary)
-            if row.delegationListed {
-                Text(row.delegation == false ? ModelRoleReason.subAgentsOff.text : "Delegation toolset: \(row.subAgents).").font(.caption2).foregroundStyle(.tertiary)
+            // P31 D: the sub-agent model the manager reported (Check / Change…); sub-agents turned off wins.
+            SubAgentLineView(bot: bot, delegationOff: row.delegation == false)
+            if row.delegationListed, row.delegation != false {
+                Text("Delegation toolset: \(row.subAgents).").font(.caption2).foregroundStyle(.tertiary)
             }
             if let mismatch = row.mismatch {
                 Text(mismatch).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
