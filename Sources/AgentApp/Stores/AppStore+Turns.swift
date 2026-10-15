@@ -59,6 +59,7 @@ extension AppStore {
                 request.botID = bot.id; request.profile = bot.hermesProfile ?? "default"; request.sessionID = sessionID
                 await routeApproval(request, for: bot, backend: activeBackend)
             case .steer: break
+            case .hiddenTokens(let count): assistant.metadata[TurnKey.toolTokens] = String((Int(assistant.metadata[TurnKey.toolTokens] ?? "") ?? 0) + max(0, count))
             case .completed: completed = true
             case .failed(let value): boxFailure = value
             }

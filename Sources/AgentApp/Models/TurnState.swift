@@ -94,4 +94,6 @@ enum TurnKey {
     static let end = "end", check = "check", retry = "retry"
     /// P28 D5: a reply split by a delivered steer: "1" on the part before it, "2", "3"… on the parts after.
     static let part = "part"
+    /// P38 E: estimated tokens of the hidden tool and workflow-operation turns inside a reply (`ConnectedAppsChat`).
+    static let toolTokens = "toolTokens"
 }
