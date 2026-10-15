@@ -39,7 +39,9 @@ enum SettingsLayout {
         "about.version", "about.build", "about.autoCheck", "about.autoDownload", "about.checkUpdates", "about.acknowledgements"
     ]
     /// New in P21: the simple page's connection controls and its way into Advanced.
-    static let added = ["connection.status", "connection.test", "connection.setup", "advanced.open"]
+    static let added = ["connection.status", "connection.test", "connection.setup", "advanced.open",
+                        // P36: the SwarmHub account and the Reports inbox.
+                        "account.swarmhub", "account.serviceURL", "reports.list"]
 
     static let entries: [(id: String, home: Home)] = [
         ("connection.status", .simple), ("connection.test", .simple), ("connection.setup", .simple), ("you.name", .simple),

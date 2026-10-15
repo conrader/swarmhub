@@ -126,7 +126,7 @@ struct ReportDetailView: View {
         HStack { KindChip(kind: report.kind); Text(report.source == .user ? "Your report" : "From \(store.reportBot(report)?.name ?? report.bot ?? "a bot")").foregroundStyle(.secondary) }
         TextField("Title", text: $title).textFieldStyle(.roundedBorder).font(.system(size: 15, weight: .medium))
         if report.hasBody || !bodyText.isEmpty {
-            TextEditor(text: $bodyText).font(.system(size: 13)).frame(minHeight: 180).scrollContentBackground(.hidden)
+            TextEditor(text: $bodyText).font(.system(size: 13)).frame(minHeight: 140).scrollContentBackground(.hidden)
                 .padding(6).background(RoundedRectangle(cornerRadius: 8).fill(AppColor.card)).overlay(RoundedRectangle(cornerRadius: 8).stroke(AppColor.separator))
         } else {
             Label("Fetching the report from the box…", systemImage: "arrow.down.circle").foregroundStyle(.secondary)

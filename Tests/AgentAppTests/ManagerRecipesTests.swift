@@ -38,7 +38,8 @@ private func check(_ name: String, _ text: String?, carries wanted: Set<String>)
     let core = try #require(BotManagerText.template()), box = try #require(BotManagerText.recipe(.box))
     let accounts = try #require(BotManagerText.recipe(.accounts))
     #expect(core.utf8.count <= 4_700, "core is \(core.utf8.count) bytes")
-    #expect(box.utf8.count <= 2_400 && accounts.utf8.count <= 4_000, "box \(box.utf8.count), accounts \(accounts.utf8.count)")
+    // P36: + the reports listing and "Close reports" (2,816 bytes).
+    #expect(box.utf8.count <= 2_900 && accounts.utf8.count <= 4_000, "box \(box.utf8.count), accounts \(accounts.utf8.count)")
     print("P31C-SIZE core manager-hermes.md: \(core.utf8.count) bytes; recipes/box.md: \(box.utf8.count); recipes/accounts.md: \(accounts.utf8.count)")
     for line in coreLines { #expect(core.contains(line), "\(line)") }
     let parts = ["core": core, "box": box, "accounts": accounts]
