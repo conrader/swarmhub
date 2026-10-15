@@ -14,6 +14,7 @@ private struct FixtureReviewerBackend: AgentBackend {
 @main struct AgentAppMain: App {
     @StateObject private var store: AppStore
     @StateObject private var updater: AppUpdater
+    @NSApplicationDelegateAdaptor(AppIconAppearance.self) private var iconAppearance
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
     private let snapshotAppearance: String?

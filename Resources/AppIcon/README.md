@@ -20,3 +20,11 @@ iconutil --convert icns Resources/AppIcon/AppIcon.iconset \
 ```
 
 `scripts/package-release.sh` builds `SwarmHub.icns` directly from the iconset and places it in the app's `Contents/Resources/` before signing. `CFBundleIconFile` in `Resources/Info.plist` points to it, so Finder and Dock use the icon in packaged apps. Existing published installers retain their original signed resources until a new app release is built.
+
+## Light and dark Dock icon (P38)
+
+`SwarmHub-logo-dark.svg` and `SwarmHub-icon-dark.svg` are the dark drawing: a cream face with olive eyes on an olive
+tile. `AppIcon-dark.iconset/` holds its ten Mac sizes. `ThemeIcons/SwarmHub-light.png` and `SwarmHub-dark.png` (1024 px)
+are bundled for `AppIconAppearance`, which sets the running app's Dock icon from the Light, Dark or System preference
+(System follows macOS, also with no window open). SwiftPM, the `swiftc` fallback and `package-release.sh` all include
+`ThemeIcons/`. `AppIcon.icns` stays the light icon Finder shows before launch.
