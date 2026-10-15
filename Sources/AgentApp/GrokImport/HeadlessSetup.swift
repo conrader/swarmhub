@@ -93,7 +93,7 @@ import SwiftUI
         return failures == 0 ? 0 : 1
     }
 
-    private static func png<V: View>(_ view: V, store: AppStore, updater: AppUpdater, size: NSSize) async -> Data? {
+    static func png<V: View>(_ view: V, store: AppStore, updater: AppUpdater, size: NSSize) async -> Data? {
         await SnapshotRenderer.png(view.environmentObject(store).environmentObject(updater).defaultAppStorage(store.defaults), size: size)
     }
 }

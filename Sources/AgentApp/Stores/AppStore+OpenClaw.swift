@@ -180,8 +180,9 @@ extension AppStore {
     }
 
     private func scheduleApprovalExpiry(_ id: UUID, bot: Bot, at date: Date) {
+        let sleep = approvalExpirySleep
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(max(0, date.timeIntervalSinceNow)))
+            try? await sleep(.seconds(max(0, date.timeIntervalSinceNow)))
             guard let self, let approval = approvals.first(where: { $0.id == id }) else { return }
             approvals.removeAll { $0.id == id }
             appendAudit(to: bot, approval: approval, outcome: .denied, decidedBy: "system", reason: "The Gateway's approval request expired.")

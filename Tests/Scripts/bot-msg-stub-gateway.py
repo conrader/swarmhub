@@ -3,7 +3,8 @@
 #   python3 -I bot-msg-stub-gateway.py <state dir>
 #
 # <state>/reset (a new case): forget sessions and restart the input count.
-# <state>/keys: "<profile> <key>" lines. <state>/mode: ok | slow | fail | down500 (read per request).
+# <state>/keys: "<profile> <key>" lines. <state>/mode: ok | slow | fail | down500 (read per request); slow holds the
+# reply until the test creates <state>/release, then writes <state>/answered and answers.
 # Writes <state>/port when listening; appends "<METHOD> <path> <auth ok|bad> <status> [title=… id=…]" to
 # <state>/requests and the decoded chat input to <state>/input.<n>. Profiles: /p/<profile>/api/… else default.
 import json, os, sys, time, threading
@@ -87,7 +88,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(500, '{"error":{"message":"boom"}}')
             record(f"POST {self.path} ok 200 known={known}")
             if mode == "slow":
-                time.sleep(4)
+                # Released by the test, not after a time, so a loaded machine cannot answer early; the ceiling bounds a hang.
+                deadline = time.monotonic() + 120
+                while not os.path.exists(f"{STATE}/release") and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                open(f"{STATE}/answered", "w").close()
             if mode == "fail":
                 events = [("run.started", {}), ("run.failed", {"error": "Provider authentication failed"})]
             else:

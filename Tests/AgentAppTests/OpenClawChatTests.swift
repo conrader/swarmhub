@@ -149,17 +149,19 @@ func collect(_ stream: AsyncThrowingStream<AgentEvent, Error>) async throws -> [
 }
 
 @MainActor @Test func aRunThatFinishedWhileAwayTakesTheFinalMessageAndAGoneRunFailsPlainly() async throws {
-    let (backend, fake, _) = clawBackend()
+    let (backend, fake, hub) = clawBackend()
     fake.handlers["chat.send"] = ackingSend()
     fake.handlers["chat.history"] = { _, _ in .success(["messages": [["role": "user", "content": "q"], ["role": "assistant", "content": "All done."]], "sessionInfo": ["hasActiveRun": false, "activeRunIds": []]]) }
     let stream = try await backend.send(AgentRequest(sessionID: "agent:agent-alpha:s1", systemPrompt: "", messages: [("user", "q")]))
-    try await fake.requestLog.wait { $0.contains("chat.send") }
+    // The link drops after the client has the ack's run id (a drop before the ack is a failed send, not this case).
+    try await waitUntil { await hub.ledger.run(id: "run-1") != nil }
     fake.lastSocket?.drop()
     #expect(try await collect(stream) == ["replace:All done.", "completed"])
 
     fake.handlers["chat.history"] = { _, _ in .success(["messages": [["role": "user", "content": "q"]], "sessionInfo": ["hasActiveRun": false]]) }
+    fake.handlers["chat.send"] = ackingSend(runId: "run-2")
     let lost = try await backend.send(AgentRequest(sessionID: "agent:agent-alpha:s1", systemPrompt: "", messages: [("user", "q")]))
-    try await fake.requestLog.wait { $0.filter { $0 == "chat.send" }.count == 2 }
+    try await waitUntil { await hub.ledger.run(id: "run-2") != nil }
     fake.lastSocket?.drop()
     let failure = await #expect(throws: BackendError.self) { _ = try await collect(lost) }
     #expect(failure?.localizedDescription == OpenClawBackend.lostRun)

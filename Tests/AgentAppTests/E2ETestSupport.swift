@@ -34,6 +34,9 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         var deletedSessions: Set<String> = []
         var deleteKeepsSession = false
         var multiplex = true
+        /// Without `run_steer` a held run ends on its own after this many seconds (a test that only needs the client to
+        /// see the first tokens and fail to steer sets it shorter).
+        var unsteeredHold: TimeInterval = 5
         private let steerSignal = NSCondition()
         init(features: [String: Bool]) { self.features = features }
         func with<T>(_ body: (State) -> T) -> T { lock.lock(); defer { lock.unlock() }; return body(self) }
@@ -134,7 +137,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
     }
 
     /// "Count…" streams "1", then holds the run until it is steered or stopped (the ceiling only bounds a hang). Without
-    /// `run_steer` no steer can come, so the count ends on its own after 5 s, ample time for the client to see "1" and try.
+    /// `run_steer` no steer can come, so the count ends on its own after `unsteeredHold` (5 s), ample time for the client to see "1" and try.
     /// "sleep 15" (b2) starts a terminal step and holds it until steered; then `run.steered`, the step's end and the
     /// steered text. Anything else answers its `exactly: E2E-…` token.
     /// `{provider, model, route_source, requested, model_lock}` as `run.started` carries it (both versions).
@@ -161,7 +164,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         if input.contains("sleep 15") {
             client?.urlProtocol(self, didLoad: Self.event("tool.started", ["run_id": run, "tool_name": "terminal", "preview": "sleep 15; echo E2E-TOOL", "tool_call_id": "call-1"]))
             DispatchQueue.global().async { [self] in
-                let hold = state.with { $0.features["run_steer"] == true } ? Double(waitCeiling.components.seconds) : 5
+                let hold = state.with { $0.features["run_steer"] == true ? Double(waitCeiling.components.seconds) : $0.unsteeredHold }
                 let steered = state.waitForSteer(of: run, until: Date(timeIntervalSinceNow: hold))
                 var data = steered ? Self.event("run.steered", ["run_id": run, "accepted": true]) : Data()
                 data += Self.event("tool.completed", ["run_id": run, "tool_name": "terminal", "tool_call_id": "call-1"])
@@ -179,7 +182,7 @@ final class E2EServer: URLProtocol, @unchecked Sendable {
         client?.urlProtocol(self, didLoad: Self.event("assistant.delta", ["run_id": run, "delta": "1\n"]))
         DispatchQueue.global().async { [self] in
             let canSteer = state.with { $0.features["run_steer"] == true }
-            let hold = canSteer ? Double(waitCeiling.components.seconds) : 5
+            let hold = canSteer ? Double(waitCeiling.components.seconds) : state.with { $0.unsteeredHold }
             let steered = state.waitForSteer(of: run, until: Date(timeIntervalSinceNow: hold))
             if state.isStopped(run) { client?.urlProtocol(self, didLoad: Self.event("run.cancelled", ["run_id": run])) }
             // A steer during text waits for a tool batch that never comes: the box hands it back unread (Hermes 0.22.0).

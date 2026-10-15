@@ -38,12 +38,14 @@ new_case() {
   printf 'API_SERVER_ENABLED=true\n' > "$H/profiles/nokey/.env"
   printf 'export API_SERVER_KEY=%s\r\n' "$KEY_DEFAULT" > "$H/.env"
   LOG=$H/swarmhub/bot-messages.log
-  rm -f "$ROOT/gw/requests" "$ROOT"/gw/input.*
+  rm -f "$ROOT/gw/requests" "$ROOT"/gw/input.* "$ROOT/gw/release" "$ROOT/gw/answered"
   echo ok > "$ROOT/gw/mode"; : > "$ROOT/gw/reset"
   GWURL=$GATEWAY
   PROBLEMS=
 }
 mode() { echo "$1" > "$ROOT/gw/mode"; }
+# Ends a slow reply's hold and waits until the gateway has let it go (the loop only bounds a hang).
+release() { : > "$ROOT/gw/release"; i=0; while [ ! -e "$ROOT/gw/answered" ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i + 1)); done; }
 # bot-msg with the case's HOME and a minimal PATH; output in $C/out, $C/err, exit code in RC.
 msg() { msg_with "$MSG" "$@"; }
 msg_with() {
@@ -101,13 +103,11 @@ done_case
 # 3
 new_case "no-wait: session id at once, the message still arrives"
 mode slow
-t0=$(date +%s)
 msg --from jarvis --to infra --no-wait -- 'Restart the backup job when you can'
-t1=$(date +%s)
+expect "returned while the reply was still held" [ ! -e "$ROOT/gw/answered" ]
+release
 expect "exit 0 (got $RC: $(cat "$C/err"))" [ "$RC" -eq 0 ]
 expect "prints the session id" [ "$(cat "$C/out")" = swarmhub-from-jarvis ]
-expect "returned before the slow reply ($((t1 - t0)) s)" [ $((t1 - t0)) -le 3 ]
-i=0; while [ ! -s "$ROOT/gw/input.1" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
 expect "chat request reached the gateway" [ "$(sed -n 2p "$ROOT/gw/input.1" 2>/dev/null)" = 'Restart the backup job when you can' ]
 expect "log says queued" [ "$(field 5)" = queued ]
 expect "log ok" [ "$(field 7)" = ok ]
@@ -119,6 +119,7 @@ mode slow
 msg --from jarvis --to infra --wait 1 -- 'slow question'
 expect "exit 124 (got $RC)" [ "$RC" -eq 124 ]
 expect "says it may still answer" has "$C/err" 'no reply from infra within 1s'
+release
 expect "log error" [ "$(field 7)" = error ]
 expect "log waited" [ "$(field 5)" = waited ]
 done_case
@@ -141,15 +142,17 @@ done_case
 # 6
 new_case "the key is never in argv, output or log"
 mode slow
-msg --from jarvis --to infra --wait 10 -- 'watch my argv' &
+msg --from jarvis --to infra --wait 120 -- 'watch my argv' &
 BG=$!
 SEEN=
+# The reply is held while ps is read: at least 5 times and until curl is among the processes seen (300 bounds a hang).
 i=0
-while [ $i -lt 30 ]; do
+while [ $i -lt 300 ] && kill -0 $BG 2>/dev/null && { [ $i -lt 5 ] || [ -z "${CURL_SEEN:-}" ]; }; do
   if ps -A -o args= 2>/dev/null | grep -F -- "$KEY_INFRA" | grep -v grep > /dev/null; then SEEN=1; fi
   ps -A -o args= 2>/dev/null | grep -F -- 'swarmhub-from-jarvis/chat/stream' | grep -v grep > /dev/null && CURL_SEEN=1
-  sleep 0.15; i=$((i + 1))
+  sleep 0.05; i=$((i + 1))
 done
+release
 wait $BG
 expect "curl was running while we looked" [ -n "${CURL_SEEN:-}" ]
 expect "key never in ps" [ -z "$SEEN" ]

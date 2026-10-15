@@ -42,6 +42,8 @@ import Testing
 @MainActor @Test func e2eFailsStepsTheServerDoesNotSupport() async throws {
     var features = E2EServer.allFeatures; features["run_steer"] = false; features["session_fork"] = false
     let (store, bots, state) = e2eStore(features: features)
+    // The client sees the first tokens at once and finds no steer; the held runs need not last 5 s each.
+    state.with { $0.unsteeredHold = 1 }
     var lines: [String] = []
     let steps = await HeadlessE2E.run(store: store, bots: bots, timing: .fast, output: { lines.append($0) })
 

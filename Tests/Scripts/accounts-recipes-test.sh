@@ -31,14 +31,16 @@ LOGOUT=$(recipe 'Log out (claude or codex)')
 cat > "$ROOT/stub" <<'STUB'
 #!/bin/sh
 me=$(basename "$0")
+# A sign-in "waits for Konrad" until the test releases it (after step 2 read the link), however slow the machine is.
+held() { while [ ! -f "$HOME/release" ]; do sleep 0.05; done; }
 case "$me $*" in
   "claude --version") echo "2.1.3 (Claude Code)" ;;
   "codex --version") echo "codex-cli 0.50.1" ;;
   "codex login --help") echo "Usage: codex login [OPTIONS]"; echo "      --device-auth   Sign in with a device code" ;;
   "codex login --device-auth") printf '\033[1mFollow these steps:\033[0m\n1. Open \033[4mhttps://auth.openai.com/codex/device\033[0m\n2. Enter this one-time code \033[1mABCD-1234\033[0m\n'
-    sleep 2; mkdir -p "$HOME/.codex"; echo '{"tokens":"T"}' > "$HOME/.codex/auth.json" ;;
+    held; mkdir -p "$HOME/.codex"; echo '{"tokens":"T"}' > "$HOME/.codex/auth.json" ;;
   "codex logout") rm -f "$HOME/.codex/auth.json" ;;
-  "hermes auth add openai-codex") echo "HERMES_HOME=$HERMES_HOME"; echo "Open https://auth.openai.com/codex/device and enter WXYZ-9876"; sleep 1; echo "denied"; exit 1 ;;
+  "hermes auth add openai-codex") echo "HERMES_HOME=$HERMES_HOME"; echo "Open https://auth.openai.com/codex/device and enter WXYZ-9876"; held; echo "denied"; exit 1 ;;
   *) echo "stub $me: $*" >&2; exit 2 ;;
 esac
 STUB
@@ -49,9 +51,12 @@ new_case() {
   mkdir -p "$C/home/.hermes/swarmhub/bin" "$C/bin"
   for n in "$@"; do cp "$ROOT/stub" "$C/bin/$n"; chmod 755 "$C/bin/$n"; done
 }
+# The recipes poll every 1-2 s on the box; here 10 times as often, with the same ceilings (40 s link, 120 s check).
+fast() { sed -e 's/\[ \$i -lt 40 \]; do sleep 1;/[ $i -lt 400 ]; do sleep 0.1;/' -e 's/\[ \$i -lt 120 \]; do sleep 2;/[ $i -lt 1200 ]; do sleep 0.2;/' \
+  -e 's/\[ \$i -lt 2 \]; do sleep 2;/[ $i -lt 2 ]; do sleep 0.2;/'; }
 # Runs recipe $1 with <tool> = $2 and <code> = $3; output in $C/out.
 run() {
-  printf '%s\n' "$1" | sed -e "s|<tool>|$2|g" -e "s|<code>|$3|g" > "$C/recipe.sh"
+  printf '%s\n' "$1" | sed -e "s|<tool>|$2|g" -e "s|<code>|$3|g" | fast > "$C/recipe.sh"
   env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin:$NODE_DIR" "$SH" "$C/recipe.sh" > "$C/out" 2> "$C/err"
 }
 expect() { what=$1; shift; "$@" || PROBLEMS="$PROBLEMS; $what"; }
@@ -93,6 +98,7 @@ printf '%s\n' "$START" | sed "s|<tool>|codex|g" > "$C/start.sh"
 env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin:$NODE_DIR" "$SH" "$C/start.sh" & BG=$!
 run "$LINK" codex
 expect "login_link (got: $(cat "$C/out"))" has '{"op":"login_link","tool":"codex","url":"https://auth.openai.com/codex/device","code":"ABCD-1234"}'
+: > "$C/home/release"
 run "$CHECK" codex
 wait "$BG"
 expect "login_done ok (got: $(cat "$C/out"))" has '{"op":"login_done","tool":"codex","ok":true}'
@@ -106,6 +112,7 @@ printf '%s\n' "$START" | sed "s|<tool>|chatgpt|g" > "$C/start.sh"
 env HOME="$C/home" HERMES_HOME="$C/home/.hermes/profiles/boss" PATH="$C/bin:/usr/bin:/bin" "$SH" "$C/start.sh" & BG=$!
 run "$LINK" chatgpt
 expect "login_link (got: $(cat "$C/out"))" has '{"op":"login_link","tool":"chatgpt","url":"https://auth.openai.com/codex/device","code":"WXYZ-9876"}'
+: > "$C/home/release"
 wait "$BG"
 run "$CHECK" chatgpt
 expect "login_done false (got: $(cat "$C/out"))" has '{"op":"login_done","tool":"chatgpt","ok":false}'
@@ -114,7 +121,7 @@ done_case
 
 new_case "a login still running reports pending; claude's code turn"
 printf 'sleep 30\n' > "$C/never"; echo "started" > "$C/home/.hermes/swarmhub/codex-login.out"
-printf '%s\n' "$CHECK" | sed -e 's|<tool>|codex|g' -e 's|-lt 120|-lt 2|' > "$C/recipe.sh"
+printf '%s\n' "$CHECK" | sed -e 's|<tool>|codex|g' -e 's|-lt 120|-lt 2|' | fast > "$C/recipe.sh"
 env HOME="$C/home" PATH="/usr/bin:/bin" "$SH" "$C/recipe.sh" > "$C/out"
 expect "pending (got: $(cat "$C/out"))" has '{"op":"login_done","tool":"codex","ok":false,"pending":true}'
 printf '#!/bin/sh\n[ "$1 $2" = "code good-code#st8" ] && echo ok || echo failed\n' > "$C/home/.hermes/swarmhub/bin/swarmhub-claude-login"

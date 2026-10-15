@@ -222,17 +222,14 @@ private func job(daysAgo: Double, waited: Int, peak: Int) -> BoxCapacityReport.J
 // MARK: Shell test
 
 /// `Tests/Scripts/box-readings-test.sh`: both read recipes, the limit and the core skip check in a temp HOME.
-@Test(arguments: ["/bin/sh", "/bin/dash"]) func boxReadingsShellTestPasses(_ shell: String) throws {
+@Test(arguments: ["/bin/sh", "/bin/dash"]) func boxReadingsShellTestPasses(_ shell: String) async throws {
     guard FileManager.default.isExecutableFile(atPath: shell) else { return }
-    let process = Process(), pipe = Pipe()
+    let process = Process()
     process.executableURL = URL(fileURLWithPath: shell)
     let recipes = repoRoot.appending(path: "Resources/BotManager")
     process.arguments = [repoRoot.appending(path: "Tests/Scripts/box-readings-test.sh").path, recipes.appending(path: "recipes/models.md").path,
                          recipes.appending(path: "recipes/capacity.md").path, recipes.appending(path: "manager-hermes.md").path]
     process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "BOX_SH": shell]
-    process.standardOutput = pipe; process.standardError = pipe
-    try process.run()
-    let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    process.waitUntilExit()
-    #expect(process.terminationStatus == 0 && output.contains("box-readings tests under \(shell): 12 passed, 0 failed") && !output.contains("FAIL"), "\(output)")
+    let (status, output) = try await runToEnd(process)
+    #expect(status == 0 && output.contains("box-readings tests under \(shell): 12 passed, 0 failed") && !output.contains("FAIL"), "\(output)")
 }

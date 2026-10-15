@@ -101,11 +101,18 @@ private func approvalPayload(_ id: String, command: String = "cat /tmp/x", sessi
     try await waitUntil { store.approvals.count == 1 }
     fake.emit("exec.approval.resolved", ["id": "ap-1", "decision": "allow-once"])
     try await waitUntil { store.approvals.isEmpty }
+    // The expiry wait is held here and ended by the test, so a loaded machine cannot expire the card before it is seen.
+    let asked = AwaitableLog<Duration>(), expired = AwaitableLog<Bool>()
+    store.approvalExpirySleep = { duration in asked.append(duration); try await expired.wait { !$0.isEmpty } }
     let now = Int(Date().timeIntervalSince1970 * 1000)
     fake.emit("exec.approval.requested", approvalPayload("ap-old", run: nil, expires: now - 1_000))
-    fake.emit("exec.approval.requested", approvalPayload("ap-soon", run: nil, expires: now + 3_000))
+    fake.emit("exec.approval.requested", approvalPayload("ap-soon", run: nil, expires: now + 3_600_000))
     try await waitUntil { store.approvals.contains { $0.requestID == "ap-soon" } }
     #expect(!store.approvals.contains { $0.requestID == "ap-old" }, "already expired: never shown")
+    try await asked.wait { $0.count == 1 }
+    #expect(asked.all[0] > .seconds(3_500) && asked.all[0] <= .seconds(3_600), "it waits until the expiry (got \(asked.all[0]))")
+    #expect(store.approvals.contains { $0.requestID == "ap-soon" }, "shown until it expires")
+    expired.append(true)
     try await waitUntil { store.approvals.isEmpty }
 }
 

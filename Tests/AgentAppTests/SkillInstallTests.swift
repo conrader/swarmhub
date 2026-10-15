@@ -222,7 +222,7 @@ private let toolSkill = BundledSkill(name: "swarmhub-tool", version: SkillVersio
 }
 
 /// The commands themselves, run by /bin/sh against a temp folder in place of `~/.hermes`: same bytes, scripts 0755.
-@Test @MainActor func installCommandsRecreateTheFilesWithTheirModes() throws {
+@Test @MainActor func installCommandsRecreateTheFilesWithTheirModes() async throws {
     let (store, _, _) = skillStore()
     let text = try #require(try store.skillInstallInstructions([toolSkill], profile: "grok-jarvis", botName: "Jarvis"))
     let start = try #require(text.range(of: "````sh\n")), end = try #require(text.range(of: "\n````\n", range: start.upperBound..<text.endIndex))
@@ -231,8 +231,8 @@ private let toolSkill = BundledSkill(name: "swarmhub-tool", version: SkillVersio
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     let script = String(text[start.upperBound..<end.lowerBound]).replacingOccurrences(of: "~/.hermes", with: root.path)
     let process = Process(); process.executableURL = URL(fileURLWithPath: "/bin/sh"); process.arguments = ["-c", script]
-    try process.run(); process.waitUntilExit()
-    #expect(process.terminationStatus == 0)
+    let (status, output) = try await runToEnd(process)
+    #expect(status == 0, "\(output)")
     let folder = root.appending(path: "profiles/grok-jarvis/skills/swarmhub/swarmhub-tool")
     #expect(try String(contentsOf: folder.appending(path: "scripts/run"), encoding: .utf8) == "#!/bin/sh\necho 'it works'\n")
     #expect(try String(contentsOf: folder.appending(path: "notes/readme.txt"), encoding: .utf8) == "plain notes\n")

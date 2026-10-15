@@ -42,17 +42,14 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
 }
 
 /// `Tests/Scripts/bot-msg-test.sh` under each shell present: a stub gateway, a temp HOME, every case must pass.
-@Test(arguments: ["/bin/sh", "/bin/dash"]) func botMsgShellTestPasses(_ shell: String) throws {
+@Test(arguments: ["/bin/sh", "/bin/dash"]) func botMsgShellTestPasses(_ shell: String) async throws {
     guard FileManager.default.isExecutableFile(atPath: shell), FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { return }
-    let process = Process(), pipe = Pipe()
+    let process = Process()
     process.executableURL = URL(fileURLWithPath: shell)
     process.arguments = [repoRoot.appending(path: "Tests/Scripts/bot-msg-test.sh").path, repoRoot.appending(path: "Resources/Skills/swarmhub-messages/scripts/bot-msg").path]
     process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "BOT_MSG_SH": shell]
-    process.standardOutput = pipe; process.standardError = pipe
-    try process.run()
-    let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    process.waitUntilExit()
-    #expect(process.terminationStatus == 0, "\(shell):\n\(output)")
+    let (status, output) = try await runToEnd(process)
+    #expect(status == 0, "\(shell):\n\(output)")
     #expect(output.contains("bot-msg tests under \(shell): 11 passed, 0 failed"), "\(output)")
     #expect(!output.contains("FAIL"), "\(output)")
 }

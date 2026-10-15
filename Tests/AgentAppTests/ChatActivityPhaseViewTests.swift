@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import Testing
-import Vision
 @testable import AgentApp
 
 /// Check all three labels in an already-mounted reply, bot row and group row, rather than recreating
@@ -49,10 +48,7 @@ import Vision
         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
     bitmap.size = size; host.cacheDisplay(in: host.bounds, to: bitmap)
     let image = try #require(bitmap.cgImage)
-    let recognition = VNRecognizeTextRequest()
-    recognition.recognitionLevel = .accurate; recognition.recognitionLanguages = ["en-US"]
-    try VNImageRequestHandler(cgImage: image).perform([recognition])
-    let count = recognition.results?.compactMap { $0.topCandidates(1).first?.string }.filter { $0.contains(phase) }.count ?? 0
+    let count = try await recognizedLines(in: image).filter { $0.contains(phase) }.count
     if count > 0, let path = ProcessInfo.processInfo.environment["SWARMHUB_ACTIVITY_PREVIEW_DIR"] {
         let directory = URL(fileURLWithPath: path, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
