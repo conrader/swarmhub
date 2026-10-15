@@ -5,15 +5,23 @@ extension AppStore {
     /// UserDefaults key holding the last chat the user opened: `bot:<uuid>` or `group:<uuid>`.
     static let lastChatKey = "lastSelectedChat"
 
-    /// The last chat the user opened if it still exists and is visible, else the first visible bot in sidebar order,
-    /// else the first visible group, else nothing (the welcome state).
+    /// The last chat the user opened if it still exists and is visible, else the most recent conversation,
+    /// then a disconnected profile, else nothing (the welcome state).
     func selectVisibleChat() {
+        selectedBoxProfile = nil
         let last = defaults.string(forKey: Self.lastChatKey)
         if let bot = bots.first(where: { !$0.isHidden && last == Self.chatKey(bot: $0.id) }) { selectedBot = bot; selectedGroup = nil }
         else if let group = groups.first(where: { !$0.isHidden && last == Self.chatKey(group: $0.id) }) { selectedGroup = group; selectedBot = nil }
-        else if let bot = bots.first(where: { !$0.isHidden }) { selectedBot = bot; selectedGroup = nil }
-        else if let group = groups.first(where: { !$0.isHidden }) { selectedGroup = group; selectedBot = nil }
-        else { selectedBot = nil; selectedGroup = nil }
+        else if let chat = sidebarChats.first {
+            switch chat {
+            case .bot(let bot): selectedBot = bot; selectedGroup = nil
+            case .group(let group): selectedGroup = group; selectedBot = nil
+            }
+        }
+        else {
+            selectedBot = nil; selectedGroup = nil
+            if let profile = sidebarBoxProfiles.first { open(profile) }
+        }
     }
 
     /// Hides or shows a bot; hiding the open chat moves the selection to a visible one.
