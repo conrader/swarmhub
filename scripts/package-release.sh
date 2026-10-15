@@ -94,7 +94,12 @@ TEAM_ID="$(/usr/bin/codesign -dv "$APP_DIR/Contents/MacOS/AgentApp" 2>&1 | awk -
 echo "signing_team=${TEAM_ID:-adhoc}" >> "$APP_DIR/Contents/Resources/SOURCE.txt"
 /usr/bin/codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT_DIR/Resources/SwarmHub.entitlements" --identifier com.konrad.agentapp "$APP_DIR"
 /usr/bin/codesign --verify --deep --strict "$APP_DIR"
-for ICON in AppIcon.icns AppIcon-dark.icns ThemeIcons/SwarmHub-light.png ThemeIcons/SwarmHub-dark.png; do
+if [[ ! -s "$APP_DIR/Contents/Resources/AppIcon.icns" ]]; then
+  echo "ERROR: $APP_DIR lacks Contents/Resources/AppIcon.icns." >&2
+  exit 1
+fi
+# P38 E: the dark Dock icon (both forms) and the light runtime image.
+for ICON in AppIcon-dark.icns ThemeIcons/SwarmHub-light.png ThemeIcons/SwarmHub-dark.png; do
   if [[ ! -s "$APP_DIR/Contents/Resources/$ICON" ]]; then
     echo "ERROR: $APP_DIR lacks Contents/Resources/$ICON." >&2
     exit 1
