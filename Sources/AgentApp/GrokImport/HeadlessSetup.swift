@@ -88,6 +88,7 @@ import SwiftUI
         await HeadlessP35Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP36Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP37Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        await HeadlessP31DEShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         output("Rendered setup to \(directory.path); \(failures) failed")
         return failures == 0 ? 0 : 1
     }

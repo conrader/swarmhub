@@ -76,7 +76,7 @@ struct SubAgentModelSheet: View {
                     }
                 }
             }
-            .formStyle(.grouped)
+            .formStyle(.grouped).frame(height: scope == .some ? 300 + CGFloat(min(profiles.count, 6)) * 28 : 210)
             if !sameAsEachBot, !model.isEmpty, !change.isValid {
                 Text("Use the model and provider ids exactly as the list shows them, both filled in.").font(.caption).foregroundStyle(.orange)
             }

@@ -30,6 +30,12 @@ struct SettingsModelsPane: View {
             Text("Main chats only; group chats and threads keep their models. \(ModelRoleReason.permanent.text)").font(.caption).foregroundStyle(.secondary)
         }
         .sheet(item: $plan) { ModelRolesPlanSheet(plan: $0) }
+        // P31 E: under Coding agent, how many coding jobs each Hermes box runs side by side (OpenClaw boxes show nothing).
+        if !store.hermesConnections.isEmpty {
+            Section("Coding jobs") {
+                ForEach(store.hermesConnections, id: \.target) { connection in BoxCapacityBlock(target: connection.target, host: connection.host) }
+            }
+        }
         if model.rows.isEmpty {
             Text("No bot is bound to a Hermes profile.").foregroundStyle(.secondary)
         }
@@ -72,8 +78,6 @@ struct SettingsModelsPane: View {
             ForEach(CodingOrder.allCases) { Text($0.title).tag($0) }
         }
         Text(CodingOrder.help + " A bot can choose its own in its settings.").font(.caption).foregroundStyle(.secondary)
-        // P31 E: how many coding jobs each Hermes box runs side by side (nothing about other boxes; OpenClaw has none).
-        ForEach(store.hermesConnections, id: \.target) { connection in BoxCapacityBlock(target: connection.target, host: connection.host) }
     }
 
     private func defaultMenu(_ title: String, _ role: WritableKeyPath<ModelDefaults, ModelChoice?>, fallback: String, picker: ModelPickerModel?, enabled: Bool) -> some View {
@@ -102,9 +106,9 @@ struct SettingsModelsPane: View {
                     if let readOnly = row.readOnly { Text(readOnly).font(.caption2).foregroundStyle(.secondary) }
                     if let error = row.loadError { Text(error).font(.caption2).foregroundStyle(.orange) }
                     if let blocked = row.blocked { Text(blocked.text).font(.caption2).foregroundStyle(.secondary) }
-                    // P31 D: the sub-agent model the manager reported.
-                    if !row.isOpenClaw, let bot = store.bots.first(where: { $0.id == row.id }) { SubAgentLineView(bot: bot, delegationOff: row.delegation == false) }
                 }
+                // P31 D: the sub-agent model the manager reported (read through the manager, so also before Load).
+                if let bot = store.bots.first(where: { $0.id == row.id }), bot.backend == .hermes { SubAgentLineView(bot: bot, delegationOff: row.delegation == false) }
             }
             Spacer()
             if let bot = store.bots.first(where: { $0.id == row.id }) { Button("Edit…") { store.editingBot = bot } }
