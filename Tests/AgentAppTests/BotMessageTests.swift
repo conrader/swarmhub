@@ -191,7 +191,7 @@ private func row(_ sender: String, count: Int, active: Double) -> [String: Any] 
     store.noteEndedBotMessageSteps(before: ToolActivity(), after: before, sender: jarvis)
 }
 
-@Test @MainActor func openingTheThreadOrTheChatClearsTheBadge() throws {
+@Test @MainActor func openingTheConversationClearsItsBadge() throws {
     let (store, _, infra, _) = threadStore()
     store.applyBotThreadRows([], recipient: infra)
     store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("grok-jarvis", count: 2, active: 2_003))),
@@ -199,12 +199,15 @@ private func row(_ sender: String, count: Int, active: Double) -> [String: Any] 
     #expect(store.botMessages.unread[infra.id]?.count == 2)
     store.openThread(key)
     #expect(store.botMessages.unread[infra.id] == ["swarmhub-from-coder"], "that thread's arrival only")
+    // P41: the chat alone is not the conversation; its badge stays until the conversation is opened.
     store.open(infra)
-    #expect(!store.hasBotMessageBadge(infra), "the chat shows the lines")
-    // While its chat is open, no badge at all.
+    #expect(store.botMessages.unread[infra.id] == ["swarmhub-from-coder"])
     store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("coder", count: 3, active: 2_300)))], recipient: infra)
-    #expect(!store.hasBotMessageBadge(infra) && infra.messages.map(\.content) == ["Jarvis wrote to Infra", "coder wrote to Infra"],
-            "coder's new message shares its last line")
+    #expect(infra.messages.map(\.content) == ["Jarvis wrote to Infra", "coder wrote to Infra"], "coder's new message shares its last line")
+    // While that exact conversation is on screen, its arrival brings no badge.
+    store.openThread(key)
+    store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("grok-jarvis", count: 9, active: 2_400)))], recipient: infra)
+    #expect(store.botMessages.unread[infra.id] == ["swarmhub-from-coder"])
 }
 
 // MARK: Activity and ⌘K

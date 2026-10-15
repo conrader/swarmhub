@@ -9,8 +9,13 @@ import Foundation
     @Published var unread: [UUID: Set<String>] = [:]
     /// Threads read from the recipient (oldest first).
     @Published var loaded: [BotThreadKey: [BotThreadLine]] = [:]
-    /// Recipient bot → session id → mark; absent until the first list (which only records).
-    var marks: [UUID: [String: String]] = [:]
+    /// P41: recipient (`markKey`: connection and profile) → session id → mark, saved with the store so a restart does
+    /// not swallow a change; absent until the recipient's first list ever.
+    var marks: [String: [String: String]] = [:]
+    /// P41: the first list ever treats threads changed this recently as new.
+    var firstListWindow: TimeInterval = 86_400
+    /// P41: recipient bot → why its last session list failed (the Info panel's quiet line); cleared by the next success.
+    @Published var errors: [UUID: String] = [:]
     var lastPoll: [UUID: Date] = [:]
     var autoLoad = true
     var pollInterval: TimeInterval = 20
@@ -30,6 +35,9 @@ extension AppStore {
     }
 
     func displayName(forProfile profile: String) -> String { bot(forProfile: profile)?.name ?? profile }
+
+    /// P41: where a recipient's seen marks are kept: its connection and profile.
+    func botMessageMarkKey(_ recipient: Bot) -> String { connection(of: recipient) + "|" + profile(of: recipient) }
 
     /// A recipient whose thread SwarmHub can read: a connected Hermes bot with its key.
     func readableRecipient(_ key: BotThreadKey) -> Bot? {
@@ -114,28 +122,38 @@ extension AppStore {
         }
     }
 
-    /// Lists `recipient`'s threads; a new or changed one is an arrival. The first list only records, except the thread
-    /// a sender just wrote to (`expecting`).
+    /// Lists `recipient`'s threads; a new or changed one is an arrival. A failure is kept as one quiet line for the
+    /// bot's Info panel (P41) instead of being dropped.
     func checkBotMessages(for recipient: Bot, expecting sender: String? = nil) async {
-        guard let backend = (try? backend(for: recipient)) as? HermesBackend, let rows = try? await backend.botThreadRows() else { return }
-        applyBotThreadRows(rows, recipient: recipient, expecting: sender)
+        do {
+            guard let backend = try backend(for: recipient) as? HermesBackend else { return }
+            let rows = try await backend.botThreadRows()
+            if botMessages.errors[recipient.id] != nil { botMessages.errors[recipient.id] = nil }
+            applyBotThreadRows(rows, recipient: recipient, expecting: sender)
+        } catch {
+            let text = error.localizedDescription
+            if botMessages.errors[recipient.id] != text { botMessages.errors[recipient.id] = text }
+        }
     }
 
+    /// The first list ever (no saved marks) records, except threads changed in the last `firstListWindow` and the one a
+    /// sender just wrote to (`expecting`); after that any changed mark is an arrival. Marks are saved with the store.
     func applyBotThreadRows(_ rows: [BotThreadRow], recipient: Bot, expecting sender: String? = nil) {
-        let baseline = botMessages.marks[recipient.id]
+        let markKey = botMessageMarkKey(recipient), baseline = botMessages.marks[markKey]
+        let recent = now().addingTimeInterval(-botMessages.firstListWindow)
         var marks = baseline ?? [:]
         for row in rows {
             let old = marks[row.sessionID]
             marks[row.sessionID] = row.mark
-            let arrived = baseline == nil ? row.sender == sender : old != row.mark
+            let arrived = baseline == nil ? row.sender == sender || (row.updatedAt.map { $0 >= recent } ?? false) : old != row.mark
             if arrived { postArrival(from: row.sender, recipient: recipient, session: row.sessionID) }
         }
-        botMessages.marks[recipient.id] = marks
         if botMessages.rows[recipient.id] != rows { botMessages.rows[recipient.id] = rows }
+        if baseline != marks { botMessages.marks[markKey] = marks; save() }
     }
 
-    /// "<avatar> Jarvis wrote to Infra · Open thread" in the recipient's chat (consecutive arrivals from one thread
-    /// share a line), and the sidebar badge.
+    /// "<avatar> Jarvis wrote to Infra · Open conversation" in the recipient's chat (consecutive arrivals from one
+    /// thread share a line), and the sidebar badge unless that exact conversation is on screen (P41).
     func postArrival(from sender: String, recipient: Bot, session: String) {
         let text = BotMessageCopy.arrival(from: displayName(forProfile: sender), to: recipient.name)
         if let last = recipient.messages.last, last.presentation == .botMessage, last.metadata[BotMessageKey.session] == session {
@@ -144,13 +162,13 @@ extension AppStore {
             recipient.messages.append(ChatMessage(role: .system, content: text, createdAt: now(), presentation: .botMessage,
                                                   metadata: [BotMessageKey.from: sender, BotMessageKey.to: profile(of: recipient), BotMessageKey.session: session]))
         }
-        if selectedBot?.id != recipient.id { botMessages.unread[recipient.id, default: []].insert(session) }
+        if openBotThread != BotThreadKey(from: sender, to: profile(of: recipient)) { botMessages.unread[recipient.id, default: []].insert(session) }
         objectWillChange.send(); save()
     }
 
     func hasBotMessageBadge(_ bot: Bot) -> Bool { !(botMessages.unread[bot.id] ?? []).isEmpty }
 
-    /// Opening the thread clears its arrival; opening the recipient's chat (where the line is) clears them all.
+    /// Opening the conversation clears its arrival (P41: opening the chat alone no longer does).
     func clearBotMessageBadge(_ bot: Bot, session: String? = nil) {
         guard var sessions = botMessages.unread[bot.id], !sessions.isEmpty else { return }
         if let session { sessions.remove(session) } else { sessions.removeAll() }

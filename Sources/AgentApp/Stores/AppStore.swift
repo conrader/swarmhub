@@ -127,7 +127,7 @@ import UserNotifications
             do {
                 let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
                 globalApprovalRoutes = file.approvalRoutes ?? []; globalReviewAfter = file.reviewAfter ?? []
-                boxReadings = file.boxReadings ?? [:]
+                boxReadings = file.boxReadings ?? [:]; botMessages.marks = file.botMessageMarks ?? [:]
                 turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
                 if !migrateArchivedGroups().isEmpty { save() }
                 var migratedLegacyApprovalRules = false
