@@ -44,6 +44,7 @@ struct BotEditorView: View {
             fields.apply(to: bot, store: store, avatarTouched: avatarTouched); store.save()
         } else {
             store.addBot(name: fields.name, persona: fields.backend == .openClaw ? "" : fields.persona, backend: fields.backend, avatarName: nil, avatar: fields.avatar, approvalMode: fields.approvalMode, approvalRules: fields.approvalRules, reviewerBotID: fields.reviewerBotID, openClaw: fields.openClawBinding)
+            if let added = store.selectedBot { fields.applyRouting(to: added) }; store.save()
         }
         dismiss()
     }
@@ -57,6 +58,8 @@ struct BotEditorFields {
     var avatar = AvatarChoice.unpicked
     var hidden = false, notifications = true
     var approvalMode = ApprovalMode.ask, approvalRules = ApprovalRule.sensibleDefaults, reviewerBotID: UUID?
+    /// P37: the bot's routing lines (its P8 mode migrated when it has none yet) and its review-after lines.
+    var routing = ApprovalRouting(), reviewAfter: [ReviewAfterRule] = []
     var conversationModel = ModelSetting.inherit, codingModel = ModelSetting.inherit, canManage = false
     /// P31: the bot's own coding agent order; nil follows the SwarmHub default.
     var codingAgent: CodingOrder?
@@ -76,9 +79,16 @@ struct BotEditorFields {
         name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend
         avatar = AvatarChoice(bot: bot); hidden = bot.isHidden; notifications = bot.notificationsEnabled
         approvalMode = bot.approvalMode; approvalRules = bot.approvalRules; reviewerBotID = bot.reviewerBotID
+        routing = bot.effectiveRouting; reviewAfter = bot.reviewAfter
         conversationModel = bot.modelSettings?.conversation ?? .inherit; codingModel = bot.modelSettings?.coding ?? .inherit; canManage = bot.canManageBots
         codingAgent = bot.modelSettings?.codingAgent
         openClawGatewayID = bot.openClaw?.gatewayID; openClawAgentID = bot.openClaw?.agentID ?? ""; openClawSessionMode = bot.openClaw?.sessionMode ?? .own
+    }
+
+    /// Untouched lines leave the bot on its P8 mode (so its store entry is unchanged); an edit stores the lines.
+    @MainActor func applyRouting(to bot: Bot) {
+        if routing != bot.effectiveRouting { bot.approvalRouting = routing }
+        bot.reviewAfter = reviewAfter.filter { $0.reviewerID != bot.id }
     }
 
     @MainActor func apply(to bot: Bot, store: AppStore, avatarTouched: Bool) {
@@ -93,6 +103,7 @@ struct BotEditorFields {
         if bot.isHidden != hidden { store.setHidden(bot, hidden) }
         bot.notificationsEnabled = notifications; bot.approvalMode = approvalMode; bot.approvalRules = approvalRules
         bot.reviewerBotID = reviewerBotID == bot.id ? nil : reviewerBotID
+        applyRouting(to: bot)
         var settings = bot.modelSettings ?? .init(); settings.conversation = conversation; settings.coding = coding
         settings.codingAgent = backend == .hermes ? codingAgent : nil
         bot.modelSettings = settings.isEmpty ? nil : settings

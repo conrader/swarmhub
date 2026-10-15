@@ -42,6 +42,9 @@ import UserNotifications
     let botMessages = BotMessageCenter(); @Published var openBotThread: BotThreadKey?
     /// P13 app-wide model defaults (store.json, this install only); empty until set in Settings → Models.
     @Published var modelDefaults = ModelDefaults()
+    /// P37 D2: Settings → Approvals (checked after each bot's own lines) and SwarmHub-wide review-after lines.
+    @Published var globalApprovalRoutes: [ApprovalRoute] = []; @Published var globalReviewAfter: [ReviewAfterRule] = []
+    var reviewTimeout: Duration = .seconds(600)
     /// P22 bot manager: open management exchanges per manager bot, a request for a chat's composer, "Add" offers from a
     /// `bots` list, the clock the exchange window uses, and the new-profile probe's retries (~10 s).
     var managementExchanges: [UUID: ManagementExchange] = [:]; @Published var composerFill: ComposerFill?
@@ -101,6 +104,7 @@ import UserNotifications
         } else if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
                 let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
+                globalApprovalRoutes = file.approvalRoutes ?? []; globalReviewAfter = file.reviewAfter ?? []
                 turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
                 if !migrateArchivedGroups().isEmpty { save() }
                 var migratedLegacyApprovalRules = false

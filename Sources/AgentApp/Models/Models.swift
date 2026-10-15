@@ -22,6 +22,8 @@ enum MessageRole: String, Codable { case user, assistant, system }
 /// that still names one reads as text.
 enum MessagePresentation: String, Codable {
     case text, delegation, routineResult, botMessage
+    /// P37: an approval decided by a rule or reviewer, and a review of finished work (older builds read them as text).
+    case approvalDecision, review
     init(from decoder: Decoder) throws { self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .text }
 }
 
@@ -48,7 +50,7 @@ struct ApprovalRule: Identifiable, Codable, Equatable {
     func matches(action: String, command: String) -> Bool {
         Self.glob(actionPattern, matches: action) && Self.glob(commandPattern, matches: command)
     }
-    private static func glob(_ pattern: String, matches value: String) -> Bool {
+    static func glob(_ pattern: String, matches value: String) -> Bool {
         let p = Array(pattern.lowercased()), v = Array(value.lowercased()); var row = Array(repeating: false, count: v.count + 1); row[0] = true
         for token in p {
             var next = Array(repeating: false, count: v.count + 1)
@@ -107,8 +109,10 @@ enum ApprovalAuditOutcome: String, Codable { case requested, approved, denied, a
 struct ApprovalAuditEntry: Identifiable, Codable {
     let id: UUID; let approvalID: UUID; let timestamp: Date; let actionKind: String
     var outcome: ApprovalAuditOutcome; var decidedBy: String; var reason: String
-    init(id: UUID = UUID(), approvalID: UUID, timestamp: Date = .now, actionKind: String, outcome: ApprovalAuditOutcome, decidedBy: String, reason: String) {
-        self.id = id; self.approvalID = approvalID; self.timestamp = timestamp; self.actionKind = actionKind; self.outcome = outcome; self.decidedBy = decidedBy; self.reason = reason
+    /// P37 D3: the routing line that matched ("Bot line 2: Terminal command `git *` → Approve"); nil before P37.
+    var rule: String? = nil
+    init(id: UUID = UUID(), approvalID: UUID, timestamp: Date = .now, actionKind: String, outcome: ApprovalAuditOutcome, decidedBy: String, reason: String, rule: String? = nil) {
+        self.id = id; self.approvalID = approvalID; self.timestamp = timestamp; self.actionKind = actionKind; self.outcome = outcome; self.decidedBy = decidedBy; self.reason = reason; self.rule = rule
     }
 }
 
@@ -188,6 +192,9 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     @Published var hermesProfile: String?; @Published var hermesSessionID: String?; @Published var hermesModelLock: HermesModelLock?
     @Published var approvalMode: ApprovalMode; @Published var approvalRules: [ApprovalRule]; @Published var reviewerBotID: UUID?
     @Published var approvalAudit: [ApprovalAuditEntry]
+    /// P37: explicit routing lines and review-after lines; nil routing = still the P8 mode above (`effectiveRouting`).
+    @Published var approvalRouting: ApprovalRouting? = nil; @Published var reviewAfter: [ReviewAfterRule] = []
+    var effectiveRouting: ApprovalRouting { approvalRouting ?? .migrated(mode: approvalMode, rules: approvalRules, reviewerID: reviewerBotID) }
     @Published var isDemo: Bool
     /// Threaded replies (Hermes forks) and the sidebar's manual "Mark as Unread" flag.
     @Published var threads: [ChatThread]; @Published var manualUnread: Bool
@@ -220,7 +227,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     }
     static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox, openClaw, installedSkills, skillBannerSnoozed, installedSkillVariants, adoptedKeyBackup }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox, openClaw, installedSkills, skillBannerSnoozed, installedSkillVariants, adoptedKeyBackup, approvalRouting, reviewAfter }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -250,6 +257,8 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         skillBannerSnoozed = try? c.decodeIfPresent(String.self, forKey: .skillBannerSnoozed)
         installedSkillVariants = (try? c.decodeIfPresent([String: String].self, forKey: .installedSkillVariants)) ?? [:]
         adoptedKeyBackup = try? c.decodeIfPresent(String.self, forKey: .adoptedKeyBackup)
+        approvalRouting = (try? c.decodeIfPresent(ApprovalRouting.self, forKey: .approvalRouting)) ?? nil
+        reviewAfter = (try? c.decodeIfPresent([ReviewAfterRule].self, forKey: .reviewAfter)) ?? []
         threads = try c.decodeIfPresent([ChatThread].self, forKey: .threads) ?? []; manualUnread = try c.decodeIfPresent(Bool.self, forKey: .manualUnread) ?? false
         createdAt = try c.decode(Date.self, forKey: .createdAt); messages = try c.decode([ChatMessage].self, forKey: .messages)
         // A malformed mark must not cost the store; a missing one may be recovered from what the P6 importer wrote.
@@ -279,6 +288,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         if !installedSkills.isEmpty { try c.encode(installedSkills, forKey: .installedSkills) }; try c.encodeIfPresent(skillBannerSnoozed, forKey: .skillBannerSnoozed)
         if !installedSkillVariants.isEmpty { try c.encode(installedSkillVariants, forKey: .installedSkillVariants) }
         try c.encodeIfPresent(adoptedKeyBackup, forKey: .adoptedKeyBackup)
+        try c.encodeIfPresent(approvalRouting, forKey: .approvalRouting); if !reviewAfter.isEmpty { try c.encode(reviewAfter, forKey: .reviewAfter) }
     }
 }
 
@@ -304,6 +314,8 @@ struct ApprovalRequest: Identifiable, Codable, Sendable {
     var runID: String? = nil; var requestID: String? = nil
     var botID: UUID? = nil; var profile: String? = nil; var sessionID: String? = nil
     var actionKind: String = "command"
+    /// P37 D5: the line that sent it to you and why, and the reviewer involved (shown on the card).
+    var rule: String? = nil; var routeNote: String? = nil; var reviewerID: UUID? = nil
 
     var hasKnownCommand: Bool { !(command?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) }
 }
