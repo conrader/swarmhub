@@ -46,6 +46,7 @@ private struct UnreadDot: View {
 /// A bot in the sidebar: its 36 pt mark (with a badge when it needs attention), name, latest-message line and context actions.
 struct BotRow: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.activityNow) private var fixedNow
     @ObservedObject var bot: Bot; @ObservedObject var drafts: ComposerDrafts
     let selected: Bool; @Binding var botToDelete: Bot?
     @State private var hovering = false
@@ -69,9 +70,9 @@ struct BotRow: View {
                     }
                 // Re-read the phase during a pause in text, even when no stream event arrives.
                 if working {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(context.date), unread: bot.isUnread) }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread) }
                 } else {
-                    RowText(name: bot.name, fragment: fragment(.now), unread: bot.isUnread)
+                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread)
                 }
                 Spacer(minLength: 4)
                 if bot.retiredOnBox { Text("retired").font(.system(size: 10)).foregroundStyle(.tertiary) }
@@ -95,6 +96,7 @@ struct BotRow: View {
 /// A group in the sidebar: its member cluster (no badge), name, "<Member>: …" line and the same context actions as a bot.
 struct GroupRow: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.activityNow) private var fixedNow
     @ObservedObject var group: GroupChat; @ObservedObject var drafts: ComposerDrafts; @Binding var botToDelete: GroupChat?
     @State private var hovering = false
     var body: some View {
@@ -110,9 +112,9 @@ struct GroupRow: View {
                 GroupAvatarStack(group: group, members: store.members(of: group), size: SidebarMetrics.mark, isHovered: hovering,
                                  halo: selected ? AppColor.selection : AppColor.sidebar, probe: "group:\(group.id)")
                 if working {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: group.name, fragment: fragment(context.date), unread: group.isUnread) }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: group.name, fragment: fragment(fixedNow ?? context.date), unread: group.isUnread) }
                 } else {
-                    RowText(name: group.name, fragment: fragment(.now), unread: group.isUnread)
+                    RowText(name: group.name, fragment: fragment(fixedNow ?? .now), unread: group.isUnread)
                 }
                 Spacer(minLength: 4)
                 if group.isMuted { Image(systemName: "bell.slash").font(.system(size: 10)).foregroundStyle(.tertiary) }

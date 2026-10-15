@@ -12,13 +12,16 @@ import Testing
     bot.messages = [reply]; group.messages = [reply]; store.bots = [bot]; store.groups = [group]
     store.isStreaming = true; store.streamingBotID = bot.id; store.streamingAssistant = reply; store.streamingConversation = group
     let size = NSSize(width: 720, height: 360)
+    // One fixed clock for the views and the events: the text arrives at `typedAt`, and the views read the phase then,
+    // however long a render takes on a loaded Mac.
+    let start = Date.now, typedAt = start.addingTimeInterval(2)
     let view = VStack(alignment: .leading, spacing: 12) {
         BotRow(bot: bot, drafts: store.drafts, selected: false, botToDelete: .constant(nil)).frame(width: 320)
         GroupRow(group: group, drafts: store.drafts, botToDelete: .constant(nil)).frame(width: 320)
         MessageView(message: reply)
         Spacer()
     }.padding(12).frame(width: size.width, height: size.height, alignment: .topLeading).background(AppColor.chat)
-        .environmentObject(store).defaultAppStorage(store.defaults).environment(\.colorScheme, .dark)
+        .environmentObject(store).defaultAppStorage(store.defaults).environment(\.colorScheme, .dark).environment(\.activityNow, typedAt)
     _ = NSApplication.shared
     let host = NSHostingView(rootView: view)
     let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: true)
@@ -27,15 +30,15 @@ import Testing
     #expect(try await phaseLabels(in: host, named: "Thinking") >= 3)
 
     var activity = ToolActivity()
-    activity.apply(.init(phase: .started, name: "execute_code"), at: .now)
+    activity.apply(.init(phase: .started, name: "execute_code"), at: start)
     reply.activity = activity; store.objectWillChange.send()
     #expect(try await phaseLabels(in: host, named: "Working") >= 3)
 
-    activity.apply(.init(phase: .completed, name: "execute_code"), at: .now)
+    activity.apply(.init(phase: .completed, name: "execute_code"), at: start.addingTimeInterval(1))
     reply.activity = activity; store.objectWillChange.send()
     #expect(try await phaseLabels(in: host, named: "Thinking") >= 3)
 
-    reply.content = "Reply text arrives in pieces."; reply.lastTextAt = .now; store.objectWillChange.send()
+    reply.content = "Reply text arrives in pieces."; reply.lastTextAt = typedAt; store.objectWillChange.send()
     #expect(try await phaseLabels(in: host, named: "Typing") >= 3)
     reply.isStreaming = false; store.isStreaming = false
     #expect(try await phaseLabels(in: host, named: "Typing") == 0)
