@@ -29,14 +29,14 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
 
 @Test func codingSkillShipsWithItsScript() throws {
     let skill = try codingSkill()
-    #expect(skill.version == SkillVersion("1.0.0")!)
+    #expect(skill.version == SkillVersion("1.1.0")!)
     let fields = SkillLibrary.frontmatter(skill.template)
     #expect(fields["author"] == "SwarmHub" && skill.template.contains("metadata:\n  swarmhub:\n    source: swarmhub"))
     let description = try #require(fields["description"])
     #expect(description.hasPrefix("Use for any coding task") && description.contains("supersedes the claude-code, codex and opencode skills")
             && description.hasSuffix("Installed by SwarmHub, v{{VERSION}}."))
     let script = try #require(skill.files.first { $0.path == "scripts/code-job" })
-    #expect(skill.files.map(\.path) == ["scripts/code-job"] && script.isExecutable && script.content.hasPrefix("#!/bin/sh\n"))
+    #expect(skill.files.map(\.path) == ["scripts/code-job", "scripts/swarmhub-claude-login"] && script.isExecutable && script.content.hasPrefix("#!/bin/sh\n"))
     // POSIX only: none of the tools the brief rules out, no bash-only syntax.
     #expect(script.content.range(of: #"(?m)(^|[;&|(]|then|do)\s*(timeout|flock|setsid|local)\s"#, options: .regularExpression) == nil)
     for banned in ["[[ ", "function ", "<(", "$'", "pipefail", "#!/bin/bash", "declare ", "source "] {
@@ -50,7 +50,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let rendered = try #require(SkillLibrary.render(skill, forProfile: "coder", managerTemplate: nil, codingOrder: order))
     #expect(!rendered.contains("{{"))
     #expect(rendered.contains("~/.hermes/profiles/coder/skills/swarmhub/swarmhub-coding/scripts/code-job --bot coder --order \(order.argument) --dir"))
-    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.0.0")
+    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.1.0")
     #expect(rendered.contains("CODE_JOB_USE_DELEGATE") && rendered.contains("delegate_task") && rendered.contains("claude.token"))
     #expect(SkillLibrary.variant(of: skill, codingOrder: order) == order.argument)
     let defaultBot = try #require(SkillLibrary.render(skill, forProfile: "default", managerTemplate: nil, codingOrder: order))
@@ -72,11 +72,11 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(skills.map(\.name) == ["swarmhub-coding", "swarmhub-messages"], "every Hermes bot gets them; the manager skill only the manager")
     let text = try #require(try store.skillInstallInstructions(skills, profile: "coder", botName: "Coder", codingOrder: store.codingOrder(for: coder)))
     let folder = "~/.hermes/profiles/coder/skills/swarmhub/swarmhub-coding"
-    let script = try #require(try codingSkill().files.first)
+    let script = try #require(try codingSkill().files.first { $0.path == "scripts/code-job" })
     #expect(text.contains("mkdir -p \(folder) \(folder)/scripts\n"))
     #expect(text.contains("cat > \(folder)/scripts/code-job <<'SWARMHUB_EOF'\n\(script.content)SWARMHUB_EOF\nchmod 755 \(folder)/scripts/code-job\n"))
     #expect(text.contains("--order codex,claude,hermes"))
-    #expect(text.contains(#"{"name":"swarmhub-coding","version":"1.0.0","variant":"codex,claude,hermes"}"#))
+    #expect(text.contains(#"{"name":"swarmhub-coding","version":"1.1.0","variant":"codex,claude,hermes"}"#))
 }
 
 // MARK: Settings resolution
@@ -145,10 +145,10 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(store.skillBanner(for: jarvis)?.skill.name == SkillLibrary.managerSkill)
     jarvis.installedSkills = [SkillLibrary.managerSkill: "1.0.2"]
     #expect(store.skillBanner(for: jarvis)?.skill.name == "swarmhub-coding" && store.skillBanner(for: jarvis)?.state == .missing)
-    coder.installedSkills = [skill.name: "1.0.0"]; coder.installedSkillVariants = [skill.name: "claude,codex,hermes"]
+    coder.installedSkills = [skill.name: skill.version.description]; coder.installedSkillVariants = [skill.name: "claude,codex,hermes"]
     #expect(store.skillState(skill, for: coder) == .current && store.skillBanner(for: coder) == nil)
     store.modelDefaults.codingAgent = .codexOnly
-    #expect(store.skillBanner(for: coder)?.state == .changed(installed: "1.0.0"))
+    #expect(store.skillBanner(for: coder)?.state == .changed(installed: skill.version.description))
     #expect(AppStore.skillBannerText(bot: "Coder", state: .changed(installed: "1.0.0")) == "SwarmHub’s instructions for Coder need updating")
     store.snoozeSkillBanner(for: coder)
     #expect(store.skillBanner(for: coder) == nil && coder.skillBannerSnoozed == "swarmhub-coding 1.0.0 codex")
