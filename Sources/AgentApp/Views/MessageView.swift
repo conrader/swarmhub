@@ -25,6 +25,9 @@ struct MessageView: View {
             if message.role == .user { Spacer(minLength: 110) }
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {
                 if let repliedMessage { HStack(spacing: 5) { Rectangle().fill(.secondary.opacity(0.35)).frame(width: 2, height: 24); Text(SwarmhubBlock.visibleText(repliedMessage.content)).lineLimit(1) }.font(.caption).foregroundStyle(.secondary) }
+                if let woken = AutomationCopy.wokenBy(message) {
+                    Label(woken, systemImage: "alarm").font(.caption2).foregroundStyle(.secondary)
+                }
                 if let caption = SteerCopy.caption(message, botName: store.selectedBot?.name) {
                     Label(caption, systemImage: "arrow.turn.down.right").font(.caption2).foregroundStyle(.secondary)
                 }
@@ -73,9 +76,10 @@ struct MessageView: View {
         case .botMessage: BotArrivalLine(message: message)
         case .approvalDecision: ApprovalDecisionLine(message: message)
         case .review: ReviewCard(message: message)
+        case .automation: AutomationCard(message: message, actionTarget: actionTarget)
         case .text:
             if message.role == .system {
-                Label(message.content, systemImage: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : message.metadata[TurnWaitCopy.key] == "line" ? "clock" : "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
+                Label(message.content, systemImage: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : message.metadata[TurnWaitCopy.key] == "line" ? "clock" : message.metadata[SlashKey.line] != nil ? "command" : "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4).textSelection(.enabled)
             } else if message.role == .user {
                 if !message.content.isEmpty {
                     Text(markdown).textSelection(.enabled).font(.body).lineSpacing(3).padding(.horizontal, 14).padding(.vertical, 10)
@@ -88,7 +92,7 @@ struct MessageView: View {
             }
         }
     }
-    private var markdown: AttributedString { (try? AttributedString(markdown: message.content, options: .init(interpretedSyntax: .full))) ?? AttributedString(message.content) }
+    private var markdown: AttributedString { let content = message.metadata[AutomationKey.display] ?? message.content; return (try? AttributedString(markdown: content, options: .init(interpretedSyntax: .full))) ?? AttributedString(content) }
 }
 
 /// "3 replies" under the message a thread was started from.

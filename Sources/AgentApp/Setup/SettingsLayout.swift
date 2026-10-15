@@ -11,6 +11,8 @@ enum SettingsLayout {
         case apps = "Connected apps"
         // P38 C: dictation's deAPI key and live voice's state.
         case voice = "Voice"
+        // P45: the budget of a chat's /goal.
+        case chats = "Chats"
         case computers = "Computers", usage = "Usage", account = "Account", reports = "Reports", about = "About"
         var id: String { rawValue }
         var icon: String {
@@ -26,6 +28,7 @@ enum SettingsLayout {
             case .reports: "tray"
             case .about: "info.circle"
             case .voice: "mic"
+            case .chats: "bubble.left.and.bubble.right"
             }
         }
     }
@@ -50,7 +53,9 @@ enum SettingsLayout {
                         // P38 B: connected apps (ChatGPT, Composio apps and each bot's access, background app access).
                         "apps.chatgpt", "apps.composio", "apps.botAccess", "apps.background",
                         // P38 C: voice dictation (deAPI) and live voice with ChatGPT.
-                        "voice.dictationKey", "voice.live"]
+                        "voice.dictationKey", "voice.live",
+                        // P45: /goal's budget (rounds and hours).
+                        "chats.goalBudget"]
 
     static let entries: [(id: String, home: Home)] = [
         ("connection.status", .simple), ("connection.test", .simple), ("connection.setup", .simple), ("you.name", .simple),
@@ -67,7 +72,7 @@ enum SettingsLayout {
         // P36: the SwarmHub service address and the Reports inbox.
         ("account.serviceURL", .advanced(.account)), ("reports.list", .advanced(.reports)),
         ("apps.chatgpt", .advanced(.apps)), ("apps.composio", .advanced(.apps)), ("apps.botAccess", .advanced(.apps)), ("apps.background", .advanced(.apps)),
-        ("voice.dictationKey", .advanced(.voice)), ("voice.live", .advanced(.voice)),
+        ("voice.dictationKey", .advanced(.voice)), ("voice.live", .advanced(.voice)), ("chats.goalBudget", .advanced(.chats)),
         ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))
     ]
 

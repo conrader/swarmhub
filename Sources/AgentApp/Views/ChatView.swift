@@ -25,6 +25,7 @@ struct ChatView: View {
                 }
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
+            AutomationStrip(bot: bot, conversation: thread ?? bot)
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -36,7 +37,7 @@ struct ChatView: View {
                         } else {
                             if GrokServerArchive.choice(hasLocalArchive: bot.grokSourceID != nil) == .local { GrokHistoryView(bot: bot, expanded: historyExpanded) }
                             if bot.messages.isEmpty && bot.grokSourceID == nil { ChatWelcome(bot: bot) }
-                            ForEach(bot.messages.filter { !$0.isSilent }) { message in
+                            ForEach(bot.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }) { message in
                                 MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
                                             thread: bot.thread(for: message.id), canThread: store.canFork(bot), codingModel: coding?.model,
                                             actionTarget: .bot(botID: bot.id, threadID: nil), reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) },
@@ -67,6 +68,7 @@ struct ChatView: View {
                 if store.isManager(bot) { BotOffersCard(manager: bot).padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat) }
                 if thread == nil, let banner = store.skillBanner(for: bot) { SkillInstallBanner(bot: bot, state: banner.state).frame(maxWidth: .infinity).background(AppColor.chat) }
                 else if thread == nil, store.isManager(bot), bot.backend == .hermes { AllBotsSkillsBanner(manager: bot).frame(maxWidth: .infinity).background(AppColor.chat) }
+                if store.mentionSkillOffer == bot.id { MentionSkillOffer(bot: bot).frame(maxWidth: .infinity).background(AppColor.chat) }
                 if bot.backend == .openClaw {
                     OpenClawChatGate(status: store.openClawStatus, bot: bot) { composer(thread: thread) }.background(AppColor.chat)
                 } else {
@@ -89,8 +91,9 @@ struct ChatView: View {
         return ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: conversation), canSteer: store.canSteer(in: conversation), hint: store.steerHint,
                      send: send, stop: { store.stop(conversation) }, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
+                     mentionNames: store.mentionTargets(for: bot).map(\.name),
                      manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.actions(for: bot.backend) : [], manage: manage,
-                     dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", dictation: dictation)
+                     dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", slashCommands: bot.isReadOnlyArchive ? [] : SlashCommand.menu, dictation: dictation)
     }
     private func manage(_ action: ManageBotsAction) { store.startManagement(action, manager: bot) }
     /// A Manage bots request for this chat replaces the draft.
@@ -107,7 +110,7 @@ struct ChatView: View {
     private func send() {
         let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
         let steering = !store.isIdle(store.currentConversation(of: bot))
-        if store.send(text: value, attachments: steering ? [] : intake.items) { draft = ""; if !steering { intake.items = [] } }
+        if store.submitComposer(text: value, attachments: steering ? [] : intake.items) { draft = ""; if !steering { intake.items = [] } }
     }
 }
 
@@ -119,7 +122,7 @@ private struct ThreadTranscript: View {
         if let parent { MessageView(message: parent).opacity(0.85) }
         HStack { Rectangle().fill(AppColor.separator).frame(height: 0.5); Text(thread.replyCount == 1 ? "1 reply" : "\(thread.replyCount) replies").font(.caption).foregroundStyle(.secondary).fixedSize(); Rectangle().fill(AppColor.separator).frame(height: 0.5) }
             .padding(.horizontal, 28).padding(.vertical, 6)
-        ForEach(thread.messages.filter { !$0.isSilent }) { message in
+        ForEach(thread.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }) { message in
             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in thread.messages.first { $0.id == id } },
                         actionTarget: botID.map { .bot(botID: $0, threadID: thread.id) }, reply: { store.replyTo = message }).id(message.id)
         }

@@ -162,19 +162,22 @@ extension AppStore {
             handleManagerReply(assistant, from: bot, in: conversation); handleReportOps(assistant, from: bot); refreshModelsAfterRecipe(assistant, from: bot, in: conversation)
             startReviewIfNeeded(assistant, from: bot, in: conversation)
         }
-        if outcome.state == .finished && hasText {
+        if outcome.state == .finished && hasText && !isSilentHeartbeatReply(assistant, in: conversation) {
             AvatarReactions.shared.completed(bot)
             notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.finalText))
         }
+        // P45: a stop for a typed correction (P28) is not the user stopping the goal; the correction's own turn continues it.
+        let corrected = turns.correcting.contains(token)
         resendReturnedSteers(steers, bot: bot)
         sendQueuedNextMessage()
+        automationTurnEnded(in: conversation, bot: bot, reply: assistant, outcome: outcome, corrected: corrected)
     }
 
     /// History for a 1:1 turn: the transcript up to and including `last`, without steer bubbles, warning lines and empty replies.
     func chatHistory(_ conversation: any Conversation, upTo last: ChatMessage? = nil, excluding reply: ChatMessage) -> [(role: String, content: String)] {
         var rows = owner(of: conversation).map { readableMessages(conversation.messages, for: $0.id) } ?? conversation.messages
         if let last, let index = rows.firstIndex(where: { $0.id == last.id }) { rows = Array(rows[...index]) }
-        return rows.filter { $0.id != reply.id && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
+        return rows.filter { $0.id != reply.id && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && $0.metadata[SlashKey.line] == nil && $0.presentation != .automation && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
             .map { (role: $0.role.rawValue, content: $0.outgoingText) }
     }
 
