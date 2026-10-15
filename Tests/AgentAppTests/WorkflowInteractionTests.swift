@@ -155,6 +155,22 @@ actor ReportThenDisconnectBackend: AgentBackend {
         #expect(MockHermesProtocol.recorded(host).isEmpty)
     }
 
+    @Test func aBotOutsideTheAppGateGetsNoAppToolsEvenWithAGrant() async throws {
+        let (apps, host, _) = composioFixture()
+        let botID = UUID()
+        await apps.refresh(); apps.setAllowed(true, account: apps.accounts[0], botID: botID)
+        #expect(!apps.grants(for: botID).isEmpty)
+        let before = MockHermesProtocol.recorded(host).count
+        let workflow = WorkflowTools(instructions: { marker in "Workflow enabled\n" + marker }, validate: {}, perform: { _ in "ok" })
+        let stream = try await ConnectedAppsChat.stream(.init(sessionID: "test", systemPrompt: "", messages: []), botID: botID,
+                                                        backend: AppRequestBackend(), apps: apps, appsAllowed: false, workflow: workflow)
+        do {
+            for try await _ in stream {}
+            Issue.record("A bot outside the app gate reached app tools")
+        } catch { #expect(error.localizedDescription.contains("no connected app grants")) }
+        #expect(MockHermesProtocol.recorded(host).count == before)
+    }
+
     @Test func aReportFollowedByAConnectionLossNeverCompletesTheTask() async throws {
         let (store, workflow, _, tools, owner, _) = try WorkflowOperationsTests().fixture()
         let stream = try await ConnectedAppsChat.stream(.init(sessionID: "work-session", systemPrompt: "", messages: []), botID: owner.id,

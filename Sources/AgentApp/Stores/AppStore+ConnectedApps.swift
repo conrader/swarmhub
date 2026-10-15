@@ -28,9 +28,9 @@ extension AppStore {
     /// A Hermes bot's turn goes through the connected-apps loop; so does any workflow task's turn (P38 E, its workflow
     /// operations); anything else is sent as it was.
     func conversationStream(_ request: AgentRequest, bot: Bot, backend: any AgentBackend) async throws -> AsyncThrowingStream<AgentEvent, Error> {
-        let workflow = try workflowTools(for: request, bot: bot)
-        guard connectionBot(id: bot.id) != nil || workflow != nil else { return try await backend.send(request) }
-        return try await ConnectedAppsChat.stream(request, botID: bot.id, backend: backend, apps: connectedApps, workflow: workflow)
+        let workflow = try workflowTools(for: request, bot: bot), appsAllowed = connectionBot(id: bot.id) != nil
+        guard appsAllowed || workflow != nil else { return try await backend.send(request) }
+        return try await ConnectedAppsChat.stream(request, botID: bot.id, backend: backend, apps: connectedApps, appsAllowed: appsAllowed, workflow: workflow)
     }
 
     /// An app action card's answer: a chat action goes to the waiting tool loop, a background one to the SwarmHub

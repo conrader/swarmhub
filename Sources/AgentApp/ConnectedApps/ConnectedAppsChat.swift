@@ -39,9 +39,10 @@ struct AppToolRequest: Sendable {
             .range(of: #"^\[\[SWARMHUB_APP_REQUEST_[0-9A-Fa-f-]{36}\]\]"#, options: .regularExpression) != nil
     }
     static func stream(_ request: AgentRequest, botID: UUID, backend: any AgentBackend,
-                       apps: ConnectedAppsStore, maximumSteps: Int = 8, workflow: WorkflowTools? = nil,
+                       apps: ConnectedAppsStore, appsAllowed: Bool = true, maximumSteps: Int = 8, workflow: WorkflowTools? = nil,
                        willSend: (@MainActor (AgentRequest) throws -> Void)? = nil) async throws -> AsyncThrowingStream<AgentEvent, Error> {
-        let hasApps = apps.hasKey && !apps.grants(for: botID).isEmpty
+        // `appsAllowed`: the store's gate (`connectionBot`); a workflow turn of any other bot never reaches app tools.
+        let hasApps = appsAllowed && apps.hasKey && !apps.grants(for: botID).isEmpty
         guard hasApps || workflow != nil else {
             // Nothing to connect through (no key, no SwarmHub service): the request goes out unchanged.
             var next = request
@@ -64,7 +65,7 @@ struct AppToolRequest: Sendable {
                         try Task.checkCancellation()
                         try workflow?.validate()
                         var instructions = hasApps ? try prompt(persona: request.systemPrompt, marker: marker, enabledApps: apps.enabledToolkits(for: botID), tools: knownTools)
-                            : request.systemPrompt + (apps.isAvailable ? "\n\n" + AppConnectionRequest.instructions : "")
+                            : request.systemPrompt + (appsAllowed && apps.isAvailable ? "\n\n" + AppConnectionRequest.instructions : "")
                         if let workflow { instructions += "\n\n" + (try workflow.instructions(marker)) }
                         let next = AgentRequest(sessionID: request.sessionID, systemPrompt: instructions, messages: messages, images: step == 0 ? request.images : [],
                                                 managementText: step == 0 ? request.managementText : nil)
