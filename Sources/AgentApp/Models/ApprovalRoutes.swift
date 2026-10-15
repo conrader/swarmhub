@@ -53,11 +53,14 @@ struct ApprovalRoute: Identifiable, Codable, Equatable {
 
     func matches(_ facts: ApprovalFacts) -> Bool {
         if let legacyActionPattern { return ApprovalRule.glob(legacyActionPattern, matches: facts.action) && ApprovalRule.glob(commandPattern, matches: facts.command) }
-        if kind != .any, !facts.kinds.contains(kind) { return false }
+        // Fail closed: Ask and Deny lines also catch a kind named anywhere in the command (`env code-job …`); Approve and
+        // Reviewer lines need the program itself to be it.
+        let restrictive = decision == .ask || decision == .deny
+        if kind != .any, !(restrictive ? facts.looseKinds : facts.kinds).contains(kind) { return false }
         let pattern = commandPattern.trimmingCharacters(in: .whitespaces)
         if !pattern.isEmpty, !ApprovalRule.glob(pattern, matches: facts.command) { return false }
         if let target = targetBot?.trimmingCharacters(in: .whitespaces).lowercased(), !target.isEmpty {
-            guard let to = facts.botMessageTo else { return false }
+            guard let to = restrictive ? facts.looseBotMessageTo : facts.botMessageTo else { return false }
             return to.lowercased() == target || facts.botMessageToName?.lowercased() == target
         }
         return true
@@ -99,11 +102,18 @@ struct ApprovalRouting: Codable, Equatable {
 /// What the router looks at for one request.
 struct ApprovalFacts {
     var action: String; var command: String; var kinds: Set<ApprovalActionKind>; var botMessageTo: String?; var botMessageToName: String?
+    /// The kinds and recipient when any word of the command names them (used only to Ask or Deny).
+    var looseKinds: Set<ApprovalActionKind>; var looseBotMessageTo: String?
     init(action rawAction: String, command: String, toName: (String) -> String? = { _ in nil }) {
         let trimmed = rawAction.trimmingCharacters(in: .whitespacesAndNewlines)
         action = trimmed.isEmpty ? "command" : trimmed; self.command = command
         kinds = ApprovalActionKind.kinds(action: action, command: command)
-        botMessageTo = kinds.contains(.botMessage) ? BotMessageCall.parse(command: command)?.to : nil; botMessageToName = botMessageTo.flatMap(toName)
+        let anywhere = BotMessageCall.parse(command: command)?.to
+        botMessageTo = kinds.contains(.botMessage) ? anywhere : nil; looseBotMessageTo = anywhere
+        let lower = command.lowercased()
+        looseKinds = kinds.union([anywhere != nil ? ApprovalActionKind.botMessage : nil, lower.contains("code-job") ? .codingJob : nil,
+                                  lower.contains("skills install") || lower.contains("skill install") ? .skillInstall : nil].compactMap { $0 })
+        let name = looseBotMessageTo.flatMap(toName); botMessageToName = name
     }
 }
 

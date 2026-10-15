@@ -78,12 +78,17 @@ struct ApprovalRouteEditor: View {
                 HStack(spacing: 6) {
                     Text("When").foregroundStyle(.secondary)
                     if line.legacyActionPattern != nil {
-                        TextField("Action", text: Binding(get: { line.legacyActionPattern ?? "" }, set: { line.legacyActionPattern = $0 })).frame(width: 90)
+                        TextField("Action", text: Binding(get: { line.legacyActionPattern ?? "" }, set: { line.legacyActionPattern = $0 }), prompt: Text("action")).labelsHidden().textFieldStyle(.roundedBorder).frame(width: 90)
                     } else {
                         Picker("Kind", selection: $line.kind) { ForEach(ApprovalActionKind.allCases) { Text($0.title).tag($0) } }.labelsHidden().frame(width: 150)
                     }
-                    TextField("Command pattern, e.g. git push*", text: $line.commandPattern)
-                    if line.kind == .botMessage { TextField("to bot", text: Binding(get: { line.targetBot ?? "" }, set: { line.targetBot = $0.isEmpty ? nil : $0 })).frame(width: 80) }
+                    TextField("Command pattern", text: $line.commandPattern, prompt: Text("any command, e.g. git push*")).labelsHidden().textFieldStyle(.roundedBorder)
+                }
+                if line.kind == .botMessage {
+                    HStack(spacing: 6) {
+                        Text("to").foregroundStyle(.secondary)
+                        TextField("To bot", text: Binding(get: { line.targetBot ?? "" }, set: { line.targetBot = $0.isEmpty ? nil : $0 }), prompt: Text("any bot")).labelsHidden().textFieldStyle(.roundedBorder).frame(width: 160)
+                    }
                 }
                 HStack(spacing: 6) {
                     Text("→").foregroundStyle(.secondary)
@@ -149,7 +154,7 @@ struct ReviewAfterEditor: View {
                     }
                     Text("finished").foregroundStyle(.secondary)
                     Picker("Trigger", selection: $rule.trigger) { ForEach(ReviewTrigger.allCases) { Text($0.title).tag($0) } }.labelsHidden().frame(width: 170)
-                    if rule.trigger == .botMessage { TextField("to bot", text: Binding(get: { rule.botMessageTo ?? "" }, set: { rule.botMessageTo = $0.isEmpty ? nil : $0 })).frame(width: 80) }
+                    if rule.trigger == .botMessage { TextField("To bot", text: Binding(get: { rule.botMessageTo ?? "" }, set: { rule.botMessageTo = $0.isEmpty ? nil : $0 }), prompt: Text("any bot")).labelsHidden().textFieldStyle(.roundedBorder).frame(width: 120) }
                 }
                 HStack(spacing: 6) {
                     Text("→ Reviewer").foregroundStyle(.secondary)

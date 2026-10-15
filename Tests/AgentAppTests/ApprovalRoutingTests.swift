@@ -91,6 +91,11 @@ private func legacyBot(_ mode: ApprovalMode, rules: [ApprovalRule], reviewer: UU
     #expect(facts("code-job --bot coder --order claude -- fix").kinds.contains(.codingJob))
     #expect(!facts("rm -rf /tmp/code-job").kinds.contains(.codingJob), "kinds come from the program, not from text in the command")
     #expect(!facts("rm /tmp/bot-msg --to grok-infra").kinds.contains(.botMessage))
+    // Fail closed: a wrapped program still meets Ask/Deny lines of its kind, never Approve/Reviewer lines.
+    #expect(ApprovalRoute(kind: .codingJob, decision: .deny).matches(facts("env code-job --bot x -- go")))
+    #expect(!ApprovalRoute(kind: .codingJob, decision: .approve).matches(facts("env code-job --bot x -- go")))
+    #expect(ApprovalRoute(kind: .botMessage, targetBot: "Infra", decision: .ask).matches(facts("nohup bot-msg --to grok-infra -- hi")))
+    #expect(!ApprovalRoute(kind: .botMessage, targetBot: "Infra", decision: .reviewer).matches(facts("nohup bot-msg --to grok-infra -- hi")))
     #expect(facts("hermes skills install swarmhub-coding").kinds.contains(.skillInstall))
     #expect(facts("", "write_file").kinds.contains(.fileWrite) && facts("curl https://x.test").kinds.contains(.network))
     #expect(facts("", "delegate_task").kinds.contains(.delegate) && facts("", "mystery").kinds == [.other])

@@ -96,6 +96,6 @@ struct ApprovalAuditSection: View {
     private func decider(_ decidedBy: String) -> String {
         if let reviewer = reviewer(decidedBy) { return "Reviewer \(reviewer.name)" }
         if decidedBy.hasPrefix("rule:") { return "Rule" }
-        return decidedBy == "user" ? "You" : decidedBy
+        return decidedBy == "user" ? "You" : decidedBy == "system" ? AppConstants.name : decidedBy
     }
 }
