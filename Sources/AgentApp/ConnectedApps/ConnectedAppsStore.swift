@@ -36,6 +36,8 @@ struct ComposioRunScope: Sendable {
     @Published private(set) var pendingLink: URL?
     /// Set when the SwarmHub connection service answered that it is not set up (`/health` 503).
     @Published var serviceNote: String?
+    /// P40: the app whose first connection failed while getting the project key; Settings offers Retry for it.
+    @Published private(set) var retryToolkit: String?
     let approvals = AppToolApprovalBroker()
     /// The app action cards SwarmHub made itself (by card id). Only these are decided locally; an approval from a bot's
     /// server is never treated as an app action, whatever its action kind says.
@@ -115,9 +117,9 @@ struct ComposioRunScope: Sendable {
 
     /// Open this link on the user's Mac. Tokens stay with Composio, not in bot prompts or local JSON.
     func connect(_ toolkit: String) async -> URL? {
-        guard !busy, persistenceEnabled else { return nil }; busy = true; error = nil; defer { busy = false }
+        guard !busy, persistenceEnabled else { return nil }; busy = true; error = nil; retryToolkit = nil; defer { busy = false }
         do {
-            try await ensureKeyForFirstConnection(toolkit)
+            do { try await ensureKeyForFirstConnection(toolkit) } catch { retryToolkit = toolkit; throw error }
             let service = client
             let id = try await service.createSession(userID: configuration.userID, toolkits: [toolkit])
             do {

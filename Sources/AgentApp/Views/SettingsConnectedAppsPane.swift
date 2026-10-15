@@ -1,12 +1,11 @@
 import SwiftUI
 
-/// P38 B: Settings → Advanced → Connected apps: ChatGPT, Composio apps (first connection through the SwarmHub account
-/// or the user's own Composio key), which bot may use which account, and background app access. A service that is not
-/// set up says so in one plain line instead of showing controls that cannot work.
+/// P38 B: Settings → Advanced → Connected apps: ChatGPT, Composio apps, which bot may use which account, and background
+/// app access. P40: the first Connect gets this Mac's project key from SwarmHub silently (no sign-in); the user's own
+/// Composio key sits under Advanced. A service that is not set up says so in one plain line instead of dead controls.
 struct SettingsConnectedAppsPane: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var apps: ConnectedAppsStore
-    @ObservedObject var center: ReportsCenter
     @ObservedObject var chatGPT: ChatGPTConnection
     /// Renders pass false: no Codex process, no service check, no Composio request.
     var checksOnAppear = true
@@ -25,7 +24,8 @@ struct SettingsConnectedAppsPane: View {
             if apps.busy && !apps.hasKey {
                 HStack { ProgressView().controlSize(.small); Text("Preparing your app connection…").font(.caption).foregroundStyle(.secondary) }
             }
-            DisclosureGroup("Use your own Composio key") {
+            DisclosureGroup("Advanced") {
+                Text("Use your own Composio key").font(.callout)
                 SecureField(apps.hasKey ? "Replace project API key" : "Project API key", text: $key)
                 HStack {
                     Button("Save key") { if apps.saveKey(key) { key = ""; Task { await load() } } }
@@ -36,14 +36,17 @@ struct SettingsConnectedAppsPane: View {
             }
         }
         if let error = apps.error {
-            Section { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+            Section {
+                Text(error).foregroundStyle(.red).textSelection(.enabled)
+                if let toolkit = apps.retryToolkit { Button("Retry") { connect(toolkit) }.disabled(apps.busy) }
+            }
         }
         if apps.hasKey {
             Section("Connected accounts") {
                 HStack {
                     Button("Refresh") { Task { await apps.refresh() } }.disabled(apps.busy)
                     if apps.busy { ProgressView().controlSize(.small) }
-                    if apps.pendingLink != nil { Text("Finish signing in, then refresh.").font(.caption).foregroundStyle(.secondary) }
+                    if apps.pendingLink != nil { Text("Allow access in your browser, then refresh.").font(.caption).foregroundStyle(.secondary) }
                 }
                 if apps.accounts.isEmpty { Text("No accounts connected yet. Choose an app below.").foregroundStyle(.secondary) }
                 ForEach(apps.accounts) { account in
@@ -98,7 +101,7 @@ struct SettingsConnectedAppsPane: View {
                 if !apps.hasKey { Text("Connect your first app to browse the full catalog.").font(.caption).foregroundStyle(.secondary) }
             }
         }
-        BackgroundExecutionView(apps: apps, center: center, checksOnAppear: checksOnAppear)
+        BackgroundExecutionView()
         Section {
             Text("App connections belong to SwarmHub. Connected accounts remain in Composio when you remove the key.").font(.caption).foregroundStyle(.secondary)
         }
@@ -116,17 +119,14 @@ struct SettingsConnectedAppsPane: View {
         } message: { Text("All agents lose access to this connection. To revoke the provider's OAuth consent, use that app's account settings.") }
     }
 
-    /// The first connection's route: the server not set up, this build without the service, or the SwarmHub sign-in.
+    /// The first connection's route: the server not set up, this build without the service, or ready.
     @ViewBuilder private var serviceLine: some View {
         if let note = apps.serviceNote {
             Label(note, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(.orange)
-            Text("You can still add your own Composio key below.").font(.caption).foregroundStyle(.secondary)
         } else if apps.provisioner == nil {
             Text(ConnectedAppsCopy.serviceNotConfigured).font(.caption).foregroundStyle(.secondary)
-        } else if case .signedIn = center.account {
-            Text("Signed in to SwarmHub. Connecting your first app creates your app project.").font(.caption).foregroundStyle(.secondary)
         } else {
-            Text("You sign in to SwarmHub in your browser when you connect your first app.").font(.caption).foregroundStyle(.secondary)
+            Text("Choose an app below. Its own page opens in your browser to allow access.").font(.caption).foregroundStyle(.secondary)
         }
     }
 

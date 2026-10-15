@@ -23,7 +23,7 @@ struct AppConnectionRequest: Equatable, Sendable {
     ```
     Use the app's exact Composio toolkit identifier in lowercase. Popular identifiers: gmail, googlecalendar, googledrive, slack, notion, github.
     The optional reason is plain text, at most 240 characters. Include only app and reason.
-    The user clicks the card to sign in through SwarmHub and explicitly choose which account to allow for this bot.
+    The user clicks the card to connect the app and explicitly choose which account to allow for this bot.
     Do not include an authentication URL, API key, user ID or bot ID. Never claim a connection or permission was granted before it is enabled.
     Wait for the user to finish connecting and send a follow-up before continuing the app task.
     """

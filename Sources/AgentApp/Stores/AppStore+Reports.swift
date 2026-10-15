@@ -114,6 +114,4 @@ extension AppStore {
         let service = swarmHubService
         if let rows = try? await center.withReportsAuth(service: service, now: now(), { try await service.listReports(auth: $0) }) { center.inbox.applyStatuses(rows) }
     }
-
-    func signInToSwarmHub() async { await reportsCenter.signIn(service: swarmHubService) }
 }

@@ -52,9 +52,10 @@ func composioHandler(_ request: URLRequest) -> (Int, Any) {
     return (404, ["error": "no synthetic route"])
 }
 
-@MainActor final class FakeSwarmHubIdentity: SwarmHubSigningIn {
+/// P40: this Mac's install, handed out without any request (no sign-in exists).
+@MainActor final class FakeSwarmHubInstall: SwarmHubInstallCredential {
     var calls = 0
-    func accessToken(forceSignIn: Bool) async throws -> String { calls += 1; return "synthetic-user-session" }
+    func install(renew: Bool) async throws -> SwarmHubInstall { calls += 1; return SwarmHubInstall(installID: "ins_synthetic", installKey: "synthetic-install-key") }
 }
 
 @MainActor func composioFixture(handler: @escaping MockHermesProtocol.Handler = composioHandler) -> (ConnectedAppsStore, String, URL) {

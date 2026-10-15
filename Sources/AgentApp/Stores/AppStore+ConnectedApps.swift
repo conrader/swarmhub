@@ -1,23 +1,23 @@
 import Foundation
 
 /// P38 B: connected apps on the store: the chat stream wrapper, the app connection card's bot, the decisions of app
-/// action cards, and the SwarmHub connection service's state for the Settings pane.
+/// action cards, and the SwarmHub connection service's state for the Settings pane. P40: every request to the service
+/// carries this Mac's install key; nothing here signs in.
 extension AppStore {
     /// An app action card SwarmHub made itself (the chat tool loop, the worker inbox): decided by SwarmHub, never by the
     /// bot's server, a rule or a reviewer; it always asks you. Looked up by card id, never by the card's own fields.
     func isAppAction(_ approval: ApprovalRequest) -> Bool { connectedApps.localApprovals[approval.id] != nil }
 
     func makeConnectedApps() -> ConnectedAppsStore {
-        let provisioner = connectedAppsServiceURL.map { ComposioProvisioningClient(baseURL: $0, identity: connectedAppsIdentity(url: $0)) }
+        let provisioner = connectedAppsServiceURL.map { ComposioProvisioningClient(baseURL: $0, credential: connectedAppsInstall()) }
         return ConnectedAppsStore(directory: fileURL.deletingLastPathComponent(), keyStore: keyStore, provisioner: provisioner, persistenceEnabled: persistenceEnabled)
     }
 
     /// The build's SwarmHub connection service (Info.plist `SWComposioProvisioningURL`); nil in tests and `swift run`.
     var connectedAppsServiceURL: URL? { ComposioProvisioningClient.configuredURL() }
 
-    func connectedAppsIdentity(url: URL) -> SwarmHubAccountIdentity {
-        SwarmHubAccountIdentity(center: reportsCenter, service: SwarmHubService(baseURL: url, session: reportsCenter.session))
-    }
+    /// The reports install (registered on first use, exactly as a first report does).
+    func connectedAppsInstall() -> SwarmHubInstallIdentity { SwarmHubInstallIdentity(center: reportsCenter, service: swarmHubService) }
 
     /// The chat view supplies this identity. A card never falls back to the currently selected bot.
     func connectionBot(id: UUID?) -> Bot? {
@@ -69,7 +69,7 @@ extension AppStore {
     // MARK: Background app access
 
     func backgroundExecutionClient() -> BackgroundExecutionClient? {
-        connectedAppsServiceURL.map { BackgroundExecutionClient(baseURL: $0, identity: connectedAppsIdentity(url: $0), session: reportsCenter.session) }
+        connectedAppsServiceURL.map { BackgroundExecutionClient(baseURL: $0, credential: connectedAppsInstall(), session: reportsCenter.session) }
     }
 
     /// The worker inbox: actions waiting for you become approval cards in their bot's chat (P37 cards, always asked).
@@ -89,12 +89,12 @@ extension AppStore {
         return rows
     }
 
-    /// The SwarmHub connection service's `/health`: a 503 means sign-in is not set up on the server yet.
-    func checkConnectedAppsService() async {
-        guard let url = connectedAppsServiceURL else { connectedApps.serviceNote = nil; return }
+    /// The SwarmHub connection service's `/health`: 200 when ready, 503 while its Composio key is not configured.
+    func checkConnectedAppsService(url: URL? = nil) async {
+        guard let url = url ?? connectedAppsServiceURL else { connectedApps.serviceNote = nil; return }
         var request = URLRequest(url: url.appending(path: "health"), timeoutInterval: 15)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let status = ((try? await reportsCenter.session.data(for: request))?.1 as? HTTPURLResponse)?.statusCode
-        connectedApps.serviceNote = status == 503 ? ConnectedAppsCopy.signInNotSetUp : nil
+        connectedApps.serviceNote = status == 503 ? ConnectedAppsCopy.notAvailable : nil
     }
 }
