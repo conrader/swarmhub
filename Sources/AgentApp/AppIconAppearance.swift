@@ -34,16 +34,20 @@ import AppKit
     }
 
     /// The installed app's Resources, the SwiftPM bundle or `swiftc` folder beside the binary, or the checkout (tests).
+    /// P38 E: the dark `.icns` (`AppIcon-dark.icns` in the app, `SwarmHub-dark.icns` in the checkout) follows the PNGs.
     static func imageURLs(dark: Bool) -> [URL] {
         let name = "ThemeIcons/SwarmHub-\(dark ? "dark" : "light").png"
         let executable = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
-        return [
+        let checkout = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appending(path: "Resources/AppIcon")
+        let icns = dark ? [Bundle.main.resourceURL?.appending(path: "AppIcon-dark.icns"), executable.appending(path: "AgentApp.resources/AppIcon-dark.icns"),
+                           checkout.appending(path: "SwarmHub-dark.icns")] : []
+        return ([
             Bundle.main.resourceURL?.appending(path: name),
             executable.appending(path: "AgentApp_AgentApp.bundle/\(name)"),
             executable.appending(path: "AgentApp_AgentApp.bundle/Contents/Resources/\(name)"),
             executable.appending(path: "AgentApp.resources/\(name)"),
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appending(path: "Resources/AppIcon/\(name)")
-        ].compactMap { $0 }
+            checkout.appending(path: name)
+        ] + icns).compactMap { $0 }
     }
 
     private func refreshIcon() {

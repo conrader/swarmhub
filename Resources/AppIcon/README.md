@@ -28,3 +28,10 @@ tile. `AppIcon-dark.iconset/` holds its ten Mac sizes. `ThemeIcons/SwarmHub-ligh
 are bundled for `AppIconAppearance`, which sets the running app's Dock icon from the Light, Dark or System preference
 (System follows macOS, also with no window open). SwiftPM, the `swiftc` fallback and `package-release.sh` all include
 `ThemeIcons/`. `AppIcon.icns` stays the light icon Finder shows before launch.
+
+`SwarmHub-logo-light.svg` and `SwarmHub-icon-light.svg` are the light drawing under explicit names (the default paths
+above keep the same drawing). `SwarmHub-dark.icns` is the dark iconset as a native icon (`iconutil --convert icns
+Resources/AppIcon/AppIcon-dark.iconset --output Resources/AppIcon/SwarmHub-dark.icns`); `package-release.sh` builds it
+into the app as `AppIcon-dark.icns` and the `swiftc` fallback copies it beside the binary, so `AppIconAppearance` still
+finds a dark icon when the dark PNG cannot be read. `preview-appearances.png` (from `preview-appearances.svg`) shows both
+drawings at large and small sizes.

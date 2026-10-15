@@ -59,6 +59,7 @@ else
   cp -R Resources/Skills "$BUILD_DIR/AgentApp.resources/Skills"
   rm -rf "$BUILD_DIR/AgentApp.resources/ThemeIcons"
   cp -R Resources/AppIcon/ThemeIcons "$BUILD_DIR/AgentApp.resources/ThemeIcons"
+  cp Resources/AppIcon/SwarmHub-dark.icns "$BUILD_DIR/AgentApp.resources/AppIcon-dark.icns"
 fi
 # Bare executable launches need the dynamic framework beside the binary too.
 if [[ "$SPARKLE_FRAMEWORK" != "$BUILD_DIR/Sparkle.framework" ]]; then

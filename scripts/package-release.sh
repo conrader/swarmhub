@@ -44,6 +44,8 @@ cp -R "$ROOT_DIR/Resources/Skills" "$APP_DIR/Contents/Resources/Skills"
 /usr/bin/iconutil -c icns "$ROOT_DIR/Resources/AppIcon/AppIcon.iconset" -o "$APP_DIR/Contents/Resources/AppIcon.icns"
 # P38: the light and dark Dock icons AppIconAppearance picks at run time (the icns stays the light Finder fallback).
 cp -R "$ROOT_DIR/Resources/AppIcon/ThemeIcons" "$APP_DIR/Contents/Resources/ThemeIcons"
+# P38 E: the dark icon as an icns too (AppIconAppearance's fallback when the dark PNG cannot be read).
+/usr/bin/iconutil -c icns "$ROOT_DIR/Resources/AppIcon/AppIcon-dark.iconset" -o "$APP_DIR/Contents/Resources/AppIcon-dark.icns"
 cp "$ROOT_DIR/THIRD-PARTY-NOTICES.md" "$APP_DIR/Contents/Resources/THIRD-PARTY-NOTICES.md"
 cp "$SPARKLE_DIR/LICENSE" "$APP_DIR/Contents/Resources/SPARKLE-LICENSE.txt"
 cp "$CONFIGURED_PLIST" "$APP_DIR/Contents/Info.plist"
@@ -92,10 +94,12 @@ TEAM_ID="$(/usr/bin/codesign -dv "$APP_DIR/Contents/MacOS/AgentApp" 2>&1 | awk -
 echo "signing_team=${TEAM_ID:-adhoc}" >> "$APP_DIR/Contents/Resources/SOURCE.txt"
 /usr/bin/codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT_DIR/Resources/SwarmHub.entitlements" --identifier com.konrad.agentapp "$APP_DIR"
 /usr/bin/codesign --verify --deep --strict "$APP_DIR"
-if [[ ! -s "$APP_DIR/Contents/Resources/AppIcon.icns" ]]; then
-  echo "ERROR: $APP_DIR lacks Contents/Resources/AppIcon.icns." >&2
-  exit 1
-fi
+for ICON in AppIcon.icns AppIcon-dark.icns ThemeIcons/SwarmHub-light.png ThemeIcons/SwarmHub-dark.png; do
+  if [[ ! -s "$APP_DIR/Contents/Resources/$ICON" ]]; then
+    echo "ERROR: $APP_DIR lacks Contents/Resources/$ICON." >&2
+    exit 1
+  fi
+done
 rm -f "$ZIP_PATH"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
 if [[ -n "${SWARMHUB_NOTARY_PROFILE:-}" ]]; then
