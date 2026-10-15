@@ -90,7 +90,7 @@ extension AppStore {
         if count != bot.messages.count { objectWillChange.send(); save() }
     }
 
-    private func markSilentRun(_ jobID: String, runAt: String, bot: Bot) {
+    func markSilentRun(_ jobID: String, runAt: String, bot: Bot) {
         routines.update(bot.id) { state in
             if let known = state.silentRuns[jobID], RoutineTime.isLater(known, than: runAt) { return }
             state.silentRuns[jobID] = runAt

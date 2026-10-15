@@ -155,6 +155,12 @@ extension AppStore {
             setRepause(false, key: Self.runKey(bot, job.id))
             if !job.isPaused, let paused = try? await client.pause(job.id) { routines.replaceJob(paused, botID: bot.id) }
         }
+        // P46 5: a heartbeat (any `bot-chat:` routine of this bot) answers in the Bot Chat, which the live read shows; only a
+        // `[SILENT]` run is noted, for the Routines tab's "ok · silent".
+        if deliversToBotChat(job, bot: bot) {
+            if let result = try? await client.runResult(for: job), SilentReply.isSilent(result.text) { markSilentRun(job.id, runAt: job.lastRunAt ?? "", bot: bot) }
+            return
+        }
         let missed = seen.isEmpty ? [] : await catchUpRoutine(job, after: seen, bot: bot, client: client)
         var result: HermesRunResult?, lookupError: String?
         do { result = try await client.runResult(for: job) } catch { lookupError = BotInfoCache.describe(error, key: client.backend.apiKey) }
