@@ -40,6 +40,8 @@ struct ChatView: View {
                         ForEach(store.approvals.filter { $0.botID == bot.id && !($0.sessionID?.hasPrefix("group-") ?? false) }) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
                         Color.clear.frame(height: 1).id("bottom")
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity)
+                    // P38 B: an app connection card grants access to the bot of this chat only.
+                    .environment(\.connectAppBotID, bot.id)
                 }.background(AppColor.chat)
                 .onChange(of: bot.messages.last?.content) { _, _ in if thread == nil { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: bot.messages.count) { _, _ in if thread == nil { proxy.scrollTo("bottom", anchor: .bottom) } }

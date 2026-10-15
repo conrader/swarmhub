@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Assistant Markdown with inline cards: choices, drafts, link pills and images (see `ChatCardParser`); swarmhub blocks stay hidden.
 struct MarkdownContent: View {
+    @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage
     /// P38: where the cards answer; nil (renders, a thread's parent line) shows them without actions.
     var actionTarget: ConversationActionTarget? = nil
@@ -15,6 +16,7 @@ struct MarkdownContent: View {
                 case .choices(let prompt, let options): ChoicesCard(message: message, target: actionTarget, index: index, prompt: prompt, options: options)
                 case .draft(let draft): DraftCardView(message: message, target: actionTarget, index: index, draft: draft)
                 case .image(let alt, let url): InlineImage(alt: alt, url: url)
+                case .connectApp(let request): ConnectAppCard(message: message, request: request, apps: store.connectedApps)
                 }
             }
         }

@@ -9,6 +9,8 @@ enum ChatBlock: Equatable {
     /// Draft with Send ("Send it" to the bot) and Copy.
     case draft(DraftCard)
     case image(alt: String, url: String)
+    /// P38 B: a closed ```` ```connect-app ```` fence with a valid `{"app", "reason"}` body (`AppConnectionRequest`).
+    case connectApp(AppConnectionRequest)
 }
 
 struct DraftCard: Equatable { var to: String?; var subject: String?; var body: String }
@@ -25,8 +27,9 @@ enum ChatCardParser {
             flush()
             var body: [String] = []; index += 1
             while index < lines.count, !closesFence(lines[index], length: fence.length) { body.append(lines[index]); index += 1 }
+            let closed = index < lines.count
             index += 1
-            blocks.append(fencedBlock(language: fence.info, body: body))
+            blocks.append(fencedBlock(language: fence.info, body: body, closed: closed))
         }
         flush()
         return markTrailingChoices(blocks)
@@ -47,8 +50,12 @@ enum ChatCardParser {
         return trimmed.count >= length && trimmed.allSatisfy { $0 == "`" }
     }
 
-    private static func fencedBlock(language: String, body: [String]) -> ChatBlock {
+    private static func fencedBlock(language: String, body: [String], closed: Bool) -> ChatBlock {
         switch language.lowercased() {
+        case "connect-app":
+            let text = body.joined(separator: "\n")
+            guard closed, let request = AppConnectionRequest.parse(text) else { return .code(language: language, body: text) }
+            return .connectApp(request)
         case "choices":
             var prompt: [String] = [], options: [String] = []
             for line in body where !line.trimmingCharacters(in: .whitespaces).isEmpty {

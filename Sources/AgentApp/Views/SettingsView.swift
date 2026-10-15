@@ -35,6 +35,7 @@ struct SettingsView: View {
         case .alerts: SettingsAlertsPane()
         case .models: SettingsModelsPane(cache: store.botInfo)
         case .review: SettingsApprovalsPane()
+        case .apps: SettingsConnectedAppsPane(apps: store.connectedApps, center: store.reportsCenter, chatGPT: .shared)
         case .computers: SettingsComputersPane()
         case .usage: SettingsUsagePane()
         case .account: SettingsSwarmHubAccountPane(center: store.reportsCenter)

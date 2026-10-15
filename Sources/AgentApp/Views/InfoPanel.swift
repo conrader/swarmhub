@@ -36,6 +36,7 @@ struct InfoPanel: View {
             VStack(alignment: .leading, spacing: 18) {
                 if bot.backend == .hermes && !bot.isReadOnlyArchive { BotUsageView(bot: bot) }
                 ApprovalAuditSection(bot: bot)
+                ToolTimelineView(apps: store.connectedApps, botID: bot.id)
                 if bot.backend == .hermes {
                     BotMessagesSection(bot: bot, center: store.botMessages)
                     DelegatedTasksSection(bot: bot, events: store.subAgentTasks[bot.id] ?? [])
@@ -59,6 +60,7 @@ struct InfoPanel: View {
                 OpenClawOverviewSection(status: store.openClawStatus, bot: bot)
             } else {
                 MemorySection(bot: bot)
+                if store.connectionBot(id: bot.id) != nil { BotConnectedAppsSection(apps: store.connectedApps, bot: bot) }
             }
             InfoPointerRows(pointers: store.infoPointers(for: bot))
             members

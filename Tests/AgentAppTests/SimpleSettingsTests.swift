@@ -29,7 +29,7 @@ private func containsWord(_ text: String, _ word: String) -> Bool {
         guard case .advanced(let pane) = entry.home else { Issue.record("\(entry.id) has no pane"); continue }
         #expect(SettingsLayout.AdvancedPane.allCases.contains(pane))
     }
-    #expect(SettingsLayout.AdvancedPane.allCases.count == 9)
+    #expect(SettingsLayout.AdvancedPane.allCases.count == 10)
     for pane in SettingsLayout.AdvancedPane.allCases { #expect(!SettingsLayout.ids(in: pane).isEmpty, "\(pane.rawValue) is reachable and not empty") }
     #expect(SettingsLayout.home(of: "servers.reenterKey") == .advanced(.servers) && SettingsLayout.home(of: "servers.grokBot") == .advanced(.servers))
     #expect(SettingsLayout.home(of: "about.autoDownload") == .advanced(.about))

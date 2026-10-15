@@ -120,7 +120,8 @@ extension AppStore {
                 save()
             }
             let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
-            let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: systemPrompt, messages: history, images: images, managementText: managementText))
+            let stream = try await conversationStream(.init(sessionID: sessionID, systemPrompt: systemPrompt, messages: history, images: images, managementText: managementText),
+                                                      bot: bot, backend: activeBackend)
             if activeStreamToken == token {
                 let flags = try? await activeBackend.features()
                 steerAvailable = flags?.contains("run_steer") == true
