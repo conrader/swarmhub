@@ -12,7 +12,12 @@
 #
 # Exit: 0 ok (reply on stdout; with --no-wait the session id); 2 unknown bot or no key; 3 gateway error;
 # 124 no reply within --wait; 64 usage. One TSV line per message in ~/.hermes/swarmhub/bot-messages.log:
-# time, from, to, recipient session id, waited|queued, ms, ok|error. Never the text or a key.
+# time, from, to, recipient session id, waited|queued|late-reply, ms, ok|error. Never the text or a key.
+#
+# Late replies: with --no-wait, or when no reply came within --wait (exit 124), a background follow-up keeps the
+# chat open (up to 30 min) and delivers the reply to the sender as a new message in the sender's own session
+# `swarmhub-from-<recipient>` ("[Reply from <recipient> via SwarmHub]"), which starts the sender's turn. Logged as
+# late-reply (from = the recipient, to = the sender). A message that is itself a delivered reply never gets one.
 
 usage() { echo "usage: bot-msg --to <bot> [--from <bot>] [--wait <seconds> | --no-wait] -- \"<text>\"" >&2; exit 64; }
 
@@ -46,22 +51,26 @@ H=$HOME/.hermes
 if [ "$TO" = default ]; then ENVF=$H/.env; else ENVF=$H/profiles/$TO/.env; fi
 if [ "$TO" != default ] && [ ! -d "$H/profiles/$TO" ]; then echo "bot-msg: no bot named $TO on this box" >&2; exit 2; fi
 
-# Value of NAME= in the .env (last one wins; optional quotes and a trailing CR dropped).
+# Value of NAME= in the .env ($2, else $ENVF; last one wins; optional quotes and a trailing CR dropped).
 env_value() {
-  sed -n "s/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}$1=//p" "$ENVF" 2>/dev/null | tail -n 1 | tr -d '\r' |
+  sed -n "s/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}$1=//p" "${2:-$ENVF}" 2>/dev/null | tail -n 1 | tr -d '\r' |
     sed -e 's/^"\(.*\)"[[:space:]]*$/\1/' -e "s/^'\\(.*\\)'[[:space:]]*\$/\\1/" -e 's/[[:space:]]*$//'
 }
 KEY=$(env_value API_SERVER_KEY)
 [ -n "$KEY" ] || { echo "bot-msg: $TO has no API_SERVER_KEY in its .env" >&2; exit 2; }
 case $KEY in *[\"\\]*|*[[:space:]]*) echo "bot-msg: $TO's API_SERVER_KEY is not usable" >&2; exit 2 ;; esac
 
-if [ -n "${SWARMHUB_GATEWAY:-}" ]; then BASE=${SWARMHUB_GATEWAY%/}; PREFIXED=1
-else
-  PORT=$(env_value API_SERVER_PORT)
-  case $PORT in ''|*[!0-9]*) BASE=http://127.0.0.1:8642; PREFIXED=1 ;; *) BASE=http://127.0.0.1:$PORT; PREFIXED= ;; esac
-fi
-BASE=${BASE%/v1}
-if [ -n "$PREFIXED" ] && [ "$TO" != default ]; then URL=$BASE/p/$TO; else URL=$BASE; fi
+# The gateway URL of bot $1 whose .env is $2: $SWARMHUB_GATEWAY/p/<bot>, else its own API_SERVER_PORT, else :8642/p/<bot>.
+gateway_url() {
+  if [ -n "${SWARMHUB_GATEWAY:-}" ]; then base=${SWARMHUB_GATEWAY%/}; prefixed=1
+  else
+    port=$(env_value API_SERVER_PORT "$2")
+    case $port in ''|*[!0-9]*) base=http://127.0.0.1:8642; prefixed=1 ;; *) base=http://127.0.0.1:$port; prefixed= ;; esac
+  fi
+  base=${base%/v1}
+  if [ -n "$prefixed" ] && [ "$1" != default ]; then echo "$base/p/$1"; else echo "$base"; fi
+}
+URL=$(gateway_url "$TO" "$ENVF")
 
 SID=swarmhub-from-$FROM
 S=$H/swarmhub
@@ -115,28 +124,14 @@ esac
 { printf '{"input":'; cat "$T/input"; printf '}'; } > "$T/chat.json"
 rm -f "$T/input"
 
-if [ -n "$NOWAIT" ]; then
-  # The run goes on in the background; its reply lands in the thread.
-  KEYLINE=$(printf 'header = "Authorization: Bearer %s"' "$KEY")
-  ( printf '%s\n' "$KEYLINE" | curl -sS -K - -o /dev/null --max-time 3600 -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
-      -X POST --data-binary @"$T/chat.json" "$URL/api/sessions/$SID/chat/stream" > /dev/null 2>&1 ) < /dev/null &
-  # curl reads the body at start; give it a moment before the folder goes.
-  sleep 1
-  echo "$SID"
-  finish 0
-fi
+# A message that is itself a delivered reply never gets a follow-up (no loops).
+FOLLOW=1
+case $TEXT in '[Reply from '*) FOLLOW= ;; esac
 
-code=$(api "$T/stream" --max-time "$WAIT" -N -H 'Accept: text/event-stream' -X POST --data-binary @"$T/chat.json" "$URL/api/sessions/$SID/chat/stream")
-rc=$?
-if [ "$rc" -eq 28 ]; then echo "bot-msg: no reply from $TO within ${WAIT}s; it may still answer in the thread $SID" >&2; finish 124; fi
-case $code in
-  200) ;;
-  000) echo "bot-msg: the gateway for $TO did not answer: $(head -n 1 "$T/curl.err")" >&2; finish 3 ;;
-  *) echo "bot-msg: the gateway for $TO answered HTTP $code" >&2; finish 3 ;;
-esac
-
-# The reply from the event stream: assistant.completed's content, else the deltas; run.failed/error is a gateway error.
-LC_ALL=C awk -v out="$T/reply" -v err="$T/failed" '
+# The reply in an event stream ($1): assistant.completed's content, else the deltas, into $2; run.failed/error's
+# reason into $3.
+parse_stream() {
+  LC_ALL=C awk -v out="$2" -v err="$3" '
   function hex(h,   i, c, v) { v = 0; for (i = 1; i <= 4; i++) { c = index("0123456789abcdef", tolower(substr(h, i, 1))); v = v * 16 + c - 1 } return v }
   function utf8(c) {
     if (c < 128) return sprintf("%c", c)
@@ -180,7 +175,86 @@ LC_ALL=C awk -v out="$T/reply" -v err="$T/failed" '
     if (failed != "") { printf "%s\n", failed > err; exit }
     r = (final != "" ? final : deltas)
     printf "%s", r > out
-  }' "$T/stream"
+  }' "$1"
+}
+
+# Background, once the chat ended after the waiting side gave up: the reply goes to the sender as a new message in its
+# own session swarmhub-from-<recipient>, with the sender's key (read like the recipient's). One log line, late-reply.
+deliver_late() {
+  START=$(now_ms) T=$F word=error
+  parse_stream "$F/stream" "$F/reply" "$F/failed"
+  if [ "$(cat "$F/rc" 2>/dev/null)" = 0 ] && [ "$(cat "$F/code" 2>/dev/null)" = 200 ] && [ ! -s "$F/failed" ] && [ -s "$F/reply" ]; then
+    if [ "$FROM" = default ]; then SENV=$H/.env; else SENV=$H/profiles/$FROM/.env; fi
+    KEY=$(env_value API_SERVER_KEY "$SENV")
+    case $KEY in ''|*[\"\\]*|*[[:space:]]*) KEY= ;; esac
+    if [ -n "$KEY" ]; then
+      SURL=$(gateway_url "$FROM" "$SENV") RSID=swarmhub-from-$TO
+      printf '{"id":"%s","title":%s,"source":"api_server"}' "$RSID" "$(printf 'From %s' "$TO" | json_string)" > "$F/create.json"
+      code=$(api "$F/create.out" --max-time 20 -X POST --data-binary @"$F/create.json" "$SURL/api/sessions")
+      case $code in
+        200|201|409)
+          { printf '{"input":'; { printf '[Reply from %s via SwarmHub]\n' "$TO"; cat "$F/reply"; printf '\n'; } | json_string; printf '}'; } > "$F/deliver.json"
+          # The sender's turn runs while this stays connected (the box stops a run whose client leaves).
+          code=$(api "$F/deliver.out" --max-time 3600 -N -H 'Accept: text/event-stream' -X POST --data-binary @"$F/deliver.json" "$SURL/api/sessions/$RSID/chat/stream")
+          [ "$code" = 200 ] && word=ok ;;
+      esac
+    fi
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TO" "$FROM" "swarmhub-from-$TO" late-reply $(( $(now_ms) - START )) "$word" >> "$S/bot-messages.log"
+}
+
+if [ -n "$NOWAIT" ] && [ -z "$FOLLOW" ]; then
+  # The run goes on in the background; its reply lands in the thread.
+  KEYLINE=$(printf 'header = "Authorization: Bearer %s"' "$KEY")
+  ( printf '%s\n' "$KEYLINE" | curl -sS -K - -o /dev/null --max-time 3600 -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+      -X POST --data-binary @"$T/chat.json" "$URL/api/sessions/$SID/chat/stream" > /dev/null 2>&1 ) < /dev/null &
+  # curl reads the body at start; give it a moment before the folder goes.
+  sleep 1
+  echo "$SID"
+  finish 0
+fi
+
+# The chat runs in the background into $F (stream, HTTP status, curl exit). Whoever creates $F/decided first decides
+# who handles the reply: this side while it still waits, else the background, which delivers it as a late reply.
+F=$(mktemp -d "${TMPDIR:-/tmp}/bot-msg-late.XXXXXX") || finish 1
+chmod 700 "$F"; cp "$T/chat.json" "$F/chat.json"
+KEYLINE=$(printf 'header = "Authorization: Bearer %s"' "$KEY")
+(
+  printf '%s\n' "$KEYLINE" | curl -sS -K - -o "$F/stream" -w '%{http_code}' --max-time 1800 -N -H 'Content-Type: application/json' \
+    -H 'Accept: text/event-stream' -X POST --data-binary @"$F/chat.json" "$URL/api/sessions/$SID/chat/stream" > "$F/code" 2> "$F/curl.err"
+  echo $? > "$F/rc"
+  if ! mkdir "$F/decided" 2>/dev/null; then
+    [ -n "$FOLLOW" ] && deliver_late
+    rm -rf "$F"
+  fi
+) < /dev/null > /dev/null 2>&1 &
+
+if [ -n "$NOWAIT" ]; then
+  mkdir "$F/decided"
+  echo "$SID"
+  finish 0
+fi
+
+n=0 limit=$(( WAIT * 5 ))
+while [ ! -d "$F/decided" ] && [ $n -lt $limit ]; do sleep 0.2; n=$((n + 1)); done
+if mkdir "$F/decided" 2>/dev/null; then
+  if [ -n "$FOLLOW" ]; then
+    echo "bot-msg: no reply from $TO within ${WAIT}s; it may still answer in the thread $SID, and its reply will reach you as a new message" >&2
+  else
+    echo "bot-msg: no reply from $TO within ${WAIT}s; it may still answer in the thread $SID" >&2
+  fi
+  finish 124
+fi
+code=$(cat "$F/code" 2>/dev/null)
+if [ "$(cat "$F/rc" 2>/dev/null)" != 0 ] && [ "$code" != 200 ]; then code=000; cp "$F/curl.err" "$T/curl.err" 2>/dev/null; fi
+case $code in
+  200) ;;
+  000) rm -rf "$F"; echo "bot-msg: the gateway for $TO did not answer: $(head -n 1 "$T/curl.err" 2>/dev/null)" >&2; finish 3 ;;
+  *) rm -rf "$F"; echo "bot-msg: the gateway for $TO answered HTTP $code" >&2; finish 3 ;;
+esac
+
+parse_stream "$F/stream" "$T/reply" "$T/failed"
+rm -rf "$F"
 if [ -s "$T/failed" ]; then echo "bot-msg: $TO could not answer: $(head -n 1 "$T/failed")" >&2; finish 3; fi
 cat "$T/reply" 2>/dev/null
 echo

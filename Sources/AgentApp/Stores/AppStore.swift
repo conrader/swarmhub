@@ -50,6 +50,8 @@ import UserNotifications
     let botInfo = BotInfoCache()
     /// P34: bot-to-bot threads (session lists, arrivals, loaded lines) and the thread sheet open now.
     let botMessages = BotMessageCenter(); @Published var openBotThread: BotThreadKey?
+    /// P42: live cards for work another bot, a routine or a late reply started.
+    let botWork = BotWorkCenter()
     /// P13 app-wide model defaults (store.json, this install only); empty until set in Settings → Models.
     @Published var modelDefaults = ModelDefaults()
     /// P37 D2: Settings → Approvals (checked after each bot's own lines) and SwarmHub-wide review-after lines.
@@ -107,6 +109,8 @@ import UserNotifications
     var workflowSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// P43: the 5 s pause of a routine run's watch (tests inject it).
     var routineWatchSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// P42: the pause between reads of a live card's session (tests inject it).
+    var botWorkSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil, openClawHub: OpenClawHub? = nil) {
         // P28: a test run never opens the real store.json or the standard defaults; either is reported and replaced.
@@ -172,7 +176,7 @@ import UserNotifications
         if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys(); await discoverBoxesOnLaunch() } }
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
-        botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad
+        botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad; botWork.autoStart = botInfo.autoLoad
         if connectivity != nil { listenForConnectivity() }
     }
 

@@ -54,6 +54,7 @@ extension AppStore {
                 // P43: a step remembers where in the text it started, so the reply draws text → steps → text.
                 var activity = before ?? ToolActivity(); activity.apply(tool, at: now(), textOffset: row.content.utf16.count)
                 noteEndedBotMessageSteps(before: before, after: activity, sender: bot)
+                noteStartedBotMessageSteps(before: before, after: activity, sender: bot)
                 if activity.total > 0 { row.activity = activity; objectWillChange.send() }
                 if tool.phase == .completed || tool.phase == .failed, RoutineWatch.isCronTool(tool.name) { routineToolEnded(bot: bot) }
             case .subAgent(let task): subAgent(task)

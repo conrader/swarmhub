@@ -6,7 +6,7 @@ struct ChatView: View {
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     var body: some View {
         let thread = store.openThread(in: bot), coding = store.codingThreadChoice(for: bot)
-        let incoming = store.isWorking(bot) ? nil : store.incomingBotMessageLine(for: bot)
+        let incoming = store.isWorking(bot) ? nil : store.workingForOthersLine(for: bot)
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
@@ -66,6 +66,7 @@ struct ChatView: View {
             } else {
                 if store.isManager(bot) { BotOffersCard(manager: bot).padding(.top, 8).frame(maxWidth: .infinity).background(AppColor.chat) }
                 if thread == nil, let banner = store.skillBanner(for: bot) { SkillInstallBanner(bot: bot, state: banner.state).frame(maxWidth: .infinity).background(AppColor.chat) }
+                else if thread == nil, store.isManager(bot), bot.backend == .hermes { AllBotsSkillsBanner(manager: bot).frame(maxWidth: .infinity).background(AppColor.chat) }
                 if bot.backend == .openClaw {
                     OpenClawChatGate(status: store.openClawStatus, bot: bot) { composer(thread: thread) }.background(AppColor.chat)
                 } else {

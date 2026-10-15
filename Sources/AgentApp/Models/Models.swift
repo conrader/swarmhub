@@ -328,6 +328,8 @@ struct BackendMessage: Sendable, Equatable {
     let id: Int?; let role: String; let content: String; let createdAt: Date?; var finishReason: String? = nil
     /// P43: the tools an assistant row called (`tool_calls`), in order; read for reconcile only.
     var tools: [String] = []
+    /// P42: what each of those calls ran on (a command, a path, a URL), one line, secrets removed; read for live work only.
+    var toolPreviews: [String?] = []
     init(id: Int? = nil, role: String, content: String, createdAt: Date? = nil, finishReason: String? = nil, tools: [String] = []) {
         self.id = id; self.role = role; self.content = content; self.createdAt = createdAt; self.finishReason = finishReason; self.tools = tools
     }

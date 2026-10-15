@@ -102,6 +102,23 @@ extension AppStore {
     /// `skills_installed` block to end with (P31: with each skill's variant, e.g. the coding order). Nil when a skill cannot
     /// be rendered; throws when a file contains the heredoc end marker, which would cut the file short on the box.
     func skillInstallInstructions(_ skills: [BundledSkill], profile: String, botName: String, codingOrder: CodingOrder = .standard) throws -> String? {
+        guard let install = try skillInstallCommands(skills, profile: profile, codingOrder: codingOrder) else { return nil }
+        return """
+        Konrad pressed Install in SwarmHub to install SwarmHub’s instructions (skills) for \(botName) (profile `\(profile)`). \
+        That press is his yes: do not ask again. Run exactly these commands in your terminal with the shell (not the file tool), \
+        change nothing else, then reply in one short line and end with the block below.
+        ````sh
+        \(install.commands.joined(separator: "\n"))
+        ````
+        ```swarmhub
+        \(install.op)
+        ```
+        """
+    }
+
+    /// One profile's part of an install turn: its shell commands and its `skills_installed` op (P42: shared by the
+    /// all-bots install). Nil when a skill cannot be rendered or the profile name is not valid.
+    func skillInstallCommands(_ skills: [BundledSkill], profile: String, codingOrder: CodingOrder = .standard) throws -> (commands: [String], op: String)? {
         guard !skills.isEmpty, HermesKeyPaste.isValidProfileName(profile) else { return nil }
         var commands: [String] = []
         for skill in skills {
@@ -123,17 +140,7 @@ extension AppStore {
             let variant = SkillLibrary.variant(of: skill, codingOrder: codingOrder).map { #","variant":"\#($0)""# } ?? ""
             return #"{"name":"\#(skill.name)","version":"\#(skill.version)"\#(variant)}"#
         }.joined(separator: ",")
-        return """
-        Konrad pressed Install in SwarmHub to install SwarmHub’s instructions (skills) for \(botName) (profile `\(profile)`). \
-        That press is his yes: do not ask again. Run exactly these commands in your terminal with the shell (not the file tool), \
-        change nothing else, then reply in one short line and end with the block below.
-        ````sh
-        \(commands.joined(separator: "\n"))
-        ````
-        ```swarmhub
-        {"op":"skills_installed","bot":"\(profile)","skills":[\(listed)]}
-        ```
-        """
+        return (commands, #"{"op":"skills_installed","bot":"\#(profile)","skills":[\#(listed)]}"#)
     }
 
     /// The core manager text (the skill's SKILL.md body).

@@ -19,6 +19,8 @@ import Foundation
     var lastPoll: [UUID: Date] = [:]
     var autoLoad = true
     var pollInterval: TimeInterval = 20
+    /// P42: while a bot on the connection works.
+    var busyPollInterval: TimeInterval = 5
 }
 
 enum BotMessageKey {
@@ -63,18 +65,31 @@ extension AppStore {
         }
     }
 
-    /// Reads the thread with the recipient's own key; leaves what is known in place when it cannot.
+    /// Reads the thread with the recipient's own key; leaves what is known in place when it cannot. P42: each answer
+    /// carries the steps the recipient ran for it, so the sheet shows the whole exchange.
     func loadThread(_ key: BotThreadKey) async {
-        guard let recipient = readableRecipient(key), let backend = try? backend(for: recipient),
-              let messages = try? await backend.loadMessages(sessionID: key.sessionID) else { return }
-        let lines = messages.enumerated().compactMap { index, message -> BotThreadLine? in
-            switch message.role {
-            case "user": BotThreadLine(id: "m\(index)", author: key.from, text: BotMessageCall.strippingHeader(message.content).text, date: message.createdAt)
-            case "assistant": BotThreadLine(id: "m\(index)", author: key.to, text: message.content, date: message.createdAt)
-            default: nil
-            }
-        }
+        guard let recipient = readableRecipient(key), let rows = try? await botWorkRows(recipient, session: key.sessionID) else { return }
+        let lines = Self.threadLines(rows, key: key)
         if !lines.isEmpty, botMessages.loaded[key] != lines { botMessages.loaded[key] = lines }
+    }
+
+    /// A thread's rows as lines: each request (its SwarmHub header removed), then the answer with its steps (an answer
+    /// still running has its steps and no text yet).
+    nonisolated static func threadLines(_ rows: [BackendMessage], key: BotThreadKey) -> [BotThreadLine] {
+        let turns = HistoryReconciler.serverTurns(rows), live = BotWorkReader.lastTurn(rows)
+        return turns.flatMap { turn -> [BotThreadLine] in
+            var lines: [BotThreadLine] = []
+            if let user = turn.user {
+                let text = BotWorkOrigin.header(user.content)?.text ?? BotMessageCall.strippingHeader(user.content).text
+                lines.append(BotThreadLine(id: "m\(user.id.map(String.init) ?? "t\(turn.index)")", author: key.from, text: text, date: user.createdAt))
+            }
+            if let last = turn.rows.last {
+                // The newest answer's last step runs until its reply lands.
+                let activity = turn.index == turns.count - 1 ? live?.activity : turn.activity
+                lines.append(BotThreadLine(id: "a\(last.id.map(String.init) ?? "t\(turn.index)")", author: key.to, text: turn.replyText, date: last.createdAt, activity: activity))
+            }
+            return lines
+        }
     }
 
     func openThread(_ key: BotThreadKey) {
@@ -116,10 +131,17 @@ extension AppStore {
     func pollBotMessagesOnce(now: Date = .now) async {
         guard botMessages.autoLoad else { return }
         for bot in bots where bot.backend == .hermes && !bot.isReadOnlyArchive && !needsKey(bot) {
-            if let last = botMessages.lastPoll[bot.id], now.timeIntervalSince(last) < botMessages.pollInterval { continue }
+            if let last = botMessages.lastPoll[bot.id], now.timeIntervalSince(last) < botMessagePollInterval(for: bot) { continue }
             botMessages.lastPoll[bot.id] = now
             await checkBotMessages(for: bot)
         }
+    }
+
+    /// P42: 5 s while any bot on `bot`'s connection works (a turn, a live card, a sender's step), else `pollInterval`.
+    func botMessagePollInterval(for bot: Bot) -> TimeInterval {
+        let connection = connection(of: bot)
+        let busy = bots.contains { $0.backend == .hermes && self.connection(of: $0) == connection && (isWorking($0) || botWorkLive(for: $0) != nil) }
+        return busy ? botMessages.busyPollInterval : botMessages.pollInterval
     }
 
     /// Lists `recipient`'s threads; a new or changed one is an arrival. A failure is kept as one quiet line for the
@@ -142,11 +164,17 @@ extension AppStore {
         let markKey = botMessageMarkKey(recipient), baseline = botMessages.marks[markKey]
         let recent = now().addingTimeInterval(-botMessages.firstListWindow)
         var marks = baseline ?? [:]
+        // P42: the first list since launch also reopens a run still going in a thread changed in the last 30 min.
+        let firstSinceLaunch = botWork.checkedSinceLaunch.insert(recipient.id).inserted
+        let running = now().addingTimeInterval(-BotWorkSchedule.recent)
         for row in rows {
             let old = marks[row.sessionID]
             marks[row.sessionID] = row.mark
             let arrived = baseline == nil ? row.sender == sender || (row.updatedAt.map { $0 >= recent } ?? false) : old != row.mark
             if arrived { postArrival(from: row.sender, recipient: recipient, session: row.sessionID) }
+            else if firstSinceLaunch, row.updatedAt.map({ $0 >= running }) ?? false {
+                watchBotWork(recipient, target: .session(row.sessionID), origin: .bot(row.sender), showFinished: false)
+            }
         }
         if botMessages.rows[recipient.id] != rows { botMessages.rows[recipient.id] = rows }
         if baseline != marks { botMessages.marks[markKey] = marks; save() }
@@ -164,6 +192,8 @@ extension AppStore {
         }
         if openBotThread != BotThreadKey(from: sender, to: profile(of: recipient)) { botMessages.unread[recipient.id, default: []].insert(session) }
         objectWillChange.send(); save()
+        // P42: the exchange unfolds on this line: the request, the steps, the reply.
+        watchBotWork(recipient, target: .session(session), origin: .bot(sender))
     }
 
     func hasBotMessageBadge(_ bot: Bot) -> Bool { !(botMessages.unread[bot.id] ?? []).isEmpty }

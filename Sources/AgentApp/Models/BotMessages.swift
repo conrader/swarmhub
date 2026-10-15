@@ -5,6 +5,8 @@ import Foundation
 /// the queued thread id).
 struct BotMessageCall: Codable, Equatable, Sendable {
     var to: String; var from: String?; var text: String; var noWait = false; var reply: String?
+    /// P42: sent with `hermes -p <bot> chat --oneshot`, and the recipient's session it landed in once found.
+    var oneshot: Bool?; var session: String?
 
     static let textLimit = 4000
 
@@ -106,8 +108,14 @@ fileprivate extension Array {
 /// One thread between two bots: the recipient's session `swarmhub-from-<from>` titled "From <from>" (profile names).
 struct BotThreadKey: Hashable, Identifiable, Sendable {
     var from: String; var to: String
-    var id: String { "\(from)→\(to)" }
-    var sessionID: String { Self.sessionID(from: from) }
+    /// P42: a session other than `swarmhub-from-<from>` (a oneshot command's); nil for the usual one.
+    private(set) var session: String?
+    init(from: String, to: String, session: String? = nil) {
+        self.from = from; self.to = to
+        self.session = session == Self.sessionID(from: from) || session?.isEmpty == true ? nil : session
+    }
+    var id: String { "\(from)→\(to)" + (session.map { "|\($0)" } ?? "") }
+    var sessionID: String { session ?? Self.sessionID(from: from) }
     static let sessionPrefix = "swarmhub-from-"
     static func sessionID(from sender: String) -> String { sessionPrefix + sender }
     /// The sender of a recipient session, from its id (`swarmhub-from-<bot>`) or its title (`From <bot>`).
@@ -121,6 +129,8 @@ struct BotThreadKey: Hashable, Identifiable, Sendable {
 /// One line of a thread: who wrote it (a profile) and what, oldest first.
 struct BotThreadLine: Identifiable, Equatable, Sendable {
     var id: String; var author: String; var text: String; var date: Date?
+    /// P42: the steps the recipient ran for this answer (the conversation sheet lists them above its text).
+    var activity: ToolActivity? = nil
 }
 
 /// The Activity tab's and ⌘K's row for a thread: its last line and when.

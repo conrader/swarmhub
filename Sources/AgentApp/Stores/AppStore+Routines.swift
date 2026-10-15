@@ -106,8 +106,9 @@ extension AppStore {
 
     // MARK: Completion inbox
 
-    /// Polls each Hermes bot's jobs while the app runs (once per server+profile, ≥ 60 s apart, backing off on errors).
-    func startRoutinePolling(tick: Duration = .seconds(10)) {
+    /// Polls each Hermes bot's jobs while the app runs (once per server+profile, ≥ 60 s apart, backing off on errors); the
+    /// 5 s tick also carries the bot-message list (P42: 5 s while a bot on that connection works, 20 s when idle).
+    func startRoutinePolling(tick: Duration = .seconds(5)) {
         guard routines.autoLoad, routinePollTask == nil else { return }
         routinePollTask = Task { [weak self] in
             while !Task.isCancelled, let store = self {
