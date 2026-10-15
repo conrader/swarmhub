@@ -174,7 +174,7 @@ extension AppStore {
     func chatHistory(_ conversation: any Conversation, upTo last: ChatMessage? = nil, excluding reply: ChatMessage) -> [(role: String, content: String)] {
         var rows = owner(of: conversation).map { readableMessages(conversation.messages, for: $0.id) } ?? conversation.messages
         if let last, let index = rows.firstIndex(where: { $0.id == last.id }) { rows = Array(rows[...index]) }
-        return rows.filter { $0.id != reply.id && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
+        return rows.filter { $0.id != reply.id && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && $0.metadata[SlashKey.line] == nil && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
             .map { (role: $0.role.rawValue, content: $0.outgoingText) }
     }
 

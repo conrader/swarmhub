@@ -90,7 +90,7 @@ struct ChatView: View {
                      send: send, stop: { store.stop(conversation) }, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.actions(for: bot.backend) : [], manage: manage,
-                     dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", dictation: dictation)
+                     dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", slashCommands: bot.isReadOnlyArchive ? [] : SlashCommand.menu, dictation: dictation)
     }
     private func manage(_ action: ManageBotsAction) { store.startManagement(action, manager: bot) }
     /// A Manage bots request for this chat replaces the draft.
@@ -107,7 +107,7 @@ struct ChatView: View {
     private func send() {
         let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
         let steering = !store.isIdle(store.currentConversation(of: bot))
-        if store.send(text: value, attachments: steering ? [] : intake.items) { draft = ""; if !steering { intake.items = [] } }
+        if store.submitComposer(text: value, attachments: steering ? [] : intake.items) { draft = ""; if !steering { intake.items = [] } }
     }
 }
 
