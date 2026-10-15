@@ -17,7 +17,7 @@ import SwiftUI
         let directory = URL(fileURLWithPath: (arguments[flag + 1] as NSString).expandingTildeInPath, isDirectory: true)
         // P38: `--only p38` / `--only p38b` renders just that part's shots.
         let only = arguments.firstIndex(of: "--only").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
-        if let only, !["p38", "p38b"].contains(only) { print("Unknown --only \(only); known: p38, p38b"); return 64 }
+        if let only, !["p38", "p38b", "p38c"].contains(only) { print("Unknown --only \(only); known: p38, p38b, p38c"); return 64 }
         return HeadlessRunLoop.wait { await render(to: directory, only: only, output: { print($0); fflush(stdout) }) }
     }
 
