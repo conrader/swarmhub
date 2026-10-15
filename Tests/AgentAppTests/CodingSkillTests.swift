@@ -208,6 +208,6 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
     let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     process.waitUntilExit()
     #expect(process.terminationStatus == 0, "\(shell):\n\(output)")
-    #expect(output.contains("code-job tests under \(shell): 12 passed, 0 failed"), "\(output)")
+    #expect(output.contains("code-job tests under \(shell): 15 passed, 0 failed"), "\(output)")
     #expect(!output.contains("FAIL"), "\(output)")
 }
