@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import AgentApp
@@ -215,4 +216,16 @@ private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1
         await reply("A.", backends[0]); await reply("B.", backends[1])
         try await waitUntil { !store.anyTurnRunning }
     }
+}
+
+@MainActor @Test func p39ShotsRenderFromASyntheticStore() async throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppP39-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    var lines: [String] = []
+    #expect(await HeadlessSetup.render(to: directory, only: "p39", output: { lines.append($0) }) == 0, "\(lines)")
+    for name in HeadlessP39Shots.names {
+        let data = try Data(contentsOf: directory.appending(path: "\(name).png"))
+        #expect(try #require(NSBitmapImageRep(data: data)).pixelsWide > 0 && data.count > 4_000, "\(name) looks blank")
+    }
+    #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == HeadlessP39Shots.names.count, "only the P39 shots")
 }
