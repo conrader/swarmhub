@@ -26,6 +26,8 @@
 	<string>16</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SwarmHub uses your microphone for live voice with your connected ChatGPT account, or sends a stopped dictation recording to deAPI to create a message draft.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>SwarmHub connects to an OpenClaw Gateway on your local network only when you add one in Settings.</string>
 	<key>NSHighResolutionCapable</key>
