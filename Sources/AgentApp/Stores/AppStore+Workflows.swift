@@ -287,7 +287,7 @@ extension AppStore {
     func projectWorkflowResult(_ workflow: Workflow) {
         guard workflow.state == .completed, let artifactID = workflow.artifactID, let group = groups.first(where: { $0.id == workflow.groupID }),
               !group.messages.contains(where: { $0.metadata["workflowResultID"] == workflow.id.uuidString }) else { return }
-        group.messages.append(ChatMessage(id: workflow.id, role: .assistant, content: workflow.tasks.last?.result ?? "",
+        group.messages.append(ChatMessage(role: .assistant, content: workflow.tasks.last?.result ?? "",
                                           metadata: ["workflowID": workflow.id.uuidString, "workflowResultID": workflow.id.uuidString, "artifactID": artifactID.uuidString],
                                           authorID: workflow.coordinatorID))
         if selectedGroup?.id != group.id { group.unreadCount += 1 }

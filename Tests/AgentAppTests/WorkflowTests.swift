@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import AgentApp
@@ -183,4 +184,15 @@ import Testing
         budget.settle(reservation: 90, actual: 95)
         #expect(budget.reserved == 0 && budget.spent == 95)
     }
+}
+
+@MainActor @Test func p38dShotsRenderFromASyntheticStore() async throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppP38D-\(UUID().uuidString)")
+    var lines: [String] = []
+    #expect(await HeadlessSetup.render(to: directory, only: "p38d", output: { lines.append($0) }) == 0, "\(lines)")
+    for name in HeadlessP38DShots.names {
+        let data = try Data(contentsOf: directory.appending(path: "\(name).png"))
+        #expect(try #require(NSBitmapImageRep(data: data)).pixelsWide > 0 && data.count > 4_000, "\(name) looks blank")
+    }
+    #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == HeadlessP38DShots.names.count, "only the P38 D shots")
 }

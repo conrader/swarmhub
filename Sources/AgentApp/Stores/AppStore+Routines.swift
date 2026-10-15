@@ -168,7 +168,8 @@ extension AppStore {
         if let error = job.lastError { metadata["error"] = error }
         if let session = result?.sessionID { metadata["sessionID"] = session }
         if result == nil { metadata["note"] = lookupError.map { "Result unavailable: \($0)" } ?? "No run output was found on the server." }
-        return ChatMessage(role: .assistant, content: content, presentation: .routineResult, metadata: metadata)
+        // P38 D: dated by the run (a caught-up card shows when its run finished, not when it was read).
+        return ChatMessage(role: .assistant, content: content, createdAt: job.lastRunAt.flatMap(RoutineTime.date) ?? .now, presentation: .routineResult, metadata: metadata)
     }
 
     private static func runKey(_ bot: Bot, _ jobID: String) -> String { "\(bot.id.uuidString)|\(jobID)" }
