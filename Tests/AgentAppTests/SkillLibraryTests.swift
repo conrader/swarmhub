@@ -66,11 +66,11 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
 
 @Test func libraryListsTheBundledManagerSkill() throws {
     let skills = SkillLibrary.bundled()
-    #expect(skills.map(\.name) == ["swarmhub-coding", "swarmhub-manager", "swarmhub-messages"], "P31: swarmhub-coding joins it; P34: swarmhub-messages")
+    #expect(skills.map(\.name) == ["swarmhub-coding", "swarmhub-feedback", "swarmhub-manager", "swarmhub-messages"], "P31: swarmhub-coding joins it; P34: swarmhub-messages; P36: swarmhub-feedback")
     let skill = try #require(skills.first { $0.name == SkillLibrary.managerSkill })
     #expect(skill.files.map(\.path) == ["references/accounts.md", "references/box.md"], "P31 C: the recipe files as references")
     #expect(skill.files.map(\.content) == [BotManagerText.recipe(.accounts), BotManagerText.recipe(.box)], "shipped from Resources/BotManager/recipes")
-    #expect(SkillLibrary.bundled(managerReferences: nil).map(\.name) == ["swarmhub-coding", "swarmhub-messages"], "no recipes, no manager skill")
+    #expect(SkillLibrary.bundled(managerReferences: nil).map(\.name) == ["swarmhub-coding", "swarmhub-feedback", "swarmhub-messages"], "no recipes, no manager skill")
     #expect(skill.version == SkillVersion("1.1.0")!, "P31 C: the core text plus references")
     #expect(SkillLibrary.state(installed: "1.0.0", bundled: skill.version) == .outdated(installed: "1.0.0"), "bots on 1.0.0 get the Update banner")
     let fields = SkillLibrary.frontmatter(skill.template)

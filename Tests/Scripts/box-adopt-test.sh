@@ -23,6 +23,7 @@ recipe() {
 LIST=$(recipe 'List every bot:')
 ADOPT=$(recipe 'Connect bots (')
 RESTORE=$(recipe "Restore a connected bot's old key:")
+CLOSE=$(recipe 'Close reports (')
 
 # A fresh box: default (keyed), the manager boss, cfo (keyed, other lines, 0644), lowcost (no .env), knowledge-guide
 # (empty key), and entries the list must skip.
@@ -60,7 +61,7 @@ done_case
 
 new_case "list reports default and every profile with has_key, skipping dotted and invalid names"
 run "$LIST"
-expect "list line: $(cat "$C/out")" [ "$(cat "$C/out")" = '{"op":"bots","list":[{"name":"default","has_key":true},{"name":"boss","has_key":true},{"name":"cfo","has_key":true},{"name":"knowledge-guide","has_key":false},{"name":"lowcost","has_key":false}]}' ]
+expect "list line: $(cat "$C/out")" [ "$(cat "$C/out")" = '{"op":"bots","list":[{"name":"default","has_key":true},{"name":"boss","has_key":true},{"name":"cfo","has_key":true},{"name":"knowledge-guide","has_key":false},{"name":"lowcost","has_key":false}],"reports":[]}' ]
 expect "the list printed a key" lacks 'key-\|main-key\|old-cfo' "$C/out"
 expect "the list changed a file" same "$P/cfo/.env" "$C/cfo.orig"
 done_case
@@ -135,6 +136,27 @@ run "$ADOPT" "cfo"; cp -p "$P/cfo/.env" "$C/cfo.adopted"
 run "$RESTORE" "" "cfo" ".env.swarmhub-bak-x/../../boss/.env"
 expect "foreign backup used" same "$P/cfo/.env" "$C/cfo.adopted"
 expect "foreign report: $(cat "$C/out")" [ "$(cat "$C/out")" = '{"op":"key_restored","name":"cfo","ok":false}' ]
+done_case
+
+# P36: the listing carries unsent report files (one-line JSON starting {"id":"r), never .sent ones or other files.
+new_case "list carries the unsent reports"
+R=$H/swarmhub/reports; mkdir -p "$R"
+printf '{"id":"r1-aa","kind":"bug","title":"t \\"q\\"","body":"b"}\n' > "$R/r1-aa.json"
+printf '{"id":"r0-old","kind":"bug","title":"sent","body":"b"}\n' > "$R/r0-old.sent"
+printf 'not json\n' > "$R/bad.json"
+printf '{"id":"r2-ml","kind":"bug",\n"title":"two lines"}\n' > "$R/r2-ml.json"
+run "$LIST"
+expect "list line: $(cat "$C/out")" python3 -I -c 'import json,sys; o=json.load(open(sys.argv[1])); assert [r["id"] for r in o["reports"]]==["r1-aa"] and o["reports"][0]["title"]=="t \"q\"", o' "$C/out"
+done_case
+
+new_case "close reports renames sent files to .sent, deletes dismissed ones, skips odd ids"
+R=$H/swarmhub/reports; mkdir -p "$R"
+for I in r1-aa r2-bb r3-cc; do printf '{"id":"%s"}\n' "$I" > "$R/$I.json"; done
+printf '%s\n' "$CLOSE" | sed -e 's|<sent>|r1-aa ../x r9-gone|' -e 's|<deleted>|r2-bb|' > "$C/recipe.sh"
+env HOME="$C/home" PATH=/usr/bin:/bin "$SH" "$C/recipe.sh" > "$C/out" 2> "$C/err"
+expect "close line: $(cat "$C/out")" [ "$(cat "$C/out")" = '{"op":"reports_closed","sent":["r1-aa"],"deleted":["r2-bb"]}' ]
+expect "r1 not renamed" [ -f "$R/r1-aa.sent" ] && expect "r1 json left" [ ! -e "$R/r1-aa.json" ]
+expect "r2 not deleted" [ ! -e "$R/r2-bb.json" ] && expect "r3 touched" [ -f "$R/r3-cc.json" ]
 done_case
 
 echo "box-adopt tests under $SH: $PASSED passed, $FAILED failed"

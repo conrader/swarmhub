@@ -1,0 +1,197 @@
+#!/bin/sh
+# swarmhub-report: file a bug report or feature request for SwarmHub's makers, for the user's review in SwarmHub.
+# Installed by SwarmHub with the swarmhub-feedback skill. POSIX sh (dash, macOS sh) + awk; no jq, no GNU-only tools.
+#
+#   swarmhub-report [--bot <bot>] --kind bug|feature --title "<title>" -- "<body>"     (body "-" = read stdin)
+#
+# Writes one JSON line to ~/.hermes/swarmhub/reports/<id>.json (folder 0700, file 0600; written to a temp file there,
+# then moved): id, kind, title, body, source, bot, bot_backend, skill_versions, hermes_version (when known),
+# created_at. Key-like strings in the title and body are redacted first; the title is cut to 140 characters, the body
+# to 8000 bytes. Nothing is sent anywhere: SwarmHub lists the file and the user decides.
+# The bot defaults to the profile this script is installed in (…/profiles/<bot>/skills/… or ~/.hermes/skills/…).
+#
+# Prints exactly one line, {"op":"report","id":…,"kind":…,"title":…}, never the body.
+# Exit: 0 filed; 2 usage (bad kind, empty title or body, bad bot name); 1 the report could not be written.
+
+usage() { echo "usage: swarmhub-report [--bot <bot>] --kind bug|feature --title \"<title>\" -- \"<body>\" (body - reads stdin)" >&2; exit 2; }
+
+BOT= KIND= TITLE= HAVE_TITLE=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --bot|--kind|--title)
+      [ $# -ge 2 ] || usage
+      case $1 in --bot) BOT=$2 ;; --kind) KIND=$2 ;; --title) TITLE=$2; HAVE_TITLE=1 ;; esac
+      shift 2 ;;
+    --) shift; break ;;
+    *) usage ;;
+  esac
+done
+[ $# -ge 1 ] || { echo "swarmhub-report: the body is missing (after --)" >&2; exit 2; }
+[ -n "$HAVE_TITLE" ] || { echo "swarmhub-report: --title is missing" >&2; exit 2; }
+case $KIND in
+  bug|feature) ;;
+  *) echo "swarmhub-report: --kind must be bug or feature" >&2; exit 2 ;;
+esac
+
+valid_name() {
+  case $1 in ''|[!a-z0-9]*|*[!a-z0-9_-]*) return 1 ;; esac
+  [ ${#1} -le 64 ]
+}
+if [ -n "$BOT" ]; then
+  valid_name "$BOT" || { echo "swarmhub-report: --bot must be a bot name (a-z, 0-9, _ and -)" >&2; exit 2; }
+else
+  case $0 in
+    */profiles/*/skills/*) BOT=${0##*/profiles/}; BOT=${BOT%%/*} ;;
+    */.hermes/skills/*) BOT=default ;;
+  esac
+  valid_name "$BOT" || BOT=unknown
+fi
+
+H=$HOME/.hermes
+R=$H/swarmhub/reports
+umask 077
+mkdir -p "$R" && chmod 700 "$R" || { echo "swarmhub-report: cannot create $R" >&2; exit 1; }
+W=$(mktemp -d "$R/.work.XXXXXX") || { echo "swarmhub-report: cannot write in $R" >&2; exit 1; }
+trap 'rm -rf "$W"' EXIT
+trap 'exit 130' INT TERM
+
+printf '%s' "$TITLE" > "$W/title"
+if [ $# -eq 1 ] && [ "$1" = - ]; then
+  cat > "$W/body" || exit 1
+else
+  IFS=' '
+  printf '%s' "$*" > "$W/body"
+fi
+
+# The versions of the SwarmHub skills next to this one (the category folder two levels above this script's folder).
+VERSIONS=
+DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+CAT=
+[ -n "$DIR" ] && CAT=$(cd "$DIR/../.." 2>/dev/null && pwd)
+if [ -n "$CAT" ]; then
+  n=0
+  for f in "$CAT"/*/SKILL.md; do
+    [ -f "$f" ] || continue
+    [ $n -lt 20 ] || break
+    name=${f%/SKILL.md}; name=${name##*/}
+    valid_name "$name" || continue
+    v=$(head -n 20 "$f" | sed -n 's/^version:[[:space:]]*//p' | head -n 1 | tr -d "\"'\r" | sed 's/[[:space:]]*$//')
+    printf '%s\n' "$v" | grep -Eq "^[0-9]+\.[0-9]+\.[0-9]+\$" || continue
+    VERSIONS="$VERSIONS${VERSIONS:+,}\"$name\":\"$v\""
+    n=$((n + 1))
+  done
+fi
+
+# Hermes' version, if it can be read without running hermes.
+HV=
+if [ -f "$H/hermes-agent/VERSION" ]; then
+  HV=$(head -n 1 "$H/hermes-agent/VERSION" | tr -d "\"' \t\r")
+fi
+if [ -z "$HV" ] && [ -f "$H/hermes-agent/pyproject.toml" ]; then
+  HV=$(sed -n 's/^version[[:space:]]*=[[:space:]]*["'"'"']\([^"'"'"']*\)["'"'"'].*/\1/p' "$H/hermes-agent/pyproject.toml" | head -n 1)
+fi
+case $HV in *[!0-9A-Za-z.+-]*) HV= ;; esac
+[ ${#HV} -le 40 ] || HV=
+
+STAMP=$(date -u '+%Y%m%dT%H%M%SZ %Y-%m-%dT%H:%M:%SZ')
+CREATED=${STAMP#* }
+HEX=$(od -An -tx1 -N8 /dev/urandom | tr -d ' \n' | cut -c1-8)
+ID=r${STAMP%% *}-$HEX
+case $ID in *[!A-Za-z0-9_-]*) echo "swarmhub-report: could not make an id" >&2; exit 1 ;; esac
+[ ${#HEX} -eq 8 ] || { echo "swarmhub-report: could not make an id" >&2; exit 1; }
+
+OUT=$W/report.json
+LC_ALL=C awk -v id="$ID" -v kind="$KIND" -v bot="$BOT" -v versions="$VERSIONS" -v hv="$HV" -v created="$CREATED" -v out="$OUT" -v q="'" '
+  BEGIN { for (i = 1; i < 256; i++) ord[sprintf("%c", i)] = i }
+  { if (FILENAME == ARGV[1]) title = title (FNR > 1 ? "\n" : "") $0; else body = body (FNR > 1 ? "\n" : "") $0 }
+
+  # Every match of re (on the lower-cased text when ci) whose secret part (after the kept prefix keep_re) is at least
+  # minlen long and not glued to a preceding word character becomes prefix "[redacted]".
+  function red(s, re, keep_re, minlen, ci,   o, t, st, ln, m, k) {
+    o = ""
+    while (1) {
+      t = ci ? tolower(s) : s
+      if (!match(t, re)) break
+      st = RSTART; ln = RLENGTH; m = substr(t, st, ln)
+      k = (keep_re != "" && match(m, keep_re)) ? RLENGTH : 0
+      if (st > 1 && substr(s, st - 1, 1) ~ /[A-Za-z0-9_]/) { o = o substr(s, 1, st); s = substr(s, st + 1); continue }
+      if (ln - k < minlen || substr(m, k + 1) == "[redacted]") { o = o substr(s, 1, st + ln - 1); s = substr(s, st + ln); continue }
+      o = o substr(s, 1, st - 1 + k) "[redacted]"
+      s = substr(s, st + ln)
+    }
+    return o s
+  }
+  function redact(s,   o, rest) {
+    o = ""
+    while (match(s, /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/)) {
+      o = o substr(s, 1, RSTART - 1) "[redacted]"
+      rest = substr(s, RSTART + RLENGTH)
+      s = match(rest, /-----END [A-Z0-9 ]*PRIVATE KEY-----/) ? substr(rest, RSTART + RLENGTH) : ""
+    }
+    s = o s
+    s = red(s, "eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+", "", 20, 0)
+    s = red(s, "sk-ant-[A-Za-z0-9_-]+", "", 12, 0)
+    s = red(s, "sk-[A-Za-z0-9_-]+", "", 19, 0)
+    s = red(s, "github_pat_[A-Za-z0-9_]+", "", 20, 0)
+    s = red(s, "gh[pousr]_[A-Za-z0-9]+", "", 14, 0)
+    s = red(s, "xox[bpas]-[A-Za-z0-9-]+", "", 12, 0)
+    s = red(s, "AKIA[0-9A-Z]+", "", 20, 0)
+    s = red(s, "bearer[ \t]+[a-z0-9._~+/=-]+", "^bearer[ \t]+", 8, 1)
+    s = red(s, "[a-z0-9_-]*(key|token|secret|password|passwd)[\"" q "]?[ \t]*[=:][ \t]*[\"" q "]?[^ \t\r\n\"" q ",;&]+",
+            "^[a-z0-9_-]*(key|token|secret|password|passwd)[\"" q "]?[ \t]*[=:][ \t]*[\"" q "]?", 8, 1)
+    return s
+  }
+  # Valid UTF-8 only: a broken or cut-off sequence is dropped.
+  function utf8(s,   o, i, n, c, need, j, ok, b) {
+    o = ""; n = length(s); i = 1
+    while (i <= n) {
+      c = ord[substr(s, i, 1)]
+      if (c < 128) { o = o substr(s, i, 1); i++; continue }
+      if (c >= 194 && c <= 223) need = 1; else if (c >= 224 && c <= 239) need = 2; else if (c >= 240 && c <= 244) need = 3
+      else { i++; continue }
+      ok = (i + need <= n)
+      for (j = 1; ok && j <= need; j++) { b = ord[substr(s, i + j, 1)]; if (b < 128 || b > 191) ok = 0 }
+      if (ok) { o = o substr(s, i, need + 1); i += need + 1 } else i++
+    }
+    return o
+  }
+  # The first max characters of valid UTF-8 s.
+  function chars(s, max,   i, n, k, c) {
+    n = length(s); k = 0
+    for (i = 1; i <= n; i++) {
+      c = ord[substr(s, i, 1)]
+      if (c < 128 || c >= 192) { if (++k > max) return substr(s, 1, i - 1) }
+    }
+    return s
+  }
+  function trim(s) { sub(/^[ \t\r\n]+/, "", s); sub(/[ \t\r\n]+$/, "", s); return s }
+  # A JSON string: quotes, backslashes and control characters escaped.
+  function js(s,   o, ch, c) {
+    o = ""
+    while (match(s, /[\001-\037"\\]/)) {
+      ch = substr(s, RSTART, 1); c = ord[ch]
+      o = o substr(s, 1, RSTART - 1)
+      if (ch == "\"") o = o "\\\""; else if (ch == "\\") o = o "\\\\"; else if (c == 10) o = o "\\n"
+      else if (c == 9) o = o "\\t"; else if (c == 13) o = o "\\r"; else o = o sprintf("\\u%04x", c)
+      s = substr(s, RSTART + 1)
+    }
+    return "\"" o s "\""
+  }
+  END {
+    title = trim(chars(utf8(substr(trim(redact(title)), 1, 600)), 140))
+    body = trim(utf8(substr(trim(redact(body)), 1, 8000)))
+    if (title == "") { print "swarmhub-report: the title is empty" > "/dev/stderr"; exit 2 }
+    if (body == "") { print "swarmhub-report: the body is empty" > "/dev/stderr"; exit 2 }
+    t = js(title)
+    printf "{\"id\":\"%s\",\"kind\":\"%s\",\"title\":%s,\"body\":%s,\"source\":\"agent\",\"bot\":\"%s\",\"bot_backend\":\"hermes\",\"skill_versions\":{%s}", id, kind, t, js(body), bot, versions > out
+    if (hv != "") printf ",\"hermes_version\":\"%s\"", hv > out
+    printf ",\"created_at\":\"%s\"}\n", created > out
+    close(out)
+    printf "{\"op\":\"report\",\"id\":\"%s\",\"kind\":\"%s\",\"title\":%s}\n", id, kind, t > (out ".op")
+  }' "$W/title" "$W/body"
+rc=$?
+[ "$rc" -eq 0 ] || exit "$rc"
+[ -s "$OUT" ] && [ -s "$OUT.op" ] || { echo "swarmhub-report: could not write the report" >&2; exit 1; }
+chmod 600 "$OUT" && mv -f "$OUT" "$R/$ID.json" || { echo "swarmhub-report: could not save $R/$ID.json" >&2; exit 1; }
+cat "$OUT.op"
+exit 0

@@ -20,7 +20,7 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
     let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     process.waitUntilExit()
     #expect(process.terminationStatus == 0, "\(shell):\n\(output)")
-    #expect(output.contains("box-adopt tests under \(shell): 9 passed, 0 failed"), "\(output)")
+    #expect(output.contains("box-adopt tests under \(shell): 11 passed, 0 failed"), "\(output)")
     #expect(!output.contains("FAIL"), "\(output)")
 }
 
@@ -39,7 +39,7 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
     let list = try #require(BoxAdoption.recipe(BoxAdoption.listMarker, in: template))
     let adopt = try #require(BoxAdoption.recipe(BoxAdoption.adoptMarker, in: template))
     let restore = try #require(BoxAdoption.recipe(BoxAdoption.restoreMarker, in: template))
-    #expect(list.contains(#"printf '{"op":"bots","list":[%s]}\n'"#) && list.contains("default $(ls profiles | grep -E '^[a-z0-9][a-z0-9_-]*$')"))
+    #expect(list.contains(#"printf '{"op":"bots","list":[%s],"reports":[%s]}\n'"#) && list.contains("default $(ls profiles | grep -E '^[a-z0-9][a-z0-9_-]*$')"))
     #expect(!list.contains("hermes profile") && !list.contains("hermes -p"), "files only: no Hermes CLI start")
     #expect(adopt.contains("cp -p \"$E\" \"$N/$B\" && chmod 600") && adopt.contains("B=.env.swarmhub-bak-$S") && adopt.contains("case $N in default|{{MANAGER}}|"))
     #expect(adopt.contains(#"swarmhub-bot-key:v1:$N"#) && adopt.contains(#"printf '{"op":"bots_adopted","results":[%s]}\n'"#))

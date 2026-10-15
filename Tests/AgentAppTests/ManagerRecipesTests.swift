@@ -9,7 +9,7 @@ import Testing
 
 /// One distinctive line of each recipe, and of the core.
 private let signatures: [String: String] = [
-    "list": #"printf '{"op":"bots","list":[%s]}\n'"#,
+    "list": #"printf '{"op":"bots","list":[%s],"reports":[%s]}\n'"#,
     "adopt": #"printf '{"op":"bots_adopted","results":[%s]}\n'"#,
     "restore": #"printf '{"op":"key_restored","name":"%s","ok":%s}\n'"#,
     "status": "credential_pool",
