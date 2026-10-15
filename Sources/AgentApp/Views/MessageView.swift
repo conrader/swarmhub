@@ -66,6 +66,8 @@ struct MessageView: View {
         case .delegation: DelegationCard(message: message)
         case .routineResult: RoutineResultCard(message: message)
         case .botMessage: BotArrivalLine(message: message)
+        case .approvalDecision: ApprovalDecisionLine(message: message)
+        case .review: ReviewCard(message: message)
         case .text:
             if message.role == .system {
                 Label(message.content, systemImage: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)

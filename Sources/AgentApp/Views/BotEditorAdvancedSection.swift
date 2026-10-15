@@ -18,30 +18,12 @@ struct BotEditorAdvancedSection: View {
             }
         }
         Section("Approvals") {
-            Picker("Mode", selection: $fields.approvalMode) { ForEach(ApprovalMode.allCases) { Text($0.rawValue).tag($0) } }
-            if fields.approvalMode == .reviewer {
-                Picker("Reviewer", selection: $fields.reviewerBotID) {
-                    Text("Choose a bot").tag(nil as UUID?)
-                    ForEach(store.bots.filter { $0.id != bot?.id }) { candidate in Text(candidate.name).tag(candidate.id as UUID?) }
-                }
-                Text("Escalation, timeout, reviewer errors, and reviewer approval requests fall back to asking you.").font(.caption).foregroundStyle(.secondary)
-            } else if fields.approvalMode == .rules {
-                ForEach($fields.approvalRules) { $rule in
-                    VStack(alignment: .leading, spacing: 6) {
-                        TextField("Rule name", text: $rule.name)
-                        HStack { TextField("Action pattern", text: $rule.actionPattern); TextField("Command/argument pattern", text: $rule.commandPattern) }
-                        HStack {
-                            Picker("Outcome", selection: $rule.outcome) { ForEach(ApprovalRuleOutcome.allCases) { Text($0.rawValue.capitalized).tag($0) } }.labelsHidden()
-                            Spacer()
-                            Button { moveRule(id: rule.id, offset: -1) } label: { Image(systemName: "arrow.up") }.disabled(fields.approvalRules.first?.id == rule.id)
-                            Button { moveRule(id: rule.id, offset: 1) } label: { Image(systemName: "arrow.down") }.disabled(fields.approvalRules.last?.id == rule.id)
-                            Button(role: .destructive) { fields.approvalRules.removeAll { $0.id == rule.id } } label: { Image(systemName: "trash") }
-                        }
-                    }.padding(.vertical, 4)
-                }
-                Button("Add rule") { fields.approvalRules.append(.init(name: "New rule", actionPattern: "*", commandPattern: "*", outcome: .ask)) }
-                Text("First match wins. Patterns are case-insensitive and support * and ?. Allow rules accept only conservative ASCII commands and reject a short list of known-dangerous programs/options, shell syntax, quotes, escapes, newlines, and redaction markers. Broad wildcards can expose extra files. No match asks you.").font(.caption).foregroundStyle(.secondary)
-            }
+            ApprovalRouteEditor(lines: $fields.routing.lines, otherwise: $fields.routing.otherwise, excluding: bot?.id)
+            Text("First match wins: this bot’s lines, then the lines for all bots (Settings → Approvals), then “Anything else”. Patterns are case-insensitive with * and ?. Approve accepts only conservative ASCII commands; unsafe, destructive or unknown commands and reviewers that don’t answer in time always come to you.").font(.caption).foregroundStyle(.secondary)
+        }
+        Section("Review after") {
+            ReviewAfterEditor(rules: $fields.reviewAfter, excluding: bot?.id)
+            Text("The reviewer gets the reply, its steps, the code-job line and the diff stat in its “Review: <bot>” chat; the verdict appears under the reply. Reviews never hold up the reply.").font(.caption).foregroundStyle(.secondary)
         }
         BotModelSettingsSection(cache: store.botInfo, bot: bot, pendingBackend: fields.backend, conversation: $fields.conversationModel, coding: $fields.codingModel,
                                 codingAgent: $fields.codingAgent)
@@ -59,12 +41,5 @@ struct BotEditorAdvancedSection: View {
 
     private func place(_ bot: Bot) -> String {
         BoxAddress.url(bot.hermesBaseURL ?? store.defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL).map(BoxAddress.place) ?? SetupCopy.thisMac
-    }
-
-    private func moveRule(id: UUID, offset: Int) {
-        guard let index = fields.approvalRules.firstIndex(where: { $0.id == id }) else { return }
-        let destination = index + offset
-        guard fields.approvalRules.indices.contains(destination) else { return }
-        fields.approvalRules.swapAt(index, destination)
     }
 }

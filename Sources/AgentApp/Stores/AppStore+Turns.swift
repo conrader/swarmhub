@@ -151,7 +151,10 @@ extension AppStore {
         }
         save()
         let hasText = !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if outcome.state == .finished { handleManagerReply(assistant, from: bot, in: conversation); handleReportOps(assistant, from: bot); refreshModelsAfterRecipe(assistant, from: bot, in: conversation) }
+        if outcome.state == .finished {
+            handleManagerReply(assistant, from: bot, in: conversation); handleReportOps(assistant, from: bot); refreshModelsAfterRecipe(assistant, from: bot, in: conversation)
+            startReviewIfNeeded(assistant, from: bot, in: conversation)
+        }
         if outcome.state == .finished && hasText {
             AvatarReactions.shared.completed(bot)
             notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.content))

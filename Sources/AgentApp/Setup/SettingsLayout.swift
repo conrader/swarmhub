@@ -7,7 +7,7 @@ enum SettingsLayout {
 
     /// Advanced: today's panes re-homed, Avatars folded into Appearance and alerts, nothing new.
     enum AdvancedPane: String, CaseIterable, Identifiable {
-        case servers = "Servers and keys", alerts = "Appearance and alerts", models = "Models", review = "Auto-review"
+        case servers = "Servers and keys", alerts = "Appearance and alerts", models = "Models", review = "Approvals"
         case computers = "Computers", usage = "Usage", account = "Account", reports = "Reports", about = "About"
         var id: String { rawValue }
         var icon: String {

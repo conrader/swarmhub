@@ -6,7 +6,10 @@ struct ModelRefusal: LocalizedError { let text: String; var errorDescription: St
 /// P13 Part B: applies the resolved Conversation model when the app starts a chat (main chat or group member).
 /// Inert until configured: with no app-wide default and no bot override nothing extra is requested.
 extension AppStore {
-    var storeFile: StoreFile { StoreFile(bots: bots, groups: groups, modelDefaults: modelDefaults.isEmpty ? nil : modelDefaults) }
+    var storeFile: StoreFile {
+        StoreFile(bots: bots, groups: groups, modelDefaults: modelDefaults.isEmpty ? nil : modelDefaults,
+                  approvalRoutes: globalApprovalRoutes.isEmpty ? nil : globalApprovalRoutes, reviewAfter: globalReviewAfter.isEmpty ? nil : globalReviewAfter)
+    }
 
     /// What to lock once the session exists.
     struct ModelPlan { let choice: ModelChoice; let origin: LockOrigin; let backend: HermesBackend }

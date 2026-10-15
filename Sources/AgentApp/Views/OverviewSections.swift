@@ -50,20 +50,52 @@ struct DelegatedTasksSection: View {
     }
 }
 
-/// The Activity tab's approval policy and its last 20 decisions (moved from Overview, P33).
+/// The Activity tab's approval lines and its last 20 decisions (moved from Overview, P33), with the matched line and
+/// the deciding reviewer (P37), then the reviews of this bot's replies.
 struct ApprovalAuditSection: View {
+    @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack { Text("Approval policy").font(.headline); Spacer(); Text(bot.approvalMode.rawValue).font(.caption).foregroundStyle(.secondary) }
-            ForEach(bot.approvalAudit.suffix(20).reversed()) { entry in
+            HStack { Text("Approvals").font(.headline); Spacer(); Text(policy).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            ForEach(bot.approvalAudit.filter { $0.actionKind != "review" }.suffix(20).reversed()) { entry in
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack { Text(entry.actionKind).font(.caption.weight(.semibold)); Spacer(); Text(entry.outcome.rawValue.capitalized).font(.caption).foregroundStyle(.secondary) }
-                    Text("\(entry.decidedBy) · \(entry.timestamp.formatted(date: .abbreviated, time: .shortened))").font(.caption2).foregroundStyle(.secondary)
+                    HStack(spacing: 5) {
+                        if let reviewer = reviewer(entry.decidedBy) { BotAvatar(bot: reviewer, size: 14) }
+                        Text(entry.actionKind).font(.caption.weight(.semibold)); Spacer(); Text(entry.outcome.rawValue.capitalized).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("\(decider(entry.decidedBy)) · \(entry.timestamp.formatted(date: .abbreviated, time: .shortened))").font(.caption2).foregroundStyle(.secondary)
+                    if let rule = entry.rule { Text(rule).font(.caption2).foregroundStyle(.secondary) }
                     Text(entry.reason).font(.caption2).foregroundStyle(.secondary)
                 }.padding(8).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 8))
             }
             if bot.approvalAudit.isEmpty { Text("Approval requests and decisions will appear here. Command text and arguments are not stored in this audit.").font(.caption).foregroundStyle(.secondary) }
+            let reviews = store.reviewCards(of: bot)
+            if !reviews.isEmpty {
+                Text("Reviews").font(.headline).padding(.top, 6)
+                ForEach(reviews.prefix(20)) { card in
+                    HStack(spacing: 6) {
+                        if let reviewer = card.metadata[ReviewKey.reviewer].flatMap(UUID.init(uuidString:)).flatMap({ id in store.bots.first { $0.id == id } }) { BotAvatar(bot: reviewer, size: 14) }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(card.content).font(.caption.weight(.semibold))
+                            Text([card.metadata[ReviewKey.why].map { "After it \($0)" }, card.createdAt.formatted(date: .abbreviated, time: .shortened)].compactMap { $0 }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }.padding(8).frame(maxWidth: .infinity, alignment: .leading).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
         }
+    }
+    private var policy: String {
+        let routing = bot.effectiveRouting
+        return "\(routing.lines.count) own line\(routing.lines.count == 1 ? "" : "s") · \(store.globalApprovalRoutes.count) for all bots"
+    }
+    private func reviewer(_ decidedBy: String) -> Bot? {
+        guard decidedBy.hasPrefix("reviewer:"), let id = UUID(uuidString: String(decidedBy.dropFirst(9))) else { return nil }
+        return store.bots.first { $0.id == id }
+    }
+    private func decider(_ decidedBy: String) -> String {
+        if let reviewer = reviewer(decidedBy) { return "Reviewer \(reviewer.name)" }
+        if decidedBy.hasPrefix("rule:") { return "Rule" }
+        return decidedBy == "user" ? "You" : decidedBy == "system" ? AppConstants.name : decidedBy
     }
 }
