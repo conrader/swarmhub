@@ -74,6 +74,11 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
   replayed onto the new main, never merged across histories.
 - **Ship through the updater:** a merged change reaches Konrad as a new notarized release (Developer ID, `plainsay-notary`,
   build number +1, appcast) that his installed app updates to; no hand-installs over his app once updates work.
+- **Runs are short (Konrad 2026-10-15: "make sure that next runs are quicker").** In a build run: iterate with `swift test
+  --filter <Suite>`, then ONE full `swift test` at the end; the verify pass's full run is the second green run (not two in
+  the task plus one in verify). PNG renders only for screens the phase changes (`SWARMHUB_RENDER_TESTS=1` or the render
+  flags), not the whole set. No side investigations in a run unless something is red; a brief that is decided, not open.
+  One Mac test run at a time still holds. Target: a phase in ≤ 30 min, a release in ≤ 20 min.
 - Hermes API reference: upstream tag `v2026.8.19` (byte-identical to the box's 0.20.5
   `gateway/platforms/api_server.py`); for 0.21.x, tag `v0.21.7`.
 
