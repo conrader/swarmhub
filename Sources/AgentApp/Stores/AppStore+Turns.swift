@@ -162,7 +162,7 @@ extension AppStore {
             handleManagerReply(assistant, from: bot, in: conversation); handleReportOps(assistant, from: bot); refreshModelsAfterRecipe(assistant, from: bot, in: conversation)
             startReviewIfNeeded(assistant, from: bot, in: conversation)
         }
-        if outcome.state == .finished && hasText {
+        if outcome.state == .finished && hasText && !isSilentHeartbeatReply(assistant, in: conversation) {
             AvatarReactions.shared.completed(bot)
             notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.finalText))
         }

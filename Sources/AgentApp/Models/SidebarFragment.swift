@@ -15,8 +15,9 @@ enum SidebarFragment {
                      author: ((UUID?) -> String?)? = nil, working: String? = nil) -> String {
         if let draft, case let value = plain(draft), !value.isEmpty { return "Draft: " + value }
         if isWorking { return working ?? ChatActivityPhase.thinking.label }
-        for message in messages.reversed() where message.role != .system {
-            let body = plain(message.role == .assistant ? SwarmhubBlock.visibleText(message.finalText) : message.content)
+        for message in messages.reversed() where message.role != .system && !message.isSilentHeartbeat {
+            // P45: what SwarmHub sent by itself reads as its short form ("Heartbeat", "Continue toward the goal").
+            let body = plain(message.role == .assistant ? SwarmhubBlock.visibleText(message.finalText) : message.metadata[AutomationKey.display] ?? message.content)
             let value = body.isEmpty ? (message.attachments.first.map { "Attachment: " + $0.name } ?? "") : body
             guard !value.isEmpty else { continue }
             return prefixed(value, isUser: message.role == .user, author: message.role == .assistant ? author?(message.authorID) : nil)

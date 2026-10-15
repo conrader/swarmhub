@@ -15,6 +15,12 @@ struct AutomationStrip: View {
                         Button("Stop") { store.loopCommand("stop", bot: bot, conversation: conversation) }
                     }.accessibilityIdentifier("chat.loopChip")
                 }
+                if let heartbeat = automation.heartbeat {
+                    AutomationChip(icon: "waveform.path.ecg", title: heartbeat.label, detail: heartbeat.paused ? "paused" : "\(heartbeat.runs) check-ins") {
+                        Button(heartbeat.paused ? "Resume" : "Pause") { store.heartbeatCommand(heartbeat.paused ? "resume" : "pause", conversation: conversation) }
+                        Button("Stop") { store.heartbeatCommand("stop", conversation: conversation) }
+                    }.accessibilityIdentifier("chat.heartbeatChip")
+                }
                 Spacer(minLength: 0)
             }.padding(.horizontal, ChromeMetrics.headerPadding).padding(.vertical, 6).frame(maxWidth: .infinity).background(AppColor.chat)
         }

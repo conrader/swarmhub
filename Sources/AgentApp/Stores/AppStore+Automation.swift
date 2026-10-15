@@ -8,6 +8,7 @@ extension AppStore {
         case .goal: goalCommand(arguments, bot: bot, conversation: conversation)
         case .subgoal: subgoalCommand(arguments, conversation: conversation)
         case .loop: loopCommand(arguments, bot: bot, conversation: conversation)
+        case .heartbeat: heartbeatCommand(arguments, conversation: conversation)
         default: return false
         }
         return true
@@ -27,6 +28,7 @@ extension AppStore {
         var lines: [String] = []
         if let goal = goal(in: conversation) { lines.append("Goal: \(goal.text) · \(goal.state.rawValue) · \(goal.progress)") }
         if let loop = loop(in: conversation) { lines.append(loopStatus(loop).components(separatedBy: "\n")[0]) }
+        if let heartbeat = heartbeat(in: conversation) { lines.append(heartbeatStatus(heartbeat).components(separatedBy: "\n")[0]) }
         return lines
     }
 
@@ -39,6 +41,7 @@ extension AppStore {
     func automationTurnEnded(in conversation: any Conversation, bot: Bot, reply: ChatMessage, outcome: TurnOutcome, corrected: Bool = false) {
         guard automations[conversation.id] != nil, !corrected else { return }
         loopTurnEnded(in: conversation, reply: reply, outcome: outcome)
+        heartbeatTurnEnded(in: conversation, reply: reply, outcome: outcome)
         goalTurnEnded(in: conversation, bot: bot, reply: reply, outcome: outcome)
     }
 
@@ -55,6 +58,7 @@ extension AppStore {
                 advanceGoal(in: conversation, bot: bot)
             }
             if automation.loop != nil { runLoopIfDue(in: conversation, bot: bot) }
+            if automation.heartbeat != nil { runHeartbeatIfDue(in: conversation, bot: bot) }
         }
     }
 
@@ -78,7 +82,7 @@ extension AppStore {
         var restored: [UUID: ChatAutomation] = [:]
         for (key, var automation) in stored ?? [:] {
             guard let id = UUID(uuidString: key) else { continue }
-            automation.goal?.awaitingReply = false; automation.loop?.awaitingReply = false
+            automation.goal?.awaitingReply = false; automation.loop?.awaitingReply = false; automation.heartbeat?.awaitingReply = false
             restored[id] = automation
         }
         automations = restored
