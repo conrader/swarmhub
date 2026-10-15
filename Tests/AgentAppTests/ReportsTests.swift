@@ -211,7 +211,7 @@ private func signInServer(pending: Int = 2, callbackState: (@Sendable (String) -
     #expect(!file.contains("tok-1"))
 }
 
-@Test @MainActor func rateLimitKeepsItPendingAnd401ForgetsTheToken() async throws {
+@Test @MainActor func rateLimitKeepsItPendingAnd401ForgetsTheTokenThenTriesTheInstallKey() async throws {
     let status = LockedTrace()
     let (store, _) = reportsStore { _, _ in status.read().isEmpty ? (429, ["error": "slow down"] as Any) : (401, ["error": "who"] as Any) }
     var report = ReportPrefill.make(appVersion: "0.5.0", macOS: "15.6", connectionKinds: [], now: .now); report.title = "t"
@@ -222,28 +222,24 @@ private func signInServer(pending: Int = 2, callbackState: (@Sendable (String) -
     status.add("401")
     await store.sendReport(report.id)
     #expect(store.reportsCenter.account == .signInAgain && store.reportsCenter.storedToken == nil && store.keyStore.key(for: SwarmHubToken.account).isEmpty)
-    #expect(store.reportsCenter.inbox.report(report.id)?.state == .pending && store.reportsCenter.lastError == SwarmHubError.unauthorized.message)
+    // The fallback to an install key is refused too (here even its registration): still pending, one plain error.
+    #expect(store.reportsCenter.inbox.report(report.id)?.state == .pending && store.reportsCenter.lastError?.contains("report key") == true)
+    #expect(store.reportsCenter.storedInstall == nil)
 }
 
-@Test @MainActor func sendSignsInFirstWhenSignedOut() async throws {
-    let center = LockedTrace()
-    let (store, host) = reportsStore(token: false) { request, body in
-        switch request.url!.path {
-        case "/swarmhub/v1/auth/start": center.add(body?["state"] as? String ?? ""); return (200, ["authorization_url": "https://login.example.test/a?state=srv-9"])
-        case "/swarmhub/v1/auth/status": return (200, ["callback_url": "swarmhub://app-connections/sign-in?code=c1&state=\(center.read().first ?? "")"])
-        case "/swarmhub/v1/auth/exchange": return (200, ["access_token": "tok-new", "expires_at": 4102444800])
-        default: return (201, ["id": "5", "status": "received"])
-        }
+@Test @MainActor func sendNeverSignsInAndSignOutForgetsTheToken() async throws {
+    let (store, host) = reportsStore(token: false) { request, _ in
+        request.url!.path == "/swarmhub/v1/installs" ? (201, ["install_id": "ins_1", "install_key": String(repeating: "k", count: 43)]) : (201, ["id": "rep_5", "status": "received"])
     }
     #expect(store.reportsCenter.account == .signedOut)
     var report = ReportPrefill.make(appVersion: "0.5.0", macOS: "15.6", connectionKinds: [], now: .now); report.title = "t"
     store.reportsCenter.inbox.add(report)
     await store.sendReport(report.id)
-    #expect(store.reportsCenter.isSignedIn && store.reportsCenter.inbox.report(report.id)?.serverID == "5")
-    #expect(SwarmHubStub.requests(host).last?.request.value(forHTTPHeaderField: "Authorization") == "Bearer tok-new")
-    #expect(store.keyStore.key(for: SwarmHubToken.account).contains("tok-new"))
+    #expect(store.reportsCenter.account == .signedOut && store.reportsCenter.inbox.report(report.id)?.serverID == "rep_5")
+    #expect(!SwarmHubStub.paths(host).contains { $0.contains("/auth/") }, "Send never starts a sign-in")
+    store.reportsCenter.store(SwarmHubToken(accessToken: "tok-new", expiresAt: .distantFuture))
     store.reportsCenter.forgetToken(signInAgain: false)
-    #expect(store.reportsCenter.account == .signedOut && store.keyStore.key(for: SwarmHubToken.account).isEmpty)
+    #expect(store.reportsCenter.account == .signedOut && store.keyStore.key(for: SwarmHubToken.account).isEmpty && store.reportsCenter.storedInstall != nil)
 }
 
 // MARK: Help menu prefill
