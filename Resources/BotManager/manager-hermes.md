@@ -20,30 +20,6 @@ Change instructions: `cp "$P/SOUL.md" "$P/SOUL.md.prev-$(date -u +%Y%m%d-%H%M%S)
 Retire (never delete): `touch "$P/gateway.parked"; sleep 3; mkdir -p ~/.hermes/profiles/.retired; mv "$P" ~/.hermes/profiles/.retired/"$NAME-$(date -u +%Y%m%d-%H%M%S)"`.
 Never change `default` or `{{MANAGER}}` (yourself) except their model below, never edit a bot's config.yaml by hand, never run Python from /opt.
 
-Bots made before SwarmHub (every command reads or writes files only; SwarmHub fills <names>, <name>, <backup>, and Konrad's press there is his yes). List every bot:
-```
-( cd ~/.hermes || exit 1; L=; for N in default $(ls profiles | grep -E '^[a-z0-9][a-z0-9_-]*$'); do F=profiles/$N/.env; [ "$N" = default ] && F=.env; H=false; grep -q '^API_SERVER_KEY=.' "$F" 2>/dev/null && H=true; L="$L${L:+,}{\"name\":\"$N\",\"has_key\":$H}"; done; printf '{"op":"bots","list":[%s]}\n' "$L" )
-```
-Connect bots (backs up each .env 0600, then sets its own derived key; never `default` or `{{MANAGER}}`):
-```
-( MK=$(grep '^API_SERVER_KEY=' {{MANAGER_ENV}} | cut -d= -f2-); S=$(date -u +%Y%m%dT%H%M%SZ); R=; umask 077; cd ~/.hermes/profiles || exit 1
-for N in <names>; do B=; ok=false
-  case $N in default|{{MANAGER}}|*[!a-z0-9_-]*|[!a-z0-9]*) ;; *) if [ -d "$N" ] && [ -n "$MK" ]; then E=$N/.env
-    if [ -f "$E" ]; then B=.env.swarmhub-bak-$S; [ ! -e "$N/$B" ] && cp -p "$E" "$N/$B" && chmod 600 "$N/$B" || B=; fi
-    if [ -n "$B" ] || [ ! -f "$E" ]; then K=$(printf '%s' "swarmhub-bot-key:v1:$N" | openssl dgst -sha256 -hmac "$MK" -r | cut -c1-64)
-      { grep -v '^API_SERVER_KEY=' "$E" 2>/dev/null; printf 'API_SERVER_KEY=%s\n' "$K"; } > "$E.swarmhub-new" && mv "$E.swarmhub-new" "$E" && chmod 600 "$E" && ok=true; fi; fi ;; esac
-  R="$R${R:+,}{\"name\":\"$N\",\"ok\":$ok,\"backup\":\"$B\"}"; done; unset MK K; printf '{"op":"bots_adopted","results":[%s]}\n' "$R" )
-```
-Restore a connected bot's old key:
-```
-( N=<name>; B=<backup>; ok=false; umask 077
-  case $N in default|{{MANAGER}}|*[!a-z0-9_-]*|[!a-z0-9]*) ;; *) cd ~/.hermes/profiles/"$N" 2>/dev/null && case $B in .env.swarmhub-bak-*[!0-9TZ]*) ;;
-    .env.swarmhub-bak-*) [ -f "$B" ] && cp -p "$B" .env.swarmhub-new && mv .env.swarmhub-new .env && ok=true ;;
-    "") grep -v '^API_SERVER_KEY=' .env > .env.swarmhub-new 2>/dev/null; if [ -s .env.swarmhub-new ]; then mv .env.swarmhub-new .env; else rm -f .env .env.swarmhub-new; fi; ok=true ;; esac ;; esac
-  printf '{"op":"key_restored","name":"%s","ok":%s}\n' "$N" "$ok" )
-```
-Each prints one JSON line: put exactly that line in your swarmhub block.
-
 Change the model (one bot, some, or all): ask first, naming model, provider and bots. Start it as a background process of your terminal tool (its background option, not nohup/setsid, which it refuses):
 ```
 export MODEL=<model> PROV=<provider, e.g. openai-codex> KM=model.default KP=model.provider
@@ -57,4 +33,4 @@ After you DID something (not when only proposing), end your reply with one Swarm
 ```swarmhub
 {"op": "bot_created", "name": "<slug>", "description": "<sentence>", "avatar": {"shape": "<shape>", "colour": "<colour>"}}
 ```
-Other ops: {"op":"instructions_changed","name":...}, {"op":"avatar","name":...,"shape":...,"colour":...} (any bot, also you), {"op":"description","name":...,"description":...}, {"op":"bot_retired","name":...}, {"op":"bots","list":[{"name":...,"has_key":true|false}]} when Konrad asks for the list (from List every bot), {"op":"instructions","name":...,"text":...} when asked to show a bot's instructions. One block per reply; put several ops in a JSON array if needed.
+Other ops: {"op":"instructions_changed","name":...}, {"op":"avatar","name":...,"shape":...,"colour":...} (any bot, also you), {"op":"description","name":...,"description":...}, {"op":"bot_retired","name":...}, {"op":"bots","list":[{"name":...,"has_key":true|false}]} when Konrad asks for the list (from the List every bot recipe), {"op":"instructions","name":...,"text":...} when asked to show a bot's instructions. One block per reply; put several ops in a JSON array if needed.

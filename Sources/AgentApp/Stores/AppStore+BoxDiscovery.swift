@@ -65,7 +65,7 @@ extension AppStore {
 
     /// The manager lists every profile of its box (quietly), then `absorbListed`. Nil when it could not.
     @discardableResult func discoverBox(manager: Bot) async -> BoxScan? {
-        guard manager.backend == .hermes, let template = managerTemplateOverride ?? Self.bundledManagerTemplate,
+        guard manager.backend == .hermes, let template = managerRecipeTemplate(.box),
               let instructions = BoxAdoption.listInstructions(template: template, managerProfile: manager.hermesProfile ?? "default"),
               let backend = try? backend(for: manager),
               let ops = await quietBoxTurn(backend, persona: manager.persona, request: "List every bot on this box for \(AppConstants.name).", instructions: instructions),
@@ -150,7 +150,7 @@ extension AppStore {
         guard isManager(manager), manager.backend == .hermes, isIdle else { return false }
         let profile = manager.hermesProfile ?? "default", target = connection(of: manager)
         let allowed = BoxAdoption.adoptable(names, managerProfile: profile, typed: typedKeyProfiles, bound: boundProfiles(on: target))
-        guard !allowed.isEmpty, let template = managerTemplateOverride ?? Self.bundledManagerTemplate,
+        guard !allowed.isEmpty, let template = managerRecipeTemplate(.box),
               let instructions = BoxAdoption.adoptInstructions(template: template, managerProfile: profile, names: allowed) else { return false }
         pendingSkillInstalls[manager.id] = SkillInstallTurn(profile: profile, instructions: instructions)
         managementExchanges[manager.id] = nil; pendingAdoptions[manager.id] = allowed
@@ -200,7 +200,7 @@ extension AppStore {
     /// "Restore this bot's old key": the manager puts the backup back (a visible turn); on its ok SwarmHub forgets the key.
     @discardableResult func restoreOldKey(_ bot: Bot) -> Bool {
         guard let backup = bot.adoptedKeyBackup, let profile = bot.hermesProfile, let manager = manager(for: bot), manager.id != bot.id,
-              manager.backend == .hermes, isIdle, let template = managerTemplateOverride ?? Self.bundledManagerTemplate,
+              manager.backend == .hermes, isIdle, let template = managerRecipeTemplate(.box),
               let instructions = BoxAdoption.restoreInstructions(template: template, managerProfile: manager.hermesProfile ?? "default", name: profile, backup: backup)
         else { return false }
         pendingSkillInstalls[manager.id] = SkillInstallTurn(profile: profile, instructions: instructions)

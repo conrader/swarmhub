@@ -33,6 +33,10 @@ enum SwarmhubOp: Equatable {
     /// P35: the manager connected these profiles (backup + derived key), and restored one bot's old key.
     case botsAdopted([AdoptionResult])
     case keyRestored(name: String, ok: Bool)
+    /// P31 C: the coding tools and ChatGPT pool on the manager's box, a login's link (and device code), its end.
+    case accounts(AccountsReport)
+    case loginLink(tool: CodingTool, url: URL, code: String?)
+    case loginDone(tool: CodingTool, ok: Bool, pending: Bool)
 
     /// The op from one JSON object; nil for unknown ops, missing fields or an invalid profile name.
     init?(_ object: [String: Any]) {
@@ -77,6 +81,18 @@ enum SwarmhubOp: Equatable {
         case "key_restored":
             guard let name else { return nil }
             self = .keyRestored(name: name, ok: object["ok"] as? Bool ?? false)
+        case "accounts":
+            self = .accounts(AccountsReport(object))
+        case "login_link":
+            guard let tool = string("tool").flatMap(CodingTool.init(rawValue:)), let raw = string("url"), raw.hasPrefix("https://"),
+                  AccountsReport.isPlain(raw, max: 2048), !raw.contains(" "), let url = URL(string: raw), url.scheme == "https", url.user == nil, url.port == nil,
+                  let host = url.host?.lowercased(), tool.loginHosts.contains(host) else { return nil }
+            let code = string("code").flatMap { (4...24).contains($0.count) && $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") } ? $0 : nil }
+            self = .loginLink(tool: tool, url: url, code: code)
+        case "login_done":
+            guard let tool = string("tool").flatMap(CodingTool.init(rawValue:)) else { return nil }
+            let pending = object["pending"] as? Bool == true
+            self = .loginDone(tool: tool, ok: !pending && object["ok"] as? Bool == true, pending: pending)
         case "skills_installed":
             guard let bot = string("bot").flatMap({ HermesKeyPaste.isValidProfileName($0) ? $0 : nil }),
                   let rows = object["skills"] as? [[String: Any]] else { return nil }

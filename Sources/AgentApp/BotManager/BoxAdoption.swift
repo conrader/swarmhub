@@ -25,7 +25,7 @@ struct AdoptionOffer: Identifiable, Equatable {
     let managerID: UUID; let managerName: String; let names: [String]
 }
 
-/// The P35 recipes (`Resources/BotManager/manager-hermes.md`: "List every bot", "Connect bots", "Restore a connected
+/// The P35 recipes (`Resources/BotManager/recipes/box.md`: "List every bot", "Connect bots", "Restore a connected
 /// bot's old key"), filled per turn, and the rules for which profiles may be re-keyed. Each recipe prints the one JSON
 /// line the manager returns in its swarmhub block; no recipe prints a key.
 enum BoxAdoption {

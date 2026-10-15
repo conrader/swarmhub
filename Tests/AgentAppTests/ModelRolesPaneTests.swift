@@ -108,7 +108,8 @@ import Testing
     // No provider or model names of any real box either: the app ships no model.
     let banned = roleFixtureNames + catalogProviderFixtureNames + ["gpt-", "openai-codex", "-sol", "-terra", "-luna", "claude-", "anthropic/"]
     for file in files {
-        let text = try String(contentsOf: file, encoding: .utf8)
+        // P31 C: the login script's name (swarmhub-coding) is not a model name.
+        let text = try String(contentsOf: file, encoding: .utf8).replacingOccurrences(of: "swarmhub-claude-login", with: "")
         for name in banned { #expect(!text.contains(name), "\(file.lastPathComponent) contains \(name)") }
     }
 }

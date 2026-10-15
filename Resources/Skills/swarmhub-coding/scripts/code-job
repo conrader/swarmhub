@@ -31,6 +31,9 @@ for a in $(echo "$ORDER" | tr ',' ' '); do
 done
 [ -d "$DIR" ] || { echo "code-job: no such directory: $DIR" >&2; exit 64; }
 
+# npm installs the CLIs into ~/.local (no root).
+case :$PATH: in *":$HOME/.local/bin:"*) ;; *) PATH=$HOME/.local/bin:$PATH; export PATH ;; esac
+
 S=$HOME/.hermes/swarmhub
 mkdir -p "$S/slots" && chmod 700 "$S" || exit 1
 SLOTS=$(sed -n 's/^SLOTS=\([0-9][0-9]*\)[[:space:]]*$/\1/p' "$S/coding.conf" 2>/dev/null | tail -n 1)
@@ -171,7 +174,8 @@ run_agent() {
   [ -f "$T/timedout" ] && RC=124
 }
 
-matches() { grep -Eiq "$1" "$T/out"; }
+# Only the CLI's own error output: the last 20 lines of a failed run (task output may mention limits or logins).
+matches() { tail -n 20 "$T/out" | grep -Eiq "$1"; }
 
 for a in $(echo "$ORDER" | tr ',' ' '); do
   if [ "$a" = hermes ]; then
@@ -186,11 +190,11 @@ for a in $(echo "$ORDER" | tr ',' ' '); do
   [ "$RC" -eq 0 ] && finish 0 ok
   [ "$RC" -eq 124 ] && finish 124 timeout
   if [ "$a" = claude ]; then
-    login='not logged in|please run /login|invalid api key|authentication'
-    limit='usage limit|rate limit|limit reached|429|overloaded'
+    login='Invalid API key|Please run /login|not logged in'
+    limit='usage limit reached|Claude AI usage limit|rate_limit_error'
   else
-    login='not logged in|login required|please run codex login|unauthorized'
-    limit='usage_limit_reached|usage limit|rate limit|429'
+    login='Not logged in|codex login'
+    limit='usage_limit_reached|You.ve hit your usage limit|rate_limit_exceeded'
   fi
   if matches "$login"; then SKIPPED="$SKIPPED, $a: login"; AGENT=none; continue; fi
   if matches "$limit"; then SKIPPED="$SKIPPED, $a: limit"; AGENT=none; continue; fi

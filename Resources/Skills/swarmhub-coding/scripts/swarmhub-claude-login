@@ -1,0 +1,86 @@
+#!/bin/sh
+# swarmhub-claude-login: logs Claude Code in on this box for code-job, driven by SwarmHub's Accounts sheet through the
+# manager bot. Installed with the swarmhub-coding skill and by the sheet into ~/.hermes/swarmhub/bin. POSIX sh (dash).
+#
+#   swarmhub-claude-login start       (in the background) runs `claude setup-token` in a pseudo-terminal, writes its
+#                                     login link to ~/.hermes/swarmhub/claude-login.url, types the code once it arrives
+#                                     and stores ONLY the long-lived token in ~/.hermes/swarmhub/claude.token; ok|failed
+#   swarmhub-claude-login code <code> hands the one-time code to the waiting start; ok|failed when it has finished
+#   swarmhub-claude-login status      logged-in | not-logged-in
+#   swarmhub-claude-login logout      removes the token file
+#
+# Every file is 0600 in a 0700 folder. The token never reaches stdout, stderr or a log; the code is never printed.
+
+S=$HOME/.hermes/swarmhub
+URL=$S/claude-login.url CODE=$S/claude-login.code RESULT=$S/claude-login.result PIDF=$S/claude-login.pid TOKEN=$S/claude.token
+case :$PATH: in *":$HOME/.local/bin:"*) ;; *) PATH=$HOME/.local/bin:$PATH; export PATH ;; esac
+unset ANTHROPIC_API_KEY
+umask 077
+mkdir -p "$S" && chmod 700 "$S" || exit 1
+
+usage() { echo "usage: swarmhub-claude-login start | code <code> | status | logout" >&2; exit 64; }
+
+# `cmd` in a pseudo-terminal: util-linux/busybox `script -qfc <cmd> /dev/null`, else BSD/macOS `script -q /dev/null …`.
+pty() {
+  if script -qfc true /dev/null < /dev/null > /dev/null 2>&1; then script -qfc "$1" /dev/null
+  else script -q /dev/null /bin/sh -c "$1"; fi
+}
+
+# Reads the terminal's output: the first oauth link goes to the url file, the first sk-ant- token to the token file
+# (via a temp file); nothing is printed. Exit 0 only when a token was found.
+filter() {
+  awk -v url="$URL" -v tok="$TOKEN.new" '
+    { gsub(/\033\][^\007]*\007/, ""); gsub(/\033\[[0-9;?]*[A-Za-z]/, ""); gsub(/\r/, " ") }
+    !u && match($0, /https:\/\/[^ \t"<>]*oauth[^ \t"<>]*/) { u = 1; print substr($0, RSTART, RLENGTH) > url; close(url) }
+    !t && match($0, /sk-ant-[A-Za-z0-9_-]+/) { t = 1; print substr($0, RSTART, RLENGTH) > tok; close(tok) }
+    END { exit t ? 0 : 1 }'
+}
+
+running() { p=$(cat "$PIDF" 2>/dev/null); [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
+
+start() {
+  command -v claude > /dev/null 2>&1 || { echo "swarmhub-claude-login: claude is not installed" >&2; echo failed; exit 69; }
+  running && { echo "swarmhub-claude-login: a login is already waiting" >&2; echo failed; exit 75; }
+  rm -f "$URL" "$CODE" "$RESULT" "$TOKEN.new"
+  echo $$ > "$PIDF"
+  W=$(mktemp -d "${TMPDIR:-/tmp}/claude-login.XXXXXX") || exit 1
+  trap 'rm -rf "$W" "$URL" "$CODE" "$TOKEN.new" "$PIDF"' EXIT
+  trap 'exit 130' INT TERM HUP
+  mkfifo "$W/out" || exit 1
+  # The terminal's input is a pipe (macOS `script` refuses a fifo): it types the code once and stays open until the end.
+  { while [ ! -f "$W/done" ]; do
+      if [ -s "$CODE" ]; then c=$(cat "$CODE"); rm -f "$CODE"; printf '%s\r' "$c"; c=; fi
+      sleep 1
+    done; } | pty "stty cols 4000 2>/dev/null; exec claude setup-token" > "$W/out" 2>&1 & P=$!
+  filter < "$W/out" & F=$!
+  t=0 wait=${CLAUDE_LOGIN_WAIT:-900}
+  while kill -0 "$P" 2>/dev/null; do
+    [ "$t" -ge "$wait" ] && { kill -TERM "$P" 2>/dev/null; break; }
+    sleep 1; t=$((t + 1))
+  done
+  : > "$W/done"
+  wait "$P" 2>/dev/null
+  if wait "$F" && [ -s "$TOKEN.new" ] && mv "$TOKEN.new" "$TOKEN" && chmod 600 "$TOKEN"; then r=ok; else r=failed; fi
+  echo "$r" > "$RESULT"
+  echo "$r"
+  [ "$r" = ok ]
+}
+
+code() {
+  case $1 in ''|*[!A-Za-z0-9#_.~+/=-]*) echo "swarmhub-claude-login: not a login code" >&2; echo failed; exit 64 ;; esac
+  running || { echo "swarmhub-claude-login: no login is waiting; start one first" >&2; echo failed; exit 1; }
+  rm -f "$RESULT"
+  printf '%s' "$1" > "$CODE.tmp" && mv "$CODE.tmp" "$CODE" || exit 1
+  t=0
+  while [ ! -s "$RESULT" ] && [ "$t" -lt "${CLAUDE_LOGIN_CODE_WAIT:-90}" ]; do sleep 1; t=$((t + 1)); done
+  [ "$(cat "$RESULT" 2>/dev/null)" = ok ] && { echo ok; exit 0; }
+  echo failed; exit 1
+}
+
+case $1 in
+  start) [ $# -eq 1 ] || usage; start ;;
+  code) [ $# -eq 2 ] || usage; code "$2" ;;
+  status) [ -s "$TOKEN" ] && claude --version > /dev/null 2>&1 && echo logged-in || echo not-logged-in ;;
+  logout) rm -f "$TOKEN"; echo not-logged-in ;;
+  *) usage ;;
+esac

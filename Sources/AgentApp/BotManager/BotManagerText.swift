@@ -8,6 +8,17 @@ enum BotManagerText {
     static let resourcePath = "BotManager/manager-hermes.md"
     static let openClawResourcePath = "BotManager/manager-openclaw.md"
 
+    /// P31 C: the on-demand recipes split out of the core text (same placeholders). The `swarmhub-manager` skill ships
+    /// them as `references/<name>.md`; SwarmHub's own quiet turns carry only the recipe they need.
+    enum Recipe: String, CaseIterable {
+        /// P35: list every bot, connect bots made before SwarmHub, restore a connected bot's old key.
+        case box
+        /// P31 C: the coding tools' accounts: status, install, login, check, code, logout.
+        case accounts
+        var resourcePath: String { "BotManager/recipes/\(rawValue).md" }
+        var referencePath: String { "references/\(rawValue).md" }
+    }
+
     /// The template file for a manager on this backend.
     static func resourcePath(for backend: BackendKind) -> String { backend == .openClaw ? openClawResourcePath : resourcePath }
 
@@ -19,6 +30,21 @@ enum BotManagerText {
     static func template(for backend: BackendKind) -> String? { template(candidates: candidates(resourcePath(for: backend))) }
 
     static var defaultCandidates: [URL] { candidates(resourcePath) }
+
+    static func recipe(_ recipe: Recipe) -> String? { template(candidates: candidates(recipe.resourcePath)) }
+
+    /// The full text for a Hermes manager without the skill: the core and every recipe; nil when one is missing.
+    static func fullTemplate(core: String? = template(), recipes: [String?] = Recipe.allCases.map(recipe)) -> String? {
+        let parts = recipes.compactMap { $0 }
+        guard let core, parts.count == recipes.count else { return nil }
+        return ([core] + parts).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n") + "\n"
+    }
+
+    /// The recipes as the skill's extra files (placeholders kept; filled per profile at install); nil when one is missing.
+    static func referenceFiles() -> [SkillFile]? {
+        let files = Recipe.allCases.compactMap { recipe in self.recipe(recipe).map { SkillFile(path: recipe.referencePath, content: $0) } }
+        return files.count == Recipe.allCases.count ? files : nil
+    }
 
     static func candidates(_ resourcePath: String) -> [URL] {
         let executable = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()

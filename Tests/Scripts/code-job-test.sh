@@ -24,6 +24,10 @@ case $(cat "$d/$me.mode" 2>/dev/null) in
   limit) if [ "$me" = claude ]; then echo "Claude AI usage limit reached|1760000000" >&2; else echo "ERROR: usage_limit_reached" >&2; fi; exit 1 ;;
   login) if [ "$me" = claude ]; then echo "Invalid API key · Please run /login"; else echo "Not logged in. Please run codex login"; fi; exit 1 ;;
   fail) echo "$me: SyntaxError in calc.py line 3" >&2; exit 3 ;;
+  taskwords) echo "test_auth.py: authentication failed for user bob"; echo "GET /api -> 429 Too Many Requests" >&2; exit 2 ;;
+  early) if [ "$me" = claude ]; then echo "Claude AI usage limit reached"; else echo "You've hit your usage limit"; fi
+    i=0; while [ $i -lt 25 ]; do echo "build line $i"; i=$((i + 1)); done; exit 4 ;;
+  limitok) echo "note: rate_limit_error and usage_limit_reached are handled in retry.py"; exit 0 ;;
   slow) sleep 3; echo "$me slow done"; exit 0 ;;
   tree) sleep 60 & echo $! > "$d/$me.child"; sleep 60; exit 0 ;;
   *) echo "stub $me: no mode" >&2; exit 99 ;;
@@ -208,6 +212,40 @@ job --bot jarvis --order claude,gemini -- "$TASK"; RC=$?
 expect "unknown agent exit 64 (got $RC)" [ "$RC" -eq 64 ]
 job --bot jarvis --order claude; RC=$?
 expect "no task exit 64 (got $RC)" [ "$RC" -eq 64 ]
+done_case
+
+# 13
+new_case "task output with authentication/429 is returned as is" claude codex; mode claude taskwords; mode codex taskwords
+job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+expect "exit 2 (got $RC)" [ "$RC" -eq 2 ]
+expect "codex not run" [ ! -f "$C/state/codex.calls" ]
+line_matches '^code-job: claude failed · ' "claude failed"
+expect "nothing skipped" [ "$(field 8)" = "-" ]
+done_case
+
+# 14
+new_case "limit phrase before the last 20 lines, or on exit 0, is not a limit" claude codex; mode claude early; mode codex early
+job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+expect "claude early: exit 4 (got $RC)" [ "$RC" -eq 4 ]
+expect "codex not run" [ ! -f "$C/state/codex.calls" ]
+mode claude limitok
+job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+expect "limit words on exit 0: ok (got $RC)" [ "$RC" -eq 0 ]
+line_matches '^code-job: claude ok · ' "claude ok"
+rm -f "$C/bin/claude"; mode codex early
+job --bot jarvis --order codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+expect "codex early: exit 4 (got $RC)" [ "$RC" -eq 4 ]
+done_case
+
+# 15
+new_case "codex's own phrases: limit and login fall back" codex; mode codex limit
+job --bot jarvis --order codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+expect "limit -> 75 (got $RC)" [ "$RC" -eq 75 ]
+expect "skipped codex: limit" [ "$(field 8)" = "codex: limit" ]
+mode codex login
+job --bot jarvis --order codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+expect "login -> 75 (got $RC)" [ "$RC" -eq 75 ]
+expect "skipped codex: login" [ "$(field 8 2)" = "codex: login" ]
 done_case
 
 echo "code-job tests under $SH: $PASSED passed, $FAILED failed"

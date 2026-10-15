@@ -1,7 +1,7 @@
 ---
 name: swarmhub-coding
 description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v{{VERSION}}."
-version: 1.0.0
+version: 1.1.0
 author: SwarmHub
 metadata:
   swarmhub:
@@ -29,4 +29,5 @@ Exit codes: 0 done; 124 the job ran out of time; 69 no coding agent could run (s
 other code is the agent's own failure, report its output. On exit 75 with `CODE_JOB_USE_DELEGATE` on stdout, do the
 task with your own delegate_task (a sub-agent) instead.
 
-Never print, read or copy `~/.hermes/swarmhub/claude.token`, and never set ANTHROPIC_API_KEY.
+Never print, read or copy `~/.hermes/swarmhub/claude.token`, and never set ANTHROPIC_API_KEY. Logins are SwarmHub's
+Accounts sheet's job (`scripts/swarmhub-claude-login`, run by the manager bot): never run it or a login yourself.

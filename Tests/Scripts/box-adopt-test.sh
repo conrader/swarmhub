@@ -1,12 +1,12 @@
 #!/bin/sh
-# Hermetic tests for the P35 recipes in Resources/BotManager/manager-hermes.md ("List every bot", "Connect bots",
-# "Restore a connected bot's old key"): each fence is cut out of the manager text, filled the way SwarmHub fills it and
+# Hermetic tests for the P35 recipes in Resources/BotManager/recipes/box.md ("List every bot", "Connect bots",
+# "Restore a connected bot's old key"): each fence is cut out of the recipe file, filled the way SwarmHub fills it and
 # run under $BOX_SH in a temp HOME with a synthetic ~/.hermes. No hermes CLI, no network. Run by BoxAdoptionTests under
 # /bin/sh and /bin/dash.
 #
-#   sh Tests/Scripts/box-adopt-test.sh <path/to/manager-hermes.md>     BOX_SH = the shell that runs the recipes (default /bin/sh)
+#   sh Tests/Scripts/box-adopt-test.sh <path/to/recipes/box.md>     BOX_SH = the shell that runs the recipes (default /bin/sh)
 
-TEXT=${1:?usage: box-adopt-test.sh <path/to/manager-hermes.md>}
+TEXT=${1:?usage: box-adopt-test.sh <path/to/recipes/box.md>}
 SH=${BOX_SH:-/bin/sh}
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/box-adopt-test.XXXXXX") || exit 1
 trap 'rm -rf "$ROOT"' EXIT
