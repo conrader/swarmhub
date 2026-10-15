@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 /// P20: the grey second line of a sidebar row, from the local store only (never the server).
-/// Order: unsent composer text ("Draft: …"), a working bot ("Typing…", or P27's "Working: <tool> …" after a quiet minute), the newest visible live message,
+/// Order: unsent composer text ("Draft: …"), the running reply's phase, the newest visible live message,
 /// the newest line of the Grok archive, else "" (the empty line keeps rows even).
 enum SidebarFragment {
     /// Only the head of a long message is cleaned; the row shows one truncated line anyway.
@@ -10,11 +10,11 @@ enum SidebarFragment {
 
     /// `author` is set for group chats only: it names the bot that wrote a live reply ("<Member>: …"), and archived
     /// lines then use their own author. One-bot chats show the bot's lines bare.
-    /// `working` (P27): a running turn's "Working: …" line, shown instead of "Typing…".
+    /// `working`: the running reply's Thinking, Typing or Working line.
     static func text(messages: [ChatMessage], draft: String?, isWorking: Bool, archiveNewest: @autoclosure () -> ArchivedMessage?,
                      author: ((UUID?) -> String?)? = nil, working: String? = nil) -> String {
         if let draft, case let value = plain(draft), !value.isEmpty { return "Draft: " + value }
-        if isWorking { return working ?? "Typing…" }
+        if isWorking { return working ?? ChatActivityPhase.thinking.label }
         for message in messages.reversed() where message.role != .system {
             let body = plain(message.role == .assistant ? SwarmhubBlock.visibleText(message.content) : message.content)
             let value = body.isEmpty ? (message.attachments.first.map { "Attachment: " + $0.name } ?? "") : body

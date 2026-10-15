@@ -31,10 +31,10 @@ private func archived(_ text: String, role: String = "assistant", author: String
     #expect(SidebarFragment.text(messages: [], draft: nil, isWorking: false, archiveNewest: line) == "old news")
 }
 
-@Test func fragmentPrefersDraftThenTyping() {
+@Test func fragmentPrefersDraftThenCurrentActivity() {
     let messages = [ChatMessage(role: .assistant, content: "Earlier reply")]
     #expect(SidebarFragment.text(messages: messages, draft: "  half a\nthought ", isWorking: true, archiveNewest: nil) == "Draft: half a thought")
-    #expect(SidebarFragment.text(messages: messages, draft: "   ", isWorking: true, archiveNewest: nil) == "Typing…")
+    #expect(SidebarFragment.text(messages: messages, draft: "   ", isWorking: true, archiveNewest: nil) == "Thinking…")
     #expect(SidebarFragment.text(messages: messages, draft: nil, isWorking: false, archiveNewest: nil) == "Earlier reply")
 }
 
