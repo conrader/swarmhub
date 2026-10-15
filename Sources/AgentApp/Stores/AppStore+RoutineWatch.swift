@@ -42,6 +42,7 @@ extension AppStore {
         let key = Self.routineWatchKey(bot, jobID)
         guard routines.autoLoad, routines.watches[key] == nil else { return }
         let sleep = routineWatchSleep
+        watchRoutineSession(jobID, since: since, bot: bot)
         routines.watches[key] = Task { [weak self] in
             await self?.followRoutineRun(jobID, since: since, bot: bot, sleep: sleep)
             self?.routines.watches[key] = nil
@@ -58,6 +59,14 @@ extension AppStore {
             guard let job = jobs.first(where: { $0.id == jobID }) else { return }
             if let last = job.lastRunAt, last != since, since.map({ RoutineTime.isLater(last, than: $0) }) ?? true { return }
         }
+    }
+
+    /// P42 8: a run in progress is a wake: its `cron_<job>_<time>` session (source `cron`, started after the previous run
+    /// ended, else in the last 30 min) shows live in the bot's chat, "Woken by: routine <name>"; P43's card stays the end.
+    func watchRoutineSession(_ jobID: String, since: String?, bot: Bot) {
+        let name = routines.state(for: bot.id).jobs.value?.first { $0.id == jobID }?.name ?? jobID
+        let after = since.flatMap(RoutineTime.date).map { $0.addingTimeInterval(1) } ?? now().addingTimeInterval(-BotWorkSchedule.recent)
+        watchBotWork(bot, target: .newest(source: "cron", prefix: "cron_\(jobID)_", after: after), origin: .routine(name))
     }
 
     /// Jobs the server reports running get the same quick watch (a scheduled run, or one a bot started).

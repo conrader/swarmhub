@@ -139,7 +139,9 @@ extension AppStore {
         card.content = botWorkTitle(origin, recipient: bot)
         card.metadata[BotWorkKey.origin] = origin.raw; card.metadata[BotWorkKey.requestID] = turn.requestID
         card.metadata[BotWorkKey.request] = String(turn.request.prefix(BotMessageCall.textLimit))
-        card.metadata[BotWorkKey.reply] = turn.reply.map { String($0.prefix(BotMessageCall.textLimit)) }
+        // A routine's result is P43's card, which comes after; this card shows the run itself.
+        if case .routine = origin { card.metadata[BotWorkKey.reply] = nil }
+        else { card.metadata[BotWorkKey.reply] = turn.reply.map { String($0.prefix(BotMessageCall.textLimit)) } }
         card.activity = turn.activity
         card.isStreaming = !turn.finished
         if turn.finished { botWork.live[key] = nil } else { botWork.live[key] = .init(origin: origin, startedAt: turn.startedAt ?? start, session: session) }
