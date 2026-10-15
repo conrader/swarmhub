@@ -299,7 +299,12 @@ struct HermesBackend: AgentBackend {
     /// does any error after the headers. An error before them is `StreamBreak(delivered: false)`; HTTP status errors stay
     /// `BackendError.http` and cancellation stays cancellation. Headers must arrive within the open deadline.
     private func sseStream(_ request: URLRequest, sessionID: String, legacy: Bool) -> AsyncThrowingStream<AgentEvent, Error> {
-        var streamRequest = request; streamRequest.timeoutInterval = timeouts.streamIdle
+        var streamRequest = request
+        // Negotiate SSE explicitly and avoid compression batching small text deltas.
+        streamRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        streamRequest.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        streamRequest.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        streamRequest.timeoutInterval = timeouts.streamIdle
         let request = streamRequest
         let deadline = timeouts.openDeadline(bodyBytes: request.httpBody?.count ?? 0)
         return AsyncThrowingStream { continuation in
