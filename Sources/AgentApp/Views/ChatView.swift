@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft = ""
-    @StateObject private var intake = AttachmentIntake()
+    @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     var body: some View {
         let thread = store.openThread(in: bot), coding = store.codingThreadChoice(for: bot)
@@ -16,6 +16,8 @@ struct ChatView: View {
                 if let thread { Text(thread.headerTitle).font(.system(size: 12)).foregroundStyle(.secondary) }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
+                OpenVoiceButton(name: bot.name, target: .bot(botID: bot.id, threadID: thread?.id),
+                                messages: { (thread?.messages ?? bot.messages).map { (role: $0.role.rawValue, text: $0.content) } })
                 if store.isManager(bot) {
                     ManageBotsMenu(actions: ManageBotsAction.actions(for: bot.backend), perform: manage) { Label("Manage bots", systemImage: "person.2.badge.gearshape").font(.system(size: 12)) }
                 }
@@ -81,7 +83,8 @@ struct ChatView: View {
         ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingBotID == bot.id, hint: store.steerHint,
                      send: send, stop: store.stop, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
-                     manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.actions(for: bot.backend) : [], manage: manage)
+                     manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.actions(for: bot.backend) : [], manage: manage,
+                     dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", dictation: dictation)
     }
     private func manage(_ action: ManageBotsAction) { store.startManagement(action, manager: bot) }
     /// A Manage bots request for this chat replaces the draft.

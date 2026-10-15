@@ -3,7 +3,7 @@ import SwiftUI
 /// A group's shared thread: the user's messages and each member's replies under its own avatar.
 struct GroupChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
-    @State private var draft = ""; @StateObject private var intake = AttachmentIntake()
+    @State private var draft = ""; @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
 
     var body: some View {
@@ -15,6 +15,8 @@ struct GroupChatView: View {
                 Button { store.showInfo.toggle() } label: { Text(group.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
                 Text(members.isEmpty ? "No bots yet" : ([store.userName] + members.map(\.name)).joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
+                OpenVoiceButton(name: group.name, target: group.memberIDs.first.map { .group(groupID: group.id, botID: $0) },
+                                messages: { group.messages.map { (role: $0.role.rawValue, text: $0.content) } })
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
             ScrollViewReader { proxy in
@@ -42,7 +44,8 @@ struct GroupChatView: View {
                          send: send, stop: store.stop, attach: { intake.attach($0, store: store) },
                          pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                          reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
-                         mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name))
+                         mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name),
+                         dictationContext: group.id.uuidString, dictation: dictation)
                 .background(AppColor.chat)
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in

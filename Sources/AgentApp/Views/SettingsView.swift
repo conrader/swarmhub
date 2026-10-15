@@ -41,6 +41,7 @@ struct SettingsView: View {
         case .account: SettingsSwarmHubAccountPane(center: store.reportsCenter)
         case .reports: SettingsReportsPane(center: store.reportsCenter)
         case .about: SettingsAboutPane()
+        case .voice: SettingsVoicePane()
         }
     }
 }

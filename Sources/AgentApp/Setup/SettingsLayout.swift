@@ -8,7 +8,10 @@ enum SettingsLayout {
     /// Advanced: today's panes re-homed, Avatars folded into Appearance and alerts, nothing new.
     enum AdvancedPane: String, CaseIterable, Identifiable {
         case servers = "Servers and keys", alerts = "Appearance and alerts", models = "Models", review = "Approvals"
-        case apps = "Connected apps", computers = "Computers", usage = "Usage", account = "Account", reports = "Reports", about = "About"
+        case apps = "Connected apps"
+        // P38 C: dictation's deAPI key and live voice's state.
+        case voice = "Voice"
+        case computers = "Computers", usage = "Usage", account = "Account", reports = "Reports", about = "About"
         var id: String { rawValue }
         var icon: String {
             switch self {
@@ -22,6 +25,7 @@ enum SettingsLayout {
             case .account: "person.crop.circle"
             case .reports: "tray"
             case .about: "info.circle"
+            case .voice: "mic"
             }
         }
     }
@@ -44,7 +48,9 @@ enum SettingsLayout {
                         // P36: the SwarmHub account and the Reports inbox.
                         "account.swarmhub", "account.serviceURL", "reports.list",
                         // P38 B: connected apps (ChatGPT, Composio apps and each bot's access, background app access).
-                        "apps.chatgpt", "apps.composio", "apps.botAccess", "apps.background"]
+                        "apps.chatgpt", "apps.composio", "apps.botAccess", "apps.background",
+                        // P38 C: voice dictation (deAPI) and live voice with ChatGPT.
+                        "voice.dictationKey", "voice.live"]
 
     static let entries: [(id: String, home: Home)] = [
         ("connection.status", .simple), ("connection.test", .simple), ("connection.setup", .simple), ("you.name", .simple),
@@ -61,6 +67,7 @@ enum SettingsLayout {
         // P36: the SwarmHub sign-in (sending reports only) and the Reports inbox.
         ("account.swarmhub", .advanced(.account)), ("account.serviceURL", .advanced(.account)), ("reports.list", .advanced(.reports)),
         ("apps.chatgpt", .advanced(.apps)), ("apps.composio", .advanced(.apps)), ("apps.botAccess", .advanced(.apps)), ("apps.background", .advanced(.apps)),
+        ("voice.dictationKey", .advanced(.voice)), ("voice.live", .advanced(.voice)),
         ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))
     ]
 

@@ -133,6 +133,14 @@ private struct FixtureReviewerBackend: AgentBackend {
             KeyboardShortcutsView()
                 .preferredColorScheme(AppTheme.colorScheme(for: appearance))
         }.windowResizability(.contentSize)
+        // P38 C: live voice with ChatGPT, opened from a chat header or Settings → Voice.
+        Window("Voice with ChatGPT", id: VoiceChatView.windowID) {
+            VoiceChatView()
+                .environmentObject(store)
+                .defaultAppStorage(store.defaults)
+                .preferredColorScheme(AppTheme.colorScheme(for: appearance))
+                .tint(AppTheme.accentColor(for: accent))
+        }
         Window(SetupCopy.windowTitle, id: SetupView.windowID) {
             SetupView()
                 .environmentObject(store)

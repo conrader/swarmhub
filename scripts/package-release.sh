@@ -77,6 +77,7 @@ SIGN_ARGS=(--force --sign "$SIGN_ID")
 if [[ "$SIGN_ID" != - ]]; then
   SIGN_ARGS+=(--options runtime --timestamp)
 fi
+# P38 C: the app binary and bundle carry SwarmHub.entitlements (microphone input, needed under the hardened runtime).
 # Sign inside out, preserving the helpers' own identifiers and entitlements.
 # --deep is only used to verify, never to apply the app's identity to nested helpers.
 FRAMEWORK="$APP_DIR/Contents/Frameworks/Sparkle.framework"
@@ -86,10 +87,10 @@ done
 /usr/bin/codesign "${SIGN_ARGS[@]}" "$FRAMEWORK/Versions/B/Autoupdate"
 /usr/bin/codesign "${SIGN_ARGS[@]}" "$FRAMEWORK/Versions/B/Updater.app"
 /usr/bin/codesign "${SIGN_ARGS[@]}" "$FRAMEWORK"
-/usr/bin/codesign "${SIGN_ARGS[@]}" --identifier com.konrad.agentapp "$APP_DIR/Contents/MacOS/AgentApp"
+/usr/bin/codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT_DIR/Resources/SwarmHub.entitlements" --identifier com.konrad.agentapp "$APP_DIR/Contents/MacOS/AgentApp"
 TEAM_ID="$(/usr/bin/codesign -dv "$APP_DIR/Contents/MacOS/AgentApp" 2>&1 | awk -F= '/^TeamIdentifier=/ {print $2}')"
 echo "signing_team=${TEAM_ID:-adhoc}" >> "$APP_DIR/Contents/Resources/SOURCE.txt"
-/usr/bin/codesign "${SIGN_ARGS[@]}" --identifier com.konrad.agentapp "$APP_DIR"
+/usr/bin/codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT_DIR/Resources/SwarmHub.entitlements" --identifier com.konrad.agentapp "$APP_DIR"
 /usr/bin/codesign --verify --deep --strict "$APP_DIR"
 if [[ ! -s "$APP_DIR/Contents/Resources/AppIcon.icns" ]]; then
   echo "ERROR: $APP_DIR lacks Contents/Resources/AppIcon.icns." >&2
