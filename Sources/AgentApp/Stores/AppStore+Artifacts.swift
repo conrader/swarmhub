@@ -37,6 +37,20 @@ extension AppStore {
         for id in user.attachments.compactMap(\.sourceArtifactID) { _ = try artifacts().read(id, botID: botID) }
     }
 
+    /// The messages as `botID` may receive them: a saved document it can no longer read is left out of an earlier
+    /// message (group context, resent history). Messages without such attachments are passed through unchanged.
+    func readableMessages(_ messages: [ChatMessage], for botID: UUID) -> [ChatMessage] {
+        messages.map { message in
+            let blocked = message.attachments.filter { attachment in
+                attachment.sourceArtifactID.map { id in (try? artifacts().read(id, botID: botID)) == nil } ?? false
+            }
+            guard !blocked.isEmpty else { return message }
+            return ChatMessage(id: message.id, role: message.role, content: message.content, createdAt: message.createdAt, presentation: message.presentation,
+                               metadata: message.metadata, replyToID: message.replyToID, attachments: message.attachments.filter { !blocked.contains($0) },
+                               authorID: message.authorID, turnState: message.turnState)
+        }
+    }
+
     func shareArtifact(_ artifact: RuntimeArtifact, with botID: UUID) throws {
         guard bots.contains(where: { $0.id == botID && !$0.isReadOnlyArchive }) else { throw BackendError.unavailable("That agent was removed.") }
         let store = try artifacts()

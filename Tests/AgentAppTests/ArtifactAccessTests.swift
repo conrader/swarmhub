@@ -48,6 +48,22 @@ import Testing
         #expect(recipient.messages.isEmpty && store.errorMessage?.contains("access") == true)
     }
 
+    @Test func groupContextLeavesOutADocumentTheMemberCannotRead() async throws {
+        let owner = Bot(name: "Owner", backend: .hermes), other = Bot(name: "Other", backend: .hermes)
+        let backends = [owner.id: GroupBackend(name: "Owner"), other.id: GroupBackend(name: "Other")]
+        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { backends[$0.id]! }, keyStore: InMemoryKeyStore(), defaults: namedDefaults())
+        store.bots = [owner, other]
+        let group = GroupChat(name: "Team", memberIDs: [owner.id, other.id]); store.groups = [group]
+        let artifact = try store.artifacts().save(Data("SECRET-LEDGER".utf8), name: "Ledger", mimeType: "text/plain", owners: [owner.id])
+        #expect(store.send(text: "@Owner check this", attachments: [try store.artifactAttachment(artifact, for: owner.id)], to: group))
+        try await waitUntil { store.isIdle }
+        #expect(backends[owner.id]!.sent.all.first?.text.contains("SECRET-LEDGER") == true)
+        #expect(store.send(text: "Everyone: thoughts?", to: group))
+        try await waitUntil { store.isIdle }
+        let otherContext = try #require(backends[other.id]!.sent.all.first?.text)
+        #expect(otherContext.contains("@Owner check this") && !otherContext.contains("SECRET-LEDGER"))
+    }
+
     @Test func theLastReaderStaysAndATamperedFileIsNotUsed() throws {
         let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         let bot = Bot(name: "Only"), archive = Bot(name: "Archive"); archive.archivedMembers = []; store.bots = [bot, archive]
