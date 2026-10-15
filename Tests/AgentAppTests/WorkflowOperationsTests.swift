@@ -144,6 +144,7 @@ import Testing
         store.resumeWorkflow(workflow.id)
         #expect(store.workflows[workflow.id]?.state == .paused && store.errorMessage?.contains("Accept the review") == true)
         #expect(store.canAcceptWorkflowReview(workflow, task: workflow.tasks[1]))
+        #expect(!store.canReassignWorkflowTask(workflow, task: workflow.tasks[1]), "a finished review is never sent again")
         store.acceptWorkflowReview(workflow.id, taskID: "review")
         #expect(store.workflows[workflow.id]?.tasks[1].state == .completed)
         #expect(store.workflows[workflow.id]?.tasks[1].reviewAcceptedByUser == true)

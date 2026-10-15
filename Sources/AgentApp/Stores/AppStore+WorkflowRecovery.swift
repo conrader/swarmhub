@@ -13,7 +13,8 @@ extension AppStore {
 
     /// Only a paused workflow's queued task, or a blocked one whose replies are all certainly unsent.
     func canReassignWorkflowTask(_ workflow: Workflow, task: WorkflowTask) -> Bool {
-        guard workflow.state == .paused, task.state == .queued || task.state == .blocked else { return false }
+        // P38 E: a task whose reply finished (a review waiting for the user) is never sent again.
+        guard workflow.state == .paused, task.state == .queued || task.state == .blocked, task.completionConfirmed != true else { return false }
         guard let thread = workflowThread(task.threadID, botID: task.botID) else {
             // A removed assignee could still be working remotely: only work that was never sent moves.
             return task.state == .queued || task.replyID == nil
