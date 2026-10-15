@@ -58,6 +58,16 @@ msg_with() {
   RC=$?
 }
 expect() { what=$1; shift; "$@" || PROBLEMS="$PROBLEMS; $what"; }
+# Waits (bounded) until the follow-up logged its late-reply line and removed its folder.
+wait_late() {
+  i=0; while ! grep -q 'late-reply' "$LOG" 2>/dev/null && [ $i -lt 400 ]; do sleep 0.05; i=$((i + 1)); done
+  i=0; while [ -n "$(ls -d "$ROOT"/bot-msg-late.* 2>/dev/null)" ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i + 1)); done
+}
+# Waits (bounded) until a held reply was let go and its folder is gone.
+wait_released() {
+  i=0; while [ ! -e "$ROOT/gw/answered" ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i + 1)); done
+  i=0; while [ -n "$(ls -d "$ROOT"/bot-msg-late.* 2>/dev/null)" ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i + 1)); done
+}
 has() { grep -Fq -- "$2" "$1" 2>/dev/null; }
 lacks() { ! grep -Fq -- "$2" "$1" 2>/dev/null; }
 requests() { cat "$ROOT/gw/requests" 2>/dev/null; }
@@ -111,6 +121,7 @@ expect "prints the session id" [ "$(cat "$C/out")" = swarmhub-from-jarvis ]
 expect "chat request reached the gateway" [ "$(sed -n 2p "$ROOT/gw/input.1" 2>/dev/null)" = 'Restart the backup job when you can' ]
 expect "log says queued" [ "$(field 5)" = queued ]
 expect "log ok" [ "$(field 7)" = ok ]
+wait_late
 done_case
 
 # 4
@@ -120,6 +131,7 @@ msg --from jarvis --to infra --wait 1 -- 'slow question'
 expect "exit 124 (got $RC)" [ "$RC" -eq 124 ]
 expect "says it may still answer" has "$C/err" 'no reply from infra within 1s'
 release
+wait_late
 expect "log error" [ "$(field 7)" = error ]
 expect "log waited" [ "$(field 5)" = waited ]
 done_case
@@ -224,6 +236,51 @@ TEXT=$(printf 'Line "one" \\ back\tslash\nline two $HOME `x`')
 msg --from jarvis --to infra -- "$TEXT"
 expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
 expect "text intact" [ "$(sed 1d "$ROOT/gw/input.1")" = "$TEXT" ]
+done_case
+
+# 12
+new_case "late reply: no reply within --wait, the follow-up delivers it once to the sender"
+mode slow
+msg --from jarvis --to infra --wait 1 -- 'slow question'
+expect "exit 124 (got $RC)" [ "$RC" -eq 124 ]
+expect "says the reply will come" has "$C/err" 'its reply will reach you as a new message'
+release
+wait_late
+expect "the sender's From infra session" has "$ROOT/gw/requests" 'POST /p/jarvis/api/sessions ok 201 title=From infra id=swarmhub-from-infra source=api_server'
+expect "delivered once (got $(count 'jarvis/api/sessions/swarmhub-from-infra/chat/stream'))" [ "$(count 'POST /p/jarvis/api/sessions/swarmhub-from-infra/chat/stream ok 200')" -eq 1 ]
+expect "header line" [ "$(head -n 1 "$ROOT/gw/input.2" 2>/dev/null)" = '[Reply from infra via SwarmHub]' ]
+expect "the reply" [ "$(sed -n 2p "$ROOT/gw/input.2" 2>/dev/null)" = 'Hi from infra: Zażółć ✓ "done"' ]
+expect "log line late-reply ($(sed -n 2p "$LOG"))" [ "$(field 2 2)|$(field 3 2)|$(field 4 2)|$(field 5 2)|$(field 7 2)" = "infra|jarvis|swarmhub-from-infra|late-reply|ok" ]
+expect "no third input" [ ! -e "$ROOT/gw/input.3" ]
+no_key_anywhere
+done_case
+
+# 13
+new_case "late reply: --no-wait delivers the reply once"
+mode slow
+msg --from jarvis --to infra --no-wait -- 'Restart the backup job and tell me'
+expect "exit 0 (got $RC: $(cat "$C/err"))" [ "$RC" -eq 0 ] && [ "$(cat "$C/out")" = swarmhub-from-jarvis ]
+release
+wait_late
+expect "delivered once" [ "$(count 'POST /p/jarvis/api/sessions/swarmhub-from-infra/chat/stream ok 200')" -eq 1 ]
+expect "header line" [ "$(head -n 1 "$ROOT/gw/input.2" 2>/dev/null)" = '[Reply from infra via SwarmHub]' ]
+expect "queued, then late-reply ok" [ "$(field 5)|$(field 5 2)|$(field 7 2)" = "queued|late-reply|ok" ]
+done_case
+
+# 14
+new_case "a delivered reply never gets a follow-up"
+mode slow
+msg --from jarvis --to infra --no-wait -- '[Reply from infra via SwarmHub] thanks, noted'
+expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
+expect "no follow-up folder" [ -z "$(ls -d "$ROOT"/bot-msg-late.* 2>/dev/null)" ]
+msg --from jarvis --to infra --wait 1 -- '[Reply from infra via SwarmHub] and this'
+expect "exit 124 (got $RC)" [ "$RC" -eq 124 ]
+expect "no promise of a reply" lacks "$C/err" 'will reach you'
+release
+wait_released
+sleep 0.3
+expect "nothing sent to the sender" [ "$(count 'POST /p/jarvis/')" -eq 0 ]
+expect "no late-reply line" lacks "$LOG" 'late-reply'
 done_case
 
 echo "bot-msg tests under $SH: $PASSED passed, $FAILED failed"

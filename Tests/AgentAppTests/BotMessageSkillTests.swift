@@ -10,7 +10,7 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
 
 @Test func messagesSkillShipsWithItsScript() throws {
     let skill = try messagesSkill()
-    #expect(skill.version == SkillVersion("1.0.0")!)
+    #expect(skill.version == SkillVersion("1.1.0")!)
     let fields = SkillLibrary.frontmatter(skill.template)
     #expect(fields["author"] == "SwarmHub" && skill.template.contains("metadata:\n  swarmhub:\n    source: swarmhub"))
     let description = try #require(fields["description"])
@@ -36,7 +36,9 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
     #expect(rendered.contains("~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages/scripts/bot-msg --from grok-jarvis --to <bot> -- \"<message>\""))
     #expect(rendered.contains("[Message from <bot> via SwarmHub]") && rendered.contains("answer it right there in the same thread"))
     #expect(rendered.contains("--no-wait") && rendered.contains("Report what the other bot said"))
-    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.0.0")
+    // P42 9: a late reply arrives as a new message; it is never answered back or sent on.
+    #expect(rendered.contains("[Reply from <bot> via SwarmHub]") && rendered.contains("Do not answer\nit back to that bot"))
+    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.1.0")
     let main = try #require(SkillLibrary.render(skill, forProfile: "default", managerTemplate: nil, codingOrder: .standard))
     #expect(main.contains("~/.hermes/skills/swarmhub/swarmhub-messages/scripts/bot-msg --from default --to"))
 }
@@ -50,6 +52,6 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
     process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "BOT_MSG_SH": shell]
     let (status, output) = try await runToEnd(process)
     #expect(status == 0, "\(shell):\n\(output)")
-    #expect(output.contains("bot-msg tests under \(shell): 11 passed, 0 failed"), "\(output)")
+    #expect(output.contains("bot-msg tests under \(shell): 14 passed, 0 failed"), "\(output)")
     #expect(!output.contains("FAIL"), "\(output)")
 }
