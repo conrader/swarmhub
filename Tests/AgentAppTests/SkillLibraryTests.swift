@@ -30,21 +30,22 @@ func ordinaryChatIsNoModelIntent(_ text: String) { #expect(!ManagementIntent.mat
 // MARK: Template
 
 /// P30: the model recipe (skill 1.0.1), byte for byte: two bots at a time, values a bot already has skipped, Hermes'
-/// stderr kept out of the log, started with the terminal tool's background option (it refuses nohup).
+/// stderr kept out of the log, started with the terminal tool's background option (it refuses nohup). P31 D+E (skill
+/// 1.2.0): the skip check compares the current value with quotes stripped, so '', "" and a missing key are empty.
 private let modelRecipe = ##"""
 Change the model (one bot, some, or all): ask first, naming model, provider and bots. Start it as a background process of your terminal tool (its background option, not nohup/setsid, which it refuses):
 ```
 export MODEL=<model> PROV=<provider, e.g. openai-codex> KM=model.default KP=model.provider
-cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 1 sh -c 'N=$1; F=profiles/$N/config.yaml; [ "$N" = default ] && F=config.yaml; r=ok; for KV in "$KM=$MODEL" "$KP=$PROV"; do K=${KV%%=*}; V=${KV#*=}; sed -n "/^${K%%.*}:/,/^[^ ]/p" "$F" | grep -Eq "^ +${K#*.}: *\"?$V\"? *$" || hermes -p "$N" config set "$K" "$V" >/dev/null 2>>swarmhub-model.err || r=FAILED; done; echo "$N $r"' sh > swarmhub-model.log; echo DONE >> swarmhub-model.log
+cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 1 sh -c 'N=$1; F=profiles/$N/config.yaml; [ "$N" = default ] && F=config.yaml; r=ok; for KV in "$KM=$MODEL" "$KP=$PROV"; do K=${KV%%=*}; V=${KV#*=}; C=$(sed -n "/^${K%%.*}:/,/^[^ ]/s/^  *${K#*.}: *//p" "$F" | head -n 1 | tr -d "\"\047 "); [ "$C" = "$V" ] || hermes -p "$N" config set "$K" "$V" >/dev/null 2>>swarmhub-model.err || r=FAILED; done; echo "$N $r"' sh > swarmhub-model.log; echo DONE >> swarmhub-model.log
 ```
-`<names>` for all bots: `default $(ls ~/.hermes/profiles | grep -E '^[a-z0-9][a-z0-9_-]*$')`. The sub-agent/coding model only when asked: the same with `KM=delegation.model KP=delegation.provider`. A value a bot already has is skipped; each change takes ~4 s, two bots at a time. Wait for the process, then `cat ~/.hermes/swarmhub-model.log` (ends with DONE) and report ok/FAILED per bot; for FAILED show the last lines of `~/.hermes/swarmhub-model.err`. Say that SwarmHub chats with their own chosen model keep it (changed in that chat's model menu).
+`<names>` for all bots: `default $(ls ~/.hermes/profiles | grep -E '^[a-z0-9][a-z0-9_-]*$')`. The sub-agent/coding model only when asked: the same with `KM=delegation.model KP=delegation.provider`; empty MODEL and PROV clear it (sub-agents then use each bot's model). A value a bot already has is skipped; each change takes ~4 s, two bots at a time. Wait for the process, then `cat ~/.hermes/swarmhub-model.log` (ends with DONE) and report ok/FAILED per bot; for FAILED show the last lines of `~/.hermes/swarmhub-model.err`. Say that SwarmHub chats with their own chosen model keep it (changed in that chat's model menu).
 """##
 
 @Test func managerTextCarriesTheModelRecipeWithinItsBudget() throws {
     let template = try #require(BotManagerText.template())
     // P30: the exact recipe block took the text past 4 KiB; P35's list, connect and restore recipes to 6.4 KiB; P31 C's
     // accounts recipes to 10 KiB, then split out into recipes/box.md and recipes/accounts.md, read on demand.
-    #expect(template.utf8.count <= 4_700, "manager-hermes.md is \(template.utf8.count) bytes")
+    #expect(template.utf8.count <= 4_600, "manager-hermes.md is \(template.utf8.count) bytes")
     #expect(template.contains(modelRecipe))
     #expect(template.contains(#"hermes -p "$N" config set "$K" "$V""#) && template.contains("KM=model.default KP=model.provider"))
     #expect(template.contains("xargs -P 2 -n 1") && template.contains("2>>swarmhub-model.err") && template.contains("echo DONE >> swarmhub-model.log"))
@@ -68,10 +69,10 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
     let skills = SkillLibrary.bundled()
     #expect(skills.map(\.name) == ["swarmhub-coding", "swarmhub-feedback", "swarmhub-manager", "swarmhub-messages"], "P31: swarmhub-coding joins it; P34: swarmhub-messages; P36: swarmhub-feedback")
     let skill = try #require(skills.first { $0.name == SkillLibrary.managerSkill })
-    #expect(skill.files.map(\.path) == ["references/accounts.md", "references/box.md"], "P31 C: the recipe files as references")
-    #expect(skill.files.map(\.content) == [BotManagerText.recipe(.accounts), BotManagerText.recipe(.box)], "shipped from Resources/BotManager/recipes")
+    #expect(skill.files.map(\.path) == ["references/accounts.md", "references/box.md", "references/capacity.md", "references/models.md"], "P31 C, D+E: the recipe files as references")
+    #expect(skill.files.map(\.content) == [BotManagerText.recipe(.accounts), BotManagerText.recipe(.box), BotManagerText.recipe(.capacity), BotManagerText.recipe(.models)], "shipped from Resources/BotManager/recipes")
     #expect(SkillLibrary.bundled(managerReferences: nil).map(\.name) == ["swarmhub-coding", "swarmhub-feedback", "swarmhub-messages"], "no recipes, no manager skill")
-    #expect(skill.version == SkillVersion("1.1.0")!, "P31 C: the core text plus references")
+    #expect(skill.version == SkillVersion("1.2.0")!, "P31 D+E: + the models and capacity references")
     #expect(SkillLibrary.state(installed: "1.0.0", bundled: skill.version) == .outdated(installed: "1.0.0"), "bots on 1.0.0 get the Update banner")
     let fields = SkillLibrary.frontmatter(skill.template)
     #expect(fields["name"] == "swarmhub-manager" && fields["version"] == skill.version.description)
@@ -92,7 +93,8 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
         let manager = BotManagerText.filled(template, managerProfile: profile).trimmingCharacters(in: .whitespacesAndNewlines)
         let folder = SkillLibrary.installPath(SkillLibrary.managerSkill, profile: profile)
         #expect(rendered.contains(manager + "\n\nWhen asked to list every bot, connect bots made before SwarmHub"))
-        #expect(rendered.hasSuffix("first read `\(folder)/references/accounts.md` (`cat` it).\n") && rendered.contains("first read `\(folder)/references/box.md`"))
+        #expect(rendered.hasSuffix("first read `\(folder)/references/capacity.md` (`cat` it).\n") && rendered.contains("first read `\(folder)/references/box.md`"))
+        #expect(rendered.contains("first read `\(folder)/references/accounts.md`") && rendered.contains("first read `\(folder)/references/models.md`"))
         #expect(rendered.contains("You are the profile `\(profile)`"))
     }
     let jarvis = try #require(SkillLibrary.render(skill, forProfile: "grok-jarvis", managerTemplate: template))

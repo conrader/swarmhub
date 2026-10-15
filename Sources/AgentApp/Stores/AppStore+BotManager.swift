@@ -87,6 +87,7 @@ extension AppStore {
         let decision = ManagementExchange.decide(text: text, exchange: managementExchanges[bot.id], now: now())
         managementExchanges[bot.id] = decision.next
         guard decision.attach else { return nil }
+        if bot.backend == .hermes, let recipe = decision.next?.recipe { return recipe }
         if bot.backend == .hermes, let skill = skills(for: bot).first(where: { $0.name == SkillLibrary.managerSkill }), skillState(skill, for: bot) != .missing {
             return Self.skillPointer
         }
@@ -96,6 +97,10 @@ extension AppStore {
     /// Opens a management exchange in the manager's chat and fills its composer (or sends at once when `send`).
     func startManagement(_ action: ManageBotsAction, manager: Bot, target: String? = nil, send sendNow: Bool = false) {
         guard isManager(manager) else { return }
+        if action == .changeSubAgentModel {
+            guard manager.backend == .hermes else { return }
+            subAgentModelRequest = SubAgentModelRequest(managerID: manager.id, profile: target); return
+        }
         managementExchanges[manager.id] = ManagementExchange(openedAt: now(), awaitingOpening: true)
         open(manager); openThreadID = nil
         let request = action.request(bot: target)
@@ -161,6 +166,10 @@ extension AppStore {
         case .boxReports, .reportsClosed:
             guard manager.backend == .hermes else { return }
             absorbReportOps([op], connection: connection(of: manager))
+        case .models, .boxCapacity:
+            // P31 D+E: from SwarmHub's quiet checks, a requested change's reply, or Konrad asking in the chat.
+            guard manager.backend == .hermes else { return }
+            absorbBoxReadings([op], connection: connection(of: manager))
         case .loginLink, .loginDone:
             // Only from the Accounts sheet's own quiet turns: a link in a chat reply is never shown as a login page.
             return

@@ -4,7 +4,6 @@ import SwiftUI
 struct MediaTabView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
-    @Environment(\.openURL) private var openURL
     var body: some View {
         let items = MediaExtractor.items(in: bot)
         VStack(alignment: .leading, spacing: 6) {
@@ -21,7 +20,7 @@ struct MediaTabView: View {
                             Spacer(minLength: 0)
                         }.contentShape(Rectangle())
                     }.buttonStyle(.plain).help("Show in chat")
-                    if item.kind == .link, let link = item.url.flatMap(URL.init(string:)) { Button { openURL(link) } label: { Image(systemName: "arrow.up.right.square") }.buttonStyle(.plain).foregroundStyle(.secondary).help(link.absoluteString) }
+                    if item.kind == .link, let link = item.url.flatMap(URL.init(string:)) { Button { ExternalLink.open(link) } label: { Image(systemName: "arrow.up.right.square") }.buttonStyle(.plain).foregroundStyle(.secondary).help(link.absoluteString) }
                 }.padding(6).background(AppColor.card, in: RoundedRectangle(cornerRadius: 9))
             }
         }

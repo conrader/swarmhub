@@ -15,6 +15,10 @@ enum BotManagerText {
         case box
         /// P31 C: the coding tools' accounts: status, install, login, check, code, logout.
         case accounts
+        /// P31 D: each bot's model and sub-agent model, read from config.yaml (op `models`).
+        case models
+        /// P31 E: the box's capacity probe (op `box_capacity`) and the coding job limit.
+        case capacity
         var resourcePath: String { "BotManager/recipes/\(rawValue).md" }
         var referencePath: String { "references/\(rawValue).md" }
     }

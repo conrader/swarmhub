@@ -8,7 +8,8 @@ struct ModelRefusal: LocalizedError { let text: String; var errorDescription: St
 extension AppStore {
     var storeFile: StoreFile {
         StoreFile(bots: bots, groups: groups, modelDefaults: modelDefaults.isEmpty ? nil : modelDefaults,
-                  approvalRoutes: globalApprovalRoutes.isEmpty ? nil : globalApprovalRoutes, reviewAfter: globalReviewAfter.isEmpty ? nil : globalReviewAfter)
+                  approvalRoutes: globalApprovalRoutes.isEmpty ? nil : globalApprovalRoutes, reviewAfter: globalReviewAfter.isEmpty ? nil : globalReviewAfter,
+                  boxReadings: boxReadings.isEmpty ? nil : boxReadings)
     }
 
     /// What to lock once the session exists.

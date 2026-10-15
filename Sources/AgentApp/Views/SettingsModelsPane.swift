@@ -30,6 +30,12 @@ struct SettingsModelsPane: View {
             Text("Main chats only; group chats and threads keep their models. \(ModelRoleReason.permanent.text)").font(.caption).foregroundStyle(.secondary)
         }
         .sheet(item: $plan) { ModelRolesPlanSheet(plan: $0) }
+        // P31 E: under Coding agent, how many coding jobs each Hermes box runs side by side (OpenClaw boxes show nothing).
+        if !store.hermesConnections.isEmpty {
+            Section("Coding jobs") {
+                ForEach(store.hermesConnections, id: \.target) { connection in BoxCapacityBlock(target: connection.target, host: connection.host) }
+            }
+        }
         if model.rows.isEmpty {
             Text("No bot is bound to a Hermes profile.").foregroundStyle(.secondary)
         }
@@ -38,7 +44,7 @@ struct SettingsModelsPane: View {
         }
         Section("Set on the box (read-only)") {
             boxLine("Agent default", model.fleetSummary, note: nil)
-            boxLine("Sub-agents", model.subAgentSummary, note: ModelRoleReason.boxOnly.text)
+            boxLine("Sub-agents", model.subAgentSummary, note: "Each bot's coding model is under its name above.")
             boxLine("Compaction", nil, note: ModelRoleReason.boxOnly.text)
             boxLine("Routines", nil, note: ModelRoleReason.boxOnly.text)
         }
@@ -101,6 +107,8 @@ struct SettingsModelsPane: View {
                     if let error = row.loadError { Text(error).font(.caption2).foregroundStyle(.orange) }
                     if let blocked = row.blocked { Text(blocked.text).font(.caption2).foregroundStyle(.secondary) }
                 }
+                // P31 D: the sub-agent model the manager reported (read through the manager, so also before Load).
+                if let bot = store.bots.first(where: { $0.id == row.id }), bot.backend == .hermes { SubAgentLineView(bot: bot, delegationOff: row.delegation == false) }
             }
             Spacer()
             if let bot = store.bots.first(where: { $0.id == row.id }) { Button("Edit…") { store.editingBot = bot } }

@@ -133,6 +133,6 @@ enum GrokImportActions {
     @MainActor static func openGrokBot() {
         let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: GrokProtocol.bundleIdentifier)
             ?? URL(fileURLWithPath: GrokProtocol.appPath)
-        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        ExternalLink.openApplication(at: url)
     }
 }

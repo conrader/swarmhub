@@ -43,6 +43,10 @@ enum SwarmhubOp: Equatable {
     case boxReports([BoxReport])
     /// P36: "Close reports": the files renamed to `.sent` and the ones deleted.
     case reportsClosed(sent: [String], deleted: [String])
+    /// P31 D: each bot's model and sub-agent model from its config.yaml ("Bot models").
+    case models([BotModels])
+    /// P31 E: the box's CPUs, memory, disk, load, coding job limit and recent jobs ("Box capacity").
+    case boxCapacity(BoxCapacityReport)
 
     /// The op from one JSON object; nil for unknown ops, missing fields or an invalid profile name.
     init?(_ object: [String: Any]) {
@@ -109,6 +113,12 @@ enum SwarmhubOp: Equatable {
         case "reports_closed":
             let ids = { (key: String) in ((object[key] as? [Any]) ?? []).compactMap { $0 as? String }.filter(SwarmReport.isValidLocalID) }
             self = .reportsClosed(sent: ids("sent"), deleted: ids("deleted"))
+        case "models":
+            guard let rows = object["list"] as? [Any] else { return nil }
+            self = .models(BotModels.list(rows))
+        case "box_capacity":
+            guard let report = BoxCapacityReport(object) else { return nil }
+            self = .boxCapacity(report)
         case "skills_installed":
             guard let bot = string("bot").flatMap({ HermesKeyPaste.isValidProfileName($0) ? $0 : nil }),
                   let rows = object["skills"] as? [[String: Any]] else { return nil }

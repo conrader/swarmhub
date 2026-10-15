@@ -19,6 +19,9 @@ private let signatures: [String: String] = [
     "check": "while ! grep -q '^EXIT' $F",
     "code": #"[ "$R" = ok ] && R=true || R=false"#,
     "logout": "codex logout > /dev/null 2>&1",
+    "models": #"printf '{"op":"models","list":[%s]}\n'"#,
+    "capacity": #"printf '{"op":"box_capacity","cpus":%s,"#,
+    "limit": #"echo "SLOTS=$N"; } > $F.swarmhub-new"#,
     "core": "hermes profile create"
 ]
 
@@ -37,20 +40,23 @@ private func check(_ name: String, _ text: String?, carries wanted: Set<String>)
 @Test @MainActor func coreAndRecipeFilesHoldTheirOwnRecipesWithinBudget() throws {
     let core = try #require(BotManagerText.template()), box = try #require(BotManagerText.recipe(.box))
     let accounts = try #require(BotManagerText.recipe(.accounts))
-    #expect(core.utf8.count <= 4_700, "core is \(core.utf8.count) bytes")
+    let models = try #require(BotManagerText.recipe(.models)), capacity = try #require(BotManagerText.recipe(.capacity))
+    // P31 D+E: the core keeps its size budget (the empty-pin skip check and one clause on clearing the pin).
+    #expect(core.utf8.count <= 4_600, "core is \(core.utf8.count) bytes")
+    #expect(models.utf8.count <= 1_000 && capacity.utf8.count <= 1_600, "models \(models.utf8.count), capacity \(capacity.utf8.count)")
     // P36: + the reports listing and "Close reports" (2,816 bytes).
     #expect(box.utf8.count <= 2_900 && accounts.utf8.count <= 4_000, "box \(box.utf8.count), accounts \(accounts.utf8.count)")
-    print("P31C-SIZE core manager-hermes.md: \(core.utf8.count) bytes; recipes/box.md: \(box.utf8.count); recipes/accounts.md: \(accounts.utf8.count)")
+    print("P31C-SIZE core manager-hermes.md: \(core.utf8.count) bytes; recipes/box.md: \(box.utf8.count); recipes/accounts.md: \(accounts.utf8.count); recipes/models.md: \(models.utf8.count); recipes/capacity.md: \(capacity.utf8.count)")
     for line in coreLines { #expect(core.contains(line), "\(line)") }
-    let parts = ["core": core, "box": box, "accounts": accounts]
-    let owners = ["list": "box", "adopt": "box", "restore": "box", "core": "core"]
+    let parts = ["core": core, "box": box, "accounts": accounts, "models": models, "capacity": capacity]
+    let owners = ["list": "box", "adopt": "box", "restore": "box", "core": "core", "models": "models", "capacity": "capacity", "limit": "capacity"]
     for (recipe, line) in signatures {
         let owner = owners[recipe] ?? "accounts"
         for (part, text) in parts { #expect(text.contains(line) == (part == owner), "\(recipe) in \(part)") }
     }
-    for text in [box, accounts] { #expect(text.contains("{{") == (text == box) && text.contains("put exactly that line in your swarmhub block")) }
+    for text in [box, accounts, models, capacity] { #expect(text.contains("{{") == (text == box) && text.contains("put exactly that line in your swarmhub block")) }
     let full = try #require(BotManagerText.fullTemplate())
-    let joined = [core, box, accounts].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
+    let joined = [core, box, accounts, models, capacity].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
     #expect(full == joined + "\n")
     #expect(BotManagerText.fullTemplate(recipes: [box, nil]) == nil && BotManagerText.fullTemplate(core: nil) == nil)
     print("P31C-SIZE full text (no skill): \(full.utf8.count) bytes; pointer: \(AppStore.skillPointer.utf8.count) bytes")
@@ -74,6 +80,10 @@ private func check(_ name: String, _ text: String?, carries wanted: Set<String>)
     for tool in [CodingTool.claude, .codex] {
         sizes["logout \(tool)"] = try check("logout \(tool.rawValue)", CodingAccounts.logoutInstructions(tool, template: accounts), carries: ["logout", "status"])
     }
+    let models = try #require(BotManagerText.recipe(.models)), capacity = try #require(BotManagerText.recipe(.capacity))
+    sizes["models"] = try check("models", BoxReadingsTurns.modelsInstructions(template: models), carries: ["models"])
+    sizes["capacity"] = try check("capacity", BoxReadingsTurns.capacityInstructions(template: capacity), carries: ["capacity"])
+    sizes["limit"] = try check("limit", BoxReadingsTurns.limitInstructions(2, template: capacity), carries: ["limit", "capacity"])
     let full = try #require(BotManagerText.fullTemplate()).utf8.count
     for (name, size) in sizes where name != "login claude" { #expect(size <= 2_600 && size < full / 2, "\(name): \(size) bytes, full text \(full)") }
     let claude = try #require(sizes["login claude"])
@@ -119,7 +129,7 @@ private func check(_ name: String, _ text: String?, carries wanted: Set<String>)
         #expect(text.contains("first read `\(folder)/references/\(recipe.rawValue).md`"))
     }
     #expect(!text.contains("{{") && !text.contains("chmod 755"), "references are not scripts")
-    #expect(text.contains(#"{"name":"swarmhub-manager","version":"1.1.0"}"#))
+    #expect(text.contains(#"{"name":"swarmhub-manager","version":"1.2.0"}"#))
     let rendered = try #require(SkillLibrary.render(skill, forProfile: "grok-jarvis", managerTemplate: BotManagerText.template()))
     print("P31C-SIZE rendered SKILL.md (grok-jarvis): \(rendered.utf8.count) bytes; install turn: \(text.utf8.count) bytes")
 }

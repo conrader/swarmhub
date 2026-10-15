@@ -58,6 +58,10 @@ import UserNotifications
     private(set) lazy var reportsCenter = ReportsCenter(fileURL: persistenceEnabled ? fileURL.deletingLastPathComponent().appending(path: "reports.json") : nil, keyStore: keyStore, now: now())
     /// P31 C: the Accounts sheet per Hermes connection (`connection(of:)`).
     @Published var codingAccounts: [String: AccountsState] = [:]
+    /// P31 D+E: each box's last `models` and `box_capacity` reports (store.json), the checks running now and why the last
+    /// one failed, and the sub-agent model sheet.
+    @Published var boxReadings: [String: BoxReadings] = [:]; @Published var boxChecks: Set<BoxCheck> = []
+    @Published var boxCheckProblems: [BoxCheck: String] = [:]; @Published var subAgentModelRequest: SubAgentModelRequest?
     var discoveredConnections: Set<String> = []; var pendingAdoptions: [UUID: [String]] = [:]
     /// Tests: the manager text template instead of the bundled resource.
     var managerTemplateOverride: String?
@@ -108,6 +112,7 @@ import UserNotifications
             do {
                 let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
                 globalApprovalRoutes = file.approvalRoutes ?? []; globalReviewAfter = file.reviewAfter ?? []
+                boxReadings = file.boxReadings ?? [:]
                 turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
                 if !migrateArchivedGroups().isEmpty { save() }
                 var migratedLegacyApprovalRules = false
