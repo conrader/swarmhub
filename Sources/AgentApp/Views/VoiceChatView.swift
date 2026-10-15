@@ -81,7 +81,7 @@ struct VoiceChatView: View {
         switch voice.state {
         case .idle:
             if voice.canUseVoice { "Ready to talk" }
-            else if voice.account == nil { "Live voice is not set up" }
+            else if voice.account == nil { "ChatGPT connection needed" }
             else if voice.account?.isConnected == true { "Subscription voice unavailable" }
             else { "ChatGPT connection required" }
         case .connecting: "Starting voice…"
