@@ -180,3 +180,21 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
     #expect(store.goal(in: bot)?.text == "again", "an ended goal can be replaced")
     await finish(backend, doneReply); try await waitUntil { !store.anyTurnRunning }
 }
+
+@MainActor @Test func atTheTurnLimitAGoalRoundWaitsLikeATypedMessage() async throws {
+    let backend = ScriptedTurnBackend(); let (store, bot) = goalStore(backend)
+    let other = Bot(name: "Other", backend: .hermes, hermesProfile: "default", hermesSessionID: "session-other"); store.bots.append(other)
+    store.turnLimits = TurnLimits(total: 1, perConnection: 1)
+    #expect(store.send(text: "busy elsewhere", bot: other, conversation: other, replyToID: nil))
+    try await waitUntil { await backend.streamCount == 1 }
+    #expect(store.submitComposer(text: "/goal wait your turn"))
+    #expect(store.hasWaitingTurn(in: bot) && store.goal(in: bot)?.awaitingReply == true, "the round waits as the chat's next message (P39)")
+    #expect(await backend.streamCount == 1)
+    await backend.emit(.token("done"), .completed); await backend.end()
+    try await backend.calls.wait { $0.contains { $0.hasPrefix("send:[SwarmHub goal]") } }
+    await backend.emit(.token("Round one."), .completed); await backend.end()
+    try await waitUntil { await backend.streamCount == 3 }
+    #expect(store.goal(in: bot)?.round == 2)
+    await backend.emit(.token(doneReply), .completed); await backend.end()
+    try await waitUntil { store.goal(in: bot)?.state == .done && !store.anyTurnRunning }
+}
