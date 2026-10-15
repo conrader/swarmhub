@@ -20,7 +20,7 @@ struct SettingsConnectedAppsPane: View {
     var body: some View {
         ChatGPTConnectedAppSection(account: chatGPT, checksOnAppear: checksOnAppear)
         Section("Apps") {
-            Text("Connect your apps once, then choose which bots can use each account. Every app action asks you first.").font(.callout).foregroundStyle(.secondary)
+            Text("Connect your apps once, then choose which agents can use each account. Every app action asks you first.").font(.callout).foregroundStyle(.secondary)
             if !apps.hasKey { serviceLine }
             if apps.busy && !apps.hasKey {
                 HStack { ProgressView().controlSize(.small); Text("Preparing your app connection…").font(.caption).foregroundStyle(.secondary) }
@@ -58,7 +58,7 @@ struct SettingsConnectedAppsPane: View {
                     }
                 }
             }
-            Section("Bot access") {
+            Section("Agent access") {
                 if availableBots.isEmpty { Text("Add a Hermes agent to choose its app access.").foregroundStyle(.secondary) }
                 else {
                     Picker("Agent", selection: $selectedBotID) {

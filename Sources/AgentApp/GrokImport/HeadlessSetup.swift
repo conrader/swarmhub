@@ -12,9 +12,14 @@ import SwiftUI
 
     static func run(arguments: [String]) -> Int32 {
         guard let flag = arguments.firstIndex(of: "--render-setup"), arguments.indices.contains(flag + 1) else {
-            print("Usage: AgentApp --render-setup <dir>"); return 64
+            print("Usage: AgentApp --render-setup <dir> [--only p38b]"); return 64
         }
         let directory = URL(fileURLWithPath: (arguments[flag + 1] as NSString).expandingTildeInPath, isDirectory: true)
+        // P38 B: `--only p38b` renders just that part's screens.
+        if let only = arguments.firstIndex(of: "--only"), arguments.indices.contains(only + 1) {
+            guard arguments[only + 1] == "p38b" else { print("Unknown --only \(arguments[only + 1]); known: p38b"); return 64 }
+            return HeadlessRunLoop.wait { await renderP38B(to: directory, output: { print($0); fflush(stdout) }) }
+        }
         return HeadlessRunLoop.wait { await render(to: directory, output: { print($0); fflush(stdout) }) }
     }
 
@@ -89,7 +94,23 @@ import SwiftUI
         await HeadlessP36Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP37Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP31DEShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        await HeadlessP38BShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         output("Rendered setup to \(directory.path); \(failures) failed")
+        return failures == 0 ? 0 : 1
+    }
+
+    static func renderP38B(to directory: URL, output: (String) -> Void) async -> Int32 {
+        if let repo = HeadlessSnapshot.enclosingRepository(of: directory) { output("Refused: \(directory.path) is inside the repository \(repo.path)."); return 2 }
+        do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]) }
+        catch { output("Cannot create \(directory.path): \(error.localizedDescription)"); return 1 }
+        let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"])
+        var failures = 0
+        func write(_ name: String, _ data: Data?) {
+            let file = directory.appending(path: "\(name).png")
+            if let data, (try? data.write(to: file)) != nil { output("\(file.path) \(data.count) bytes") } else { failures += 1; output("Failed: \(name)") }
+        }
+        await HeadlessP38BShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        output("Rendered P38 B to \(directory.path); \(failures) failed")
         return failures == 0 ? 0 : 1
     }
 

@@ -18,7 +18,7 @@ struct BackgroundExecutionView: View {
     var body: some View {
         Section("Background app access") {
             Text("A scoped worker on your agent's server can ask for app actions while this Mac is closed. They wait for your approval in the agent's chat.").font(.caption).foregroundStyle(.secondary)
-            if store.connectedAppsServiceURL == nil {
+            if apps.provisioner == nil {
                 Text("Background app access needs the SwarmHub connection service, which this build does not include.").font(.caption).foregroundStyle(.secondary)
             } else if let serviceNote = apps.serviceNote {
                 Label(serviceNote, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(.orange)
