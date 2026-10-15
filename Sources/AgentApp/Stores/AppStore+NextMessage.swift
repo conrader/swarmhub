@@ -29,12 +29,15 @@ extension AppStore {
 
     /// Sends the oldest waiting text when no turn runs; called again whenever a turn or round ends. A chat that can no
     /// longer send puts its bubble back to "failed" (the button returns) and the next one is tried.
+    /// P38 D: workflow replies that ended are settled first; the next workflow task goes only after the user's own.
     func sendQueuedNextMessage() {
+        settleWorkflows()
         while isIdle, !isStreaming, !turns.nextMessages.isEmpty {
             let next = turns.nextMessages.removeFirst()
             if startNextMessage(next) { next.bubble.metadata[SteerKey.steer] = "sentNext"; objectWillChange.send(); save(); return }
             next.bubble.metadata[SteerKey.steer] = "failed"; objectWillChange.send(); save()
         }
+        dispatchWorkflows()
     }
 
     private func startNextMessage(_ next: QueuedNextMessage) -> Bool {

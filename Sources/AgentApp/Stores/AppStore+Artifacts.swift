@@ -13,7 +13,7 @@ struct PendingComposerAttachment: Equatable {
 extension AppStore {
     func artifacts() throws -> RuntimeArtifacts {
         guard persistenceEnabled else { throw BackendError.unavailable("Saved documents are not available in this window.") }
-        return RuntimeArtifacts(directory: fileURL.deletingLastPathComponent().appending(path: "artifacts"))
+        return RuntimeArtifacts(directory: fileURL.deletingLastPathComponent().appending(path: "artifacts"), ledger: try journal())
     }
 
     /// Newest first: the documents `botID` may read.

@@ -348,6 +348,7 @@ struct HermesBackend: AgentBackend {
     private func readEvents(_ bytes: URLSession.AsyncBytes, sessionID: String, legacy: Bool, token: UUID, sink: EventSink) async throws {
         var eventName = "message"
         var emittedAssistantDelta = false
+        var children = ChildTaskCorrelation(scope: sessionID)
         do {
             for try await line in bytes.lines {
                 if line.hasPrefix("event:") { eventName = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces); continue }
@@ -360,7 +361,7 @@ struct HermesBackend: AgentBackend {
                 if !legacy, HermesRuntime.events.contains(eventName), let runtime = HermesRuntime.parse(json["runtime"]) {
                     await HermesRuntimeLog.shared.record(runtime, for: sessionID)
                 }
-                if legacy { parseLegacy(eventName, json, sink) } else { parseNative(eventName, json, sink, emittedAssistantDelta: &emittedAssistantDelta) }
+                if legacy { parseLegacy(eventName, json, sink) } else { parseNative(eventName, json, sink, emittedAssistantDelta: &emittedAssistantDelta, children: &children) }
                 eventName = "message"
             }
         } catch is CancellationError { throw CancellationError() }
@@ -377,13 +378,12 @@ struct HermesBackend: AgentBackend {
         if (choice?["finish_reason"] as? String) == "error" { continuation.yield(.failed("Hermes ended the reply with an error.")) }
     }
 
-    private func parseNative(_ event: String, _ json: [String: Any], _ continuation: EventSink, emittedAssistantDelta: inout Bool) {
+    private func parseNative(_ event: String, _ json: [String: Any], _ continuation: EventSink, emittedAssistantDelta: inout Bool, children: inout ChildTaskCorrelation) {
         switch event {
         case "assistant.delta", "message.delta": if let token = (json["delta"] ?? json["text"]) as? String { emittedAssistantDelta = true; continuation.yield(.token(token)) }
         case "tool.started", "tool.completed", "tool.failed", "tool.progress": continuation.yield(.tool(nativeTool(event, json)))
         case "assistant.commentary": if (json["already_streamed"] as? Bool) != true, let text = json["text"] as? String { continuation.yield(.token(text)) }
-        case "subagent.start": continuation.yield(.subAgent(.init(id: UUID(), title: json["task"] as? String ?? json["label"] as? String ?? "Delegated task", detail: json["profile"] as? String ?? "", status: .running)))
-        case "subagent.complete": continuation.yield(.subAgent(.init(id: UUID(), title: json["task"] as? String ?? "Delegated task", detail: json["summary"] as? String ?? "", status: (json["status"] as? String) == "completed" ? .completed : .failed)))
+        case "subagent.start", "subagent.complete": continuation.yield(.subAgent(children.event(event, json)))
         case "assistant.completed":
             if !emittedAssistantDelta, let content = json["content"] as? String, !content.isEmpty { continuation.yield(.token(content)) }
             if let text = json["pending_steer"] as? String, !text.isEmpty { continuation.yield(.steer(.returned(text))) }

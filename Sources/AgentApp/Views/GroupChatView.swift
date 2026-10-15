@@ -4,6 +4,7 @@ import SwiftUI
 struct GroupChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
     @State private var draft = ""; @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
+    @State private var planningWorkflow = false
     @Environment(\.grokHistoryExpanded) private var historyExpanded
 
     var body: some View {
@@ -15,6 +16,10 @@ struct GroupChatView: View {
                 Button { store.showInfo.toggle() } label: { Text(group.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
                 Text(members.isEmpty ? "No bots yet" : ([store.userName] + members.map(\.name)).joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
+                if !members.isEmpty {
+                    Button { planningWorkflow = true } label: { Label("Plan a workflow", systemImage: "list.bullet.rectangle") }
+                        .buttonStyle(.borderless).help("Plan a workflow: a coordinator splits a request into tasks for the members")
+                }
                 OpenVoiceButton(name: group.name, target: group.memberIDs.first.map { .group(groupID: group.id, botID: $0) },
                                 messages: { group.messages.map { (role: $0.role.rawValue, text: $0.content) } })
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header").background(AppColor.chat)
@@ -29,6 +34,7 @@ struct GroupChatView: View {
                             GroupMessageRow(message: message, author: message.authorID.flatMap { id in store.bots.first { $0.id == id } },
                                             repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }, groupID: group.id).id(message.id)
                         }
+                        WorkflowView(group: group)
                         ForEach(store.approvals.filter(isGroupApproval)) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
                         Color.clear.frame(height: 1).id("bottom")
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity)
@@ -53,6 +59,7 @@ struct GroupChatView: View {
                 guard !files.isEmpty else { return false }
                 intake.attach(files, store: store); return true
             }
+            .sheet(isPresented: $planningWorkflow) { WorkflowStartSheet(group: group) }
             .task(id: group.id) { draft = store.drafts.text(for: group.id) }
             .onChange(of: draft) { _, value in store.drafts.set(value, for: group.id) }
     }

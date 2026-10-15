@@ -307,7 +307,10 @@ struct BotRoutine: Identifiable, Codable {
 }
 
 enum SubAgentStatus: String, Codable { case queued, running, completed, failed }
-struct SubAgentTask: Identifiable, Codable, Sendable { let id: UUID; var title: String; var detail: String; var status: SubAgentStatus }
+struct SubAgentTask: Identifiable, Codable, Sendable { let id: UUID; var title: String; var detail: String; var status: SubAgentStatus
+    /// P38 D: the child's own session (its transcript) and run (Stop), when the server names them.
+    var sessionID: String? = nil; var runID: String? = nil
+}
 struct ApprovalRequest: Identifiable, Codable, Sendable {
     let id: UUID; let title: String; let summary: String; let draft: String?
     var command: String? = nil

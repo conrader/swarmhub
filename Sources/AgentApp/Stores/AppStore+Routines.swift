@@ -62,7 +62,7 @@ extension AppStore {
     func setRoutine(_ job: HermesJob, enabled: Bool, for bot: Bot) async {
         var optimistic = job; optimistic.enabled = enabled; optimistic.state = enabled ? "scheduled" : "paused"
         routines.replaceJob(optimistic, botID: bot.id)
-        routines.repauseAfterRun.remove(Self.runKey(bot, job.id))
+        if routines.repauseAfterRun.contains(Self.runKey(bot, job.id)) { setRepause(false, key: Self.runKey(bot, job.id)) }
         let error = await performRoutineAction(bot, token: job.id) { client in
             self.routines.replaceJob(enabled ? try await client.resume(job.id) : try await client.pause(job.id), botID: bot.id)
         }
@@ -73,7 +73,7 @@ extension AppStore {
     func runRoutineNow(_ job: HermesJob, for bot: Bot) async {
         await performRoutineAction(bot, token: job.id) { client in
             let started = try await client.run(job.id)
-            if job.isPaused { self.routines.repauseAfterRun.insert(Self.runKey(bot, job.id)) }
+            if job.isPaused { self.setRepause(true, key: Self.runKey(bot, job.id)) }
             self.routines.replaceJob(started, botID: bot.id)
         }
     }
@@ -129,32 +129,35 @@ extension AppStore {
     /// A job's first sighting only records its `last_run_at`; a later, newer value is a finished run and gets one card.
     /// Marks are written before any await, so overlapping refreshes never post the same run twice.
     func deliverFinishedRuns(_ jobs: [HermesJob], bot: Bot, client: HermesJobsClient) async {
-        var finished: [HermesJob] = []
+        var finished: [(job: HermesJob, seen: String)] = []
         var changed = false
         for job in jobs {
             let current = job.lastRunAt ?? ""
             guard let seen = bot.routineRunMarks[job.id] else { bot.routineRunMarks[job.id] = current; changed = true; continue }
             guard current != seen else { continue }
             bot.routineRunMarks[job.id] = current; changed = true
-            if !current.isEmpty, RoutineTime.isLater(current, than: seen) { finished.append(job) }
+            if !current.isEmpty, RoutineTime.isLater(current, than: seen) { finished.append((job, seen)) }
         }
         let listed = Set(jobs.map(\.id))
         for id in bot.routineRunMarks.keys where !listed.contains(id) { bot.routineRunMarks[id] = nil; changed = true }
         if changed { save() }
-        for job in finished { await postRoutineCard(job, bot: bot, client: client) }
+        for entry in finished { await postRoutineCard(entry.job, after: entry.seen, bot: bot, client: client) }
     }
 
-    private func postRoutineCard(_ job: HermesJob, bot: Bot, client: HermesJobsClient) async {
-        if routines.repauseAfterRun.remove(Self.runKey(bot, job.id)) != nil, !job.isPaused, let paused = try? await client.pause(job.id) {
-            routines.replaceJob(paused, botID: bot.id)
+    /// P38 D: runs missed while the app was closed get their cards first (oldest first), then the newest run's card; every
+    /// card goes through the ledger (`RoutineDelivery.swift`), so a crash or an overlapping poll never posts a run twice.
+    private func postRoutineCard(_ job: HermesJob, after seen: String, bot: Bot, client: HermesJobsClient) async {
+        if routines.repauseAfterRun.contains(Self.runKey(bot, job.id)) {
+            setRepause(false, key: Self.runKey(bot, job.id))
+            if !job.isPaused, let paused = try? await client.pause(job.id) { routines.replaceJob(paused, botID: bot.id) }
         }
+        let missed = seen.isEmpty ? [] : await catchUpRoutine(job, after: seen, bot: bot, client: client)
         var result: HermesRunResult?, lookupError: String?
         do { result = try await client.runResult(for: job) } catch { lookupError = BotInfoCache.describe(error, key: client.backend.apiKey) }
-        let card = Self.routineCard(job: job, result: result, lookupError: lookupError)
-        bot.messages.append(card)
-        if selectedBot?.id != bot.id || NSApp?.isActive != true { bot.unreadCount += 1 }
-        objectWillChange.send(); save()
-        notifyIfNeeded(bot: bot, message: "Routine finished: \(job.name)" + (card.content.isEmpty ? "" : " — \(card.content)"))
+        do {
+            for run in missed where run.result.sessionID != result?.sessionID { try deliverRoutine(run.job, result: run.result, bot: bot, lookupError: nil, notify: false) }
+            try deliverRoutine(job, result: result, bot: bot, lookupError: lookupError)
+        } catch { routines.update(bot.id) { $0.error = error.localizedDescription } }
     }
 
     /// "Routine finished" card: name, status, the first ~600 characters of the result and the error, if any.
@@ -165,7 +168,8 @@ extension AppStore {
         if let error = job.lastError { metadata["error"] = error }
         if let session = result?.sessionID { metadata["sessionID"] = session }
         if result == nil { metadata["note"] = lookupError.map { "Result unavailable: \($0)" } ?? "No run output was found on the server." }
-        return ChatMessage(role: .assistant, content: content, presentation: .routineResult, metadata: metadata)
+        // P38 D: dated by the run (a caught-up card shows when its run finished, not when it was read).
+        return ChatMessage(role: .assistant, content: content, createdAt: job.lastRunAt.flatMap(RoutineTime.date) ?? .now, presentation: .routineResult, metadata: metadata)
     }
 
     private static func runKey(_ bot: Bot, _ jobID: String) -> String { "\(bot.id.uuidString)|\(jobID)" }

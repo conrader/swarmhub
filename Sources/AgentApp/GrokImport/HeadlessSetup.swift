@@ -5,19 +5,19 @@ import SwiftUI
 /// an agent's settings, the right panel (folded and open, P21b), P27's activity and skills banner, and P35's
 /// box shots to PNG. Everything comes from a synthetic in-memory store, key store and
 /// settings suite, and Test results are built in memory: no network, no Keychain, nothing of the real app is read or
-/// written. Refuses a directory inside the repository, like `--render-snapshot`. `--only p38` / `--only p38b` / `--only p38c` renders just that part's shots.
+/// written. Refuses a directory inside the repository, like `--render-snapshot`. `--only p38` / `--only p38b` / `--only p38c` / `--only p38d` renders just that part's shots.
 @MainActor enum HeadlessSetup {
     static let size = NSSize(width: 580, height: 480)
     static let settingsSize = NSSize(width: 760, height: 560)
 
     static func run(arguments: [String]) -> Int32 {
         guard let flag = arguments.firstIndex(of: "--render-setup"), arguments.indices.contains(flag + 1) else {
-            print("Usage: AgentApp --render-setup <dir> [--only p38|p38b]"); return 64
+            print("Usage: AgentApp --render-setup <dir> [--only p38|p38b|p38c|p38d]"); return 64
         }
         let directory = URL(fileURLWithPath: (arguments[flag + 1] as NSString).expandingTildeInPath, isDirectory: true)
-        // P38: `--only p38` / `--only p38b` renders just that part's shots.
+        // P38: `--only p38` / `--only p38b` / `--only p38c` / `--only p38d` renders just that part's shots.
         let only = arguments.firstIndex(of: "--only").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
-        if let only, !["p38", "p38b", "p38c"].contains(only) { print("Unknown --only \(only); known: p38, p38b, p38c"); return 64 }
+        if let only, !["p38", "p38b", "p38c", "p38d"].contains(only) { print("Unknown --only \(only); known: p38, p38b, p38c, p38d"); return 64 }
         return HeadlessRunLoop.wait { await render(to: directory, only: only, output: { print($0); fflush(stdout) }) }
     }
 
@@ -84,6 +84,11 @@ import SwiftUI
             output("Rendered p38c shots to \(directory.path); \(failures) failed")
             return failures == 0 ? 0 : 1
         }
+        if only == "p38d" {
+            await HeadlessP38DShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+            output("Rendered P38 D to \(directory.path); \(failures) failed")
+            return failures == 0 ? 0 : 1
+        }
         for (name, flow) in shots { write(name, await png(SetupView(preset: flow), store: store, updater: updater, size: size)) }
         do {
             try store.commitSetup(choose.result!, key: "synthetic", chosen: choose.chosen, confirmMove: false)
@@ -110,6 +115,7 @@ import SwiftUI
         await HeadlessP38Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP38BShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP38CShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        await HeadlessP38DShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         output("Rendered setup to \(directory.path); \(failures) failed")
         return failures == 0 ? 0 : 1
     }

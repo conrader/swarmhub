@@ -111,11 +111,14 @@ extension AppStore {
         var end: TurnEnd
         let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
         do {
-            if conversation.hermesSessionID == nil, conversation === bot, try await activeBackend.sessionTransport() == .nativeSessions {
-                let note = { [unowned self] (text: String) in insertNote(text, in: bot, before: assistant) }
+            let workflowThread = isWorkflowThread(conversation)
+            if conversation.hermesSessionID == nil, conversation === bot || workflowThread, try await activeBackend.sessionTransport() == .nativeSessions {
+                let note = { [unowned self] (text: String) in insertNote(text, in: conversation, before: assistant) }
                 let plan = try await prepareModel(for: bot, backend: activeBackend, note: note)
-                let created = try await activeBackend.createSession(title: bot.name, systemPrompt: bot.persona, id: "\(sessionNamespace)agentapp_\(bot.id.uuidString.lowercased())")
-                if let plan { try await applyModel(plan, bot: bot, sessionID: created, record: true, note: note) }
+                // P38 D: a workflow thread is a fresh session of its own, not a fork of the bot's chat.
+                let id = workflowThread ? "\(sessionNamespace)agentapp_workflow_\((conversation as? ChatThread)?.id.uuidString.lowercased() ?? "")" : "\(sessionNamespace)agentapp_\(bot.id.uuidString.lowercased())"
+                let created = try await activeBackend.createSession(title: workflowThread ? "\(bot.name) · workflow" : bot.name, systemPrompt: bot.persona, id: id)
+                if let plan { try await applyModel(plan, bot: bot, sessionID: created, record: !workflowThread, note: note) }
                 conversation.hermesSessionID = created
                 save()
             }
@@ -129,8 +132,7 @@ extension AppStore {
                 if bot.backend == .openClaw, let flags { botFeatures[bot.id] = flags }
             }
             end = try await consumeTurn(stream, assistant: assistant, bot: bot, sessionID: sessionID, backend: activeBackend) { [unowned self] task in
-                subAgentTasks[bot.id, default: []].append(task)
-                conversation.messages.append(ChatMessage(role: .assistant, content: task.title, presentation: .delegation, metadata: ["detail": task.detail, "status": task.status.rawValue]))
+                upsertSubAgent(task, bot: bot, in: conversation)
             }
         } catch is CancellationError { end = .stoppedByUser
         } catch let error as URLError where error.code == .cancelled && Task.isCancelled { end = .stoppedByUser
