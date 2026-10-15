@@ -240,7 +240,11 @@ struct AppCommands: Commands {
             Divider()
             command(.stopResponse)
         }
-        CommandGroup(replacing: .help) { command(.keyboardShortcuts) }
+        CommandGroup(replacing: .help) {
+            command(.keyboardShortcuts)
+            // P36: Konrad's own report, prefilled without keys; nothing is sent until Send.
+            Button("Report a Problem…") { store.startUserReport(); openWindow(id: ContentView.windowID) }
+        }
     }
 
     private func command(_ command: AppCommand) -> some View {

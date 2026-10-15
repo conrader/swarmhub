@@ -64,7 +64,7 @@ import Testing
 @MainActor @Test func everyFlagIsListedAndRecognised() {
     let old = ["--check-bots", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--grok-fetch", "--grok-probe",
                "--grok-parity", "--import-grok", "--import-keys", "--ui-smoke"]
-    let added = ["--setup-preview", "--render-setup", "--check-server", "--check-openclaw", "--capture-events"] // P21, P21, P13 check-server, P12, P27
+    let added = ["--setup-preview", "--render-setup", "--check-server", "--check-openclaw", "--capture-events", "--check-reports"] // P21, P21, P13 check-server, P12, P27, P36
     #expect(Set(HeadlessCommands.flags) == Set(old + added) && HeadlessCommands.flags.count == old.count + added.count)
     #expect(!HeadlessCommands.headless.contains("--ui-smoke") && !HeadlessCommands.headless.contains("--setup-preview"))
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--setup-preview"]) == nil, "a launch argument, not a headless command")
@@ -87,7 +87,7 @@ import Testing
     #expect(await HeadlessSetup.render(to: directory, output: { lines.append($0) }) == 0, "\(lines)")
     let expected = ["s1-welcome", "s-host", "s3-empty", "s3-filled", "s3-error-bad-address", "s3-error-not-encrypted", "s3-error-unreachable",
                     "s3-error-key-rejected", "s3-error-main-only", "s3-error-bad-line", "s4-choose", "s5-done", "settings-simple",
-                    "empty-state", "editor-folded", "editor-advanced"] + HeadlessInspector.names + HeadlessP32Shots.names + HeadlessCodingShots.names + HeadlessAccountsShots.names + HeadlessP34Shots.names + HeadlessP35Shots.names
+                    "empty-state", "editor-folded", "editor-advanced"] + HeadlessInspector.names + HeadlessP32Shots.names + HeadlessCodingShots.names + HeadlessAccountsShots.names + HeadlessP34Shots.names + HeadlessP35Shots.names + HeadlessP36Shots.names
     var sizes: [String: Int] = [:]
     for name in expected {
         let data = try Data(contentsOf: directory.appending(path: "\(name).png"))

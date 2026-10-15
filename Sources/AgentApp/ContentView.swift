@@ -15,7 +15,9 @@ struct ContentView: View {
                 .toolbar(removing: .sidebarToggle).ignoresSafeArea(.container, edges: .top)
         } detail: {
             Group {
-                if let group = store.selectedGroup {
+                if store.showingReports {
+                    ReportsInboxView(center: store.reportsCenter).frame(minWidth: 600)
+                } else if let group = store.selectedGroup {
                     GroupChatView(group: group).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
                 } else if let bot = store.selectedBot {
                     ChatView(bot: bot).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
