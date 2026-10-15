@@ -58,13 +58,13 @@ struct SubAgentModelSheet: View {
             Form {
                 Toggle(BoxReadingsCopy.sameAsEachBot, isOn: $sameAsEachBot)
                 HStack {
-                    TextField("Model", text: $model, prompt: Text("gpt-6.1-sol"))
+                    TextField("Model", text: $model, prompt: Text("model id"))
                     RoleModelMenu(label: "From the list", leading: [], picker: catalogBot.map { store.modelPicker(for: $0) }) { setting in
                         if case .choice(let choice) = setting { model = choice.model; provider = choice.provider }
                     }
                 }
                 .disabled(sameAsEachBot)
-                TextField("Provider", text: $provider, prompt: Text("openai-codex")).disabled(sameAsEachBot)
+                TextField("Provider", text: $provider, prompt: Text("provider id")).disabled(sameAsEachBot)
                 Picker("Bots", selection: $scope) {
                     if let profile = request.profile { Text("This one (\(profile))").tag(Scope.this) }
                     Text("Some").tag(Scope.some)
