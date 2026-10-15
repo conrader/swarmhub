@@ -101,7 +101,7 @@ private func signInServer(pending: Int = 2, callbackState: (@Sendable (String) -
     await #expect(throws: SwarmHubError.unauthorized) { try await SwarmHubSignIn.run(refused, pkce: pkce, open: { _ in }, sleep: { _ in }) }
     // Through the center the app's own PKCE is used; a 401 leaves "Sign in again" and no token.
     let center = await ReportsCenter(fileURL: nil, keyStore: InMemoryKeyStore())
-    let ok = await MainActor.run { center.session = session; return center }.signIn(service: refused)
+    let ok = await MainActor.run { center.session = session; center.openURL = { _ in }; return center }.signIn(service: refused)
     #expect(!ok)
     await MainActor.run { #expect(center.account == .signedOut || center.account == .signInAgain); #expect(center.storedToken == nil) }
 }
