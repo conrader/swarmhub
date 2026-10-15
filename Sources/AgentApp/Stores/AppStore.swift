@@ -5,7 +5,10 @@ import UserNotifications
 
 
 @MainActor final class AppStore: ObservableObject {
-    @Published var bots: [Bot] = []; @Published var selectedBot: Bot?; @Published var isStreaming = false
+    @Published var bots: [Bot] = []
+    @Published var selectedBot: Bot? { didSet { if selectedBot != nil { selectedBoxProfile = nil } } }
+    @Published var selectedBoxProfile: BoxProfileSelection?
+    @Published var isStreaming = false
     @Published var approvals: [ApprovalRequest] = []
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
@@ -34,7 +37,9 @@ import UserNotifications
     /// P28 D2: the one-time caption under the composer after the first steer.
     @Published var steerHint: String?
     /// P5 group chats; `selectedGroup` wins over `selectedBot` in the detail column.
-    @Published var groups: [GroupChat] = []; @Published var selectedGroup: GroupChat?; @Published var showingNewGroup = false
+    @Published var groups: [GroupChat] = []
+    @Published var selectedGroup: GroupChat? { didSet { if selectedGroup != nil { selectedBoxProfile = nil } } }
+    @Published var showingNewGroup = false
     var groupRun: GroupRun?; var migratedGroupNames: [String] = []
     private(set) lazy var attachmentEncoder = AttachmentEncoder(directory: fileURL.deletingLastPathComponent().appending(path: "attachments", directoryHint: .isDirectory))
     let botInfo = BotInfoCache()

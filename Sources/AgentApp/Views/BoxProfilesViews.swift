@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// P35 D5: the sidebar's "On this box · not connected" (one per connection, hidden when empty): each profile left out,
-/// with Connect (SwarmHub connects it after the confirmation, or paste its key). `default` only offers its key (D4).
+/// with selection, local deletion and Connect (SwarmHub connects it after confirmation, or paste its key).
 struct BoxNotConnectedSections: View {
     @EnvironmentObject private var store: AppStore
     var body: some View {
@@ -20,14 +20,21 @@ struct BoxNotConnectedSections: View {
 private struct BoxProfileRow: View {
     @EnvironmentObject private var store: AppStore
     let profile: BoxProfile; let target: String
+    @State private var hovering = false
+    @State private var showingDelete = false
     var body: some View {
+        let selected = store.selectedBoxProfile == BoxProfileSelection(target: target, name: profile.name)
         HStack(spacing: SidebarMetrics.markGap) {
-            Image(systemName: "circle.dashed").font(.system(size: 22, weight: .light)).foregroundStyle(.tertiary).frame(width: SidebarMetrics.mark)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(profile.botName).font(.system(size: SidebarMetrics.nameSize, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
-                Text(BoxCopy.rowLine(profile.state)).font(.system(size: 12)).foregroundStyle(profile.state == .failed ? .orange : .secondary).lineLimit(1)
-            }
-            Spacer(minLength: 4)
+            Button { store.open(profile, on: target) } label: {
+                HStack(spacing: SidebarMetrics.markGap) {
+                    Image(systemName: "circle.dashed").font(.system(size: 22, weight: .light)).foregroundStyle(.tertiary).frame(width: SidebarMetrics.mark)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(profile.botName).font(.system(size: SidebarMetrics.nameSize, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
+                        Text(BoxCopy.rowLine(profile.state)).font(.system(size: 12)).foregroundStyle(profile.state == .failed ? .orange : .secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                }.frame(maxWidth: .infinity, minHeight: SidebarMetrics.rowHeight, alignment: .leading).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel("Open \(profile.botName)").accessibilityAddTraits(selected ? .isSelected : [])
             if profile.state == .adopting {
                 ProgressView().controlSize(.small)
             } else {
@@ -38,8 +45,66 @@ private struct BoxProfileRow: View {
                     .menuStyle(.button).buttonStyle(.bordered).controlSize(.small).menuIndicator(.hidden).fixedSize()
             }
         }
-        .padding(.horizontal, SidebarMetrics.rowPadding).frame(height: 46)
+        .modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
         .help(profile.name == "default" ? BoxCopy.mainBotWhy : profile.state == .needsKey ? BoxCopy.typedWhy : BoxCopy.rowLine(profile.state))
+        .contextMenu {
+            Button("Open", systemImage: "bubble.left") { store.open(profile, on: target) }
+            if profile.state != .needsKey {
+                Button(BoxCopy.connectAutomatically, systemImage: "link") { store.offerAdoption(profile, on: target) }.disabled(profile.state == .adopting)
+            }
+            SettingsPaneButton(title: BoxCopy.pasteKey, pane: .servers)
+            Divider()
+            Button("Delete", systemImage: "trash", role: .destructive) { showingDelete = true }.disabled(profile.state == .adopting)
+        }
+        .modifier(BoxProfileDeleteAlert(profile: profile, target: target, isPresented: $showingDelete))
+    }
+}
+
+/// A disconnected bot can be inspected and managed before it has a chat or credentials.
+struct BoxProfileDetailView: View {
+    @EnvironmentObject private var store: AppStore
+    let profile: BoxProfile; let target: String
+    @State private var showingDelete = false
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                if store.sidebarHidden { HideSidebarButton() }
+                Spacer()
+            }.padding(.horizontal, 12).frame(height: ChromeMetrics.titleRow).windowDragStrip(probe: "disconnected_bot_strip")
+            Spacer()
+            VStack(spacing: 16) {
+                Image(systemName: "circle.dashed").font(.system(size: 48, weight: .light)).foregroundStyle(.tertiary)
+                Text(profile.botName).font(.title2.weight(.semibold))
+                Text(BoxCopy.rowLine(profile.state)).foregroundStyle(.secondary)
+                Text(profile.name == "default" ? BoxCopy.mainBotWhy : profile.state == .needsKey ? BoxCopy.typedWhy : "Connect this bot to start chatting.")
+                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 380)
+                HStack {
+                    if profile.state == .adopting {
+                        ProgressView().controlSize(.small)
+                    } else if profile.state != .needsKey {
+                        Button(BoxCopy.connect) { store.offerAdoption(profile, on: target) }.buttonStyle(.borderedProminent)
+                    }
+                    SettingsPaneButton(title: BoxCopy.pasteKey, pane: .servers)
+                }
+                Button("Delete Bot", role: .destructive) { showingDelete = true }.disabled(profile.state == .adopting)
+            }.padding(24)
+            Spacer()
+        }.frame(maxWidth: .infinity, maxHeight: .infinity).background(AppColor.chat)
+            .modifier(BoxProfileDeleteAlert(profile: profile, target: target, isPresented: $showingDelete))
+    }
+}
+
+private struct BoxProfileDeleteAlert: ViewModifier {
+    @EnvironmentObject private var store: AppStore
+    let profile: BoxProfile; let target: String
+    @Binding var isPresented: Bool
+    func body(content: Content) -> some View {
+        content.alert("Delete \(profile.botName)?", isPresented: $isPresented) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) { store.deleteBoxProfile(profile, on: target) }
+        } message: {
+            Text("This removes the bot from SwarmHub. It stays on your box. To add it again, use “Add all bots from this box” in Settings → Advanced → Servers and keys.")
+        }
     }
 }
 

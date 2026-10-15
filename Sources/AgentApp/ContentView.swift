@@ -19,6 +19,8 @@ struct ContentView: View {
                     GroupChatView(group: group).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
                 } else if let bot = store.selectedBot {
                     ChatView(bot: bot).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
+                } else if let selection = store.selectedBoxProfile, let profile = store.selectedDisconnectedProfile {
+                    BoxProfileDetailView(profile: profile, target: selection.target).frame(minWidth: 500)
                 } else {
                     SetupEmptyState()
                         .overlay(alignment: .top) { if store.sidebarHidden { WindowDragArea().frame(height: ChromeMetrics.titleRow).chromeProbe("empty_strip") } }

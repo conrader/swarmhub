@@ -30,7 +30,7 @@ private struct RowText: View {
     }
 }
 
-private struct RowChrome: ViewModifier {
+struct RowChrome: ViewModifier {
     let selected: Bool; let hovering: Bool
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius)

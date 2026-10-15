@@ -77,7 +77,7 @@ extension AppStore {
     /// under the connection's "not connected" section. A failed adoption stays failed until retried.
     @discardableResult func absorbListed(_ listed: [SwarmhubOp.ListedBot], manager: Bot) async -> BoxScan {
         let target = connection(of: manager), profile = manager.hermesProfile ?? "default"
-        let sorted = BoxAdoption.sort(listed, managerProfile: profile, typed: typedKeyProfiles, bound: boundProfiles(on: target))
+        let sorted = BoxAdoption.sort(listed.filter { !isDeletedBoxProfile($0.name, on: target) }, managerProfile: profile, typed: typedKeyProfiles, bound: boundProfiles(on: target))
         let tried = sorted.candidates.filter { $0.hasKey != false }.map(\.name)
         let managerKey = keyStore.key(for: Self.keyAccount(forProfile: profile))
         let address = manager.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL
@@ -87,10 +87,11 @@ extension AppStore {
             for await (name, probe) in group { found[name] = probe }
             return found
         }
-        var scan = BoxScan(listed: listed.count, needsKey: sorted.needsKey.map(\.name))
+        let needsKey = sorted.needsKey.filter { !isDeletedBoxProfile($0.name, on: target) }
+        var scan = BoxScan(listed: listed.count, needsKey: needsKey.map(\.name))
         let previous = boxProfiles[target] ?? []
-        var left = sorted.needsKey.map { BoxProfile(name: $0.name, hasKey: $0.hasKey ?? true, state: .needsKey) }
-        for row in sorted.candidates {
+        var left = needsKey.map { BoxProfile(name: $0.name, hasKey: $0.hasKey ?? true, state: .needsKey) }
+        for row in sorted.candidates where !isDeletedBoxProfile(row.name, on: target) {
             if case .reachable(let key)? = probes[row.name], boundBot(row.name, manager: manager) == nil {
                 addConnectedBot(row.name, key: key, description: row.description, manager: manager, backup: nil); scan.added.append(row.name)
             } else {
@@ -99,6 +100,7 @@ extension AppStore {
             }
         }
         boxProfiles[target] = left.isEmpty ? nil : left
+        if selectedBoxProfile?.target == target, selectedDisconnectedProfile == nil { selectVisibleChat() }
         if !scan.added.isEmpty { removeSampleBots() }
         objectWillChange.send(); save()
         return scan
@@ -112,6 +114,7 @@ extension AppStore {
                       description: description.isEmpty ? "Hermes profile: \(name)" : description, backend: .hermes, hermesProfile: name)
         bot.hermesBaseURL = manager.hermesBaseURL; bot.adoptedKeyBackup = backup
         bots.append(bot)
+        if selectedBoxProfile == BoxProfileSelection(target: connection(of: manager), name: name) { open(bot) }
     }
 
     /// Launch: once per connection per launch, quietly; nothing is asked (the section offers Connect).
@@ -133,6 +136,7 @@ extension AppStore {
         for target in targets {
             discoveredConnections.insert(target)
             guard let manager = ensureManager(on: target) else { lines.append(BoxCopy.noManager); continue }
+            restoreDeletedBoxProfiles(on: target)
             guard let scan = await discoverBox(manager: manager) else { lines.append(BoxCopy.couldNotList(manager.name)); continue }
             lines.append(BoxCopy.scanned(scan))
             if scan.needsKey.contains("default"), boundBot("default", manager: manager) == nil { lines.append(BoxCopy.mainBotKey) }

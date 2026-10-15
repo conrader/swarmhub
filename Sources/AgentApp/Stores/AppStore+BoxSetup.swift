@@ -74,8 +74,8 @@ extension AppStore {
             setCanManageBots(bot, true)
         }
         let bound = boundProfiles(on: target)
-        let left = scan.needsKey.filter { !bound.contains($0) }.map { BoxProfile(name: $0, hasKey: true, state: .needsKey) }
-            + scan.adoptable.filter { !bound.contains($0) }.map { BoxProfile(name: $0, hasKey: true, state: .adoptable) }
+        let left = scan.needsKey.filter { !bound.contains($0) && !isDeletedBoxProfile($0, on: target) }.map { BoxProfile(name: $0, hasKey: true, state: .needsKey) }
+            + scan.adoptable.filter { !bound.contains($0) && !isDeletedBoxProfile($0, on: target) }.map { BoxProfile(name: $0, hasKey: true, state: .adoptable) }
         boxProfiles[target] = left.isEmpty ? nil : left
         discoveredConnections.insert(target)
         objectWillChange.send(); save()
