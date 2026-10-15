@@ -8,6 +8,8 @@ struct ManagementExchange: Equatable {
     var followUps = 0
     /// Opened from the Manage bots menu or the bot editor: the next turn is the opening turn, not a follow-up.
     var awaitingOpening = false
+    /// P31 D+E: a SwarmHub request that carries its own recipe (the opening turn and the follow-ups, e.g. Konrad's yes).
+    var recipe: String? = nil
 
     static let maxFollowUps = 3
     static let window: TimeInterval = 10 * 60
@@ -75,13 +77,13 @@ enum ManagementIntent {
 
 /// The Manage bots menu: each item fills the composer with a plain request and opens an exchange.
 enum ManageBotsAction: String, CaseIterable, Identifiable {
-    case newBot, changeInstructions, changeAvatar, changeModel, showInstructions, listBots, retireBot
+    case newBot, changeInstructions, changeAvatar, changeModel, changeSubAgentModel, showInstructions, listBots, retireBot
     var id: String { rawValue }
 
-    /// The menu for a manager on this backend: "Change model…" only where the manager text has a model recipe (Hermes;
-    /// the OpenClaw text has none, P27 D8).
+    /// The menu for a manager on this backend: "Change model…" and (P31 D) "Change sub-agent model…" only where the
+    /// manager text has a model recipe (Hermes; the OpenClaw text has none, P27 D8).
     static func actions(for backend: BackendKind) -> [ManageBotsAction] {
-        backend == .hermes ? allCases : allCases.filter { $0 != .changeModel }
+        backend == .hermes ? allCases : allCases.filter { $0 != .changeModel && $0 != .changeSubAgentModel }
     }
 
     var title: String {
@@ -90,6 +92,7 @@ enum ManageBotsAction: String, CaseIterable, Identifiable {
         case .changeInstructions: "Change instructions…"
         case .changeAvatar: "Change avatar…"
         case .changeModel: "Change model…"
+        case .changeSubAgentModel: "Change sub-agent model…"
         case .showInstructions: "Show instructions…"
         case .listBots: "List bots"
         case .retireBot: "Retire bot…"
@@ -102,6 +105,7 @@ enum ManageBotsAction: String, CaseIterable, Identifiable {
         case .changeInstructions: "text.badge.checkmark"
         case .changeAvatar: "paintpalette"
         case .changeModel: "cpu"
+        case .changeSubAgentModel: "cpu.fill"
         case .showInstructions: "doc.text"
         case .listBots: "list.bullet"
         case .retireBot: "archivebox"
@@ -116,6 +120,8 @@ enum ManageBotsAction: String, CaseIterable, Identifiable {
         case .changeInstructions: return "Change the instructions of the bot \(target): "
         case .changeAvatar: return "Change the avatar of the bot \(target) to "
         case .changeModel: return "Change the model of \(bot ?? "<bots>") to "
+        // Opens the sub-agent model sheet instead of filling the composer (`AppStore.startManagement`).
+        case .changeSubAgentModel: return "Change the sub-agent model of \(bot ?? "<bots>") to "
         case .showInstructions: return "Show me the instructions of the bot \(target)."
         case .listBots: return "List the bots on this box."
         case .retireBot: return "Retire the bot \(target)."

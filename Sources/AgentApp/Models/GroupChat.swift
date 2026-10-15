@@ -62,12 +62,16 @@ struct StoreFile: Codable {
     var modelDefaults: ModelDefaults?
     /// P37 D2: SwarmHub-wide approval lines and review-after lines; absent while empty.
     var approvalRoutes: [ApprovalRoute]?; var reviewAfter: [ReviewAfterRule]?
+    /// P31 D+E: each box's last models and capacity reports (keyed by connection); absent while empty.
+    var boxReadings: [String: BoxReadings]?
 
-    init(bots: [Bot], groups: [GroupChat], modelDefaults: ModelDefaults? = nil, approvalRoutes: [ApprovalRoute]? = nil, reviewAfter: [ReviewAfterRule]? = nil) {
+    init(bots: [Bot], groups: [GroupChat], modelDefaults: ModelDefaults? = nil, approvalRoutes: [ApprovalRoute]? = nil, reviewAfter: [ReviewAfterRule]? = nil,
+         boxReadings: [String: BoxReadings]? = nil) {
         self.bots = bots; self.groups = groups; self.modelDefaults = modelDefaults; self.approvalRoutes = approvalRoutes; self.reviewAfter = reviewAfter
+        self.boxReadings = boxReadings
     }
 
-    enum CodingKeys: CodingKey { case version, bots, groups, modelDefaults, approvalRoutes, reviewAfter }
+    enum CodingKeys: CodingKey { case version, bots, groups, modelDefaults, approvalRoutes, reviewAfter, boxReadings }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
@@ -75,6 +79,7 @@ struct StoreFile: Codable {
         modelDefaults = (try? c.decodeIfPresent(ModelDefaults.self, forKey: .modelDefaults)) ?? nil
         approvalRoutes = (try? c.decodeIfPresent([ApprovalRoute].self, forKey: .approvalRoutes)) ?? nil
         reviewAfter = (try? c.decodeIfPresent([ReviewAfterRule].self, forKey: .reviewAfter)) ?? nil
+        boxReadings = (try? c.decodeIfPresent([String: BoxReadings].self, forKey: .boxReadings)) ?? nil
     }
 
     static func decode(_ data: Data) throws -> StoreFile {
