@@ -211,3 +211,14 @@ final class WorkClock: @unchecked Sendable {
     #expect(store.knownThreadLines(key) == lines)
     #expect(BotThreadKey(from: "grok-jarvis", to: "grok-infra", session: "swarmhub-from-grok-jarvis") == key, "the usual session is the plain key")
 }
+
+@Test @MainActor func aLiveCardIsNoTurnOfTheChat() throws {
+    let clock = WorkClock(Date(timeIntervalSince1970: 1_800_000_000))
+    let (store, _, infra) = workStore(clock: clock)
+    let turn = try #require(BotWorkReader.lastTurn(workStages(at: clock.now)[2]))
+    store.applyBotWork(turn, bot: infra, session: "swarmhub-from-grok-jarvis", origin: .bot("grok-jarvis"),
+                       key: .init(bot: infra.id, target: "swarmhub-from-grok-jarvis"), start: clock.now)
+    #expect(infra.messages.last?.isStreaming == true && !store.isWorking(infra))
+    #expect(!store.isStreamingIn(infra), "the recipient's own chat still reconciles while the card is live")
+    #expect(HistoryReconciler.LocalRow(try #require(infra.messages.last)).isTextTurn == false, "never paired with the main session's turns")
+}

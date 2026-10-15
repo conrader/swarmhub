@@ -79,7 +79,8 @@ extension AppStore {
     }
 
     func isStreamingIn(_ conversation: any Conversation) -> Bool {
-        isStreaming(in: conversation) || conversation.messages.contains(where: \.isStreaming)
+        // P42: a live card (another bot's work, a routine) is no turn of this chat; it never holds the reconcile back.
+        isStreaming(in: conversation) || conversation.messages.contains { $0.isStreaming && $0.presentation != .botMessage }
     }
 
     /// One pass over a conversation. Automatic passes keep a floor per session and never raise `errorMessage`.
