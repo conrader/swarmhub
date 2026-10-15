@@ -278,7 +278,9 @@ enum HistoryReconciler {
             }
             var rows: [NewRow] = []
             if case .chat = input.mode, let user = box.user {
-                rows.append(.init(role: .user, content: user.content, authorID: nil, state: nil, metadata: [TurnKey.restored: "added", TurnKey.box: ids(user.id.map { [$0] } ?? [])], createdAt: localTime ?? input.now))
+                var metadata = [TurnKey.restored: "added", TurnKey.box: ids(user.id.map { [$0] } ?? [])]
+                if user.outOfBand { metadata[SteerKey.outOfBand] = "1" }
+                rows.append(.init(role: .user, content: user.content, authorID: nil, state: nil, metadata: metadata, createdAt: localTime ?? input.now))
             }
             if !box.replyText.isEmpty { rows.append(newReply(box, author: memberID(input.mode), mode: input.mode, time: localTime ?? input.now)) }
             // Turns sharing an anchor stay in box order.

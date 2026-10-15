@@ -162,6 +162,8 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         turnState = (try? c.decodeIfPresent(TurnState.self, forKey: .turnState)) ?? nil
         activity = (try? c.decodeIfPresent(ToolActivity.self, forKey: .activity)) ?? nil
         isStreaming = false
+        // P44: a steer a reconcile stored still wrapped is read as the user's own text.
+        if role == .user, let inner = OutOfBandMessage.unwrap(content) { content = inner; metadata[SteerKey.outOfBand] = "1" }
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self); try c.encode(id, forKey: .id); try c.encode(role, forKey: .role)
@@ -330,8 +332,12 @@ struct BackendMessage: Sendable, Equatable {
     var tools: [String] = []
     /// P42: what each of those calls ran on (a command, a path, a URL), one line, secrets removed; read for live work only.
     var toolPreviews: [String?] = []
+    /// P44: a user row Hermes wrapped as an out-of-band steer; `content` holds the inner text only.
+    var outOfBand = false
     init(id: Int? = nil, role: String, content: String, createdAt: Date? = nil, finishReason: String? = nil, tools: [String] = []) {
-        self.id = id; self.role = role; self.content = content; self.createdAt = createdAt; self.finishReason = finishReason; self.tools = tools
+        let inner = role == "user" ? OutOfBandMessage.unwrap(content) : nil
+        self.id = id; self.role = role; self.content = inner ?? content; self.createdAt = createdAt; self.finishReason = finishReason; self.tools = tools
+        outOfBand = inner != nil
     }
 }
 enum StopTarget: Sendable, Equatable { case serverRun(String), disconnectedLegacy, noActiveRun }
