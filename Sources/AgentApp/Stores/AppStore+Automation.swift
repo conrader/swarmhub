@@ -32,8 +32,6 @@ extension AppStore {
         return lines
     }
 
-    func mentionHandOff(_ text: String, in bot: Bot) -> String? { nil }
-
     // MARK: Turn ends
 
     /// Called by every 1:1 and thread turn when it has ended (after the next-message queue had its chance). A turn stopped

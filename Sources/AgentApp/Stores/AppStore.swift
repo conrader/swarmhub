@@ -112,6 +112,8 @@ import UserNotifications
     /// P45: each chat's goal, loop and heartbeat (`AppStore+Goals.swift`, `AppStore+Schedules.swift`), the ticker that
     /// runs loops and heartbeats while the app is open, and its pause (tests drive `automationTick()` themselves).
     @Published var automations: [UUID: ChatAutomation] = [:]; var automationTask: Task<Void, Never>?
+    /// P45 6: the chat whose `@Bot` message waits for the messaging skill (its composer shows the install offer).
+    @Published var mentionSkillOffer: UUID?
     var automationSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// P42: the pause between reads of a live card's session (tests inject it).
     var botWorkSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }

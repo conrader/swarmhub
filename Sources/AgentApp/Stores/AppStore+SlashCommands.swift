@@ -13,7 +13,7 @@ extension AppStore {
         guard let bot = selectedBot else { return false }
         let conversation = currentConversation(of: bot)
         switch SlashInput(text) {
-        case .message: return send(text: mentionHandOff(text, in: bot) ?? text, attachments: attachments)
+        case .message: return sendMessageOrHandOff(text, attachments: attachments, bot: bot)
         case .unknown:
             // The warning goes above the message it explains; it is removed again when the message cannot be sent.
             let warning = ChatMessage(role: .system, content: SlashInput.unknownWarning, metadata: [TurnKey.tone: "warning"])

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// P42 7: the one confirmation for installing the messaging skills on every bot of a connection: which bots and what
 /// each is missing, then one management turn.
-private struct AllBotsSkillConfirmation: ViewModifier {
+struct AllBotsSkillConfirmation: ViewModifier {
     @EnvironmentObject private var store: AppStore
     @Binding var manager: Bot?
     func body(content: Content) -> some View {
@@ -78,5 +78,31 @@ struct AllBotsSkillsBanner: View {
             .padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 720)
             .modifier(AllBotsSkillConfirmation(manager: $confirming))
         }
+    }
+}
+
+/// P45 6: over a 1:1 composer when "@Bot …" needs the messaging skill the open bot lacks: install it on every bot first.
+struct MentionSkillOffer: View {
+    @EnvironmentObject private var store: AppStore
+    @ObservedObject var bot: Bot
+    @State private var confirming: Bot?
+    var body: some View {
+        let manager = store.manager(for: bot)
+        HStack(spacing: 10) {
+            Image(systemName: "at").foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(bot.name) can't message other bots yet: it needs the swarmhub-messages skill.").font(.system(size: 12))
+                Text(manager == nil ? AllBotsSkillCopy.needsManager : "Your message stays in the box until it is installed.").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer()
+            Button("Not now") { store.mentionSkillOffer = nil }
+            if let manager { Button(AllBotsSkillCopy.button) { confirming = manager }.buttonStyle(.borderedProminent).disabled(!store.isIdle(manager)) }
+        }
+        .controlSize(.small).padding(.horizontal, 14).padding(.vertical, 9)
+        .background(AppColor.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(AppColor.separator, lineWidth: 0.5))
+        .padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 720)
+        .modifier(AllBotsSkillConfirmation(manager: $confirming))
+        .accessibilityIdentifier("chat.mentionSkillOffer")
     }
 }
