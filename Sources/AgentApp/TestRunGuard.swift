@@ -4,8 +4,9 @@ import Foundation
 @objc protocol TestRunSentinel {
     /// A request to a host other than 127.0.0.1, localhost or ::1 reached the guard. `probe` is the guard test's marker.
     static func outsideRequest(_ url: String, probe: String?)
-    /// A call to the real Keychain, or to production state (store.json, the standard defaults), in a test run.
-    static func productionAccess(_ what: String)
+    /// A call to the real Keychain, to production state (store.json, the standard defaults), or an open of a page, file or
+    /// app (`ExternalLink`), in a test run. `probe` is the guard test's marker.
+    static func productionAccess(_ what: String, probe: String?)
 }
 
 /// P28: a test run never touches the network beyond loopback, the real Keychain or the app's own store and settings.
@@ -61,9 +62,9 @@ enum TestRunGuard {
     }
 
     /// True in a test run: the call to production state is reported and must not be made.
-    static func refuses(_ what: @autoclosure () -> String) -> Bool {
+    static func refuses(_ what: @autoclosure () -> String, probe: String? = nil) -> Bool {
         guard isTestRun else { return false }
-        if let sentinel { sentinel.productionAccess(what()) } else { FileHandle.standardError.write(Data("PRODUCTION ACCESS REFUSED (no sentinel): \(what())\n".utf8)) }
+        if let sentinel { sentinel.productionAccess(what(), probe: probe) } else { FileHandle.standardError.write(Data("PRODUCTION ACCESS REFUSED (no sentinel): \(what())\n".utf8)) }
         return true
     }
 }

@@ -17,7 +17,8 @@ import Testing
         Issue.record("A test sent a request outside loopback: \(url)")
     }
 
-    static func productionAccess(_ what: String) {
+    static func productionAccess(_ what: String, probe: String?) {
+        if let probe { probes.append("\(probe) \(what)"); return }
         FileHandle.standardError.write(Data("PRODUCTION ACCESS REFUSED: \(what)\n".utf8))
         Issue.record("A test reached production state: \(what)")
     }
@@ -57,10 +58,36 @@ private func probeRequest(_ probe: String, _ url: String = "https://konrad.agent
     #expect(HermesURLSession.shared.configuration.protocolClasses?.first == OutsideRequestGuard.self)
 }
 
+/// Opening a page or an app in a test run opens nothing and is reported to the sentinel (here with the probe marker,
+/// so this deliberate call is only logged; any other test's call fails the run).
+@MainActor @Test func externalLinkOpensNothingInATestRun() {
+    let probe = "probe-open-\(UUID().uuidString)"
+    #expect(!ExternalLink.open(URL(string: "https://login.example.test/authorize?state=guard")!, probe: probe))
+    #expect(TestRunSentinelRecorder.probes.all.contains("\(probe) open https://login.example.test/authorize?state=guard"))
+    let appProbe = "probe-open-app-\(UUID().uuidString)"
+    ExternalLink.openApplication(at: URL(fileURLWithPath: "/System/Applications/Calculator.app"), probe: appProbe)
+    #expect(TestRunSentinelRecorder.probes.all.contains("\(appProbe) open app /System/Applications/Calculator.app"))
+}
+
+/// `ExternalLink` is the only file in Sources that opens a page, file or app; nothing else calls NSWorkspace's openers
+/// or SwiftUI's `openURL` action, so no path around the test-run refusal exists.
+@Test func onlyExternalLinkOpensThingsOutsideTheApp() throws {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let files = try #require(FileManager.default.enumerator(at: root.appending(path: "Sources/AgentApp"), includingPropertiesForKeys: nil))
+        .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" && $0.lastPathComponent != "ExternalLink.swift" }
+    #expect(files.count > 50)
+    for file in files {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        for opener in ["NSWorkspace.shared.open(", ".openApplication(at", ".activateFileViewerSelecting(", "\\.openURL", "/usr/bin/open"] {
+            #expect(!text.contains(opener), "\(file.lastPathComponent) calls \(opener); use ExternalLink")
+        }
+    }
+}
+
 /// Without the probe header a report is a failing issue, attributed to the test that made the request.
 @Test func anOutsideRequestFailsTheTest() {
     withKnownIssue { TestRunSentinelRecorder.outsideRequest("https://sentinel-self-test.invalid/v1/capabilities", probe: nil) }
-    withKnownIssue { TestRunSentinelRecorder.productionAccess("Keychain read") }
+    withKnownIssue { TestRunSentinelRecorder.productionAccess("Keychain read", probe: nil) }
 }
 
 /// The live Keychain is refused (and reported) in a test run: nothing reaches `SecItem*`, nothing is written.

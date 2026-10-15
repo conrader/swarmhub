@@ -54,11 +54,11 @@ private struct CodeBlock: View {
 }
 
 struct LinkPillRow: View {
-    let urls: [String]; @Environment(\.openURL) private var openURL
+    let urls: [String]
     var body: some View {
         HStack(spacing: 6) {
             ForEach(urls, id: \.self) { url in
-                Button { if let target = URL(string: url) { openURL(target) } } label: { Label(ChatCardParser.pillLabel(url), systemImage: "link").font(.caption).lineLimit(1) }
+                Button { if let target = URL(string: url) { ExternalLink.open(target) } } label: { Label(ChatCardParser.pillLabel(url), systemImage: "link").font(.caption).lineLimit(1) }
                     .buttonStyle(.bordered).help(url)
             }
         }

@@ -21,7 +21,7 @@ struct ComputerTab: View {
                     Button { check(url) } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.plain).help("Check again").disabled(reachability == .checking)
                 }
                 HStack {
-                    Button("Open in browser") { NSWorkspace.shared.open(url) }
+                    Button("Open in browser") { ExternalLink.open(url) }
                     Spacer()
                     Button("Take over") { openWindow(id: ComputerWindow.id, value: bot.id) }.buttonStyle(.borderedProminent)
                 }

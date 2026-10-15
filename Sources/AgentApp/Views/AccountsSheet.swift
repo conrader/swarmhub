@@ -66,7 +66,7 @@ struct AccountsSheet: View {
             HStack {
                 Text(link.url.absoluteString).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                 Spacer(minLength: 8)
-                Button("Open in browser") { NSWorkspace.shared.open(link.url) }
+                Button("Open in browser") { ExternalLink.open(link.url) }
                 Button("Copy") { copy(link.url.absoluteString) }
             }
             if tool == .claude {

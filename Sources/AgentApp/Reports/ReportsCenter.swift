@@ -23,7 +23,7 @@ import Foundation
     let fileURL: URL?
     let keyStore: any HermesKeyStore
     var session = URLSession(configuration: TestRunGuard.guarded(.ephemeral))
-    var openURL: @Sendable (URL) async -> Void = { url in await MainActor.run { _ = NSWorkspace.shared.open(url) } }
+    var openURL: @Sendable (URL) async -> Void = { url in await MainActor.run { _ = ExternalLink.open(url) } }
     var sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     var maxPolls = 600
     var signInTask: Task<Bool, Never>?
