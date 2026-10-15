@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Vision
 @testable import AgentApp
 
 actor TestBackend: AgentBackend {
@@ -81,6 +82,60 @@ func temporaryStore(_ name: String = UUID().uuidString) -> URL {
 }
 
 struct WaitTimeout: Error {}
+
+/// Full PNG render sets (every setup shot, every import-sheet step, the snapshot set with OCR) run only with
+/// `SWARMHUB_RENDER_TESTS=1`; a plain `swift test` renders one screen per renderer so a crashing view still fails.
+let renderTests = ProcessInfo.processInfo.environment["SWARMHUB_RENDER_TESTS"] == "1"
+let renderTestsOnly = Testing.ConditionTrait.enabled(if: renderTests, "full render set: SWARMHUB_RENDER_TESTS=1")
+
+/// At most `limit` script tests run at once: each starts dozens of short processes, and all of them together starved
+/// the rest of the parallel suite (load-timing failures in unrelated tests).
+actor ScriptSlots {
+    static let shared = ScriptSlots(limit: 6)
+    private let limit: Int; private var used = 0; private var queue: [CheckedContinuation<Void, Never>] = []
+    init(limit: Int) { self.limit = limit }
+    func take() async {
+        if used < limit { used += 1; return }
+        await withCheckedContinuation { queue.append($0) }
+    }
+    func give() { if queue.isEmpty { used -= 1 } else { queue.removeFirst().resume() } }
+}
+
+/// The text lines Vision reads in `image` (accurate, en-US), recognised on a GCD thread: a pass takes seconds, and on the
+/// main actor it held up every other @MainActor test of the parallel suite.
+func recognizedLines(in image: CGImage) async throws -> [String] {
+    nonisolated(unsafe) let image = image
+    return try await withCheckedThrowingContinuation { continuation in
+        DispatchQueue.global().async {
+            let recognition = VNRecognizeTextRequest()
+            recognition.recognitionLevel = .accurate; recognition.recognitionLanguages = ["en-US"]
+            do {
+                try VNImageRequestHandler(cgImage: image).perform([recognition])
+                continuation.resume(returning: recognition.results?.compactMap { $0.topCandidates(1).first?.string } ?? [])
+            } catch { continuation.resume(throwing: error) }
+        }
+    }
+}
+
+/// Runs a script test's process to its end on a GCD thread (stdout and stderr together), so the parallel suite's shell
+/// tests never block the Swift concurrency threads the async tests wait on (that starved them into WaitTimeouts).
+func runToEnd(_ process: Process) async throws -> (status: Int32, output: String) {
+    nonisolated(unsafe) let process = process
+    nonisolated(unsafe) let pipe = Pipe()
+    process.standardOutput = pipe; process.standardError = pipe
+    await ScriptSlots.shared.take()
+    defer { Task { await ScriptSlots.shared.give() } }
+    return try await withCheckedThrowingContinuation { continuation in
+        DispatchQueue.global().async {
+            do {
+                try process.run()
+                let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                process.waitUntilExit()
+                continuation.resume(returning: (process.terminationStatus, output))
+            } catch { continuation.resume(throwing: error) }
+        }
+    }
+}
 
 /// Hang ceiling for every test wait. Waits end on the awaited state or event, never on a timer; this only
 /// bounds a real hang. Under the parallel run other tests block the main thread for seconds, so it is generous.

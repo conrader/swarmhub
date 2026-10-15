@@ -187,31 +187,27 @@ private func turns(_ host: String) -> [(input: String, instructions: String)] {
 
 // MARK: Shell tests
 
-private func runShellTest(_ script: String, _ args: [String], shell: String, env: [String: String]) throws -> (Int32, String) {
-    let process = Process(), pipe = Pipe()
+private func runShellTest(_ script: String, _ args: [String], shell: String, env: [String: String]) async throws -> (Int32, String) {
+    let process = Process()
     process.executableURL = URL(fileURLWithPath: shell)
     process.arguments = [repoRoot.appending(path: script).path] + args
     process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path].merging(env) { $1 }
-    process.standardOutput = pipe; process.standardError = pipe
-    try process.run()
-    let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    process.waitUntilExit()
-    return (process.terminationStatus, output)
+    return try await runToEnd(process)
 }
 
 /// `Tests/Scripts/claude-login-test.sh`: a stub claude in a pseudo-terminal; the token only in the 0600 file.
-@Test(arguments: ["/bin/sh", "/bin/dash"]) func claudeLoginShellTestPasses(_ shell: String) throws {
+@Test(arguments: ["/bin/sh", "/bin/dash"]) func claudeLoginShellTestPasses(_ shell: String) async throws {
     guard FileManager.default.isExecutableFile(atPath: shell) else { return }
-    let (status, output) = try runShellTest("Tests/Scripts/claude-login-test.sh", [repoRoot.appending(path: "Resources/Skills/swarmhub-coding/scripts/swarmhub-claude-login").path],
+    let (status, output) = try await runShellTest("Tests/Scripts/claude-login-test.sh", [repoRoot.appending(path: "Resources/Skills/swarmhub-coding/scripts/swarmhub-claude-login").path],
                                             shell: shell, env: ["LOGIN_SH": shell])
     #expect(status == 0 && output.contains("claude-login tests under \(shell): 5 passed, 0 failed") && !output.contains("FAIL"), "\(output)")
 }
 
 /// `Tests/Scripts/accounts-recipes-test.sh`: the recipes/accounts.md recipes with stub CLIs; needs node, as the box has.
-@Test(arguments: ["/bin/sh", "/bin/dash"]) func accountsRecipesShellTestPasses(_ shell: String) throws {
+@Test(arguments: ["/bin/sh", "/bin/dash"]) func accountsRecipesShellTestPasses(_ shell: String) async throws {
     guard FileManager.default.isExecutableFile(atPath: shell),
           let node = ["/opt/homebrew/bin", "/usr/local/bin"].first(where: { FileManager.default.isExecutableFile(atPath: "\($0)/node") }) else { return }
-    let (status, output) = try runShellTest("Tests/Scripts/accounts-recipes-test.sh", [repoRoot.appending(path: "Resources/BotManager/recipes/accounts.md").path, node],
+    let (status, output) = try await runShellTest("Tests/Scripts/accounts-recipes-test.sh", [repoRoot.appending(path: "Resources/BotManager/recipes/accounts.md").path, node],
                                             shell: shell, env: ["BOX_SH": shell])
     #expect(status == 0 && output.contains("accounts recipe tests under \(shell): 6 passed, 0 failed") && !output.contains("FAIL"), "\(output)")
 }

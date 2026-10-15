@@ -131,7 +131,8 @@ take_slot() {
     [ -d "$S/slots/reclaim" ] && [ -n "$(find "$S/slots/reclaim" -prune -mmin +1 2>/dev/null)" ] && rmdir "$S/slots/reclaim" 2>/dev/null
     sleep "$POLL"
   done
-  WAITED=$(( $(date +%s) - start ))
+  # A slot free at the first try is no wait (two clock reads can straddle a second).
+  if [ -n "$said" ]; then WAITED=$(( $(date +%s) - start )); fi
 }
 
 # Runs agent $1 in --dir, streaming its stdout and stderr through; sets RC (124 on timeout) and copies output to $T/out.
@@ -153,15 +154,16 @@ run_agent() {
     esac
   ) < /dev/null > "$T/o" 2> "$T/e" &
   APID=$!
-  # Watchdog and sampler: every second check the deadline, every 2 s add up the tree's RSS.
+  # Watchdog and sampler: every tick (1 s; CODE_JOB_TICK for tests) check the deadline (more than TIMEOUT whole seconds
+  # on the clock), every 2 ticks add up the tree's RSS.
   (
-    t=0 peak=0
+    t=0 peak=0 t0=$(date +%s)
     while kill -0 "$APID" 2>/dev/null; do
       if [ $((t % 2)) -eq 0 ]; then
         r=$(tree_rss "$APID"); [ "${r:-0}" -gt "$peak" ] && { peak=$r; echo "$peak" > "$T/peak"; }
       fi
-      if [ "$t" -ge "$TIMEOUT" ]; then : > "$T/timedout"; kill_tree "$APID"; break; fi
-      sleep 1; t=$((t + 1))
+      if [ $(( $(date +%s) - t0 )) -gt "$TIMEOUT" ]; then : > "$T/timedout"; kill_tree "$APID"; break; fi
+      sleep "${CODE_JOB_TICK:-1}"; t=$((t + 1))
     done
   ) < /dev/null > /dev/null 2>&1 &
   MPID=$!

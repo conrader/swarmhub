@@ -29,7 +29,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
 
 @Test func codingSkillShipsWithItsScript() throws {
     let skill = try codingSkill()
-    #expect(skill.version == SkillVersion("1.1.0")!)
+    #expect(skill.version == SkillVersion("1.1.1")!)
     let fields = SkillLibrary.frontmatter(skill.template)
     #expect(fields["author"] == "SwarmHub" && skill.template.contains("metadata:\n  swarmhub:\n    source: swarmhub"))
     let description = try #require(fields["description"])
@@ -50,7 +50,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let rendered = try #require(SkillLibrary.render(skill, forProfile: "coder", managerTemplate: nil, codingOrder: order))
     #expect(!rendered.contains("{{"))
     #expect(rendered.contains("~/.hermes/profiles/coder/skills/swarmhub/swarmhub-coding/scripts/code-job --bot coder --order \(order.argument) --dir"))
-    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.1.0")
+    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.1.1")
     #expect(rendered.contains("CODE_JOB_USE_DELEGATE") && rendered.contains("delegate_task") && rendered.contains("claude.token"))
     #expect(SkillLibrary.variant(of: skill, codingOrder: order) == order.argument)
     let defaultBot = try #require(SkillLibrary.render(skill, forProfile: "default", managerTemplate: nil, codingOrder: order))
@@ -77,7 +77,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(text.contains("cat > \(folder)/scripts/code-job <<'SWARMHUB_EOF'\n\(script.content)SWARMHUB_EOF\ncat > \(folder)/scripts/swarmhub-claude-login <<'SWARMHUB_EOF'\n"))
     #expect(text.contains("chmod 755 \(folder)/scripts/code-job \(folder)/scripts/swarmhub-claude-login\n"))
     #expect(text.contains("--order codex,claude,hermes"))
-    #expect(text.contains(#"{"name":"swarmhub-coding","version":"1.1.0","variant":"codex,claude,hermes"}"#))
+    #expect(text.contains(#"{"name":"swarmhub-coding","version":"1.1.1","variant":"codex,claude,hermes"}"#))
 }
 
 // MARK: Settings resolution
@@ -165,7 +165,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
 }
 
 @Test @MainActor func installRecordsTheVariantFromTheBlock() async throws {
-    let reply = "Installed.\n```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"coder\",\"skills\":[{\"name\":\"swarmhub-coding\",\"version\":\"1.1.0\",\"variant\":\"codex\"}]}\n```"
+    let reply = "Installed.\n```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"coder\",\"skills\":[{\"name\":\"swarmhub-coding\",\"version\":\"1.1.1\",\"variant\":\"codex\"}]}\n```"
     let (store, jarvis, coder, host) = codingStore(reply: reply)
     coder.modelSettings = BotModelSettings(codingAgent: .codexOnly)
     #expect(store.installSkills(for: coder))
@@ -173,7 +173,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let sent = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.compactMap { $0.body?["instructions"] as? String }
     #expect(sent.count == 1 && sent[0].contains("--order codex --dir") && sent[0].contains("for Coder (profile `coder`)"))
     #expect(jarvis.messages.first { $0.role == .user }?.content == "Install SwarmHub’s instructions for Coder.")
-    #expect(coder.installedSkills == ["swarmhub-coding": "1.1.0"] && coder.installedSkillVariants == ["swarmhub-coding": "codex"])
+    #expect(coder.installedSkills == ["swarmhub-coding": "1.1.1"] && coder.installedSkillVariants == ["swarmhub-coding": "codex"])
     #expect(store.skillState(try codingSkill(), for: coder) == .current)
     // The variant survives a save and reload with the bot; a bot without one encodes as before.
     let url = temporaryStore()
@@ -197,19 +197,26 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
 
 private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() }
 
-/// `Tests/Scripts/code-job-test.sh` under each shell present: stub CLIs, a temp HOME, every case must pass.
-@Test(arguments: ["/bin/sh", "/bin/dash"]) func codeJobShellTestPasses(_ shell: String) throws {
+/// `Tests/Scripts/code-job-test.sh` under each shell present: stub CLIs, a temp HOME, every case must pass. The 15 cases
+/// run in four shards (`CODE_JOB_CASES`) so the slow ones (timeout, slot wait) overlap.
+private let codeJobShards = ["1 2 3 4 5 6", "7", "8 9", "10 11 12 13 14 15"]
+
+@Test(arguments: ["/bin/sh", "/bin/dash"], codeJobShards) func codeJobShellTestPasses(_ shell: String, _ cases: String) async throws {
     guard FileManager.default.isExecutableFile(atPath: shell) else { return }
-    let process = Process(), pipe = Pipe()
+    let process = Process()
     process.executableURL = URL(fileURLWithPath: shell)
     process.arguments = [repoRoot.appending(path: "Tests/Scripts/code-job-test.sh").path, repoRoot.appending(path: "Resources/Skills/swarmhub-coding/scripts/code-job").path]
     // Only what the test needs: no inherited agent keys or the developer's PATH (no real claude/codex).
-    process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "CODE_JOB_SH": shell]
-    process.standardOutput = pipe; process.standardError = pipe
-    try process.run()
-    let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    process.waitUntilExit()
-    #expect(process.terminationStatus == 0, "\(shell):\n\(output)")
-    #expect(output.contains("code-job tests under \(shell): 15 passed, 0 failed"), "\(output)")
+    process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "CODE_JOB_SH": shell, "CODE_JOB_CASES": cases]
+    let (status, output) = try await runToEnd(process)
+    #expect(status == 0, "\(shell):\n\(output)")
+    let count = cases.split(separator: " ").count
+    #expect(output.contains("code-job tests under \(shell): \(count) passed, 0 failed"), "\(output)")
     #expect(!output.contains("FAIL"), "\(output)")
+}
+
+@Test func codeJobShardsCoverEveryCaseOnce() throws {
+    let script = try String(contentsOf: repoRoot.appending(path: "Tests/Scripts/code-job-test.sh"), encoding: .utf8)
+    let defined = script.split(separator: "\n").filter { $0.hasPrefix("case_") && $0.hasSuffix("() {") }.count
+    #expect(codeJobShards.flatMap { $0.split(separator: " ").map { Int($0)! } }.sorted() == Array(1...defined))
 }

@@ -1,7 +1,6 @@
 import AppKit
 import Foundation
 import Testing
-import Vision
 @testable import AgentApp
 
 private let exportFolder = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../Fixtures/bundles/export").standardizedFileURL
@@ -15,7 +14,19 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     return seen.count
 }
 
-@MainActor @Test func renderSnapshotWritesNonEmptyPNGsForSyntheticStore() async throws {
+/// Default suite: the renderer with no named bot (main window and sidebar), checked for size and content.
+@MainActor @Test func renderSnapshotWritesTheMainWindowForSyntheticStore() async throws {
+    let box = MockHermesProtocol.serve { _ in (404, ["error": "no route"]) }
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(["hermes.grok-jarvis": "synthetic"]), defaults: isolatedDefaults(), hermesSession: box.session)
+    try store.importGrokExport(at: exportFolder)
+    let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppSnapshots-\(UUID().uuidString)")
+    #expect(await HeadlessSnapshot.render(store: store, to: directory, botNames: [], output: { _ in }) == 0)
+    let main = try #require(NSBitmapImageRep(data: Data(contentsOf: directory.appending(path: "main.png"))))
+    #expect(main.pixelsWide == 2560 && main.pixelsHigh == 1600 && distinctColours(main) > 8)
+    try? FileManager.default.removeItem(at: directory)
+}
+
+@MainActor @Test(renderTestsOnly) func renderSnapshotWritesNonEmptyPNGsForSyntheticStore() async throws {
     // The imported bots sit on `grokHermesBaseURL` (the production box); the rendered chat reads /v1/capabilities, so a
     // synthetic server answers it (404: no features) instead of the box (P28: 401s with this key in the box's nginx log).
     let box = MockHermesProtocol.serve { _ in (404, ["error": "no route"]) }
@@ -42,11 +53,7 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     #expect(distinctColours(NSBitmapImageRep(cgImage: sidebar)) > 8)
     // Both split-view columns use macOS glass. The right pane must retain its own content.
     let rightPane = try #require(main.cgImage?.cropping(to: CGRect(x: main.pixelsWide - 720, y: 0, width: 720, height: 1600)))
-    let recognition = VNRecognizeTextRequest()
-    recognition.recognitionLevel = .accurate
-    recognition.recognitionLanguages = ["en-US"]
-    try VNImageRequestHandler(cgImage: rightPane).perform([recognition])
-    let paneText = recognition.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ") ?? ""
+    let paneText = try await recognizedLines(in: rightPane).joined(separator: " ")
     #expect(paneText.contains("Overview"), "The right pane must show the Overview, not a duplicate sidebar.")
     #expect(paneText.contains("Routines"))
     #expect(try Data(contentsOf: directory.appending(path: "jarvis.png")) != Data(contentsOf: directory.appending(path: "main.png")))

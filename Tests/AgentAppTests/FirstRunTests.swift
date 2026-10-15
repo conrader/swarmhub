@@ -81,7 +81,18 @@ import Testing
     #expect(FirstRun.needsSetup(defaults: store.defaults, keyStore: store.keyStore, bots: store.bots))
 }
 
-@MainActor @Test func renderSetupWritesEveryStepFromASyntheticStore() async throws {
+/// Default suite: one setup screen through the renderer's own environment, and the repository refusal.
+@MainActor @Test func renderSetupRendersTheWelcomeStepAndRefusesTheRepository() async throws {
+    let store = SetupPreview.makeStore(); store.isSetupPreview = false
+    let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"])
+    let data = try #require(await HeadlessSetup.png(SetupView(preset: SetupFlow()), store: store, updater: updater, size: HeadlessSetup.size))
+    let image = try #require(NSBitmapImageRep(data: data))
+    #expect(image.pixelsWide > 0 && data.count > 4_000, "s1-welcome looks blank")
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    #expect(await HeadlessSetup.render(to: repo.appending(path: "setup-shots"), output: { _ in }) == 2, "refuses a folder inside the repository")
+}
+
+@MainActor @Test(renderTestsOnly) func renderSetupWritesEveryStepFromASyntheticStore() async throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppSetup-\(UUID().uuidString)")
     var lines: [String] = []
     #expect(await HeadlessSetup.render(to: directory, output: { lines.append($0) }) == 0, "\(lines)")

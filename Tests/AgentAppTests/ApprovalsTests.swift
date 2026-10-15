@@ -185,7 +185,8 @@ import Testing
 
 @Test @MainActor func reviewerTimeoutIncludesSessionCreation() async {
     let ownerBackend = TestBackend(transport: .nativeSessions)
-    let reviewerBackend = TestBackend(transport: .nativeSessions, createDelay: .seconds(10))
+    // Session creation never finishes on its own: only the reviewer timeout ends it, however loaded the machine is.
+    let reviewerBackend = TestBackend(transport: .nativeSessions, createDelay: .seconds(86_400))
     let owner = Bot(name: "Owner", backend: .hermes); let reviewer = Bot(name: "Reviewer", backend: .hermes)
     owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, reviewerTimeout: .milliseconds(10), keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())

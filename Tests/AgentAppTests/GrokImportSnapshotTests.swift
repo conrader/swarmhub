@@ -29,7 +29,16 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     try data.write(to: snapshotFolder.appending(path: "\(name).png"))
 }
 
-@MainActor @Test func everyStepOfTheImportSheetRenders() async throws {
+/// Default suite: the first step only.
+@MainActor @Test func theImportSheetsFirstStepRenders() async throws {
+    let world = try GrokWorld()
+    let store = world.store(server: "https://box.test/v1")
+    let found = makeCoordinator(world, store)
+    await found.scan()
+    try await render(found, store, name: "1-found")
+}
+
+@MainActor @Test(renderTestsOnly) func everyStepOfTheImportSheetRenders() async throws {
     let world = try GrokWorld()
     let store = world.store(server: "https://box.test/v1")
     let found = makeCoordinator(world, store)

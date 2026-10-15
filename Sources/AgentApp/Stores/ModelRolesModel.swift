@@ -5,7 +5,9 @@ import Foundation
 struct ModelRolesModel: Equatable, Sendable {
     static let caption = "\(AppConstants.name) remembers these choices and applies them when it starts a chat. It does not change your box's own settings."
     static let conversationHelp = "Used for chats, group chats and threads \(AppConstants.name) starts."
-    static let codingHelp = "Used for coding threads. Sub-agents use whatever the box sets."
+    static let codingHelp = "Used for coding threads."
+    /// Settings → Models "All bots": each bot's own coding model (`delegation.model`) is its "Coding model: …" line.
+    static let codingNote = "Each bot's coding model is shown under its name."
     /// What a coding thread's lock covers (P13 "The two roles"); coding in the main chat stays on the Conversation model.
     static func codingThreadHelp(_ model: String) -> String {
         "Opens a thread whose turns \(AppConstants.name) sends run on \(model). Not covered: turns Hermes starts itself after a background "

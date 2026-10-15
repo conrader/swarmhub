@@ -28,7 +28,8 @@ import SwiftUI
         }
         store.boxReadings[target] = BoxReadings(models: pinned, modelsAt: reported)
         let sheet = SubAgentModelSheet(request: SubAgentModelRequest(managerID: jarvis.id, profile: "coder"))
-        write(names[3], await png(AnyView(sheet.background(AppColor.panel)), store, NSSize(width: 520, height: 400)))
+        // The panel fills the whole canvas: the sheet is shorter than 400 pt and has no height of its own (no white strips).
+        write(names[3], await png(AnyView(sheet.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).background(AppColor.panel)), store, NSSize(width: 520, height: 400)))
 
         let job = { (hoursAgo: Double, waited: Int) in BoxCapacityReport.Job(at: now.addingTimeInterval(-hoursAgo * 3600), waited: waited, ran: 420, peakMB: 480, exit: 0) }
         let advised = BoxCapacityReport(cpus: 2, memTotalMB: 3891, memAvailMB: 1380, diskFreeMB: 17400, load1: "0.42", slots: nil,
