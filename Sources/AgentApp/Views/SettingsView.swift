@@ -37,6 +37,8 @@ struct SettingsView: View {
         case .review: SettingsReviewPane()
         case .computers: SettingsComputersPane()
         case .usage: SettingsUsagePane()
+        case .account: SettingsSwarmHubAccountPane(center: store.reportsCenter)
+        case .reports: SettingsReportsPane(center: store.reportsCenter)
         case .about: SettingsAboutPane()
         }
     }

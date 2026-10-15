@@ -50,6 +50,9 @@ import UserNotifications
     /// P35: profiles on each box with no bot yet (keyed by `connection(of:)`), the batch the confirmation sheet asks
     /// about, connections discovered this launch, and the names each manager's "Connect bots" turn was asked for.
     @Published var boxProfiles: [String: [BoxProfile]] = [:]; @Published var adoptionOffer: AdoptionOffer?
+    /// P36: the Reports inbox (main window) and its center (inbox, SwarmHub account).
+    @Published var showingReports = false
+    private(set) lazy var reportsCenter = ReportsCenter(fileURL: persistenceEnabled ? fileURL.deletingLastPathComponent().appending(path: "reports.json") : nil, keyStore: keyStore, now: now())
     /// P31 C: the Accounts sheet per Hermes connection (`connection(of:)`).
     @Published var codingAccounts: [String: AccountsState] = [:]
     var discoveredConnections: Set<String> = []; var pendingAdoptions: [UUID: [String]] = [:]

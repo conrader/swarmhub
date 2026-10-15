@@ -37,6 +37,12 @@ enum SwarmhubOp: Equatable {
     case accounts(AccountsReport)
     case loginLink(tool: CodingTool, url: URL, code: String?)
     case loginDone(tool: CodingTool, ok: Bool, pending: Bool)
+    /// P36: a bot filed a report with swarmhub-report (only its local id, kind and title; the body stays on the box).
+    case report(id: String, kind: ReportKind, title: String)
+    /// P36: the box's unsent report files, from the "List every bot" turn (`reports` next to `list`).
+    case boxReports([BoxReport])
+    /// P36: "Close reports": the files renamed to `.sent` and the ones deleted.
+    case reportsClosed(sent: [String], deleted: [String])
 
     /// The op from one JSON object; nil for unknown ops, missing fields or an invalid profile name.
     init?(_ object: [String: Any]) {
@@ -93,6 +99,16 @@ enum SwarmhubOp: Equatable {
             guard let tool = string("tool").flatMap(CodingTool.init(rawValue:)) else { return nil }
             let pending = object["pending"] as? Bool == true
             self = .loginDone(tool: tool, ok: !pending && object["ok"] as? Bool == true, pending: pending)
+        case "report":
+            guard let id = string("id").flatMap({ SwarmReport.isValidLocalID($0) ? $0 : nil }), let kind = string("kind").flatMap(ReportKind.init(rawValue:)),
+                  let title = string("title"), !title.isEmpty else { return nil }
+            self = .report(id: id, kind: kind, title: String(title.prefix(SwarmReport.titleLimit)))
+        case "reports":
+            guard let rows = object["list"] as? [[String: Any]] else { return nil }
+            self = .boxReports(rows.compactMap(BoxReport.init))
+        case "reports_closed":
+            let ids = { (key: String) in ((object[key] as? [Any]) ?? []).compactMap { $0 as? String }.filter(SwarmReport.isValidLocalID) }
+            self = .reportsClosed(sent: ids("sent"), deleted: ids("deleted"))
         case "skills_installed":
             guard let bot = string("bot").flatMap({ HermesKeyPaste.isValidProfileName($0) ? $0 : nil }),
                   let rows = object["skills"] as? [[String: Any]] else { return nil }
@@ -127,11 +143,13 @@ enum SwarmhubBlock {
         if let object = json as? [String: Any] { objects = [object] }
         else if let array = json as? [Any] { objects = array.compactMap { $0 as? [String: Any] } }
         else { log.notice("swarmhub block ignored: not an object or array"); return [] }
-        return objects.compactMap { object in
-            if let op = SwarmhubOp(object) { return op }
+        return objects.flatMap { object -> [SwarmhubOp] in
+            // P36: the listing turn carries the box's unsent reports next to its bots.
+            let reports = object["op"] as? String == "bots" ? (object["reports"] as? [[String: Any]]).map { [SwarmhubOp.boxReports($0.compactMap(BoxReport.init))] } ?? [] : []
+            if let op = SwarmhubOp(object) { return [op] + reports }
             let name = (object["op"] as? String).map { String($0.prefix(40)) } ?? "(none)"
             log.notice("swarmhub op ignored: \(name, privacy: .public)")
-            return nil
+            return []
         }
     }
 

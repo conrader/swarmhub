@@ -53,7 +53,7 @@ extension AppStore {
 
     func open(_ group: GroupChat, remember: Bool = true) {
         if selectedGroup?.id != group.id { replyTo = nil }
-        selectedGroup = group; openThreadID = nil
+        selectedGroup = group; openThreadID = nil; showingReports = false
         if remember { rememberSelection(group: group) }
         if group.isUnread { group.unreadCount = 0; group.manualUnread = false; save() }
     }

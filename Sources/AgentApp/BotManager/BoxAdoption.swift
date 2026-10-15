@@ -32,6 +32,7 @@ enum BoxAdoption {
     static let listMarker = "List every bot:"
     static let adoptMarker = "Connect bots ("
     static let restoreMarker = "Restore a connected bot's old key:"
+    static let closeReportsMarker = "Close reports ("
 
     /// The fenced block after the first line containing `marker`; nil when absent.
     static func recipe(_ marker: String, in template: String) -> String? {
@@ -79,6 +80,14 @@ enum BoxAdoption {
         let filled = BotManagerText.filled(recipe, managerProfile: managerProfile)
             .replacingOccurrences(of: "<name>", with: name).replacingOccurrences(of: "<backup>", with: backup)
         return turn("Konrad pressed “Restore this bot’s old key” in SwarmHub for \(name). That press is his yes: do not ask again.", filled)
+    }
+
+    /// P36: rename the sent reports' files to `.sent`, delete the dismissed ones (ids checked here and in the recipe).
+    static func closeReportsInstructions(template: String, managerProfile: String, sent: [String], deleted: [String]) -> String? {
+        guard !(sent + deleted).isEmpty, (sent + deleted).allSatisfy(SwarmReport.isValidLocalID), let recipe = recipe(closeReportsMarker, in: template) else { return nil }
+        let filled = BotManagerText.filled(recipe, managerProfile: managerProfile)
+            .replacingOccurrences(of: "<sent>", with: sent.joined(separator: " ")).replacingOccurrences(of: "<deleted>", with: deleted.joined(separator: " "))
+        return turn("Konrad sent or dismissed these SwarmHub reports in SwarmHub; their files on this box are done with. Reading and renaming them needs no confirmation.", filled)
     }
 
     private static func turn(_ lead: String, _ command: String) -> String {

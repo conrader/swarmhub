@@ -8,7 +8,7 @@ enum SettingsLayout {
     /// Advanced: today's panes re-homed, Avatars folded into Appearance and alerts, nothing new.
     enum AdvancedPane: String, CaseIterable, Identifiable {
         case servers = "Servers and keys", alerts = "Appearance and alerts", models = "Models", review = "Auto-review"
-        case computers = "Computers", usage = "Usage", about = "About"
+        case computers = "Computers", usage = "Usage", account = "Account", reports = "Reports", about = "About"
         var id: String { rawValue }
         var icon: String {
             switch self {
@@ -18,6 +18,8 @@ enum SettingsLayout {
             case .review: "checkmark.shield"
             case .computers: "desktopcomputer"
             case .usage: "chart.bar"
+            case .account: "person.crop.circle"
+            case .reports: "tray"
             case .about: "info.circle"
             }
         }
@@ -51,6 +53,8 @@ enum SettingsLayout {
         ("alerts.perAgent", .advanced(.alerts)), ("alerts.avatarMotion", .advanced(.alerts)),
         ("models.roles", .advanced(.models)), ("review.perAgent", .advanced(.review)), ("computers.list", .advanced(.computers)),
         ("usage.table", .advanced(.usage)),
+        // P36: the SwarmHub sign-in (sending reports only) and the Reports inbox.
+        ("account.swarmhub", .advanced(.account)), ("account.serviceURL", .advanced(.account)), ("reports.list", .advanced(.reports)),
         ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))
     ]
 

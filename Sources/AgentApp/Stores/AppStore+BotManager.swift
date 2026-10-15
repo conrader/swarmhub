@@ -155,6 +155,12 @@ extension AppStore {
             // P31 C: also when Konrad asks the manager in its chat; the Accounts sheet shows it.
             guard manager.backend == .hermes else { return }
             codingAccounts[connection(of: manager), default: AccountsState()].absorb([op], at: now())
+        case .report:
+            // P36: from any bot's reply (`handleReportOps`), the manager's included.
+            return
+        case .boxReports, .reportsClosed:
+            guard manager.backend == .hermes else { return }
+            absorbReportOps([op], connection: connection(of: manager))
         case .loginLink, .loginDone:
             // Only from the Accounts sheet's own quiet turns: a link in a chat reply is never shown as a login page.
             return
