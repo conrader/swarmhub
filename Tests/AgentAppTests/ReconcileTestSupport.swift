@@ -29,6 +29,9 @@ final class SessionServer: URLProtocol, @unchecked Sendable {
         var scripts: [Script] = []; var defaultScript: Script = .reply(chunks: ["ok"])
         var networkDown = false
         var getFailures: [URLError.Code] = []
+        /// P46: session titles and sources as the list shows them (api_server by default), and further routes (jobs).
+        var titles: [String: String] = [:]; var sources: [String: String] = [:]
+        var extraRoute: ((_ method: String, _ parts: [String], _ query: [String: String], _ body: [String: Any]?) -> (Int, Any)?)?
         let log = AwaitableLog<Logged>()
         func with<T>(_ body: (State) -> T) -> T { lock.lock(); defer { lock.unlock() }; return body(self) }
         func add(_ session: String, _ role: String, _ content: String, finish: String? = nil, time: Double? = nil) {
@@ -89,6 +92,17 @@ final class SessionServer: URLProtocol, @unchecked Sendable {
                 value["finish_reason"] = row.finish ?? NSNull(); return value
             }], date: date)
         }
+        if method == "GET", route == "api/sessions" {
+            let rows = state.with { state in state.sessions.map { id, rows -> [String: Any] in
+                ["id": id, "title": state.titles[id] ?? NSNull(), "source": state.sources[id] ?? "api_server", "message_count": rows.count, "last_active": rows.last?.time ?? 0, "started_at": rows.first?.time ?? 0]
+            } }.filter { query["source"] == nil || $0["source"] as? String == query["source"] }
+            return json(200, ["object": "list", "data": rows], date: date)
+        }
+        if method == "PATCH", parts.count == 3, parts[0] == "api", parts[1] == "sessions" {
+            state.with { $0.titles[parts[2]] = body?["title"] as? String }
+            return json(200, ["session": ["id": parts[2], "title": body?["title"] ?? NSNull()]], date: date)
+        }
+        if let route = state.with({ $0.extraRoute }), let (status, object) = route(method, parts, query, body) { return json(status, object, date: date) }
         if method == "GET", parts.count == 3, parts[0] == "v1", parts[1] == "runs" {
             guard let status = state.with({ $0.runStatus[parts[2]] }) else { return json(404, ["error": "run not found"], date: date) }
             return json(200, ["run_id": parts[2], "status": status], date: date)
