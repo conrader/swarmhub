@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The left column, like Grok Bot's (P20): round search and + at the top, one flat list (bots, then groups, then a quiet
+/// The left column, like Grok Bot's (P20): round search and + at the top, one flat list (newest conversations first, then a quiet
 /// "Hidden chats" disclosure), and a bottom bar with the user's initial and a Settings pill.
 struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
@@ -29,8 +29,12 @@ struct SidebarView: View {
             }.padding(.trailing, SidebarMetrics.listInset).frame(height: SidebarMetrics.topRow).windowDragStrip(probe: "sidebar_row")
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(store.bots.filter { !$0.isHidden }) { bot in row(bot) }
-                    ForEach(store.groups.filter { !$0.isHidden }) { group in GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete) }
+                    ForEach(store.sidebarChats) { chat in
+                        switch chat {
+                        case .bot(let bot): row(bot)
+                        case .group(let group): GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete)
+                        }
+                    }
                     BoxNotConnectedSections()
                     ReportsSidebarRow(center: store.reportsCenter)
                     Button { store.showingHiddenBots.toggle() } label: {

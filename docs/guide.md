@@ -24,6 +24,8 @@ The run script builds and launches the app.
 
 Need to set up the server first? Follow the [Hermes setup notes](reference.md#hermes-agent-setup). For imports, see [Grok Bot history](reference.md#feature-parity) and [bot templates](reference.md#grok-bot-template-import).
 
+The sidebar puts conversations with the latest sent or received messages first. Click a bot under “On this box · not connected” to view its connection options or delete it; Delete is also in the row’s right-click menu. Deleting removes its entry from SwarmHub and keeps the bot on your box. To bring it back, use **Settings → Advanced… → Servers and keys → Add all bots from this box**.
+
 ### macOS shortcuts
 
 | Shortcut | Action |

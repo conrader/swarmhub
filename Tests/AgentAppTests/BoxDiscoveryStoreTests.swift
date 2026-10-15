@@ -111,6 +111,76 @@ private func probed(_ host: String) -> [String] { MockHermesProtocol.recorded(ho
 
 // MARK: Adoption
 
+@Test @MainActor func disconnectedBotsCanBeSelectedWithoutConnectingOrSending() throws {
+    let (store, jarvis, chat, probe) = boxStore(replies: ["unused"], served: [])
+    let target = store.connection(of: jarvis)
+    for state in [BoxProfile.State.needsKey, .adoptable, .failed, .adopting] {
+        let profile = BoxProfile(name: "cfo", hasKey: true, state: state)
+        store.boxProfiles[target] = [profile]
+        store.open(profile, on: target)
+        #expect(store.selectedDisconnectedProfile == profile && store.selectedBoxProfile?.target == target)
+        #expect(store.selectedBot == nil && store.selectedGroup == nil && store.adoptionOffer == nil)
+        #expect(!store.send(text: "Cannot send until connected"))
+    }
+    #expect(turns(chat).isEmpty && probed(probe).isEmpty)
+    store.open(jarvis)
+    #expect(store.selectedBoxProfile == nil && store.selectedBot === jarvis)
+    store.open(try #require(store.boxProfiles[target]?.first), on: target)
+    let group = GroupChat(name: "Crew", memberIDs: [jarvis.id]); store.groups = [group]; store.open(group)
+    #expect(store.selectedBoxProfile == nil && store.selectedGroup === group)
+}
+
+@Test @MainActor func deletingDisconnectedBotsPersistsAndIsScopedToTheirBox() async throws {
+    let (store, jarvis, chat, probe) = boxStore(replies: ["unused"], served: ["cfo"])
+    let target = store.connection(of: jarvis), otherTarget = "https://other-box.example"
+    let profile = BoxProfile(name: "cfo", hasKey: true, state: .adoptable)
+    store.boxProfiles[target] = [profile]; store.boxProfiles[otherTarget] = [profile]
+    store.open(profile, on: target); store.deleteBoxProfile(profile, on: target)
+    #expect(store.boxProfiles[target] == nil && store.boxProfiles[otherTarget] == [profile])
+    #expect(store.selectedBot === jarvis && store.selectedBoxProfile == nil)
+    #expect(store.isDeletedBoxProfile("cfo", on: target) && !store.isDeletedBoxProfile("cfo", on: otherTarget))
+    store.save()
+    let relaunched = AppStore(storeURL: store.fileURL, autoConfigureHermes: false, keyStore: store.keyStore,
+                              defaults: store.defaults, hermesSession: store.hermesSession)
+    let manager = try #require(relaunched.bots.first { $0.id == jarvis.id })
+    let scan = await relaunched.absorbListed([.init(name: "cfo", description: "", hasKey: true)], manager: manager)
+    #expect(scan.added.isEmpty && scan.adoptable.isEmpty && relaunched.boxProfiles.isEmpty)
+    #expect(!relaunched.bots.contains { $0.hermesProfile == "cfo" })
+    #expect(turns(chat).isEmpty && probed(probe).isEmpty, "deletion and rediscovery never connect or change the box")
+}
+
+@Test @MainActor func disconnectedNavigationAndDeletionKeepAValidSelection() {
+    let (store, jarvis, _, _) = boxStore(replies: ["unused"], served: [])
+    let target = store.connection(of: jarvis)
+    let main = BoxProfile(name: "default", hasKey: true, state: .needsKey)
+    let cfo = BoxProfile(name: "cfo", hasKey: true, state: .failed)
+    store.boxProfiles[target] = [main, cfo]
+    store.moveChatSelection(by: 1)
+    #expect(store.selectedDisconnectedProfile == main && store.visibleChatCount == 3)
+    store.moveChatSelection(by: 1)
+    #expect(store.selectedDisconnectedProfile == cfo)
+    store.moveChatSelection(by: 1)
+    #expect(store.selectedBot === jarvis && store.selectedBoxProfile == nil)
+    store.bots = []; store.open(main, on: target); store.deleteBoxProfile(main, on: target)
+    #expect(store.selectedDisconnectedProfile == cfo)
+    store.deleteBoxProfile(cfo, on: target)
+    #expect(store.selectedBoxProfile == nil && store.selectedBot == nil && store.selectedGroup == nil)
+}
+
+@Test @MainActor func deletingCannotInterruptAnAdoptionAndAddAllCanRestoreDeletedProfiles() async throws {
+    let (store, jarvis, _, _) = boxStore(replies: [listed([("cfo", false)])], served: [])
+    let target = store.connection(of: jarvis), profile = BoxProfile(name: "cfo", hasKey: false, state: .adoptable)
+    store.boxProfiles[target] = [profile]
+    store.setBoxState(["cfo"], .adopting, on: target)
+    store.deleteBoxProfile(profile, on: target)
+    #expect(store.boxProfiles[target]?.first?.state == .adopting && !store.isDeletedBoxProfile("cfo", on: target))
+    store.setBoxState(["cfo"], .failed, on: target); store.deleteBoxProfile(profile, on: target)
+    #expect(store.boxProfiles[target] == nil)
+    let found = await store.addAllBotsFromBoxes()
+    #expect(found.offer?.names == ["cfo"] && store.boxProfiles[target]?.first?.state == .adoptable)
+    #expect(!store.isDeletedBoxProfile("cfo", on: target))
+}
+
 @MainActor private func adopt(_ store: AppStore, _ names: [String], manager: Bot) async throws {
     #expect(store.startAdoption(names, manager: manager))
     try await waitUntil { store.isIdle && store.pendingAdoptions.isEmpty && manager.messages.last?.role == .system }

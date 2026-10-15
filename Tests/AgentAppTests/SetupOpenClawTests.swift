@@ -18,8 +18,10 @@ final class RecordingKeyStore: HermesKeyStore, @unchecked Sendable {
     var log: (writes: [String], deletes: [String]) { lock.withLock { (writes, deletes) } }
 }
 
+/// The hub runs on a manual clock that no test advances: the link's pairing retry (5 s), backoffs and the 30 s ready
+/// timeout never fire on their own, so a loaded machine cannot slip in a second attempt (and a new pairing request).
 @MainActor private func setupStore(_ fake: FakeGateway = FakeGateway(), keys: RecordingKeyStore = RecordingKeyStore(), defaults: UserDefaults = isolatedDefaults()) -> AppStore {
-    let hub = OpenClawHub(status: OpenClawStatus(), keyStore: keys, makeTransport: fake.factory, clock: SystemGatewayClock(), jitter: { 0 })
+    let hub = OpenClawHub(status: OpenClawStatus(), keyStore: keys, makeTransport: fake.factory, clock: ManualGatewayClock(), jitter: { 0 })
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults, openClawHub: hub)
     store.loadOpenClawGateways()
     return store
@@ -93,7 +95,7 @@ private func threeAgents() -> FakeGateway.Handler {
     let fake = FakeGateway(); fake.requiresApproval = true
     let store = setupStore(fake)
     let first = await store.testSetupGateway(draft())
-    #expect(first.outcome == .pairingRequired(requestId: "req-1"))
+    #expect(first.outcome == .pairingRequired(requestId: "req-1") && fake.pairingRequests == 1)
     var flow = SetupFlow(); flow.apply(.connectExisting); flow.apply(.pick(.openClaw))
     flow.apply(.openClawTest(first.outcome, gatewayID: first.gatewayID))
     #expect(flow.step == .openClaw && flow.awaitsPairing && GatewayState.approveCommand(flow.pairingRequestId) == "openclaw devices approve req-1")

@@ -29,7 +29,7 @@ extension AppStore {
         }
         appendAgents(from: probes)
         if let first = probes.first, first.id == "default", case .unavailable(let reason) = first.status { errorMessage = reason }
-        if selectedBot == nil, selectedGroup == nil { selectVisibleChat() }
+        if selectedBot == nil, selectedGroup == nil, selectedBoxProfile == nil { selectVisibleChat() }
         save()
         return probes
     }
