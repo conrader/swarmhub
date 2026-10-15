@@ -166,6 +166,7 @@ import UserNotifications
         }
         // P21 D3: a fresh install starts empty; the setup window or "Look around with sample agents" fills it.
         if !demoMode { migrateManagerRole(); migrateSampleBots(); loadOpenClawGateways() }
+        if !demoMode { restoreLedger() }
         if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys(); await discoverBoxesOnLaunch() } }
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }

@@ -129,8 +129,7 @@ extension AppStore {
                 if bot.backend == .openClaw, let flags { botFeatures[bot.id] = flags }
             }
             end = try await consumeTurn(stream, assistant: assistant, bot: bot, sessionID: sessionID, backend: activeBackend) { [unowned self] task in
-                subAgentTasks[bot.id, default: []].append(task)
-                conversation.messages.append(ChatMessage(role: .assistant, content: task.title, presentation: .delegation, metadata: ["detail": task.detail, "status": task.status.rawValue]))
+                upsertSubAgent(task, bot: bot, in: conversation)
             }
         } catch is CancellationError { end = .stoppedByUser
         } catch let error as URLError where error.code == .cancelled && Task.isCancelled { end = .stoppedByUser

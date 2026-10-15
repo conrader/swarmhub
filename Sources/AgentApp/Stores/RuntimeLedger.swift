@@ -114,4 +114,9 @@ extension AppStore {
     var ledgerURL: URL { fileURL.deletingLastPathComponent().appending(path: RuntimeLedger.fileName) }
     /// Launch restores read the ledger only when one was ever written, so a fresh store creates no file.
     var hasLedger: Bool { runtime != nil || FileManager.default.fileExists(atPath: ledgerURL.path) }
+
+    /// Launch: what the ledger committed and store.json may have missed (a crash between the two saves).
+    func restoreLedger() {
+        restoreChildTasks()
+    }
 }
