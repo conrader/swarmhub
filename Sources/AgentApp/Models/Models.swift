@@ -326,8 +326,10 @@ struct BackendSession: Identifiable, Sendable { let id: String; let title: Strin
 struct BackendMessage: Sendable, Equatable {
     /// The box's integer row id (0.20.5 returns integers) and how the model ended the row (`stop`, `length`, `error`, …).
     let id: Int?; let role: String; let content: String; let createdAt: Date?; var finishReason: String? = nil
-    init(id: Int? = nil, role: String, content: String, createdAt: Date? = nil, finishReason: String? = nil) {
-        self.id = id; self.role = role; self.content = content; self.createdAt = createdAt; self.finishReason = finishReason
+    /// P43: the tools an assistant row called (`tool_calls`), in order; read for reconcile only.
+    var tools: [String] = []
+    init(id: Int? = nil, role: String, content: String, createdAt: Date? = nil, finishReason: String? = nil, tools: [String] = []) {
+        self.id = id; self.role = role; self.content = content; self.createdAt = createdAt; self.finishReason = finishReason; self.tools = tools
     }
 }
 enum StopTarget: Sendable, Equatable { case serverRun(String), disconnectedLegacy, noActiveRun }

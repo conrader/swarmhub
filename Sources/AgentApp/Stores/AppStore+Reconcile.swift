@@ -144,12 +144,17 @@ extension AppStore {
             guard let row = conversation.messages.first(where: { $0.id == edit.rowID }), unchanged(row) else { continue }
             if let content = edit.content { row.content = content }
             if let state = edit.state { row.turnState = state }
+            if let activity = edit.activity, (row.activity?.total ?? 0) == 0 { row.activity = activity }
             for (key, value) in edit.metadata { row.metadata[key] = value }
             report.changed = true; report.changedRows.insert(row.id)
         }
         var added = 0
         for addition in plan.additions {
-            let rows = addition.rows.map { ChatMessage(role: $0.role, content: $0.content, createdAt: $0.createdAt, metadata: $0.metadata, authorID: $0.authorID, turnState: $0.state) }
+            let rows = addition.rows.map { new in
+                let row = ChatMessage(role: new.role, content: new.content, createdAt: new.createdAt, metadata: new.metadata, authorID: new.authorID, turnState: new.state)
+                row.activity = new.activity
+                return row
+            }
             added += rows.filter { $0.role == .assistant }.count
             if let after = addition.after {
                 guard let index = conversation.messages.firstIndex(where: { $0.id == after }) else { continue }

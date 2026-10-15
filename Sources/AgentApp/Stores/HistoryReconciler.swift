@@ -7,6 +7,8 @@ enum HistoryReconciler {
     struct LocalRow: Sendable, Equatable {
         var id: UUID; var role: MessageRole; var text: String; var isTextTurn: Bool; var authorID: UUID?
         var state: TurnState?; var metadata: [String: String]; var createdAt: Date; var isStreaming: Bool
+        /// P43: the row already has its steps (a box fill then leaves them alone).
+        var hasSteps = false
 
         init(id: UUID = UUID(), role: MessageRole, text: String, isTextTurn: Bool = true, authorID: UUID? = nil, state: TurnState? = nil, metadata: [String: String] = [:], createdAt: Date = .distantPast, isStreaming: Bool = false) {
             self.id = id; self.role = role; self.text = text; self.isTextTurn = isTextTurn; self.authorID = authorID
@@ -16,6 +18,7 @@ enum HistoryReconciler {
             self.init(id: message.id, role: message.role, text: message.role == .user ? message.outgoingText : message.content,
                       isTextTurn: message.presentation == .text && !message.isSteer, authorID: message.authorID, state: message.turnState,
                       metadata: message.metadata, createdAt: message.createdAt, isStreaming: message.isStreaming)
+            hasSteps = (message.activity?.total ?? 0) > 0
         }
         var boxIDs: Set<Int> { Set((metadata[TurnKey.box] ?? "").split(separator: ",").compactMap { Int($0) }) }
         var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -50,8 +53,9 @@ enum HistoryReconciler {
     }
 
     /// A change to an existing row: new full content (nil = unchanged), new state, metadata updates (nil value = remove).
-    struct Edit: Sendable, Equatable { var rowID: UUID; var content: String?; var state: TurnState?; var metadata: [String: String?] = [:] }
-    struct NewRow: Sendable, Equatable { var role: MessageRole; var content: String; var authorID: UUID?; var state: TurnState?; var metadata: [String: String]; var createdAt: Date }
+    /// P43: `activity` = the box's steps for a row that had none, placed in its new text.
+    struct Edit: Sendable, Equatable { var rowID: UUID; var content: String?; var state: TurnState?; var metadata: [String: String?] = [:]; var activity: ToolActivity? = nil }
+    struct NewRow: Sendable, Equatable { var role: MessageRole; var content: String; var authorID: UUID?; var state: TurnState?; var metadata: [String: String]; var createdAt: Date; var activity: ToolActivity? = nil }
     /// Rows to insert after `after` (nil = at the end), in order.
     struct Addition: Sendable, Equatable { var after: UUID?; var rows: [NewRow] }
 
@@ -70,6 +74,8 @@ enum HistoryReconciler {
 
     struct ServerTurn: Sendable {
         var index: Int; var user: BackendMessage?; var replies: [BackendMessage]
+        /// P43: every assistant row of the turn in order, the ones with only tool calls included.
+        var rows: [BackendMessage] = []
         var replyText: String { replies.map(\.content).joined(separator: "\n\n") }
         var ids: [Int] { ([user] + replies.map { $0 }).compactMap { $0?.id } }
         var time: Date? { user?.createdAt ?? replies.first?.createdAt }
@@ -117,7 +123,11 @@ enum HistoryReconciler {
         var turns: [ServerTurn] = []
         for row in rows {
             if row.role == "user" { turns.append(.init(index: turns.count, user: row, replies: [])) }
-            else if row.role == "assistant", !row.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !turns.isEmpty { turns[turns.count - 1].replies.append(row) }
+            else if row.role == "assistant", !turns.isEmpty {
+                let hasText = !row.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if hasText { turns[turns.count - 1].replies.append(row) }
+                if hasText || !row.tools.isEmpty { turns[turns.count - 1].rows.append(row) }
+            }
         }
         return turns
     }
@@ -304,11 +314,12 @@ enum HistoryReconciler {
             return .init(rowID: reply.id, content: nil, state: .incomplete, metadata: [TurnKey.end: end, TurnKey.box: boxIDs])
         case .localPrefix:
             let content = extend(reply.text, with: box.replyText)
+            let steps = reply.hasSteps ? nil : box.activity.map { placed($0, from: box.replyText, in: content) }
             if reply.isEmpty { plan.counts.filled += 1 } else { plan.counts.extended += 1 }
             plan.counts.extendedChars += content.count - reply.text.count
             let end: String? = attested || active ? nil : (box.endedWithError ? "error" : "none")
             return .init(rowID: reply.id, content: content, state: attested ? .finished : .incomplete,
-                         metadata: [TurnKey.restored: "extended", TurnKey.box: boxIDs, TurnKey.why: nil, TurnKey.ambiguous: nil, TurnKey.end: end])
+                         metadata: [TurnKey.restored: "extended", TurnKey.box: boxIDs, TurnKey.why: nil, TurnKey.ambiguous: nil, TurnKey.end: end], activity: steps)
         case .serverPrefix: plan.counts.serverPrefix += 1; return nil
         case .conflict: plan.counts.conflicts += 1; return nil
         }
@@ -316,7 +327,8 @@ enum HistoryReconciler {
 
     static func newReply(_ box: ServerTurn, author: UUID?, mode: Mode, time: Date = .distantPast) -> NewRow {
         .init(role: .assistant, content: box.replyText, authorID: author, state: box.attested ? .finished : nil,
-              metadata: [TurnKey.restored: "added", TurnKey.box: ids(box.replies.compactMap(\.id))], createdAt: max(time, box.replies.first?.createdAt ?? time))
+              metadata: [TurnKey.restored: "added", TurnKey.box: ids(box.replies.compactMap(\.id))], createdAt: max(time, box.replies.first?.createdAt ?? time),
+              activity: box.activity)
     }
 
     /// Never add a box turn whose reply (or, in a chat, user text) is equal or prefix-related to a local row.

@@ -30,6 +30,8 @@ struct ToolStep: Codable, Equatable, Sendable {
     var name: String; var preview: String?; var startedAt: Date; var finishedAt: Date?; var failed = false; var callID: String?
     /// P34 D4: the bot this step messaged through bot-msg (and, once it ends, the reply).
     var botMessage: BotMessageCall?
+    /// P43: where in the reply's text (UTF-16 offset into `content`) the step started; nil on steps saved before P43.
+    var textOffset: Int?
     var isRunning: Bool { finishedAt == nil }
 }
 
@@ -42,13 +44,13 @@ struct ToolActivity: Codable, Equatable, Sendable {
     /// Internal tools (`_thinking`) are not steps.
     static func isShown(_ name: String) -> Bool { !name.isEmpty && !name.hasPrefix("_") }
 
-    mutating func apply(_ event: ToolEvent, at now: Date) {
+    mutating func apply(_ event: ToolEvent, at now: Date, textOffset: Int? = nil) {
         guard Self.isShown(event.name) else { return }
         switch event.phase {
         case .started:
             if let id = event.callID, steps.contains(where: { $0.callID == id }) { return }
             let call = (event.command ?? event.preview).flatMap(BotMessageCall.parse(command:))
-            steps.append(ToolStep(name: event.name, preview: event.preview, startedAt: now, callID: event.callID, botMessage: call)); total += 1
+            steps.append(ToolStep(name: event.name, preview: event.preview, startedAt: now, callID: event.callID, botMessage: call, textOffset: textOffset)); total += 1
             if steps.count > Self.limit { steps.removeFirst(steps.count - Self.limit) }
         case .progress:
             if let index = match(event), steps[index].preview == nil { steps[index].preview = event.preview }
@@ -73,6 +75,12 @@ struct ToolActivity: Codable, Equatable, Sendable {
     }
 
     var current: ToolStep? { steps.last { $0.isRunning } }
+
+    /// P43: one burst of steps (a range of `steps`) for its own row; it counts only its own steps.
+    func burst(_ range: Range<Int>) -> ToolActivity {
+        let part = Array(steps[range.clamped(to: steps.indices)])
+        return ToolActivity(steps: part, total: part.count, endedAt: part.contains(where: \.isRunning) ? nil : part.compactMap(\.finishedAt).max())
+    }
 
     /// 1-based number of `step` among all `total` steps (older ones may have been dropped).
     func number(of step: ToolStep) -> Int {

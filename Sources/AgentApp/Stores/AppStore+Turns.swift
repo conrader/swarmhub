@@ -51,7 +51,8 @@ extension AppStore {
                 if tool.name == "_thinking", tool.phase == .progress { row.lastTextAt = nil }
                 if row.content.isEmpty, ToolActivity.isShown(tool.name) { row.metadata["status"] = tool.name }
                 let before = row.activity
-                var activity = before ?? ToolActivity(); activity.apply(tool, at: now())
+                // P43: a step remembers where in the text it started, so the reply draws text → steps → text.
+                var activity = before ?? ToolActivity(); activity.apply(tool, at: now(), textOffset: row.content.utf16.count)
                 noteEndedBotMessageSteps(before: before, after: activity, sender: bot)
                 if activity.total > 0 { row.activity = activity; objectWillChange.send() }
             case .subAgent(let task): subAgent(task)
@@ -75,6 +76,8 @@ extension AppStore {
     @discardableResult func finishTurn(_ end: TurnEnd, assistant: ChatMessage, bot: Bot, in conversation: any Conversation, backend activeBackend: (any AgentBackend)?,
                                        alertPrefix: String = "", warn: Bool = true, alert: Bool = true) -> TurnOutcome {
         assistant.isStreaming = false
+        // P43: the live "first tool" status ends with the turn.
+        assistant.metadata["status"] = nil
         if var activity = assistant.activity { activity.finish(at: now()); assistant.activity = activity }
         if assistant.turnState == .stopped { return TurnOutcome.classify(.stoppedByUser) }
         let outcome = TurnOutcome.classify(end)
@@ -159,7 +162,7 @@ extension AppStore {
         }
         if outcome.state == .finished && hasText {
             AvatarReactions.shared.completed(bot)
-            notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.content))
+            notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.finalText))
         }
         resendReturnedSteers(steers, bot: bot)
         sendQueuedNextMessage()

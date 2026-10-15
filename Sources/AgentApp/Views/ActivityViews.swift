@@ -20,20 +20,33 @@ struct ActivityRow: View {
     @Environment(\.activityNow) private var fixedNow
     @ObservedObject var message: ChatMessage
     @State private var expanded: Bool
-    init(message: ChatMessage, expanded: Bool = false) { self.message = message; _expanded = State(initialValue: expanded) }
+    /// P43: the burst of steps this row shows (nil = every step), whether it carries the live line while the reply streams,
+    /// and a header-only live line after the reply's last text.
+    let range: Range<Int>?; let live: Bool; let headerOnly: Bool
+    init(message: ChatMessage, expanded: Bool = false, range: Range<Int>? = nil, live: Bool = true, headerOnly: Bool = false) {
+        self.message = message; _expanded = State(initialValue: expanded); self.range = range; self.live = live; self.headerOnly = headerOnly
+    }
+
+    private var streaming: Bool { message.isStreaming && live }
+    /// The steps this row lists.
+    private var shown: ToolActivity? {
+        if headerOnly { return nil }
+        guard let range, let activity = message.activity else { return message.activity }
+        return activity.burst(range)
+    }
 
     var body: some View {
-        if ActivityCopy.isRowShown(message.activity, streaming: message.isStreaming) {
+        if headerOnly ? message.isStreaming : range != nil || ActivityCopy.isRowShown(message.activity, streaming: message.isStreaming) {
             VStack(alignment: .leading, spacing: 6) {
-                if message.isStreaming {
+                if streaming {
                     TimelineView(.periodic(from: .now, by: 1)) { context in header(now: fixedNow ?? context.date) }
                 } else {
                     header(now: fixedNow ?? .now)
                 }
-                if expanded, let activity = message.activity, ActivityCopy.canUnfold(activity) {
+                if expanded, let activity = message.activity, let shown, ActivityCopy.canUnfold(shown) {
                     VStack(alignment: .leading, spacing: 4) {
-                        if activity.total > activity.steps.count { Text("Earlier \(activity.total - activity.steps.count) steps not kept").font(.caption2).foregroundStyle(.tertiary) }
-                        ForEach(Array(activity.steps.enumerated()), id: \.offset) { _, step in
+                        if (range?.lowerBound ?? 0) == 0, activity.total > activity.steps.count { Text("Earlier \(activity.total - activity.steps.count) steps not kept").font(.caption2).foregroundStyle(.tertiary) }
+                        ForEach(Array(shown.steps.enumerated()), id: \.offset) { _, step in
                             StepLine(step: step, number: activity.number(of: step), running: ActivityCopy.isRunning(step, streaming: message.isStreaming),
                                      thread: step.botMessage.flatMap { store.threadKey(for: $0, in: message) })
                         }
@@ -44,30 +57,30 @@ struct ActivityRow: View {
     }
 
     @ViewBuilder private func header(now: Date) -> some View {
-        let activity = message.activity
-        if ActivityCopy.canUnfold(activity) {
+        if ActivityCopy.canUnfold(shown) {
             Button { withAnimation(.easeOut(duration: 0.15)) { expanded.toggle() } } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "chevron.right").rotationEffect(.degrees(expanded ? 90 : 0)).font(.system(size: 9, weight: .semibold))
-                    status(activity, now: now)
+                    status(now: now)
                 }.font(.caption).foregroundStyle(.secondary).contentShape(Rectangle())
-            }.buttonStyle(.plain).help(ActivityCopy.toggleHelp(expanded: expanded, total: activity?.total ?? 0, streaming: message.isStreaming))
+            }.buttonStyle(.plain).help(ActivityCopy.toggleHelp(expanded: expanded, total: shown?.total ?? 0, streaming: streaming))
         } else {
-            HStack(spacing: 5) { status(activity, now: now) }.font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 5) { status(now: now) }.font(.caption).foregroundStyle(.secondary)
         }
     }
 
-    @ViewBuilder private func status(_ activity: ToolActivity?, now: Date) -> some View {
-        if message.isStreaming {
+    @ViewBuilder private func status(now: Date) -> some View {
+        let activity = message.activity
+        if streaming {
             ProgressView().controlSize(.mini)
             Text(ActivityCopy.liveLine(activity, since: message.createdAt, lastText: message.lastTextAt, now: now)).monospacedDigit()
             if ChatActivityPhase.current(activity, lastText: message.lastTextAt, now: now) == .working,
                let preview = activity?.current?.preview {
                 Text(preview).font(.caption.monospaced()).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
             }
-        } else if let activity, let summary = ActivityCopy.summary(activity, since: message.createdAt) {
+        } else if let shown, let summary = ActivityCopy.summary(shown, since: range == nil ? message.createdAt : shown.steps.first?.startedAt ?? message.createdAt) {
             Text(summary).monospacedDigit()
-            if activity.steps.contains(where: \.failed) { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+            if shown.steps.contains(where: \.failed) { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
         }
     }
 }

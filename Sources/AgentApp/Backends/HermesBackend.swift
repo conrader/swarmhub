@@ -135,7 +135,7 @@ struct HermesBackend: AgentBackend {
         return try await Self.loadMessagePages { offset, limit in
             let json = try await jsonRequest(path: "api/sessions/\(escaped)/messages?order=oldest&limit=\(limit)&offset=\(offset)&inline_images=false")
             guard let rows = json["data"] as? [[String: Any]] else { throw BackendError.unavailable("Hermes returned an invalid messages page.") }
-            return (rows.compactMap(Self.parseMessage), rows.count)
+            return (rows.compactMap { Self.parseMessage($0) }, rows.count)
         }
     }
 
@@ -184,9 +184,12 @@ struct HermesBackend: AgentBackend {
 
     /// A box row: integer `id` (a numeric string is accepted too), `finish_reason` kept; image data URLs in user rows
     /// (the box returns them whole) become a bare `[Image: inline]` line, which `comparable` ignores.
-    static func parseMessage(_ row: [String: Any]) -> BackendMessage? {
+    /// P43 (`toolCalls`): an assistant row's `tool_calls` names are kept, and a row with only tool calls is kept too (reconcile
+    /// draws the steps where they happened).
+    static func parseMessage(_ row: [String: Any], toolCalls: Bool = false) -> BackendMessage? {
+        let tools = toolCalls && row["role"] as? String == "assistant" ? toolNames(row["tool_calls"]) : []
         guard let role = row["role"] as? String, ["user", "assistant", "system"].contains(role),
-              var content = normalizedContent(row["content"]), !content.isEmpty else { return nil }
+              var content = normalizedContent(row["content"]) ?? (tools.isEmpty ? nil : ""), !content.isEmpty || !tools.isEmpty else { return nil }
         if role == "user", content.contains("[Image: data:") {
             content = content.components(separatedBy: "\n").map { $0.hasPrefix("[Image: data:") ? "[Image: inline]" : $0 }.joined(separator: "\n")
         }
@@ -198,7 +201,17 @@ struct HermesBackend: AgentBackend {
         else { date = nil }
         let rawID = row["id"] ?? row["message_id"]
         let id = (rawID as? Int) ?? (rawID as? String).flatMap { Int($0) }
-        return .init(id: id, role: role, content: content, createdAt: date, finishReason: row["finish_reason"] as? String)
+        return .init(id: id, role: role, content: content, createdAt: date, finishReason: row["finish_reason"] as? String, tools: tools)
+    }
+
+    /// `tool_calls` as an array (or its JSON string) of `{function: {name}}` or `{name}` entries.
+    static func toolNames(_ value: Any?) -> [String] {
+        var calls = value as? [[String: Any]]
+        if calls == nil, let text = value as? String, let data = text.data(using: .utf8) { calls = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] }
+        return (calls ?? []).compactMap { call in
+            let name = ((call["function"] as? [String: Any])?["name"] ?? call["name"]) as? String
+            return name.flatMap { $0.isEmpty ? nil : $0 }
+        }
     }
 
     static func normalizedContent(_ value: Any?) -> String? {
