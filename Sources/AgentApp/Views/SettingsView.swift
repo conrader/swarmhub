@@ -43,6 +43,7 @@ struct SettingsView: View {
         case .about: SettingsAboutPane()
         case .voice: SettingsVoicePane()
         case .chats: SettingsChatsPane()
+        case .heartbeat: SettingsHeartbeatPane()
         }
     }
 }

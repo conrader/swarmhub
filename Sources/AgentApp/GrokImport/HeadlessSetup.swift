@@ -5,19 +5,19 @@ import SwiftUI
 /// an agent's settings, the right panel (folded and open, P21b), P27's activity and skills banner, and P35's
 /// box shots to PNG. Everything comes from a synthetic in-memory store, key store and
 /// settings suite, and Test results are built in memory: no network, no Keychain, nothing of the real app is read or
-/// written. Refuses a directory inside the repository, like `--render-snapshot`. `--only p38` / `--only p38b` / `--only p38c` / `--only p38d` / `--only p38e` / `--only p39` / `--only p40` / `--only p41` / `--only p42` / `--only p43` / `--only p44` / `--only p45` renders just that part's shots.
+/// written. Refuses a directory inside the repository, like `--render-snapshot`. `--only p38` / `--only p38b` / `--only p38c` / `--only p38d` / `--only p38e` / `--only p39` / `--only p40` / `--only p41` / `--only p42` / `--only p43` / `--only p44` / `--only p45` / `--only p46` renders just that part's shots.
 @MainActor enum HeadlessSetup {
     static let size = NSSize(width: 580, height: 480)
     static let settingsSize = NSSize(width: 760, height: 560)
 
     static func run(arguments: [String]) -> Int32 {
         guard let flag = arguments.firstIndex(of: "--render-setup"), arguments.indices.contains(flag + 1) else {
-            print("Usage: AgentApp --render-setup <dir> [--only p38|p38b|p38c|p38d|p38e|p39|p40|p41|p42|p43|p44|p45]"); return 64
+            print("Usage: AgentApp --render-setup <dir> [--only p38|p38b|p38c|p38d|p38e|p39|p40|p41|p42|p43|p44|p45|p46]"); return 64
         }
         let directory = URL(fileURLWithPath: (arguments[flag + 1] as NSString).expandingTildeInPath, isDirectory: true)
         // P38: `--only p38` / `--only p38b` / `--only p38c` / `--only p38d` / `--only p38e` renders just that part's shots.
         let only = arguments.firstIndex(of: "--only").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
-        if let only, !["p38", "p38b", "p38c", "p38d", "p38e", "p39", "p40", "p41", "p42", "p43", "p44", "p45"].contains(only) { print("Unknown --only \(only); known: p38, p38b, p38c, p38d, p38e, p39, p40, p41, p42, p43, p44, p45"); return 64 }
+        if let only, !["p38", "p38b", "p38c", "p38d", "p38e", "p39", "p40", "p41", "p42", "p43", "p44", "p45", "p46"].contains(only) { print("Unknown --only \(only); known: p38, p38b, p38c, p38d, p38e, p39, p40, p41, p42, p43, p44, p45, p46"); return 64 }
         return HeadlessRunLoop.wait { await render(to: directory, only: only, output: { print($0); fflush(stdout) }) }
     }
 
@@ -124,6 +124,11 @@ import SwiftUI
             output("Rendered P45 to \(directory.path); \(failures) failed")
             return failures == 0 ? 0 : 1
         }
+        if only == "p46" {
+            await HeadlessP46Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+            output("Rendered P46 to \(directory.path); \(failures) failed")
+            return failures == 0 ? 0 : 1
+        }
         if only == "p38e" {
             await HeadlessP38EShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
             output("Rendered P38 E to \(directory.path); \(failures) failed")
@@ -163,6 +168,7 @@ import SwiftUI
         await HeadlessP43Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP44Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP45Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        await HeadlessP46Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         output("Rendered setup to \(directory.path); \(failures) failed")
         return failures == 0 ? 0 : 1
     }
