@@ -98,15 +98,21 @@ extension AppStore {
     /// The composer in a group: `@Name` picks recipients (none = everyone). Members answer one after another
     /// in member order, each in its own group session with the transcript since its last reply as context.
     /// While a member answers, the text steers that member's run instead.
-    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], to group: GroupChat) -> Bool {
+    /// P38: `recipientIDs` (a card's author) overrides the mentions and never steers; `sourceMessageID` is the card.
+    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], to group: GroupChat, recipientIDs: [UUID]? = nil, sourceMessageID: UUID? = nil) -> Bool {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
-        guard !isStreaming, streamTask == nil else { return steer(text: text, attachments: attachments, group: group) }
+        guard !isStreaming, streamTask == nil else { return recipientIDs == nil && steer(text: text, attachments: attachments, group: group) }
         let members = routingMembers(of: group)
         guard !members.isEmpty else { errorMessage = "Add bots to this group first."; return false }
+        if let recipientIDs, recipientIDs.isEmpty || !recipientIDs.allSatisfy({ id in members.contains { $0.id == id } }) { return false }
+        let ambiguous = recipientIDs == nil ? GroupRouting.ambiguousMentions(in: text, members: members) : []
+        guard ambiguous.isEmpty else {
+            errorMessage = "More than one member is called \(ambiguous.joined(separator: ", ")). Pick one from the @ list (it adds the #id)."; return false
+        }
         let images: [String]
         do { images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
-        let recipients = GroupRouting.recipients(of: text, members: members); steerHint = nil
-        let message = ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)
+        let recipients = recipientIDs ?? GroupRouting.recipients(of: text, members: members); steerHint = nil
+        let message = ChatMessage(role: .user, content: text, replyToID: sourceMessageID ?? replyTo?.id, attachments: attachments)
         group.messages.append(message); replyTo = nil
         group.round = GroupRound(userMessageID: message.id, remaining: recipients, active: nil)
         let run = GroupRun(groupID: group.id); groupRun = run

@@ -25,7 +25,7 @@ struct GroupChatView: View {
                         if group.messages.isEmpty { Text("Message everyone, or address one bot with @name.").font(.caption).foregroundStyle(.secondary).padding(.vertical, 12) }
                         ForEach(group.messages) { message in
                             GroupMessageRow(message: message, author: message.authorID.flatMap { id in store.bots.first { $0.id == id } },
-                                            repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }).id(message.id)
+                                            repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }, groupID: group.id).id(message.id)
                         }
                         ForEach(store.approvals.filter(isGroupApproval)) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
                         Color.clear.frame(height: 1).id("bottom")
@@ -42,7 +42,7 @@ struct GroupChatView: View {
                          send: send, stop: store.stop, attach: { intake.attach($0, store: store) },
                          pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                          reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
-                         mentionNames: members.map(\.name))
+                         mentionNames: GroupRouting.mentionable(store.routingMembers(of: group)).map(\.name))
                 .background(AppColor.chat)
         }.background(AppColor.chat)
             .dropDestination(for: URL.self) { urls, _ in
@@ -71,7 +71,7 @@ struct GroupChatView: View {
 /// A member's reply carries its avatar and name; user and system lines render as in a one-bot chat.
 private struct GroupMessageRow: View {
     @EnvironmentObject private var store: AppStore
-    let message: ChatMessage; let author: Bot?; let repliedMessage: ChatMessage?
+    let message: ChatMessage; let author: Bot?; let repliedMessage: ChatMessage?; let groupID: UUID
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if message.role == .assistant {
@@ -80,7 +80,8 @@ private struct GroupMessageRow: View {
                     Text(author?.name ?? "Removed bot").font(.system(size: 12, weight: .semibold))
                 }.padding(.horizontal, 28).padding(.top, 8)
             }
-            MessageView(message: message, repliedMessage: repliedMessage, reply: { store.replyTo = message })
+            MessageView(message: message, repliedMessage: repliedMessage,
+                        actionTarget: message.authorID.map { .group(groupID: groupID, botID: $0) }, reply: { store.replyTo = message })
         }
     }
 }

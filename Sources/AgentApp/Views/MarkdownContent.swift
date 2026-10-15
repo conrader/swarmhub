@@ -4,14 +4,16 @@ import SwiftUI
 /// Assistant Markdown with inline cards: choices, drafts, link pills and images (see `ChatCardParser`); swarmhub blocks stay hidden.
 struct MarkdownContent: View {
     @ObservedObject var message: ChatMessage
+    /// P38: where the cards answer; nil (renders, a thread's parent line) shows them without actions.
+    var actionTarget: ConversationActionTarget? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(ChatCardParser.parse(SwarmhubBlock.visibleText(message.content)).enumerated()), id: \.offset) { index, block in
                 switch block {
                 case .markdown(let text): ProseBlock(text: text)
                 case .code(_, let body): CodeBlock(code: body)
-                case .choices(let prompt, let options): ChoicesCard(message: message, index: index, prompt: prompt, options: options)
-                case .draft(let draft): DraftCardView(message: message, index: index, draft: draft)
+                case .choices(let prompt, let options): ChoicesCard(message: message, target: actionTarget, index: index, prompt: prompt, options: options)
+                case .draft(let draft): DraftCardView(message: message, target: actionTarget, index: index, draft: draft)
                 case .image(let alt, let url): InlineImage(alt: alt, url: url)
                 }
             }
@@ -65,10 +67,11 @@ struct LinkPillRow: View {
     }
 }
 
-/// Picking an option sends it as the user's reply; the pick is remembered on the message.
+/// Picking an option sends it as the user's reply to the card's own chat (P38: to its author in a group); the pick is
+/// remembered on the message.
 private struct ChoicesCard: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var message: ChatMessage; let index: Int; let prompt: String; let options: [String]
+    @ObservedObject var message: ChatMessage; let target: ConversationActionTarget?; let index: Int; let prompt: String; let options: [String]
     private var picked: String? { message.metadata["picked.\(index)"] }
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -78,20 +81,20 @@ private struct ChoicesCard: View {
                     HStack { Text(option).multilineTextAlignment(.leading); Spacer(); if picked == option { Image(systemName: "checkmark") } }
                         .padding(.horizontal, 11).padding(.vertical, 7).contentShape(Rectangle())
                         .background(picked == option ? AppColor.selection : AppColor.raised, in: RoundedRectangle(cornerRadius: 8))
-                }.buttonStyle(.plain).disabled(picked != nil || message.isStreaming || store.isStreaming)
+                }.buttonStyle(.plain).disabled(target == nil || picked != nil || message.isStreaming || store.isStreaming)
             }
         }.padding(12).frame(maxWidth: 500, alignment: .leading).background(AppColor.card, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(AppColor.separator, lineWidth: 0.5))
     }
     private func pick(_ option: String) {
-        guard picked == nil, !store.isStreaming else { return }
-        if store.send(text: option) { message.metadata["picked.\(index)"] = option; store.save() }
+        guard let target, picked == nil, !store.isStreaming else { return }
+        store.performCardAction(target: target, sourceID: message.id, index: index, expected: .choices(prompt: prompt, options: options), choice: option)
     }
 }
 
-/// Draft card: "Send" posts "Send it" to the bot, "Copy" copies the draft text.
+/// Draft card: "Send" posts "Send it" to the bot that wrote it (P38: in the card's own chat), "Copy" copies the draft text.
 private struct DraftCardView: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var message: ChatMessage; let index: Int; let draft: DraftCard
+    @ObservedObject var message: ChatMessage; let target: ConversationActionTarget?; let index: Int; let draft: DraftCard
     private var sent: Bool { message.metadata["draftSent.\(index)"] != nil }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -110,8 +113,8 @@ private struct DraftCardView: View {
                 if sent { Text("Sent “Send it”").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 Button("Copy") { copyToPasteboard(draftText) }
-                Button("Send") { if store.send(text: "Send it") { message.metadata["draftSent.\(index)"] = "1"; store.save() } }
-                    .buttonStyle(NeutralPrimaryButtonStyle()).disabled(sent || message.isStreaming || store.isStreaming)
+                Button("Send") { if let target { store.performCardAction(target: target, sourceID: message.id, index: index, expected: .draft(draft)) } }
+                    .buttonStyle(NeutralPrimaryButtonStyle()).disabled(target == nil || sent || message.isStreaming || store.isStreaming)
             }.padding(10)
         }.frame(maxWidth: 500, alignment: .leading).background(AppColor.card, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(AppColor.separator, lineWidth: 0.5))
     }

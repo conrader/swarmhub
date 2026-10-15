@@ -197,12 +197,20 @@ import UserNotifications
         guard let bot = selectedBot, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
         guard !isStreaming, streamTask == nil else { return steer(text: text, attachments: attachments, bot: bot) }
+        guard send(text: text, attachments: attachments, bot: bot, conversation: openThread(in: bot) ?? bot, replyToID: replyTo?.id) else { return false }
+        replyTo = nil
+        return true
+    }
+    /// P38: a new turn in `conversation` (the bot's chat or one of its threads), whatever is selected; never steers.
+    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], bot: Bot, conversation: any Conversation, replyToID: UUID?) -> Bool {
+        guard !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
+        if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
+        guard !isStreaming, streamTask == nil else { return false }
         let activeBackend: any AgentBackend; let images: [String]
         do { activeBackend = try backend(for: bot); images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) }
         catch { errorMessage = error.localizedDescription; return false }
-        let conversation: any Conversation = openThread(in: bot) ?? bot
         historyLoadTokens[bot.id] = nil; steerHint = nil
-        let user = ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments); replyTo = nil
+        let user = ChatMessage(role: .user, content: text, replyToID: replyToID, attachments: attachments)
         conversation.messages.append(user)
         startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
         return true
