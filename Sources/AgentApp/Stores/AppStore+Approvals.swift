@@ -14,7 +14,7 @@ extension AppStore {
             errorMessage = "Cannot approve \(server == "OpenClaw" ? "an" : "a") \(server) request without command text."
             return
         }
-        if approval.isAppAction { Task { await decideAppAction(approval, approved: approved) }; return }
+        if isAppAction(approval) { Task { await decideAppAction(approval, approved: approved) }; return }
         guard let botID = approval.botID, let bot = bots.first(where: { $0.id == botID }), let approvalBackend = try? backend(for: bot) else { return }
         Task {
             do {
@@ -30,7 +30,7 @@ extension AppStore {
     /// any line: Approve needs known, conservative command text; a reviewer never sees unknown, unsafe or destructive
     /// commands; a reviewer that fails, escalates or times out asks you.
     func routeApproval(_ approval: ApprovalRequest, for bot: Bot, backend: any AgentBackend) async {
-        if approval.isAppAction { routeAppApproval(approval, for: bot); return }
+        if isAppAction(approval) { routeAppApproval(approval, for: bot); return }
         appendAudit(to: bot, approval: approval, outcome: .requested, decidedBy: "system", reason: "Approval requested.")
         let facts = ApprovalFacts(action: approval.actionKind, command: approval.command ?? "") { [weak self] in self?.bot(forProfile: $0)?.name }
         var skipped: [String] = []

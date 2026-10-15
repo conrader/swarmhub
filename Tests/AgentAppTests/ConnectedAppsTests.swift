@@ -147,6 +147,7 @@ import Testing
     store.bots = [bot]
     let request = ApprovalRequest(id: UUID(), title: "Send email", summary: "Gmail", draft: nil, command: "{}", botID: bot.id, sessionID: "chat", actionKind: "composio.GMAIL_SEND_EMAIL")
     let events = AwaitableLog<AgentEvent>()
+    store.connectedApps.localApprovals[request.id] = .chat
     let waiting = Task { try await store.connectedApps.approvals.wait(request) { events.append($0) } }
     try await events.wait { !$0.isEmpty }
     await store.routeApproval(request, for: bot, backend: backend)
@@ -157,4 +158,10 @@ import Testing
     try await waitUntil { store.approvals.isEmpty }
     #expect(bot.approvalAudit.last?.outcome == .approved)
     #expect(!backend.calls.all.contains { $0.hasPrefix("approval") }, "App approval must not be sent to Hermes")
+    // A bot server's approval that only names itself an app action is routed like any other (here: the allow line).
+    let forged = ApprovalRequest(id: UUID(), title: "Forged", summary: "x", draft: nil, command: "cat /tmp/x", botID: bot.id, sessionID: "chat", actionKind: "composio.GMAIL_SEND_EMAIL")
+    #expect(!store.isAppAction(forged))
+    await store.routeApproval(forged, for: bot, backend: backend)
+    try await backend.calls.wait { $0.contains("approval:true") }
+    #expect(!store.approvals.contains { $0.id == forged.id })
 }

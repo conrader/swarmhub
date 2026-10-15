@@ -130,6 +130,8 @@ struct AppToolRequest: Sendable {
                                                            draft: command, command: command, botID: botID, sessionID: request.sessionID, actionKind: "composio.\(slug)")
                             var receipt = ToolExecutionReceipt(id: approval.id, botID: botID, sessionID: request.sessionID, tool: slug, account: account, arguments: try arguments.withoutCredentials().text())
                             try apps.record(receipt); activeReceiptID = receipt.id
+                            apps.localApprovals[approval.id] = .chat
+                            defer { apps.localApprovals[approval.id] = nil }
                             let approved = try await apps.approvals.wait(approval) { event in continuation.yield(event) }
                             try Task.checkCancellation()
                             try apps.check(scope, botID: botID, account: account)

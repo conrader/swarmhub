@@ -1,14 +1,12 @@
 import Foundation
 
-extension ApprovalRequest {
-    /// P38 B: an app action (`composio.<TOOL>` from a chat, `background.<TOOL>` from the server worker's inbox). These are
-    /// decided by SwarmHub itself, never by the bot's server, a rule or a reviewer: they always ask you.
-    var isAppAction: Bool { actionKind.hasPrefix("composio.") || actionKind.hasPrefix("background.") }
-}
-
 /// P38 B: connected apps on the store: the chat stream wrapper, the app connection card's bot, the decisions of app
 /// action cards, and the SwarmHub connection service's state for the Settings pane.
 extension AppStore {
+    /// An app action card SwarmHub made itself (the chat tool loop, the worker inbox): decided by SwarmHub, never by the
+    /// bot's server, a rule or a reviewer; it always asks you. Looked up by card id, never by the card's own fields.
+    func isAppAction(_ approval: ApprovalRequest) -> Bool { connectedApps.localApprovals[approval.id] != nil }
+
     func makeConnectedApps() -> ConnectedAppsStore {
         let provisioner = connectedAppsServiceURL.map { ComposioProvisioningClient(baseURL: $0, identity: connectedAppsIdentity(url: $0)) }
         return ConnectedAppsStore(directory: fileURL.deletingLastPathComponent(), keyStore: keyStore, provisioner: provisioner, persistenceEnabled: persistenceEnabled)
@@ -36,11 +34,13 @@ extension AppStore {
     /// An app action card's answer: a chat action goes to the waiting tool loop, a background one to the SwarmHub
     /// service. Never to the bot's server.
     func decideAppAction(_ approval: ApprovalRequest, approved: Bool) async {
-        guard let bot = approval.botID.flatMap({ id in bots.first { $0.id == id } }) else { approvals.removeAll { $0.id == approval.id }; return }
-        if approval.actionKind.hasPrefix("background.") {
+        guard let origin = connectedApps.localApprovals[approval.id],
+              let bot = approval.botID.flatMap({ id in bots.first { $0.id == id } }) else { approvals.removeAll { $0.id == approval.id }; return }
+        if case .background(let id) = origin {
             do {
-                guard let client = backgroundExecutionClient(), let id = approval.requestID else { throw ComposioProvisioningError.unavailable }
+                guard let client = backgroundExecutionClient() else { throw ComposioProvisioningError.unavailable }
                 _ = try await client.request("requests/\(id)/decision", body: .object(["approved": .bool(approved)]))
+                connectedApps.localApprovals[approval.id] = nil
             } catch { errorMessage = error.localizedDescription; return }
         } else if await !connectedApps.approvals.decide(approval.id, approved: approved) {
             approvals.removeAll { $0.id == approval.id }; errorMessage = "This app action is no longer waiting for approval."; return
@@ -68,6 +68,7 @@ extension AppStore {
             let command = (try? row["arguments"].text()) ?? "{}"
             let approval = ApprovalRequest(id: UUID(), title: tool, summary: "Background · \(row["account"].string ?? "account")", draft: command, command: command,
                                            requestID: requestID, botID: bot.id, actionKind: "background.\(tool)")
+            connectedApps.localApprovals[approval.id] = .background(requestID: requestID)
             routeAppApproval(approval, for: bot)
         }
         return rows

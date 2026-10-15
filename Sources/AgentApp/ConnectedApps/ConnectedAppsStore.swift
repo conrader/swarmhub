@@ -10,6 +10,13 @@ struct ConnectedAppsConfiguration: Codable, Sendable, Equatable {
     var appToolkits: [String: String]?
 }
 
+enum AppApprovalOrigin: Equatable, Sendable {
+    /// The chat tool loop is waiting on `AppToolApprovalBroker`.
+    case chat
+    /// The SwarmHub worker inbox's request id.
+    case background(requestID: String)
+}
+
 struct ComposioRunScope: Sendable {
     let client: ComposioClient; let userID: String; let accounts: [String: String]
     let revision: UUID
@@ -30,6 +37,9 @@ struct ComposioRunScope: Sendable {
     /// Set when the SwarmHub connection service answered that it is not set up (`/health` 503).
     @Published var serviceNote: String?
     let approvals = AppToolApprovalBroker()
+    /// The app action cards SwarmHub made itself (by card id). Only these are decided locally; an approval from a bot's
+    /// server is never treated as an app action, whatever its action kind says.
+    var localApprovals: [UUID: AppApprovalOrigin] = [:]
     @Published var receipts: [ToolExecutionReceipt] = []
     let directory: URL
     private let fileURL: URL; private let keyStore: any HermesKeyStore; private let session: URLSession

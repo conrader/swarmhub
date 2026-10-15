@@ -16,7 +16,7 @@ import Testing
     #expect(store.send(text: "Read my inbox"))
     try await waitUntil { !store.approvals.isEmpty }
     let card = store.approvals[0]
-    #expect(card.isAppAction && card.botID == bot.id && card.routeNote == "App actions always ask you.")
+    #expect(store.isAppAction(card) && card.botID == bot.id && card.routeNote == "App actions always ask you.")
     #expect(MockHermesProtocol.recorded(host).allSatisfy { !$0.url!.path.hasSuffix("/execute") }, "nothing runs before the card is answered")
     store.decide(card, approved: true)
     try await waitUntil { store.isIdle }
