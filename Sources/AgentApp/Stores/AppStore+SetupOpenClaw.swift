@@ -48,21 +48,18 @@ extension AppStore {
     @discardableResult func commitSetupOpenClaw(gatewayID: String?, agents: [OpenClawAgent], chosen: Set<String>) throws -> [Bot] {
         guard let gatewayID, gateway(id: gatewayID) != nil else { throw SetupCommitError.notTested }
         guard !chosen.isEmpty else { throw SetupCommitError.nothingChosen }
-        let oldBots = bots, oldHidden = bots.map { ($0, $0.isHidden) }, oldSelection = (selectedBot, selectedGroup)
-        let oldState = defaults.object(forKey: FirstRun.stateKey)
-        let added = appendOpenClawBots(agents, gatewayID: gatewayID, only: chosen).added
-        removeSampleBots()
-        let target = added.first ?? bots.first { $0.openClaw?.gatewayID == gatewayID && chosen.contains($0.openClaw?.agentID ?? "") && !$0.isHidden }
-        if let target { selectedBot = target; selectedGroup = nil; rememberSelection(bot: target) } else { selectVisibleChat() }
-        FirstRun.record(.done, in: defaults)
-        objectWillChange.send()
-        do { try saveThrowing() } catch {
-            bots = oldBots
-            for (bot, hidden) in oldHidden { bot.isHidden = hidden }
-            (selectedBot, selectedGroup) = oldSelection
-            defaults.set(oldState, forKey: FirstRun.stateKey)
+        let transaction = SetupTransaction(self)
+        transaction.captureDefaults([FirstRun.stateKey])
+        transaction.captureBots()
+        let added = try transaction.run {
+            let added = appendOpenClawBots(agents, gatewayID: gatewayID, only: chosen).added
+            removeSampleBots()
+            let target = added.first ?? bots.first { $0.openClaw?.gatewayID == gatewayID && chosen.contains($0.openClaw?.agentID ?? "") && !$0.isHidden }
+            if let target { selectedBot = target; selectedGroup = nil; rememberSelection(bot: target) } else { selectVisibleChat() }
+            FirstRun.record(.done, in: defaults)
             objectWillChange.send()
-            throw SetupCommitError.saveFailed
+            try saveThrowing()
+            return added
         }
         if setupCreatedGatewayID == gatewayID { setupCreatedGatewayID = nil }
         return added
