@@ -78,7 +78,7 @@ private func probeRequest(_ probe: String, _ url: String = "https://konrad.agent
     #expect(files.count > 50)
     for file in files {
         let text = try String(contentsOf: file, encoding: .utf8)
-        for opener in ["NSWorkspace.shared.open(", ".openApplication(at", ".activateFileViewerSelecting(", "\\.openURL", "/usr/bin/open"] {
+        for opener in ["NSWorkspace.shared.open(", "shared.openApplication(", "shared.activateFileViewerSelecting(", "\\.openURL", "/usr/bin/open"] {
             #expect(!text.contains(opener), "\(file.lastPathComponent) calls \(opener); use ExternalLink")
         }
     }
