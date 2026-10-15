@@ -105,6 +105,8 @@ import UserNotifications
     var approvalExpirySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// P38 D: the wait until a workflow's 30-minute limit (a test ends it when it chooses).
     var workflowSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// P43: the 5 s pause of a routine run's watch (tests inject it).
+    var routineWatchSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil, openClawHub: OpenClawHub? = nil) {
         // P28: a test run never opens the real store.json or the standard defaults; either is reported and replaced.

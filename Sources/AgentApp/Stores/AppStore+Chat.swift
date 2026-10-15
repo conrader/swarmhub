@@ -25,7 +25,11 @@ extension AppStore {
         startThread(from: message, in: bot)
     }
 
-    func closeThread() { openThreadID = nil }
+    /// Back to the bot's chat: what arrived there meanwhile (a routine card) is now seen.
+    func closeThread() {
+        openThreadID = nil
+        if let bot = selectedBot, bot.unreadCount != 0 { bot.unreadCount = 0; save() }
+    }
 
     // MARK: Attachments
 

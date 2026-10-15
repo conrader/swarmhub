@@ -55,6 +55,7 @@ extension AppStore {
                 var activity = before ?? ToolActivity(); activity.apply(tool, at: now(), textOffset: row.content.utf16.count)
                 noteEndedBotMessageSteps(before: before, after: activity, sender: bot)
                 if activity.total > 0 { row.activity = activity; objectWillChange.send() }
+                if tool.phase == .completed || tool.phase == .failed, RoutineWatch.isCronTool(tool.name) { routineToolEnded(bot: bot) }
             case .subAgent(let task): subAgent(task)
             case .approval(var request):
                 request.botID = bot.id; request.profile = bot.hermesProfile ?? "default"; request.sessionID = sessionID

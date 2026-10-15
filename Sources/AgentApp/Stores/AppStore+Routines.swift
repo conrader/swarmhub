@@ -20,6 +20,7 @@ extension AppStore {
         do {
             let jobs = try await client.list()
             routines.update(bot.id) { $0.jobs = .loaded(jobs); $0.isRefreshing = false; $0.error = nil }
+            watchRunningRoutines(jobs, bot: bot)
             await deliverFinishedRuns(jobs, bot: bot, client: client)
             return true
         } catch HermesJobsError.noJobsAPI {
@@ -70,7 +71,8 @@ extension AppStore {
     }
 
     /// Hermes's run endpoint also re-enables a paused job; such a job is paused again once its run is seen.
-    func runRoutineNow(_ job: HermesJob, for bot: Bot) async {
+    /// P43: `runRoutineNow` (`AppStore+RoutineWatch.swift`) wraps this with Running… and the 5 s watch.
+    func startRoutineRun(_ job: HermesJob, for bot: Bot) async -> String? {
         await performRoutineAction(bot, token: job.id) { client in
             let started = try await client.run(job.id)
             if job.isPaused { self.setRepause(true, key: Self.runKey(bot, job.id)) }

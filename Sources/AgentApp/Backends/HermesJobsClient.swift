@@ -20,6 +20,9 @@ struct HermesJob: Identifiable, Equatable, Sendable {
     var lastRunAt: String?
     var lastStatus: String?
     var lastError: String?
+    /// P43: when Run now asked for a run (`manual_run_at`) and whether a scheduler has claimed the fire (`fire_claim`).
+    var manualRunAt: String? = nil
+    var fireClaimed = false
 
     var isPaused: Bool { !enabled || state == "paused" }
 
@@ -40,7 +43,8 @@ struct HermesJob: Identifiable, Equatable, Sendable {
         return .init(id: id, name: text(row["name"]) ?? id, prompt: row["prompt"] as? String ?? "", schedule: schedule, scheduleKind: kind,
                      scheduleDisplay: display.isEmpty ? schedule : display, enabled: enabled,
                      state: text(row["state"]) ?? (enabled ? "scheduled" : "paused"), nextRunAt: text(row["next_run_at"]),
-                     lastRunAt: text(row["last_run_at"]), lastStatus: text(row["last_status"]), lastError: text(row["last_error"]))
+                     lastRunAt: text(row["last_run_at"]), lastStatus: text(row["last_status"]), lastError: text(row["last_error"]),
+                     manualRunAt: text(row["manual_run_at"]), fireClaimed: row["fire_claim"].map { !($0 is NSNull) && ($0 as? Bool) != false } ?? false)
     }
 
     static func parseList(_ json: [String: Any]) -> [HermesJob] { ((json["jobs"] as? [[String: Any]]) ?? []).compactMap(parse) }
