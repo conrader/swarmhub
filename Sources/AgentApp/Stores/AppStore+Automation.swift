@@ -7,6 +7,7 @@ extension AppStore {
         switch command {
         case .goal: goalCommand(arguments, bot: bot, conversation: conversation)
         case .subgoal: subgoalCommand(arguments, conversation: conversation)
+        case .loop: loopCommand(arguments, bot: bot, conversation: conversation)
         default: return false
         }
         return true
@@ -18,12 +19,14 @@ extension AppStore {
         if let goal = goal(in: conversation), goal.isActive {
             endGoal(in: conversation, card: "goalEnded", title: "Goal stopped", detail: "Stopped by you after \(goal.progress)."); stopped = true
         }
+        if loop(in: conversation) != nil { endLoop(in: conversation, line: "Loop stopped."); stopped = true }
         return stopped
     }
 
     func automationStatusLines(for conversation: any Conversation) -> [String] {
         var lines: [String] = []
         if let goal = goal(in: conversation) { lines.append("Goal: \(goal.text) · \(goal.state.rawValue) · \(goal.progress)") }
+        if let loop = loop(in: conversation) { lines.append(loopStatus(loop).components(separatedBy: "\n")[0]) }
         return lines
     }
 
@@ -35,6 +38,7 @@ extension AppStore {
     /// for a typed correction counts as still running: the correction's turn ends it.
     func automationTurnEnded(in conversation: any Conversation, bot: Bot, reply: ChatMessage, outcome: TurnOutcome, corrected: Bool = false) {
         guard automations[conversation.id] != nil, !corrected else { return }
+        loopTurnEnded(in: conversation, reply: reply, outcome: outcome)
         goalTurnEnded(in: conversation, bot: bot, reply: reply, outcome: outcome)
     }
 
@@ -50,6 +54,7 @@ extension AppStore {
                 else if goal.state == .paused, goal.pausedOffline, !turns.pathDown { updateGoal(in: conversation) { $0.state = .running; $0.pausedOffline = false } }
                 advanceGoal(in: conversation, bot: bot)
             }
+            if automation.loop != nil { runLoopIfDue(in: conversation, bot: bot) }
         }
     }
 
@@ -73,7 +78,7 @@ extension AppStore {
         var restored: [UUID: ChatAutomation] = [:]
         for (key, var automation) in stored ?? [:] {
             guard let id = UUID(uuidString: key) else { continue }
-            automation.goal?.awaitingReply = false
+            automation.goal?.awaitingReply = false; automation.loop?.awaitingReply = false
             restored[id] = automation
         }
         automations = restored

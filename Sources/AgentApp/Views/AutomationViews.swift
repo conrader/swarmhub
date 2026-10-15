@@ -9,6 +9,12 @@ struct AutomationStrip: View {
         if let automation, automation.goal?.isActive == true || automation.loop != nil || automation.heartbeat != nil {
             HStack(spacing: 8) {
                 if let goal = automation.goal, goal.isActive { GoalChip(goal: goal, bot: bot, conversation: conversation) }
+                if let loop = automation.loop {
+                    AutomationChip(icon: "repeat", title: loop.label, detail: loop.paused ? "paused" : "sent \(loop.runs)") {
+                        Button(loop.paused ? "Resume" : "Pause") { store.loopCommand(loop.paused ? "resume" : "pause", bot: bot, conversation: conversation) }
+                        Button("Stop") { store.loopCommand("stop", bot: bot, conversation: conversation) }
+                    }.accessibilityIdentifier("chat.loopChip")
+                }
                 Spacer(minLength: 0)
             }.padding(.horizontal, ChromeMetrics.headerPadding).padding(.vertical, 6).frame(maxWidth: .infinity).background(AppColor.chat)
         }
