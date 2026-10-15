@@ -19,6 +19,10 @@ struct SettingsAccountPane: View {
                 LabeledContent(line.server) { Text(line.reading?.label ?? "Reading the Hermes version…").foregroundStyle(.secondary) }
             }
             Text("Versions SwarmHub has run against are marked “works”; others are “not tested yet”.").font(.caption).foregroundStyle(.secondary)
+            // P31 C: coding tools and account logins per connection.
+            ForEach(store.hermesConnections, id: \.target) { connection in
+                LabeledContent("Coding tools and accounts on \(connection.host)") { AccountsButton(target: AccountsTarget(id: connection.target, host: connection.host)) }
+            }
         }
         .task { await store.loadHermesVersions() }
         Section("Hermes server") {

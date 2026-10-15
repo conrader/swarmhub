@@ -50,6 +50,8 @@ import UserNotifications
     /// P35: profiles on each box with no bot yet (keyed by `connection(of:)`), the batch the confirmation sheet asks
     /// about, connections discovered this launch, and the names each manager's "Connect bots" turn was asked for.
     @Published var boxProfiles: [String: [BoxProfile]] = [:]; @Published var adoptionOffer: AdoptionOffer?
+    /// P31 C: the Accounts sheet per Hermes connection (`connection(of:)`).
+    @Published var codingAccounts: [String: AccountsState] = [:]
     var discoveredConnections: Set<String> = []; var pendingAdoptions: [UUID: [String]] = [:]
     /// Tests: the manager text template instead of the bundled resource.
     var managerTemplateOverride: String?

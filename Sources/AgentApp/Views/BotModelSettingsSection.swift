@@ -53,6 +53,10 @@ struct BotModelSettingsSection: View {
                 }
                 Text((codingAgent == nil ? "\(AppConstants.name) default: \((store.modelDefaults.codingAgent ?? .standard).title). " : "") + CodingOrder.help)
                     .font(.caption).foregroundStyle(.secondary)
+                if let bot, bot.backend == .hermes {
+                    let target = store.connection(of: bot)
+                    LabeledContent("Logins on this box") { AccountsButton(target: AccountsTarget(id: target, host: URL(string: target)?.host ?? target)) }
+                }
             }
             HStack(alignment: .firstTextBaseline) {
                 Text(model.reason).font(.caption).foregroundStyle(.secondary)
