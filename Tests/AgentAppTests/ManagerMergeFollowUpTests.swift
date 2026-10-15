@@ -38,7 +38,7 @@ private let managerSkill = BundledSkill(name: "swarmhub-manager", version: Skill
 
 @Test func changeModelIsOfferedOnlyToHermesManagers() {
     #expect(!ManageBotsAction.actions(for: .openClaw).contains(.changeModel))
-    #expect(ManageBotsAction.actions(for: .openClaw) == ManageBotsAction.allCases.filter { $0 != .changeModel })
+    #expect(ManageBotsAction.actions(for: .openClaw) == ManageBotsAction.allCases.filter { $0 != .changeModel && $0 != .changeSubAgentModel })
     #expect(ManageBotsAction.actions(for: .hermes).contains(.changeModel))
 }
 

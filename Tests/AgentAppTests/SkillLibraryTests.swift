@@ -30,21 +30,22 @@ func ordinaryChatIsNoModelIntent(_ text: String) { #expect(!ManagementIntent.mat
 // MARK: Template
 
 /// P30: the model recipe (skill 1.0.1), byte for byte: two bots at a time, values a bot already has skipped, Hermes'
-/// stderr kept out of the log, started with the terminal tool's background option (it refuses nohup).
+/// stderr kept out of the log, started with the terminal tool's background option (it refuses nohup). P31 D+E (skill
+/// 1.2.0): the skip check compares the current value with quotes stripped, so '', "" and a missing key are empty.
 private let modelRecipe = ##"""
 Change the model (one bot, some, or all): ask first, naming model, provider and bots. Start it as a background process of your terminal tool (its background option, not nohup/setsid, which it refuses):
 ```
 export MODEL=<model> PROV=<provider, e.g. openai-codex> KM=model.default KP=model.provider
-cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 1 sh -c 'N=$1; F=profiles/$N/config.yaml; [ "$N" = default ] && F=config.yaml; r=ok; for KV in "$KM=$MODEL" "$KP=$PROV"; do K=${KV%%=*}; V=${KV#*=}; sed -n "/^${K%%.*}:/,/^[^ ]/p" "$F" | grep -Eq "^ +${K#*.}: *\"?$V\"? *$" || hermes -p "$N" config set "$K" "$V" >/dev/null 2>>swarmhub-model.err || r=FAILED; done; echo "$N $r"' sh > swarmhub-model.log; echo DONE >> swarmhub-model.log
+cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 1 sh -c 'N=$1; F=profiles/$N/config.yaml; [ "$N" = default ] && F=config.yaml; r=ok; for KV in "$KM=$MODEL" "$KP=$PROV"; do K=${KV%%=*}; V=${KV#*=}; C=$(sed -n "/^${K%%.*}:/,/^[^ ]/s/^  *${K#*.}: *//p" "$F" | head -n 1 | tr -d "\"\047 "); [ "$C" = "$V" ] || hermes -p "$N" config set "$K" "$V" >/dev/null 2>>swarmhub-model.err || r=FAILED; done; echo "$N $r"' sh > swarmhub-model.log; echo DONE >> swarmhub-model.log
 ```
-`<names>` for all bots: `default $(ls ~/.hermes/profiles | grep -E '^[a-z0-9][a-z0-9_-]*$')`. The sub-agent/coding model only when asked: the same with `KM=delegation.model KP=delegation.provider`. A value a bot already has is skipped; each change takes ~4 s, two bots at a time. Wait for the process, then `cat ~/.hermes/swarmhub-model.log` (ends with DONE) and report ok/FAILED per bot; for FAILED show the last lines of `~/.hermes/swarmhub-model.err`. Say that SwarmHub chats with their own chosen model keep it (changed in that chat's model menu).
+`<names>` for all bots: `default $(ls ~/.hermes/profiles | grep -E '^[a-z0-9][a-z0-9_-]*$')`. The sub-agent/coding model only when asked: the same with `KM=delegation.model KP=delegation.provider`; empty MODEL and PROV clear it (sub-agents then use each bot's model). A value a bot already has is skipped; each change takes ~4 s, two bots at a time. Wait for the process, then `cat ~/.hermes/swarmhub-model.log` (ends with DONE) and report ok/FAILED per bot; for FAILED show the last lines of `~/.hermes/swarmhub-model.err`. Say that SwarmHub chats with their own chosen model keep it (changed in that chat's model menu).
 """##
 
 @Test func managerTextCarriesTheModelRecipeWithinItsBudget() throws {
     let template = try #require(BotManagerText.template())
     // P30: the exact recipe block took the text past 4 KiB; P35's list, connect and restore recipes to 6.4 KiB; P31 C's
     // accounts recipes to 10 KiB, then split out into recipes/box.md and recipes/accounts.md, read on demand.
-    #expect(template.utf8.count <= 4_700, "manager-hermes.md is \(template.utf8.count) bytes")
+    #expect(template.utf8.count <= 4_600, "manager-hermes.md is \(template.utf8.count) bytes")
     #expect(template.contains(modelRecipe))
     #expect(template.contains(#"hermes -p "$N" config set "$K" "$V""#) && template.contains("KM=model.default KP=model.provider"))
     #expect(template.contains("xargs -P 2 -n 1") && template.contains("2>>swarmhub-model.err") && template.contains("echo DONE >> swarmhub-model.log"))

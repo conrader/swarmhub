@@ -80,6 +80,10 @@ private func check(_ name: String, _ text: String?, carries wanted: Set<String>)
     for tool in [CodingTool.claude, .codex] {
         sizes["logout \(tool)"] = try check("logout \(tool.rawValue)", CodingAccounts.logoutInstructions(tool, template: accounts), carries: ["logout", "status"])
     }
+    let models = try #require(BotManagerText.recipe(.models)), capacity = try #require(BotManagerText.recipe(.capacity))
+    sizes["models"] = try check("models", BoxReadingsTurns.modelsInstructions(template: models), carries: ["models"])
+    sizes["capacity"] = try check("capacity", BoxReadingsTurns.capacityInstructions(template: capacity), carries: ["capacity"])
+    sizes["limit"] = try check("limit", BoxReadingsTurns.limitInstructions(2, template: capacity), carries: ["limit", "capacity"])
     let full = try #require(BotManagerText.fullTemplate()).utf8.count
     for (name, size) in sizes where name != "login claude" { #expect(size <= 2_600 && size < full / 2, "\(name): \(size) bytes, full text \(full)") }
     let claude = try #require(sizes["login claude"])
