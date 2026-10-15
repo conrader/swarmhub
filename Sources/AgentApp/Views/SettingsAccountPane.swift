@@ -52,6 +52,8 @@ struct SettingsAccountPane: View {
             }
         }
         AddAllBotsSection()
+        // P42: the messaging skills on every bot, one confirmation.
+        AllBotsSkillsSection()
         BoxKeysPasteSection()
         SettingsGrokSection()
         // P12: the Gateways' own section (it used to be a URL field here).
