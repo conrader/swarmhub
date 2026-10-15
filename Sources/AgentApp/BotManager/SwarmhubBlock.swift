@@ -85,7 +85,8 @@ enum SwarmhubOp: Equatable {
             self = .accounts(AccountsReport(object))
         case "login_link":
             guard let tool = string("tool").flatMap(CodingTool.init(rawValue:)), let raw = string("url"), raw.hasPrefix("https://"),
-                  AccountsReport.isPlain(raw, max: 2048), !raw.contains(" "), let url = URL(string: raw), url.host != nil else { return nil }
+                  AccountsReport.isPlain(raw, max: 2048), !raw.contains(" "), let url = URL(string: raw), url.scheme == "https", url.user == nil, url.port == nil,
+                  let host = url.host?.lowercased(), tool.loginHosts.contains(host) else { return nil }
             let code = string("code").flatMap { (4...24).contains($0.count) && $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") } ? $0 : nil }
             self = .loginLink(tool: tool, url: url, code: code)
         case "login_done":

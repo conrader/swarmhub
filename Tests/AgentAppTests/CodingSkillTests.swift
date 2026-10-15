@@ -74,7 +74,8 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let folder = "~/.hermes/profiles/coder/skills/swarmhub/swarmhub-coding"
     let script = try #require(try codingSkill().files.first { $0.path == "scripts/code-job" })
     #expect(text.contains("mkdir -p \(folder) \(folder)/scripts\n"))
-    #expect(text.contains("cat > \(folder)/scripts/code-job <<'SWARMHUB_EOF'\n\(script.content)SWARMHUB_EOF\nchmod 755 \(folder)/scripts/code-job\n"))
+    #expect(text.contains("cat > \(folder)/scripts/code-job <<'SWARMHUB_EOF'\n\(script.content)SWARMHUB_EOF\ncat > \(folder)/scripts/swarmhub-claude-login <<'SWARMHUB_EOF'\n"))
+    #expect(text.contains("chmod 755 \(folder)/scripts/code-job \(folder)/scripts/swarmhub-claude-login\n"))
     #expect(text.contains("--order codex,claude,hermes"))
     #expect(text.contains(#"{"name":"swarmhub-coding","version":"1.1.0","variant":"codex,claude,hermes"}"#))
 }
@@ -151,9 +152,9 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(store.skillBanner(for: coder)?.state == .changed(installed: skill.version.description))
     #expect(AppStore.skillBannerText(bot: "Coder", state: .changed(installed: "1.0.0")) == "SwarmHub’s instructions for Coder need updating")
     store.snoozeSkillBanner(for: coder)
-    #expect(store.skillBanner(for: coder) == nil && coder.skillBannerSnoozed == "swarmhub-coding 1.0.0 codex")
+    #expect(store.skillBanner(for: coder) == nil && coder.skillBannerSnoozed == "swarmhub-coding \(skill.version) codex")
     coder.modelSettings = BotModelSettings(codingAgent: .claudeOnly)
-    #expect(store.skillBanner(for: coder)?.state == .changed(installed: "1.0.0"), "another order shows it again")
+    #expect(store.skillBanner(for: coder)?.state == .changed(installed: skill.version.description), "another order shows it again")
     coder.modelSettings = BotModelSettings(codingAgent: .claudeCodexHermes)
     #expect(store.skillBanner(for: coder) == nil, "back to what is installed")
     // No manager on the connection: no banner, the editor says it needs one (today's behaviour).
@@ -163,7 +164,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
 }
 
 @Test @MainActor func installRecordsTheVariantFromTheBlock() async throws {
-    let reply = "Installed.\n```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"coder\",\"skills\":[{\"name\":\"swarmhub-coding\",\"version\":\"1.0.0\",\"variant\":\"codex\"}]}\n```"
+    let reply = "Installed.\n```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"coder\",\"skills\":[{\"name\":\"swarmhub-coding\",\"version\":\"1.1.0\",\"variant\":\"codex\"}]}\n```"
     let (store, jarvis, coder, host) = codingStore(reply: reply)
     coder.modelSettings = BotModelSettings(codingAgent: .codexOnly)
     #expect(store.installSkills(for: coder))
@@ -171,7 +172,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let sent = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.compactMap { $0.body?["instructions"] as? String }
     #expect(sent.count == 1 && sent[0].contains("--order codex --dir") && sent[0].contains("for Coder (profile `coder`)"))
     #expect(jarvis.messages.first { $0.role == .user }?.content == "Install SwarmHub’s instructions for Coder.")
-    #expect(coder.installedSkills == ["swarmhub-coding": "1.0.0"] && coder.installedSkillVariants == ["swarmhub-coding": "codex"])
+    #expect(coder.installedSkills == ["swarmhub-coding": "1.1.0"] && coder.installedSkillVariants == ["swarmhub-coding": "codex"])
     #expect(store.skillState(try codingSkill(), for: coder) == .current)
     // The variant survives a save and reload with the bot; a bot without one encodes as before.
     let url = temporaryStore()

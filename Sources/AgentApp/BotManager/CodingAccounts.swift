@@ -11,6 +11,10 @@ enum CodingTool: String, CaseIterable, Identifiable, Equatable {
         case .chatgpt: "ChatGPT accounts (conversation)"
         }
     }
+    /// The only hosts a login link may point at (exact match): Anthropic's for Claude, OpenAI's for Codex and ChatGPT.
+    var loginHosts: Set<String> {
+        self == .claude ? ["claude.ai", "claude.com", "console.anthropic.com"] : ["auth.openai.com", "chatgpt.com"]
+    }
 }
 
 /// What the manager's "Accounts status" recipe reported (op `accounts`). Never a token, an auth file or an email.

@@ -150,10 +150,13 @@ extension AppStore {
         case .keyRestored(let name, let ok):
             guard manager.backend == .hermes else { return }
             finishRestore(name, ok: ok, manager: manager)
-        case .accounts, .loginLink, .loginDone:
+        case .accounts:
             // P31 C: also when Konrad asks the manager in its chat; the Accounts sheet shows it.
             guard manager.backend == .hermes else { return }
             codingAccounts[connection(of: manager), default: AccountsState()].absorb([op], at: now())
+        case .loginLink, .loginDone:
+            // Only from the Accounts sheet's own quiet turns: a link in a chat reply is never shown as a login page.
+            return
         case .bots(let listed):
             let skipsDefault = manager.backend == .hermes
             botOffers[manager.id] = listed.filter { !(skipsDefault && $0.name == "default") && boundBot($0.name, manager: manager) == nil }
