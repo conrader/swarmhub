@@ -60,6 +60,8 @@ import UserNotifications
     @Published var boxProfiles: [String: [BoxProfile]] = [:]; @Published var adoptionOffer: AdoptionOffer?
     /// P36: the Reports inbox (main window) and its center (inbox, SwarmHub account).
     @Published var showingReports = false
+    /// P38 B: Composio app connections, their receipts and the SwarmHub connection service (tests may replace it).
+    lazy var connectedApps: ConnectedAppsStore = makeConnectedApps()
     private(set) lazy var reportsCenter = ReportsCenter(fileURL: persistenceEnabled ? fileURL.deletingLastPathComponent().appending(path: "reports.json") : nil, keyStore: keyStore, now: now())
     /// P31 C: the Accounts sheet per Hermes connection (`connection(of:)`).
     @Published var codingAccounts: [String: AccountsState] = [:]

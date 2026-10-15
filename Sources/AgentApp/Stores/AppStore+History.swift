@@ -2,6 +2,8 @@ import Foundation
 
 extension AppStore {
     static func mergeHermesHistory(local: [ChatMessage], server: [BackendMessage]) -> [ChatMessage]? {
+        // P38 B: the connected-apps loop's request and result rows are protocol, never chat.
+        let server = server.filter { !ConnectedAppsChat.isInternalMessage($0) }
         guard !server.isEmpty else { return local.isEmpty ? [] : nil }
         let remoteTurns = server.enumerated().filter { ["user", "assistant"].contains($0.element.role) }
         let localTurns = local.filter { [MessageRole.user, .assistant].contains($0.role) && $0.presentation == .text && !$0.content.isEmpty && !$0.isSteer }

@@ -14,6 +14,7 @@ extension AppStore {
             errorMessage = "Cannot approve \(server == "OpenClaw" ? "an" : "a") \(server) request without command text."
             return
         }
+        if approval.isAppAction { Task { await decideAppAction(approval, approved: approved) }; return }
         guard let botID = approval.botID, let bot = bots.first(where: { $0.id == botID }), let approvalBackend = try? backend(for: bot) else { return }
         Task {
             do {
@@ -29,6 +30,7 @@ extension AppStore {
     /// any line: Approve needs known, conservative command text; a reviewer never sees unknown, unsafe or destructive
     /// commands; a reviewer that fails, escalates or times out asks you.
     func routeApproval(_ approval: ApprovalRequest, for bot: Bot, backend: any AgentBackend) async {
+        if approval.isAppAction { routeAppApproval(approval, for: bot); return }
         appendAudit(to: bot, approval: approval, outcome: .requested, decidedBy: "system", reason: "Approval requested.")
         let facts = ApprovalFacts(action: approval.actionKind, command: approval.command ?? "") { [weak self] in self?.bot(forProfile: $0)?.name }
         var skipped: [String] = []
@@ -136,6 +138,11 @@ extension AppStore {
         else if let liveTarget = try? await backend.stopTarget(sessionID: sessionID) { target = liveTarget }
         else { return }
         _ = try? await backend.requestStop(target)
+    }
+    /// P38 B: an app action always asks you, whatever the bot's lines say (no rule, no reviewer, no bot server).
+    func routeAppApproval(_ approval: ApprovalRequest, for bot: Bot) {
+        appendAudit(to: bot, approval: approval, outcome: .requested, decidedBy: "system", reason: "App action requested.")
+        askUser(approval, bot: bot, reason: "App actions always ask you.")
     }
     /// P12: an approval this app did not start (another client's run, the Gateway's automations): always asks, never
     /// automatic, whatever the bot's policy.
