@@ -3,7 +3,7 @@ import Testing
 @testable import AgentApp
 
 /// P37 D4: review-after lines with a mock reviewer: the card, the verdict, "Send notes to <bot>", the automatic option.
-@MainActor private func reviewSetup(answer: TestBackend.StreamMode, auto: Bool = false, timeout: Duration = .seconds(5)) -> (AppStore, Bot, Bot, ChatMessage, TestBackend, TestBackend) {
+@MainActor private func reviewSetup(answer: TestBackend.StreamMode, auto: Bool = false, timeout: Duration = waitCeiling) -> (AppStore, Bot, Bot, ChatMessage, TestBackend, TestBackend) {
     let coder = Bot(name: "Coder", backend: .hermes, hermesProfile: "coder"), jarvis = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "jarvis")
     let ownerBackend = TestBackend(transport: .nativeSessions), reviewerBackend = TestBackend(transport: .nativeSessions, streamMode: answer)
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == jarvis.id ? reviewerBackend : ownerBackend },

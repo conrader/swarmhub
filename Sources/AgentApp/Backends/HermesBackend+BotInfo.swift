@@ -90,8 +90,8 @@ extension HermesBackend {
     func hermesVersion() async -> HermesVersionReading {
         do {
             let json: [String: Any]
-            do { json = try await jsonRequest(path: "health", timeout: 10) }
-            catch BackendError.http(404, _) { json = try await jsonRequest(path: "health/detailed", timeout: 10) }
+            do { json = try await jsonRequest(path: "health", timeout: timeouts.check) }
+            catch BackendError.http(404, _) { json = try await jsonRequest(path: "health/detailed", timeout: timeouts.check) }
             guard let raw = json["version"] as? String else { return .init(raw: nil, problem: "/health reports no version.") }
             return .init(raw: raw)
         } catch {

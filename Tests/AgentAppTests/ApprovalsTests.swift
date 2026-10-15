@@ -138,7 +138,7 @@ import Testing
         let reviewerBackend = TestBackend(transport: .nativeSessions, streamMode: mode)
         let owner = Bot(name: "Owner", backend: .hermes); let reviewer = Bot(name: "Reviewer", backend: .hermes)
         owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, reviewerTimeout: waitCeiling, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         store.bots = [owner, reviewer]
         await store.routeApproval(.init(id: UUID(), title: "Review", summary: "cat", draft: nil, command: "cat /tmp/x", botID: owner.id), for: owner, backend: ownerBackend)
         #expect((await ownerBackend.recordedCalls()).contains("approval:\(expectedApproval)"))
@@ -160,7 +160,7 @@ import Testing
     let ownerBackend = TestBackend(transport: .nativeSessions); let mockReviewerBackend = TestBackend(transport: .nativeSessions, streamMode: .response("approve"))
     let owner = Bot(name: "Owner", backend: .hermes); let reviewer = Bot(name: "Mock reviewer", backend: .mock)
     owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.backend == .mock ? mockReviewerBackend : ownerBackend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.backend == .mock ? mockReviewerBackend : ownerBackend }, reviewerTimeout: waitCeiling, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.bots = [owner, reviewer]
     await store.routeApproval(.init(id: UUID(), title: "Review", summary: "cmd", draft: nil, command: "cat /tmp/x", botID: owner.id), for: owner, backend: ownerBackend)
     #expect((await mockReviewerBackend.recordedCalls()).contains("send")); #expect((await ownerBackend.recordedCalls()).contains("approval:true"))
@@ -202,7 +202,7 @@ import Testing
     let owner = Bot(name: "Owner", backend: .hermes, hermesSessionID: "owner-session")
     let reviewer = Bot(name: "Reviewer", backend: .hermes)
     owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, reviewerTimeout: .seconds(10), keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, reviewerTimeout: waitCeiling, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.bots = [owner, reviewer]; store.selectedBot = owner; store.send(text: "go")
     try await reviewerBackend.calls.wait { $0.contains("send") }
     store.stop()
@@ -227,7 +227,7 @@ import Testing
     let owner = Bot(name: "Owner", backend: .hermes, hermesSessionID: "owner")
     let reviewer = Bot(name: "Reviewer", backend: .hermes, hermesSessionID: "reviewer")
     owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, reviewerTimeout: waitCeiling, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.bots = [owner, reviewer]; store.selectedBot = owner; store.send(text: "go")
     try await waitUntil { store.approvals.count == 1 }
     #expect(owner.approvalAudit.contains { $0.outcome == .asked && $0.decidedBy == "reviewer:\(reviewer.id.uuidString)" })
@@ -240,7 +240,7 @@ import Testing
     let owner = Bot(name: "Owner", backend: .hermes, hermesSessionID: "owner")
     let reviewer = Bot(name: "Reviewer", backend: .hermes)
     owner.approvalMode = .reviewer; owner.reviewerBotID = reviewer.id
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { $0.id == reviewer.id ? reviewerBackend : ownerBackend }, reviewerTimeout: waitCeiling, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.bots = [owner, reviewer]; store.selectedBot = owner; store.send(text: "go")
     try await waitUntil { store.approvals.count == 1 }
     #expect(owner.approvalAudit.contains { $0.reason.contains("escalated") })

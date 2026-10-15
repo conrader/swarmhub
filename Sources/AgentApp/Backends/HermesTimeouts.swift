@@ -15,8 +15,15 @@ struct HermesTimeouts: Sendable, Equatable {
     var write: TimeInterval = 60
     /// Steer and stop: only useful while the turn still runs.
     var control: TimeInterval = 8
+    /// A derived-key probe (`GET /p/<profile>/v1/models` while discovering a box): many run side by side, a dead one is skipped.
+    var probe: TimeInterval = 5
+    /// One-off checks: `/health` for the version, the launch's locked-key recovery.
+    var check: TimeInterval = 10
 
-    static let standard = HermesTimeouts()
+    /// The app's timeouts. In a test run every box is an in-process stub, so a budget can only fire when the loaded
+    /// machine stalls the test process; there each one is the tests' hang ceiling. Tests of a timeout set their own.
+    static let standard = TestRunGuard.isTestRun ? HermesTimeouts.hangCeiling : HermesTimeouts()
+    static let hangCeiling = HermesTimeouts(streamIdle: 300, openDeadline: 300, read: 300, write: 300, control: 300, probe: 300, check: 300)
 
     /// The open deadline for a request carrying `bodyBytes`.
     func openDeadline(bodyBytes: Int) -> TimeInterval { openDeadline + Double(bodyBytes) / uploadBytesPerSecond }

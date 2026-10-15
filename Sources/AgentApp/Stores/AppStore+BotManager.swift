@@ -242,7 +242,7 @@ extension AppStore {
         for attempt in 0..<max(1, attempts ?? botProbeAttempts) {
             if attempt > 0 { try? await Task.sleep(for: botProbeDelay) }
             do {
-                let json = try await backend.jsonRequest(path: "v1/models", timeout: 5)
+                let json = try await backend.jsonRequest(path: "v1/models", timeout: backend.timeouts.probe)
                 if ((json["data"] as? [[String: Any]])?.first?["id"] as? String) == name { return .reachable(key) }
                 rejected = false
             } catch BackendError.http(let code, _) where code == 401 || code == 403 { rejected = true }
@@ -265,7 +265,7 @@ extension AppStore {
                   let baseURL = HermesBackend.validatedBaseURL(bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL) else { continue }
             let key = BotManagerText.derivedKey(managerKey: managerKey, botName: profile)
             let backend = HermesBackend(baseURL: baseURL, apiKey: key, profile: profile, session: hermesSession)
-            guard let (_, response) = try? await backend.rawRequest(path: "v1/models", timeout: 10),
+            guard let (_, response) = try? await backend.rawRequest(path: "v1/models", timeout: backend.timeouts.check),
                   (response as? HTTPURLResponse)?.statusCode == 200 else { continue }
             keyStore.setKey(key, for: account)
             objectWillChange.send()
