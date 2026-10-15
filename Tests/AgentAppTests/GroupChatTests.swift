@@ -100,7 +100,7 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
     let (store, bots, backends, group) = groupStore(["DMT", "Achilles", "Jarvis"])
     #expect(group.name == "Konrad, DMT, Achilles, Jarvis" && store.selectedGroup === group)
     #expect(store.send(text: "Morning, team", to: group))
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(group.messages.map(\.content) == ["Morning, team", "DMT says hi", "Achilles says hi", "Jarvis says hi"])
     #expect(group.messages.dropFirst().map(\.authorID) == bots.map(\.id))
     for bot in bots {
@@ -117,7 +117,7 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
 
     // A mention goes only to that bot; its context starts after its own last reply; sessions are reused.
     #expect(store.send(text: "@achilles one more thing", to: group))
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(group.messages.suffix(2).map(\.content) == ["@achilles one more thing", "Achilles says hi"])
     let (dmtTurns, jarvisTurns) = (await backends[bots[0].id]!.turns().count, await backends[bots[2].id]!.turns().count)
     #expect(dmtTurns == 1 && jarvisTurns == 1)
@@ -131,9 +131,9 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
     let (store, bots, backends, group) = groupStore(["DMT", "Achilles", "Jarvis"], hanging: ["Achilles"])
     store.send(text: "go", to: group)
     try await backends[bots[1].id]!.sent.wait { $0.count == 1 }
-    #expect(store.streamingBotID == bots[1].id && group.hermesSessionID == GroupRouting.sessionID(group: group.id, bot: bots[1].id))
+    #expect(store.turn(in: group)?.botID == bots[1].id && group.hermesSessionID == GroupRouting.sessionID(group: group.id, bot: bots[1].id))
     store.stop()
-    try await waitUntil { store.isIdle && !store.isStreaming }
+    try await waitUntil { !store.anyTurnRunning }
     try await waitUntil { group.messages.contains { $0.role == .system && $0.content.contains("Stop requested") } }
     #expect(await backends[bots[1].id]!.stopCount() == 1)
     #expect(await backends[bots[2].id]!.turns().isEmpty, "Jarvis was skipped")
@@ -142,7 +142,7 @@ private let members: [GroupRouting.Member] = [.init(id: UUID(), name: "DMT"), .i
     let skipped = try #require(group.messages.last { $0.authorID == bots[2].id })
     #expect(skipped.turnState == .notSent && skipped.metadata["why"] == "stopped" && skipped.content.isEmpty)
     #expect(group.messages.contains { $0.role == .system && $0.content == "Stopped. Skipped: Jarvis." })
-    #expect(store.groupRun == nil && group.activeMemberID == nil)
+    #expect(store.turn(in: group) == nil && group.activeMemberID == nil)
     #expect(AvatarReactions.shared.completions[bots[0].id] != nil)
     #expect(AvatarReactions.shared.completions[bots[1].id] == nil && AvatarReactions.shared.completions[bots[2].id] == nil)
 }

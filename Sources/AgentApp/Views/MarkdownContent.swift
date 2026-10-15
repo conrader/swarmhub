@@ -83,12 +83,12 @@ private struct ChoicesCard: View {
                     HStack { Text(option).multilineTextAlignment(.leading); Spacer(); if picked == option { Image(systemName: "checkmark") } }
                         .padding(.horizontal, 11).padding(.vertical, 7).contentShape(Rectangle())
                         .background(picked == option ? AppColor.selection : AppColor.raised, in: RoundedRectangle(cornerRadius: 8))
-                }.buttonStyle(.plain).disabled(target == nil || picked != nil || message.isStreaming || store.isStreaming)
+                }.buttonStyle(.plain).disabled(target == nil || picked != nil || message.isStreaming || target.map(store.isStreaming(for:)) == true)
             }
         }.padding(12).frame(maxWidth: 500, alignment: .leading).background(AppColor.card, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(AppColor.separator, lineWidth: 0.5))
     }
     private func pick(_ option: String) {
-        guard let target, picked == nil, !store.isStreaming else { return }
+        guard let target, picked == nil, !store.isStreaming(for: target) else { return }
         store.performCardAction(target: target, sourceID: message.id, index: index, expected: .choices(prompt: prompt, options: options), choice: option)
     }
 }
@@ -116,7 +116,7 @@ private struct DraftCardView: View {
                 Spacer()
                 Button("Copy") { copyToPasteboard(draftText) }
                 Button("Send") { if let target { store.performCardAction(target: target, sourceID: message.id, index: index, expected: .draft(draft)) } }
-                    .buttonStyle(NeutralPrimaryButtonStyle()).disabled(target == nil || sent || message.isStreaming || store.isStreaming)
+                    .buttonStyle(NeutralPrimaryButtonStyle()).disabled(target == nil || sent || message.isStreaming || target.map(store.isStreaming(for:)) == true)
             }.padding(10)
         }.frame(maxWidth: 500, alignment: .leading).background(AppColor.card, in: RoundedRectangle(cornerRadius: 11)).overlay(RoundedRectangle(cornerRadius: 11).stroke(AppColor.separator, lineWidth: 0.5))
     }

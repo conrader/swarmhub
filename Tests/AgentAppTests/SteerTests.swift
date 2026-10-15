@@ -58,11 +58,11 @@ import Testing
     #expect(!bot.messages.contains { $0.role == .system }, "no extra Stop line between the partial and the correction")
     // The correction's turn answers below it.
     await backend.emit(.token("Metric it is."), .completed); await backend.end()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(bot.messages.last?.content == "Metric it is." && bot.messages.last?.turnState == .finished)
     // A later plain send clears the caption; it is shown once per install.
     #expect(store.send(text: "thanks")); #expect(store.steerHint == nil)
-    store.stop(); try await waitUntil { store.isIdle }
+    store.stop(); try await waitUntil { !store.anyTurnRunning }
 }
 
 @MainActor @Test func aFailedStopFallsBackToTheQueuedSteerAndSaysSo() async throws {
@@ -76,8 +76,8 @@ import Testing
     let bubble = try #require(bot.messages.first { $0.content == "shorter" })
     #expect(bubble.isSteer && !bubble.isCorrection && SteerCopy.caption(bubble) == "Delivered after the current step")
     #expect(bot.messages.contains { $0.role == .system && $0.content == SteerCopy.stopFailed })
-    #expect(store.isStreaming && bot.messages[1].turnState == .incomplete, "the answer keeps streaming")
-    store.stop(); try await waitUntil { store.isIdle }
+    #expect(store.anyTurnRunning && bot.messages[1].turnState == .incomplete, "the answer keeps streaming")
+    store.stop(); try await waitUntil { !store.anyTurnRunning }
 }
 
 // MARK: D5 order on screen
@@ -92,7 +92,7 @@ import Testing
     try await waitUntil { bot.messages.last?.metadata["steer"] == "queued" }
     await backend.emit(.token("still before. "), step(.completed), .token("After."), step(.started, id: "c2"), step(.completed, id: "c2"), .completed)
     await backend.end()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
 
     let rows = bot.messages
     #expect(rows.map(\.role) == [.user, .assistant, .user, .assistant], "[user, assistant(part before), steer, assistant(rest)]")
@@ -142,7 +142,7 @@ import Testing
     let bubble = try #require(bot.messages.first { $0.content == "use metric" })
     #expect(bubble.isCorrection && !bubble.isSteer && SteerCopy.caption(bubble) == "Sent after the answer finished")
     #expect(bot.messages.last?.role == .assistant && bot.messages.last?.isStreaming == true)
-    store.stop(); try await waitUntil { store.isIdle }
+    store.stop(); try await waitUntil { !store.anyTurnRunning }
 }
 
 // MARK: Groups
@@ -156,12 +156,12 @@ import Testing
     #expect(store.send(text: "@DMT hello", to: group))
     try await backend.calls.wait { $0.contains { $0.hasPrefix("send:") } }
     await backend.emit(.token("Before. "))
-    try await waitUntil { store.steerAvailable && store.streamingAssistant?.content == "Before. " }
+    try await waitUntil { (store.soleTurn?.steerAvailable == true) && store.soleTurn?.assistant?.content == "Before. " }
     // No step runs, but Stop would end the round: a group steer is always queued.
     #expect(store.send(text: "shorter", to: group))
     try await waitUntil { group.messages.last?.metadata["steer"] == "queued" }
     await backend.emit(step(.started), step(.completed), .token("After."), .completed); await backend.end()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     let rows = group.messages.filter { $0.role != .system }
     #expect(rows.map(\.content) == ["@DMT hello", "Before. ", "shorter", "After."])
     #expect(rows[3].authorID == dmt.id && rows[3].metadata[TurnKey.part] == "2" && rows[3].metadata[TurnKey.forUser] == rows[0].id.uuidString)

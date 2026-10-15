@@ -19,7 +19,7 @@ import Testing
         let thread = ChatThread(id: task.threadID, parentMessageID: workflow.id, parentSessionID: nil, hermesSessionID: "work-session")
         owner.threads = [thread]
         // The turn now streaming in the task's thread.
-        store.streamingConversation = thread; store.streamingBotID = owner.id; store.activeStreamToken = UUID()
+        store.beginTurn(in: thread, bot: owner, assistant: nil)
         let tools = try #require(try store.workflowTools(for: .init(sessionID: "work-session", systemPrompt: "", messages: []), bot: owner))
         return (store, workflow, thread, tools, owner, other)
     }
@@ -33,9 +33,8 @@ import Testing
         #expect(try tools.instructions("[[MARKER]]").contains("your task work"))
         #expect(try store.workflowTools(for: .init(sessionID: "work-session", systemPrompt: "", messages: []), bot: other) == nil)
         #expect(try store.workflowTools(for: .init(sessionID: "elsewhere", systemPrompt: "", messages: []), bot: owner) == nil)
-        store.streamingConversation = owner
+        store.runningTurns = [:]; store.beginTurn(in: owner, bot: owner, assistant: nil)
         #expect(try store.workflowTools(for: .init(sessionID: "work-session", systemPrompt: "", messages: []), bot: owner) == nil)
-        store.streamingConversation = thread
     }
 
     @Test func duplicateHandoffIsDurableAndChangedPayloadIsRejected() throws {
@@ -82,7 +81,7 @@ import Testing
         store.workflows[workflow.id]?.state = .cancelled
         #expect(throws: (any Error).self) { try tools.perform(report) }
         store.workflows[workflow.id]?.state = .running
-        store.activeStreamToken = UUID()
+        store.runningTurns = [:]; store.beginTurn(in: thread, bot: owner, assistant: nil)
         #expect(throws: (any Error).self) { try tools.perform(report) }
         #expect(store.workflows[workflow.id]?.operations == nil)
     }

@@ -42,7 +42,7 @@ import Testing
     let bot = Bot(name: "Forced"), group = GroupChat(name: "G", memberIDs: [bot.id])
     #expect(!store.isWorking(bot))
     UISmokeProbe.forcedWorking = bot.id
-    #expect(store.isWorking(bot) && store.isWorking(bot, in: group) && !store.isStreaming)
+    #expect(store.isWorking(bot) && store.isWorking(bot, in: group) && !store.anyTurnRunning)
     UISmokeProbe.forcedWorking = nil
     #expect(!store.isWorking(bot))
 }

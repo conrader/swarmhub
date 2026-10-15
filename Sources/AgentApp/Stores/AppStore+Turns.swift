@@ -19,8 +19,8 @@ import Foundation
     var pathDown = false
     var connectivityTask: Task<Void, Never>?; var terminateObserver: NSObjectProtocol?
     /// P28: queued steers per turn (keyed by the turn's first reply row), the row a split turn now streams into, and the
-    /// turn whose answer is being stopped for a correction.
-    var steers: [UUID: PendingSteer] = [:]; var parts: [UUID: ChatMessage] = [:]; var correcting: UUID?
+    /// turns whose answer is being stopped for a correction (P39: one per chat, by turn token).
+    var steers: [UUID: PendingSteer] = [:]; var parts: [UUID: ChatMessage] = [:]; var correcting: Set<UUID> = []
     /// P32: failed steers sent as the next message once the running turn ends (`AppStore+NextMessage.swift`).
     var nextMessages: [QueuedNextMessage] = []
 }
@@ -126,9 +126,9 @@ extension AppStore {
             let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
             let stream = try await conversationStream(.init(sessionID: sessionID, systemPrompt: systemPrompt, messages: history, images: images, managementText: managementText),
                                                       bot: bot, backend: activeBackend)
-            if activeStreamToken == token {
+            if isCurrent(token) {
                 let flags = try? await activeBackend.features()
-                steerAvailable = flags?.contains("run_steer") == true
+                setSteerAvailable(flags?.contains("run_steer") == true, token: token)
                 // P12: an OpenClaw link is up only now, so its flags (Reply in thread) are read here too.
                 if bot.backend == .openClaw, let flags { botFeatures[bot.id] = flags }
             }
@@ -150,9 +150,7 @@ extension AppStore {
             appendAudit(to: bot, approval: approval, outcome: .denied, decidedBy: "system", reason: cancelled ? "Run stopped; pending approval was cancelled." : "Run ended; pending approval was cancelled.")
         }
         approvals.removeAll { abandoned.map(\.id).contains($0.id) }
-        if activeStreamToken == token {
-            isStreaming = false; streamTask = nil; activeStreamToken = nil; streamingBotID = nil; streamingAssistant = nil; streamingConversation = nil; steerAvailable = false
-        }
+        endTurn(token)
         save()
         let hasText = !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if outcome.state == .finished {

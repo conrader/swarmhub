@@ -23,7 +23,7 @@ struct ImportedSkillsSection: View {
                         }
                         Spacer()
                         if store.canInstallImported(on: bot) {
-                            Button(installed ? "Reinstall…" : "Install on \(bot.name)…") { reading = skill }.controlSize(.small).disabled(!store.isIdle)
+                            Button(installed ? "Reinstall…" : "Install on \(bot.name)…") { reading = skill }.controlSize(.small).disabled(!store.managerIdle(for: bot))
                         }
                     }
                     .padding(.horizontal, 8).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
@@ -85,7 +85,7 @@ struct ImportedSkillInstallSheet: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Install") { if store.installImportedSkill(skill, on: bot) { dismiss() } }
                     .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
-                    .disabled(file == nil || !store.isIdle || !store.canInstallImported(on: bot))
+                    .disabled(file == nil || !store.managerIdle(for: bot) || !store.canInstallImported(on: bot))
             }
         }
         .padding(20).frame(width: 560, height: 520).background(AppColor.panel)

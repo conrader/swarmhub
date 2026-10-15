@@ -58,7 +58,7 @@ import Testing
     try await ownerBackend.calls.wait { $0.contains("send") }
     #expect(coder.messages.contains { $0.role == .user && $0.content == "Review notes from Jarvis:\nAdd a test for the empty CSV." })
     #expect(card.metadata[ReviewKey.sent] == "1" && !store.canSendReviewNotes(card), "one click, once")
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
 }
 
 @Test @MainActor func automaticOptionForwardsChangesRequested() async throws {
@@ -66,7 +66,7 @@ import Testing
     let card = try #require(store.startReviewIfNeeded(reply, from: coder, in: coder))
     try await ownerBackend.calls.wait { $0.contains("send") }
     #expect(card.metadata[ReviewKey.sent] == "1" && coder.messages.contains { $0.content == "Review notes from Jarvis:\nHandle the timeout." })
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
 }
 
 @Test @MainActor func looksGoodUnparsedAndNoMatchCases() async throws {

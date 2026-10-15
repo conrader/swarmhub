@@ -21,7 +21,7 @@ import Testing
     let bot = Bot(name: "Alpha", persona: "", backend: .openClaw); bot.openClaw = .init(gatewayID: gateway.id, agentID: "agent-alpha")
     store.bots = [bot]; store.selectedBot = bot
     #expect(store.send(text: "hello"))
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     store.save()
 
     let deviceToken = keys.key(for: gateway.deviceTokenAccount), privateKey = keys.key(for: gateway.deviceKeyAccount)

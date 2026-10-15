@@ -10,14 +10,14 @@ import Testing
         let bot = Bot(name: "Reader", backend: .hermes); store.bots = [bot]; store.selectedBot = bot
         let file = ChatAttachment(id: UUID(), kind: .text, name: "notes.txt", mimeType: "text/plain", byteCount: 5, text: "notes")
         #expect(store.send(text: "Read this", attachments: [file]))
-        try await waitUntil { store.isIdle }
+        try await waitUntil { !store.anyTurnRunning }
         let saved = try store.artifactList(for: bot.id)
         #expect(saved.map(\.name) == ["notes.txt"] && saved[0].ownerBotIDs == [bot.id])
         #expect(bot.messages.first?.metadata["artifact.\(file.id.uuidString)"] == saved[0].id.uuidString)
         let again = try store.artifactAttachment(saved[0], for: bot.id)
         #expect(again.sourceArtifactID == saved[0].id && again.text == "notes")
         #expect(store.send(text: "Once more", attachments: [again]))
-        try await waitUntil { store.isIdle }
+        try await waitUntil { !store.anyTurnRunning }
         #expect(try store.artifactList(for: bot.id).count == 1, "reusing a saved document does not make a second, unrevocable copy")
         let decoded = try JSONDecoder().decode(ChatAttachment.self, from: JSONEncoder().encode(again))
         #expect(decoded.sourceArtifactID == saved[0].id)
@@ -39,7 +39,7 @@ import Testing
         try store.revokeArtifact(artifact, from: recipient.id)
         #expect(throws: (any Error).self) { try store.artifactAttachment(artifact, for: recipient.id) }
         ownerBackend.finishRun()
-        try await waitUntil { store.isIdle }
+        try await waitUntil { !store.anyTurnRunning }
         #expect(await recipientBackend.recordedCalls().filter { $0 == "send" }.isEmpty)
         #expect(group.messages.contains { $0.role == .system && $0.content.hasPrefix("Recipient was skipped:") })
         #expect(String(data: try store.artifacts().read(artifact.id, botID: owner.id), encoding: .utf8) == "Controlled evidence")
@@ -57,10 +57,10 @@ import Testing
         let group = GroupChat(name: "Team", memberIDs: [owner.id, other.id]); store.groups = [group]
         let artifact = try store.artifacts().save(Data("SECRET-LEDGER".utf8), name: "Ledger", mimeType: "text/plain", owners: [owner.id])
         #expect(store.send(text: "@Owner check this", attachments: [try store.artifactAttachment(artifact, for: owner.id)], to: group))
-        try await waitUntil { store.isIdle }
+        try await waitUntil { !store.anyTurnRunning }
         #expect(backends[owner.id]!.sent.all.first?.text.contains("SECRET-LEDGER") == true)
         #expect(store.send(text: "Everyone: thoughts?", to: group))
-        try await waitUntil { store.isIdle }
+        try await waitUntil { !store.anyTurnRunning }
         let otherContext = try #require(backends[other.id]!.sent.all.first?.text)
         #expect(otherContext.contains("@Owner check this") && !otherContext.contains("SECRET-LEDGER"))
     }

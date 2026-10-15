@@ -23,7 +23,7 @@ import Vision
     #expect(store.send(text: "A synthetic question"))
     try await waitUntil { bot.messages.last?.content == "The reply is arriving live." }
     let assistant = try #require(bot.messages.last)
-    #expect(assistant.isStreaming && store.isStreaming)
+    #expect(assistant.isStreaming && store.anyTurnRunning)
     let request = try #require(ChatParityServer.requests(host).first { $0.path.hasSuffix(legacy ? "/chat/completions" : "/chat/stream") })
     #expect(request.method == "POST")
 
@@ -37,9 +37,9 @@ import Vision
     try VNImageRequestHandler(cgImage: image).perform([recognition])
     let rendered = recognition.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ") ?? ""
     #expect(rendered.contains("The reply is arriving live."))
-    #expect(assistant.isStreaming && store.isStreaming, "Rendering must not wait for stream completion.")
+    #expect(assistant.isStreaming && store.anyTurnRunning, "Rendering must not wait for stream completion.")
     store.stop()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
 }
 
 @Test(arguments: [false, true]) func chatRequestsNegotiateUncompressedEventStreams(legacy: Bool) async throws {

@@ -2,6 +2,8 @@ import Foundation
 
 /// Anything the composer can send into: the bot's main chat or one of its threads.
 protocol Conversation: AnyObject {
+    /// P39: the key of the conversation's turn slot (a bot's main chat uses the bot's id).
+    var id: UUID { get }
     var messages: [ChatMessage] { get set }
     var hermesSessionID: String? { get set }
 }

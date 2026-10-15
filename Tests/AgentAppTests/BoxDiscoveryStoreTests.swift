@@ -66,7 +66,7 @@ private func probed(_ host: String) -> [String] { MockHermesProtocol.recorded(ho
     let target = store.connection(of: jarvis)
     #expect(store.boxProfiles[target]?.map { "\($0.name) \($0.state) \($0.hasKey)" } == ["default needsKey true", "mine needsKey true", "krytyk adoptable true", "lowcost adoptable false"])
     // Quiet: nothing in Jarvis' chat; the turn carried the list recipe only. One try per profile with a key, none for lowcost.
-    #expect(jarvis.messages.isEmpty && store.isIdle)
+    #expect(jarvis.messages.isEmpty && !store.anyTurnRunning)
     let sent = try #require(turns(chat).first)
     #expect(turns(chat).count == 1 && sent.input == "List every bot on this box for SwarmHub." && sent.instructions.hasPrefix("You are Jarvis.\n\n"))
     #expect(sent.instructions.contains("Reading needs no confirmation") && !sent.instructions.contains("bots_adopted"))
@@ -87,7 +87,7 @@ private func probed(_ host: String) -> [String] { MockHermesProtocol.recorded(ho
 @Test @MainActor func aListAskedForInChatFeedsTheSameSection() async throws {
     let (store, jarvis, _, _) = boxStore(replies: [listed([("default", true), ("krytyk", true)])], served: [])
     #expect(store.send(text: "list bots"))
-    try await waitUntil { store.isIdle && !store.boxProfiles.isEmpty }
+    try await waitUntil { !store.anyTurnRunning && !store.boxProfiles.isEmpty }
     #expect(store.boxProfiles[store.connection(of: jarvis)]?.map(\.name) == ["default", "krytyk"] && store.botOffers[jarvis.id] == nil)
 }
 
@@ -183,7 +183,7 @@ private func probed(_ host: String) -> [String] { MockHermesProtocol.recorded(ho
 
 @MainActor private func adopt(_ store: AppStore, _ names: [String], manager: Bot) async throws {
     #expect(store.startAdoption(names, manager: manager))
-    try await waitUntil { store.isIdle && store.pendingAdoptions.isEmpty && manager.messages.last?.role == .system }
+    try await waitUntil { !store.anyTurnRunning && store.pendingAdoptions.isEmpty && manager.messages.last?.role == .system }
 }
 
 @Test @MainActor func adoptionBatchAddsTheOkOnesAndListsTheFailedOnes() async throws {
@@ -240,7 +240,7 @@ private func probed(_ host: String) -> [String] { MockHermesProtocol.recorded(ho
     store.keyStore.setKey("derived", for: "hermes.krytyk")
     #expect(!store.restoreOldKey(jarvis), "the manager has nothing to restore")
     #expect(store.restoreOldKey(krytyk))
-    try await waitUntil { store.isIdle && krytyk.adoptedKeyBackup == nil }
+    try await waitUntil { !store.anyTurnRunning && krytyk.adoptedKeyBackup == nil }
     let sent = try #require(turns(chat).first)
     #expect(sent.input == "Restore Krytyk’s old key." && sent.instructions.contains("N=krytyk; B=.env.swarmhub-bak-20261015T101500Z;"))
     #expect(store.keyStore.key(for: "hermes.krytyk").isEmpty && store.bots.contains(krytyk) && krytyk.messages.map(\.content) == ["hej"])
@@ -253,7 +253,7 @@ private func probed(_ host: String) -> [String] { MockHermesProtocol.recorded(ho
     let lowcost = Bot(name: "Lowcost", backend: .hermes, hermesProfile: "lowcost"); lowcost.adoptedKeyBackup = ""
     store.bots.append(lowcost); store.keyStore.setKey("derived", for: "hermes.lowcost")
     #expect(store.restoreOldKey(lowcost))
-    try await waitUntil { store.isIdle && jarvis.messages.last?.role == .system }
+    try await waitUntil { !store.anyTurnRunning && jarvis.messages.last?.role == .system }
     #expect(store.keyStore.key(for: "hermes.lowcost") == "derived" && lowcost.adoptedKeyBackup == "" && jarvis.messages.last?.content == BoxCopy.restoreFailed("Lowcost"))
 }
 
@@ -301,7 +301,7 @@ private func probed(_ host: String) -> [String] { MockHermesProtocol.recorded(ho
     #expect(store.isManager(ermes) && store.typedKeyProfiles.contains("default") && !store.bots.contains { $0.isDemo })
     #expect(store.boxProfiles[store.connection(of: ermes)]?.map(\.name) == ["krytyk", "lowcost"])
     #expect(store.startAdoption(scan.adoptable, manager: ermes))
-    try await waitUntil { store.isIdle && store.bots.count == 4 }
+    try await waitUntil { !store.anyTurnRunning && store.bots.count == 4 }
     #expect(turns(chat).last?.instructions.contains("MK=$(grep '^API_SERVER_KEY=' ~/.hermes/.env") == true)
     #expect(store.boxProfiles.isEmpty && store.bots.compactMap(\.adoptedKeyBackup) == [".env.swarmhub-bak-20261015T101500Z", ""])
 }

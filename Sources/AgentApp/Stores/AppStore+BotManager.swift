@@ -37,6 +37,10 @@ extension AppStore {
     func isManager(_ bot: Bot) -> Bool { bot.canManageBots && canHoldManagerRole(bot) && !bot.isReadOnlyArchive }
 
     /// The manager bot on this bot's backend connection (one per Hermes base URL, one per OpenClaw Gateway).
+    /// P39: the bot's manager chat has no turn running (management buttons wait for that chat only).
+    func managerIdle(for bot: Bot) -> Bool { manager(for: bot).map { isIdle($0) } ?? true }
+    func managerIdle(on target: String) -> Bool { bots.first { isManager($0) && connection(of: $0) == target }.map { isIdle($0) } ?? true }
+
     func manager(for bot: Bot) -> Bot? {
         guard canHoldManagerRole(bot) else { return nil }
         let target = connection(of: bot)
@@ -104,7 +108,7 @@ extension AppStore {
         managementExchanges[manager.id] = ManagementExchange(openedAt: now(), awaitingOpening: true)
         open(manager); openThreadID = nil
         let request = action.request(bot: target)
-        if sendNow, isIdle, send(text: request) { return }
+        if sendNow, isIdle(manager), send(text: request) { return }
         composerFill = ComposerFill(botID: manager.id, text: request)
     }
 

@@ -101,7 +101,7 @@ struct GroupRow: View {
     @State private var hovering = false
     var body: some View {
         let selected = store.selectedGroup?.id == group.id
-        let working = store.isStreaming && store.streamingConversation === group
+        let working = store.isStreaming(in: group)
         let fragment = { (now: Date) in SidebarFragment.text(messages: group.messages, draft: drafts.texts[group.id],
                                             isWorking: working,
                                             archiveNewest: store.grokHistory.newestVisible(for: group.id),

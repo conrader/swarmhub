@@ -99,9 +99,11 @@ extension AppStore {
     /// in member order, each in its own group session with the transcript since its last reply as context.
     /// While a member answers, the text steers that member's run instead.
     /// P38: `recipientIDs` (a card's author) overrides the mentions and never steers; `sourceMessageID` is the card.
+    /// P39: one round at a time per group; direct chats with the same bots stay free. At the turn limit the composer's
+    /// message waits as the group's next message (a card's send is refused).
     @discardableResult func send(text: String, attachments: [ChatAttachment] = [], to group: GroupChat, recipientIDs: [UUID]? = nil, sourceMessageID: UUID? = nil) -> Bool {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
-        guard !isStreaming, streamTask == nil else { return recipientIDs == nil && steer(text: text, attachments: attachments, group: group) }
+        guard isIdle(group) else { return recipientIDs == nil && steer(text: text, attachments: attachments, group: group) }
         let members = routingMembers(of: group)
         guard !members.isEmpty else { errorMessage = "Add bots to this group first."; return false }
         if let recipientIDs, recipientIDs.isEmpty || !recipientIDs.allSatisfy({ id in members.contains { $0.id == id } }) { return false }
@@ -111,15 +113,26 @@ extension AppStore {
         }
         let images: [String]
         do { images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
-        let recipients = recipientIDs ?? GroupRouting.recipients(of: text, members: members); steerHint = nil
+        let recipients = recipientIDs ?? GroupRouting.recipients(of: text, members: members)
+        let full = turnCapacityProblem(for: recipients.compactMap { id in bots.first { $0.id == id } })
+        if let full, recipientIDs != nil { errorMessage = full; return false }
+        steerHint = nil
         let message = ChatMessage(role: .user, content: text, replyToID: sourceMessageID ?? replyTo?.id, attachments: attachments)
         captureAttachments(message, readers: recipients)
         group.messages.append(message); replyTo = nil
+        if let reason = full ?? (hasWaitingTurn(in: group) ? TurnWaitCopy.behind : nil) { return waitForTurn(message, in: group, reason: reason) }
+        return startGroupRound(group, message: message, recipients: recipients, images: images)
+    }
+
+    /// Starts the round answering `message`, which is already the group's last user row.
+    @discardableResult func startGroupRound(_ group: GroupChat, message: ChatMessage, recipients: [UUID], images: [String]? = nil) -> Bool {
+        let images = images ?? ((try? message.attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))) ?? [])
         group.round = GroupRound(userMessageID: message.id, remaining: recipients, active: nil)
-        let run = GroupRun(groupID: group.id); groupRun = run
-        let token = UUID(); activeStreamToken = token
-        isStreaming = true; streamingConversation = group; objectWillChange.send(); save()
-        streamTask = Task { [weak self] in
+        let run = GroupRun(groupID: group.id)
+        let turn = beginTurn(in: group, bot: nil, assistant: nil, groupRun: run)
+        let token = turn.token
+        objectWillChange.send(); save()
+        turn.task = Task { [weak self] in
             await self?.runGroupRound(group: group, run: run, token: token, recipients: recipients, images: images, trigger: message)
         }
         return true
@@ -129,8 +142,8 @@ extension AppStore {
     /// would end the whole round); the reply continues below the bubble once the steer lands (D5).
     func steer(text: String, attachments: [ChatAttachment], group: GroupChat) -> Bool {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard steerAvailable, streamingConversation === group, let sessionID = group.hermesSessionID,
-              let bot = streamingBotID.flatMap({ id in bots.first { $0.id == id } }) else { return false }
+        guard let turn = turn(in: group), turn.steerAvailable, let sessionID = group.hermesSessionID,
+              let bot = turn.botID.flatMap({ id in bots.first { $0.id == id } }) else { return false }
         guard attachments.isEmpty else { errorMessage = "Attachments can’t be added to a running turn; send them after it finishes."; return false }
         guard !value.isEmpty, let activeBackend = try? backend(for: bot) else { return false }
         noteFirstSteer()

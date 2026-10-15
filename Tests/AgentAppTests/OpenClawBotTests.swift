@@ -27,7 +27,7 @@ func echoCreate() -> FakeGateway.Handler { { params, _ in .success(["ok": true, 
     }
     let (store, bot, _, _) = clawStore(fake)
     #expect(store.send(text: "Reply with exactly: SwarmHub OK"))
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(bot.messages.last?.content == "Hello from Alpha" && bot.messages.last?.turnState == .finished)
     #expect(bot.hermesSessionID == "agent:agent-alpha:agentapp-\(bot.id.uuidString.lowercased())")
     #expect(fake.requestsFor("sessions.create").first?["displayName"] == "SwarmHub · Alpha")

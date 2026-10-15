@@ -19,7 +19,7 @@ import Testing
     #expect(store.isAppAction(card) && card.botID == bot.id && card.routeNote == "App actions always ask you.")
     #expect(MockHermesProtocol.recorded(host).allSatisfy { !$0.url!.path.hasSuffix("/execute") }, "nothing runs before the card is answered")
     store.decide(card, approved: true)
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(bot.messages.last { $0.role == .assistant }?.content == "Your inbox contains one message.")
     #expect(bot.messages.contains { $0.role == .system && $0.content == "Approved: Fetch emails" })
     #expect(bot.approvalAudit.map(\.outcome).suffix(2) == [.asked, .approved])

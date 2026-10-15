@@ -53,7 +53,7 @@ private func sentInstructions(_ host: String) -> [String] {
     let (store, jarvis, travel, host) = importedStore(replies: [block])
     #expect(store.canInstallImported(on: travel))
     #expect(store.installImportedSkill(travel.importedSkills[0], on: travel))
-    try await waitUntil { store.isIdle && travel.importedSkills[0].isEnabled }
+    try await waitUntil { !store.anyTurnRunning && travel.importedSkills[0].isEnabled }
     let sent = try #require(sentInstructions(host).first)
     let folder = "~/.hermes/profiles/travel/skills/imported/travel-planner"
     #expect(sent.contains("That press is his yes"))
@@ -72,7 +72,7 @@ private func sentInstructions(_ host: String) -> [String] {
     let (store, _, travel, host) = importedStore(replies: [block])
     #expect(store.importedSkills(for: travel).map(\.name) == ["Travel Planner", "Getting started"])
     #expect(store.installImportedSkill(try #require(travel.gettingStartedSkill), on: travel))
-    try await waitUntil { store.isIdle && travel.gettingStartedSkill?.isEnabled == true }
+    try await waitUntil { !store.anyTurnRunning && travel.gettingStartedSkill?.isEnabled == true }
     #expect(try #require(sentInstructions(host).first).contains("skills/imported/getting-started/SKILL.md"))
     #expect(travel.importedSkills[0].isEnabled == false)
 }

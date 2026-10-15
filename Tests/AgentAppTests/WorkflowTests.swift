@@ -98,7 +98,7 @@ import Testing
         try await backend.calls.wait { $0.contains("send") }
         #expect((store.workflows[workflow.id]?.budget.reserved ?? 0) > 0)
         store.pauseWorkflow(workflow.id, cancel: true)
-        try await waitUntil { store.isIdle && store.workflows[workflow.id]?.budget.reserved == 0 }
+        try await waitUntil { !store.anyTurnRunning && store.workflows[workflow.id]?.budget.reserved == 0 }
         #expect(store.workflows[workflow.id]?.state == .cancelled)
         #expect(store.workflows[workflow.id]?.tasks.allSatisfy { $0.state == .cancelled } == true)
         #expect(backend.calls.all.filter { $0 == "send" }.count == 1)
@@ -112,7 +112,7 @@ import Testing
         try await backend.calls.wait { $0.contains("send") }
         let id = try #require(store.workflows.keys.first)
         store.pauseWorkflow(id, cancel: true)
-        try await waitUntil { store.isIdle }
+        try await waitUntil { !store.anyTurnRunning }
         #expect(store.workflows[id]?.state == .cancelled && store.workflows[id]?.tasks.isEmpty == true)
     }
 
@@ -127,7 +127,7 @@ import Testing
         try await backend.calls.wait { $0.contains("send") }
         #expect(store.workflows[workflow.id]?.deadline != nil)
         deadline.append("passed")
-        try await waitUntil { store.workflows[workflow.id]?.state == .cancelled && store.isIdle }
+        try await waitUntil { store.workflows[workflow.id]?.state == .cancelled && !store.anyTurnRunning }
         #expect(store.workflows[workflow.id]?.error?.contains("30-minute") == true)
     }
 

@@ -31,16 +31,16 @@ import Vision
     try await waitUntil { assistant.content == "Words arrive before completion." }
     let partial = try await mountedText(host)
     #expect(partial.contains("Words arrive before completion."))
-    #expect(assistant.isStreaming && store.isStreaming)
+    #expect(assistant.isStreaming && store.anyTurnRunning)
 
     await backend.emit(.token(" More words arrive later."))
     try await waitUntil { assistant.content.hasSuffix("More words arrive later.") }
     let next = try await mountedText(host)
     #expect(next.contains("More words arrive later."))
-    #expect(assistant.isStreaming && store.isStreaming)
+    #expect(assistant.isStreaming && store.anyTurnRunning)
 
     await backend.finish()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(!assistant.isStreaming && bot.messages.last?.id == assistant.id)
 }
 

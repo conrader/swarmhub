@@ -30,7 +30,7 @@ import Testing
     #expect(users.last?.isSteer == false, "the resend is a normal message")
     #expect(bot.messages.last?.role == .assistant && bot.messages.last?.isStreaming == true)
     await backend.emit(.token("Fixed."), .completed); await backend.end()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(store.turns.nextMessages.isEmpty)
 }
 
@@ -42,7 +42,7 @@ import Testing
     #expect(store.sendAsNextMessage(bubble))
     try await backend.calls.wait { $0.contains("send:later") }
     #expect(bubble.metadata[SteerKey.steer] == "sentNext")
-    await backend.end(); try await waitUntil { store.isIdle }
+    await backend.end(); try await waitUntil { !store.anyTurnRunning }
 }
 
 @MainActor @Test func onlyFailedSteersOfferIt() {
@@ -66,7 +66,7 @@ import Testing
     #expect(store.send(text: "@DMT hello", to: group))
     try await backend.calls.wait { $0.contains { $0.hasPrefix("send:") } }
     await backend.emit(.token("Before. "))
-    try await waitUntil { store.steerAvailable && store.streamingAssistant?.content == "Before. " }
+    try await waitUntil { (store.soleTurn?.steerAvailable == true) && store.soleTurn?.assistant?.content == "Before. " }
     #expect(store.send(text: "@DMT shorter", to: group))
     try await waitUntil { group.messages.contains { $0.metadata[SteerKey.steer] == "failed" } }
     let bubble = try #require(group.messages.first { $0.metadata[SteerKey.steer] == "failed" })
@@ -77,6 +77,6 @@ import Testing
     #expect(bubble.metadata[SteerKey.steer] == "sentNext")
     #expect(group.messages.filter { $0.role == .user && !$0.isSteer }.map(\.content) == ["@DMT hello", "@DMT shorter"])
     await backend.emit(.token("Shorter."), .completed); await backend.end()
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
     #expect(group.messages.last { $0.role == .assistant }?.authorID == dmt.id)
 }

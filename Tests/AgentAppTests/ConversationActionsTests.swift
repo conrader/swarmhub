@@ -14,7 +14,7 @@ import Testing
         let blocks = ChatCardParser.parse(card.content)
         let index = try #require(blocks.firstIndex { if case .choices = $0 { true } else { false } })
         #expect(store.performCardAction(target: .group(groupID: group.id, botID: b.id), sourceID: card.id, index: index, expected: blocks[index], choice: "One"))
-        try await waitUntil { store.isIdle }
+        try await waitUntil { !store.anyTurnRunning }
         #expect(a.messages.isEmpty && b.messages.isEmpty && c.messages.isEmpty)
         #expect(backend.sent.all.count == 1)
         #expect(backend.sent.all.first?.session.contains(b.id.uuidString.lowercased()) == true)
@@ -35,7 +35,7 @@ import Testing
         #expect(!store.performCardAction(target: .bot(botID: owner.id, threadID: thread.id), sourceID: card.id, index: index, expected: blocks[index], choice: "Middle"),
                 "only an offered option is sent")
         #expect(store.performCardAction(target: .bot(botID: owner.id, threadID: thread.id), sourceID: card.id, index: index, expected: blocks[index], choice: "Right"))
-        try await waitUntil { store.isIdle }
+        try await waitUntil { !store.anyTurnRunning }
         #expect(thread.messages.first { $0.role == .user }?.content == "Right")
         #expect(thread.messages.first { $0.role == .user }?.replyToID == card.id)
         #expect(owner.messages.isEmpty && other.messages.isEmpty)

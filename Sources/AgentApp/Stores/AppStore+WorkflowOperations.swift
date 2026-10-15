@@ -9,15 +9,17 @@ import Foundation
 }
 
 extension AppStore {
-    /// Tools for the turn now streaming in a workflow task's thread; nil for any other turn.
+    /// Tools for the turn now streaming in a workflow task's thread; nil for any other turn. P39: the turn is the one whose
+    /// thread holds the request's session (several chats may stream at once).
     func workflowTools(for request: AgentRequest, bot: Bot) throws -> WorkflowTools? {
-        guard let thread = streamingConversation as? ChatThread, streamingBotID == bot.id, let token = activeStreamToken,
-              request.sessionID == (thread.hermesSessionID ?? bot.id.uuidString),
+        guard let turn = runningTurns.values.first(where: { turn in
+                  turn.botID == bot.id && (turn.conversation as? ChatThread).map { request.sessionID == ($0.hermesSessionID ?? bot.id.uuidString) } == true
+              }), let thread = turn.conversation as? ChatThread,
               let found = workflows.values.first(where: { workflow in workflow.tasks.contains { $0.threadID == thread.id && $0.state == .running && $0.botID == bot.id } }),
               let taskID = found.tasks.first(where: { $0.threadID == thread.id && $0.state == .running })?.id else { return nil }
-        let id = found.id, session = thread.hermesSessionID
+        let id = found.id, session = thread.hermesSessionID, token = turn.token
         let current: @MainActor () throws -> Workflow = { [weak self, weak thread] in
-            guard let self, let thread, self.activeStreamToken == token, self.streamingConversation === thread, self.streamingBotID == bot.id,
+            guard let self, let thread, let current = self.turn(token: token), current.conversation === thread, current.botID == bot.id,
                   thread.hermesSessionID == session, self.bots.contains(where: { $0 === bot }) else {
                 throw BackendError.unavailable("The workflow turn or agent connection is no longer current.")
             }

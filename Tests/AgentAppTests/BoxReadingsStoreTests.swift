@@ -67,10 +67,10 @@ private func turns(_ host: String) -> [(input: String, instructions: String)] {
     let (store, jarvis, chat) = readingsStore(replies: ["I will set gpt-6.1-sol for mira's sub-agents. OK?", "Done: mira ok."])
     let change = SubAgentModelChange(model: "gpt-6.1-sol", provider: "openai-codex", bots: .some(["mira"]))
     #expect(store.requestSubAgentModel(change, manager: jarvis))
-    try await waitUntil { store.isIdle && turns(chat).count == 1 }
+    try await waitUntil { !store.anyTurnRunning && turns(chat).count == 1 }
     #expect(jarvis.messages.first?.content == "Change the coding model of mira to gpt-6.1-sol (openai-codex).")
     #expect(store.send(text: "yes"))
-    try await waitUntil { store.isIdle && turns(chat).count == 2 }
+    try await waitUntil { !store.anyTurnRunning && turns(chat).count == 2 }
     let sent = turns(chat)
     for turn in sent {
         #expect(turn.instructions.contains("export MODEL=gpt-6.1-sol PROV=openai-codex KM=delegation.model KP=delegation.provider") && turn.instructions.contains("Ask him first"))
@@ -82,9 +82,9 @@ private func turns(_ host: String) -> [(input: String, instructions: String)] {
     let (store, jarvis, chat) = readingsStore(replies: ["Set 2 coding jobs at a time on this box?", block(capacityLine.replacingOccurrences(of: #""slots":null"#, with: #""slots":2"#))])
     let target = store.connection(of: jarvis)
     #expect(store.requestCodingLimit(2, on: target))
-    try await waitUntil { store.isIdle && turns(chat).count == 1 }
+    try await waitUntil { !store.anyTurnRunning && turns(chat).count == 1 }
     #expect(store.send(text: "yes"))
-    try await waitUntil { store.isIdle && store.boxReadings(on: target).capacity?.slots == 2 }
+    try await waitUntil { !store.anyTurnRunning && store.boxReadings(on: target).capacity?.slots == 2 }
     #expect(turns(chat).allSatisfy { $0.instructions.contains("( N=2; D=~/.hermes/swarmhub;") })
     #expect(jarvis.messages.first?.content == "Let this box run 2 coding jobs at a time." && store.managementExchanges[jarvis.id] == nil, "the block closes the exchange")
     #expect(BoxCapacity(try #require(store.boxReadings(on: target).capacity)).line.hasSuffix("2 coding jobs at a time (set by you)"))

@@ -63,7 +63,7 @@ extension AppStore {
     /// a coding thread locks to `coding`. With no lock to carry nothing more is sent. The thread appears only once
     /// every step succeeded.
     func startThread(from message: ChatMessage, in bot: Bot, coding: ModelChoice? = nil) {
-        guard canFork(bot), let sessionID = bot.hermesSessionID, !isStreaming else { return }
+        guard canFork(bot), let sessionID = bot.hermesSessionID, isIdle(bot) else { return }
         let activeBackend: any AgentBackend
         do { activeBackend = try backend(for: bot) } catch { errorMessage = error.localizedDescription; return }
         let parentLock = bot.hermesModelLock.flatMap { $0.sessionID == sessionID ? $0 : nil }

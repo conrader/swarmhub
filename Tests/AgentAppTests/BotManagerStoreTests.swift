@@ -44,7 +44,7 @@ private let marker = "P22-MANAGER-TEXT-MARKER"
 
 @MainActor private func turn(_ store: AppStore, _ text: String) async throws {
     #expect(store.send(text: text))
-    try await waitUntil { store.isIdle }
+    try await waitUntil { !store.anyTurnRunning }
 }
 
 /// The `instructions` of every chat turn the server received, in order.

@@ -32,7 +32,7 @@ import Testing
     let steering = ChatParityBackend(flags: ["run_steer"], opening: [.token("working"), .tool(ToolEvent(phase: .started, name: "terminal"))])
     let (store, bot) = parityStore(steering)
     #expect(store.send(text: "first"))
-    try await waitUntil { store.steerAvailable && store.streamingAssistant?.activity?.current != nil }
+    try await waitUntil { (store.soleTurn?.steerAvailable == true) && store.soleTurn?.assistant?.activity?.current != nil }
     #expect(store.send(text: "  also check the logs "))
     try await steering.calls.wait { $0.contains("steer:session-main:also check the logs") }
     let bubble = try #require(bot.messages.last)
@@ -47,7 +47,7 @@ import Testing
     // The first token is read only after `steerAvailable` is settled for this run.
     try await waitUntil { otherBot.messages.last?.content == "working" }
     let count = otherBot.messages.count
-    #expect(!other.steerAvailable)
+    #expect(!(other.soleTurn?.steerAvailable == true))
     #expect(!other.send(text: "nudge"))
     #expect(otherBot.messages.count == count)
     other.stop()
@@ -89,7 +89,7 @@ import Testing
     let threadSend = "send:\(thread.hermesSessionID!):Tell me more about the second"
     try await backend.calls.wait { $0.contains(threadSend) }
     #expect(bot.messages.count == 2 && thread.messages.first?.content == "Tell me more about the second")
-    store.stop(); try await waitUntil { store.isIdle }
+    store.stop(); try await waitUntil { !store.anyTurnRunning }
 
     let restored = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let restoredThread = try #require(restored.bots.first?.threads.first)

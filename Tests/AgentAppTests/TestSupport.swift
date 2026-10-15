@@ -289,3 +289,8 @@ final class UnreachableProtocol: URLProtocol, @unchecked Sendable {
     override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost)) }
     override func stopLoading() {}
 }
+
+extension AppStore {
+    /// P39: tests with one chat streaming read its turn without naming the chat.
+    var soleTurn: ConversationTurn? { runningTurns.count == 1 ? runningTurns.values.first : nil }
+}

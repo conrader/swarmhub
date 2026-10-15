@@ -43,13 +43,13 @@ import Testing
         await backend.emit(.token("One."), .completed); await backend.end()
         try await backend.calls.wait { $0.contains("send:second correction") }
         await backend.emit(.token("Two."), .completed); await backend.end()
-        try await waitUntil { store.isIdle && store.turns.nextMessages.isEmpty }
+        try await waitUntil { !store.anyTurnRunning && store.turns.nextMessages.isEmpty }
         #expect(bot.messages.filter { $0.metadata[SteerKey.steer] == "sentNext" }.count == 2)
         // Sent entries are never sent again.
         let again = ScriptedTurnBackend()
         let (third, _) = reopen(url, again)
         #expect(third.turns.nextMessages.isEmpty)
-        original.turns.nextMessages = []; await first.end(); try await waitUntil { original.isIdle }
+        original.turns.nextMessages = []; await first.end(); try await waitUntil { !original.anyTurnRunning }
     }
 
     @Test func anUnconfirmedEarlierReplyGivesTheQueueBackWithALine() async throws {
@@ -65,7 +65,7 @@ import Testing
         #expect(bot.messages.contains { $0.role == .system && $0.content.contains("not confirmed yet") })
         let (third, _) = reopen(url, ScriptedTurnBackend())
         #expect(third.turns.nextMessages.isEmpty, "given back for good")
-        original.turns.nextMessages = []; await first.end(); try await waitUntil { original.isIdle }
+        original.turns.nextMessages = []; await first.end(); try await waitUntil { !original.anyTurnRunning }
     }
 
     @Test func aChangedTextIsGivenBackInsteadOfSent() async throws {
@@ -75,7 +75,7 @@ import Testing
         let (store, bot) = reopen(url, ScriptedTurnBackend())
         #expect(store.turns.nextMessages.map(\.bubble.content) == ["second correction"])
         #expect(bot.messages.first { $0.id == bubbles[0].id }?.metadata[SteerKey.steer] == "failed")
-        original.turns.nextMessages = []; await first.end(); try await waitUntil { original.isIdle }
+        original.turns.nextMessages = []; await first.end(); try await waitUntil { !original.anyTurnRunning }
     }
 
     @Test func aRefusedLedgerWriteQueuesNothing() async throws {
@@ -88,7 +88,7 @@ import Testing
         #expect(store.turns.nextMessages.isEmpty && bubble.metadata[SteerKey.steer] == "failed")
         #expect(store.errorMessage?.contains("Could not save the message queue") == true)
         store.runtime = ledger
-        await backend.end(); try await waitUntil { store.isIdle }
+        await backend.end(); try await waitUntil { !store.anyTurnRunning }
         #expect(!backend.calls.all.contains("send:later"))
     }
 
@@ -106,7 +106,7 @@ import Testing
         copy.messages.first { $0.role == .assistant && $0.presentation == .text }?.turnState = .finished
         reopened.resumeRestoredNextMessages()
         try await resumed.calls.wait { $0.contains { $0.hasPrefix("send:Review notes from") } }
-        await resumed.emit(.completed); await resumed.end(); try await waitUntil { reopened.isIdle }
-        store.turns.nextMessages = []; await backend.end(); try await waitUntil { store.isIdle }
+        await resumed.emit(.completed); await resumed.end(); try await waitUntil { !reopened.anyTurnRunning }
+        store.turns.nextMessages = []; await backend.end(); try await waitUntil { !store.anyTurnRunning }
     }
 }

@@ -80,8 +80,9 @@ struct ChatView: View {
             .onChange(of: store.pendingComposerAttachment) { _, _ in takePendingAttachment() }
     }
     private func composer(thread: ChatThread?) -> some View {
-        ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingBotID == bot.id, hint: store.steerHint,
-                     send: send, stop: store.stop, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
+        let conversation: any Conversation = thread ?? bot
+        return ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: conversation), canSteer: store.canSteer(in: conversation), hint: store.steerHint,
+                     send: send, stop: { store.stop(conversation) }, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.actions(for: bot.backend) : [], manage: manage,
                      dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", dictation: dictation)
@@ -100,7 +101,7 @@ struct ChatView: View {
     private func attach(_ urls: [URL]) { intake.attach(urls, store: store) }
     private func send() {
         let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
-        let steering = store.isStreaming
+        let steering = !store.isIdle(store.currentConversation(of: bot))
         if store.send(text: value, attachments: steering ? [] : intake.items) { draft = ""; if !steering { intake.items = [] } }
     }
 }

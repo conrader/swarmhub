@@ -152,7 +152,7 @@ extension AppStore {
     /// The confirmation's yes: one visible turn in the manager's chat runs "Connect bots" for the allowed names (never
     /// `default`, the manager, typed-key or bound profiles). False when nothing may be connected or a turn is running.
     @discardableResult func startAdoption(_ names: [String], manager: Bot) -> Bool {
-        guard isManager(manager), manager.backend == .hermes, isIdle else { return false }
+        guard isManager(manager), manager.backend == .hermes, isIdle(manager) else { return false }
         let profile = manager.hermesProfile ?? "default", target = connection(of: manager)
         let allowed = BoxAdoption.adoptable(names, managerProfile: profile, typed: typedKeyProfiles, bound: boundProfiles(on: target))
         guard !allowed.isEmpty, let template = managerRecipeTemplate(.box),
@@ -205,7 +205,7 @@ extension AppStore {
     /// "Restore this bot's old key": the manager puts the backup back (a visible turn); on its ok SwarmHub forgets the key.
     @discardableResult func restoreOldKey(_ bot: Bot) -> Bool {
         guard let backup = bot.adoptedKeyBackup, let profile = bot.hermesProfile, let manager = manager(for: bot), manager.id != bot.id,
-              manager.backend == .hermes, isIdle, let template = managerRecipeTemplate(.box),
+              manager.backend == .hermes, isIdle(manager), let template = managerRecipeTemplate(.box),
               let instructions = BoxAdoption.restoreInstructions(template: template, managerProfile: manager.hermesProfile ?? "default", name: profile, backup: backup)
         else { return false }
         pendingSkillInstalls[manager.id] = SkillInstallTurn(profile: profile, instructions: instructions)
