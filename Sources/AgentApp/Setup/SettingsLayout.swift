@@ -8,6 +8,8 @@ enum SettingsLayout {
     /// Advanced: today's panes re-homed, Avatars folded into Appearance and alerts, nothing new.
     enum AdvancedPane: String, CaseIterable, Identifiable {
         case servers = "Servers and keys", alerts = "Appearance and alerts", models = "Models", review = "Approvals"
+        // P38 C: dictation's deAPI key and live voice's state.
+        case voice = "Voice"
         case computers = "Computers", usage = "Usage", account = "Account", reports = "Reports", about = "About"
         var id: String { rawValue }
         var icon: String {
@@ -21,6 +23,7 @@ enum SettingsLayout {
             case .account: "person.crop.circle"
             case .reports: "tray"
             case .about: "info.circle"
+            case .voice: "mic"
             }
         }
     }
@@ -41,7 +44,9 @@ enum SettingsLayout {
     /// New in P21: the simple page's connection controls and its way into Advanced.
     static let added = ["connection.status", "connection.test", "connection.setup", "advanced.open",
                         // P36: the SwarmHub account and the Reports inbox.
-                        "account.swarmhub", "account.serviceURL", "reports.list"]
+                        "account.swarmhub", "account.serviceURL", "reports.list",
+                        // P38 C: voice dictation (deAPI) and live voice with ChatGPT.
+                        "voice.dictationKey", "voice.live"]
 
     static let entries: [(id: String, home: Home)] = [
         ("connection.status", .simple), ("connection.test", .simple), ("connection.setup", .simple), ("you.name", .simple),
@@ -57,6 +62,7 @@ enum SettingsLayout {
         ("usage.table", .advanced(.usage)),
         // P36: the SwarmHub sign-in (sending reports only) and the Reports inbox.
         ("account.swarmhub", .advanced(.account)), ("account.serviceURL", .advanced(.account)), ("reports.list", .advanced(.reports)),
+        ("voice.dictationKey", .advanced(.voice)), ("voice.live", .advanced(.voice)),
         ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))
     ]
 
