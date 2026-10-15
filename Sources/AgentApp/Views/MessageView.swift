@@ -9,6 +9,8 @@ struct MessageView: View {
     let reply: () -> Void; let openThread: () -> Void; let codeInThread: () -> Void
     /// P27: renders open the steps row.
     var stepsExpanded = false
+    /// P41: renders open the bot-msg replies on those steps.
+    var botRepliesExpanded = false
     /// P38: the chat its cards answer into.
     let actionTarget: ConversationActionTarget?
     @State private var showingReactions = false
@@ -82,7 +84,7 @@ struct MessageView: View {
             } else {
                 MarkdownContent(message: message, actionTarget: actionTarget)
                 // P29: one row while streaming and after, so an open row stays open when the turn ends.
-                ActivityRow(message: message, expanded: stepsExpanded)
+                ActivityRow(message: message, expanded: stepsExpanded, repliesExpanded: botRepliesExpanded)
                 BotMessageChipsRow(message: message)
             }
         }

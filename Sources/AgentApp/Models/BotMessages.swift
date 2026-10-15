@@ -137,7 +137,20 @@ struct BotThreadRow: Equatable, Sendable {
 enum BotMessageCopy {
     static func chip(_ name: String) -> String { "→ \(name)" }
     static func arrival(from: String, to: String) -> String { "\(from) wrote to \(to)" }
-    static let openThread = "Open thread"
+    static let openThread = "Open conversation"
+    /// P41: the sender's step while bot-msg waits, and once the recipient answered.
+    static func asking(_ name: String) -> String { "Asked \(name)…" }
+    static func replied(_ name: String) -> String { "\(name) replied" }
+    static func chip(_ name: String, _ state: BotMessageChipState) -> String {
+        switch state {
+        case .sent: chip(name)
+        case .asking: asking(name)
+        case .replied: replied(name)
+        }
+    }
+    /// P41: the recipient while a sender's bot-msg step runs (sidebar and chat header).
+    static func incoming(from name: String) -> String { "\(ChatActivityPhase.working.label) · message from \(name)" }
+    static func pollFailed(_ reason: String) -> String { "Couldn’t check bot messages: \(reason)" }
     static func paletteTitle(_ a: String, _ b: String) -> String { "\(a) ↔ \(b)" }
     static let sectionTitle = "Bot messages"
     static let empty = "No messages between bots yet."
