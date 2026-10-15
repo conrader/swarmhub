@@ -139,7 +139,7 @@ extension AppStore {
     private func split(_ row: ChatMessage, origin: ChatMessage, in conversation: any Conversation, after index: Int) -> ChatMessage {
         let number = Int(row.metadata[TurnKey.part] ?? "1") ?? 1
         row.metadata[TurnKey.part] = String(number)
-        row.isStreaming = false; row.turnState = .finished; row.metadata[TurnKey.why] = nil
+        row.isStreaming = false; row.turnState = .finished; row.metadata[TurnKey.why] = nil; row.metadata["status"] = nil
         if var activity = row.activity { activity.finish(at: now()); row.activity = activity }
         var metadata = [TurnKey.part: String(number + 1)]
         metadata[TurnKey.run] = row.metadata[TurnKey.run]; metadata[TurnKey.forUser] = row.metadata[TurnKey.forUser]

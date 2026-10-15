@@ -24,7 +24,7 @@ extension HermesBackend {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any], let rows = json["data"] as? [[String: Any]] else {
             throw BackendError.unavailable("Hermes returned an invalid messages page.")
         }
-        return MessagePage(rows: rows.compactMap(Self.parseMessage), full: rows.count >= window, serverDate: Self.serverDate(http), bytes: data.count)
+        return MessagePage(rows: rows.compactMap { Self.parseMessage($0, toolCalls: true) }, full: rows.count >= window, serverDate: Self.serverDate(http), bytes: data.count)
     }
 
     /// `GET /v1/runs/{id}` (capability `run_status`): queued, running, waiting_for_approval, stopping, completed, failed,

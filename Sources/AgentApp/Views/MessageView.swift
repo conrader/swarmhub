@@ -52,6 +52,7 @@ struct MessageView: View {
         HStack(spacing: 10) {
             Button { showingReactions.toggle() } label: { Image(systemName: "face.smiling") }.help("Tapback")
             Button(action: reply) { Image(systemName: "arrowshape.turn.up.left") }.help("Reply")
+            if message.role == .assistant && message.presentation == .text { Button { copyToPasteboard(SwarmhubBlock.visibleText(message.finalText)) } label: { Image(systemName: "doc.on.doc") }.help("Copy reply") }
             if canThread && thread == nil && message.role == .assistant { Button(action: openThread) { Image(systemName: "bubble.left.and.text.bubble.right") }.help("Reply in thread") }
             if canThread && thread == nil && message.role == .assistant, let codingModel {
                 Button(action: codeInThread) { Image(systemName: "chevron.left.forwardslash.chevron.right") }
@@ -80,9 +81,7 @@ struct MessageView: View {
                         .overlay { if message.isSteer || message.isCorrection { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColor.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3])) } }
                 }
             } else {
-                MarkdownContent(message: message, actionTarget: actionTarget)
-                // P29: one row while streaming and after, so an open row stays open when the turn ends.
-                ActivityRow(message: message, expanded: stepsExpanded)
+                OrderedReply(message: message, actionTarget: actionTarget, stepsExpanded: stepsExpanded)
                 BotMessageChipsRow(message: message)
             }
         }

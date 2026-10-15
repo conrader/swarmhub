@@ -94,7 +94,7 @@ extension AppStore {
         if !text.isEmpty && (outcome.state == .finished || outcome.state == .incomplete) && selectedGroup?.id != group.id { group.unreadCount += 1 }
         if outcome.state == .finished && !text.isEmpty {
             AvatarReactions.shared.completed(bot)
-            notifyIfNeeded(group: group, bot: bot, message: text)
+            notifyIfNeeded(group: group, bot: bot, message: reply.finalText.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         resendReturnedSteers(steers, bot: nil)
         objectWillChange.send(); save()

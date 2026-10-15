@@ -84,7 +84,8 @@ extension AppStore {
             bot.messages.removeAll { $0.id != existing.id && aliases.contains($0.metadata["deliveryKey"] ?? "") }
         } else {
             bot.messages.append(card)
-            if selectedBot?.id != bot.id || NSApp?.isActive != true { bot.unreadCount += 1 }
+            // P43: a side thread open over the bot's chat hides the card too.
+            if selectedBot?.id != bot.id || openThread(in: bot) != nil || NSApp?.isActive != true { bot.unreadCount += 1 }
         }
         objectWillChange.send(); save()
         if notify { notifyIfNeeded(bot: bot, message: "Routine finished: \(job.name)" + (card.content.isEmpty ? "" : " — \(card.content)")) }

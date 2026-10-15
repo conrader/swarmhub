@@ -7,9 +7,12 @@ struct MarkdownContent: View {
     @ObservedObject var message: ChatMessage
     /// P38: where the cards answer; nil (renders, a thread's parent line) shows them without actions.
     var actionTarget: ConversationActionTarget? = nil
+    /// P43: one text segment of an ordered reply (nil = the whole text) and the card index its first block has.
+    var text: String? = nil; var indexBase = 0
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(ChatCardParser.parse(SwarmhubBlock.visibleText(message.content)).enumerated()), id: \.offset) { index, block in
+            ForEach(Array(ChatCardParser.parse(SwarmhubBlock.visibleText(text ?? message.content)).enumerated()), id: \.offset) { offset, block in
+                let index = indexBase + offset
                 switch block {
                 case .markdown(let text): ProseBlock(text: text)
                 case .code(_, let body): CodeBlock(code: body)

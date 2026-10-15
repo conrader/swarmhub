@@ -7,6 +7,8 @@ struct BotRoutinesState: Equatable, Sendable {
     /// Job ids (or `RoutinesCache.newJobToken`, or an imported routine's UUID) with a request in flight.
     var busy: Set<String> = []
     var error: String?
+    /// P43: jobs started with Run now and when (memory only); the row shows Running… until the run is seen.
+    var running: [String: Date] = [:]
 
     var hasJobsAPI: Bool { if case .unavailable = jobs { false } else { true } }
 }
@@ -22,6 +24,9 @@ struct BotRoutinesState: Equatable, Sendable {
     var autoLoad = true
     /// Paused jobs started with Run now (Hermes re-enables them); paused again once that run is seen.
     var repauseAfterRun: Set<String> = []
+    /// P43: the 5 s watch per `bot|job` while a run is under way, and bots whose routines a cron step is refreshing.
+    var watches: [String: Task<Void, Never>] = [:]
+    var toolRefreshes: Set<UUID> = []
     private var nextPoll: [String: Date] = [:]
     private var failures: [String: Int] = [:]
 

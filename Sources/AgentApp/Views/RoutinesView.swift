@@ -34,7 +34,7 @@ struct RoutinesView: View {
                 case .unavailable(let reason): Text(reason).font(.caption).foregroundStyle(.secondary)
                 case .loaded(let jobs):
                     ForEach(jobs) { job in
-                        RoutineJobRow(job: job, busy: state.busy.contains(job.id), confirmingDelete: $confirmingDelete,
+                        RoutineJobRow(job: job, busy: state.busy.contains(job.id), running: RoutineWatch.isRunning(job, in: state), confirmingDelete: $confirmingDelete,
                                       toggle: { enabled in Task { await store.setRoutine(job, enabled: enabled, for: bot) } },
                                       run: { Task { await store.runRoutineNow(job, for: bot) } },
                                       edit: { editor = .edit(job) },
@@ -64,6 +64,8 @@ enum RoutineEditorTarget: Identifiable {
 
 private struct RoutineJobRow: View {
     let job: HermesJob; let busy: Bool
+    /// P43: Running… from the click until the run is seen; Run now is off meanwhile.
+    var running = false
     @Binding var confirmingDelete: String?
     let toggle: @MainActor @Sendable (Bool) -> Void
     let run: () -> Void, edit: () -> Void, delete: () -> Void
@@ -84,7 +86,10 @@ private struct RoutineJobRow: View {
                     Button("Cancel") { confirmingDelete = nil }
                     Button("Delete") { delete() }.foregroundStyle(.red)
                 } else {
-                    Button("Run now", action: run); Button("Edit", action: edit); Spacer()
+                    if running {
+                        HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Running…") }.foregroundStyle(.secondary).help("The result appears in this agent's chat when the run ends")
+                    } else { Button("Run now", action: run) }
+                    Button("Edit", action: edit); Spacer()
                     if busy { ProgressView().controlSize(.mini) }
                     Button("Delete") { confirmingDelete = job.id }.foregroundStyle(.secondary)
                 }
@@ -93,7 +98,7 @@ private struct RoutineJobRow: View {
     }
 
     private var timing: String {
-        var parts = [job.state.capitalized]
+        var parts = [running ? "Running…" : job.state.capitalized]
         if let last = RoutineTime.relative(job.lastRunAt) { parts.append("Last run \(last)" + (job.lastStatus.map { " · \($0)" } ?? "")) } else { parts.append("Never run") }
         if !job.isPaused, let next = RoutineTime.relative(job.nextRunAt) { parts.append("Next \(next)") }
         return parts.joined(separator: " · ")
@@ -116,27 +121,5 @@ private struct PendingRoutineRow: View {
                 }
             }
         }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(AppColor.raised.opacity(0.6), in: RoundedRectangle(cornerRadius: 9))
-    }
-}
-
-/// "Routine finished" card posted into the bot's chat by the routine inbox.
-struct RoutineResultCard: View {
-    let message: ChatMessage
-    var body: some View {
-        let status = message.metadata["status"] ?? "ok"
-        let failed = status != "ok" || message.metadata["error"] != nil
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: failed ? "exclamationmark.triangle.fill" : "clock.badge.checkmark").foregroundStyle(failed ? Color.red : Color.accentColor)
-                Text("Routine finished").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer(); Text(status.capitalized).font(.caption2).foregroundStyle(failed ? Color.red : Color.secondary)
-            }
-            Text(message.metadata["routine"] ?? "Routine").font(.callout.weight(.semibold))
-            if !message.content.isEmpty { Text(message.content).font(.callout).textSelection(.enabled).lineSpacing(2) }
-            if let error = message.metadata["error"] { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
-            if let note = message.metadata["note"] { Text(note).font(.caption).foregroundStyle(.secondary) }
-            Text(message.createdAt.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
-        }.padding(12).frame(maxWidth: 500, alignment: .leading).background(AppColor.card, in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(AppColor.separator, lineWidth: 0.5))
     }
 }
