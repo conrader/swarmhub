@@ -85,6 +85,8 @@ import UserNotifications
     /// P16: turn bookkeeping, the token autosave interval, the connectivity events and the reconcile timing (injectable).
     let turns = TurnBook(); var autosaveInterval: Duration = .seconds(2); var connectivity: (any ConnectivitySource)?
     var reconcileTiming = ReconcileTiming.standard
+    /// P38 D: the execution ledger (`runtime.sqlite`, opened by `journal()`), and the workflows it holds.
+    var runtime: (any RuntimeStoring)?; @Published var workflows: [UUID: Workflow] = [:]
     var streamTask: Task<Void, Never>?; let fileURL: URL
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     var streamingBotID: UUID?; var streamingAssistant: ChatMessage?; var streamingConversation: (any Conversation)?
