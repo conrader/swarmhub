@@ -136,8 +136,12 @@ private struct ThreadBubble: View {
                             .font(.caption2).foregroundStyle(.tertiary)
                     }
                 }
-                Text(line.text).textSelection(.enabled).padding(.horizontal, 11).padding(.vertical, 7)
-                    .background(outgoing ? AppColor.raised : AppColor.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                // P42: the steps the recipient ran for this answer, then its text.
+                if let activity = line.activity, activity.total > 0 { ThreadSteps(activity: activity) }
+                if !line.text.isEmpty {
+                    Text(line.text).textSelection(.enabled).padding(.horizontal, 11).padding(.vertical, 7)
+                        .background(outgoing ? AppColor.raised : AppColor.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
             }
             if outgoing { BotMark(profile: line.author, size: 22) } else { Spacer(minLength: 60) }
         }
@@ -173,5 +177,22 @@ struct BotMessagesSection: View {
             // P41: a failed session list is one quiet line, not silence.
             if let problem = center.errors[bot.id] { Text(BotMessageCopy.pollFailed(problem)).font(.caption2).foregroundStyle(.tertiary).lineLimit(2) }
         }
+    }
+}
+
+/// P42: an answer's steps in the conversation sheet: "Running a command · df -h", one per line, the running one marked.
+struct ThreadSteps: View {
+    let activity: ToolActivity
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(ActivityCopy.steps(activity.total)).font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+            ForEach(Array(activity.steps.enumerated()), id: \.offset) { _, step in
+                HStack(spacing: 5) {
+                    if step.isRunning { ProgressView().controlSize(.mini) } else { Image(systemName: step.failed ? "exclamationmark.triangle.fill" : "checkmark").font(.system(size: 8)).foregroundStyle(step.failed ? .orange : .secondary) }
+                    Text(ActivityCopy.label(step.name)).font(.caption2)
+                    if let preview = step.preview { Text(preview).font(.caption2.monospaced()).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle) }
+                }
+            }
+        }.padding(.horizontal, 10).padding(.vertical, 6).background(AppColor.card.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

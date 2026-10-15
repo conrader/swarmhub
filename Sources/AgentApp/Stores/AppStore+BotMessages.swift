@@ -65,18 +65,31 @@ extension AppStore {
         }
     }
 
-    /// Reads the thread with the recipient's own key; leaves what is known in place when it cannot.
+    /// Reads the thread with the recipient's own key; leaves what is known in place when it cannot. P42: each answer
+    /// carries the steps the recipient ran for it, so the sheet shows the whole exchange.
     func loadThread(_ key: BotThreadKey) async {
-        guard let recipient = readableRecipient(key), let backend = try? backend(for: recipient),
-              let messages = try? await backend.loadMessages(sessionID: key.sessionID) else { return }
-        let lines = messages.enumerated().compactMap { index, message -> BotThreadLine? in
-            switch message.role {
-            case "user": BotThreadLine(id: "m\(index)", author: key.from, text: BotMessageCall.strippingHeader(message.content).text, date: message.createdAt)
-            case "assistant": BotThreadLine(id: "m\(index)", author: key.to, text: message.content, date: message.createdAt)
-            default: nil
-            }
-        }
+        guard let recipient = readableRecipient(key), let rows = try? await botWorkRows(recipient, session: key.sessionID) else { return }
+        let lines = Self.threadLines(rows, key: key)
         if !lines.isEmpty, botMessages.loaded[key] != lines { botMessages.loaded[key] = lines }
+    }
+
+    /// A thread's rows as lines: each request (its SwarmHub header removed), then the answer with its steps (an answer
+    /// still running has its steps and no text yet).
+    nonisolated static func threadLines(_ rows: [BackendMessage], key: BotThreadKey) -> [BotThreadLine] {
+        let turns = HistoryReconciler.serverTurns(rows), live = BotWorkReader.lastTurn(rows)
+        return turns.flatMap { turn -> [BotThreadLine] in
+            var lines: [BotThreadLine] = []
+            if let user = turn.user {
+                let text = BotWorkOrigin.header(user.content)?.text ?? BotMessageCall.strippingHeader(user.content).text
+                lines.append(BotThreadLine(id: "m\(user.id.map(String.init) ?? "t\(turn.index)")", author: key.from, text: text, date: user.createdAt))
+            }
+            if let last = turn.rows.last {
+                // The newest answer's last step runs until its reply lands.
+                let activity = turn.index == turns.count - 1 ? live?.activity : turn.activity
+                lines.append(BotThreadLine(id: "a\(last.id.map(String.init) ?? "t\(turn.index)")", author: key.to, text: turn.replyText, date: last.createdAt, activity: activity))
+            }
+            return lines
+        }
     }
 
     func openThread(_ key: BotThreadKey) {

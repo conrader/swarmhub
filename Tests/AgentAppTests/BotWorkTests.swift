@@ -188,3 +188,26 @@ final class WorkClock: @unchecked Sendable {
     store.watchBotWork(infra, target: .session("swarmhub-from-grok-jarvis"), origin: .bot("grok-jarvis"))
     #expect(store.botWork.pollers.isEmpty, "off in tests and renders unless switched on")
 }
+
+@Test @MainActor func theConversationShowsTheWholeExchange() async throws {
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000), key = BotThreadKey(from: "grok-jarvis", to: "grok-infra")
+    let first = workStages(at: t0)[3]
+    let second = workStages(at: t0.addingTimeInterval(600), request: "And box 3?")[2].map {
+        BackendMessage(id: ($0.id ?? 0) + 100, role: $0.role, content: $0.content, createdAt: $0.createdAt, finishReason: $0.finishReason, tools: $0.tools)
+    }
+    let lines = AppStore.threadLines(first + second, key: key)
+    #expect(lines.map(\.author) == ["grok-jarvis", "grok-infra", "grok-jarvis", "grok-infra"])
+    #expect(lines.map(\.text) == ["Is the backup disk on box 2 healthy?", "Checking the log.\n\nDisk at 62 %, last night's run finished.", "And box 3?", "Checking the log."])
+    #expect(lines[1].activity?.steps.map(\.name) == ["terminal", "read_file"] && lines[1].activity?.steps.allSatisfy { !$0.isRunning } == true)
+    #expect(lines[3].activity?.steps.last?.isRunning == true, "the answer still running shows its current step")
+    // The sheet reads the recipient's session through the same read as the live card.
+    let clock = WorkClock(t0)
+    let (store, _, infra) = workStore(clock: clock)
+    store.botWork.rowsOverride = { bot, session in
+        #expect(bot.id == infra.id && session == "swarmhub-from-grok-jarvis")
+        return first + second
+    }
+    await store.loadThread(key)
+    #expect(store.knownThreadLines(key) == lines)
+    #expect(BotThreadKey(from: "grok-jarvis", to: "grok-infra", session: "swarmhub-from-grok-jarvis") == key, "the usual session is the plain key")
+}

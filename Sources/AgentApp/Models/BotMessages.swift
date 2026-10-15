@@ -127,6 +127,8 @@ struct BotThreadKey: Hashable, Identifiable, Sendable {
 /// One line of a thread: who wrote it (a profile) and what, oldest first.
 struct BotThreadLine: Identifiable, Equatable, Sendable {
     var id: String; var author: String; var text: String; var date: Date?
+    /// P42: the steps the recipient ran for this answer (the conversation sheet lists them above its text).
+    var activity: ToolActivity? = nil
 }
 
 /// The Activity tab's and ⌘K's row for a thread: its last line and when.
