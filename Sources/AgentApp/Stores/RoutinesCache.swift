@@ -9,6 +9,8 @@ struct BotRoutinesState: Equatable, Sendable {
     var error: String?
     /// P43: jobs started with Run now and when (memory only); the row shows Running… until the run is seen.
     var running: [String: Date] = [:]
+    /// P44: job id → `last_run_at` of a run that answered `[SILENT]` (no card); the row says "ok · silent".
+    var silentRuns: [String: String] = [:]
 
     var hasJobsAPI: Bool { if case .unavailable = jobs { false } else { true } }
 }

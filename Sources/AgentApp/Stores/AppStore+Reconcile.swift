@@ -156,7 +156,7 @@ extension AppStore {
                 row.activity = new.activity
                 return row
             }
-            added += rows.filter { $0.role == .assistant }.count
+            added += rows.filter { $0.role == .assistant && !$0.isSilent }.count
             if let after = addition.after {
                 guard let index = conversation.messages.firstIndex(where: { $0.id == after }) else { continue }
                 conversation.messages.insert(contentsOf: rows, at: index + 1)

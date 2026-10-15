@@ -36,7 +36,7 @@ struct ChatView: View {
                         } else {
                             if GrokServerArchive.choice(hasLocalArchive: bot.grokSourceID != nil) == .local { GrokHistoryView(bot: bot, expanded: historyExpanded) }
                             if bot.messages.isEmpty && bot.grokSourceID == nil { ChatWelcome(bot: bot) }
-                            ForEach(bot.messages) { message in
+                            ForEach(bot.messages.filter { !$0.isSilent }) { message in
                                 MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
                                             thread: bot.thread(for: message.id), canThread: store.canFork(bot), codingModel: coding?.model,
                                             actionTarget: .bot(botID: bot.id, threadID: nil), reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) },
@@ -119,7 +119,7 @@ private struct ThreadTranscript: View {
         if let parent { MessageView(message: parent).opacity(0.85) }
         HStack { Rectangle().fill(AppColor.separator).frame(height: 0.5); Text(thread.replyCount == 1 ? "1 reply" : "\(thread.replyCount) replies").font(.caption).foregroundStyle(.secondary).fixedSize(); Rectangle().fill(AppColor.separator).frame(height: 0.5) }
             .padding(.horizontal, 28).padding(.vertical, 6)
-        ForEach(thread.messages) { message in
+        ForEach(thread.messages.filter { !$0.isSilent }) { message in
             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in thread.messages.first { $0.id == id } },
                         actionTarget: botID.map { .bot(botID: $0, threadID: thread.id) }, reply: { store.replyTo = message }).id(message.id)
         }

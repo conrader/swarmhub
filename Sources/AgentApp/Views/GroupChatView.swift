@@ -30,7 +30,7 @@ struct GroupChatView: View {
                         Color.clear.frame(height: 20)
                         if group.grokSourceID != nil { GrokHistoryView(archiveID: group.id, count: group.grokHistoryCount, ownerName: group.name, expanded: historyExpanded) }
                         if group.messages.isEmpty { Text("Message everyone, or address one bot with @name.").font(.caption).foregroundStyle(.secondary).padding(.vertical, 12) }
-                        ForEach(group.messages) { message in
+                        ForEach(group.messages.filter { !$0.isSilent }) { message in
                             GroupMessageRow(message: message, author: message.authorID.flatMap { id in store.bots.first { $0.id == id } },
                                             repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }, groupID: group.id).id(message.id)
                         }

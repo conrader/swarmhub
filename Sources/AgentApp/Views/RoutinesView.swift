@@ -34,7 +34,8 @@ struct RoutinesView: View {
                 case .unavailable(let reason): Text(reason).font(.caption).foregroundStyle(.secondary)
                 case .loaded(let jobs):
                     ForEach(jobs) { job in
-                        RoutineJobRow(job: job, busy: state.busy.contains(job.id), running: RoutineWatch.isRunning(job, in: state), confirmingDelete: $confirmingDelete,
+                        RoutineJobRow(job: job, busy: state.busy.contains(job.id), running: RoutineWatch.isRunning(job, in: state),
+                                      silent: AppStore.sameRoutineRun(state.silentRuns[job.id], job.lastRunAt), confirmingDelete: $confirmingDelete,
                                       toggle: { enabled in Task { await store.setRoutine(job, enabled: enabled, for: bot) } },
                                       run: { Task { await store.runRoutineNow(job, for: bot) } },
                                       edit: { editor = .edit(job) },
@@ -66,6 +67,8 @@ private struct RoutineJobRow: View {
     let job: HermesJob; let busy: Bool
     /// P43: Running… from the click until the run is seen; Run now is off meanwhile.
     var running = false
+    /// P44: the last run answered `[SILENT]`, so it posted no card.
+    var silent = false
     @Binding var confirmingDelete: String?
     let toggle: @MainActor @Sendable (Bool) -> Void
     let run: () -> Void, edit: () -> Void, delete: () -> Void
@@ -97,9 +100,14 @@ private struct RoutineJobRow: View {
         }.padding(10).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 9))
     }
 
-    private var timing: String {
+    private var timing: String { RoutineRowCopy.timing(job, running: running, silent: silent) }
+}
+
+enum RoutineRowCopy {
+    /// "Active · Last run 5 min ago · ok · silent · Next in 55 min".
+    static func timing(_ job: HermesJob, running: Bool, silent: Bool) -> String {
         var parts = [running ? "Running…" : job.state.capitalized]
-        if let last = RoutineTime.relative(job.lastRunAt) { parts.append("Last run \(last)" + (job.lastStatus.map { " · \($0)" } ?? "")) } else { parts.append("Never run") }
+        if let last = RoutineTime.relative(job.lastRunAt) { parts.append("Last run \(last)" + (job.lastStatus.map { " · \($0)" } ?? "") + (silent ? " · silent" : "")) } else { parts.append("Never run") }
         if !job.isPaused, let next = RoutineTime.relative(job.nextRunAt) { parts.append("Next \(next)") }
         return parts.joined(separator: " · ")
     }

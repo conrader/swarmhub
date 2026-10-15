@@ -158,7 +158,7 @@ extension AppStore {
     }
 
     func notifyIfNeeded(group: GroupChat, bot: Bot, message: String) {
-        guard Bundle.main.bundleIdentifier != nil, !group.isMuted, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
+        guard !SilentReply.isSilent(message), Bundle.main.bundleIdentifier != nil, !group.isMuted, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
         let content = UNMutableNotificationContent(); content.title = "\(bot.name) in \(group.name)"; content.body = String(message.prefix(140)); content.sound = .default
         UNUserNotificationCenter.current().add(.init(identifier: UUID().uuidString, content: content, trigger: nil))
     }

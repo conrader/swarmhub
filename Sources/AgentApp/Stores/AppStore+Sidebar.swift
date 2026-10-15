@@ -20,7 +20,7 @@ enum SidebarChat: Identifiable {
         var latest = archive?.timestamp ?? .distantPast
         // Start at the end so older messages need only a date comparison while a reply is streaming.
         for messages in messageLists {
-            for message in messages.reversed() where message.createdAt > latest && message.role != .system {
+            for message in messages.reversed() where message.createdAt > latest && message.role != .system && !message.isSilent {
                 let text = message.role == .assistant ? SwarmhubBlock.visibleText(message.content) : message.content
                 if !message.attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { latest = message.createdAt }
             }
