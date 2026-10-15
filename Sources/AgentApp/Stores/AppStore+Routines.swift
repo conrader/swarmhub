@@ -114,6 +114,7 @@ extension AppStore {
             while !Task.isCancelled, let store = self {
                 await store.pollRoutinesOnce()
                 await store.pollBotMessagesOnce()
+                await store.pollLiveRowsOnce()
                 try? await Task.sleep(for: tick)
             }
         }
