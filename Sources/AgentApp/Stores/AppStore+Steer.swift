@@ -14,8 +14,9 @@ enum SteerRoute: Equatable, Sendable {
 
 /// Bubble metadata: `steer` on a queued steer (sent → queued → delivered | failed | resent; failed → next → sentNext
 /// after "Send as next message", P32), `correction` on a message
-/// sent after its answer was stopped (stopping → stopped) or after the box handed a steer back (followup).
-enum SteerKey { static let steer = "steer", correction = "correction" }
+/// sent after its answer was stopped (stopping → stopped) or after the box handed a steer back (followup). P44:
+/// `outOfBand` on a steer read back from the box's history (`OutOfBandMessage`).
+enum SteerKey { static let steer = "steer", correction = "correction", outOfBand = "outOfBand" }
 
 /// P28 D2: the plain words.
 enum SteerCopy {
@@ -29,7 +30,8 @@ enum SteerCopy {
     static let sendAsNext = "Send as next message"
 
     /// The caption over a steer or correction bubble; nil for any other message.
-    static func caption(_ message: ChatMessage) -> String? {
+    static func caption(_ message: ChatMessage, botName: String? = nil) -> String? {
+        if message.metadata[SteerKey.outOfBand] != nil, message.metadata[SteerKey.steer] == nil { return OutOfBandMessage.label(botName: botName) }
         switch message.metadata[SteerKey.correction] {
         case "stopping": return "Stopping the answer…"
         case "stopped": return "Stopped the answer and sent your correction"

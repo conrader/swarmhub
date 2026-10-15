@@ -91,7 +91,7 @@ extension AppStore {
         group.activeMemberID = nil
         setSteerAvailable(false, token: token)
         let text = reply.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !text.isEmpty && (outcome.state == .finished || outcome.state == .incomplete) && selectedGroup?.id != group.id { group.unreadCount += 1 }
+        if !text.isEmpty && !reply.isSilent && (outcome.state == .finished || outcome.state == .incomplete) && selectedGroup?.id != group.id { group.unreadCount += 1 }
         if outcome.state == .finished && !text.isEmpty {
             AvatarReactions.shared.completed(bot)
             notifyIfNeeded(group: group, bot: bot, message: reply.finalText.trimmingCharacters(in: .whitespacesAndNewlines))

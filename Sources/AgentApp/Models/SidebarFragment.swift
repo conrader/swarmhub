@@ -15,7 +15,7 @@ enum SidebarFragment {
                      author: ((UUID?) -> String?)? = nil, working: String? = nil) -> String {
         if let draft, case let value = plain(draft), !value.isEmpty { return "Draft: " + value }
         if isWorking { return working ?? ChatActivityPhase.thinking.label }
-        for message in messages.reversed() where message.role != .system {
+        for message in messages.reversed() where message.role != .system && !message.isSilent {
             let body = plain(message.role == .assistant ? SwarmhubBlock.visibleText(message.finalText) : message.content)
             let value = body.isEmpty ? (message.attachments.first.map { "Attachment: " + $0.name } ?? "") : body
             guard !value.isEmpty else { continue }

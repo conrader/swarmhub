@@ -22,14 +22,16 @@ struct RoutineRepause: Codable {
 extension AppStore {
     static let routineDeliveryKind = "routineDelivery", routineRepauseKind = "routineRepause"
 
-    /// Launch: every committed card is in its bot's chat exactly once; retired placeholders are removed.
+    /// Launch: every committed card is in its bot's chat exactly once; retired placeholders and P44 silent runs are removed.
     func restoreRoutineDeliveries() {
         guard persistenceEnabled, hasLedger else { return }
         do {
             var changed = false
             for record in try journal().records(RoutineDelivery.self, kind: Self.routineDeliveryKind) {
                 guard let bot = bots.first(where: { $0.id == record.botID }) else { continue }
-                if record.supersededBy != nil {
+                let silent = record.message.isSilent
+                if silent, let job = record.message.metadata["jobID"], let runAt = record.message.metadata["runAt"] { markSilentRun(job, runAt: runAt, bot: bot) }
+                if record.supersededBy != nil || silent {
                     let count = bot.messages.count
                     bot.messages.removeAll { $0.metadata["deliveryKey"] == record.id }
                     changed = changed || count != bot.messages.count
@@ -56,7 +58,13 @@ extension AppStore {
         let key = "\(bot.id)|\(job.id)|\(result?.sessionID ?? job.lastRunAt ?? "unknown")"
         let card = Self.routineCard(job: job, result: result, lookupError: lookupError)
         card.metadata["deliveryKey"] = key
-        guard persistenceEnabled else { project(card, key: key, aliases: [], bot: bot, notify: notify && result != nil, job: job); return }
+        // P44: a run that answered `[SILENT]` posts no card, unread or notification; the Routines tab still lists it.
+        let silent = card.isSilent
+        if silent { markSilentRun(job.id, runAt: job.lastRunAt ?? "", bot: bot) }
+        guard persistenceEnabled else {
+            if !silent { project(card, key: key, aliases: [], bot: bot, notify: notify && result != nil, job: job) }
+            return
+        }
         let journal = try journal()
         let records = try journal.records(RoutineDelivery.self, kind: Self.routineDeliveryKind)
         // A stale poll without output never replaces a card that already has the run's session.
@@ -68,14 +76,25 @@ extension AppStore {
                 && Self.sameRoutineRun($0.message.metadata["runAt"], job.lastRunAt) && $0.message.metadata["sessionID"] == nil
         }
         record.message = card
-        let shouldNotify = notify && result != nil && !record.notified
+        let shouldNotify = notify && result != nil && !record.notified && !silent
         record.notified = record.notified || shouldNotify; record.delivered = true
         let retired = aliases.map { previous -> (id: String, value: RoutineDelivery) in
             var previous = previous; previous.supersededBy = key; return (previous.id, previous)
         }
         // Intent first: the full result, the retired placeholders and the notification mark commit together.
         try journal.putMany(retired + [(key, record)], kind: Self.routineDeliveryKind)
-        project(card, key: key, aliases: Set(aliases.map(\.id)), bot: bot, notify: shouldNotify, job: job)
+        guard silent else { project(card, key: key, aliases: Set(aliases.map(\.id)), bot: bot, notify: shouldNotify, job: job); return }
+        // A placeholder card posted before the output was read goes away with the run.
+        let keys = Set(aliases.map(\.id) + [key]), count = bot.messages.count
+        bot.messages.removeAll { keys.contains($0.metadata["deliveryKey"] ?? "") }
+        if count != bot.messages.count { objectWillChange.send(); save() }
+    }
+
+    private func markSilentRun(_ jobID: String, runAt: String, bot: Bot) {
+        routines.update(bot.id) { state in
+            if let known = state.silentRuns[jobID], RoutineTime.isLater(known, than: runAt) { return }
+            state.silentRuns[jobID] = runAt
+        }
     }
 
     private func project(_ card: ChatMessage, key: String, aliases: Set<String>, bot: Bot, notify: Bool, job: HermesJob) {

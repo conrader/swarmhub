@@ -61,6 +61,6 @@ extension AppStore {
 
     static func chatMessage(_ row: BackendMessage) -> ChatMessage? {
         guard let role = MessageRole(rawValue: row.role), !row.content.isEmpty else { return nil }
-        return ChatMessage(role: role, content: row.content, createdAt: row.createdAt ?? .now)
+        return ChatMessage(role: role, content: row.content, createdAt: row.createdAt ?? .now, metadata: row.outOfBand ? [SteerKey.outOfBand: "1"] : [:])
     }
 }
