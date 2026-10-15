@@ -73,7 +73,9 @@ extension AppStore {
     @discardableResult func sendReviewNotes(_ card: ChatMessage) -> Bool {
         guard canSendReviewNotes(card), let text = reviewNotesText(card), let conversation = conversation(containing: card.id) else { return false }
         card.metadata[ReviewKey.sent] = "1"
-        turns.nextMessages.append(QueuedNextMessage(conversation: conversation, bubble: ChatMessage(role: .user, content: text)))
+        guard enqueueNextMessage(QueuedNextMessage(conversation: conversation, bubble: ChatMessage(role: .user, content: text), kind: .reviewNotes, anchorID: card.id)) else {
+            card.metadata[ReviewKey.sent] = nil; return false
+        }
         objectWillChange.send(); save()
         sendQueuedNextMessage()
         return true

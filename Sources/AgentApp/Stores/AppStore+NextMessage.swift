@@ -1,9 +1,17 @@
 import Foundation
 
-/// A failed steer's text waiting for the running turn to end (memory only).
+/// A failed steer's text (or a review's notes) waiting for the running turn to end. P38 E: kept in the run ledger too
+/// (`AppStore+QueueRecovery.swift`); `restored` entries came back from a quit and wait for the launch reconcile.
 struct QueuedNextMessage {
+    var id = UUID()
     let conversation: any Conversation
     let bubble: ChatMessage
+    var kind: NextMessageRecord.Kind = .steer
+    var anchorID: UUID
+    var restored = false
+    init(id: UUID = UUID(), conversation: any Conversation, bubble: ChatMessage, kind: NextMessageRecord.Kind = .steer, anchorID: UUID? = nil, restored: Bool = false) {
+        self.id = id; self.conversation = conversation; self.bubble = bubble; self.kind = kind; self.anchorID = anchorID ?? bubble.id; self.restored = restored
+    }
 }
 
 /// P32 item 9: a steer that was not delivered ("failed") offers "Send as next message". Its text goes out as a normal
@@ -21,7 +29,7 @@ extension AppStore {
     @discardableResult func sendAsNextMessage(_ bubble: ChatMessage) -> Bool {
         guard canSendAsNextMessage(bubble), let conversation = conversation(containing: bubble.id) else { return false }
         bubble.metadata[SteerKey.steer] = "next"
-        turns.nextMessages.append(QueuedNextMessage(conversation: conversation, bubble: bubble))
+        guard enqueueNextMessage(QueuedNextMessage(conversation: conversation, bubble: bubble)) else { bubble.metadata[SteerKey.steer] = "failed"; return false }
         objectWillChange.send(); save()
         sendQueuedNextMessage()
         return true
@@ -30,11 +38,15 @@ extension AppStore {
     /// Sends the oldest waiting text when no turn runs; called again whenever a turn or round ends. A chat that can no
     /// longer send puts its bubble back to "failed" (the button returns) and the next one is tried.
     /// P38 D: workflow replies that ended are settled first; the next workflow task goes only after the user's own.
+    /// P38 E: an entry is marked sent in the ledger before it goes (a refused write keeps it queued); entries restored
+    /// after a quit wait for `resumeRestoredNextMessages`.
     func sendQueuedNextMessage() {
         settleWorkflows()
-        while isIdle, !isStreaming, !turns.nextMessages.isEmpty {
-            let next = turns.nextMessages.removeFirst()
+        while isIdle, !isStreaming, let next = turns.nextMessages.first, !next.restored {
+            guard recordNextMessage(next, .sent) else { break }
+            turns.nextMessages.removeFirst()
             if startNextMessage(next) { next.bubble.metadata[SteerKey.steer] = "sentNext"; objectWillChange.send(); save(); return }
+            recordNextMessage(next, .removed)
             next.bubble.metadata[SteerKey.steer] = "failed"; objectWillChange.send(); save()
         }
         dispatchWorkflows()
