@@ -7,6 +7,8 @@ struct MediaTabView: View {
     var body: some View {
         let items = MediaExtractor.items(in: bot)
         VStack(alignment: .leading, spacing: 6) {
+            // P38: saved documents first; the chat's images, files and links below.
+            if !bot.isDemo { ArtifactLibraryView(bot: bot).padding(.bottom, 12); Text("In this chat").font(.headline) }
             if items.isEmpty { Text("Images, files and links shared in this chat will appear here.").foregroundStyle(.secondary) }
             ForEach(items) { item in
                 HStack(spacing: 10) {

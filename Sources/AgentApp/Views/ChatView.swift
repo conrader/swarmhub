@@ -73,6 +73,7 @@ struct ChatView: View {
             .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); draft = store.drafts.text(for: bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
             .onChange(of: draft) { _, value in store.drafts.set(value, for: bot.id) }
             .onChange(of: store.composerFill) { _, _ in takeComposerFill() }
+            .onChange(of: store.pendingComposerAttachment) { _, _ in takePendingAttachment() }
     }
     private func composer(thread: ChatThread?) -> some View {
         ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingBotID == bot.id, hint: store.steerHint,
@@ -85,6 +86,11 @@ struct ChatView: View {
     private func takeComposerFill() {
         guard let fill = store.composerFill, fill.botID == bot.id else { return }
         draft = fill.text; store.composerFill = nil
+    }
+    /// P38: Media tab → Attach puts a saved document into this chat's composer.
+    private func takePendingAttachment() {
+        guard let pending = store.pendingComposerAttachment, pending.botID == bot.id else { return }
+        intake.items.append(pending.attachment); store.pendingComposerAttachment = nil
     }
     private func attach(_ urls: [URL]) { intake.attach(urls, store: store) }
     private func send() {

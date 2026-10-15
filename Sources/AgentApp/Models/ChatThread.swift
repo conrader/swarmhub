@@ -51,16 +51,19 @@ struct ChatAttachment: Identifiable, Codable, Equatable, Sendable {
     let id: UUID; let kind: Kind; let name: String; let mimeType: String; let byteCount: Int
     var fileName: String? = nil; var text: String? = nil
     var pageCount: Int? = nil; var summary: String? = nil
+    /// P38: the saved document this attachment was taken from (its readers are checked before every send).
+    var sourceArtifactID: UUID? = nil
 }
 
 extension ChatAttachment {
-    enum CodingKeys: String, CodingKey { case id, kind, name, mimeType, byteCount, fileName, text, pageCount, summary }
+    enum CodingKeys: String, CodingKey { case id, kind, name, mimeType, byteCount, fileName, text, pageCount, summary, sourceArtifactID }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); kind = try c.decode(Kind.self, forKey: .kind); name = try c.decode(String.self, forKey: .name)
         mimeType = try c.decode(String.self, forKey: .mimeType); byteCount = try c.decode(Int.self, forKey: .byteCount)
         fileName = try c.decodeIfPresent(String.self, forKey: .fileName); text = try c.decodeIfPresent(String.self, forKey: .text)
         pageCount = try c.decodeIfPresent(Int.self, forKey: .pageCount); summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        sourceArtifactID = try c.decodeIfPresent(UUID.self, forKey: .sourceArtifactID)
     }
 
     /// Documents read on the Mac (PDF, RTF, DOC, DOCX), told apart from plain text files by MIME type.

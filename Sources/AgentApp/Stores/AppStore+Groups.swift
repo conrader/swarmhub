@@ -113,6 +113,7 @@ extension AppStore {
         do { images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
         let recipients = recipientIDs ?? GroupRouting.recipients(of: text, members: members); steerHint = nil
         let message = ChatMessage(role: .user, content: text, replyToID: sourceMessageID ?? replyTo?.id, attachments: attachments)
+        captureAttachments(message, readers: recipients)
         group.messages.append(message); replyTo = nil
         group.round = GroupRound(userMessageID: message.id, remaining: recipients, active: nil)
         let run = GroupRun(groupID: group.id); groupRun = run
