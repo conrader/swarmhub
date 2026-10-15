@@ -13,6 +13,8 @@
 
 S=$HOME/.hermes/swarmhub
 URL=$S/claude-login.url CODE=$S/claude-login.code RESULT=$S/claude-login.result PIDF=$S/claude-login.pid TOKEN=$S/claude.token
+# Poll interval in seconds (tests pass a shorter one); the waits are counted on the clock.
+TICK=${CLAUDE_LOGIN_TICK:-1}
 case :$PATH: in *":$HOME/.local/bin:"*) ;; *) PATH=$HOME/.local/bin:$PATH; export PATH ;; esac
 unset ANTHROPIC_API_KEY
 umask 077
@@ -50,13 +52,13 @@ start() {
   # The terminal's input is a pipe (macOS `script` refuses a fifo): it types the code once and stays open until the end.
   { while [ ! -f "$W/done" ]; do
       if [ -s "$CODE" ]; then c=$(cat "$CODE"); rm -f "$CODE"; printf '%s\r' "$c"; c=; fi
-      sleep 1
+      sleep "$TICK"
     done; } | pty "stty cols 4000 2>/dev/null; exec claude setup-token" > "$W/out" 2>&1 & P=$!
   filter < "$W/out" & F=$!
-  t=0 wait=${CLAUDE_LOGIN_WAIT:-900}
+  t0=$(date +%s) wait=${CLAUDE_LOGIN_WAIT:-900}
   while kill -0 "$P" 2>/dev/null; do
-    [ "$t" -ge "$wait" ] && { kill -TERM "$P" 2>/dev/null; break; }
-    sleep 1; t=$((t + 1))
+    [ $(( $(date +%s) - t0 )) -gt "$wait" ] && { kill -TERM "$P" 2>/dev/null; break; }
+    sleep "$TICK"
   done
   : > "$W/done"
   wait "$P" 2>/dev/null
@@ -71,8 +73,8 @@ code() {
   running || { echo "swarmhub-claude-login: no login is waiting; start one first" >&2; echo failed; exit 1; }
   rm -f "$RESULT"
   printf '%s' "$1" > "$CODE.tmp" && mv "$CODE.tmp" "$CODE" || exit 1
-  t=0
-  while [ ! -s "$RESULT" ] && [ "$t" -lt "${CLAUDE_LOGIN_CODE_WAIT:-90}" ]; do sleep 1; t=$((t + 1)); done
+  t0=$(date +%s)
+  while [ ! -s "$RESULT" ] && [ $(( $(date +%s) - t0 )) -le "${CLAUDE_LOGIN_CODE_WAIT:-90}" ]; do sleep "$TICK"; done
   [ "$(cat "$RESULT" 2>/dev/null)" = ok ] && { echo ok; exit 0; }
   echo failed; exit 1
 }

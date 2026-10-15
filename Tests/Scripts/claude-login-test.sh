@@ -40,10 +40,10 @@ new_case() {
 run() {
   o=$1; shift
   env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin" ANTHROPIC_API_KEY=from-caller CLAUDE_LOGIN_WAIT=${WAIT:-20} \
-    CLAUDE_LOGIN_CODE_WAIT=20 "$SH" "$LOGIN" "$@" > "$C/$o.out" 2> "$C/$o.err"
+    CLAUDE_LOGIN_CODE_WAIT=20 CLAUDE_LOGIN_TICK=0.1 "$SH" "$LOGIN" "$@" > "$C/$o.out" 2> "$C/$o.err"
 }
 start_bg() { run start "$@" start & BG=$!; }
-await_file() { i=0; while [ ! -s "$1" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done; [ -s "$1" ]; }
+await_file() { i=0; while [ ! -s "$1" ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i + 1)); done; [ -s "$1" ]; }
 expect() { what=$1; shift; "$@" || PROBLEMS="$PROBLEMS; $what"; }
 mode() { ls -l "$1" | cut -c1-10; }
 # Nothing the case printed or left in its HOME (other than the token file) holds the token or the code.
@@ -116,7 +116,7 @@ done_case
 
 # 5
 new_case "no code in time: start gives up"
-WAIT=2 start_bg
+WAIT=1 start_bg
 wait "$BG"; SRC=$?
 expect "start: failed after the wait (got $SRC)" [ "$SRC" -ne 0 ] && [ "$(cat "$C/start.out")" = failed ]
 expect "no token, no pid left" [ ! -e "$S/claude.token" ] && [ ! -e "$S/claude-login.pid" ]
