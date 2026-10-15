@@ -33,6 +33,8 @@ import UserNotifications
     @Published var steerAvailable = false; @Published var scrollTarget: UUID?
     /// P38: a saved document on its way from the Media tab into a chat's composer.
     @Published var pendingComposerAttachment: PendingComposerAttachment?
+    /// P38: each agent's last token-usage reading, shown at once when its Activity tab opens again.
+    var botUsageCache: [UUID: (report: BotUsage, at: Date)] = [:]
     /// P28 D2: the one-time caption under the composer after the first steer.
     @Published var steerHint: String?
     /// P5 group chats; `selectedGroup` wins over `selectedBot` in the detail column.

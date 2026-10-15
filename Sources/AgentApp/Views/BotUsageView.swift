@@ -2,6 +2,7 @@ import SwiftUI
 
 /// P38: the Activity tab's token usage for this agent (Settings → Usage keeps the per-profile table). Read when the tab
 /// appears, after this agent's turn ends, or on Refresh; a result for an older context never replaces the current one.
+/// The last reading (`AppStore.botUsageCache`) shows at once while a new one loads.
 struct BotUsageView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
@@ -62,9 +63,12 @@ struct BotUsageView: View {
         }
         .task(id: context) {
             let requested = context
+            // This agent's last reading stays up while the new one loads (never another agent's).
+            let cached = store.botUsageCache[bot.id]
+            report = cached?.report; loadedAt = cached?.at
             // Headless renders and samples never contact a server on appearance.
             guard store.botInfo.autoLoad || refresh > 0 || bot.isDemo || bot.isReadOnlyArchive else { return }
-            report = nil; loadedAt = nil; loading = true
+            loading = true
             let result = await store.loadUsage(for: bot)
             guard !Task.isCancelled, requested == context else { return }
             report = result; loadedAt = .now; loading = false

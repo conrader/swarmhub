@@ -53,6 +53,7 @@ extension AppStore {
                 report.truncated = read.truncated
             } catch { report.problem = BotInfoCache.describe(error, key: backend.apiKey) }
         } catch { report.problem = error.localizedDescription }
+        botUsageCache[bot.id] = (report, .now)
         return report
     }
 
