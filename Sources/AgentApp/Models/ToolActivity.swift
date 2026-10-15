@@ -56,7 +56,7 @@ struct ToolActivity: Codable, Equatable, Sendable {
         case .started:
             if let id = event.callID, steps.contains(where: { $0.callID == id }) { return }
             // P41: never the cut preview; its 80 characters lose `--to` behind a long script path.
-            let call = event.command.flatMap(BotMessageCall.parse(command:))
+            let call = event.command.flatMap(BotMessageCall.call(in:))
             steps.append(ToolStep(name: event.name, preview: event.preview, startedAt: now, callID: event.callID, botMessage: call, textOffset: textOffset)); total += 1
             if steps.count > Self.limit { steps.removeFirst(steps.count - Self.limit) }
         case .progress:

@@ -44,18 +44,18 @@ extension HermesBackend {
     static func botMessageCommand(_ args: Any?) -> String? {
         var object = args as? [String: Any]
         if object == nil, let text = args as? String, let data = text.data(using: .utf8) { object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] }
-        guard let command = (object?["command"] ?? object?["cmd"]) as? String, command.contains("bot-msg") else { return nil }
+        guard let command = (object?["command"] ?? object?["cmd"]) as? String, BotMessageCall.mentionsCall(command) else { return nil }
         return command
     }
 
     /// P41: a display line that runs bot-msg, uncut (its first line, secrets removed like a preview). A stream without
     /// args still gives the whole command this way; the 80-character preview would lose `--to`.
     static func botMessageLine(_ raw: Any?, key: String) -> String? {
-        guard let raw = raw as? String, raw.contains("bot-msg") else { return nil }
+        guard let raw = raw as? String, BotMessageCall.mentionsCall(raw) else { return nil }
         let first = raw.split(whereSeparator: \.isNewline).first.map(String.init) ?? raw
         // The cut-free twin of `ToolEvent.preview`: same redaction, no length limit.
         let redacted = ToolEvent.redacted(first, key: key)
-        return BotMessageCall.parse(command: redacted) != nil ? redacted : nil
+        return BotMessageCall.call(in: redacted) != nil ? redacted : nil
     }
 
     /// An ended step's result text (`result`, `output` or `content`; an object is passed on as JSON).

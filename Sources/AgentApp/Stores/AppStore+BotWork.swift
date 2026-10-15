@@ -78,7 +78,9 @@ extension AppStore {
         var lastSignature: String?, lastChange = start, failures = 0
         while !Task.isCancelled, !isConnectionDown(bot), now().timeIntervalSince(start) < BotWorkSchedule.limit {
             do {
-                if session == nil, case .newest(let source, _, _) = target { session = target.pick(try await botWorkSessions(bot, source: source)) }
+                if session == nil, case .newest(let source, _, _) = target, let found = target.pick(try await botWorkSessions(bot, source: source)) {
+                    session = found; recordFoundSession(found, target: target, origin: origin, recipient: bot)
+                }
                 if let session, let turn = BotWorkReader.lastTurn(try await botWorkRows(bot, session: session), after: after), !older.contains(turn.requestID) {
                     if turn.signature != lastSignature {
                         lastSignature = turn.signature; lastChange = now()
@@ -161,9 +163,23 @@ extension AppStore {
         }
     }
 
-    /// Where a call's exchange lands in the recipient: its `swarmhub-from-<sender>` session.
+    /// Where a call's exchange lands in the recipient: its `swarmhub-from-<sender>` session, or (oneshot command) the
+    /// newest `oneshot` session started after the step began.
     func botWorkTarget(for call: BotMessageCall, from: String, at start: Date) -> BotWorkTarget {
-        .session(BotThreadKey.sessionID(from: from))
+        call.oneshot == true ? .newest(source: "oneshot", prefix: nil, after: start) : .session(BotThreadKey.sessionID(from: from))
+    }
+
+    /// A oneshot command's session was found: the sender's step keeps it, so its chip opens that conversation.
+    func recordFoundSession(_ session: String, target: BotWorkTarget, origin: BotWorkOrigin, recipient: Bot) {
+        guard case .newest("oneshot", _, let after) = target, let from = origin.profile, let sender = bot(forProfile: from) else { return }
+        let to = profile(of: recipient)
+        for message in sender.messages.reversed() {
+            guard var activity = message.activity,
+                  let index = activity.steps.lastIndex(where: { $0.botMessage?.oneshot == true && $0.botMessage?.to == to && $0.startedAt == after }) else { continue }
+            guard activity.steps[index].botMessage?.session != session else { return }
+            activity.steps[index].botMessage?.session = session; message.activity = activity
+            objectWillChange.send(); save(); return
+        }
     }
 
     /// Stops every poller (store teardown).

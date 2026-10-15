@@ -35,7 +35,7 @@ extension AppStore {
     /// The thread a bot-msg step belongs to: its `--from`, else the bot whose reply holds the step.
     func threadKey(for call: BotMessageCall, in message: ChatMessage) -> BotThreadKey? {
         guard let from = call.from ?? bots.first(where: { bot in bot.messages.contains { $0.id == message.id } }).map(profile(of:)) else { return nil }
-        return BotThreadKey(from: from, to: call.to)
+        return BotThreadKey(from: from, to: call.to, session: call.session)
     }
 }
 
@@ -93,7 +93,8 @@ struct BotThreadSheet: View {
                 BotMark(profile: key.to, size: 26)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(BotMessageCopy.paletteTitle(store.displayName(forProfile: key.from), store.displayName(forProfile: key.to))).font(.headline)
-                    Text("Thread “From \(key.from)” in \(store.displayName(forProfile: key.to))").font(.caption).foregroundStyle(.secondary)
+                    Text(key.session.map { "Oneshot session \($0) in \(store.displayName(forProfile: key.to))" } ?? "Thread “From \(key.from)” in \(store.displayName(forProfile: key.to))")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)

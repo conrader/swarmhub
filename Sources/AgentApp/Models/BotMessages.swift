@@ -5,6 +5,8 @@ import Foundation
 /// the queued thread id).
 struct BotMessageCall: Codable, Equatable, Sendable {
     var to: String; var from: String?; var text: String; var noWait = false; var reply: String?
+    /// P42: sent with `hermes -p <bot> chat --oneshot`, and the recipient's session it landed in once found.
+    var oneshot: Bool?; var session: String?
 
     static let textLimit = 4000
 
