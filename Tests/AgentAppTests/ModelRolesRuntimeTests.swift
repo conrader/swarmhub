@@ -80,7 +80,8 @@ private func sessionOf(_ bot: Bot) -> String { "agentapp_\(bot.id.uuidString.low
     #expect(lockPosts(state).count == 1)
     await store.useBoxDefault(for: jarvis)
     let posts = lockPosts(state)
-    #expect(posts.count == 2 && posts[1].path == "/p/grok-jarvis/api/sessions/\(sessionOf(jarvis))/model")
+    try #require(posts.count == 2, "one more lock, to the default pair")
+    #expect(posts[1].path == "/p/grok-jarvis/api/sessions/\(sessionOf(jarvis))/model")
     #expect(posts[1].body["model"] as? String == "model-alpha" && posts[1].body["provider"] as? String == "lab-one" && Set(posts[1].body.keys) == ["model", "provider"])
     #expect(jarvis.hermesModelLock?.model == "model-alpha" && store.botInfo.info(for: jarvis.id)?.modelError == nil)
 }

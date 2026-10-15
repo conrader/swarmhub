@@ -138,17 +138,20 @@ func runToEnd(_ process: Process) async throws -> (status: Int32, output: String
 }
 
 /// Hang ceiling for every test wait. Waits end on the awaited state or event, never on a timer; this only
-/// bounds a real hang. Under the parallel run other tests block the main thread for seconds, so it is generous.
-let waitCeiling: Duration = .seconds(30)
+/// bounds a real hang, it is not an assertion. Under the parallel run on a loaded Mac (1-min load 8–20) waits
+/// that end fine took over 30 s, so it is very generous: a passing wait never comes near it.
+let waitCeiling: Duration = .seconds(300)
 
 /// Waits for store state that has no event to await. The condition is always checked after the last
 /// suspension, so a main thread blocked past the ceiling cannot turn a satisfied condition into a timeout;
-/// between checks it sleeps instead of spinning, leaving the main actor to the work being waited for.
+/// between checks it sleeps instead of spinning (1 ms, backing off to 20 ms), leaving the main actor to the work
+/// being waited for even when hundreds of parallel tests wait at once.
 @MainActor func waitUntil(timeout: Duration = waitCeiling, _ condition: @escaping @MainActor () async -> Bool) async throws {
     let clock = ContinuousClock(); let deadline = clock.now.advanced(by: timeout)
+    var pause: Duration = .milliseconds(1)
     while !(await condition()) {
         guard clock.now < deadline else { throw WaitTimeout() }
-        try await Task.sleep(for: .milliseconds(2))
+        try await Task.sleep(for: pause); pause = min(pause * 2, .milliseconds(20))
     }
 }
 
