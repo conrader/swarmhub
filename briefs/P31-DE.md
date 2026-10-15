@@ -69,3 +69,10 @@ DONE→refresh path. A recipe smoke in `Tests/Scripts/` running both read recipe
 config.yaml files and a fixture log. Build exit 0, `swift test` green twice on a quiet Mac, renders of the Overview
 Sub-agents line (three states), the sheet, and the Settings capacity block (no report, advised, with advice), looked
 at. No file over 500 lines. Live check on Konrad's box stays in Part F.
+
+## Wording (Konrad, 2026-10-15: "coding")
+The UI calls `delegation.model` the **coding model**, not "sub-agent model": menu "Change coding model…", button
+"Change…", sheet title "Coding model", Overview/Settings line "Coding model: gpt-6.1-sol (reported 15 Oct)" /
+"Coding model: same as this bot (gpt-5.6-terra)". Help line: "Used by sub-agents this bot starts, and for coding jobs
+when no coding agent (Claude Code, Codex) can run." Sub-agents off still says so on that line. This replaces the
+wording note in D4.
