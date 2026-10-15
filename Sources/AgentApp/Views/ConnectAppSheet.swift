@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// P38 B: the same first-connect provisioning and OAuth flow as Settings → Connected apps, with an explicit bot grant.
-/// The Composio link opens in the browser (`ExternalLink`); the SwarmHub sign-in is main's P36 account.
+/// The Composio link opens in the browser (`ExternalLink`); P40: the first one gets the project key silently, no sign-in.
 struct ConnectAppSheet: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
@@ -36,13 +36,12 @@ struct ConnectAppSheet: View {
                 }
                 Divider()
             }
-            if !apps.hasKey { Text("Sign in with email or Google to connect your first app.").font(.callout).foregroundStyle(.secondary) }
             HStack {
                 Button(accounts.isEmpty ? "Connect \(name)" : "Connect another account") { connect() }
-                    .buttonStyle(.bordered).disabled(apps.busy || bot == nil || !apps.canConfigure)
+                    .buttonStyle(.bordered).disabled(apps.busy || bot == nil || !apps.canConfigure || (!apps.hasKey && apps.serviceNote != nil))
                 if apps.hasKey { Button("Refresh") { refresh() }.disabled(apps.busy) }
             }
-            if apps.pendingLink != nil { Text("Finish signing in in your browser, then return here and choose the account to allow.").font(.caption).foregroundStyle(.secondary) }
+            if apps.pendingLink != nil { Text("Allow access in your browser, then return here and choose the account.").font(.caption).foregroundStyle(.secondary) }
         }.padding(24).frame(width: 440)
             .task { if apps.hasKey { await apps.refresh() } else { await store.checkConnectedAppsService() }; chooseAccount() }
             .onChange(of: apps.accounts) { _, _ in chooseAccount() }

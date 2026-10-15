@@ -111,7 +111,7 @@ private func auth(_ host: String) -> [String] { SwarmHubStub.requests(host).map 
     let (store, host) = installStore { _, _ in (503, ["error": "sign-in is not configured"]) }
     let ok = await store.reportsCenter.signIn(service: store.swarmHubService)
     #expect(!ok && store.reportsCenter.account == .signedOut && store.reportsCenter.lastError == "SwarmHub sign-in isn't available yet.")
-    #expect(SwarmHubError.signInUnavailable.message == "SwarmHub sign-in isn't available yet." && ReportsCopy.optional == "Optional — reports work without it.")
+    #expect(SwarmHubError.signInUnavailable.message == "SwarmHub sign-in isn't available yet.")
     #expect(SwarmHubStub.paths(host) == ["POST /swarmhub/v1/auth/start"])
 }
 

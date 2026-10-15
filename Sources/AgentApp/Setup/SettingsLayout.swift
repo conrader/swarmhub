@@ -45,8 +45,8 @@ enum SettingsLayout {
     ]
     /// New in P21: the simple page's connection controls and its way into Advanced.
     static let added = ["connection.status", "connection.test", "connection.setup", "advanced.open",
-                        // P36: the SwarmHub account and the Reports inbox.
-                        "account.swarmhub", "account.serviceURL", "reports.list",
+                        // P36: the SwarmHub service and the Reports inbox (P40: the sign-in entry is gone).
+                        "account.serviceURL", "reports.list",
                         // P38 B: connected apps (ChatGPT, Composio apps and each bot's access, background app access).
                         "apps.chatgpt", "apps.composio", "apps.botAccess", "apps.background",
                         // P38 C: voice dictation (deAPI) and live voice with ChatGPT.
@@ -64,8 +64,8 @@ enum SettingsLayout {
         ("alerts.perAgent", .advanced(.alerts)), ("alerts.avatarMotion", .advanced(.alerts)),
         ("models.roles", .advanced(.models)), ("review.perAgent", .advanced(.review)), ("computers.list", .advanced(.computers)),
         ("usage.table", .advanced(.usage)),
-        // P36: the SwarmHub sign-in (sending reports only) and the Reports inbox.
-        ("account.swarmhub", .advanced(.account)), ("account.serviceURL", .advanced(.account)), ("reports.list", .advanced(.reports)),
+        // P36: the SwarmHub service address and the Reports inbox.
+        ("account.serviceURL", .advanced(.account)), ("reports.list", .advanced(.reports)),
         ("apps.chatgpt", .advanced(.apps)), ("apps.composio", .advanced(.apps)), ("apps.botAccess", .advanced(.apps)), ("apps.background", .advanced(.apps)),
         ("voice.dictationKey", .advanced(.voice)), ("voice.live", .advanced(.voice)),
         ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))

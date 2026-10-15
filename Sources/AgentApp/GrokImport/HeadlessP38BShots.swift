@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// P38 B shots of `--render-setup` (alone with `--only p38b`): Settings → Connected apps as production starts (server
-/// sign-in not set up) and with apps connected, the connect-app card in a reply, its sheet, an app action's approval
+/// P38 B shots of `--render-setup` (alone with `--only p38b`): Settings → Connected apps as production started (the
+/// service not set up) and with apps connected, the connect-app card in a reply, its sheet, an app action's approval
 /// card, and an agent's Overview and Activity with connected apps. Composio answers come from an in-process protocol, the
 /// ChatGPT account from an in-memory Codex stand-in: no network, no Keychain, no Codex process, no browser.
 @MainActor enum HeadlessP38BShots {
@@ -21,20 +21,19 @@ import SwiftUI
         let session = URLSession(configuration: configuration)
         let keys = MemoryKeyStore(), panel = NSSize(width: 760, height: 2020)
 
-        // 1. Production today: no key, the SwarmHub service answers that sign-in is not set up.
+        // 1. No key, the SwarmHub service answers that it is not set up (`/health` 503).
         let fresh = ConnectedAppsStore(directory: directory.appending(path: "fresh"), keyStore: keys, session: session, apiURL: RenderComposioProtocol.base, provisioner: PreviewProvisioner())
         fresh.serviceNote = ConnectedAppsCopy.notAvailable
         store.connectedApps = fresh
         let signedOut = ChatGPTConnection(makeClient: { PreviewCodexConnection(signedIn: false) }, openURL: { _ in false })
         write(names[0], await png(AnyView(pane(fresh, store: store, chatGPT: signedOut).frame(width: panel.width, height: 1260)), store, NSSize(width: panel.width, height: 1260)))
 
-        // 2. Connected: the user's own key, three accounts, Jarvis may use the work Gmail, ChatGPT connected, signed in.
+        // 2. Connected: the user's own key, three accounts, Jarvis may use the work Gmail, ChatGPT connected.
         keys.setKey("synthetic-render-key", for: ConnectedAppsStore.keyAccount)
         let apps = ConnectedAppsStore(directory: directory.appending(path: "connected"), keyStore: keys, session: session, apiURL: RenderComposioProtocol.base, provisioner: PreviewProvisioner())
         await apps.refresh()
         if let work = apps.accounts.first { apps.setAllowed(true, account: work, botID: jarvis.id) }
         store.connectedApps = apps
-        store.reportsCenter.account = .signedIn(expires: .now.addingTimeInterval(29 * 86_400))
         let connected = ChatGPTConnection(makeClient: { PreviewCodexConnection(signedIn: true) }, openURL: { _ in false }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
         connected.refresh()
         for _ in 0..<200 where !connected.isConnected { try? await Task.sleep(for: .milliseconds(5)) }
@@ -81,7 +80,7 @@ import SwiftUI
     }
 
     private static func pane(_ apps: ConnectedAppsStore, store: AppStore, chatGPT: ChatGPTConnection) -> some View {
-        Form { SettingsConnectedAppsPane(apps: apps, center: store.reportsCenter, chatGPT: chatGPT, checksOnAppear: false) }
+        Form { SettingsConnectedAppsPane(apps: apps, chatGPT: chatGPT, checksOnAppear: false) }
             .formStyle(.grouped).background(AppColor.panel)
     }
 }

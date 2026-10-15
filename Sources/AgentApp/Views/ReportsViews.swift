@@ -31,8 +31,6 @@ struct ReportsInboxView: View {
 enum ReportsCopy {
     static let empty = "No reports. When a bot hits a SwarmHub limit, its report waits here for you."
     static let review = "Nothing leaves this Mac until you press Send. Remove anything you would rather not share."
-    static let optional = "Optional — reports work without it."
-    static let waiting = "Finish signing in in your browser…"
 }
 
 struct ReportList: View {
@@ -171,29 +169,18 @@ struct ReportDetailView: View {
     }
 }
 
-struct SignInWaitingBox: View {
-    @ObservedObject var center: ReportsCenter
-    var body: some View {
-        HStack(spacing: 10) {
-            ProgressView().controlSize(.small)
-            Text(ReportsCopy.waiting)
-            Spacer()
-            Button("Cancel") { center.forgetToken(signInAgain: false) }
-        }.padding(12).background(RoundedRectangle(cornerRadius: 8).fill(AppColor.raised))
-    }
-}
-
 extension ReportsCenter {
     var isSignedIn: Bool { if case .signedIn = account { true } else { false } }
 }
 
-/// Settings → Account: the optional SwarmHub sign-in and (for tests) the service address.
+/// Settings → Account: the SwarmHub service address (for tests). P40: there is no sign-in; reports and app connections
+/// use this Mac's anonymous install.
 struct SettingsSwarmHubAccountPane: View {
     @ObservedObject var center: ReportsCenter
     @AppStorage(SwarmHubService.baseURLKey) private var serviceURL = ""
     var body: some View {
-        SwarmHubAccountSection(center: center)
-        Section("Advanced") {
+        Section("SwarmHub service") {
+            Text("Reports and app connections use this Mac's anonymous install key. There is no account to manage.").font(.caption).foregroundStyle(.secondary)
             TextField("SwarmHub service", text: $serviceURL, prompt: Text(SwarmHubService.defaultBaseURL))
             Text("Leave empty for \(SwarmHubService.defaultBaseURL).").font(.caption).foregroundStyle(.secondary)
         }
@@ -211,28 +198,6 @@ struct SettingsReportsPane: View {
                 Button { store.openReports(select: report.id) } label: { ReportRow(report: report, bot: store.reportBot(report)) }.buttonStyle(.plain)
             }
             Button("Report a problem…") { store.startUserReport() }
-        }
-        SwarmHubAccountSection(center: center)
-    }
-}
-
-struct SwarmHubAccountSection: View {
-    @EnvironmentObject private var store: AppStore
-    @ObservedObject var center: ReportsCenter
-    var body: some View {
-        Section("SwarmHub account") {
-            switch center.account {
-            case .signedIn(let expires):
-                LabeledContent("Signed in") { Button("Sign out") { center.forgetToken(signInAgain: false) } }
-                Text("Until \(expires.formatted(date: .abbreviated, time: .omitted)). \(ReportsCopy.optional)").font(.caption).foregroundStyle(.secondary)
-            case .signingIn: SignInWaitingBox(center: center)
-            case .signedOut, .signInAgain:
-                LabeledContent(center.account == .signInAgain ? "Your sign-in has ended" : "Not signed in") {
-                    Button(center.account == .signInAgain ? "Sign in again" : "Sign in to SwarmHub") { Task { await store.signInToSwarmHub() } }
-                }
-                Text(ReportsCopy.optional).font(.caption).foregroundStyle(.secondary)
-            }
-            if let error = center.lastError { Text(error).font(.caption).foregroundStyle(.red) }
         }
     }
 }
