@@ -26,14 +26,14 @@ struct ChatView: View {
                     LazyVStack(spacing: 0) {
                         Color.clear.frame(height: 20)
                         if let thread {
-                            ThreadTranscript(thread: thread, parent: bot.messages.first { $0.id == thread.parentMessageID }) { proxy.scrollTo("bottom", anchor: .bottom) }
+                            ThreadTranscript(thread: thread, parent: bot.messages.first { $0.id == thread.parentMessageID }, botID: bot.id) { proxy.scrollTo("bottom", anchor: .bottom) }
                         } else {
                             if GrokServerArchive.choice(hasLocalArchive: bot.grokSourceID != nil) == .local { GrokHistoryView(bot: bot, expanded: historyExpanded) }
                             if bot.messages.isEmpty && bot.grokSourceID == nil { ChatWelcome(bot: bot) }
                             ForEach(bot.messages) { message in
                                 MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
                                             thread: bot.thread(for: message.id), canThread: store.canFork(bot), codingModel: coding?.model,
-                                            reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) },
+                                            actionTarget: .bot(botID: bot.id, threadID: nil), reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) },
                                             codeInThread: { store.codeInThread(to: message, in: bot) }).id(message.id)
                             }
                         }
@@ -73,6 +73,7 @@ struct ChatView: View {
             .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); draft = store.drafts.text(for: bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
             .onChange(of: draft) { _, value in store.drafts.set(value, for: bot.id) }
             .onChange(of: store.composerFill) { _, _ in takeComposerFill() }
+            .onChange(of: store.pendingComposerAttachment) { _, _ in takePendingAttachment() }
     }
     private func composer(thread: ChatThread?) -> some View {
         ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming, canSteer: store.steerAvailable && store.streamingBotID == bot.id, hint: store.steerHint,
@@ -86,6 +87,11 @@ struct ChatView: View {
         guard let fill = store.composerFill, fill.botID == bot.id else { return }
         draft = fill.text; store.composerFill = nil
     }
+    /// P38: Media tab → Attach puts a saved document into this chat's composer.
+    private func takePendingAttachment() {
+        guard let pending = store.pendingComposerAttachment, pending.botID == bot.id else { return }
+        intake.items.append(pending.attachment); store.pendingComposerAttachment = nil
+    }
     private func attach(_ urls: [URL]) { intake.attach(urls, store: store) }
     private func send() {
         let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
@@ -97,13 +103,14 @@ struct ChatView: View {
 /// An open thread: the message it branched from, then the thread's own replies.
 private struct ThreadTranscript: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var thread: ChatThread; let parent: ChatMessage?; let scrollToBottom: () -> Void
+    @ObservedObject var thread: ChatThread; let parent: ChatMessage?; var botID: UUID? = nil; let scrollToBottom: () -> Void
     var body: some View {
         if let parent { MessageView(message: parent).opacity(0.85) }
         HStack { Rectangle().fill(AppColor.separator).frame(height: 0.5); Text(thread.replyCount == 1 ? "1 reply" : "\(thread.replyCount) replies").font(.caption).foregroundStyle(.secondary).fixedSize(); Rectangle().fill(AppColor.separator).frame(height: 0.5) }
             .padding(.horizontal, 28).padding(.vertical, 6)
         ForEach(thread.messages) { message in
-            MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in thread.messages.first { $0.id == id } }, reply: { store.replyTo = message }).id(message.id)
+            MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in thread.messages.first { $0.id == id } },
+                        actionTarget: botID.map { .bot(botID: $0, threadID: thread.id) }, reply: { store.replyTo = message }).id(message.id)
         }
         Color.clear.frame(height: 0)
             .onChange(of: thread.messages.last?.content) { _, _ in scrollToBottom() }

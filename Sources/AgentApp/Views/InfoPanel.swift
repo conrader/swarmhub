@@ -34,6 +34,7 @@ struct InfoPanel: View {
         case .skills: BotCapabilitiesView(bot: bot, cache: store.botInfo)
         case .activity:
             VStack(alignment: .leading, spacing: 18) {
+                if bot.backend == .hermes && !bot.isReadOnlyArchive { BotUsageView(bot: bot) }
                 ApprovalAuditSection(bot: bot)
                 if bot.backend == .hermes {
                     BotMessagesSection(bot: bot, center: store.botMessages)

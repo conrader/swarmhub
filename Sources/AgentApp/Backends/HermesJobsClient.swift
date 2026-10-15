@@ -56,7 +56,8 @@ struct HermesJob: Identifiable, Equatable, Sendable {
 }
 
 /// The output of one finished run: the cron session's last assistant message.
-struct HermesRunResult: Equatable, Sendable { let sessionID: String; let text: String }
+/// P38: `status` and `error` of the run's session row, when read through `completedRuns`.
+struct HermesRunResult: Equatable, Sendable { let sessionID: String; let text: String; var status: String? = nil; var error: String? = nil }
 
 enum HermesJobsError: LocalizedError, Equatable {
     /// `/api/jobs` is absent (404/405) or the server has no cron module (501).

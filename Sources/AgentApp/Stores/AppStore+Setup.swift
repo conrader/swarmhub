@@ -64,8 +64,8 @@ extension AppStore {
     }
 
     /// S4's Add (P21 item 14): one synchronous block with no network call. Writes the address, the keys and the ticked
-    /// agents, removes sample bots (P35), selects the first added agent and marks setup done; restores everything if a step
-    /// fails. Idempotent. Changing a saved address needs `confirmMove` (D7).
+    /// agents, removes sample bots (P35), selects the first added agent and marks setup done; `SetupTransaction` (P38)
+    /// restores everything if a step fails. Idempotent. Changing a saved address needs `confirmMove` (D7).
     /// P35: with the box `scan`, the ticked bots that answered with their derived key are added too (key derived from the
     /// manager's), the new manager takes its role and what is left is listed in the sidebar; sample bots are removed.
     @discardableResult func commitSetup(_ result: SetupCheckResult, key: String, chosen: Set<String>, confirmMove: Bool, scan: SetupBoxScan? = nil) throws -> [Bot] {
@@ -78,21 +78,19 @@ extension AppStore {
         let extra = result.extraKeys.filter { chosen.contains($0.key) }
         let managerKey = scan.flatMap { _ in setupManager(for: result, key: key)?.key } ?? ""
         let derived = managerKey.isEmpty ? [] : (scan?.derived ?? []).filter { chosen.contains($0) && extra[$0] == nil && $0 != "default" }
-        let accounts = (trimmedKey.isEmpty ? [] : ["hermes"]) + extra.keys.map { Self.keyAccount(forProfile: $0) } + derived.map { Self.keyAccount(forProfile: $0) }
-        let oldKeys = Dictionary(accounts.map { ($0, keyStore.key(for: $0)) }, uniquingKeysWith: { first, _ in first })
-        let oldProfiles = defaults.object(forKey: "hermesProfiles"), oldState = defaults.object(forKey: FirstRun.stateKey)
-        let oldBots = bots, oldBindings = bots.map { ($0, $0.hermesProfile) }, oldHidden = bots.map { ($0, $0.isHidden) }
-        let oldSelection = (selectedBot, selectedGroup)
-        do {
+        let transaction = SetupTransaction(self)
+        transaction.captureDefaults(["hermesBaseURL", "hermesProfiles", FirstRun.stateKey])
+        transaction.captureBots()
+        return try transaction.run {
             defaults.set(baseURL.absoluteString, forKey: "hermesBaseURL")
-            if !trimmedKey.isEmpty { keyStore.setKey(trimmedKey, for: "hermes") }
-            for (profile, value) in extra { keyStore.setKey(value, for: Self.keyAccount(forProfile: profile)) }
+            if !trimmedKey.isEmpty { transaction.setKey(trimmedKey, for: "hermes") }
+            for (profile, value) in extra { transaction.setKey(value, for: Self.keyAccount(forProfile: profile)) }
             namedHermesProfiles += extra.keys.sorted()
             for profile in extra.keys { prefixIgnoredHermesProfiles.remove(profile) }
             bindUnboundGrokBots()
             var added = appendAgents(from: result.probes, only: chosen)
             for name in derived where !bots.contains(where: { $0.backend == .hermes && ($0.hermesProfile ?? "default") == name }) {
-                keyStore.setKey(BotManagerText.derivedKey(managerKey: managerKey, botName: name), for: Self.keyAccount(forProfile: name))
+                transaction.setKey(BotManagerText.derivedKey(managerKey: managerKey, botName: name), for: Self.keyAccount(forProfile: name))
                 namedHermesProfiles += [name]
                 let bot = Bot(name: HermesProfileNaming.botName(forProfile: name), title: "Hermes profile", description: "Hermes profile: \(name)", backend: .hermes, hermesProfile: name)
                 bots.append(bot); added.append(bot)
@@ -105,16 +103,6 @@ extension AppStore {
             try saveThrowing()
             if let scan { finishSetupScan(scan, result: result, key: key) }
             return added
-        } catch {
-            if let savedAddress { defaults.set(savedAddress, forKey: "hermesBaseURL") } else { defaults.removeObject(forKey: "hermesBaseURL") }
-            for (account, value) in oldKeys { keyStore.setKey(value, for: account) }
-            defaults.set(oldProfiles, forKey: "hermesProfiles"); defaults.set(oldState, forKey: FirstRun.stateKey)
-            bots = oldBots; if let selection = oldSelection.0, !bots.contains(where: { $0 === selection }) { selectedBot = nil }
-            for (bot, profile) in oldBindings { bot.hermesProfile = profile }
-            for (bot, hidden) in oldHidden { bot.isHidden = hidden }
-            (selectedBot, selectedGroup) = oldSelection
-            objectWillChange.send()
-            throw SetupCommitError.saveFailed
         }
     }
 

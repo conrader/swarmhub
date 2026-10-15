@@ -34,6 +34,10 @@ import UserNotifications
     /// turn takes steer messages, and a message the transcript should scroll to (Media tab).
     @Published var botFeatures: [UUID: Set<String>] = [:]; @Published var openThreadID: UUID?
     @Published var steerAvailable = false; @Published var scrollTarget: UUID?
+    /// P38: a saved document on its way from the Media tab into a chat's composer.
+    @Published var pendingComposerAttachment: PendingComposerAttachment?
+    /// P38: each agent's last token-usage reading, shown at once when its Activity tab opens again.
+    var botUsageCache: [UUID: (report: BotUsage, at: Date)] = [:]
     /// P28 D2: the one-time caption under the composer after the first steer.
     @Published var steerHint: String?
     /// P5 group chats; `selectedGroup` wins over `selectedBot` in the detail column.
@@ -202,12 +206,23 @@ import UserNotifications
         guard let bot = selectedBot, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
         guard !isStreaming, streamTask == nil else { return steer(text: text, attachments: attachments, bot: bot) }
+        guard send(text: text, attachments: attachments, bot: bot, conversation: openThread(in: bot) ?? bot, replyToID: replyTo?.id) else { return false }
+        replyTo = nil
+        return true
+    }
+    /// P38: a new turn in `conversation` (the bot's chat or one of its threads), whatever is selected; never steers.
+    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], bot: Bot, conversation: any Conversation, replyToID: UUID?) -> Bool {
+        guard !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
+        if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
+        guard !isStreaming, streamTask == nil else { return false }
+        let user = ChatMessage(role: .user, content: text, replyToID: replyToID, attachments: attachments)
         let activeBackend: any AgentBackend; let images: [String]
-        do { activeBackend = try backend(for: bot); images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) }
-        catch { errorMessage = error.localizedDescription; return false }
-        let conversation: any Conversation = openThread(in: bot) ?? bot
+        do {
+            try validateArtifactAccess(user, botID: bot.id)
+            activeBackend = try backend(for: bot); images = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:))
+        } catch { errorMessage = error.localizedDescription; return false }
         historyLoadTokens[bot.id] = nil; steerHint = nil
-        let user = ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments); replyTo = nil
+        captureAttachments(user, readers: [bot.id])
         conversation.messages.append(user)
         startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
         return true

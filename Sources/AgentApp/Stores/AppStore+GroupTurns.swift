@@ -43,9 +43,11 @@ extension AppStore {
     /// One member's turn in its own group session. `reusing` is a `notSent` row Retry sends into.
     @discardableResult func groupTurn(bot: Bot, group: GroupChat, run: GroupRun, token: UUID, images: [String], trigger: ChatMessage, reusing row: ChatMessage? = nil) async -> TurnOutcome? {
         if needsKey(bot) { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: no key for \(bot.hermesProfile ?? "its profile").")); return nil }
+        // P38: a saved document whose access was removed after the round started is never sent to this member.
+        do { try validateArtifactAccess(trigger, botID: bot.id) } catch { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(error.localizedDescription)")); return nil }
         let activeBackend: any AgentBackend
         do { activeBackend = try backend(for: bot) } catch { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(error.localizedDescription)")); return nil }
-        let context = GroupRouting.context(for: .init(id: bot.id, name: bot.name), groupName: group.name, members: routingMembers(of: group), messages: group.messages, current: trigger.id, userName: userName)
+        let context = GroupRouting.context(for: .init(id: bot.id, name: bot.name), groupName: group.name, members: routingMembers(of: group), messages: readableMessages(group.messages, for: bot.id), current: trigger.id, userName: userName)
         let assistant: ChatMessage
         if let row {
             assistant = row; row.isStreaming = true; row.turnState = .incomplete

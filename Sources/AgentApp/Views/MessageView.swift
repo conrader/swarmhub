@@ -9,11 +9,13 @@ struct MessageView: View {
     let reply: () -> Void; let openThread: () -> Void; let codeInThread: () -> Void
     /// P27: renders open the steps row.
     var stepsExpanded = false
+    /// P38: the chat its cards answer into.
+    let actionTarget: ConversationActionTarget?
     @State private var showingReactions = false
     static let tapbacks = ["👍", "❤️", "😂", "‼️", "?"]
     init(message: ChatMessage, repliedMessage: ChatMessage? = nil, thread: ChatThread? = nil, canThread: Bool = false, codingModel: String? = nil,
-         reply: @escaping () -> Void = {}, openThread: @escaping () -> Void = {}, codeInThread: @escaping () -> Void = {}) {
-        self.message = message; self.repliedMessage = repliedMessage; self.thread = thread; self.canThread = canThread; self.codingModel = codingModel
+         actionTarget: ConversationActionTarget? = nil, reply: @escaping () -> Void = {}, openThread: @escaping () -> Void = {}, codeInThread: @escaping () -> Void = {}) {
+        self.actionTarget = actionTarget; self.message = message; self.repliedMessage = repliedMessage; self.thread = thread; self.canThread = canThread; self.codingModel = codingModel
         self.reply = reply; self.openThread = openThread; self.codeInThread = codeInThread
     }
     var body: some View {
@@ -78,7 +80,7 @@ struct MessageView: View {
                         .overlay { if message.isSteer || message.isCorrection { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(AppColor.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3])) } }
                 }
             } else {
-                MarkdownContent(message: message)
+                MarkdownContent(message: message, actionTarget: actionTarget)
                 // P29: one row while streaming and after, so an open row stays open when the turn ends.
                 ActivityRow(message: message, expanded: stepsExpanded)
                 BotMessageChipsRow(message: message)

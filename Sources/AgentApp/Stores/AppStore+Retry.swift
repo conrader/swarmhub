@@ -119,7 +119,7 @@ extension AppStore {
             addWarning("\(bot.name): Can't match the box's newest message; nothing was sent.", in: conversation, after: row); return
         }
         let images: [String]
-        do { images = try trigger.attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) }
+        do { try validateArtifactAccess(trigger, botID: bot.id); images = try trigger.attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) }
         catch { addWarning("\(bot.name): \(error.localizedDescription) Nothing was sent.", in: conversation, after: row); return }
         guard let activeBackend = try? backend(for: bot) else { return }
         if let group, let run {

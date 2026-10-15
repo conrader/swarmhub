@@ -34,9 +34,10 @@ enum GroupRouting {
         return members.map(\.id).filter(found.contains)
     }
 
-    /// Mentioned members, or every member when nobody (known) is mentioned.
+    /// Mentioned members, or every member when nobody (known) is mentioned. P38: names two members share are
+    /// matched as `Name#id` (`mentionName`).
     static func recipients(of text: String, members: [Member]) -> [UUID] {
-        let mentioned = mentions(in: text, members: members)
+        let mentioned = mentions(in: text, members: mentionable(members))
         return mentioned.isEmpty ? members.map(\.id) : mentioned
     }
 

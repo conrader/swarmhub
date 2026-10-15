@@ -5,7 +5,7 @@ import SwiftUI
 /// an agent's settings, the right panel (folded and open, P21b), P27's activity and skills banner, and P35's
 /// box shots to PNG. Everything comes from a synthetic in-memory store, key store and
 /// settings suite, and Test results are built in memory: no network, no Keychain, nothing of the real app is read or
-/// written. Refuses a directory inside the repository, like `--render-snapshot`.
+/// written. Refuses a directory inside the repository, like `--render-snapshot`. `--only p38` renders just P38's shots.
 @MainActor enum HeadlessSetup {
     static let size = NSSize(width: 580, height: 480)
     static let settingsSize = NSSize(width: 760, height: 560)
@@ -15,7 +15,9 @@ import SwiftUI
             print("Usage: AgentApp --render-setup <dir>"); return 64
         }
         let directory = URL(fileURLWithPath: (arguments[flag + 1] as NSString).expandingTildeInPath, isDirectory: true)
-        return HeadlessRunLoop.wait { await render(to: directory, output: { print($0); fflush(stdout) }) }
+        // P38: `--only p38` renders just that phase's shots.
+        let only = arguments.firstIndex(of: "--only").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+        return HeadlessRunLoop.wait { await render(to: directory, only: only, output: { print($0); fflush(stdout) }) }
     }
 
     /// One synthetic connection: three agents found on a box, one of them already added.
@@ -28,7 +30,7 @@ import SwiftUI
                                 extraKeys: ["research": "synthetic-1", "writer": "synthetic-2", "finance": "synthetic-3"])
     }
 
-    static func render(to directory: URL, output: (String) -> Void) async -> Int32 {
+    static func render(to directory: URL, only: String? = nil, output: (String) -> Void) async -> Int32 {
         if let repo = HeadlessSnapshot.enclosingRepository(of: directory) { output("Refused: \(directory.path) is inside the repository \(repo.path)."); return 2 }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -66,6 +68,11 @@ import SwiftUI
             let file = directory.appending(path: "\(name).png")
             if let data, (try? data.write(to: file)) != nil { output("\(file.path) \(data.count) bytes") } else { failures += 1; output("Failed: \(name)") }
         }
+        if only == "p38" {
+            await HeadlessP38Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+            output("Rendered p38 shots to \(directory.path); \(failures) failed")
+            return failures == 0 ? 0 : 1
+        }
         for (name, flow) in shots { write(name, await png(SetupView(preset: flow), store: store, updater: updater, size: size)) }
         do {
             try store.commitSetup(choose.result!, key: "synthetic", chosen: choose.chosen, confirmMove: false)
@@ -89,6 +96,7 @@ import SwiftUI
         await HeadlessP36Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP37Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP31DEShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        await HeadlessP38Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         output("Rendered setup to \(directory.path); \(failures) failed")
         return failures == 0 ? 0 : 1
     }
