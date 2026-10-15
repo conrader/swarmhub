@@ -34,7 +34,7 @@ extension AppStore {
     /// bot could list them.
     func scanBoxForSetup(_ result: SetupCheckResult, key: String) async -> SetupBoxScan? {
         guard let baseURL = result.baseURL, let manager = setupManager(for: result, key: key),
-              let template = managerTemplateOverride ?? Self.bundledManagerTemplate,
+              let template = managerRecipeTemplate(.box),
               let instructions = BoxAdoption.listInstructions(template: template, managerProfile: manager.profile) else { return nil }
         let speaker = Bot(name: manager.name, backend: .hermes, hermesProfile: manager.profile)
         let backend: any AgentBackend

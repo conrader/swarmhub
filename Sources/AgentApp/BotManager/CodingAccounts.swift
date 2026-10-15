@@ -59,8 +59,9 @@ struct AccountsReport: Equatable {
     static func date(_ text: String) -> Date? { try? Date(text, strategy: .iso8601) }
 }
 
-/// The P31 C recipes in `Resources/BotManager/manager-hermes.md` ("Coding tools and logins"), each sent in a quiet
-/// manager turn the chat never shows; each prints the one JSON line the manager returns in its swarmhub block.
+/// The P31 C recipes in `Resources/BotManager/recipes/accounts.md` ("Coding tools and logins"), each sent in a quiet
+/// manager turn the chat never shows (only the recipes that turn needs); each prints the one JSON line the manager
+/// returns in its swarmhub block.
 enum CodingAccounts {
     static let statusMarker = "Accounts status:"
     static let installMarker = "Install claude and codex"

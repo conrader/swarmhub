@@ -7,13 +7,13 @@ import Testing
 
 private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() }
 
-/// `Tests/Scripts/box-adopt-test.sh` under each shell present: the three recipes cut out of manager-hermes.md, run in a
+/// `Tests/Scripts/box-adopt-test.sh` under each shell present: the three recipes cut out of recipes/box.md, run in a
 /// temp HOME with a synthetic ~/.hermes; every case must pass.
 @Test(arguments: ["/bin/sh", "/bin/dash"]) func boxAdoptShellTestPasses(_ shell: String) throws {
     guard FileManager.default.isExecutableFile(atPath: shell) else { return }
     let process = Process(), pipe = Pipe()
     process.executableURL = URL(fileURLWithPath: shell)
-    process.arguments = [repoRoot.appending(path: "Tests/Scripts/box-adopt-test.sh").path, repoRoot.appending(path: "Resources/BotManager/manager-hermes.md").path]
+    process.arguments = [repoRoot.appending(path: "Tests/Scripts/box-adopt-test.sh").path, repoRoot.appending(path: "Resources/BotManager/recipes/box.md").path]
     process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "BOX_SH": shell]
     process.standardOutput = pipe; process.standardError = pipe
     try process.run()
@@ -34,8 +34,8 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
 
 // MARK: Recipes and instructions
 
-@Test func managerTextCarriesTheThreeRecipes() throws {
-    let template = try #require(BotManagerText.template())
+@Test func boxRecipeFileCarriesTheThreeRecipes() throws {
+    let template = try #require(BotManagerText.recipe(.box))
     let list = try #require(BoxAdoption.recipe(BoxAdoption.listMarker, in: template))
     let adopt = try #require(BoxAdoption.recipe(BoxAdoption.adoptMarker, in: template))
     let restore = try #require(BoxAdoption.recipe(BoxAdoption.restoreMarker, in: template))
@@ -48,7 +48,7 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
 }
 
 @Test func instructionsAreFilledAndRefuseWhatTheyMust() throws {
-    let template = try #require(BotManagerText.template())
+    let template = try #require(BotManagerText.recipe(.box))
     let list = try #require(BoxAdoption.listInstructions(template: template, managerProfile: "grok-jarvis"))
     #expect(!list.contains("{{") && list.contains("Reading needs no confirmation") && list.contains("````sh\n( cd ~/.hermes"))
     let adopt = try #require(BoxAdoption.adoptInstructions(template: template, managerProfile: "grok-jarvis", names: ["cfo", "lowcost"]))

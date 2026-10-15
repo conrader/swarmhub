@@ -19,7 +19,7 @@ struct BotOffer: Identifiable, Equatable {
 /// P26: an OpenClaw agent can hold the role for its Gateway (`AppStore+BotManagerOpenClaw.swift`).
 extension AppStore {
     static let managerMigrationKey = "p22.managerRoleMigrated"
-    private static let cachedTemplate = BotManagerText.template()
+    private static let cachedTemplate = BotManagerText.fullTemplate()
     private static let cachedOpenClawTemplate = BotManagerText.template(for: .openClaw)
 
     // MARK: Manager role
@@ -64,7 +64,7 @@ extension AppStore {
     // MARK: On demand
 
     /// The manager text for this bot (its profile, or its agent id on OpenClaw), placeholders filled; nil when the
-    /// resource is missing.
+    /// resource is missing. P31 C: for Hermes the full text, the core and every recipe file.
     func managerText(for bot: Bot) -> String? {
         if bot.backend == .openClaw {
             return (managerTemplateOverride ?? Self.cachedOpenClawTemplate).map { BotManagerText.filled($0, managerAgent: bot.openClaw?.agentID ?? "") }
@@ -75,8 +75,9 @@ extension AppStore {
     /// The manager text for this turn: only on a management turn of the manager's main chat (an intent match, a menu
     /// request, or a follow-up while the exchange is open); nil otherwise. The backend decides where it goes (P26 D3).
     /// P27 (Hermes managers only): an Install press sends its own instructions instead; once the manager's
-    /// `swarmhub-manager` skill is recorded at the bundled version, a management turn carries a one-line pointer to it
-    /// instead of the full text. OpenClaw managers keep the full text (P27 D8).
+    /// `swarmhub-manager` skill is recorded at any version (P31 C: an outdated one too; its Update banner handles the
+    /// upgrade), a management turn carries a one-line pointer to it; only a manager without the skill gets the full text.
+    /// OpenClaw managers keep the full text (P27 D8).
     func managementText(for bot: Bot, text: String, conversation: any Conversation) -> String? {
         guard isManager(bot), conversation === bot else { return nil }
         if bot.backend == .hermes, let install = pendingSkillInstalls.removeValue(forKey: bot.id) {
@@ -86,7 +87,7 @@ extension AppStore {
         let decision = ManagementExchange.decide(text: text, exchange: managementExchanges[bot.id], now: now())
         managementExchanges[bot.id] = decision.next
         guard decision.attach else { return nil }
-        if bot.backend == .hermes, let skill = skills(for: bot).first(where: { $0.name == SkillLibrary.managerSkill }), skillState(skill, for: bot) == .current {
+        if bot.backend == .hermes, let skill = skills(for: bot).first(where: { $0.name == SkillLibrary.managerSkill }), skillState(skill, for: bot) != .missing {
             return Self.skillPointer
         }
         return managerText(for: bot)

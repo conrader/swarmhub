@@ -29,7 +29,7 @@ extension AppStore {
         var state = accounts(on: target)
         guard state.allows(action) else { return false }
         guard let manager = ensureManager(on: target), manager.backend == .hermes, let backend = try? backend(for: manager),
-              let template = managerTemplateOverride ?? Self.bundledManagerTemplate else {
+              let template = managerRecipeTemplate(.accounts) else {
             state.problem = AccountsCopy.noManager; codingAccounts[target] = state; return false
         }
         let instructions: String?

@@ -39,7 +39,6 @@ private func listed(_ rows: [(String, Bool)]) -> String {
     let defaults = isolatedDefaults(); defaults.set("https://\(probe.host)", forKey: "hermesBaseURL")
     let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { _ in hermes },
                          keyStore: keys ?? InMemoryKeyStore(["hermes": "default-key", "hermes.grok-jarvis": managerKey]), defaults: defaults, hermesSession: probe.session)
-    store.managerTemplateOverride = BotManagerText.template()
     store.botProbeAttempts = 2; store.botProbeDelay = .milliseconds(5)
     let jarvis = Bot(name: "Jarvis", persona: "You are Jarvis.", backend: .hermes, hermesProfile: "grok-jarvis")
     jarvis.canManageBots = true

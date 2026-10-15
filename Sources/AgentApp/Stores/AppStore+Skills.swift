@@ -108,7 +108,7 @@ extension AppStore {
             guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: managerTemplateOverride ?? Self.bundledManagerTemplate,
                                                     codingOrder: codingOrder) else { return nil }
             let folder = SkillLibrary.installPath(skill.name, profile: profile)
-            let files = [SkillFile(path: "SKILL.md", content: content)] + skill.files
+            let files = [SkillFile(path: "SKILL.md", content: content)] + skill.files.map { SkillLibrary.render($0, forProfile: profile) }
             if let clash = files.first(where: { $0.content.contains(Self.heredocEnd) }) { throw SkillInstallError.markerInFile(skill: skill.name, path: clash.path) }
             let folders = Set(files.map { ($0.path as NSString).deletingLastPathComponent }.filter { !$0.isEmpty })
             commands.append("mkdir -p " + ([folder] + folders.sorted().map { "\(folder)/\($0)" }).joined(separator: " "))
@@ -136,7 +136,12 @@ extension AppStore {
         """
     }
 
+    /// The core manager text (the skill's SKILL.md body).
     static var bundledManagerTemplate: String? { BotManagerText.template() }
+
+    /// P31 C: what a quiet or pressed box/accounts turn cuts its recipe from: the override (tests), else that recipe file
+    /// only, never the whole manager text.
+    func managerRecipeTemplate(_ recipe: BotManagerText.Recipe) -> String? { managerTemplateOverride ?? BotManagerText.recipe(recipe) }
 
     /// Records a `skills_installed` op for the bot bound to `profile` on the manager's connection: only library skills,
     /// never newer than this build ships (the reply carries names and versions only; the content is never read from it).

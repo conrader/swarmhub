@@ -60,14 +60,17 @@ enum SkillLibrary {
     }
 
     /// Every bundled skill, sorted by name; a folder without a valid SKILL.md (name matches, semver version) is skipped.
-    static func bundled(in folder: URL? = folder()) -> [BundledSkill] {
+    /// P31 C: `swarmhub-manager` also gets the manager recipes as `references/` (skipped when they are missing).
+    static func bundled(in folder: URL? = folder(), managerReferences: [SkillFile]? = BotManagerText.referenceFiles()) -> [BundledSkill] {
         guard let folder, let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return [] }
         return names.sorted().compactMap { name in
             guard let text = try? String(contentsOf: folder.appending(path: "\(name)/SKILL.md"), encoding: .utf8) else { return nil }
             let fields = frontmatter(text)
             guard fields["name"] == name, HermesKeyPaste.isValidProfileName(name), let version = fields["version"].flatMap(SkillVersion.init),
                   let files = extraFiles(in: folder.appending(path: name, directoryHint: .isDirectory)) else { return nil }
-            return BundledSkill(name: name, version: version, template: text, files: files)
+            guard name == managerSkill else { return BundledSkill(name: name, version: version, template: text, files: files) }
+            guard let managerReferences else { return nil }
+            return BundledSkill(name: name, version: version, template: text, files: (files + managerReferences).sorted { $0.path < $1.path })
         }
     }
 
@@ -127,6 +130,12 @@ enum SkillLibrary {
             .replacingOccurrences(of: "{{SKILL_DIR}}", with: installPath(skill.name, profile: profile))
             .replacingOccurrences(of: "{{BOT}}", with: profile)
         return text.hasSuffix("\n") ? text : text + "\n"
+    }
+
+    /// An extra file as written into `profile`: `references/` (the manager recipes) with the manager placeholders filled,
+    /// anything else as shipped.
+    static func render(_ file: SkillFile, forProfile profile: String) -> SkillFile {
+        file.path.hasPrefix("references/") ? SkillFile(path: file.path, content: BotManagerText.filled(file.content, managerProfile: profile)) : file
     }
 
     /// P31: what besides the version decides a bot's copy, recorded with the install: the coding order for a skill

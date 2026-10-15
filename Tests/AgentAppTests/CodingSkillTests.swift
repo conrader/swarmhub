@@ -144,7 +144,8 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     // A bot without the skill: offered in its editor, no banner; its manager's banner offers what the manager lacks.
     #expect(store.skillBanner(for: coder) == nil && store.skillState(skill, for: coder) == .missing)
     #expect(store.skillBanner(for: jarvis)?.skill.name == SkillLibrary.managerSkill)
-    jarvis.installedSkills = [SkillLibrary.managerSkill: "1.0.2"]
+    let manager = try #require(store.skillLibrary.first { $0.name == SkillLibrary.managerSkill })
+    jarvis.installedSkills = [SkillLibrary.managerSkill: manager.version.description]
     #expect(store.skillBanner(for: jarvis)?.skill.name == "swarmhub-coding" && store.skillBanner(for: jarvis)?.state == .missing)
     coder.installedSkills = [skill.name: skill.version.description]; coder.installedSkillVariants = [skill.name: "claude,codex,hermes"]
     #expect(store.skillState(skill, for: coder) == .current && store.skillBanner(for: coder) == nil)

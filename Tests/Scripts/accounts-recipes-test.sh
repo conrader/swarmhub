@@ -1,13 +1,13 @@
 #!/bin/sh
-# Hermetic tests for the P31 C recipes in Resources/BotManager/manager-hermes.md ("Coding tools and logins"): each fence
-# is cut out of the manager text, filled the way SwarmHub fills it and run under $BOX_SH in a temp HOME with stub
+# Hermetic tests for the P31 C recipes in Resources/BotManager/recipes/accounts.md ("Coding tools and logins"): each
+# fence is cut out of the recipe file, filled the way SwarmHub fills it and run under $BOX_SH in a temp HOME with stub
 # `claude`, `codex` and `hermes` and a synthetic ~/.hermes/auth.json. Needs `node` (as on the box); no network. Run by
 # AccountsRecipeTests under /bin/sh and /bin/dash.
 #
-#   sh Tests/Scripts/accounts-recipes-test.sh <path/to/manager-hermes.md> <dir with node>     BOX_SH (default /bin/sh)
+#   sh Tests/Scripts/accounts-recipes-test.sh <path/to/recipes/accounts.md> <dir with node>     BOX_SH (default /bin/sh)
 
-TEXT=${1:?usage: accounts-recipes-test.sh <path/to/manager-hermes.md> <node dir>}
-NODE_DIR=${2:?usage: accounts-recipes-test.sh <path/to/manager-hermes.md> <node dir>}
+TEXT=${1:?usage: accounts-recipes-test.sh <path/to/recipes/accounts.md> <node dir>}
+NODE_DIR=${2:?usage: accounts-recipes-test.sh <path/to/recipes/accounts.md> <node dir>}
 SH=${BOX_SH:-/bin/sh}
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/accounts-recipes-test.XXXXXX") || exit 1
 trap 'rm -rf "$ROOT"' EXIT

@@ -43,7 +43,7 @@ private let loggedIn = #"{"op":"accounts","claude":{"installed":true,"version":"
 // MARK: Recipes
 
 @Test func eachActionIsTheManagerTextsRecipeFilledForOneTurn() throws {
-    let template = try #require(BotManagerText.template())
+    let template = try #require(BotManagerText.recipe(.accounts))
     let status = try #require(CodingAccounts.statusInstructions(template: template))
     #expect(status.contains(#"op:"accounts""#) && status.contains("swarmhub block"))
     #expect(try #require(CodingAccounts.installInstructions(template: template)).contains("npm install -g --prefix ~/.local @anthropic-ai/claude-code @openai/codex"))
@@ -126,7 +126,6 @@ private let loggedIn = #"{"op":"accounts","claude":{"installed":true,"version":"
     }
     let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { _ in hermes },
                          keyStore: InMemoryKeyStore(["hermes": "default-key", "hermes.grok-jarvis": "manager-key"]), defaults: isolatedDefaults())
-    store.managerTemplateOverride = BotManagerText.template()
     let jarvis = Bot(name: "Jarvis", persona: "You are Jarvis.", backend: .hermes, hermesProfile: "grok-jarvis")
     jarvis.canManageBots = true
     store.bots = [jarvis]; store.selectedBot = jarvis
@@ -208,11 +207,11 @@ private func runShellTest(_ script: String, _ args: [String], shell: String, env
     #expect(status == 0 && output.contains("claude-login tests under \(shell): 5 passed, 0 failed") && !output.contains("FAIL"), "\(output)")
 }
 
-/// `Tests/Scripts/accounts-recipes-test.sh`: the manager-text recipes with stub CLIs; needs node, as the box has.
+/// `Tests/Scripts/accounts-recipes-test.sh`: the recipes/accounts.md recipes with stub CLIs; needs node, as the box has.
 @Test(arguments: ["/bin/sh", "/bin/dash"]) func accountsRecipesShellTestPasses(_ shell: String) throws {
     guard FileManager.default.isExecutableFile(atPath: shell),
           let node = ["/opt/homebrew/bin", "/usr/local/bin"].first(where: { FileManager.default.isExecutableFile(atPath: "\($0)/node") }) else { return }
-    let (status, output) = try runShellTest("Tests/Scripts/accounts-recipes-test.sh", [repoRoot.appending(path: "Resources/BotManager/manager-hermes.md").path, node],
+    let (status, output) = try runShellTest("Tests/Scripts/accounts-recipes-test.sh", [repoRoot.appending(path: "Resources/BotManager/recipes/accounts.md").path, node],
                                             shell: shell, env: ["BOX_SH": shell])
     #expect(status == 0 && output.contains("accounts recipe tests under \(shell): 6 passed, 0 failed") && !output.contains("FAIL"), "\(output)")
 }
