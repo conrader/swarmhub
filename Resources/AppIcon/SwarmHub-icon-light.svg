@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>SwarmHub app icon — light appearance</title>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#f7f7f2"/>
+  <svg x="184" y="184" width="656" height="656" viewBox="0 0 30 30">
+    <title>SwarmHub — light appearance</title>
+  <g transform="rotate(-9 15 15)">
+    <circle cx="15" cy="15" r="15" fill="#262821"/>
+    <g fill="#f7f7f2">
+      <rect x="8.5" y="10" width="4" height="10" rx="2"/>
+      <rect x="17.5" y="10" width="4" height="10" rx="2"/>
+    </g>
+  </g>
+  </svg>
+</svg>

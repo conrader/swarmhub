@@ -2,6 +2,8 @@ import SwiftUI
 
 /// P38 D: a group's workflows inside its chat: the plan to approve, each task with its agent, state, result and the
 /// way past a task that did not finish (Refresh, Retry unsent, reassign), the token allowance and the controls.
+/// P38 E: handoffs the agents asked for (where a task came from, review rounds and verdicts, the history) and the user's
+/// "Accept review with noted limitations" when a review still has open findings.
 struct WorkflowView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var group: GroupChat
@@ -29,6 +31,15 @@ private struct WorkflowCard: View {
                 if let error = workflow.error { Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
                 if workflow.state == .planning { Text("\(name(workflow.coordinatorID)) is planning. Nothing runs until you approve the plan.").font(.caption).foregroundStyle(.secondary) }
                 ForEach(workflow.tasks) { task in WorkflowTaskRow(group: group, workflow: workflow, task: task) }
+                if let operations = workflow.operations, !operations.isEmpty {
+                    DisclosureGroup("Handoff and result history (\(operations.count))") {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(operations) { operation in
+                                Text("\(operation.taskID) · \(Self.label(operation.action)) · \(operation.message)").textSelection(.enabled)
+                            }
+                        }.padding(.leading, 4)
+                    }.font(.caption)
+                }
                 HStack {
                     if workflow.state == .paused, !workflow.tasks.isEmpty, !workflow.tasks.contains(where: { $0.state == .blocked }) {
                         Button(workflow.tasks.allSatisfy { $0.state == .queued } ? "Approve plan and run" : "Resume") { store.resumeWorkflow(workflow.id) }
@@ -56,6 +67,15 @@ private struct WorkflowCard: View {
         "Tokens: \(workflow.budget.spent.formatted()) used · \(workflow.budget.reserved.formatted()) reserved · \(workflow.budget.tokenLimit.formatted()) allowed (estimated where the server reports none)"
     }
     private func name(_ id: UUID) -> String { store.bots.first { $0.id == id }?.name ?? "Removed agent" }
+
+    static func label(_ action: WorkflowOperation.Action) -> String {
+        switch action {
+        case .assign: "Assigned work"
+        case .requestHelp: "Asked for help"
+        case .requestReview: "Asked for review"
+        case .reportResult: "Reported a result"
+        }
+    }
 }
 
 private struct WorkflowTaskRow: View {
@@ -75,11 +95,19 @@ private struct WorkflowTaskRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.instructions).textSelection(.enabled)
                 Text("Expected: " + task.expectedOutput).foregroundStyle(.secondary)
+                if let parent = task.parentTaskID { Text("From: " + parent).foregroundStyle(.secondary) }
+                if let round = task.reviewRound {
+                    Text("Review round \(round) of \(Workflow.maximumReviewRounds) · \(task.reviewVerdict.map { $0 == .accepted ? "Accepted" : "Needs revision" } ?? "Awaiting verdict")").foregroundStyle(.secondary)
+                }
                 if !task.dependencies.isEmpty { Text("After: " + task.dependencies.joined(separator: ", ")).foregroundStyle(.secondary) }
                 if let result = task.result { Text(result).lineLimit(8).textSelection(.enabled).padding(.top, 2) }
                 if let error = task.error { Text(error).foregroundStyle(.red) }
+                if task.reviewAcceptedByUser == true { Text("You accepted this review with its noted limitations.").foregroundStyle(.secondary) }
                 HStack {
-                    if task.state == .blocked { Button("Refresh from server") { Task { await store.refreshWorkflowTask(workflow.id, taskID: task.id) } } }
+                    if store.canAcceptWorkflowReview(workflow, task: task) {
+                        Button("Accept review with noted limitations") { store.acceptWorkflowReview(workflow.id, taskID: task.id) }
+                    }
+                    if task.state == .blocked, !store.canAcceptWorkflowReview(workflow, task: task) { Button("Refresh from server") { Task { await store.refreshWorkflowTask(workflow.id, taskID: task.id) } } }
                     if store.canReassignWorkflowTask(workflow, task: task) {
                         if task.state == .blocked { Button("Send again") { store.reassignWorkflowTask(workflow.id, taskID: task.id, botID: task.botID) } }
                         Picker("Agent", selection: Binding(get: { task.botID }, set: { store.reassignWorkflowTask(workflow.id, taskID: task.id, botID: $0) })) {
@@ -92,7 +120,7 @@ private struct WorkflowTaskRow: View {
             HStack(spacing: 6) {
                 Image(systemName: icon).foregroundStyle(task.state == .blocked ? Color.red : Color.secondary).frame(width: 14)
                 Text(task.id).font(.caption.weight(.medium))
-                Text("· \(store.bots.first { $0.id == task.botID }?.name ?? "Removed agent")\(task.role == .coding ? " · coding" : "")").font(.caption).foregroundStyle(.secondary)
+                Text("· \(store.bots.first { $0.id == task.botID }?.name ?? "Removed agent")\(task.role == .coding ? " · coding" : "")\(task.reviewTargetID != nil ? " · review" : "")").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Text(task.state.rawValue.capitalized).font(.caption2).foregroundStyle(.tertiary)
             }

@@ -19,3 +19,11 @@ import Testing
         #expect(image.pixelsWide == 1024 && image.pixelsHigh == 1024)
     }
 }
+
+@MainActor @Test func theDarkIcnsIsAFallbackForTheDarkDockIcon() throws {
+    let icns = try #require(AppIconAppearance.imageURLs(dark: true).first { $0.pathExtension == "icns" && FileManager.default.fileExists(atPath: $0.path) })
+    #expect(icns.lastPathComponent == "SwarmHub-dark.icns")
+    let image = try #require(NSImage(contentsOf: icns))
+    #expect(image.representations.contains { $0.pixelsWide == 1024 })
+    #expect(!AppIconAppearance.imageURLs(dark: false).contains { $0.pathExtension == "icns" }, "the light fallback stays the bundle's AppIcon.icns")
+}

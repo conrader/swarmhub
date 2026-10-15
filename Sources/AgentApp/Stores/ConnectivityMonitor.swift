@@ -71,13 +71,14 @@ extension AppStore {
     }
 
     /// Launch work, once per process and only in the real app (`routines.autoLoad`): connectivity, terminate save,
-    /// interrupted rounds, then D2's sweep after the UI is up.
+    /// interrupted rounds, then D2's sweep after the UI is up, then the restored next-message queue.
     func startLaunchWork(makeConnectivity: () -> (any ConnectivitySource)? = { let system = SystemConnectivity(); system.start(); return system }) {
         guard routines.autoLoad, !turns.didLaunchRecovery else { return }
         turns.didLaunchRecovery = true
         if connectivity == nil { connectivity = makeConnectivity(); listenForConnectivity() }
         if connectivity is SystemConnectivity { turns.terminateObserver = SystemConnectivity.observeTerminate(self) }
         recoverInterruptedRounds()
-        Task { await launchSweep() }
+        // P38 E: the queue a quit left waits for the sweep, so an earlier reply it would follow can be confirmed first.
+        Task { await launchSweep(); resumeRestoredNextMessages() }
     }
 }

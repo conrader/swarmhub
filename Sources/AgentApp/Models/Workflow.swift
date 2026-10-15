@@ -34,6 +34,20 @@ struct WorkflowTask: Codable, Identifiable, Sendable, Equatable {
     var replyID: UUID?
     /// Threads this task used before it was reassigned; they can no longer send.
     var previousThreadIDs: [UUID]?
+    /// P38 E: handoffs (`WorkflowOperations.swift`): the task that asked for this one and how deep the chain is.
+    var parentTaskID: String?
+    var handoffDepth: Int?
+    /// A review task: the task it reviews, the first work of its chain, and its round (1 or 2).
+    var reviewTargetID: String?
+    var reviewRootID: String?
+    var reviewRound: Int?
+    /// What the agent reported with reportResult (used as the result once its reply finishes) and a reviewer's verdict.
+    var reportedResult: String?
+    var reviewVerdict: WorkflowOperation.Verdict?
+    /// Set when a review needs the user: the task stays blocked until "Accept review with noted limitations".
+    var reviewBlock: String?
+    var completionConfirmed: Bool?
+    var reviewAcceptedByUser: Bool?
 }
 
 /// P38 D: a group request split by a coordinator into dependent tasks. Planning ends paused: nothing runs before the
@@ -55,6 +69,8 @@ struct Workflow: Codable, Identifiable, Sendable, Equatable {
     /// The coordinator's planning thread and the reply row the plan is read from.
     var planThreadID: UUID?
     var planReplyID: UUID?
+    /// P38 E: every handoff and report, committed with the graph so a repeated tool call creates nothing twice.
+    var operations: [WorkflowOperationReceipt]?
 
     var isActive: Bool { state == .planning || state == .running }
     var isFinished: Bool { state == .completed || state == .cancelled }

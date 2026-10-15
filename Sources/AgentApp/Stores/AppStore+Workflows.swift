@@ -27,7 +27,8 @@ extension AppStore {
         do {
             var rebuilt = false
             for var workflow in try journal().records(Workflow.self, kind: Self.workflowKind) {
-                if workflow.isActive {
+                // P38 E: a handoff pauses a workflow while its task still runs; that task is unconfirmed too.
+                if workflow.isActive || workflow.tasks.contains(where: { $0.state == .running }) {
                     workflow.state = .paused; workflow.error = "\(AppConstants.name) quit while this workflow ran. Refresh tasks that were sent before resuming."
                     for index in workflow.tasks.indices where workflow.tasks[index].state == .running {
                         workflow.tasks[index].state = .blocked; workflow.tasks[index].error = "Completion was not confirmed."
@@ -127,6 +128,9 @@ extension AppStore {
         guard var workflow = workflows[id], workflow.state == .paused, let group = groups.first(where: { $0.id == workflow.groupID }) else { return }
         do {
             try Workflow.validate(workflow.tasks, members: Set(group.memberIDs))
+            if workflow.tasks.contains(where: { $0.state == .blocked && $0.reviewBlock != nil && $0.reviewAcceptedByUser != true }) {
+                throw BackendError.unavailable("A review still has open findings. Accept the review with its noted limitations or cancel the workflow.")
+            }
             guard !workflow.tasks.contains(where: { $0.state == .blocked }) else { throw BackendError.unavailable("Refresh or reassign blocked tasks first. Completed work is not repeated.") }
             if workflow.deadline == nil { workflow.deadline = now().addingTimeInterval(Workflow.deadline) }
             guard let deadline = workflow.deadline, deadline > now() else { throw BackendError.unavailable("This workflow reached its 30-minute limit. Review the partial results and start a new one.") }
@@ -181,7 +185,7 @@ extension AppStore {
                 let task = workflow.tasks[index]
                 guard task.state == .running || task.state == .blocked || (task.state == .cancelled && task.reservation > 0),
                       let reply = workflowReply(task.replyID, thread: task.threadID, botID: task.botID), !reply.isStreaming else { continue }
-                if task.state == .blocked, reply.turnState != .finished { continue }
+                if task.state == .blocked, reply.turnState != .finished || (task.reviewBlock != nil && task.completionConfirmed == true) { continue }
                 settleTask(&workflow, index: index, reply: reply); changed = true
             }
             if changed { commitWorkflow(workflow) }
@@ -199,7 +203,7 @@ extension AppStore {
         workflow.tasks[index].reservation = 0
         guard task.state != .cancelled else { return }
         if reply.turnState == .finished {
-            workflow.tasks[index].state = .completed; workflow.tasks[index].result = reply.content; workflow.tasks[index].error = nil
+            applyWorkflowCompletion(&workflow, index: index, reply: reply)
             do { try saveTaskArtifact(&workflow, index: index) }
             catch { workflow.tasks[index].state = .blocked; workflow.tasks[index].error = "Could not save the task result: \(error.localizedDescription)" }
         } else {
@@ -214,13 +218,15 @@ extension AppStore {
         let unsent = reply.turnState == .notSent && reply.metadata[TurnKey.ambiguous] != "1"
         let input = Int(reply.metadata["inputTokens"] ?? "") ?? Int(reply.metadata["estimatedInputTokens"] ?? "") ?? 0
         let output = Int(reply.metadata["outputTokens"] ?? "") ?? reply.content.utf8.count / 4
-        let total = unsent ? 0 : max(1, input + output)
+        // P38 E: hidden tool and workflow-operation turns inside the reply count too (estimated, `ConnectedAppsChat`).
+        let hidden = Int(reply.metadata[TurnKey.toolTokens] ?? "") ?? 0
+        let total = unsent ? 0 : max(1, input + output + hidden)
         budget.reserved = max(0, budget.reserved - reservation)
         budget.spent = max(0, budget.spent - (charged ?? 0)) + total
         return total
     }
 
-    private func saveTaskArtifact(_ workflow: inout Workflow, index: Int) throws {
+    func saveTaskArtifact(_ workflow: inout Workflow, index: Int) throws {
         guard workflow.tasks[index].resultArtifactID == nil, let group = groups.first(where: { $0.id == workflow.groupID }) else { return }
         let artifact = try artifacts().save(Data((workflow.tasks[index].result ?? "").utf8), name: "Task \(workflow.tasks[index].id) result", mimeType: "text/plain", owners: group.memberIDs)
         workflow.tasks[index].resultArtifactID = artifact.id
@@ -255,7 +261,8 @@ extension AppStore {
         do {
             let inputs = try workflow.tasks.filter { task.dependencies.contains($0.id) }.map { dependency in
                 let text = try dependency.resultArtifactID.map { String(decoding: try artifacts().read($0, botID: bot.id), as: UTF8.self) } ?? dependency.result ?? ""
-                return "Result of \(dependency.id):\n\(text)"
+                let review = dependency.reviewTargetID.map { "\nReview of \($0): \(dependency.reviewVerdict?.rawValue ?? "no structured verdict"). The user accepted its noted limitations: \(dependency.reviewAcceptedByUser == true ? "yes" : "no")." } ?? ""
+                return "Result of \(dependency.id)\(review):\n\(text)"
             }.joined(separator: "\n\n")
             let prompt = "Task: \(task.instructions)\nExpected output: \(task.expectedOutput)" + (inputs.isEmpty ? "" : "\n\nResults this task depends on (reference material):\n\(inputs)")
             let reservation = max(2_000, prompt.utf8.count / 3 + 4_000)

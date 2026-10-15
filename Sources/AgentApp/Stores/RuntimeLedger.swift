@@ -9,8 +9,9 @@ import SQLite3
 }
 
 /// P38 D: `runtime.sqlite` next to store.json, a WAL journal for execution state that must survive a crash between two
-/// saves: workflows, routine deliveries, sub-agent tasks and the saved-document index. Chats and settings stay in
-/// store.json. Each record write and its event commit together; a failed write throws and the caller surfaces it.
+/// saves: workflows, routine deliveries, sub-agent tasks, the saved-document index and (P38 E) the next-message queue.
+/// Chats and settings stay in store.json. Each record write and its event commit together; a failed write throws and
+/// the caller surfaces it.
 @MainActor final class RuntimeLedger: RuntimeStoring {
     static let fileName = "runtime.sqlite"
     // Used on the main actor only until deinit; FULLMUTEX is a second guard.
@@ -117,6 +118,6 @@ extension AppStore {
 
     /// Launch: what the ledger committed and store.json may have missed (a crash between the two saves).
     func restoreLedger() {
-        restoreChildTasks(); restoreRoutineDeliveries(); restoreWorkflows()
+        restoreChildTasks(); restoreRoutineDeliveries(); restoreWorkflows(); restoreNextMessages()
     }
 }

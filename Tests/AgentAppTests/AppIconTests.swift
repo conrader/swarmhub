@@ -25,5 +25,8 @@ private let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent
     #expect(script.contains("iconutil -c icns \"$ROOT_DIR/Resources/AppIcon/AppIcon.iconset\" -o \"$APP_DIR/Contents/Resources/AppIcon.icns\""))
     // The script fails when the signed bundle lacks the icon.
     #expect(script.contains("if [[ ! -s \"$APP_DIR/Contents/Resources/AppIcon.icns\" ]]; then"))
+    // P38 E: the dark icon ships as an icns too and is checked like the light one.
+    #expect(script.contains("iconutil -c icns \"$ROOT_DIR/Resources/AppIcon/AppIcon-dark.iconset\" -o \"$APP_DIR/Contents/Resources/AppIcon-dark.icns\""))
+    #expect(script.contains("for ICON in AppIcon-dark.icns ThemeIcons/SwarmHub-light.png ThemeIcons/SwarmHub-dark.png; do"))
 }
 
