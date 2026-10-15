@@ -9,7 +9,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
-                if thread != nil { Button { store.closeThread() } label: { Image(systemName: "chevron.left").frame(width: 22, height: 22) }.buttonStyle(.plain).help("Back to chat") }
+                if thread != nil { ThreadBackButton() }
                 BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: store.isWorking(bot), probe: "chat_header",
                           isWaiting: store.hasPendingApproval(bot))
                 Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)) }.buttonStyle(.plain)
