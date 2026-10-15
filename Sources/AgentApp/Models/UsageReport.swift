@@ -12,14 +12,33 @@ struct SessionUsage: Equatable, Sendable {
     var outputTokens = 0
     var cacheReadTokens = 0
     var reasoningTokens = 0
+    /// P38: the session this one was forked or continued from, and Hermes' lineage root (`_lineage_root_id`).
+    var parentSessionID: String?
+    var lineageRootID: String?
 
     static func parse(_ row: [String: Any]) -> SessionUsage? {
         guard let id = row["id"] as? String, !id.isEmpty else { return nil }
         return SessionUsage(
             id: id, startedAt: date(row["started_at"]), endedAt: date(row["ended_at"]),
             messages: count(row["message_count"]), inputTokens: count(row["input_tokens"]), outputTokens: count(row["output_tokens"]),
-            cacheReadTokens: count(row["cache_read_tokens"]), reasoningTokens: count(row["reasoning_tokens"])
+            cacheReadTokens: count(row["cache_read_tokens"]), reasoningTokens: count(row["reasoning_tokens"]),
+            parentSessionID: row["parent_session_id"] as? String, lineageRootID: row["_lineage_root_id"] as? String
         )
+    }
+
+    /// P38: an agent's known conversations and their descendants, even when children come before parents in the
+    /// newest-first listing. The lineage root also covers continuations whose parent was not read. A cycle ends.
+    static func owned(_ sessions: [SessionUsage], by roots: Set<String>) -> [SessionUsage] {
+        var ownedIDs = roots, changed = true
+        while changed {
+            changed = false
+            for session in sessions where !ownedIDs.contains(session.id) {
+                if session.parentSessionID.map(ownedIDs.contains) == true || session.lineageRootID.map(ownedIDs.contains) == true {
+                    ownedIDs.insert(session.id); changed = true
+                }
+            }
+        }
+        return sessions.filter { ownedIDs.contains($0.id) }
     }
 
     /// Integers, whole doubles and numeric strings; anything else (null, negative, text) is 0.
@@ -80,6 +99,18 @@ struct UsageTotals: Equatable, Sendable {
         }
         return totals
     }
+}
+
+/// P38: one agent's usage. `.profile` when it has the profile to itself (every channel counts: routines, other apps);
+/// `.conversations` when bots share the profile, so only its own chats, threads, group sessions and their lineage count.
+struct BotUsage: Equatable, Sendable {
+    enum Scope: Equatable, Sendable { case profile, conversations }
+    var scope: Scope = .profile
+    var sessions: [SessionUsage] = []
+    var truncated = false
+    var problem: String?
+
+    func totals(_ window: UsageWindow, now: Date = .now) -> UsageTotals { UsageTotals.of(sessions, window: window, now: now) }
 }
 
 /// Usage of one Hermes profile (the bots bound to it share it), or why it could not be read.
