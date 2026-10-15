@@ -6,13 +6,12 @@ struct RoutineResultCard: View {
     let message: ChatMessage
     @State private var showingResult = false
     var body: some View {
-        let status = message.metadata["status"] ?? "ok"
         let failed = RoutineResultCopy.failed(message)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: failed ? "exclamationmark.triangle.fill" : "clock.badge.checkmark").foregroundStyle(failed ? Color.red : Color.accentColor)
                 Text(RoutineResultCopy.title(message)).font(.caption.weight(.semibold)).foregroundStyle(failed ? Color.red : Color.secondary)
-                Spacer(); Text(status.capitalized).font(.caption2).foregroundStyle(failed ? Color.red : Color.secondary)
+                Spacer()
             }
             Text(message.metadata["routine"] ?? "Routine").font(.callout.weight(.semibold))
             Text(RoutineResultCopy.ranAt(message)).font(.caption2).foregroundStyle(.tertiary)
