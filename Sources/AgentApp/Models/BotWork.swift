@@ -66,8 +66,13 @@ enum BotWorkReader {
         let last = turn.rows.last
         let finished = last.map { $0.tools.isEmpty && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false || turn.endedWithError
         var activity = turn.activity
-        if !finished, var running = activity, let index = running.steps.indices.last {
-            running.steps[index].finishedAt = nil; running.endedAt = nil; activity = running
+        // A step lasts until the next one starts (the box stamps only the call); the newest one until the reply, or it
+        // still runs.
+        if var timed = activity {
+            for index in timed.steps.indices.dropLast() { timed.steps[index].finishedAt = timed.steps[index + 1].startedAt }
+            if let index = timed.steps.indices.last { timed.steps[index].finishedAt = finished ? last?.createdAt ?? timed.steps[index].startedAt : nil }
+            timed.endedAt = finished ? timed.steps.last?.finishedAt : nil
+            activity = timed
         }
         let reply = finished ? last?.content.trimmingCharacters(in: .whitespacesAndNewlines) : nil
         return BotWorkTurn(requestID: user.id.map(String.init) ?? "t\(turn.index)", request: header?.text ?? user.content, origin: header?.origin,
