@@ -39,10 +39,12 @@ enum CodexVoiceError: LocalizedError, Equatable {
         let timer: Task<Void, Never>
     }
     private var pending: [Int64: Pending] = [:]
+    /// The request timers' clock (injected by tests, like `ChatGPTConnection`'s).
+    private let sleep: @Sendable (Duration) async throws -> Void
 
-    init(executable: URL? = nil, home: URL? = nil) throws {
+    init(executable: URL? = nil, home: URL? = nil, sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) throws {
         guard let executable = executable ?? Self.findExecutable() else { throw CodexVoiceError.missingCodex }
-        self.executable = executable
+        self.executable = executable; self.sleep = sleep
         self.home = home ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appending(path: "SwarmHub/CodexVoice", directoryHint: .isDirectory)
     }
@@ -112,8 +114,8 @@ enum CodexVoiceError: LocalizedError, Equatable {
         nextID += 1; let id = nextID
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                let timer = Task { [weak self] in
-                    do { try await Task.sleep(for: timeout) } catch { return }
+                let timer = Task { [weak self, sleep] in
+                    do { try await sleep(timeout) } catch { return }
                     self?.complete(id, with: .failure(CodexVoiceError.timedOut))
                 }
                 pending[id] = Pending(continuation: continuation, timer: timer)

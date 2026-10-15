@@ -94,8 +94,8 @@ private final class Silent: URLProtocol, @unchecked Sendable {
     #expect(ContinuousClock.now - started < .seconds(20))
     #expect(TurnOutcome.classify(.error(StreamBreak(delivered: false, underlying: URLError(.timedOut)))).why == "timeout")
     // The allowance grows with the body: 20 s + bytes ÷ 50 KB/s.
-    #expect(HermesTimeouts.standard.openDeadline(bodyBytes: 5_000_000) == 120)
-    #expect(HermesTimeouts.standard.openDeadline(bodyBytes: 0) == 20)
+    #expect(HermesTimeouts().openDeadline(bodyBytes: 5_000_000) == 120)
+    #expect(HermesTimeouts().openDeadline(bodyBytes: 0) == 20)
 }
 
 @Test func requestTimeoutsAreSetExplicitly() async throws {
@@ -116,7 +116,8 @@ private final class Silent: URLProtocol, @unchecked Sendable {
         override func stopLoading() {}
     }
     let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Recorder.self]
-    let backend = HermesBackend(baseURL: URL(string: "https://timeouts.test/v1")!, apiKey: "k", session: URLSession(configuration: configuration))
+    var backend = HermesBackend(baseURL: URL(string: "https://timeouts.test/v1")!, apiKey: "k", session: URLSession(configuration: configuration))
+    backend.timeouts = HermesTimeouts()  // the app's values (a test run's `.standard` is the hang ceiling)
     _ = try await backend.createSession(title: "t", systemPrompt: "p", id: "s1")
     _ = try await drain(backend)
     _ = try? await backend.jsonRequest(path: "api/jobs", method: "POST", body: [:])

@@ -108,13 +108,21 @@ private let neverElapses: @Sendable (Duration) async throws -> Void = { _ in try
     try Data(script.utf8).write(to: executable)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
     let home = directory.appending(path: "home")
-    let rpc = try CodexVoiceRPC(executable: executable, home: home)
+    // The request timers run on a manual clock: the child's replies have no time limit under load, and the timeout
+    // case elapses only when the test advances the clock.
+    let clock = ManualGatewayClock()
+    let rpc = try CodexVoiceRPC(executable: executable, home: home, sleep: { try await clock.sleep(for: $0) })
     defer { rpc.close(stopping: nil) }
     try await rpc.connect()
     let result = try await rpc.request("probe")
     #expect(result["initialized"]?.boolValue == true && result["home"]?.stringValue == home.path)
     #expect(result["apiKey"] == .null, "an inherited API key never reaches the subscription connection")
-    await #expect(throws: CodexVoiceError.timedOut) { try await rpc.request("hang", timeout: .milliseconds(30)) }
+    let hang = Task { try await rpc.request("hang", timeout: .milliseconds(30)) }
+    try await clock.waitForSleeper(.milliseconds(30))
+    clock.advance(by: .milliseconds(29))
+    #expect(clock.pendingDeadlines == [.milliseconds(1)], "the request still waits just before its timeout")
+    clock.advance(by: .milliseconds(1))
+    await #expect(throws: CodexVoiceError.timedOut) { try await hang.value }
     let cancelled = Task { try await rpc.request("hang") }
     await Task.yield(); cancelled.cancel()
     do { _ = try await cancelled.value; Issue.record("Expected cancellation") } catch is CancellationError {} catch { Issue.record("Unexpected error: \(error)") }

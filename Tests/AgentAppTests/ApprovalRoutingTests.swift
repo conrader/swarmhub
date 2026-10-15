@@ -3,7 +3,7 @@ import Testing
 @testable import AgentApp
 
 /// P37 D1–D3: routing lines, SwarmHub-wide lines, migration of the P8 modes, rails, audit.
-@MainActor private func routingStore(_ bots: [Bot], reviewer: Bot? = nil, reviewerBackend: TestBackend? = nil, timeout: Duration = .seconds(15)) -> (AppStore, TestBackend) {
+@MainActor private func routingStore(_ bots: [Bot], reviewer: Bot? = nil, reviewerBackend: TestBackend? = nil, timeout: Duration = waitCeiling) -> (AppStore, TestBackend) {
     let ownerBackend = TestBackend(transport: .nativeSessions)
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { bot in bot.id == reviewer?.id ? (reviewerBackend ?? ownerBackend) : ownerBackend },
                          reviewerTimeout: timeout, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())

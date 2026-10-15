@@ -67,7 +67,7 @@ private final class RefusingDeviceTokenStore: HermesKeyStore, @unchecked Sendabl
     let fake = FakeGateway(); let (gateway, _) = fakeGatewaySetup(token: nil)
     let store = RefusingDeviceTokenStore(refused: gateway.deviceTokenAccount); store.setKey(fakeSharedToken, for: gateway.tokenAccount)
     let states = AwaitableLog<GatewayState>()
-    let link = GatewayLink(gateway: gateway, credentials: GatewayCredentials(gateway: gateway, keyStore: store), makeTransport: fake.factory, clock: SystemGatewayClock(), jitter: { 0 }, publish: { states.append($0) })
+    let link = GatewayLink(gateway: gateway, credentials: GatewayCredentials(gateway: gateway, keyStore: store), makeTransport: fake.factory, clock: LoadTolerantGatewayClock(), jitter: { 0 }, publish: { states.append($0) })
     await #expect(throws: (any Error).self) { try await link.ready() }
     #expect(store.key(for: gateway.tokenAccount) == fakeSharedToken)
     guard case .failed(.keychain) = await link.state else { Issue.record("expected a Keychain failure, got \(await link.state)"); return }

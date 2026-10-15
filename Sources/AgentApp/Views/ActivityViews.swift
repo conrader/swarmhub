@@ -1,11 +1,23 @@
 import SwiftUI
 
+private struct ActivityNowKey: EnvironmentKey { static let defaultValue: Date? = nil }
+
+extension EnvironmentValues {
+    /// The time the live phase (Thinking, Typing, Working) is read at; nil in the app (the clock, refreshed every
+    /// second). Tests fix it, so a slow render on a loaded Mac cannot outlast the Typing pause.
+    var activityNow: Date? {
+        get { self[ActivityNowKey.self] }
+        set { self[ActivityNowKey.self] = newValue }
+    }
+}
+
 /// P27 D9, P29: what a reply did, one row for the whole turn. While it streams: its Thinking, Typing or Working phase,
 /// e.g. "Working… · Running a command · step 3 · 1 m 12 s" (refreshed every second); after it: "12 steps · 4 m 52 s".
 /// A chevron opens the steps whenever there is one, streaming or not, and one view for both states keeps the row open
 /// when the turn ends.
 struct ActivityRow: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.activityNow) private var fixedNow
     @ObservedObject var message: ChatMessage
     @State private var expanded: Bool
     init(message: ChatMessage, expanded: Bool = false) { self.message = message; _expanded = State(initialValue: expanded) }
@@ -14,9 +26,9 @@ struct ActivityRow: View {
         if ActivityCopy.isRowShown(message.activity, streaming: message.isStreaming) {
             VStack(alignment: .leading, spacing: 6) {
                 if message.isStreaming {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in header(now: context.date) }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in header(now: fixedNow ?? context.date) }
                 } else {
-                    header(now: .now)
+                    header(now: fixedNow ?? .now)
                 }
                 if expanded, let activity = message.activity, ActivityCopy.canUnfold(activity) {
                     VStack(alignment: .leading, spacing: 4) {

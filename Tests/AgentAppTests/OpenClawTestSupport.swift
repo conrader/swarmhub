@@ -9,6 +9,15 @@ import Testing
 let openClawRepoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 let fakeSharedToken = "test-shared-token"
 
+/// The real clock for tests that are not about the Gateway's limits. A wait of 15 s or more is one of those limits
+/// (challenge, connect, request and ready timeouts, the watchdog, the ping), which a loaded Mac can exceed while the
+/// fake answers at once: it becomes the hang ceiling. Shorter waits (reconnect backoff, pairing retry) stay real.
+struct LoadTolerantGatewayClock: GatewayClock {
+    private let system = SystemGatewayClock()
+    func sleep(for duration: Duration) async throws { try await system.sleep(for: duration < .seconds(15) ? duration : waitCeiling) }
+    var now: Duration { system.now }
+}
+
 /// A manual clock: `sleep` suspends until `advance` passes its deadline (or the task is cancelled).
 final class ManualGatewayClock: GatewayClock, @unchecked Sendable {
     private struct Sleeper { let id: UUID; let deadline: Duration; let continuation: CheckedContinuation<Void, Error> }
@@ -265,7 +274,7 @@ func fakeGatewaySetup(url: String = "ws://127.0.0.1:18789", token: String? = fak
 }
 
 /// A link over the fake, recording every published state.
-func fakeLink(_ fake: FakeGateway, gateway: OpenClawGateway, keyStore: InMemoryKeyStore, clock: any GatewayClock = SystemGatewayClock(),
+func fakeLink(_ fake: FakeGateway, gateway: OpenClawGateway, keyStore: InMemoryKeyStore, clock: any GatewayClock = LoadTolerantGatewayClock(),
               jitter: Double = 0, states: AwaitableLog<GatewayState> = AwaitableLog()) -> GatewayLink {
     GatewayLink(gateway: gateway, credentials: GatewayCredentials(gateway: gateway, keyStore: keyStore), makeTransport: fake.factory, clock: clock,
                 jitter: { jitter }, publish: { states.append($0) })

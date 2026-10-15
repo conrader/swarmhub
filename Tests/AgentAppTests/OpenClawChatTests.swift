@@ -5,7 +5,7 @@ import Testing
 // P12 Part B: OpenClawBackend over the fake Gateway.
 
 @MainActor func clawHub(_ fake: FakeGateway, keys: InMemoryKeyStore) -> OpenClawHub {
-    OpenClawHub(status: OpenClawStatus(), keyStore: keys, makeTransport: fake.factory, clock: SystemGatewayClock(), jitter: { 0 })
+    OpenClawHub(status: OpenClawStatus(), keyStore: keys, makeTransport: fake.factory, clock: LoadTolerantGatewayClock(), jitter: { 0 })
 }
 
 @MainActor func clawBackend(_ fake: FakeGateway = FakeGateway(), mode: OpenClawBinding.SessionMode = .own) -> (OpenClawBackend, FakeGateway, OpenClawHub) {
