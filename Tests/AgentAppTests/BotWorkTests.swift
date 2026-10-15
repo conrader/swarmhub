@@ -66,6 +66,10 @@ final class WorkClock: @unchecked Sendable {
     #expect(BotWorkReader.lastTurn(stages[3], after: t0.addingTimeInterval(1)) == nil, "an exchange older than the step is not this one")
     #expect(BotWorkOrigin.header("[Reply from grok-infra via SwarmHub]\nDone.")?.origin == .reply("grok-infra"))
     #expect(BotWorkOrigin(raw: BotWorkOrigin.routine("Morning report").raw) == .routine("Morning report"))
+    // The header tells a reply from a message, but never names a sender the session doesn't have.
+    #expect(AppStore.trustedOrigin(.reply("grok-infra"), watched: .bot("grok-infra")) == .reply("grok-infra"))
+    #expect(AppStore.trustedOrigin(.bot("grok-boss"), watched: .bot("grok-jarvis")) == .bot("grok-jarvis"))
+    #expect(AppStore.trustedOrigin(nil, watched: .routine("Daily")) == .routine("Daily"))
 }
 
 @Test func toolCallsKeepWhatTheyRanOn() throws {

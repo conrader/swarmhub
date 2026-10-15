@@ -83,7 +83,7 @@ extension AppStore {
                     if turn.signature != lastSignature {
                         lastSignature = turn.signature; lastChange = now()
                         if !showFinished, turn.finished, botWorkCard(in: bot, session: session, requestID: turn.requestID) == nil { return }
-                        applyBotWork(turn, bot: bot, session: session, origin: turn.origin ?? origin, key: key, start: start)
+                        applyBotWork(turn, bot: bot, session: session, origin: Self.trustedOrigin(turn.origin, watched: origin), key: key, start: start)
                     }
                     if turn.finished { return }
                 }
@@ -100,6 +100,13 @@ extension AppStore {
             if card.metadata[BotWorkKey.reply] == nil, now().timeIntervalSince(start) >= BotWorkSchedule.limit { card.metadata[BotWorkKey.reply] = BotWorkCopy.stopped }
             objectWillChange.send(); save()
         }
+    }
+
+    /// Who started the exchange: the watch's own origin (from the session id or the step), with the text's header only
+    /// telling a message from a delivered reply, never naming someone else (a message can't claim another sender).
+    nonisolated static func trustedOrigin(_ header: BotWorkOrigin?, watched: BotWorkOrigin) -> BotWorkOrigin {
+        guard let header, header.profile != nil, header.profile == watched.profile else { return watched }
+        return header
     }
 
     /// The cards of one session in `bot`'s chat (P41 arrival lines included), oldest first.
