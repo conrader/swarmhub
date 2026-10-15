@@ -5,7 +5,7 @@ import SwiftUI
 /// device code, and everything logged in with a two-account ChatGPT pool, one resting after a usage limit. Synthetic
 /// store states; no turn runs.
 @MainActor enum HeadlessAccountsShots {
-    static let names = ["p31c-accounts-missing", "p31c-accounts-claude-link", "p31c-accounts-codex-code", "p31c-accounts-logged-in"]
+    static let names = ["p31c-accounts-missing", "p31c-accounts-claude", "p31c-accounts-codex-code", "p31c-accounts-logged-in"]
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
         let store = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); store.isSetupPreview = false

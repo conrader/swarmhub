@@ -20,7 +20,7 @@ enum CodingTool: String, CaseIterable, Identifiable, Equatable {
 /// What the manager's "Accounts status" recipe reported (op `accounts`). Never a token, an auth file or an email.
 struct AccountsReport: Equatable {
     struct Tool: Equatable { var installed: Bool; var version: String?; var loggedIn: Bool }
-    /// Hermes's openai-codex pool in the order it is used (`fill_first`); `benchedUntil[i]` is set while entry i is
+    /// Hermes's ChatGPT (Codex) pool in the order it is used (`fill_first`); `benchedUntil[i]` is set while entry i is
     /// benched after a usage limit.
     struct Pool: Equatable {
         var labels: [String]; var benchedUntil: [Date?]
