@@ -1,10 +1,11 @@
 import Foundation
 
-/// P45 2–5: what SwarmHub itself runs in one chat: a standing goal, a loop and a heartbeat. Kept in store.json (keyed by
-/// the chat's id) so they survive a restart; the driver lives in `AppStore+Goals.swift` / `AppStore+Schedules.swift`.
+/// P45 2–4: what SwarmHub itself runs in one chat: a standing goal and a loop. Kept in store.json (keyed by the chat's id)
+/// so they survive a restart; the driver lives in `AppStore+Goals.swift` / `AppStore+Loops.swift`. P46: the heartbeat is a
+/// Hermes routine per bot now (`AppStore+BotHeartbeat.swift`); a P45 `heartbeat` key in an older store.json is ignored.
 struct ChatAutomation: Codable, Equatable, Sendable {
-    var goal: GoalRun?; var loop: LoopRun?; var heartbeat: HeartbeatRun?
-    var isEmpty: Bool { goal == nil && loop == nil && heartbeat == nil }
+    var goal: GoalRun?; var loop: LoopRun?
+    var isEmpty: Bool { goal == nil && loop == nil }
 }
 
 /// Why SwarmHub started a turn the user didn't type (shown as "Woken by: goal").
@@ -15,7 +16,7 @@ enum AutomationKey {
     static let woken = "automation.woken", display = "automation.display"
     /// On a card row: "goalDone", "goalBlocked", "goalEnded"; and the text the card shows below its title.
     static let card = "automation.card", detail = "automation.detail"
-    /// A heartbeat exchange whose reply was exactly `[SILENT]`: both rows are hidden ("1").
+    /// P46: a delivered heartbeat (or routine) row whose reply was exactly `[SILENT]`: both rows are hidden ("1").
     static let silent = "automation.silent"
 }
 

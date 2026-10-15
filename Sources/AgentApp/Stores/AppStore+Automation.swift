@@ -1,20 +1,20 @@
 import Foundation
 
-/// P45 2–5: the hub of what SwarmHub runs in a chat by itself (goal, loop, heartbeat): commands, persistence, the end-of-
-/// turn hook and the ticker. Turns it starts are normal turns (approvals, steer and the next-message queue apply).
+/// P45 2–4: the hub of what SwarmHub runs in a chat by itself (goal, loop): commands, persistence, the end-of-turn hook and
+/// the ticker. P46: `/heartbeat` drives the bot's Hermes routine (`AppStore+BotHeartbeat.swift`). Turns it starts are normal turns (approvals, steer and the next-message queue apply).
 extension AppStore {
     func automationCommand(_ command: SlashCommand, arguments: String, bot: Bot, conversation: any Conversation) -> Bool {
         switch command {
         case .goal: goalCommand(arguments, bot: bot, conversation: conversation)
         case .subgoal: subgoalCommand(arguments, conversation: conversation)
         case .loop: loopCommand(arguments, bot: bot, conversation: conversation)
-        case .heartbeat: heartbeatCommand(arguments, conversation: conversation)
+        case .heartbeat: heartbeatCommand(arguments, bot: bot, conversation: conversation)
         default: return false
         }
         return true
     }
 
-    /// Stop ends the chat's goal and loop (a heartbeat keeps its schedule: it has its own Stop). True when one was active.
+    /// Stop ends the chat's goal and loop (the bot's heartbeat routine keeps its schedule: it has its own Stop). True when one was active.
     @discardableResult func stopAutomations(in conversation: any Conversation) -> Bool {
         var stopped = false
         if let goal = goal(in: conversation), goal.isActive {
@@ -28,7 +28,7 @@ extension AppStore {
         var lines: [String] = []
         if let goal = goal(in: conversation) { lines.append("Goal: \(goal.text) · \(goal.state.rawValue) · \(goal.progress)") }
         if let loop = loop(in: conversation) { lines.append(loopStatus(loop).components(separatedBy: "\n")[0]) }
-        if let heartbeat = heartbeat(in: conversation) { lines.append(heartbeatStatus(heartbeat).components(separatedBy: "\n")[0]) }
+        if let bot = conversation as? Bot, let heartbeat = heartbeatSummary(for: bot) { lines.append(heartbeat) }
         return lines
     }
 
@@ -39,7 +39,6 @@ extension AppStore {
     func automationTurnEnded(in conversation: any Conversation, bot: Bot, reply: ChatMessage, outcome: TurnOutcome, corrected: Bool = false) {
         guard automations[conversation.id] != nil, !corrected else { return }
         loopTurnEnded(in: conversation, reply: reply, outcome: outcome)
-        heartbeatTurnEnded(in: conversation, reply: reply, outcome: outcome)
         goalTurnEnded(in: conversation, bot: bot, reply: reply, outcome: outcome)
     }
 
@@ -56,11 +55,10 @@ extension AppStore {
                 advanceGoal(in: conversation, bot: bot)
             }
             if automation.loop != nil { runLoopIfDue(in: conversation, bot: bot) }
-            if automation.heartbeat != nil { runHeartbeatIfDue(in: conversation, bot: bot) }
         }
     }
 
-    /// Ticks every 15 s while any chat has a goal, loop or heartbeat (only in the real app: tests call `automationTick`).
+    /// Ticks every 15 s while any chat has a goal or a loop (only in the real app: tests call `automationTick`).
     func startAutomationTicker() {
         guard botInfo.autoLoad, automationTask == nil, !automations.isEmpty else { return }
         automationTask = Task { [weak self] in
@@ -80,7 +78,7 @@ extension AppStore {
         var restored: [UUID: ChatAutomation] = [:]
         for (key, var automation) in stored ?? [:] {
             guard let id = UUID(uuidString: key) else { continue }
-            automation.goal?.awaitingReply = false; automation.loop?.awaitingReply = false; automation.heartbeat?.awaitingReply = false
+            automation.goal?.awaitingReply = false; automation.loop?.awaitingReply = false
             restored[id] = automation
         }
         automations = restored

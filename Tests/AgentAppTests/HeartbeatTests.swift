@@ -2,106 +2,106 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-// P45 5: /heartbeat — the schedule window, idle only, [SILENT] hidden, pause/stop, restart. Injected clock; no network.
+// P46: the heartbeat as one Hermes routine per bot (deliver bot-chat:<profile>): the plan and its cron, the stagger and the
+// capacity cap, the command and its routine writes, adopting Jarvis's routine. Synthetic boxes only; no real network.
 
-/// Local time today at `hour`:`minute` (the window is local time).
-private func local(_ hour: Int, _ minute: Int = 0) -> Date {
-    var parts = Calendar.current.dateComponents([.year, .month, .day], from: Date(timeIntervalSince1970: 1_800_000_000))
-    parts.hour = hour; parts.minute = minute
-    return Calendar.current.date(from: parts)!
+@Test func heartbeatPlanParsesAndBecomesBoxCron() throws {
+    let plan = try HeartbeatPlan.parse("every 1h 08:00–23:00").get()
+    #expect(plan.interval == 3_600 && plan.windowStart == 480 && plan.windowEnd == 1_380 && plan.prompt == HeartbeatPlan.defaultPrompt)
+    #expect(plan.label == "hourly 08–23" && plan.wakesPerDay(stagger: 7) == 15)
+    // Warsaw in October is UTC+2; a UTC box runs 08:07–22:07 local as 06:07–20:07.
+    #expect(plan.cron(stagger: 7, localOffset: 120, boxOffset: 0) == "7 6-20 * * *")
+    #expect(plan.cron(stagger: 0, localOffset: 120, boxOffset: 120) == "0 8-23 * * *")
+    let night = try HeartbeatPlan.parse("every 30 min 22:30-06:00 check the backups").get()
+    #expect(night.prompt == "check the backups" && night.label == "every 30 min 22:30–06")
+    #expect(night.cron(stagger: 12, localOffset: 0, boxOffset: 0) == "12,42 0-5,22,23 * * *")
+    #expect(try HeartbeatPlan.parse("daily 09:00-10:00").get().cron(stagger: 25, localOffset: 60, boxOffset: 0) == "25 8 * * *")
+    #expect(HeartbeatPlan.parse("soon") == .failure(.noInterval))
+    #expect(try HeartbeatPlan.parse("every 1m").get().interval == 300, "at least five minutes")
+    #expect(HeartbeatPlan.list([0, 1, 2, 5, 7, 8]) == "0-2,5,7,8")
 }
 
-@MainActor private func heartbeatStore(_ backend: ScriptedTurnBackend, at start: Date, url: URL = temporaryStore()) -> (AppStore, Bot, (Date) -> Void) {
-    let (store, bot) = steerStore(backend, url: url)
-    var clock = start
-    store.now = { clock }
-    return (store, bot, { clock = $0 })
+@Test func staggerSpreadsBotsAndCapsEachBoxSlot() {
+    let one = HeartbeatStagger.minute(for: "grok-jarvis")
+    #expect(one == HeartbeatStagger.minute(for: "grok-jarvis") && (0..<60).contains(one))
+    let profiles = (1...20).map { "bot-\($0)" }
+    let capped = HeartbeatStagger.minutes(for: profiles, cap: 2)
+    let perSlot = Dictionary(grouping: capped.values, by: { $0 / HeartbeatStagger.slot }).mapValues(\.count)
+    #expect(capped.count == 20 && perSlot.values.allSatisfy { $0 <= 2 }, "two heartbeats at most in any five minutes")
+    #expect(HeartbeatStagger.minutes(for: ["a", "b"], cap: 9) == ["a": HeartbeatStagger.minute(for: "a"), "b": HeartbeatStagger.minute(for: "b")])
+    #expect(CronDeliveryRow.offsetMinutes("2026-10-15T09:00:00.123+02:00") == 120 && CronDeliveryRow.offsetMinutes("2026-10-15T09:00:00Z") == 0)
+    #expect(CronDeliveryRow.offsetMinutes("2026-10-15T09:00:00-05:30") == -330 && CronDeliveryRow.offsetMinutes(nil) == nil)
+    #expect(CronDeliveryRow.jobName("[Cronjob \"swarmhub-heartbeat\" output — scheduled job, not the user.]\nAll quiet") == "swarmhub-heartbeat")
+    #expect(CronDeliveryRow.jobName("[Cronjob] hello") == nil && CronDeliveryRow.jobName("hello") == nil)
 }
 
-@Test func heartbeatArgumentsAndWindow() throws {
-    let run = try HeartbeatRun.parse("every 1h 08:00–23:00", now: local(7)).get()
-    #expect(run.interval == 3600 && run.windowStart == 480 && run.windowEnd == 1380 && run.prompt == HeartbeatRun.defaultPrompt)
-    #expect(run.label == "Heartbeat · hourly 08–23")
-    #expect(run.inWindow(local(8)) && run.inWindow(local(23)) && !run.inWindow(local(7, 59)) && !run.inWindow(local(23, 1)))
-    let night = try HeartbeatRun.parse("every 30 min 22:30-06:00 check the backups", now: local(0)).get()
-    #expect(night.prompt == "check the backups" && night.label == "Heartbeat · every 30 min 22:30–06")
-    #expect(night.inWindow(local(23)) && night.inWindow(local(5)) && !night.inWindow(local(12)))
-    #expect(HeartbeatRun.parse("soon", now: local(0)) == .failure(.noInterval))
-    #expect(HeartbeatRun.isSilent("  [silent]\n") && !HeartbeatRun.isSilent("[SILENT] but one thing"))
+@MainActor @Test func theStaggerSharesTheBoxCapacity() {
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bots = (1...4).map { Bot(name: "B\($0)", backend: .hermes, hermesProfile: "p\($0)") }
+    bots.forEach { $0.hermesBaseURL = "https://box.test/v1" }
+    store.bots = bots
+    let box = store.connection(of: bots[0])
+    #expect(store.heartbeatCap(on: box) == 1, "a box never checked runs one at a time")
+    store.boxReadings[box] = BoxReadings(capacity: BoxCapacityReport(cpus: 4, memTotalMB: 8_192, memAvailMB: 4_096, jobs: []))
+    #expect(store.heartbeatCap(on: box) == BoxCapacity(BoxCapacityReport(cpus: 4, memTotalMB: 8_192, memAvailMB: 4_096, jobs: [])).advised)
+    let minutes = bots.map(store.heartbeatStagger(for:))
+    #expect(minutes == bots.map { HeartbeatStagger.minutes(for: ["p1", "p2", "p3", "p4"], cap: store.heartbeatCap(on: box))[store.profile(of: $0)]! })
 }
 
-@MainActor @Test func aHeartbeatRunsInsideItsWindowAndASilentReplyIsHidden() async throws {
-    let backend = ScriptedTurnBackend(); let (store, bot, set) = heartbeatStore(backend, at: local(6, 30))
-    let other = Bot(name: "Other", backend: .hermes, hermesProfile: "default"); store.bots.append(other); store.selectedBot = other
-    bot.messages = [ChatMessage(role: .user, content: "deploy it"), ChatMessage(role: .assistant, content: "Deployed.", turnState: .finished)]
-    store.heartbeatCommand("every 1h 08:00–23:00", conversation: bot)
-    #expect(store.heartbeat(in: bot)?.nextAt == local(7, 30))
-    set(local(7, 30)); store.automationTick()
-    #expect(await backend.streamCount == 0, "before the window: skipped")
-    #expect(store.heartbeat(in: bot)?.nextAt == local(8, 30))
-    set(local(8, 30)); store.automationTick()
-    try await backend.calls.wait { $0.contains("send:\(HeartbeatRun.defaultPrompt)") }
-    let prompt = try #require(bot.messages.last { $0.role == .user })
-    #expect(AutomationCopy.wokenBy(prompt) == "Woken by: heartbeat")
-    await backend.emit(.token("[SILENT]"), .completed); await backend.end()
-    try await waitUntil { !store.anyTurnRunning }
-    #expect(bot.messages.filter(\.isSilentHeartbeat).count == 2, "the prompt and its reply")
-    #expect(SidebarFragment.text(messages: bot.messages, draft: nil, isWorking: false, archiveNewest: nil) == "Deployed.", "no preview change")
-    #expect(bot.unreadCount == 0 && !bot.manualUnread)
+@MainActor @Test func theCommandCreatesEditsPausesAndStopsTheRoutine() async throws {
+    let (store, bots, states, tables) = heartbeatStore(bots: ["Jarvis"])
+    let bot = bots[0], table = tables[0]
+    await store.heartbeatCommand("every 1h 08:00–23:00", bot: bot, conversation: bot).value
+    let job = try #require(table.job(named: HeartbeatPlan.jobName))
+    let minute = store.heartbeatStagger(for: bot)
+    #expect(job["deliver"] as? String == "bot-chat:grok-jarvis" && job["prompt"] as? String == HeartbeatPlan.defaultPrompt)
+    #expect((job["schedule"] as? [String: Any])?["expr"] as? String == HeartbeatPlan().cron(stagger: minute, localOffset: 120, boxOffset: 0))
+    #expect(bot.messages.last?.content.hasPrefix("Heartbeat on for Jarvis: hourly 08–23.") == true)
+    #expect(states[0].with { $0.titles["s-jarvis"] } == "Bot Chat", "the Bot Chat is titled before the routine is made")
 
-    // A reply with something to say stays.
-    set(local(9, 30)); store.automationTick()
-    try await waitUntil { await backend.streamCount == 2 }
-    await backend.emit(.token("The backup failed at 09:10."), .completed); await backend.end()
-    try await waitUntil { !store.anyTurnRunning }
-    #expect(bot.messages.last?.isSilentHeartbeat == false && store.heartbeat(in: bot)?.runs == 2)
-    #expect(SidebarFragment.text(messages: bot.messages, draft: nil, isWorking: false, archiveNewest: nil) == "The backup failed at 09:10.")
+    await store.heartbeatCommand("every 2h 09:00-18:00 anything urgent?", bot: bot, conversation: bot).value
+    let id = try #require(job["id"] as? String)
+    #expect(table.writes == ["POST swarmhub-heartbeat", "PATCH \(id) prompt,schedule"])
+    #expect(bot.messages.last?.content.hasPrefix("Heartbeat updated for Jarvis: every 2 h 09–18.") == true)
+    await store.heartbeatCommand("pause", bot: bot, conversation: bot).value
+    #expect(bot.messages.last?.content == "Heartbeat paused." && store.heartbeatJob(for: bot)?.isPaused == true)
+    await store.heartbeatCommand("status", bot: bot, conversation: bot).value
+    #expect(bot.messages.last?.content.hasPrefix("Heartbeat · every 2 h 09–18 · paused") == true)
+    await store.heartbeatCommand("resume", bot: bot, conversation: bot).value
+    await store.heartbeatCommand("stop", bot: bot, conversation: bot).value
+    #expect(table.writes.suffix(3) == ["pause \(id)", "resume \(id)", "DELETE \(id)"])
+    #expect(bot.messages.last?.content == "Heartbeat stopped." && store.heartbeatJob(for: bot) == nil && store.heartbeatSettings.plans.isEmpty)
+    await store.heartbeatCommand("soon", bot: bot, conversation: bot).value
+    #expect(bot.messages.last?.content == HeartbeatCopy.usage && states[0].chatPosts.isEmpty, "the app never sends a heartbeat turn")
 }
 
-@MainActor @Test func aHeartbeatWaitsForAnIdleChat() async throws {
-    let backend = ScriptedTurnBackend(); let (store, bot, set) = heartbeatStore(backend, at: local(10))
-    store.heartbeatCommand("every 1h", conversation: bot)
-    #expect(store.submitComposer(text: "long job"))
-    try await waitUntil { await backend.streamCount == 1 }
-    set(local(11, 5)); store.automationTick()
-    #expect(await backend.streamCount == 1, "busy: not now")
-    await backend.emit(.token("done"), .completed); await backend.end()
-    try await waitUntil { !store.anyTurnRunning }
-    store.goalCommand("polish docs", bot: bot, conversation: bot)
-    try await waitUntil { await backend.streamCount == 2 }
-    await backend.emit(.token("still going"), .completed); await backend.end()
-    try await waitUntil { await backend.streamCount == 3 }
-    store.goalCommand("pause", bot: bot, conversation: bot)
-    await backend.emit(.token("paused here"), .completed); await backend.end()
-    try await waitUntil { !store.anyTurnRunning }
-    store.automationTick()
-    try await backend.calls.wait { $0.contains("send:\(HeartbeatRun.defaultPrompt)") }
-    #expect(await backend.streamCount == 4, "idle and the goal paused: the beat goes")
-    await backend.emit(.token("[SILENT]"), .completed); await backend.end()
-    try await waitUntil { !store.anyTurnRunning }
+@MainActor @Test func jarvissOwnHeartbeatRoutineIsAdoptedNotDuplicated() async throws {
+    let (store, bots, _, tables) = heartbeatStore(bots: ["Jarvis"])
+    let bot = bots[0], table = tables[0]
+    var own = jobPayload(id: "00000000beef", name: "jarvis-hourly-heartbeat-cet", schedule: "0 7-22 * * *", prompt: "Check in")
+    own["deliver"] = "bot-chat:grok-jarvis"; own["next_run_at"] = "2026-10-15T09:00:00+00:00"
+    table.add(own); table.add(jobPayload(id: "00000000cafe", name: "Morning brief"))
+    await store.heartbeatCommand("every 1h 08:00-23:00", bot: bot, conversation: bot).value
+    #expect(table.writes == ["PATCH 00000000beef prompt,schedule"], "no second routine")
+    #expect(table.jobs.count == 2 && store.heartbeatJob(for: bot)?.id == "00000000beef")
+    #expect(bot.messages.last?.content.hasPrefix("Heartbeat updated for Jarvis") == true)
+    await store.heartbeatCommand("stop", bot: bot, conversation: bot).value
+    #expect(table.writes.last == "pause 00000000beef" && table.jobs.count == 2, "Jarvis's own routine is paused, never deleted")
+    #expect(bot.messages.last?.content.contains("paused, not deleted") == true)
 }
 
-@MainActor @Test func pauseStopAndRestart() async throws {
-    let url = temporaryStore()
-    let backend = ScriptedTurnBackend(); let (store, bot, set) = heartbeatStore(backend, at: local(12), url: url)
-    #expect(store.submitComposer(text: "/heartbeat every 2h"))
-    #expect(bot.messages.last?.content.hasPrefix("Heartbeat started: Heartbeat · every 2 h.") == true)
-    #expect(store.submitComposer(text: "/heartbeat pause"))
-    set(local(15)); store.automationTick()
-    #expect(await backend.streamCount == 0)
-    store.save()
-
-    let later = ScriptedTurnBackend()
-    let restarted = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { _ in later }, keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: isolatedDefaults())
-    restarted.now = { local(15) }
-    let again = try #require(restarted.bots.first { $0.id == bot.id })
-    #expect(restarted.heartbeat(in: again)?.paused == true && restarted.heartbeat(in: again)?.label == "Heartbeat · every 2 h")
-    restarted.heartbeatCommand("resume", conversation: again); restarted.automationTick()
-    try await later.calls.wait { $0.contains("send:\(HeartbeatRun.defaultPrompt)") }
-    await later.emit(.token("[SILENT]"), .completed); await later.end()
-    try await waitUntil { !restarted.anyTurnRunning }
-    restarted.heartbeatCommand("stop", conversation: again)
-    #expect(restarted.heartbeat(in: again) == nil && restarted.automations[again.id] == nil)
-    restarted.now = { local(23) }; restarted.automationTick()
-    #expect(await later.streamCount == 1)
+@MainActor @Test func applyToAllSetsEveryBotInOneBatchWithOverrides() async throws {
+    let (store, bots, _, tables) = heartbeatStore(bots: ["Jarvis", "Infra", "Reactor"])
+    var custom = HeartbeatPlan(); custom.interval = 7_200; custom.prompt = "Disks and backups only."
+    store.heartbeatSettings.plans[bots[1].id.uuidString] = custom
+    store.heartbeatSettings.template.windowStart = 9 * 60
+    let problems = await store.applyHeartbeats(nil, to: bots)
+    #expect(problems.isEmpty && store.heartbeatBatch.summary == "Heartbeat set for 3 bots.")
+    #expect(tables.map(\.writes) == Array(repeating: ["POST swarmhub-heartbeat"], count: 3), "one create per bot, nothing else")
+    #expect(tables[1].jobs.first?["prompt"] as? String == "Disks and backups only." && tables[0].jobs.first?["prompt"] as? String == HeartbeatPlan.defaultPrompt)
+    #expect(store.heartbeatSettings.plans.count == 3 && store.heartbeatSettings.plan(for: bots[0].id).windowStart == 540)
+    // A bot without a main chat yet is named, the others still applied.
+    let fresh = Bot(name: "Fresh", backend: .hermes, hermesProfile: "grok-fresh"); store.bots.append(fresh)
+    let second = await store.applyHeartbeats(store.heartbeatSettings.template, to: [bots[0], fresh])
+    #expect(second.keys.map { $0 } == [fresh.id] && store.heartbeatBatch.summary == "Not set for Fresh; see each row.")
 }

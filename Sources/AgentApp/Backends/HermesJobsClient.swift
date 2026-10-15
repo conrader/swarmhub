@@ -23,6 +23,8 @@ struct HermesJob: Identifiable, Equatable, Sendable {
     /// P43: when Run now asked for a run (`manual_run_at`) and whether a scheduler has claimed the fire (`fire_claim`).
     var manualRunAt: String? = nil
     var fireClaimed = false
+    /// P46: where the output goes: `local` (kept on the box) or `bot-chat:<profile>` (a turn in that bot's Bot Chat).
+    var deliver: String? = nil
 
     var isPaused: Bool { !enabled || state == "paused" }
 
@@ -44,7 +46,8 @@ struct HermesJob: Identifiable, Equatable, Sendable {
                      scheduleDisplay: display.isEmpty ? schedule : display, enabled: enabled,
                      state: text(row["state"]) ?? (enabled ? "scheduled" : "paused"), nextRunAt: text(row["next_run_at"]),
                      lastRunAt: text(row["last_run_at"]), lastStatus: text(row["last_status"]), lastError: text(row["last_error"]),
-                     manualRunAt: text(row["manual_run_at"]), fireClaimed: row["fire_claim"].map { !($0 is NSNull) && ($0 as? Bool) != false } ?? false)
+                     manualRunAt: text(row["manual_run_at"]), fireClaimed: row["fire_claim"].map { !($0 is NSNull) && ($0 as? Bool) != false } ?? false,
+                     deliver: text(row["deliver"]))
     }
 
     static func parseList(_ json: [String: Any]) -> [HermesJob] { ((json["jobs"] as? [[String: Any]]) ?? []).compactMap(parse) }
@@ -98,9 +101,10 @@ struct HermesJobsClient: Sendable {
 
     func get(_ id: String) async throws -> HermesJob { try await job(path: "api/jobs/\(try checked(id))") }
 
-    /// `deliver: "local"` keeps the output on the box; the app reads it from the run's session.
-    func create(name: String, schedule: String, prompt: String) async throws -> HermesJob {
-        let body: [String: Any] = ["name": name, "schedule": schedule, "prompt": prompt, "deliver": "local"]
+    /// `deliver: "local"` keeps the output on the box; the app reads it from the run's session. P46: a heartbeat passes
+    /// `bot-chat:<profile>`.
+    func create(name: String, schedule: String, prompt: String, deliver: String = "local") async throws -> HermesJob {
+        let body: [String: Any] = ["name": name, "schedule": schedule, "prompt": prompt, "deliver": deliver]
         let (data, response) = try await backend.rawRequest(path: "api/jobs", method: "POST", body: body)
         if (response as? HTTPURLResponse)?.statusCode == 424 {
             let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
@@ -113,8 +117,9 @@ struct HermesJobsClient: Sendable {
 
     /// PATCH accepts `name, schedule, prompt, deliver, skills, skill, repeat, enabled` (`_UPDATE_ALLOWED_FIELDS`).
     /// Only the given fields are sent.
-    func update(_ id: String, name: String? = nil, schedule: String? = nil, prompt: String? = nil, enabled: Bool? = nil) async throws -> HermesJob {
+    func update(_ id: String, name: String? = nil, schedule: String? = nil, prompt: String? = nil, enabled: Bool? = nil, deliver: String? = nil) async throws -> HermesJob {
         var fields: [String: Any] = [:]
+        if let deliver { fields["deliver"] = deliver }
         if let name { fields["name"] = name }
         if let schedule { fields["schedule"] = schedule }
         if let prompt { fields["prompt"] = prompt }

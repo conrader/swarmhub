@@ -36,7 +36,7 @@ enum SlashCommand: String, CaseIterable, Identifiable, Sendable {
         case .goal: "A goal the bot keeps working toward until done"
         case .subgoal: "Add a criterion to the running goal"
         case .loop: "Re-send a prompt on an interval while SwarmHub runs"
-        case .heartbeat: "Check in on this chat on a schedule"
+        case .heartbeat: "This bot's heartbeat routine (Hermes wakes it on a schedule)"
         }
     }
 

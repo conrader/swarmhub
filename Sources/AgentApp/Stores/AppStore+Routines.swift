@@ -178,9 +178,9 @@ extension AppStore {
 
     private static func runKey(_ bot: Bot, _ jobID: String) -> String { "\(bot.id.uuidString)|\(jobID)" }
 
-    private func recordSeen(_ job: HermesJob, on bot: Bot) { bot.routineRunMarks[job.id] = job.lastRunAt ?? ""; save() }
+    func recordSeen(_ job: HermesJob, on bot: Bot) { bot.routineRunMarks[job.id] = job.lastRunAt ?? ""; save() }
 
-    @discardableResult private func performRoutineAction(_ bot: Bot, token: String, _ body: (HermesJobsClient) async throws -> Void) async -> String? {
+    @discardableResult func performRoutineAction(_ bot: Bot, token: String, _ body: (HermesJobsClient) async throws -> Void) async -> String? {
         routines.setBusy(token, true, botID: bot.id)
         defer { routines.setBusy(token, false, botID: bot.id) }
         do {
