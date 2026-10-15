@@ -7,7 +7,7 @@ enum SlashCommand: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
     var name: String { "/" + rawValue }
     /// The commands the menu offers (and the only ones run; anything else is sent as text).
-    static let menu: [SlashCommand] = [.help, .new, .model, .stop, .retry, .status]
+    static let menu: [SlashCommand] = [.help, .new, .model, .stop, .retry, .status, .goal, .subgoal]
 
     /// What the menu shows after the name.
     var usage: String {

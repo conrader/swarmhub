@@ -66,14 +66,16 @@ struct StoreFile: Codable {
     var boxReadings: [String: BoxReadings]?
     /// P41: bot-message seen marks (connection|profile → session id → mark); absent while empty.
     var botMessageMarks: [String: [String: String]]?
+    /// P45: each chat's goal, loop and heartbeat (keyed by the chat's id); absent while empty.
+    var automations: [String: ChatAutomation]?
 
     init(bots: [Bot], groups: [GroupChat], modelDefaults: ModelDefaults? = nil, approvalRoutes: [ApprovalRoute]? = nil, reviewAfter: [ReviewAfterRule]? = nil,
-         boxReadings: [String: BoxReadings]? = nil, botMessageMarks: [String: [String: String]]? = nil) {
+         boxReadings: [String: BoxReadings]? = nil, botMessageMarks: [String: [String: String]]? = nil, automations: [String: ChatAutomation]? = nil) {
         self.bots = bots; self.groups = groups; self.modelDefaults = modelDefaults; self.approvalRoutes = approvalRoutes; self.reviewAfter = reviewAfter
-        self.boxReadings = boxReadings; self.botMessageMarks = botMessageMarks
+        self.boxReadings = boxReadings; self.botMessageMarks = botMessageMarks; self.automations = automations
     }
 
-    enum CodingKeys: CodingKey { case version, bots, groups, modelDefaults, approvalRoutes, reviewAfter, boxReadings, botMessageMarks }
+    enum CodingKeys: CodingKey { case version, bots, groups, modelDefaults, approvalRoutes, reviewAfter, boxReadings, botMessageMarks, automations }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
@@ -83,6 +85,7 @@ struct StoreFile: Codable {
         reviewAfter = (try? c.decodeIfPresent([ReviewAfterRule].self, forKey: .reviewAfter)) ?? nil
         boxReadings = (try? c.decodeIfPresent([String: BoxReadings].self, forKey: .boxReadings)) ?? nil
         botMessageMarks = (try? c.decodeIfPresent([String: [String: String]].self, forKey: .botMessageMarks)) ?? nil
+        automations = (try? c.decodeIfPresent([String: ChatAutomation].self, forKey: .automations)) ?? nil
     }
 
     static func decode(_ data: Data) throws -> StoreFile {

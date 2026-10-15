@@ -62,9 +62,9 @@ extension AppStore {
     func handle(_ event: ConnectivityEvent) async {
         switch event {
         case .willSleep: flushNow()
-        case .pathDown: turns.pathDown = true
+        case .pathDown: turns.pathDown = true; automationTick()
         case .didWake, .pathUp:
-            turns.pathDown = false
+            turns.pathDown = false; automationTick()
             await hermesSession.flush()
             reconcileAttention(reason: event == .didWake ? .wake : .path)
         }

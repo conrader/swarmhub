@@ -42,6 +42,7 @@ struct SettingsView: View {
         case .reports: SettingsReportsPane(center: store.reportsCenter)
         case .about: SettingsAboutPane()
         case .voice: SettingsVoicePane()
+        case .chats: SettingsChatsPane()
         }
     }
 }

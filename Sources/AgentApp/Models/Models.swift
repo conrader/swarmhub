@@ -24,6 +24,8 @@ enum MessagePresentation: String, Codable {
     case text, delegation, routineResult, botMessage
     /// P37: an approval decided by a rule or reviewer, and a review of finished work (older builds read them as text).
     case approvalDecision, review
+    /// P45: a goal's end card ("Goal reached", blocked, budget used); older builds read it as text.
+    case automation
     init(from decoder: Decoder) throws { self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .text }
 }
 

@@ -109,6 +109,10 @@ import UserNotifications
     var workflowSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// P43: the 5 s pause of a routine run's watch (tests inject it).
     var routineWatchSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// P45: each chat's goal, loop and heartbeat (`AppStore+Goals.swift`, `AppStore+Schedules.swift`), the ticker that
+    /// runs loops and heartbeats while the app is open, and its pause (tests drive `automationTick()` themselves).
+    @Published var automations: [UUID: ChatAutomation] = [:]; var automationTask: Task<Void, Never>?
+    var automationSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// P42: the pause between reads of a live card's session (tests inject it).
     var botWorkSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
@@ -134,6 +138,7 @@ import UserNotifications
                 let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
                 globalApprovalRoutes = file.approvalRoutes ?? []; globalReviewAfter = file.reviewAfter ?? []
                 boxReadings = file.boxReadings ?? [:]; botMessages.marks = file.botMessageMarks ?? [:]
+                restoreAutomations(file.automations)
                 turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
                 if !migrateArchivedGroups().isEmpty { save() }
                 var migratedLegacyApprovalRules = false
@@ -177,6 +182,7 @@ import UserNotifications
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
         botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad; botWork.autoStart = botInfo.autoLoad
+        if botInfo.autoLoad { startAutomationTicker() }
         if connectivity != nil { listenForConnectivity() }
     }
 
@@ -226,14 +232,15 @@ import UserNotifications
     /// P38: a new turn in `conversation` (the bot's chat or one of its threads), whatever is selected; never steers.
     /// P39: refused while that chat has a turn; at the turn limit it is refused, or waits as the chat's next message
     /// (`waitWhenFull`, the composer), as does a message sent while earlier ones still wait there.
-    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], bot: Bot, conversation: any Conversation, replyToID: UUID?, waitWhenFull: Bool = false) -> Bool {
+    @discardableResult func send(text: String, attachments: [ChatAttachment] = [], bot: Bot, conversation: any Conversation, replyToID: UUID?, waitWhenFull: Bool = false,
+                                 metadata: [String: String] = [:]) -> Bool {
         guard !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
         guard isIdle(conversation) else { return false }
         let full = turnCapacityProblem(for: [bot])
         if let full, !waitWhenFull { errorMessage = full; return false }
         guard !isRetiredWorkflowThread((conversation as? ChatThread)?.id ?? bot.id) else { errorMessage = "This workflow task was reassigned. Continue from the workflow."; return false }
-        let user = ChatMessage(role: .user, content: text, replyToID: replyToID, attachments: attachments)
+        let user = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: replyToID, attachments: attachments)
         let activeBackend: any AgentBackend; let images: [String]
         do {
             try validateArtifactAccess(user, botID: bot.id)

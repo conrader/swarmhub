@@ -25,6 +25,7 @@ struct ChatView: View {
                 }
             }.padding(.horizontal, ChromeMetrics.headerPadding).frame(height: 54).windowDragStrip(probe: "chat_header").background(AppColor.chat)
             Rectangle().fill(AppColor.separator).frame(height: 0.5)
+            AutomationStrip(bot: bot, conversation: thread ?? bot)
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
