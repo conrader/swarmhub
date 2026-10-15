@@ -63,7 +63,7 @@ extension AppStore {
                   !isLegacyTransport(bot, session: group.session(for: id)) else { return false }
             return group.messages.last { $0.role == .assistant && $0.authorID == id } === row
         }
-        guard let bot = owner(of: conversation), !needsKey(bot), (try? backend(for: bot)) != nil else { return false }
+        guard let bot = owner(of: conversation), !isRetiredWorkflowThread((conversation as? ChatThread)?.id ?? bot.id), !needsKey(bot), (try? backend(for: bot)) != nil else { return false }
         return !isLegacyTransport(bot, session: conversation.hermesSessionID)
     }
 

@@ -105,6 +105,8 @@ import UserNotifications
     let reviewerTimeout: Duration
     /// P12: the wait until a Gateway approval expires (a test ends it when it chooses, not on the wall clock).
     var approvalExpirySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// P38 D: the wait until a workflow's 30-minute limit (a test ends it when it chooses).
+    var workflowSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil, openClawHub: OpenClawHub? = nil) {
         // P28: a test run never opens the real store.json or the standard defaults; either is reported and replaced.
@@ -220,6 +222,7 @@ import UserNotifications
         guard !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
         guard !isStreaming, streamTask == nil else { return false }
+        guard !isRetiredWorkflowThread((conversation as? ChatThread)?.id ?? bot.id) else { errorMessage = "This workflow task was reassigned. Continue from the workflow."; return false }
         let user = ChatMessage(role: .user, content: text, replyToID: replyToID, attachments: attachments)
         let activeBackend: any AgentBackend; let images: [String]
         do {
