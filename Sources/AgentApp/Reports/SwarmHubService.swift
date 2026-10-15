@@ -1,11 +1,13 @@
 import CryptoKit
 import Foundation
 
-/// P36: the SwarmHub backend (`https://agenthut.net/swarmhub`): desktop PKCE sign-in and reports. One base URL,
-/// overridable in Settings → Advanced for tests; every request goes through an injected session.
+/// P36: the SwarmHub backend (`https://agenthut.net/swarmhub`): reports with a per-install key, and an optional desktop
+/// PKCE sign-in. One base URL, overridable in Settings → Advanced for tests; every request goes through an injected session.
 enum SwarmHubError: Error, Equatable {
-    /// 401: the token is gone or expired; it is forgotten and Konrad signs in again.
+    /// 401: the token (or install key) is gone or expired; it is forgotten.
     case unauthorized
+    /// `/v1/auth/start` answered 503: sign-in is not configured on the server (reports still work).
+    case signInUnavailable
     /// 429: too many reports in the last hour.
     case rateLimited
     /// The callback came back with another state than the app made.
@@ -19,6 +21,7 @@ enum SwarmHubError: Error, Equatable {
     var message: String {
         switch self {
         case .unauthorized: "Your SwarmHub sign-in has ended. Sign in again."
+        case .signInUnavailable: "SwarmHub sign-in isn't available yet."
         case .rateLimited: "SwarmHub has had many reports from you in the last hour. Try again later."
         case .stateMismatch: "The sign-in did not match this request. Try again."
         case .timedOut: "The sign-in was not finished within 10 minutes. Try again."
@@ -62,6 +65,26 @@ struct SwarmHubToken: Codable, Equatable, Sendable {
     func isValid(at now: Date) -> Bool { !accessToken.isEmpty && expiresAt > now }
 }
 
+/// This Mac's anonymous reporter (`POST /v1/installs`): kept in the key store under `account` as JSON, never in
+/// store.json or logs.
+struct SwarmHubInstall: Codable, Equatable, Sendable {
+    static let account = "swarmhub.install"
+    var installID: String; var installKey: String
+}
+
+/// How a reports request is authorised: the sign-in's token when there is one, otherwise the install key.
+enum SwarmHubAuth: Equatable, Sendable {
+    case bearer(String)
+    case install(SwarmHubInstall)
+
+    var header: String {
+        switch self {
+        case .bearer(let token): "Bearer \(token)"
+        case .install(let install): "Install \(install.installID).\(install.installKey)"
+        }
+    }
+}
+
 /// The body of `POST /v1/reports`; optional fields are left out when empty, limits are applied here.
 struct ReportPayload: Encodable, Equatable {
     var kind: String, title: String, body: String, source: String
@@ -101,7 +124,10 @@ struct SwarmHubService: Sendable {
     // MARK: Sign-in
 
     func startSignIn(_ pkce: PKCE) async throws -> URL {
-        let json = try object(try await call("POST", "v1/auth/start", body: ["challenge": pkce.challenge, "state": pkce.state]))
+        let data: Data
+        do { data = try await call("POST", "v1/auth/start", body: ["challenge": pkce.challenge, "state": pkce.state]) }
+        catch SwarmHubError.badResponse(503) { throw SwarmHubError.signInUnavailable }
+        let json = try object(data)
         guard let raw = json["authorization_url"] as? String, let url = URL(string: raw), url.scheme == "https" || url.scheme == "http" else { throw SwarmHubError.invalid }
         return url
     }
@@ -123,36 +149,45 @@ struct SwarmHubService: Sendable {
 
     // MARK: Reports
 
-    func postReport(_ payload: ReportPayload, token: String) async throws -> (id: String, status: String) {
+    /// `POST /v1/installs` with `{}` (no auth): 201 with the install's id and key; 429 and 503 are errors.
+    func registerInstall() async throws -> SwarmHubInstall {
+        let json = try object(try await call("POST", "v1/installs", data: Data("{}".utf8)))
+        guard let id = json["install_id"] as? String, !id.isEmpty, let key = json["install_key"] as? String, !key.isEmpty else { throw SwarmHubError.invalid }
+        return SwarmHubInstall(installID: id, installKey: key)
+    }
+
+    func postReport(_ payload: ReportPayload, auth: SwarmHubAuth) async throws -> (id: String, status: String) {
         let data = try JSONEncoder().encode(payload)
-        let json = try object(try await call("POST", "v1/reports", data: data, token: token))
+        let json = try object(try await call("POST", "v1/reports", data: data, auth: auth))
         guard let id = (json["id"] as? String) ?? (json["id"] as? Int).map(String.init) else { throw SwarmHubError.invalid }
         return (id, json["status"] as? String ?? "received")
     }
 
-    func listReports(token: String) async throws -> [ServerReport] {
-        let data = try await call("GET", "v1/reports", token: token)
-        guard let rows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { throw SwarmHubError.invalid }
+    /// `{"reports": [...]}`; a bare array is read too.
+    func listReports(auth: SwarmHubAuth) async throws -> [ServerReport] {
+        let data = try await call("GET", "v1/reports", auth: auth)
+        guard let json = try? JSONSerialization.jsonObject(with: data),
+              let rows = ((json as? [String: Any])?["reports"] ?? json) as? [[String: Any]] else { throw SwarmHubError.invalid }
         return rows.compactMap(ServerReport.init)
     }
 
     // MARK: HTTP
 
-    func request(_ method: String, _ path: String, data: Data? = nil, token: String? = nil) -> URLRequest {
+    func request(_ method: String, _ path: String, data: Data? = nil, auth: SwarmHubAuth? = nil) -> URLRequest {
         let base = baseURL.absoluteString.hasSuffix("/") ? baseURL.absoluteString : baseURL.absoluteString + "/"
         var request = URLRequest(url: URL(string: base + path)!, timeoutInterval: 30)
         request.httpMethod = method; request.httpBody = data
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if data != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let auth { request.setValue(auth.header, forHTTPHeaderField: "Authorization") }
         request.setValue(AppConstants.userAgent(version: AppBuildInfo.current().version), forHTTPHeaderField: "User-Agent")
         return request
     }
 
-    private func call(_ method: String, _ path: String, body: [String: String]? = nil, data: Data? = nil, token: String? = nil) async throws -> Data {
+    private func call(_ method: String, _ path: String, body: [String: String]? = nil, data: Data? = nil, auth: SwarmHubAuth? = nil) async throws -> Data {
         let payload = try body.map { try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) } ?? data
         let (result, response): (Data, URLResponse)
-        do { (result, response) = try await session.data(for: request(method, path, data: payload, token: token)) }
+        do { (result, response) = try await session.data(for: request(method, path, data: payload, auth: auth)) }
         catch { throw SwarmHubError.network(error.localizedDescription) }
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         switch code {

@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 /// P36: the Reports inbox and the SwarmHub account, observed by the inbox, Settings and the sidebar badge. The inbox is
-/// kept in `reports.json` next to store.json; the token lives only in the key store. Session, browser and sleep are
+/// kept in `reports.json` next to store.json; the install key and the (optional) sign-in token live only in the key store. Session, browser and sleep are
 /// injected for tests (a mock URLProtocol session; nothing reaches the network or the Keychain).
 @MainActor final class ReportsCenter: ObservableObject {
     enum Account: Equatable {
@@ -27,6 +27,7 @@ import Foundation
     var sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     var maxPolls = 600
     var signInTask: Task<Bool, Never>?
+    var registerTask: Task<SwarmHubInstall, Error>?
     /// Connections whose close-reports turn is running.
     var closing: Set<String> = []
 
@@ -65,6 +66,46 @@ import Foundation
         guard let token = storedToken else { return nil }
         guard token.isValid(at: now) else { forgetToken(signInAgain: true); return nil }
         return token.accessToken
+    }
+
+    // MARK: Install key
+
+    var storedInstall: SwarmHubInstall? {
+        let raw = keyStore.key(for: SwarmHubInstall.account)
+        guard !raw.isEmpty, let data = raw.data(using: .utf8), let install = try? JSONDecoder().decode(SwarmHubInstall.self, from: data),
+              !install.installID.isEmpty, !install.installKey.isEmpty else { return nil }
+        return install
+    }
+
+    func forgetInstall() { keyStore.setKey("", for: SwarmHubInstall.account) }
+
+    /// The stored install, or one registered now (once; concurrent callers join the same request).
+    func install(service: SwarmHubService) async throws -> SwarmHubInstall {
+        if let storedInstall { return storedInstall }
+        if let registerTask { return try await registerTask.value }
+        let task = Task { [keyStore] () throws -> SwarmHubInstall in
+            let install = try await service.registerInstall()
+            guard let data = try? JSONEncoder().encode(install) else { throw SwarmHubError.invalid }
+            keyStore.setKey(String(decoding: data, as: UTF8.self), for: SwarmHubInstall.account)
+            return install
+        }
+        registerTask = task
+        defer { registerTask = nil }
+        return try await task.value
+    }
+
+    /// Runs a reports request: Bearer when signed in, otherwise the install key (registered on first use). A 401 with
+    /// the token forgets it and falls back to the install key; a 401 with the install key registers again once and retries once.
+    func withReportsAuth<T>(service: SwarmHubService, now: Date = .now, _ request: (SwarmHubAuth) async throws -> T) async throws -> T {
+        if let token = token(at: now) {
+            do { return try await request(.bearer(token)) }
+            catch SwarmHubError.unauthorized { forgetToken(signInAgain: true) }
+        }
+        do { return try await request(.install(try await install(service: service))) }
+        catch SwarmHubError.unauthorized {
+            forgetInstall()
+            return try await request(.install(try await install(service: service)))
+        }
     }
 
     /// Starts (or joins) the browser sign-in; true when signed in at the end.

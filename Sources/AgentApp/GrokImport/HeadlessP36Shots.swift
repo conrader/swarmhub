@@ -2,10 +2,11 @@ import AppKit
 import SwiftUI
 
 /// P36 shots of `--render-setup`: the Reports inbox with an agent bug, an agent feature request and Konrad's own report,
-/// the editable detail, the sign-in prompt (signed out, and while the browser sign-in runs), a sent report with status
-/// "planned" and SwarmHub's note, and the sidebar's Reports row. In-memory store and key store; no network, no Keychain.
+/// the editable detail, Send while signed out (no sign-in needed), a sent report with status "planned" and SwarmHub's
+/// note, Settings → Account signed out and with sign-in not available on the server, and the sidebar's Reports row. In-memory store and key store; no network, no Keychain.
 @MainActor enum HeadlessP36Shots {
-    static let names = ["p36-reports-inbox", "p36-report-detail", "p36-sign-in-prompt", "p36-sent-planned", "p36-account-signed-out", "p36-sidebar-reports"]
+    static let names = ["p36-reports-inbox", "p36-report-detail", "p36-send-signed-out", "p36-sent-planned", "p36-account-signed-out",
+                         "p36-sidebar-reports", "p36-account-sign-in-unavailable"]
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
         let store = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); store.isSetupPreview = false
@@ -51,5 +52,8 @@ import SwiftUI
         center.inbox = ReportsInbox(reports: [bug, wish, mine]); store.showingReports = false
         let column = SidebarView(selection: .constant(jarvis)).frame(width: SidebarMetrics.width.ideal, height: 420)
         write(names[5], await png(AnyView(column), store, NSSize(width: SidebarMetrics.width.ideal, height: 420)))
+
+        center.lastError = SwarmHubError.signInUnavailable.message
+        write(names[6], await png(AnyView(Form { SettingsSwarmHubAccountPane(center: center) }.formStyle(.grouped).frame(width: 560, height: 300).background(AppColor.panel)), store, NSSize(width: 560, height: 300)))
     }
 }

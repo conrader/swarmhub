@@ -2,7 +2,7 @@ import Foundation
 
 /// P36: bots report bugs and feature requests to SwarmHub. A bot's `report` op (any Hermes bot's reply) makes a pending
 /// row; the manager's quiet listing turn brings the box's unsent files (body, versions); Send posts to `/v1/reports`
-/// after the SwarmHub sign-in, Dismiss forgets it, and either way the manager closes the box file in a quiet turn.
+/// with this Mac's install key (or the optional sign-in's token), Dismiss forgets it, and either way the manager closes the box file in a quiet turn.
 /// Nothing is sent without Konrad's press.
 extension AppStore {
     var swarmHubService: SwarmHubService {
@@ -80,26 +80,21 @@ extension AppStore {
         return report
     }
 
-    /// Send to SwarmHub: signs in first when needed, posts, stores the server id and status, closes the box file.
+    /// Send to SwarmHub (no sign-in needed): posts with the install key or the token, stores the server id and status,
+    /// closes the box file.
     func sendReport(_ id: String) async {
         let center = reportsCenter
         guard let report = center.inbox.report(id), report.state == .pending, center.sendingID == nil else { return }
         guard let payload = ReportPayload(report, appVersion: appVersionText) else { center.lastError = "Add a title and a description first."; return }
-        var token = center.token(at: now())
-        if token == nil {
-            guard await center.signIn(service: swarmHubService) else { return }
-            token = center.token(at: now())
-        }
-        guard let token else { return }
         center.sendingID = id; center.lastError = nil
         defer { center.sendingID = nil }
+        let service = swarmHubService
         do {
-            let result = try await swarmHubService.postReport(payload, token: token)
+            let result = try await center.withReportsAuth(service: service, now: now()) { try await service.postReport(payload, auth: $0) }
             center.inbox.markSent(id, serverID: result.id, status: result.status, now: now())
             if let target = report.connection, report.boxFile == .present { Task { await closeBoxReports(on: target) } }
         } catch let error as SwarmHubError {
-            if error == .unauthorized { center.forgetToken(signInAgain: true) }
-            center.lastError = error.message
+            center.lastError = error == .unauthorized ? "SwarmHub did not accept this Mac's report key. Try again later." : error.message
         } catch { center.lastError = error.localizedDescription }
     }
 
@@ -110,14 +105,14 @@ extension AppStore {
         if let target = report.connection, report.boxFile == .present { Task { await closeBoxReports(on: target) } }
     }
 
-    /// Opening the inbox: the status and note of every sent report (signed in only; a 401 forgets the token).
+    /// Opening the inbox: the status and note of every sent report (same auth as Send; never registers an install).
     func refreshReportStatuses() async {
         let center = reportsCenter
-        guard center.inbox.reports.contains(where: { $0.serverID != nil }), !center.refreshing, let token = center.token(at: now()) else { return }
+        guard center.inbox.reports.contains(where: { $0.serverID != nil }), !center.refreshing,
+              center.token(at: now()) != nil || center.storedInstall != nil else { return }
         center.refreshing = true; defer { center.refreshing = false }
-        do { center.inbox.applyStatuses(try await swarmHubService.listReports(token: token)) }
-        catch SwarmHubError.unauthorized { center.forgetToken(signInAgain: true) }
-        catch {}
+        let service = swarmHubService
+        if let rows = try? await center.withReportsAuth(service: service, now: now(), { try await service.listReports(auth: $0) }) { center.inbox.applyStatuses(rows) }
     }
 
     func signInToSwarmHub() async { await reportsCenter.signIn(service: swarmHubService) }

@@ -31,7 +31,7 @@ struct ReportsInboxView: View {
 enum ReportsCopy {
     static let empty = "No reports. When a bot hits a SwarmHub limit, its report waits here for you."
     static let review = "Nothing leaves this Mac until you press Send. Remove anything you would rather not share."
-    static let signInPrompt = "Sending needs a SwarmHub sign-in. Your browser opens; come back here when it says you are signed in."
+    static let optional = "Optional — reports work without it."
     static let waiting = "Finish signing in in your browser…"
 }
 
@@ -161,12 +161,10 @@ struct ReportDetailView: View {
         HStack(alignment: .firstTextBaseline) { Text(name).foregroundStyle(.secondary).frame(width: 64, alignment: .leading); Text(value).textSelection(.enabled) }
     }
 
-    @ViewBuilder private var actions: some View {
-        if center.account == .signingIn { SignInWaitingBox(center: center) }
-        else if !center.isSignedIn { Text(ReportsCopy.signInPrompt).font(.callout).foregroundStyle(.secondary) }
+    private var actions: some View {
         HStack {
-            Button(center.isSignedIn ? "Send to SwarmHub" : "Sign in and Send") { Task { await store.sendReport(report.id) } }
-                .buttonStyle(.borderedProminent).disabled(center.sendingID != nil || center.account == .signingIn || title.trimmingCharacters(in: .whitespaces).isEmpty || !report.hasBody)
+            Button("Send to SwarmHub") { Task { await store.sendReport(report.id) } }
+                .buttonStyle(.borderedProminent).disabled(center.sendingID != nil || title.trimmingCharacters(in: .whitespaces).isEmpty || !report.hasBody)
             Button("Dismiss", role: .destructive) { store.dismissReport(report.id) }
             if center.sendingID == report.id { ProgressView().controlSize(.small) }
         }
@@ -189,7 +187,7 @@ extension ReportsCenter {
     var isSignedIn: Bool { if case .signedIn = account { true } else { false } }
 }
 
-/// Settings → Account: the SwarmHub sign-in and (for tests) the service address.
+/// Settings → Account: the optional SwarmHub sign-in and (for tests) the service address.
 struct SettingsSwarmHubAccountPane: View {
     @ObservedObject var center: ReportsCenter
     @AppStorage(SwarmHubService.baseURLKey) private var serviceURL = ""
@@ -226,13 +224,13 @@ struct SwarmHubAccountSection: View {
             switch center.account {
             case .signedIn(let expires):
                 LabeledContent("Signed in") { Button("Sign out") { center.forgetToken(signInAgain: false) } }
-                Text("Until \(expires.formatted(date: .abbreviated, time: .omitted)). Used only to send reports you press Send on.").font(.caption).foregroundStyle(.secondary)
+                Text("Until \(expires.formatted(date: .abbreviated, time: .omitted)). \(ReportsCopy.optional)").font(.caption).foregroundStyle(.secondary)
             case .signingIn: SignInWaitingBox(center: center)
             case .signedOut, .signInAgain:
                 LabeledContent(center.account == .signInAgain ? "Your sign-in has ended" : "Not signed in") {
                     Button(center.account == .signInAgain ? "Sign in again" : "Sign in to SwarmHub") { Task { await store.signInToSwarmHub() } }
                 }
-                Text(ReportsCopy.signInPrompt).font(.caption).foregroundStyle(.secondary)
+                Text(ReportsCopy.optional).font(.caption).foregroundStyle(.secondary)
             }
             if let error = center.lastError { Text(error).font(.caption).foregroundStyle(.red) }
         }
