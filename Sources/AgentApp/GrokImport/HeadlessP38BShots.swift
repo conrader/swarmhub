@@ -23,7 +23,7 @@ import SwiftUI
 
         // 1. Production today: no key, the SwarmHub service answers that sign-in is not set up.
         let fresh = ConnectedAppsStore(directory: directory.appending(path: "fresh"), keyStore: keys, session: session, apiURL: RenderComposioProtocol.base, provisioner: PreviewProvisioner())
-        fresh.serviceNote = ConnectedAppsCopy.signInNotSetUp
+        fresh.serviceNote = ConnectedAppsCopy.notAvailable
         store.connectedApps = fresh
         let signedOut = ChatGPTConnection(makeClient: { PreviewCodexConnection(signedIn: false) }, openURL: { _ in false })
         write(names[0], await png(AnyView(pane(fresh, store: store, chatGPT: signedOut).frame(width: panel.width, height: 1260)), store, NSSize(width: panel.width, height: 1260)))

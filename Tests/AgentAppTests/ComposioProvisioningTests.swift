@@ -43,17 +43,17 @@ import Testing
     #expect(provisioner.calls.isEmpty)
 }
 
-@MainActor @Test func composioProvisioningUsesAuthenticatedIdentityAndNeverSendsLocalOwner() async throws {
+@MainActor @Test func composioProvisioningUsesTheInstallAndNeverSendsLocalOwner() async throws {
     let (host, session) = MockHermesProtocol.serve { _ in
         (200, ["api_key": "ak_synthetic_user", "user_id": "swarmhub_user", "project_id": "pr_user"])
     }
-    let identity = FakeSwarmHubIdentity()
-    let provisioner = ComposioProvisioningClient(baseURL: URL(string: "https://\(host)/swarmhub/")!, session: session, identity: identity)
+    let identity = FakeSwarmHubInstall()
+    let provisioner = ComposioProvisioningClient(baseURL: URL(string: "https://\(host)/swarmhub/")!, session: session, credential: identity)
     let key = try await provisioner.credentialForFirstConnection(toolkit: "gmail")
     #expect(key.apiKey == "ak_synthetic_user" && identity.calls == 1)
     let request = MockHermesProtocol.recorded(host)[0]
     #expect(request.url!.path == "/swarmhub/v1/composio/provision")
-    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-user-session")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Install ins_synthetic.synthetic-install-key")
     #expect(Set(composioBody(request).keys) == ["toolkit"])
     #expect(request.value(forHTTPHeaderField: "x-org-api-key") == nil)
 }
