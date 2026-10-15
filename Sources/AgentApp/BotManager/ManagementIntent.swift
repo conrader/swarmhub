@@ -80,7 +80,7 @@ enum ManageBotsAction: String, CaseIterable, Identifiable {
     case newBot, changeInstructions, changeAvatar, changeModel, changeSubAgentModel, showInstructions, listBots, retireBot
     var id: String { rawValue }
 
-    /// The menu for a manager on this backend: "Change model…" and (P31 D) "Change sub-agent model…" only where the
+    /// The menu for a manager on this backend: "Change model…" and (P31 D) "Change coding model…" only where the
     /// manager text has a model recipe (Hermes; the OpenClaw text has none, P27 D8).
     static func actions(for backend: BackendKind) -> [ManageBotsAction] {
         backend == .hermes ? allCases : allCases.filter { $0 != .changeModel && $0 != .changeSubAgentModel }
@@ -92,7 +92,7 @@ enum ManageBotsAction: String, CaseIterable, Identifiable {
         case .changeInstructions: "Change instructions…"
         case .changeAvatar: "Change avatar…"
         case .changeModel: "Change model…"
-        case .changeSubAgentModel: "Change sub-agent model…"
+        case .changeSubAgentModel: "Change coding model…"
         case .showInstructions: "Show instructions…"
         case .listBots: "List bots"
         case .retireBot: "Retire bot…"
@@ -120,8 +120,8 @@ enum ManageBotsAction: String, CaseIterable, Identifiable {
         case .changeInstructions: return "Change the instructions of the bot \(target): "
         case .changeAvatar: return "Change the avatar of the bot \(target) to "
         case .changeModel: return "Change the model of \(bot ?? "<bots>") to "
-        // Opens the sub-agent model sheet instead of filling the composer (`AppStore.startManagement`).
-        case .changeSubAgentModel: return "Change the sub-agent model of \(bot ?? "<bots>") to "
+        // Opens the coding model sheet instead of filling the composer (`AppStore.startManagement`).
+        case .changeSubAgentModel: return "Change the coding model of \(bot ?? "<bots>") to "
         case .showInstructions: return "Show me the instructions of the bot \(target)."
         case .listBots: return "List the bots on this box."
         case .retireBot: return "Retire the bot \(target)."

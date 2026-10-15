@@ -79,7 +79,7 @@ struct BoxCapacity: Equatable {
 
 enum BoxReadingsCopy {
     static let capacityMissing = "This box: not checked yet."
-    static let modelsHelp = "Model for sub-agents this bot starts. Coding jobs use the coding agent instead."
+    static let modelsHelp = "Used by sub-agents this bot starts, and for coding jobs when no coding agent (Claude Code, Codex) can run."
     static let sameAsEachBot = "Same as each bot's model"
     static let noManager = "No bot on this box can manage the others yet."
     static let noAnswer = "The manager did not answer. Try Check again."

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// P31 D: a Hermes bot's "Sub-agents:" line (Overview and Settings → Models): the model its sub-agents run on as the
-/// manager last reported it, "Check" while nothing is reported, and "Change…" (the sub-agent model sheet, this bot
+/// P31 D: a Hermes bot's "Coding model:" line (Overview and Settings → Models): `delegation.model` as the manager last
+/// reported it, "Check" while nothing is reported, and "Change…" (the coding model sheet, this bot
 /// prefilled) when its connection has a Hermes manager.
 struct SubAgentLineView: View {
     @EnvironmentObject private var store: AppStore

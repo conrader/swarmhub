@@ -32,8 +32,8 @@ struct SubAgentModelChange: Equatable {
 
     /// The line Konrad sees in the manager's chat.
     var request: String {
-        clears ? "Clear the sub-agent model of \(who): their sub-agents use each bot's own model."
-            : "Change the sub-agent model of \(who) to \(model) (\(provider))."
+        clears ? "Clear the coding model of \(who): each bot's own model is used instead."
+            : "Change the coding model of \(who) to \(model) (\(provider))."
     }
 }
 
@@ -57,7 +57,7 @@ enum BoxReadingsTurns {
 
     static func modelsInstructions(template: String) -> String? {
         BoxAdoption.recipe(modelsMarker, in: template).map {
-            quiet("SwarmHub is reading each bot's model and sub-agent model on this box. Reading needs no confirmation.", [("", $0)])
+            quiet("SwarmHub is reading each bot's model and coding model on this box. Reading needs no confirmation.", [("", $0)])
         }
     }
 
@@ -87,8 +87,8 @@ enum BoxReadingsTurns {
         guard let export = lines.firstIndex(where: { $0.hasPrefix("export MODEL=") }) else { return nil }
         lines[export] = "export MODEL=\(change.model) PROV=\(change.provider) KM=delegation.model KP=delegation.provider"
         let filled = lines.joined(separator: "\n").replacingOccurrences(of: "<names>", with: change.names)
-        let what = change.clears ? "clear the sub-agent model (so sub-agents use each bot's own model)"
-            : "set the sub-agent model to \(change.model), provider \(change.provider)"
+        let what = change.clears ? "clear the coding model (so each bot's own model is used)"
+            : "set the coding model to \(change.model), provider \(change.provider)"
         return asked("""
             Konrad asked in SwarmHub to \(what) for \(change.who). Ask him first in one \
             short message naming model, provider and bots, and wait for his yes. Then start this as a background process of your \

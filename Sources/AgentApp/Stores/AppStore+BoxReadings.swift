@@ -33,7 +33,7 @@ extension AppStore {
 
     /// "Check" on a Sub-agents line: the manager runs "Bot models" in a quiet turn.
     @discardableResult func checkModels(on target: String) async -> Bool {
-        await runBoxCheck(.models(target), on: target, recipe: .models, request: "Report each bot's model and sub-agent model for \(AppConstants.name).",
+        await runBoxCheck(.models(target), on: target, recipe: .models, request: "Report each bot's model and coding model for \(AppConstants.name).",
                           instructions: BoxReadingsTurns.modelsInstructions)
     }
 
@@ -93,7 +93,7 @@ extension AppStore {
     }
 }
 
-/// P31 D: what a bot's Sub-agents line says. Sub-agents turned off (P11 `delegation` toolset) wins; a pin shows with
+/// P31 D: what a bot's Coding model line (`delegation.model`) says. Sub-agents turned off (P11 `delegation` toolset) wins; a pin shows with
 /// the day it was reported; no pin means the bot's own model; no report yet keeps the box-only text and offers Check.
 struct SubAgentLine: Equatable {
     let text: String
@@ -101,12 +101,12 @@ struct SubAgentLine: Equatable {
 
     init(models: BotModels?, reportedAt: Date?, delegationOff: Bool) {
         if delegationOff { text = ModelRoleReason.subAgentsOff.text; offersCheck = false; return }
-        guard let models else { text = "Sub-agents: \(ModelRoleReason.boxOnly.text)"; offersCheck = true; return }
+        guard let models else { text = "Coding model: \(ModelRoleReason.boxOnly.text)"; offersCheck = true; return }
         offersCheck = false
         if !models.subModel.isEmpty {
-            text = "Sub-agents: \(models.subModel)" + (reportedAt.map { " (reported \(BoxReadingsCopy.day($0)))" } ?? "")
+            text = "Coding model: \(models.subModel)" + (reportedAt.map { " (reported \(BoxReadingsCopy.day($0)))" } ?? "")
         } else {
-            text = "Sub-agents: same as this bot" + (models.model.isEmpty ? "" : " (\(models.model))")
+            text = "Coding model: same as this bot" + (models.model.isEmpty ? "" : " (\(models.model))")
         }
     }
 }

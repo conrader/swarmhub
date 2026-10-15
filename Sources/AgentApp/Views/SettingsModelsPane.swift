@@ -44,7 +44,7 @@ struct SettingsModelsPane: View {
         }
         Section("Set on the box (read-only)") {
             boxLine("Agent default", model.fleetSummary, note: nil)
-            boxLine("Sub-agents", model.subAgentSummary, note: "Each bot's sub-agent model is under its name above.")
+            boxLine("Sub-agents", model.subAgentSummary, note: "Each bot's coding model is under its name above.")
             boxLine("Compaction", nil, note: ModelRoleReason.boxOnly.text)
             boxLine("Routines", nil, note: ModelRoleReason.boxOnly.text)
         }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// P31 D: Manage bots → "Change sub-agent model…" and the Overview's Sub-agents "Change…". The "Change model…" request
+/// P31 D: Manage bots → "Change coding model…" and the Overview's Coding model "Change…". The "Change model…" request
 /// with the role fixed to sub-agents: model (this bot's catalog), provider, which bots, or "Same as each bot's model"
 /// (clears the pin). "Ask <manager>" sends the P30 recipe with `KM=delegation.model KP=delegation.provider` into the
 /// manager's chat, where the manager asks Konrad first.
@@ -53,7 +53,7 @@ struct SubAgentModelSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Change sub-agent model").font(.title3.weight(.semibold))
+            Text("Coding model").font(.title3.weight(.semibold))
             Text(BoxReadingsCopy.modelsHelp).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Form {
                 Toggle(BoxReadingsCopy.sameAsEachBot, isOn: $sameAsEachBot)

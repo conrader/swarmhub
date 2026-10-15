@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// P31 D+E shots of `--render-setup`: the Overview's Sub-agents line pinned, following the bot's model and not yet
-/// reported (Check), the sub-agent model sheet, and Settings → Models with the box capacity block not checked, advised,
+/// P31 D+E shots of `--render-setup`: the Overview's Coding model line pinned, following the bot's model and not yet
+/// reported (Check), the coding model sheet, and Settings → Models with the box capacity block not checked, advised,
 /// and with advice after jobs waited. Synthetic store states; no turn runs.
 @MainActor enum HeadlessP31DEShots {
-    static let names = ["p31de-overview-subagents-pinned", "p31de-overview-subagents-same", "p31de-overview-subagents-no-report", "p31de-subagent-sheet",
+    static let names = ["p31de-overview-coding-model-pinned", "p31de-overview-coding-model-same", "p31de-overview-coding-model-no-report", "p31de-coding-model-sheet",
                         "p31de-settings-capacity-no-report", "p31de-settings-capacity-advised", "p31de-settings-capacity-advice"]
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {

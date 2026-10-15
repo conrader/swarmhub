@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-// P31 D+E store paths: the quiet Check turns, the readings kept in store.json across a restart, the sub-agent model and
+// P31 D+E store paths: the quiet Check turns, the readings kept in store.json across a restart, the coding model and
 // coding job limit asked in the manager's chat (the recipe rides on the follow-up too), and the models refresh after the
 // model log's DONE. Synthetic server only.
 
@@ -42,8 +42,8 @@ private func turns(_ host: String) -> [(input: String, instructions: String)] {
     #expect(store.subAgentLine(for: mira, delegationOff: false).offersCheck, "no report yet")
     #expect(await store.checkModels(on: target))
     #expect(await store.checkCapacity(on: target))
-    #expect(store.subAgentLine(for: jarvis, delegationOff: false).text.hasPrefix("Sub-agents: gpt-6.1-sol (reported "))
-    #expect(store.subAgentLine(for: mira, delegationOff: false).text == "Sub-agents: same as this bot (grok-4.1)")
+    #expect(store.subAgentLine(for: jarvis, delegationOff: false).text.hasPrefix("Coding model: gpt-6.1-sol (reported "))
+    #expect(store.subAgentLine(for: mira, delegationOff: false).text == "Coding model: same as this bot (grok-4.1)")
     #expect(store.boxReadings(on: target).capacity?.cpus == 2 && store.boxReadings(on: target).capacityAt != nil)
     let sent = turns(chat)
     #expect(sent.count == 2 && sent[0].instructions.contains(#"printf '{"op":"models","list":[%s]}\n'"#) && sent[1].instructions.contains(#""op":"box_capacity""#))
@@ -68,7 +68,7 @@ private func turns(_ host: String) -> [(input: String, instructions: String)] {
     let change = SubAgentModelChange(model: "gpt-6.1-sol", provider: "openai-codex", bots: .some(["mira"]))
     #expect(store.requestSubAgentModel(change, manager: jarvis))
     try await waitUntil { store.isIdle && turns(chat).count == 1 }
-    #expect(jarvis.messages.first?.content == "Change the sub-agent model of mira to gpt-6.1-sol (openai-codex).")
+    #expect(jarvis.messages.first?.content == "Change the coding model of mira to gpt-6.1-sol (openai-codex).")
     #expect(store.send(text: "yes"))
     try await waitUntil { store.isIdle && turns(chat).count == 2 }
     let sent = turns(chat)

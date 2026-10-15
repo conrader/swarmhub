@@ -3,7 +3,7 @@ import Testing
 @testable import AgentApp
 
 // P31 D+E pure parts: the `models` and `box_capacity` ops (good, hostile, oversize), the capacity computation and its
-// advice table, the Sub-agents line, the sub-agent model change and the turns' recipe text, and the recipe shell test
+// advice table, the Coding model line, the coding model change and the turns' recipe text, and the recipe shell test
 // under /bin/sh and /bin/dash. Synthetic only; nothing reaches a box.
 
 private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() }
@@ -147,13 +147,29 @@ private func job(daysAgo: Double, waited: Int, peak: Int) -> BoxCapacityReport.J
 @Test func subAgentLineStates() {
     let reported = try! Date("2026-10-15T09:00:00Z", strategy: .iso8601)
     let pinned = SubAgentLine(models: BotModels(name: "jarvis", model: "gpt-5.6-terra", provider: "openai-codex", subModel: "gpt-6.1-sol", subProvider: "openai-codex"), reportedAt: reported, delegationOff: false)
-    #expect(pinned.text == "Sub-agents: gpt-6.1-sol (reported 15 Oct)" && !pinned.offersCheck)
+    #expect(pinned.text == "Coding model: gpt-6.1-sol (reported 15 Oct)" && !pinned.offersCheck)
     let same = SubAgentLine(models: BotModels(name: "jarvis", model: "gpt-5.6-terra", provider: "openai-codex"), reportedAt: reported, delegationOff: false)
-    #expect(same.text == "Sub-agents: same as this bot (gpt-5.6-terra)" && !same.offersCheck)
+    #expect(same.text == "Coding model: same as this bot (gpt-5.6-terra)" && !same.offersCheck)
     let none = SubAgentLine(models: nil, reportedAt: nil, delegationOff: false)
-    #expect(none.text == "Sub-agents: \(ModelRoleReason.boxOnly.text)" && none.offersCheck)
+    #expect(none.text == "Coding model: \(ModelRoleReason.boxOnly.text)" && none.offersCheck)
     let off = SubAgentLine(models: BotModels(name: "jarvis", model: "m", provider: "p", subModel: "gpt-6.1-sol"), reportedAt: reported, delegationOff: true)
     #expect(off.text == ModelRoleReason.subAgentsOff.text && !off.offersCheck, "sub-agents off wins")
+}
+
+/// Wording (Konrad, 15 Oct): the UI calls `delegation.model` the coding model. No string literal in Sources says
+/// "sub-agent model" or "Sub-agents:" (comments are skipped); the help line and the sheet title read as the brief says.
+@Test func theUICallsDelegationModelTheCodingModel() throws {
+    #expect(BoxReadingsCopy.modelsHelp == "Used by sub-agents this bot starts, and for coding jobs when no coding agent (Claude Code, Codex) can run.")
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let sheet = try String(contentsOf: root.appending(path: "Sources/AgentApp/Views/SubAgentModelSheet.swift"), encoding: .utf8)
+    #expect(sheet.contains(#"Text("Coding model").font(.title3"#))
+    let files = try #require(FileManager.default.enumerator(at: root.appending(path: "Sources/AgentApp"), includingPropertiesForKeys: nil))
+        .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+    for file in files {
+        for (line, literal) in VisibleNameGuard.literals(in: try String(contentsOf: file, encoding: .utf8)) {
+            #expect(!literal.localizedCaseInsensitiveContains("sub-agent model") && !literal.contains("Sub-agents:"), "\(file.lastPathComponent):\(line): \(literal)")
+        }
+    }
 }
 
 // MARK: Turns
@@ -188,8 +204,8 @@ private func job(daysAgo: Double, waited: Int, peak: Int) -> BoxCapacityReport.J
     let clear = try #require(BoxReadingsTurns.subAgentInstructions(.clear(.all), core: core))
     #expect(clear.contains("export MODEL= PROV= KM=delegation.model KP=delegation.provider\n") && clear.contains("printf '%s\\n' default $(ls ~/.hermes/profiles | grep -E"))
     #expect(clear.contains(#"tr -d "\"\047 "); [ "$C" = "$V" ] ||"#), "the skip check compares with quotes stripped: '', \"\" and missing are empty")
-    #expect(SubAgentModelChange.clear(.all).request == "Clear the sub-agent model of all bots: their sub-agents use each bot's own model.")
-    #expect(set.request == "Change the sub-agent model of jarvis, mira to gpt-6.1-sol (openai-codex).")
+    #expect(SubAgentModelChange.clear(.all).request == "Clear the coding model of all bots: each bot's own model is used instead.")
+    #expect(set.request == "Change the coding model of jarvis, mira to gpt-6.1-sol (openai-codex).")
     for bad in [SubAgentModelChange(model: "gpt; id", provider: "p", bots: .all), SubAgentModelChange(model: "m", provider: "", bots: .all),
                 SubAgentModelChange(model: "m", provider: "p", bots: .some([])), SubAgentModelChange(model: "m", provider: "p", bots: .some(["../x"]))] {
         #expect(!bad.isValid && BoxReadingsTurns.subAgentInstructions(bad, core: core) == nil, "\(bad)")
@@ -197,7 +213,7 @@ private func job(daysAgo: Double, waited: Int, peak: Int) -> BoxCapacityReport.J
 }
 
 @Test func changeSubAgentModelIsOfferedOnlyToHermesManagers() {
-    #expect(ManageBotsAction.actions(for: .hermes).contains(.changeSubAgentModel) && ManageBotsAction.changeSubAgentModel.title == "Change sub-agent model…")
+    #expect(ManageBotsAction.actions(for: .hermes).contains(.changeSubAgentModel) && ManageBotsAction.changeSubAgentModel.title == "Change coding model…")
     #expect(!ManageBotsAction.actions(for: .openClaw).contains(.changeSubAgentModel))
     let hermes = ManageBotsAction.actions(for: .hermes)
     #expect(hermes.firstIndex(of: .changeSubAgentModel) == hermes.firstIndex(of: .changeModel)! + 1, "next to Change model…")
