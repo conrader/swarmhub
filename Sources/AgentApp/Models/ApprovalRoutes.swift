@@ -14,12 +14,14 @@ enum ApprovalActionKind: String, Codable, CaseIterable, Identifiable {
 
     /// The kinds of one request, from the action the backend named and the raw command.
     static func kinds(action: String, command: String) -> Set<ApprovalActionKind> {
-        let a = action.lowercased(), c = command.lowercased(), first = c.split(separator: " ").first.map { String($0.split(separator: "/").last ?? "") } ?? ""
+        // Kinds a command carries come from the program it runs (its first word), never from text anywhere in it.
+        let a = action.lowercased(), words = command.lowercased().split(separator: " ").map(String.init)
+        let first = words.first.map { String($0.split(separator: "/").last ?? "") } ?? ""
         var kinds: Set<ApprovalActionKind> = []
         if ["command", "terminal", "exec", "shell", "bash", "run_command"].contains(a) || a.contains("terminal") || a.contains("exec") { kinds.insert(.command) }
-        if BotMessageCall.parse(command: command) != nil { kinds.formUnion([.botMessage, .command]) }
-        if c.contains("code-job") { kinds.formUnion([.codingJob, .command]) }
-        if c.contains("skills install") || c.contains("skill install") || a.contains("skill") { kinds.insert(.skillInstall) }
+        if first == "bot-msg", BotMessageCall.parse(command: command) != nil { kinds.formUnion([.botMessage, .command]) }
+        if first == "code-job" { kinds.formUnion([.codingJob, .command]) }
+        if ["hermes", "openclaw", "clawhub"].contains(first) && words.dropFirst().prefix(2).contains(where: { $0 == "skills" || $0 == "skill" }) && words.contains("install") || a.contains("skill") { kinds.insert(.skillInstall) }
         if ["write", "edit", "patch", "create_file", "delete_file"].contains(where: a.contains) { kinds.insert(.fileWrite) }
         if ["web", "http", "fetch", "browser", "network", "url"].contains(where: a.contains) || ["curl", "wget", "ssh", "scp", "rsync"].contains(first) { kinds.insert(.network) }
         if a.contains("delegate") { kinds.insert(.delegate) }
@@ -43,8 +45,10 @@ struct ApprovalRoute: Identifiable, Codable, Equatable {
     var decision = ApprovalDecisionKind.ask; var reviewerID: UUID? = nil
     var legacyActionPattern: String? = nil
 
-    static func anything(_ decision: ApprovalDecisionKind, reviewer: UUID? = nil) -> ApprovalRoute {
-        ApprovalRoute(name: "Anything", decision: decision, reviewerID: reviewer)
+    /// The derived lines have fixed ids, so a bot's migrated routing compares equal from one read to the next.
+    static let otherwiseID = UUID(uuidString: "5A1E0037-0000-4000-8000-000000000001")!, migratedReviewerID = UUID(uuidString: "5A1E0037-0000-4000-8000-000000000002")!
+    static func anything(_ decision: ApprovalDecisionKind, reviewer: UUID? = nil, id: UUID = UUID()) -> ApprovalRoute {
+        ApprovalRoute(id: id, name: "Anything", decision: decision, reviewerID: reviewer)
     }
 
     func matches(_ facts: ApprovalFacts) -> Bool {
@@ -72,7 +76,7 @@ struct ApprovalRoute: Identifiable, Codable, Equatable {
 /// A bot's lines and its always-present last line "anything else → …" (checked after the SwarmHub-wide lines).
 struct ApprovalRouting: Codable, Equatable {
     var lines: [ApprovalRoute] = []
-    var otherwise = ApprovalRoute.anything(.ask)
+    var otherwise = ApprovalRoute.anything(.ask, id: ApprovalRoute.otherwiseID)
 
     /// D1 lossless migration of the three P8 modes. Ask me: only the last line. Rules: each rule a line (allow → Approve).
     /// Reviewer: allow rules and the catch-all go to the reviewer, ask/deny rules ask (P8 asked on any non-allow owner rule).
@@ -86,7 +90,7 @@ struct ApprovalRouting: Codable, Equatable {
             return ApprovalRouting(lines: rules.map { line($0, $0.outcome == .allow ? .approve : $0.outcome == .deny ? .deny : .ask) })
         case .reviewer:
             var lines = rules.map { $0.outcome == .allow ? line($0, .reviewer, reviewer: reviewerID) : line($0, .ask) }
-            lines.append(.anything(.reviewer, reviewer: reviewerID))
+            lines.append(.anything(.reviewer, reviewer: reviewerID, id: ApprovalRoute.migratedReviewerID))
             return ApprovalRouting(lines: lines)
         }
     }
@@ -99,7 +103,7 @@ struct ApprovalFacts {
         let trimmed = rawAction.trimmingCharacters(in: .whitespacesAndNewlines)
         action = trimmed.isEmpty ? "command" : trimmed; self.command = command
         kinds = ApprovalActionKind.kinds(action: action, command: command)
-        botMessageTo = BotMessageCall.parse(command: command)?.to; botMessageToName = botMessageTo.flatMap(toName)
+        botMessageTo = kinds.contains(.botMessage) ? BotMessageCall.parse(command: command)?.to : nil; botMessageToName = botMessageTo.flatMap(toName)
     }
 }
 
