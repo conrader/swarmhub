@@ -8,7 +8,7 @@ enum SettingsLayout {
     /// Advanced: today's panes re-homed, Avatars folded into Appearance and alerts, nothing new.
     enum AdvancedPane: String, CaseIterable, Identifiable {
         case servers = "Servers and keys", alerts = "Appearance and alerts", models = "Models", review = "Approvals"
-        case computers = "Computers", usage = "Usage", account = "Account", reports = "Reports", about = "About"
+        case apps = "Connected apps", computers = "Computers", usage = "Usage", account = "Account", reports = "Reports", about = "About"
         var id: String { rawValue }
         var icon: String {
             switch self {
@@ -16,6 +16,7 @@ enum SettingsLayout {
             case .alerts: "paintpalette"
             case .models: "cpu"
             case .review: "checkmark.shield"
+            case .apps: "square.stack.3d.up"
             case .computers: "desktopcomputer"
             case .usage: "chart.bar"
             case .account: "person.crop.circle"
@@ -41,7 +42,9 @@ enum SettingsLayout {
     /// New in P21: the simple page's connection controls and its way into Advanced.
     static let added = ["connection.status", "connection.test", "connection.setup", "advanced.open",
                         // P36: the SwarmHub account and the Reports inbox.
-                        "account.swarmhub", "account.serviceURL", "reports.list"]
+                        "account.swarmhub", "account.serviceURL", "reports.list",
+                        // P38 B: connected apps (ChatGPT, Composio apps and each bot's access, background app access).
+                        "apps.chatgpt", "apps.composio", "apps.botAccess", "apps.background"]
 
     static let entries: [(id: String, home: Home)] = [
         ("connection.status", .simple), ("connection.test", .simple), ("connection.setup", .simple), ("you.name", .simple),
@@ -57,6 +60,7 @@ enum SettingsLayout {
         ("usage.table", .advanced(.usage)),
         // P36: the SwarmHub sign-in (sending reports only) and the Reports inbox.
         ("account.swarmhub", .advanced(.account)), ("account.serviceURL", .advanced(.account)), ("reports.list", .advanced(.reports)),
+        ("apps.chatgpt", .advanced(.apps)), ("apps.composio", .advanced(.apps)), ("apps.botAccess", .advanced(.apps)), ("apps.background", .advanced(.apps)),
         ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))
     ]
 

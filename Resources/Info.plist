@@ -26,12 +26,25 @@
 	<string>16</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.konrad.agentapp.sign-in</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>swarmhub</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>SwarmHub connects to an OpenClaw Gateway on your local network only when you add one in Settings.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
+	<key>SWComposioProvisioningURL</key>
+	<string>https://agenthut.net/swarmhub/</string>
 	<key>SUAutomaticallyUpdate</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>

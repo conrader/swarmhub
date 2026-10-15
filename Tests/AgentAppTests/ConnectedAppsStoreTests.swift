@@ -83,3 +83,26 @@ import Testing
     #expect(store.approvals.count == 1, "the same action is not added twice")
     #expect(MockHermesProtocol.recorded(host).allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-user-session" })
 }
+
+@Test func swarmhubLinksAreOnlyTheSignInReturnAndTheBuildCarriesTheSchemeAndService() throws {
+    #expect(AppStore.isSignInReturn(URL(string: "swarmhub://app-connections/sign-in?state=s&code=c")!))
+    for other in ["https://app-connections/sign-in", "swarmhub://elsewhere/sign-in", "swarmhub://app-connections/other", "swarmhub://user:pw@app-connections/sign-in"] {
+        #expect(!AppStore.isSignInReturn(URL(string: other)!), "\(other)")
+    }
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let plist = try #require(NSDictionary(contentsOf: root.appending(path: "Resources/Info.plist")) as? [String: Any])
+    let schemes = (plist["CFBundleURLTypes"] as? [[String: Any]])?.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+    #expect(schemes == ["swarmhub"])
+    let service = try #require((plist["SWComposioProvisioningURL"] as? String).flatMap(URL.init(string:)))
+    #expect(ComposioProvisioningClient.validServiceURL(service))
+    #expect(ComposioProvisioningClient.configuredURL(environment: ["SWARMHUB_COMPOSIO_SERVICE_URL": "https://example.test/swarmhub/"])?.host == "example.test")
+    #expect(ComposioProvisioningClient.configuredURL(environment: ["SWARMHUB_COMPOSIO_SERVICE_URL": "http://example.test/"]) == nil, "only plain https")
+}
+
+@MainActor @Test func connectedAppsServiceHealthSaysWhenSignInIsNotSetUp() async throws {
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    // A test run has no Info.plist service: nothing is checked and nothing is claimed.
+    #expect(store.connectedAppsServiceURL == nil && !store.connectedApps.isAvailable)
+    await store.checkConnectedAppsService()
+    #expect(store.connectedApps.serviceNote == nil)
+}

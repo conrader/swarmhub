@@ -113,6 +113,9 @@ private struct FixtureReviewerBackend: AgentBackend {
                 .defaultAppStorage(store.defaults)
                 .preferredColorScheme(AppTheme.colorScheme(for: snapshotAppearance ?? appearance))
                 .frame(minWidth: 980, minHeight: 620)
+                // P38 B: `swarmhub://` (the sign-in's return to the app) comes to this window instead of opening another.
+                .handlesExternalEvents(preferring: ["swarmhub"], allowing: ["*"])
+                .onOpenURL { store.handleIncomingURL($0) }
         }
             .defaultSize(width: 1120, height: 760)
             .windowStyle(.hiddenTitleBar)

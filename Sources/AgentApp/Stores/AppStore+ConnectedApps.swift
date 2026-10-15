@@ -51,6 +51,19 @@ extension AppStore {
         objectWillChange.send(); save()
     }
 
+    /// `swarmhub://app-connections/sign-in?…`: the browser handing back after the SwarmHub sign-in. The sign-in itself
+    /// finishes by polling the server (`SwarmHubSignIn`), so the link only brings SwarmHub forward and re-reads the apps
+    /// a pending Composio link may have connected. Any other `swarmhub://` link is ignored.
+    @discardableResult func handleIncomingURL(_ url: URL) -> Bool {
+        guard Self.isSignInReturn(url) else { return false }
+        if connectedApps.hasKey, connectedApps.pendingLink != nil { Task { await connectedApps.refresh() } }
+        return true
+    }
+
+    nonisolated static func isSignInReturn(_ url: URL) -> Bool {
+        url.scheme == "swarmhub" && url.host == "app-connections" && url.path == "/sign-in" && url.user == nil && url.password == nil
+    }
+
     // MARK: Background app access
 
     func backgroundExecutionClient() -> BackgroundExecutionClient? {
