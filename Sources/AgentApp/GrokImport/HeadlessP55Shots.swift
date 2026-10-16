@@ -7,7 +7,7 @@ import SwiftUI
 /// code and redacted message). Each session really runs its steps against stand-ins: the account answers from memory
 /// and the audio device never opens a microphone; no Codex process, network or Keychain is touched.
 @MainActor enum HeadlessP55Shots {
-    static let names = ["p55-voice-microphone-off", "p55-voice-chatgpt-refused"]
+    static let names = ["p55-voice-microphone-off", "p55-voice-refused-by-chatgpt"]
 
     /// A connected account with voice enabled whose `thread/realtime/start` is refused like a workspace without voice.
     final class RefusingAccount: VoiceAccount {

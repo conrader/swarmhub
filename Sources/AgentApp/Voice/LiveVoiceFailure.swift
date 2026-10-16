@@ -117,7 +117,7 @@ enum VoiceRedaction {
     static let limit = 300
     /// Runs on the raw text: a header is removed to the end of its line (cookies carry `;`-separated values).
     private static let header = try! NSRegularExpression(pattern:
-        #"(?i)\b(?:authorization|proxy-authorization|cookie|set-cookie|x-[a-z0-9-]+|openai-[a-z0-9-]+|chatgpt-account-id|api-key)[ \t]*:[^\r\n]*"#)
+        #"(?i)\b(?:authorization|proxy-authorization|cookie|set-cookie|x-[a-z0-9-]+|openai-[a-z0-9-]+|[a-z0-9]+-account-id|api-key)[ \t]*:[^\r\n]*"#)
     private static let rules: [(NSRegularExpression, String)] = [
         (#"(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]+"#, "[credential removed]"),
         (#"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?"#, "[token removed]"),
