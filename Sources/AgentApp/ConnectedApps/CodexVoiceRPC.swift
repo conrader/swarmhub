@@ -15,6 +15,16 @@ enum CodexVoiceError: LocalizedError, Equatable {
     }
 }
 
+/// P55: a JSON-RPC error from the app-server, with its code and message. The message is the provider's own text and can
+/// carry headers or tokens: it reaches the screen, the clipboard and the log only through `VoiceRedaction`, and this
+/// error's own description is the fixed line of `fallback`.
+struct CodexRPCError: LocalizedError, Equatable {
+    let code: Int64
+    let message: String
+    var fallback: CodexVoiceError { code == -32601 || code == -32602 ? .invalidResponse : .unavailable }
+    var errorDescription: String? { fallback.errorDescription }
+}
+
 @MainActor protocol CodexVoiceConnection: AnyObject {
     var onNotification: ((String, JSONValue) -> Void)? { get set }
     var onClose: (() -> Void)? { get set }
@@ -142,8 +152,9 @@ enum CodexVoiceError: LocalizedError, Equatable {
         } else if let id = message["id"]?.intValue {
             if let result = message["result"] { complete(id, with: .success(result)) }
             else {
-                let code = message["error"]?["code"]?.intValue
-                complete(id, with: .failure(code == -32601 || code == -32602 ? CodexVoiceError.invalidResponse : CodexVoiceError.unavailable))
+                let error = message["error"]
+                complete(id, with: .failure(CodexRPCError(code: error?["code"]?.intValue ?? 0,
+                                                          message: String((error?["message"]?.stringValue ?? "").prefix(4_000)))))
             }
         }
     }

@@ -161,7 +161,6 @@ private struct DictationStatusRow: View {
     @ObservedObject var dictation: VoiceDictation
     @EnvironmentObject private var store: AppStore
     @Environment(\.openSettings) private var openSettings
-    static let microphoneSettings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
     var body: some View {
         HStack(spacing: 8) {
             if dictation.state == .recording {
@@ -176,7 +175,7 @@ private struct DictationStatusRow: View {
             }
             Spacer()
             if dictation.needsConfiguration { Button("Voice settings") { store.settingsPane = .voice; openSettings() } }
-            if dictation.needsMicrophonePermission { Button("Open Microphone settings") { ExternalLink.open(Self.microphoneSettings) } }
+            if dictation.needsMicrophonePermission { Button("Open Microphone settings") { ExternalLink.open(ExternalLink.microphoneSettings) } }
             Button(dictation.isBusy ? "Cancel" : "Dismiss") { dictation.cancel() }.buttonStyle(.plain)
         }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 6)
     }

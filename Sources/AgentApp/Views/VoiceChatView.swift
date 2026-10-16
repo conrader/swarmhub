@@ -28,12 +28,12 @@ struct VoiceChatView: View {
                 else if let name = voice.contextName, voice.canUseVoice {
                     Toggle("Include recent text from \(name)", isOn: $voice.includeContext).toggleStyle(.checkbox).disabled(voice.isBusy)
                 }
-                if let error = voice.errorMessage { Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                if let failure = voice.failure { VoiceFailureBox(voice: voice, failure: failure) }
             }
             HStack(spacing: 12) {
                 if !voice.canUseVoice {
                     VStack(spacing: 8) {
-                        Text(voice.accessMessage).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        if voice.failure?.step != .account { Text(voice.accessMessage).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center) }
                         Button("Voice settings") { store.settingsPane = .voice; openSettings() }
                     }
                 } else if voice.isLive {
@@ -80,7 +80,9 @@ struct VoiceChatView: View {
     private var status: String {
         switch voice.state {
         case .idle:
-            if voice.canUseVoice { "Ready to talk" }
+            if let failure = voice.failure, failure.step != .account {
+                [.sendAudio, .realtime, .playback].contains(failure.step) ? "Voice stopped" : "Voice did not start"
+            } else if voice.canUseVoice { "Ready to talk" }
             else if voice.account == nil { "ChatGPT connection needed" }
             else if voice.account?.isConnected == true { "Subscription voice unavailable" }
             else { "ChatGPT connection required" }
@@ -88,6 +90,30 @@ struct VoiceChatView: View {
         case .live: voice.isMuted ? "Microphone muted" : "Voice is live"
         case .ending: "Ending voice…"
         }
+    }
+}
+
+/// P55: why voice stopped, kept until "Dismiss" or the next start: the step's own line, the microphone pane when access
+/// is off, and "Copy details" (step, type, code, redacted message).
+struct VoiceFailureBox: View {
+    @ObservedObject var voice: CodexVoiceSession
+    let failure: LiveVoiceFailure
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label { Text(failure.message).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                icon: { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+                .font(.callout).accessibilityIdentifier("voice.error")
+            Text("Step: \(failure.step.title)").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                if failure.opensMicrophoneSettings { Button("Open Microphone settings") { ExternalLink.open(ExternalLink.microphoneSettings) } }
+                Button("Copy details") { voice.copyDetails() }.accessibilityIdentifier("voice.copyDetails")
+                Spacer()
+                Button("Dismiss") { voice.dismissFailure() }.accessibilityIdentifier("voice.dismissError")
+            }.controlSize(.small)
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.orange.opacity(0.35)))
     }
 }
 
