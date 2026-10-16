@@ -10,14 +10,22 @@ enum SidebarFragment {
 
     /// `author` is set for group chats only: it names the bot that wrote a live reply ("<Member>: …"), and archived
     /// lines then use their own author. One-bot chats show the bot's lines bare.
-    /// `working`: the running reply's Thinking, Typing or Working line.
+    /// `working`: the running reply's Thinking, Typing or Working line. P51: `technical` names a folded row's line (a
+    /// group's rows use their author); a technical row reads as that line, and an app result as its request's line.
     static func text(messages: [ChatMessage], draft: String?, isWorking: Bool, archiveNewest: @autoclosure () -> ArchivedMessage?,
-                     author: ((UUID?) -> String?)? = nil, working: String? = nil) -> String {
+                     author: ((UUID?) -> String?)? = nil, working: String? = nil, technical: TechnicalContext = TechnicalContext(botName: "")) -> String {
         if let draft, case let value = plain(draft), !value.isEmpty { return "Draft: " + value }
         if isWorking { return working ?? ChatActivityPhase.thinking.label }
-        for message in messages.reversed() where message.role != .system && !message.isSilent && !message.isSilentHeartbeat {
+        for index in messages.indices.reversed() {
+            let message = messages[index]
+            guard message.role != .system && !message.isSilent && !message.isSilentHeartbeat else { continue }
+            var context = technical
+            if let name = author?(message.authorID) { context.botName = name }
+            let previous = index > 0 ? messages[index - 1] : nil, next = index + 1 < messages.count ? messages[index + 1] : nil
+            if message.role == .user, TechnicalRow.isAppResult(message.content), let previous, previous.role == .assistant, TechnicalRow.isAppRequest(previous.content) { continue }
+            if let fold = TechnicalRow.classify(message, next: next, isLast: next == nil, context: context) { return plain(fold.summary) }
             // P45: what SwarmHub sent by itself reads as its short form ("Heartbeat", "Continue toward the goal").
-            let body = plain(message.role == .assistant ? SwarmhubBlock.visibleText(message.finalText) : message.metadata[AutomationKey.display] ?? message.content)
+            let body = plain(TechnicalRow.displayLine(message, context: context))
             let value = body.isEmpty ? (message.attachments.first.map { "Attachment: " + $0.name } ?? "") : body
             guard !value.isEmpty else { continue }
             return prefixed(value, isUser: message.role == .user, author: message.role == .assistant ? author?(message.authorID) : nil)

@@ -161,7 +161,8 @@ extension AppStore {
                 row.activity = new.activity
                 return row
             }
-            added += rows.filter { $0.role == .assistant && !$0.isSilent }.count
+            // P51: an app request (its result is a user row) counts as no unread by itself.
+            added += rows.filter { $0.role == .assistant && !$0.isSilent && !TechnicalRow.isAppRequest($0.content) }.count
             if let after = addition.after {
                 guard let index = conversation.messages.firstIndex(where: { $0.id == after }) else { continue }
                 conversation.messages.insert(contentsOf: rows, at: index + 1)

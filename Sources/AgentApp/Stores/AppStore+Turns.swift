@@ -177,7 +177,7 @@ extension AppStore {
         }
         if outcome.state == .finished && hasText && !SilentReply.isSilent(SwarmhubBlock.visibleText(assistant.finalText)) {
             AvatarReactions.shared.completed(bot)
-            if !isTeamThread(conversation) { notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.finalText)) }
+            if !isTeamThread(conversation) { notifyIfNeeded(bot: bot, message: technicalLine(assistant, botName: bot.name)) }
         }
         // P45: a stop for a typed correction (P28) is not the user stopping the goal; the correction's own turn continues it.
         let corrected = turns.correcting.contains(token)

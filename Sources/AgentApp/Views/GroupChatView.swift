@@ -10,7 +10,8 @@ struct GroupChatView: View {
     @Environment(\.grokHistoryExpanded) private var historyExpanded
 
     var body: some View {
-        let members = store.members(of: group), shown = group.messages.filter { !$0.isSilent }
+        let members = store.members(of: group), all = group.messages.filter { !$0.isSilent }
+        let layout = store.technicalLayout(all, in: group), shown = layout.visible(all)
         let _ = viewport.show(group.id, order: shown.map(\.id))
         VStack(spacing: 0) {
             HStack(spacing: 11) {
@@ -36,7 +37,8 @@ struct GroupChatView: View {
                         if group.messages.isEmpty { Text("Message everyone, or address one bot with @name.").font(.caption).foregroundStyle(.secondary).padding(.vertical, 12) }
                         ForEach(shown) { message in
                             GroupMessageRow(message: message, author: message.authorID.flatMap { id in store.bots.first { $0.id == id } },
-                                            repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }, groupID: group.id).id(message.id).chatRow(message.id, in: viewport)
+                                            repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }, groupID: group.id,
+                                            fold: layout.folds[message.id], partner: layout.folds[message.id]?.partnerID.flatMap { id in all.first { $0.id == id } }).id(message.id).chatRow(message.id, in: viewport)
                         }
                         WorkflowView(group: group)
                         ForEach(store.approvals.filter(isGroupApproval)) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
@@ -50,7 +52,7 @@ struct GroupChatView: View {
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy) }
             }
             if let reply = store.replyTo {
-                HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
+                HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(store.technicalLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
             }
             Toggle("Work together", isOn: $workTogether).toggleStyle(.switch).font(.caption).padding(.horizontal, 28)
@@ -101,6 +103,7 @@ struct GroupChatView: View {
 private struct GroupMessageRow: View {
     @EnvironmentObject private var store: AppStore
     let message: ChatMessage; let author: Bot?; let repliedMessage: ChatMessage?; let groupID: UUID
+    var fold: TechnicalFold? = nil; var partner: ChatMessage? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if message.role == .assistant {
@@ -110,7 +113,7 @@ private struct GroupMessageRow: View {
                 }.padding(.horizontal, 28).padding(.top, 8)
             }
             MessageView(message: message, repliedMessage: repliedMessage,
-                        actionTarget: message.authorID.map { .group(groupID: groupID, botID: $0) }, reply: { store.replyTo = message })
+                        actionTarget: message.authorID.map { .group(groupID: groupID, botID: $0) }, fold: fold, partner: partner, reply: { store.replyTo = message })
         }
     }
 }
