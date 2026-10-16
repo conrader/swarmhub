@@ -29,7 +29,9 @@ enum AccountProfileName {
                            "display_name", "displayName", "real_name", "name"]
     static let slackUserKeys = nameKeys + ["user"]
     static let slackTeamKeys = ["team", "team_name", "workspace", "workspace_name"]
-    static let nameLimit = 80, searchDepth = 6
+    /// The only objects under `data` a name is read from (one level, never an array): names feed P52's own-address list.
+    static let identityObjects = ["user", "profile", "me", "viewer", "account", "owner"]
+    static let nameLimit = 80
 
     /// An identity tool of `toolkit` among `tools`: its slug ends with one of `identityEndings`, P52 classifies it as a
     /// read, and it has no required arguments.
@@ -44,17 +46,19 @@ enum AccountProfileName {
         return nil
     }
 
-    /// The name in an execute result: `data` (decoded when Composio sent it as a JSON string) and everything under it,
-    /// searched breadth-first to `searchDepth` for `nameKeys` in order. Slack: "user @ team" when both are there.
+    /// The name in an execute result, read only from the identity fields: the result itself, its `data` (decoded when
+    /// Composio sent it as a JSON string) and the `identityObjects` directly under `data`, for `nameKeys` in order.
+    /// Never an array, never deeper. Slack: "user @ team" when both are there (a team object: its name).
     static func read(_ result: ComposioValue, toolkit: String) -> Found? {
         guard result["successful"].bool != false else { return nil }
         let tree = decoded(result)
-        if toolkit == "slack", let user = search(slackUserKeys, in: tree, skipping: Set(slackTeamKeys), accept: \.string) {
-            let team = search(slackTeamKeys, in: tree) { $0.string ?? $0["name"].string } // a team object: its name
+        let places = identityPlaces(tree, objects: identityObjects)
+        if toolkit == "slack", let user = search(slackUserKeys, in: places, accept: \.string) {
+            let team = search(slackTeamKeys, in: identityPlaces(tree, objects: [])) { $0.string ?? $0["name"].string }
             guard let team, team.name != user.name else { return user }
             return Found(name: String("\(user.name) @ \(team.name)".prefix(nameLimit)), path: "\(user.path) @ \(team.path)")
         }
-        return search(nameKeys, in: tree, accept: \.string)
+        return search(nameKeys, in: places, accept: \.string)
     }
 
     /// `data` and `response_data` that arrive as JSON strings, decoded (any depth).
@@ -84,25 +88,18 @@ enum AccountProfileName {
         return try? JSONDecoder().decode(ComposioValue.self, from: Data(text.utf8))
     }
 
-    /// For each key in order, the shallowest usable value under it (keys at one level in sorted order).
-    private static func search(_ keys: [String], in tree: ComposioValue, skipping: Set<String> = [], accept: (ComposioValue) -> String?) -> Found? {
+    /// The objects a name may come from, in this order: the result, its `data`, and each of `objects` under `data`.
+    private static func identityPlaces(_ tree: ComposioValue, objects: [String]) -> [(value: ComposioValue, path: String)] {
+        let data = tree["data"]
+        guard data.object != nil else { return [(tree, "")] }
+        return [(tree, ""), (data, "data")] + objects.filter { data[$0].object != nil }.map { (data[$0], "data.\($0)") }
+    }
+
+    /// For each key in order, the first usable value under it in `places` (in their order).
+    private static func search(_ keys: [String], in places: [(value: ComposioValue, path: String)], accept: (ComposioValue) -> String?) -> Found? {
         for key in keys {
-            var level: [(value: ComposioValue, path: String)] = [(tree, "")]
-            for _ in 0...searchDepth where !level.isEmpty {
-                var next: [(value: ComposioValue, path: String)] = []
-                for (value, path) in level {
-                    switch value {
-                    case .object(let fields):
-                        for name in fields.keys.sorted() {
-                            let child = fields[name]!, childPath = path.isEmpty ? name : "\(path).\(name)"
-                            if name == key, let text = accept(child).flatMap(clean) { return Found(name: text, path: childPath) }
-                            if !skipping.contains(name) { next.append((child, childPath)) }
-                        }
-                    case .array(let items): next += items.enumerated().map { ($0.element, "\(path)[\($0.offset)]") }
-                    default: break
-                    }
-                }
-                level = next
+            for (value, path) in places {
+                if let text = accept(value[key]).flatMap(clean) { return Found(name: text, path: path.isEmpty ? key : "\(path).\(key)") }
             }
         }
         return nil

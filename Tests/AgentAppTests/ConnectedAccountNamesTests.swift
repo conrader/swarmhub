@@ -118,8 +118,8 @@ private final class NamingComposio: @unchecked Sendable {
 }
 
 @Test func profileNamesAreReadFromNameKeysOnly() {
-    let result = ComposioValue.object(["successful": .bool(true), "data": .object(["response_data": .object(["login": .string(" octo ")]), "token": .string("x")])])
-    #expect(AccountProfileName.read(result, toolkit: "github") == .init(name: "octo", path: "data.response_data.login"))
+    let result = ComposioValue.object(["successful": .bool(true), "data": .object(["login": .string(" octo "), "token": .string("x")])])
+    #expect(AccountProfileName.read(result, toolkit: "github") == .init(name: "octo", path: "data.login"))
     #expect(AccountProfileName.read(.object(["successful": .bool(false), "data": .object(["login": .string("octo")])]), toolkit: "github") == nil)
     #expect(AccountProfileName.read(.object(["data": .object(["login": .string("two\nlines")])]), toolkit: "github") == nil)
     #expect(AccountProfileName.known["gmail"]?.first?.tool == "GMAIL_GET_PROFILE" && AccountProfileName.known["github"]?.first?.tool == "GITHUB_GET_THE_AUTHENTICATED_USER")

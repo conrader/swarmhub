@@ -14,10 +14,10 @@ private func result(_ data: [String: Any], asString: Bool) throws -> ComposioVal
 nonisolated(unsafe) private let appResults: [(toolkit: String, data: [String: Any], name: String, path: String)] = [
     ("gmail", ["emailAddress": "konrad@example.com", "messagesTotal": 12, "historyId": "991"], "konrad@example.com", "data.emailAddress"),
     ("github", ["login": "conrader", "id": 8105013, "name": "Konrad S"], "conrader", "data.login"),
-    ("googlecalendar", ["response_data": ["email": "konrad@example.com", "id": "primary"]], "konrad@example.com", "data.response_data.email"),
+    ("googlecalendar", ["email": "konrad@example.com", "id": "primary"], "konrad@example.com", "data.email"),
     ("googledrive", ["user": ["displayName": "Konrad S", "emailAddress": "konrad@example.com", "kind": "drive#user"]], "konrad@example.com", "data.user.emailAddress"),
     ("notion", ["object": "user", "name": "Konrad", "bot": ["owner": ["user": ["name": "Konrad S", "person": ["email": "konrad@example.com"]]]]],
-     "konrad@example.com", "data.bot.owner.user.person.email"),
+     "Konrad", "data.name"),
     ("slack", ["ok": true, "user": "konrad", "team": "Plainsay", "user_id": "U1", "team_id": "T1"], "konrad @ Plainsay", "data.user @ data.team"),
 ]
 
@@ -46,6 +46,47 @@ nonisolated(unsafe) private let appResults: [(toolkit: String, data: [String: An
     #expect(AccountProfileName.read(try result(["name": String(repeating: "a", count: 200)], asString: false), toolkit: "linear")?.name.count == 80)
     let shape = AccountProfileName.shape(try result(["id": "123456", "kind": "user"], asString: true))
     #expect(shape.contains("data: object") && shape.contains("data object {id: string, kind: string}") && !shape.contains("123456"))
+}
+
+@Test func aNameInAnArrayOrADeepUnrelatedObjectIsIgnored() throws {
+    let inArray = try result(["members": [["email": "colleague@example.com"]], "users": [["login": "other"]]], asString: true)
+    let deep = try result(["thread": ["from": ["emailAddress": "sender@example.com"]], "user": ["profile": ["email": "deeper@example.com"]]], asString: false)
+    let arrayUnderUser = try result(["user": ["emails": ["a@example.com"], "contacts": [["email": "b@example.com"]]], "id": "u1"], asString: false)
+    for value in [inArray, deep, arrayUnderUser] { #expect(AccountProfileName.read(value, toolkit: "linear") == nil) }
+    #expect(AccountProfileName.read(.object(["successful": .bool(true), "data": .array([.object(["email": .string("x@example.com")])])]), toolkit: "linear") == nil)
+    let both = try result(["profile": ["login": "konrad"], "me": ["email": "konrad@example.com"], "team": ["owner": ["email": "boss@example.com"]]], asString: true)
+    #expect(AccountProfileName.read(both, toolkit: "linear") == .init(name: "konrad@example.com", path: "data.me.email"), "key order across the identity objects")
+    #expect(AccountProfileName.read(.object(["successful": .bool(true), "email": .string("top@example.com")]), toolkit: "linear") == .init(name: "top@example.com", path: "email"))
+}
+
+/// Composio whose gmail and github results hold an address only in an array or a deep unrelated object.
+private func ignoredNameHandler(_ request: URLRequest) -> (Int, Any) {
+    let path = request.url!.path
+    if path.hasSuffix("connected_accounts"), request.httpMethod == "GET" {
+        return (200, ["items": [("ca_mail", "gmail"), ("ca_hub", "github")].map { id, app -> [String: Any] in
+            ["id": id, "toolkit": ["slug": app], "status": "ACTIVE", "is_disabled": false, "alias": NSNull(), "created_at": "2026-10-16T08:00:00Z"]
+        }])
+    }
+    if path.hasSuffix("tool_router/session"), request.httpMethod == "POST" { return (201, ["session_id": "trs_ignored"]) }
+    if path.hasSuffix("/execute") {
+        switch composioBody(request)["tool_slug"] as? String {
+        case "GMAIL_GET_PROFILE": return (200, ["successful": true, "data": #"{"messages":[{"from":{"emailAddress":"sender@example.com"}}],"historyId":"9"}"#])
+        case "GITHUB_GET_THE_AUTHENTICATED_USER": return (200, ["successful": true, "data": ["id": 1, "plan": ["owner": ["login": "someone-else"]]]])
+        default: return (404, ["error": ["message": "no such tool"]])
+        }
+    }
+    if request.httpMethod == "PATCH" { return (200, ["id": "x"]) }
+    if request.httpMethod == "DELETE" { return (200, ["deleted": true]) }
+    return (404, ["error": "no synthetic route"])
+}
+
+@MainActor @Test func anAccountWhoseOnlyAddressIsInAnArrayOrDeepKeepsItsFallback() async throws {
+    let (apps, host, _) = composioFixture(handler: ignoredNameHandler)
+    await apps.refresh()
+    let labels = Dictionary(uniqueKeysWithValues: apps.accounts.map { ($0.id, $0.label) })
+    #expect(labels["ca_mail"]?.hasPrefix("Gmail account 1") == true && labels["ca_hub"]?.hasPrefix("GitHub account 1") == true)
+    #expect(!MockHermesProtocol.recorded(host).contains { $0.httpMethod == "PATCH" }, "no alias from an array or a deep object")
+    #expect(apps.namingRetryAfter.keys.sorted() == ["ca_hub", "ca_mail"])
 }
 
 @Test func discoveryPicksOnlyReadOnlyToolsWithoutRequiredArguments() throws {
