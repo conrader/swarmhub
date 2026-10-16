@@ -69,6 +69,7 @@ struct ConnectAppsModal: View {
                 Button("Done") { dismiss() }.keyboardShortcut(search.text.isEmpty ? .cancelAction : nil)
             }
             Text(ConnectedAppsCopy.composioExplanation).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Label(ConnectedAppsCopy.approvalRule, systemImage: "hand.raised").font(.callout)
             Button("Learn more about Composio") { ExternalLink.open(ConnectedAppsCopy.composioSite) }.buttonStyle(.link).font(.callout)
         }
     }

@@ -49,6 +49,8 @@ struct ComposioRunScope: Sendable {
     /// P48: accounts whose name SwarmHub is reading now ("Getting the account name…"), and those it tried this launch.
     @Published var namingAccounts: Set<String> = []
     var namingAttempted: Set<String> = []
+    /// P52: read or write per tool slug (`access(of:)`), memory only.
+    var toolAccess: [String: AppToolAccess] = [:]
     let approvals = AppToolApprovalBroker()
     /// The app action cards SwarmHub made itself (by card id). Only these are decided locally; an approval from a bot's
     /// server is never treated as an app action, whatever its action kind says.

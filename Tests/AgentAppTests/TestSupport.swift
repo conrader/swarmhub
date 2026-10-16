@@ -259,7 +259,8 @@ final class MockHermesProtocol: URLProtocol, @unchecked Sendable {
         }
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: (try? JSONSerialization.data(withJSONObject: body)) ?? Data())
+        // P52: a `Data` body is sent as it is (an answer that is not JSON).
+        client?.urlProtocol(self, didLoad: (body as? Data) ?? (try? JSONSerialization.data(withJSONObject: body)) ?? Data())
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

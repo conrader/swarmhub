@@ -111,9 +111,9 @@ import Testing
 @Test func composioProtocolRejectsMalformedAndQuotedRequests() throws {
     let marker = "[[SWARMHUB_APP_REQUEST_123]]"
     #expect(try AppToolRequest.parse("Example: " + marker + "\n{}", marker: marker) == nil)
-    #expect(throws: ComposioError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"execute\",\"tool\":\"COMPOSIO_REMOTE_WORKBENCH\",\"arguments\":{}}", marker: marker) }
-    #expect(throws: ComposioError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"search\",\"query\":\"gmail\",\"account\":\"foreign\"}", marker: marker) }
-    #expect(throws: ComposioError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"search\",\"query\":\"gmail\"} extra text", marker: marker) }
+    #expect(throws: AppRequestError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"execute\",\"tool\":\"COMPOSIO_REMOTE_WORKBENCH\",\"arguments\":{}}", marker: marker) }
+    #expect(throws: AppRequestError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"search\",\"query\":\"gmail\",\"account\":\"foreign\"}", marker: marker) }
+    #expect(throws: AppRequestError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"search\",\"query\":\"gmail\"} extra text", marker: marker) }
 }
 
 @MainActor @Test func composioStopCancelsApprovalWaiter() async throws {
