@@ -70,15 +70,18 @@ struct StoreFile: Codable {
     var automations: [String: ChatAutomation]?
     /// P46: the heartbeat template, each bot's plan and its "Bot Chat" title; absent while empty.
     var heartbeat: HeartbeatSettings?
+    /// P50: each chat's top visible message (conversation id → message id); absent while empty.
+    var scrollPositions: [String: String]?
 
     init(bots: [Bot], groups: [GroupChat], modelDefaults: ModelDefaults? = nil, approvalRoutes: [ApprovalRoute]? = nil, reviewAfter: [ReviewAfterRule]? = nil,
          boxReadings: [String: BoxReadings]? = nil, botMessageMarks: [String: [String: String]]? = nil, automations: [String: ChatAutomation]? = nil,
-         heartbeat: HeartbeatSettings? = nil) {
+         heartbeat: HeartbeatSettings? = nil, scrollPositions: [String: String]? = nil) {
         self.bots = bots; self.groups = groups; self.modelDefaults = modelDefaults; self.approvalRoutes = approvalRoutes; self.reviewAfter = reviewAfter
         self.boxReadings = boxReadings; self.botMessageMarks = botMessageMarks; self.automations = automations; self.heartbeat = heartbeat
+        self.scrollPositions = scrollPositions
     }
 
-    enum CodingKeys: CodingKey { case version, bots, groups, modelDefaults, approvalRoutes, reviewAfter, boxReadings, botMessageMarks, automations, heartbeat }
+    enum CodingKeys: CodingKey { case version, bots, groups, modelDefaults, approvalRoutes, reviewAfter, boxReadings, botMessageMarks, automations, heartbeat, scrollPositions }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
@@ -90,6 +93,7 @@ struct StoreFile: Codable {
         botMessageMarks = (try? c.decodeIfPresent([String: [String: String]].self, forKey: .botMessageMarks)) ?? nil
         automations = (try? c.decodeIfPresent([String: ChatAutomation].self, forKey: .automations)) ?? nil
         heartbeat = (try? c.decodeIfPresent(HeartbeatSettings.self, forKey: .heartbeat)) ?? nil
+        scrollPositions = (try? c.decodeIfPresent([String: String].self, forKey: .scrollPositions)) ?? nil
     }
 
     static func decode(_ data: Data) throws -> StoreFile {

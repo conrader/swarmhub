@@ -6,11 +6,12 @@ struct GroupChatView: View {
     @State private var draft = ""; @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
     @State private var planningWorkflow = false
     @State private var workTogether = false
-    @State private var showProjectContext = false
+    @State private var showProjectContext = false; @State private var viewport = ChatViewport()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
 
     var body: some View {
-        let members = store.members(of: group)
+        let members = store.members(of: group), shown = group.messages.filter { !$0.isSilent }
+        let _ = viewport.show(group.id, order: shown.map(\.id))
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
@@ -33,17 +34,21 @@ struct GroupChatView: View {
                         Color.clear.frame(height: 20)
                         if group.grokSourceID != nil { GrokHistoryView(archiveID: group.id, count: group.grokHistoryCount, ownerName: group.name, expanded: historyExpanded) }
                         if group.messages.isEmpty { Text("Message everyone, or address one bot with @name.").font(.caption).foregroundStyle(.secondary).padding(.vertical, 12) }
-                        ForEach(group.messages.filter { !$0.isSilent }) { message in
+                        ForEach(shown) { message in
                             GroupMessageRow(message: message, author: message.authorID.flatMap { id in store.bots.first { $0.id == id } },
-                                            repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }, groupID: group.id).id(message.id)
+                                            repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }, groupID: group.id).id(message.id).chatRow(message.id, in: viewport)
                         }
                         WorkflowView(group: group)
                         ForEach(store.approvals.filter(isGroupApproval)) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
-                        Color.clear.frame(height: 1).id("bottom")
+                        ChatBottomMarker(viewport: viewport, conversationID: group.id)
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity)
-                }.background(AppColor.chat)
-                .onChange(of: group.messages.last?.content) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
-                .onChange(of: group.messages.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+                }.id(group.id).background(AppColor.chat)
+                // P50: opens where it was left; new rows and streaming text follow only at the bottom.
+                .overlay(alignment: .bottom) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, proxy: proxy) }
+                .task(id: group.id) { await viewport.open(group.id, model: store.chatScroll, proxy: proxy) }
+                .onDisappear { store.save() }
+                .onChange(of: shown.last?.content) { _, _ in viewport.grew(proxy: proxy) }
+                .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy) }
             }
             if let reply = store.replyTo {
                 HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
@@ -79,6 +84,7 @@ struct GroupChatView: View {
     }
     private func send() {
         let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
+        store.chatScroll.toBottom(group.id) // P50: sending always goes to the bottom.
         if workTogether, let coordinator = store.members(of: group).first {
             guard intake.items.isEmpty else { store.errorMessage = "Add documents through shared project context or send them in a regular group round first."; return }
             let roster = store.members(of: group)
