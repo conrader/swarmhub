@@ -1,0 +1,1 @@
+Initial run: 30 harness tests, 1 failure. Catalog parser allowed newline in title and swallowed scenario bodies. Fixed title regex to stop at newline; rerun required. No app/backend executed.

@@ -1,0 +1,796 @@
+{
+  "schema": "swarmhub-qa/1",
+  "run_id": "20261016T210850-22157e",
+  "at": "2026-10-16T21:08:50.506800+00:00",
+  "mode": "offline",
+  "host": "Linux",
+  "commit": "ed9c70a5c680bbbb4d59c23df41f50a0a285b243",
+  "tests": {
+    "run": 33,
+    "failures": 0,
+    "errors": 0
+  },
+  "live_app_executed": false,
+  "uncertain_live_scope": false,
+  "catalog_sha256": "86064db57ba3a0cc5691574f94c957301f45eea86f1a8782ce3df75c7f7508b2",
+  "source_findings": [
+    {
+      "id": "S01",
+      "scenario": "A01",
+      "title": "Goal reached follows model done without an evidence gate",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Stores/AppStore+Goals.swift",
+      "line": 110,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S02",
+      "scenario": "A02",
+      "title": "Restore clears goal and loop awaiting flags",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Stores/AppStore+Automation.swift",
+      "line": 81,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S03",
+      "scenario": "A02",
+      "title": "Reconnect ticks automation before recovery/reconciliation",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Stores/ConnectivityMonitor.swift",
+      "line": 68,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S04",
+      "scenario": "A06",
+      "title": "Repause intent is cleared before best-effort pause",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Stores/AppStore+Routines.swift",
+      "line": 156,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S05",
+      "scenario": "A06",
+      "title": "Routine cursor saves before asynchronous delivery",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Stores/AppStore+Routines.swift",
+      "line": 141,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S06",
+      "scenario": "F08",
+      "title": "Draft send forwards Send it and records local acceptance",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Stores/AppStore+CardActions.swift",
+      "line": 53,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S07",
+      "scenario": "B06",
+      "title": "Slash retry falls back to last user message",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Stores/AppStore+SlashCommands.swift",
+      "line": 84,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S08",
+      "scenario": "F06",
+      "title": "Model command uses bot-level switch despite thread context",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Stores/AppStore+SlashCommands.swift",
+      "line": 58,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S09",
+      "scenario": "F06",
+      "title": "Draft persistence uses bot ID for main and threads",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Views/ChatView.swift",
+      "line": 88,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S10",
+      "scenario": "F05",
+      "title": "Main chat content changes scroll to bottom unconditionally",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Views/ChatView.swift",
+      "line": 56,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S11",
+      "scenario": "A05",
+      "title": "Heartbeat minute window is floored to hours",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Models/BotHeartbeat.swift",
+      "line": 30,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S12",
+      "scenario": "A11",
+      "title": "Orientation marked complete on local send acceptance",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Stores/AppStore+Orientation.swift",
+      "line": 67,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S13",
+      "scenario": "A13",
+      "title": "Peer profile lookup selects first match without connection",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/Stores/AppStore+BotMessages.swift",
+      "line": 35,
+      "runtime_reproduced": false
+    },
+    {
+      "id": "S14",
+      "scenario": "A17",
+      "title": "Background execution routes explicitly undeployed",
+      "status": "source-confirmed",
+      "file": "Sources/AgentApp/ConnectedApps/BackgroundExecutionClient.swift",
+      "line": 5,
+      "runtime_reproduced": false
+    }
+  ],
+  "results": [
+    {
+      "id": "A01",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Standing goal lifecycle, subgoals and truthful done",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A02",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Restart/reconnect with unknown goal or loop result",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A03",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Loops, failures, busy chats and cost",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A04",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Standing backlog and the next-job contract",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A05",
+      "status": "blocked",
+      "reason": "Heartbeat uses reserved swarmhub-heartbeat/Bot Chat names; QA-only scope cannot safely mutate it. Minute/DST behavior is source-reviewed only.",
+      "title": "Server heartbeat, silence, local time and DST",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "A06",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Routines while away; re-pause and result recovery",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A07",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Team dispatch, help, reviews and budget exhaustion",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A08",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Team lifecycle, pause/cancel/stop and dispatcher ownership",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A09",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Approval queue when user is absent",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A10",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Approval routing, final denials and review limits",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A11",
+      "status": "blocked",
+      "reason": "Real bot provisioning/orientation and global quiet-hour clock manipulation are outside the QA chat/routine allowlist.",
+      "title": "Orientation promises, unavailable bot and recovery",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "A12",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Peer asks, late replies, held and priority delivery",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A13",
+      "status": "blocked",
+      "reason": "Requires two real QA Hermes boxes and stable connection+profile identity; no second connection supplied.",
+      "title": "Two boxes with identical profile names",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "A14",
+      "status": "blocked",
+      "reason": "Real detached CLI jobs/host kills exceed QA chat/routine allowlist; recording-only tools cannot validate durable real job supervision.",
+      "title": "Detached jobs: completion, failure, fallback and orphan",
+      "grok": "missing",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "A15",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Stuck/silent work and observability timeout",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A16",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Shared memory and review across independent work",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "A17",
+      "status": "blocked",
+      "reason": "Generic event trigger/background worker is a source-confirmed missing capability; no fake implementation supplied.",
+      "title": "Event/webhook triggers and background app execution",
+      "grok": "missing",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "A18",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Stop all unwanted unattended work and account for cost",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "F01",
+      "status": "blocked",
+      "reason": "First-run/reset/sample state modifies the app globally; requires an isolated native QA launch and UI adapter.",
+      "title": "First run, samples, cancellation",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F02",
+      "status": "blocked",
+      "reason": "Connection setup/key changes are not permitted by the QA chat/routine allowlist.",
+      "title": "Hermes setup/discovery and degraded capabilities",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F03",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Chat, Markdown, quote/reaction, sidebar state",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "F04",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Draft retention and keyboard navigation",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F05",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Long chats and reading while streaming",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F06",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Thread navigation, composer scope and coding role",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "F07",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Attachments, extraction, media and refusal states",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F08",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Choice and outbound draft cards",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "F09",
+      "status": "blocked",
+      "reason": "Backend bot creation/retirement is outside the allowlist.",
+      "title": "Local bot versus backend bot management",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F10",
+      "status": "blocked",
+      "reason": "This brief authorizes the real Hermes loop; no real disposable OpenClaw target is supplied.",
+      "title": "OpenClaw connect, capability changes, and forget",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F11",
+      "status": "blocked",
+      "reason": "Global model defaults, coding-account login and provider fault injection are outside the allowlist.",
+      "title": "Model defaults, switching and coding accounts",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F12",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Routine CRUD and normal result",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "F13",
+      "status": "blocked",
+      "reason": "Real OAuth/accounts/connectors forbidden. Only record-only connector testing is permitted; no fake authorization success.",
+      "title": "Connect first app and choose among accounts",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F14",
+      "status": "blocked",
+      "reason": "Real OAuth/account mutation forbidden; no browser authorization is automated.",
+      "title": "Abandoned and second-account authorization",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F15",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Manual decisions, rules and audit",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "F16",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Reviewer and review-after",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "F17",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Ordinary groups and mentions",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "F18",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Planned versus Work together flow",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "F19",
+      "status": "blocked",
+      "reason": "Real bot provisioning and app-global orientation changes are outside the allowlist.",
+      "title": "New-bot orientation",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F20",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Shared context and skills",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "F21",
+      "status": "blocked",
+      "reason": "User Grok history/real-data import forbidden; synthetic import needs an isolated native import adapter.",
+      "title": "Grok history and template import",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F22",
+      "status": "blocked",
+      "reason": "Global settings/notification permissions/appearance need a native isolated UI adapter; no app-global changes allowed.",
+      "title": "Settings, usage, notifications and appearance",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F23",
+      "status": "blocked",
+      "reason": "Microphone, computer control and voice credentials are outside the allowlist.",
+      "title": "Computer, dictation, spoken and separate voice conversations",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F24",
+      "status": "blocked",
+      "reason": "Feedback sending and updater network actions are outside the allowlist; no real reports sent.",
+      "title": "Feedback reports and update flow",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "F25",
+      "status": "blocked",
+      "reason": "Requires iOS hardware/simulator and separate mobile adapter; Mac driver cannot certify mobile.",
+      "title": "Actual iOS foundation and away-from-Mac limits",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "B01",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Answer and stream",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "B02",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Tools and final answer order",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "B03",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Stop",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "B04",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Steer/correction",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "B05",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Explicit unsent retry",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "B06",
+      "status": "blocked",
+      "reason": "Slash retry fault recipe not implemented; source probe documents replay risk without sending it.",
+      "title": "`/retry` after interrupted delivery",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "B07",
+      "status": "blocked",
+      "reason": "Linux/offline source and harness checks only; no app/backend contacted",
+      "title": "Restart and delayed final text",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "partial",
+      "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+    },
+    {
+      "id": "B08",
+      "status": "blocked",
+      "reason": "App/server-wide outage and provider 429/500 injection unavailable without forbidden backend substitution.",
+      "title": "Offline, backend outage and model overload",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "B09",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Long history and concurrency",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "B10",
+      "status": "blocked",
+      "reason": "Backend rebinding/global keys are outside the allowlist.",
+      "title": "Backend switch and feature loss",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U01",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Creation/onboarding mental model",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U02",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Find work and blockers",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U03",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Empty states and disabled controls",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U04",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Loading, cancellation and errors",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U05",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Labels and inconsistent words",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U06",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Quiet-hour settings",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U07",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Click count and navigation",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U08",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Reading and drafts",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U09",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Keyboard and command surprises",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U10",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Accessibility labels and focus",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U11",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Dark/light/contrast and reduced motion",
+      "grok": "matches",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    },
+    {
+      "id": "U12",
+      "status": "blocked",
+      "reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+      "title": "Fixed layouts and long labels",
+      "grok": "worse",
+      "variant": "safe-core",
+      "coverage": "design-only",
+      "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+    }
+  ]
+}

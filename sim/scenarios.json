@@ -1,0 +1,1462 @@
+[
+  {
+    "id": "A01",
+    "title": "Standing goal lifecycle, subgoals and truthful done",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Settings → Advanced → Chats set 3 rounds/0.5 hours. 2. In Worker send `/goal Produce a verified three-item QA list`; `/subgoal Include expected results`; `/goal status`. 3. Use fixture replies: ordinary partial, structured blocked with a named need, then Resume; structured done without any evidence. 4. Repeat Pause/Clear/Stop, time-limit and round-limit. 5. Change default limits mid-goal; inspect active run.\n**Expected:** Each continuation shows why it woke; no next round while blocked/paused; status includes limits, criteria, need and last summary; stop reason persists. Product acceptance: unsupported done claim is “bot reports done” pending verification, not verified success. Source currently displays **Goal reached** directly from `GoalProtocol.report`.\n**Failure signs:** false green completion, blocked goal absent from status/attention, paused goal still launches queued work, changed criteria omitted, duration suggests hard running-tool cap though only checked between turns.\n**Likely locations:** `Stores/AppStore+Goals.swift:83`, `:101`, `Models/ChatAutomation.swift:65`, `Views/AutomationViews.swift:13`, `Views/TurnStateFooter.swift` (`needsAttention`).\n**Grok:** G3 persists goal/rules/next work; G8 verifies before done. **Swarm: worse**, S/L/R.",
+    "steps": [
+      {
+        "op": "goal.start",
+        "prompt": "list"
+      },
+      {
+        "op": "goal.subgoal"
+      },
+      {
+        "op": "goal.pause"
+      },
+      {
+        "op": "goal.clear"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "goal_active",
+        "equals": false
+      },
+      {
+        "kind": "count",
+        "key": "dispatch_after_clear",
+        "equals": 0
+      },
+      {
+        "kind": "state",
+        "key": "goal_subgoal_visible",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "goal.checkpoints"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A02",
+    "title": "Restart/reconnect with unknown goal or loop result",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Start a goal whose harmless tool sleeps then increments a disposable counter once. 2. Quit after remote acceptance, before completion. 3. Reopen while fixture delays history reads; record whether a continuation POST occurs before history GET completes. 4. Repeat network down/up instead of quit. 5. Repeat `/loop 1m Return QA-A02 --times 1`, quit during its only turn, reopen after due time. 6. Compare ordinary queued-message recovery and team recovery.\n**Expected:** Reconcile prior accepted/uncertain run first; consume recovered done/blocked result before next round; never exceed `--times 1`; no duplicate real action. Current automation restore clears awaiting state; ticker starts during AppStore initialization; reconnect calls automationTick before reconcile. `runLoopIfDue` has no `timesLeft > 0` entry guard.\n**Failure signs:** next goal round while old run still active, work repeated after recovered done, extra loop run after zero left, conflicting tool calls, backend busy errors end goal permanently.\n**Likely locations:** `Stores/AppStore+Automation.swift:77`, `Stores/AppStore.swift:198`, `Stores/ConnectivityMonitor.swift:65`, `Stores/AppStore+Loops.swift:47`, `Tests/AgentAppTests/GoalTests.swift` (`aGoalSurvivesARestartAndContinues` tests continuation, not reconcile-first safety).\n**Grok:** G2 pending wakes/recovery, G3 standing loop continuity. **Swarm: worse**, S/L/R. This is a stronger current finding than simply saying restart is unsupported.",
+    "steps": [
+      {
+        "op": "loop.start",
+        "prompt": "wait"
+      },
+      {
+        "op": "transport.cut",
+        "value": "qa-response-stream"
+      },
+      {
+        "op": "transport.restore"
+      },
+      {
+        "op": "history.refresh"
+      },
+      {
+        "op": "loop.stop"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "before",
+        "key": "history_read_complete",
+        "other": "continuation_dispatch",
+        "equals": true,
+        "allow_absent_other": true
+      },
+      {
+        "kind": "count",
+        "key": "tool_execution",
+        "equals": 1
+      }
+    ],
+    "requires": [
+      "fault.accepted-stream-cut",
+      "recovery.event-order"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A03",
+    "title": "Loops, failures, busy chats and cost",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. `/loop 1m Return QA-A03 --times 3`; count executions. 2. Use `/loop 1m Check the QA fixture --until fixture green`, then return the structured done marker. 3. Repeat with failing model/tool and without `--times`. 4. Start a goal and loop in the same chat; keep chat busy past next loop due time. 5. `/loop pause`, Resume, `/loop stop`; Stop during turn; `/stop` while between turns. 6. Fill app turn slots, queue automation, then pause/clear before a slot frees.\n**Expected:** Document immediate first run and interval/after-busy semantics; bounded retries or explicit attention after repeated failures; queued automation respects pause/clear; user can stop between turns. No claimed dollar cap. Current infinite loop is allowed, interval minimum 60 seconds, and incomplete/not-sent outcomes do not pause it; goal and loop can coexist with different drivers.\n**Failure signs:** repeated failures spend indefinitely, stopped/cleared queued goal executes, continuous goal starves loop, status says running with no actionable stop, `--until` false claim ends useful work.\n**Likely locations:** `Stores/AppStore+Loops.swift:47`, `:59`, `Models/ChatSchedules.swift:9`, `Stores/AppStore+Automation.swift:49`, `Stores/AppStore+NextMessage.swift:47`.\n**Grok:** G3 defined queue/stop rules with G8 verification. **Swarm: worse**, S/L/R.",
+    "steps": [
+      {
+        "op": "loop.start",
+        "prompt": "marker"
+      },
+      {
+        "op": "loop.pause"
+      },
+      {
+        "op": "loop.resume"
+      },
+      {
+        "op": "loop.stop"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "loop_dispatch",
+        "equals": 1
+      },
+      {
+        "kind": "count",
+        "key": "dispatch_after_stop",
+        "equals": 0
+      },
+      {
+        "kind": "state",
+        "key": "loop_active",
+        "equals": false
+      }
+    ],
+    "requires": [
+      "loop.one-run"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A04",
+    "title": "Standing backlog and the next-job contract",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Give Worker three explicitly numbered harmless jobs A/B/C, report to Coordinator, and continue until verified. 2. Make A finish, B block on a known approval, C independent. 3. Inspect persisted queue/order, reason for waiting, who is asked, and next eligibility. 4. Close Mac between A completion and B dispatch; return after an hour. 5. Inspect whether “I will report at 08:00” created a real schedule.\n**Expected:** Grok-level acceptance: durable backlog, explicit next-work rule, owner/coordinator escalation, scheduled report and bounded retry policy. Current app can represent tasks in team workflows or rounds in goal prompts; plain standing instructions/report promises are not an execution contract. Source expectation: unsent app-managed work waits while app absent; no invented job/schedule receipt.\n**Failure signs:** promises interpreted as active scheduling, bot stops without next action, bot invents coordinator acknowledgement, order changes after restart, urgent blocker has no owner.\n**Likely locations:** `Models/ChatAutomation.swift`, `Stores/AppStore+TeamDispatch.swift`, `Models/OrientationPrompt.swift`, `Stores/AppStore+OrientationContext.swift`.\n**Grok:** G3 finish → launch next plus G1 coordinator. **Swarm: worse**, S/M/R.",
+    "steps": [
+      {
+        "op": "team.start",
+        "prompt": "list"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "backlog_persisted",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "blocker_owner_named",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "report_schedule_receipt_present",
+        "equals": false
+      }
+    ],
+    "requires": [
+      "team.three-item-backlog"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A05",
+    "title": "Server heartbeat, silence, local time and DST",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Ensure Worker has a main chat. 2. `/heartbeat every 1h 08:00–23:00 Return exactly [SILENT]`; inspect Settings → Advanced → Heartbeat and Routines. 3. Apply own prompt returning a marker to chosen bots; inspect stagger/turn-count warning/next/last result. 4. Quit app before due run and reopen after completion; inspect Bot Chat. 5. Test `/heartbeat pause`, resume, stop; repeat with an adopted pre-existing heartbeat. 6. In clock-controlled fixture use `08:30–09:15`, two timezones and Warsaw DST change 2026-10-25; inspect generated cron and displayed times. 7. Create a second backend session titled Bot Chat; follow “Use this chat”.\n**Expected:** Real schedule on server, no duplicate job, silent reply no unread/notification but last result says silent; output routes to chosen Bot Chat; adopted job Stop pauses rather than deletes with explanation. Product acceptance: displayed window/timezone matches actual firing across DST. Current window check floors to whole hours, and cron offset is derived at Apply time; future DST adjustment is not implemented here. Stagger is advisory spacing, not a runtime semaphore.\n**Failure signs:** early 08:07 run inside displayed 08:30 start, late 09:50 beyond 09:15, shifted hour after DST, “off” while server still enabled, output in hidden old Bot Chat, simultaneous long heartbeats exceed apparent cap.\n**Likely locations:** `Models/BotHeartbeat.swift:28`, `:53`, `Stores/AppStore+BotHeartbeat.swift:46`, `:68`, `Stores/AppStore+BotChat.swift:27`, `Views/SettingsHeartbeatPane.swift`.\n**Grok:** G3 reporting windows/G6 schedules/G9 silent-versus-stuck clarity. **Swarm: worse**, S/L/R; server-side time schedule itself **matches**.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Heartbeat uses reserved swarmhub-heartbeat/Bot Chat names; QA-only scope cannot safely mutate it. Minute/DST behavior is source-reviewed only.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "A06",
+    "title": "Routines while away; re-pause and result recovery",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Create disposable frequent routine, pause it. 2. Run now, quit before completion, reopen; verify exactly one run and paused state. 3. Repeat with fixture rejecting the post-run pause once, then restoring it; wait through next scheduled time. 4. Let several known runs finish while app closed; reopen and inspect oldest-to-newest result cards. 5. Inject transient catch-up/output-read failure; refresh again. 6. In isolated data, interrupt process after run cursor saves but before result ledger write; reopen. 7. Use >500-row result and Open result.\n**Expected:** Paused one-shot re-pauses even across restart/transient failure; errors visible and retryable; all unseen run results eventually posted once, with full output or explicit limit. Current repause intent is cleared before a `try?` pause; poll cursor advances before async catch-up/delivery. New output sheet reads first 500 rows without paging or truncation notice.\n**Failure signs:** routine silently left scheduled, lost run card after transient read/crash, unavailable result never repairs, partial output called whole. Initial discovery intentionally establishes baseline and may not emit old results: record that separately from missed runs of a known job.\n**Likely locations:** `Stores/AppStore+Routines.swift:136`, `:154`, `Stores/RoutineDelivery.swift`, `Stores/AppStore+RoutineWatch.swift:95`, `Backends/HermesJobsClient+History.swift`.\n**Grok:** G6 reliable schedules/G2 retried completion delivery/G9 full feedback. **Swarm: worse**, S/L/R.",
+    "steps": [
+      {
+        "op": "routine.create",
+        "prompt": "marker"
+      },
+      {
+        "op": "routine.run"
+      },
+      {
+        "op": "routine.run"
+      },
+      {
+        "op": "routine.pause"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "routine_execution",
+        "equals": 1
+      },
+      {
+        "kind": "state",
+        "key": "routine_paused_remote",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "routine_output_complete",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "routine.paused-one-shot"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A07",
+    "title": "Team dispatch, help, reviews and budget exhaustion",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Run F18; opt in to in-scope help/reviews. 2. Request helper, review, revision and second review; repeat one identical operation ID via fixture. 3. Set low task/depth/review/token/active-time limits while paused; Resume. 4. Test parallel independent tasks with limit 2. 5. Require my verification of acceptance checks, finish task without evidence, then confirm after checking artifact. 6. Reject second review; test “Accept review with noted limitations”.\n**Expected:** Deduplicated helper operations, dependency results attributed, review verdict shown; limits pause future dispatch with reason and retained partials; in-flight task may finish beyond allowance. Verification gate blocks when enabled; synthesis retains accepted limitations. Defaults: non-team workflow 12 tasks/3 levels/2 review rounds/30 minutes; team limits configurable; token accounting estimated, not billing cap.\n**Failure signs:** helper ping-pong, duplicate dispatch, unseen blocked task prevents all progress, verification toggle off still described as verified, expensive running tasks mistaken for stopped by allowance.\n**Likely locations:** `Stores/AppStore+TeamDispatch.swift`, `Stores/AppStore+WorkflowOperations.swift`, `Models/TeamCoordination.swift:13`, `Views/WorkflowView.swift`, `Packages/SwarmHubCoordination/Sources/SwarmHubCoordination/TeamPolicy.swift`.\n**Grok:** G1/G3 coordinator/queue, G8 review before done. **Swarm: worse** overall, S/R; evidence toggle is useful but defaults off.",
+    "steps": [
+      {
+        "op": "team.start",
+        "prompt": "list"
+      },
+      {
+        "op": "review.request",
+        "prompt": "review"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "team_review_attributed",
+        "equals": true
+      },
+      {
+        "kind": "count",
+        "key": "duplicate_dispatch",
+        "equals": 0
+      },
+      {
+        "kind": "state",
+        "key": "acceptance_evidence_required",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "team.evidence-gate"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A08",
+    "title": "Team lifecycle, pause/cancel/stop and dispatcher ownership",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Start two-task chain; quit after first task accepted, before dependency completes. 2. Reopen offline, then online; Check remote work; inspect whether previously running team auto-resumes once reconciled. 3. Repeat a manually paused team and legacy planned workflow; verify each stays paused as documented by its actual code path. 4. While task runs choose Pause new work, Cancel queued work, then separately Request Stop for workflow; observe actual remote run. 5. Remove/rebind a member and attempt Resume. 6. Open a second app instance or copy ledger to another test device; inspect ownership message.\n**Expected:** Reconcile before any uncertain resend; completed dependency adopted once; paused intent preserved; cancelled queued work not launched; Stop request distinct from disconnect; second owner does not dispatch the same ledger. No server-side exactly-once guarantee or cross-device takeover is claimed. Current team recovery can resume saved-running teams automatically when clear; docs' broad “stays paused until Resume” wording needs correction.\n**Failure signs:** duplicate remote work, manual pause undone, team remains silent with no owner/blocker, two dispatchers, UI says stopped although submitted job continues.\n**Likely locations:** `Stores/AppStore+TeamRecovery.swift:5`, `:41`, `Stores/TeamDispatchLease.swift`, `Stores/AppStore+WorkflowRecovery.swift`, `Views/TeamControlsView.swift`, `docs/guide.md`.\n**Grok:** G1/G3 always-available coordination/G2 recovery. **Swarm: worse**, S/R.",
+    "steps": [
+      {
+        "op": "team.start",
+        "prompt": "wait"
+      },
+      {
+        "op": "team.pause"
+      },
+      {
+        "op": "team.cancel"
+      },
+      {
+        "op": "team.stop"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "dispatch_after_cancel",
+        "equals": 0
+      },
+      {
+        "kind": "state",
+        "key": "remote_stop_acknowledged",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "team.lifecycle-checkpoints"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A09",
+    "title": "Approval queue when user is absent",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Keep app backgrounded, notifications enabled; Worker and Reviewer each request harmless Ask-me action, and Worker requests a connected-app read. 2. Do not respond for 10 minutes; inspect tool/run states and number/order of cards on return. 3. With fixture-shortened backend expiry, let Hermes/OpenClaw requests expire; then press Approve. 4. Quit with a connected-app card pending; reopen. 5. Repeat with device offline versus server-only outage; inspect iPhone visibility.\n**Expected:** Named waiting owner/reason, age/expiry and next action; one focused decision at a time; queued work survives as a discoverable unresolved intent; expired action never looks newly approved; decisions acknowledged. Current: approvals array is memory-only; local app broker waits until decision or cancellation with no deadline; Ask-user path does not itself notify; Hermes pending inbox is not reconstructed by general history recovery. OpenClaw has approval-list backfill and expiry handling, subject to Gateway support.\n**Failure signs:** bot appears simply Working overnight, no notification of blocker, all turn slots occupied by approvals, vanished local app action after quit, stale approval clickable, cannot tell who is expected to decide.\n**Likely locations:** `Stores/AppStore.swift:14`, `Stores/AppStore+Approvals.swift:154`, `ConnectedApps/ConnectedAppsStore.swift:298`, `Views/ApprovalCard.swift`, `OpenClaw/OpenClawHub+Approvals.swift:53`, `Stores/AppStore+OpenClaw.swift`.\n**Grok:** G4 coordinator/owner routes, automatic review, one card; G3 defined wait states. **Swarm: worse**, S/L/R. Test server-specific expiry rather than asserting a universal Hermes timeout.",
+    "steps": [
+      {
+        "op": "approval.request",
+        "prompt": "approval"
+      },
+      {
+        "op": "history.refresh"
+      },
+      {
+        "op": "approval.decide",
+        "value": "deny"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "approval_owner_named",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "approval_age_visible",
+        "equals": true
+      },
+      {
+        "kind": "count",
+        "key": "approved_tool_execution",
+        "equals": 0
+      },
+      {
+        "kind": "count",
+        "key": "approval_decision",
+        "equals": 1
+      }
+    ],
+    "requires": [
+      "approval.waiting-checkpoint"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A10",
+    "title": "Approval routing, final denials and review limits",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Configure an exact harmless read route, reviewer route and deny route; keep unrelated actions Ask. 2. Trigger read, unknown action, and a fake “outbound draft ready” action; inspect who gets asked. 3. Deny QA action D, have fixture request same intent under new request ID. 4. Make reviewer unavailable, late, or ask its own approval. 5. Exercise team app-review scope for exact tool/account; change arguments/account and inspect fresh review.\n**Expected:** Clear reason and decision owner; benign in-scope actions avoid needless prompts; risky/unclear work escalates; denial is final within task intent; one user card; timeout says who failed. Current routing is bot lines → global lines → fallback, optional reviewer with conservative escalation; connected apps normally ask (unless explicit team scope). No mandatory Grok-style automatic safety-review stage or universal production/money/secrets/irreversible/outbound owner/coordinator taxonomy; denial applies to request ID, not durable task intent.\n**Failure signs:** repeated denied action consumes overnight turns, raw UUID makes decider incomprehensible, reviewer stuck invisible to main user, several independent cards overwhelm return flow, harmless reads need repeated approvals.\n**Likely locations:** `Models/ApprovalRoutes.swift`, `Stores/AppStore+Approvals.swift:30`, `Stores/AppStore+TeamAppReviews.swift`, `Views/ApprovalRouteViews.swift`.\n**Grok:** G4 full tiered review/serialization/final denial. **Swarm: worse**, S/M/R. These are functional authority/availability gaps; no exploit testing is part of this plan.",
+    "steps": [
+      {
+        "op": "approval.request",
+        "prompt": "approval"
+      },
+      {
+        "op": "approval.decide",
+        "value": "deny"
+      },
+      {
+        "op": "approval.request",
+        "prompt": "approval"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "denied_intent_reprompt",
+        "equals": 0
+      },
+      {
+        "kind": "count",
+        "key": "approved_tool_execution",
+        "equals": 0
+      }
+    ],
+    "requires": [
+      "approval.same-intent-new-id"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A11",
+    "title": "Orientation promises, unavailable bot and recovery",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Run F19 at 23:00 fixture time. 2. Fail the first actual orientation send after readiness succeeds; quit/reopen. 3. Separately leave new bot unreachable for >24 hours in controlled clock; restore connection. 4. Remove coordinator or messaging skill; inspect greeting/handoff/need. 5. If it promises morning reporting or “restart job once”, inspect actual timer/retry records and morning outcome.\n**Expected:** Useful orientation acknowledged, failed first send recoverable, unavailable bot ends with explicit message; no unsolicited duplicate orientation; stated report/retry limitations visible. Current `orientedAt` set on local accepted send, so a failed async turn can suppress retry. Quiet hours are prompt text, not delivery holding; no durable job restart/scheduled report created by this prompt.\n**Failure signs:** empty bot marked oriented forever, “I told Coordinator” without peer receipt, overnight notification despite user expecting held messages, no morning report and no blocked state.\n**Likely locations:** `Stores/AppStore+Orientation.swift:56`, `Models/OrientationPrompt.swift:121`, `Stores/AppStore+OrientationContext.swift:35`, `Views/SettingsOrientationPane.swift`.\n**Grok:** G3/G9 active orientation, coordinated first job and scheduled reporting. **Swarm: worse**, S/L/R.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Real bot provisioning/orientation and global quiet-hour clock manipulation are outside the QA chat/routine allowlist.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "A12",
+    "title": "Peer asks, late replies, held and priority delivery",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Install current swarmhub-messages skill on disposable Hermes bots. 2. Ask Worker to query Reviewer via `bot-msg`, first waiting, then `--no-wait`, then short `--wait` timing out before delayed answer. 3. Inspect recipient chat/live card and sender's `From Reviewer` reply wake; do not infer delivery from shell exit alone. 4. Keep recipient busy; request held normal message plus urgent priority message using desired Grok semantics; inspect available app/script controls. 5. Repeat across app quit, host process loss, >30-minute delay and transient network failure during late-reply POST.\n**Expected:** Normal request/reply attributable, late reply recognized as answer not a new request; origin wake visible. Grok-level acceptance additionally needs persistent held/priority queues, acknowledgement/retry and coordinator arbitration. Current script supports wait/no-wait/late wake and avoids follow-up loops, but no held/priority parameters or durable retry queue; its session is per sender-recipient profile, not per independent request.\n**Failure signs:** Sent means only enqueued local process, lost late wake after transient failure, duplicate response to a delivered reply, urgent message blocks behind routine chatter, app shows recipient idle throughout real work.\n**Likely locations:** `Resources/Skills/swarmhub-messages/scripts/bot-msg`, `Resources/Skills/swarmhub-messages/SKILL.md`, `Stores/AppStore+BotMessagesLive.swift`, `Stores/AppStore+BotWork.swift`, `Models/BotMessages.swift`.\n**Grok:** G1 held/priority asynchronous peers, G2 wake retries. **Swarm: worse**, S/M/R. Do not call all asynchronous messaging missing: the no-wait/late reply paths do exist.",
+    "steps": [
+      {
+        "op": "peer.ask",
+        "prompt": "peer"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "peer_request",
+        "equals": 1
+      },
+      {
+        "kind": "count",
+        "key": "peer_reply_wake",
+        "equals": 1
+      },
+      {
+        "kind": "count",
+        "key": "duplicate_peer_reply",
+        "equals": 0
+      }
+    ],
+    "requires": [
+      "peer.qa-only",
+      "peer.late-reply"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A13",
+    "title": "Two boxes with identical profile names",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Connect box A and B, each with profile `qa-worker`; give distinct display names. 2. From each box's Coordinator send a peer request, open arrival chip and Activity → Bot messages. 3. Disconnect one worker; open other's thread and query result. 4. Compare remote session and visible recipient.\n**Expected:** Bot identity includes connection and profile everywhere; status/thread lookup never jumps boxes. **Failure signs:** wrong avatar/name/result, thread fetched from wrong host, one box's missing key makes other unreadable. Current `bot(forProfile:)` takes first matching profile; `BotThreadKey` lacks connection, although some poll marks include it.\n**Likely locations:** `Stores/AppStore+BotMessages.swift:35`, `Models/BotMessages.swift`, `Views/BotMessageViews.swift`.\n**Grok:** G1 explicit peer delivery/correlation, G9 clear identity. **Swarm: worse**, S/L/R. This is a secondary issue outside the top 20, but high-value for multi-box users.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Requires two real QA Hermes boxes and stable connection+profile identity; no second connection supplied.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "A14",
+    "title": "Detached jobs: completion, failure, fallback and orphan",
+    "grok": "missing",
+    "qa_script": "**Script:** 1. In disposable repo ask Worker to use installed coding skill for a harmless file/check with a 30-second job; note chosen CLI, origin and expected artifact. 2. Close app while host job runs; inspect completion wake after return. 3. Repeat nonzero exit, timeout, missing/logged-out first CLI, no slots, killed child, killed runner and host restart. 4. Ask status from ordering bot without re-running job. 5. Check commit/artifact/test evidence, exit code and retained log tail; restore lost wake network and wait for retry.\n**Expected:** Runner's actual current features: box slots, wait, timeout/process-tree termination, stale-slot reclamation, fallback and summary log. Grok-level acceptance: stable job ID bound to ordering bot/task, durable result plus exit/log/commit, wake/ack/retry, orphan diagnosis. Current cleanup removes temporary output and has no completion outbox; next goal turn/heartbeat is not proof of a job wake.\n**Failure signs:** agent says job done without checking exit/artifact, no wake after detached completion, stale lock cleared but lost task unexplained, task repeated because evidence unavailable, queue stalls until human asks.\n**Likely locations:** `Resources/Skills/swarmhub-coding/scripts/code-job:75`, `:99`, `Resources/Skills/swarmhub-coding/SKILL.md`, `Views/BackgroundExecutionView.swift`, `ConnectedApps/BackgroundExecutionClient.swift`.\n**Grok:** G2 full detached-job supervision. **Swarm: missing** durable supervisor/wake feature, S/M/R; coding runner itself exists.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Real detached CLI jobs/host kills exceed QA chat/routine allowlist; recording-only tools cannot validate durable real job supervision.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "A15",
+    "title": "Stuck/silent work and observability timeout",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Trigger peer/routine work; open Worker main chat and another thread while it runs. 2. Let fixture stop producing changes for >1 minute, fail repeated polls, then restore; separately advance >30-minute watch limit. 3. Compare sidebar avatar, live card, last result and actual remote run. 4. Return after missed night; identify each bot's current task, last activity, blocker, who must act and next run without asking it.\n**Expected:** Distinguish running, silent successful, observation lost, waiting approval, budget-paused, completed and failed; observation expiry must not mean job finished. Current watch slows 2 → 10 seconds and ends by cap/failures/disconnection; explicit stopped-observing copy is only added at cap when reply absent. On error/disconnect it can simply stop streaming/clear live marker.\n**Failure signs:** no visible reason for bot becoming idle, empty nonstreaming card treated as completed, `[SILENT]` hidden without a last-result clue, no refresh/reopen route, stale reply text masks current hung run.\n**Likely locations:** `Stores/AppStore+BotWork.swift:72`, `Models/BotWork.swift`, `Views/BotWorkViews.swift`, `Stores/AppStore+RoutineWatch.swift:50`, `Views/TurnStateFooter.swift`.\n**Grok:** G9 progress and acknowledgements, G2 orphan detection. **Swarm: worse**, S/L/R.",
+    "steps": [
+      {
+        "op": "chat.send",
+        "prompt": "wait"
+      },
+      {
+        "op": "transport.cut",
+        "value": "qa-response-stream"
+      },
+      {
+        "op": "history.refresh"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "remote_state",
+        "equals": "unknown"
+      },
+      {
+        "kind": "state",
+        "key": "observation_lost_visible",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "fault.observation-loss"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A16",
+    "title": "Shared memory and review across independent work",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Run F20 with corrected source fact; include acceptance checklist and exact artifact revision. 2. Read it in a team task, ordinary app chat, shell peer turn and server cron while Mac quit. 3. Ask Reviewer using a different configured model to verify an intentionally wrong “all tests pass” output. 4. Compare requested model, actual backend runtime information, tested commit and review receipt. 5. Start a goal while advisory review runs; see whether goal finishes before reviewer verdict.\n**Expected:** Scope/staleness disclosed; important result references actual artifact/check, review can gate completion; absent model attestation acknowledged. Current local facts/roles do not give cron shared current memory; reviewer bot identity does not guarantee distinct model; review-after is advisory and can finish after goal advances.\n**Failure signs:** model hallucination treated as shared memory, stale fact silently used overnight, reviewer “looks good” with no artifact, final completion before required review.\n**Likely locations:** `Stores/AppStore+ProjectContext.swift:30`, `Stores/AppStore+Reviews.swift:22`, `Stores/AppStore+Turns.swift:176`, `Stores/AppStore+Goals.swift:111`, `Models/TeamCoordination.swift:13`.\n**Grok:** G7 shared memory, G8 cross-model review and verification. **Swarm: worse**, S/R.",
+    "steps": [
+      {
+        "op": "fact.write",
+        "value": "revision-1"
+      },
+      {
+        "op": "fact.write",
+        "value": "revision-2"
+      },
+      {
+        "op": "chat.send",
+        "prompt": "fact"
+      },
+      {
+        "op": "review.request",
+        "prompt": "review"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "fact_revision_observed",
+        "equals": 2
+      },
+      {
+        "kind": "state",
+        "key": "review_rejects_wrong_arithmetic",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "review_has_check_evidence",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "fact.revision-evidence",
+      "review.runtime-model-identity"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "A17",
+    "title": "Event/webhook triggers and background app execution",
+    "grok": "missing",
+    "qa_script": "**Script:** 1. Attempt to configure “on a new QA inbox event, create a draft” in Routines/Connected apps. 2. Import template with event trigger; inspect mapping report. 3. Ask bot to schedule event reaction and demand actual trigger identifier/receipt. 4. While app quit deliver a synthetic event to a configured test service, then inspect what Swarm Hub can recover.\n**Expected:** Missing feature clearly stated; no invented webhook/worker registration. Time cron remains distinct from inbound event. Current background routes are explicitly undeployed/controls hidden; no generic inbound event inbox/replay/dispatch path found.\n**Failure signs:** bot says watcher active with no registration, imported trigger silently treated as cron, user waits forever for event, retries duplicate external read/send.\n**Likely locations:** `ConnectedApps/BackgroundExecutionClient.swift:3`, `Views/BackgroundExecutionView.swift`, `TemplateImport/TemplateImport.swift`, `docs/reference.md` (template import limitations).\n**Grok:** G6 routines plus event/webhook triggers. **Swarm: missing**, S/M/R.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Generic event trigger/background worker is a source-confirmed missing capability; no fake implementation supplied.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "A18",
+    "title": "Stop all unwanted unattended work and account for cost",
+    "grok": "worse",
+    "qa_script": "**Script:** 1. Start bounded goal, loop, server routine, heartbeat and team request on QA profiles; one pending approval. 2. Use chat Stop, `/stop`, goal Clear, loop Stop, heartbeat Stop, routine toggle, team Pause/Cancel queued/Request Stop separately, observing each actual remote run. 3. Inspect Settings → Usage and backend/CLI usage before/after; reopen app and wait through one scheduled time. 4. Restore original QA-only settings and verify remote job list is clean.\n**Expected:** Each control states scope; stopping main reply does not imply server cron/child process terminated; no future unwanted runs; clear list of what remains enabled and estimated usage. Current no global unified autonomous-work stop/cost policy found; goal limits rounds/time between turns, loops may be infinite, heartbeat non-silent wake costs two turns, team allowance only blocks further dispatch.\n**Failure signs:** return tomorrow to unexpected run, goal ended but loop alive, allowance mistaken for spend cap, hidden pending approval stalls all app slots, “stop everything” accepted with server routine still enabled.\n**Likely locations:** `Stores/AppStore+Automation.swift:22`, `Stores/AppStore+TurnSlots.swift:79`, `Stores/AppStore+BotHeartbeat.swift:117`, `Stores/AppStore+TeamRecovery.swift:92`, `Views/SettingsUsagePane.swift`.\n**Grok:** G3 defined stop conditions/standing contract, G9 clear cost/progress. **Swarm: worse**, S/M/R.",
+    "steps": [
+      {
+        "op": "goal.start",
+        "prompt": "list"
+      },
+      {
+        "op": "loop.start",
+        "prompt": "marker"
+      },
+      {
+        "op": "routine.create",
+        "prompt": "marker"
+      },
+      {
+        "op": "team.start",
+        "prompt": "list"
+      },
+      {
+        "op": "goal.clear"
+      },
+      {
+        "op": "loop.stop"
+      },
+      {
+        "op": "routine.pause"
+      },
+      {
+        "op": "team.cancel"
+      },
+      {
+        "op": "team.stop"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "active_qa_work",
+        "equals": 0
+      },
+      {
+        "kind": "state",
+        "key": "usage_delta_present",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "scoped.stop-all"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "F01",
+    "title": "First run, samples, cancellation",
+    "grok": "matches",
+    "qa_script": "**Steps:** 1. Start with fresh isolated app data. 2. Choose “Look around with sample agents”; open each sample. 3. Try a sample choice and draft card. 4. Open Settings → Set up…; advance/back through software/address steps; Cancel and reopen. 5. Connect a disposable real box and inspect the sidebar.\n**Expected:** Empty/setup state explains how to begin; samples are labelled, cards work locally; cancelled setup is not a successful connection; samples hide after connection. **Bug signs:** fake success resembles a real tool execution, samples remain mixed into real bots, closing setup traps the user or silently saves an incomplete connection.\n**Grok:** G9 expects clear acknowledgement and trustworthy state; sample onboarding specifics are undocumented. **Swarm: matches**, R. Refs: `Setup/FirstRun.swift`, `Setup/SetupEmptyState.swift`, `Stores/AppStore+Demo.swift`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "First-run/reset/sample state modifies the app globally; requires an isolated native QA launch and UI adapter.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F02",
+    "title": "Hermes setup/discovery and degraded capabilities",
+    "grok": "matches",
+    "qa_script": "**Steps:** 1. Settings → Change connection… → Hermes; enter test URL and profile key, Test. 2. Choose agents, Add. 3. Repeat with invalid key, unreachable address, and a named profile whose server does not multiplex profiles. 4. Open Details → Skills on a server returning the documented skills-enumeration 500. 5. Test again after restoring service.\n**Expected:** Add commits verified choices; failed tests name the needed correction; wrong-profile response is rejected; known skills failure is a readable compatibility limitation while chat remains available; retry succeeds without duplicate bots. **Bug signs:** Test says connected but Send targets another profile, blank error, endless spinner, working chat disabled solely by missing skills.\n**Grok:** G9 requires clear readiness/blockers; exact Hermes setup is not described. **Swarm: matches** basic gating, R. Refs: `Setup/ConnectionCheck.swift`, `Stores/AppStore+Setup.swift`, `Models/HermesCompatibility.swift`, `docs/hermes-versions.md`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Connection setup/key changes are not permitted by the QA chat/routine allowlist.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F03",
+    "title": "Chat, Markdown, quote/reaction, sidebar state",
+    "grok": "matches",
+    "qa_script": "**Steps:** 1. Open Worker, send “Reply with QA-CHAT-01, a heading, two bullets and a fenced code block.” 2. Copy code; quote-reply to the answer; add/remove a reaction. 3. Switch to Coordinator while Worker answers. 4. Return, right-click Worker → Mark as Unread/Hide/Mute; reveal Hidden chats and reopen.\n**Expected:** One answer in the correct chat; copy is exact; quote points to intended row; reactions toggle; background reply updates preview/unread; hide/mute have distinct effects and reopening clears unread. **Bug signs:** wrong chat receives a reply, streamed text disappears, quote leaks across conversations, mute hides results, preview is opening text despite a later conclusion.\n**Grok:** G9 clear chat progress/acknowledgement. **Swarm: matches**, R. Refs: `Views/MessageView.swift`, `Views/OrderedReply.swift`, `Stores/AppStore+Chat.swift`, `Views/SidebarRows.swift`.",
+    "steps": [
+      {
+        "op": "chat.send",
+        "prompt": "marker"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "remote_turn",
+        "equals": 1
+      },
+      {
+        "kind": "state",
+        "key": "answer_has_marker",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "answer_in_origin",
+        "equals": true
+      }
+    ],
+    "requires": [],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "F04",
+    "title": "Draft retention and keyboard navigation",
+    "grok": "matches",
+    "qa_script": "**Steps:** 1. Type “draft-main-01” without sending. 2. ⌘K, search Reviewer; ↑/↓, Return, Esc; return to Worker. 3. Quit/reopen. 4. Use ⌘N, ⇧⌘N, ⌃⌘S, ⇧⌘I, ⌘1/2/6/7/8 and Help → Keyboard Shortcuts; close every dialog with keyboard. 5. Repeat with no bots/one bot.\n**Expected:** Text draft remains, no accidental send; switcher selects first match and handles no matches; shortcuts open the documented surface and respect modal focus. **Bug signs:** empty search has no escape path, Return sends a message while picker is open, shortcuts affect a hidden chat, draft lost on restart.\n**Grok:** G9 coherent context; actual Grok bindings undocumented. **Swarm: matches** basic keyboard mechanism, R. Refs: `AppCommands.swift`, `Views/CommandPaletteView.swift`, `Models/QuickSwitcherModel.swift`, `Stores/AppStore+Sidebar.swift`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F05",
+    "title": "Long chats and reading while streaming",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Use a disposable session with 300+ messages and a unique marker near the start. 2. Open chat and scroll up two screens. 3. Send a long reply request; scroll upward while it streams. 4. Select/copy older text while tool and routine cards arrive. 5. Reopen and check recovered history; ask about the early marker with and without server compaction.\n**Expected:** Reading position/selection remain usable, recent updates are discoverable, app remains responsive; displayed and model-available context are distinguishable; recovery neither duplicates nor rewrites completed rows. **Bug signs:** every token forces the reader to bottom (source predicts this), typing lags, memory claim hides truncation, old message vanishes. Do not treat model forgetting alone as a transport bug.\n**Grok:** G9 clear progress, G7 continuity; exact context limits undocumented. **Swarm: worse**, S/L/R. Refs: `Views/ChatView.swift:56`, `Views/GroupChatView.swift:45`, `Stores/AppStore+Reconcile.swift`, `Models/GroupRouting.swift:9`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F06",
+    "title": "Thread navigation, composer scope and coding role",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Produce three distinct answers. 2. On the first, choose Reply in thread; send “QA-THREAD-01”. 3. Click back chevron and use ⌘[; reopen thread. 4. Type different unsent text in main and thread, switching between them twice. 5. Configure a different coding model and use Code in thread on a reply; ask `/status`. 6. In that thread try `/model <offered-model>`; inspect main and thread model rows separately.\n**Expected:** Obvious parent/thread context, reliable back hit target, drafts scoped or explicitly shared; coding thread uses advertised lock; model command changes the conversation the user is in. Hermes fork includes current full session: UI should explain that it is not a snapshot at the first answer. **Bug signs:** shared draft silently appears in another thread; `/model` changes main instead; chevron drags window. The chevron content-shape fix is present: do not report the old PLAN bug as still unfixed.\n**Grok:** G9 context clarity, G8 model provenance; exact fork UI undocumented. **Swarm: worse**, S/L/R. Refs: `Views/ChatView.swift:88`, `Stores/AppStore+SlashCommands.swift:54`, `Stores/AppStore+ModelRoles.swift`, `Views/WindowChrome.swift` (`ThreadBackButton`).",
+    "steps": [
+      {
+        "op": "chat.send",
+        "prompt": "marker"
+      },
+      {
+        "op": "chat.draft",
+        "value": "main"
+      },
+      {
+        "op": "thread.fork"
+      },
+      {
+        "op": "chat.draft",
+        "value": "thread"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "drafts_independent",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "thread_parent_visible",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "thread.draft-snapshots"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "F07",
+    "title": "Attachments, extraction, media and refusal states",
+    "grok": "matches",
+    "qa_script": "**Steps:** 1. Attach a small text file, image, text PDF, scanned PDF and DOCX, one at a time; inspect chips/previews; send “Read the QA marker on page 2.” 2. Cancel extraction mid-scan; remove an attachment; paste image with ⌘V. 3. Try password-protected PDF, >50 MB document, >100-page document and unsupported binary. 4. In Media open an image/link and jump to its originating main/thread message. 5. Send a long current document in a group, then reference it several group turns later.\n**Expected:** Reading progress, cancellable intake, no send before extraction finishes; explicit OCR/truncation summaries; refused file leaves draft intact; media jump finds correct row. Group current-document handling and later 8,000-character context cap must be distinguishable. **Bug signs:** blank chip, silent truncation, partial cancelled file sent, wrong-thread jump, old document assumed still fully in group context.\n**Grok:** G9 visible work/result; exact formats/limits undocumented. **Swarm: matches** bounded intake feedback, R; group context can be **worse**. Refs: `Views/AttachmentIntake.swift`, `Stores/AttachmentDocumentReader.swift`, `Stores/AttachmentEncoder.swift`, `Views/MediaTabView.swift`, `Models/GroupRouting.swift:65`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F08",
+    "title": "Choice and outbound draft cards",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Ask for a supported `choices` card (use syntax in `docs/reference.md#card-syntax`); pick once and double-click. 2. Request two separate draft blocks to distinct tester-owned recipients, labelled A/B, without sending. 3. Continue discussing B; click Send on A. 4. Inspect ensuing tool approval's actual account/recipient/body and remote sink. 5. Repeat from a group and a thread; switch selection before clicking.\n**Expected:** One choice to originating author; exact displayed draft/account sent once only after Send; card should distinguish request queued, sending, sent and failed. **Current source:** it checks unchanged card and origin, then sends “Send it”; `draftSent` records local turn acceptance, not outbound delivery. **Bug signs:** A sends B or revised content, premature Sent implication, failed send cannot be retried from card, duplicate outbound action.\n**Grok:** G5 drafts by default, explicit Send; G4 coordinator for outbound. **Swarm: worse**, S/L/R. Refs: `Stores/AppStore+CardActions.swift:31`, `Views/MessageCards.swift`, `Views/MarkdownContent.swift`, `ConnectedApps/ConnectedAppsChat.swift`.",
+    "steps": [
+      {
+        "op": "draft.create",
+        "prompt": "drafts"
+      },
+      {
+        "op": "draft.send",
+        "value": "A"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "sandbox_outbound_attempt",
+        "equals": 1
+      },
+      {
+        "kind": "state",
+        "key": "sandbox_draft_sent",
+        "equals": "A"
+      },
+      {
+        "kind": "count",
+        "key": "real_outbound_delivery",
+        "equals": 0
+      },
+      {
+        "kind": "state",
+        "key": "displayed_draft_equals_payload",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "draft.two-cards-discuss-B-click-A"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "F09",
+    "title": "Local bot versus backend bot management",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. ⌘N, create “Local QA”, save; inspect backend/profile in Advanced and ask who it is. 2. In the connected manager's chat use Manage bots → creation action; ask “Create qa-worker-2 with a read-only QA role.” 3. Review its requested operations; wait for discovery. 4. Rename/change instructions/avatar through both local editor and manager. 5. Retire via manager; separately delete a disposable local card and rediscover.\n**Expected:** UI distinguishes local persona card, actual backend profile, backend instructions and local metadata; manager reports failure as failure; new backend bot appears once; local deletion does not pretend to delete remote agent. **Bug signs:** two “new bots” share default backend unintentionally, local instruction edit presented as remote SOUL update, ghost agent after failed command, changed avatar reverts.\n**Grok:** G3/G7 standing bot identity and rules, G9 acknowledgements. **Swarm: worse**, S/L/R. Refs: `Views/BotEditorView.swift:42`, `Stores/AppStore.swift:202`, `Stores/AppStore+BotManager.swift`, `Stores/AppStore+BoxDiscovery.swift`, `Stores/AppStore+Orientation.swift`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Backend bot creation/retirement is outside the allowlist.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F10",
+    "title": "OpenClaw connect, capability changes, and forget",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Setup → OpenClaw; enter disposable Gateway, Test; follow pairing instruction if requested; Test again, select agent, Add. 2. Send a marker, stop/steer, fork if offered, reconnect. 3. Repeat against a fixture omitting fork/abort/model-list/approval-list methods. 4. Settings → Advanced → Servers and keys → OpenClaw: Disconnect, Connect, Forget; reopen retained bot.\n**Expected:** Pairing has an actionable next step; unsupported controls explain limits; optional-method rejection hides just that capability; forgotten bot is visibly unbound; no endless reconnect/send loop. **Bug signs:** apparent connected state cannot chat, missing method breaks all chat, unsupported model picker implies switching, retained transcript appears connected to a forgotten Gateway.\n**Grok:** G9 clear work/blockers; Grok's Gateway support undocumented. **Swarm: worse** overall capability consistency, R. Refs: `docs/openclaw-integration.md`, `Views/OpenClawBanner.swift`, `OpenClaw/OpenClawCapabilities.swift`, `Stores/AppStore+OpenClaw.swift`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "This brief authorizes the real Hermes loop; no real disposable OpenClaw target is supplied.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F11",
+    "title": "Model defaults, switching and coding accounts",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Settings → Advanced → Models → Load from Worker; select Conversation and Coding defaults. 2. Start a new chat/thread; inspect model before/after reply. 3. Change default; reopen an existing pinned chat and preview Switch existing chats… before confirming. 4. Simulate model unavailable/409/rate limit; inspect error and retry. 5. In the box coding-account surface, refresh installed/login state; in a disposable environment finish or cancel CLI login; inspect fallback order.\n**Expected:** Own-server catalog, clear source tags; existing session not silently changed by new default; rejected bot override blocks sending, rejected app default explains fallback; running model and configured default differentiated; login/capacity failures actionable. **Bug signs:** pinned chat falls back silently, “Coding” interpreted as all main-chat tool calls, saved model not offered, setup process remains Working forever.\n**Grok:** G8 cross-model review/provenance, G9 feedback; exact picker undocumented. **Swarm: worse**, S/R. Refs: `Stores/AppStore+ModelPolicy.swift`, `Stores/ModelRolesPlan.swift`, `Views/ModelSectionView.swift`, `Views/AccountsSheet.swift`, `Resources/Skills/swarmhub-coding/SKILL.md`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Global model defaults, coding-account login and provider fault injection are outside the allowlist.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F12",
+    "title": "Routine CRUD and normal result",
+    "grok": "matches",
+    "qa_script": "**Steps:** 1. Worker → Details → Routines → +. 2. Name `QA routine`, pick Every day/time, enter “Return QA-ROUTINE-01 and UTC time”, Create. 3. Edit name/time/prompt, Save; inspect server response. 4. Run now; immediately click again; wait for result and Open result. 5. Toggle off/on; delete and cancel/delete confirmation. 6. Retry after simulated API error.\n**Expected:** Running… immediately, no second launch, full output and status accessible; error retains edit input; toggle rollback on refusal; only target job deleted. **Bug signs:** Run now gives no feedback, duplicated run, hidden last error, summary presented as full output. See A06 for paused-run risks.\n**Grok:** G6 schedules and G9 result feedback. **Swarm: matches** normal path, S/R. Refs: `Views/RoutineEditorSheet.swift`, `Stores/AppStore+RoutineWatch.swift:23`, `Views/RoutineResultCard.swift`.",
+    "steps": [
+      {
+        "op": "routine.create",
+        "prompt": "marker"
+      },
+      {
+        "op": "routine.run"
+      },
+      {
+        "op": "routine.run"
+      },
+      {
+        "op": "routine.pause"
+      },
+      {
+        "op": "routine.delete"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "routine_execution",
+        "equals": 1
+      },
+      {
+        "kind": "state",
+        "key": "routine_deleted_remote",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "routine.double-click-checkpoint"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "F13",
+    "title": "Connect first app and choose among accounts",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Bottom-left Connect apps; search an app, Connect, complete browser flow, return/Refresh. 2. Inspect account alias and “used by” bots; disable access for Reviewer. 3. Add another account of the same app; name QA Work/QA Personal. 4. Ask Worker for a harmless read explicitly from each account, then an ambiguous request. 5. Rename alias/disconnect account while a read approval waits.\n**Expected:** Catalog loading/no-match/service errors are visible; new connection from modal is on for eligible bots existing at Connect time; chat card only grants its originating bot; ambiguity asks user to choose; request shows selected account; stale access fails with actionable feedback and bot receives result/error. **Bug signs:** wrong account selected silently, returned browser flow never resolves, worker claims success after API failure, app access seems enabled for newly created bots without explanation.\n**Grok:** G4/G5 clear approvals/outbound choice, G9 acknowledgement. **Swarm: worse**, S/R. Refs: `Views/ConnectAppsModal.swift`, `ConnectedApps/AppAccountChoice.swift`, `ConnectedApps/ConnectedAppsStore.swift`, `ConnectedApps/AppRequestFailure.swift`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Real OAuth/accounts/connectors forbidden. Only record-only connector testing is permitted; no fake authorization success.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F14",
+    "title": "Abandoned and second-account authorization",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. With one existing active account, Add another account. 2. Return without completing authorization; Refresh. 3. Close sheet; connect same app from a single bot's chat card instead. 4. Inspect which bots receive the new account. 5. Repeat with browser failure/service 400 and with app restart mid-flow.\n**Expected:** Existing account does not make a new pending flow look completed; cancel/dismiss semantics and grant scope are clear; failed flow offers retry and does not leave an invisible all-bot grant pending. **Bug signs:** link prompt disappears because any old account is active; later single-bot connection unexpectedly granted to all previously captured bots.\n**Grok:** G9 precise acknowledgement and G4 explicit ownership. **Swarm: worse**, S/L/R. Refs: `ConnectedApps/ConnectedAppsStore.swift:107`, `:141`, `:201`; `PLAN.md` P47 edge note.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Real OAuth/account mutation forbidden; no browser authorization is automated.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F15",
+    "title": "Manual decisions, rules and audit",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Leave Worker on Ask me; request harmless approval-requiring `pwd`. 2. Read request, Approve; repeat and Decline. 3. In bot settings → Advanced, add a narrow route for that exact harmless action; test Ask/Approve/Deny in order, then a matching global line in Settings → Advanced → Auto-review. 4. Simulate lost decision response; inspect card and Activity audit. 5. Inject command-unknown request; inspect disabled approval explanation.\n**Expected:** Right bot/session receives one acknowledged decision; first-match precedence understandable; local audit identifies decision source; lost response remains uncertain rather than invites duplicate action; unknown command offers an actionable path. **Bug signs:** double-click sends two decisions, audit says Denied for merely disconnected run, user cannot tell which rule matched, card has no pending state.\n**Grok:** G4 tiered automatic review, one card, final denial. **Swarm: worse**, S/L/R. Refs: `Stores/AppStore+Approvals.swift:11`, `Models/ApprovalRoutes.swift`, `Views/ApprovalCard.swift`, `Stores/AppStore+Turns.swift:166`.",
+    "steps": [
+      {
+        "op": "approval.request",
+        "prompt": "approval"
+      },
+      {
+        "op": "approval.decide",
+        "value": "approve"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "approval_decision",
+        "equals": 1
+      },
+      {
+        "kind": "count",
+        "key": "approved_tool_execution",
+        "equals": 1
+      },
+      {
+        "kind": "state",
+        "key": "approval_audit_source",
+        "equals": "user"
+      }
+    ],
+    "requires": [
+      "approval.noop-only"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "F16",
+    "title": "Reviewer and review-after",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Route a harmless worker approval to Reviewer; exercise approve/deny/escalate, malformed verdict, reviewer unavailable and nested reviewer approval using fixtures. 2. Add Review after → tool-bearing turn → Reviewer. 3. Ask Worker for a deliberately flawed harmless output; inspect review card and Send notes to Worker. 4. Enable automatic notes; repeat in ordinary group and team workflow. 5. Configure two reviewer bots to same model, then different models; inspect provenance.\n**Expected:** Timeout/failure escalates with reason; notes stay tied to original reply; explicit team review can block synthesis; UI distinguishes advisory review and verified acceptance. **Bug signs:** “looks good” without evidence treated as verified, group never reviews despite global setting, endless auto-note revisions, unknown reviewer spinner after reopen.\n**Grok:** G8 important work reviewed across models before verified done; G4 automatic pre-action review. **Swarm: worse**, S/R. Refs: `Stores/AppStore+Reviews.swift:22`, `Stores/AppStore+Approvals.swift:80`, `Stores/AppStore+GroupTurns.swift`, `Stores/AppStore+WorkflowOperations.swift`.",
+    "steps": [
+      {
+        "op": "review.request",
+        "prompt": "review"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "review_rejects_wrong_arithmetic",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "review_in_origin",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "review.runtime-model-identity"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "F17",
+    "title": "Ordinary groups and mentions",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Sidebar + → New Group, add Coordinator/Worker/Reviewer. 2. Send marker without mention; then `@Worker answer only QA-GROUP-02`. 3. Try a typo `@Wroker`, duplicate display names and an email address. 4. Stop in middle of multi-bot round; retry only skipped member; reopen after quit. 5. Attempt slash command in group.\n**Expected:** Unmentioned message asks all sequentially; valid mention chooses intended member; duplicate names use stable suffix; typo/broadcast consequence is visible; completed members are not rerun after interruption; slash availability differs clearly from 1:1. **Bug signs:** unknown mention silently broadcasts (current fallback), replies from wrong duplicate bot, retry restarts entire round, `/goal` suggests automation while sent as ordinary group text.\n**Grok:** G1 explicit routing, G9 acknowledgements. **Swarm: worse**, S/R. Refs: `Models/GroupRouting.swift:43`, `Views/GroupChatView.swift`, `Stores/AppStore+GroupTurns.swift`, `Stores/AppStore+Retry.swift`.",
+    "steps": [
+      {
+        "op": "team.start",
+        "prompt": "list"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "member_attribution_correct",
+        "equals": true
+      },
+      {
+        "kind": "count",
+        "key": "duplicate_dispatch",
+        "equals": 0
+      }
+    ],
+    "requires": [
+      "group.normal-round"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "F18",
+    "title": "Planned versus Work together flow",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Group → Plan a workflow; request “Worker lists three QA cases, Reviewer checks them, Coordinator consolidates”; choose coordinator, Plan. 2. Inspect tasks; Approve plan and run. 3. Pause new work, expand tasks, Open task thread, add queued-task instruction, Resume. 4. Start a fresh group request with Work together on; ask Worker for help/review from Reviewer. 5. Pause and inspect Limits and reporting; use verification toggle and scope-specific app reviewer on disposable read.\n**Expected:** Plan approval is distinct from delegation permission; tasks/dependencies/accepted-versus-uncertain delivery visible; new work waits when paused while submitted work may finish; team synthesis cites results/review; limits editable only while paused. **Bug signs:** Work together silently picks surprising coordinator (first member), users cannot find originating workflow after opening task, duplicate helper tasks, unfinished review called complete.\n**Grok:** G1 coordinator routes, G3 queue progression, G8 review. **Swarm: worse**, S/R; app-mediated normal flow is implemented. Refs: `Views/WorkflowView.swift`, `Views/TeamControlsView.swift`, `Stores/AppStore+TeamCoordination.swift`, `Stores/AppStore+TeamDispatch.swift`.",
+    "steps": [
+      {
+        "op": "team.start",
+        "prompt": "list"
+      },
+      {
+        "op": "team.pause"
+      },
+      {
+        "op": "team.cancel"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "plan_approval_distinct",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "team_origin_visible",
+        "equals": true
+      },
+      {
+        "kind": "count",
+        "key": "dispatch_after_cancel",
+        "equals": 0
+      }
+    ],
+    "requires": [
+      "team.plan-checkpoints"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "F19",
+    "title": "New-bot orientation",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Set your name/timezone; Settings → Advanced → Orientation: enable, select Coordinator. 2. Create a backend bot through manager. 3. Observe collapsed Orientation row, greeting/read-only first task/coordinator handoff/report promise. 4. Quit/reconnect; verify no second orientation. 5. Compare ordinary ⌘N, setup-discovered bot, new Grok history import and template import. 6. Disable orientation before another manager creation.\n**Expected:** Eligible creation gets one first turn; reconnect doesn't repeat; exclusions stated; lack of messaging skill/coordinator produces a useful blocker. Report promise is not itself a schedule. **Bug signs:** oriented flag set despite failed first turn with no retry, no orientation on “New Bot” without explanation, greeting promises a future report that never has a wake.\n**Grok:** G3/G9 created bot starts, coordinates, reports, recovers. **Swarm: worse**, S/R. Refs: `Stores/AppStore+Orientation.swift:56`, `Models/OrientationPrompt.swift`, `Views/SettingsOrientationPane.swift`, `Stores/AppStore+OrientationContext.swift`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Real bot provisioning and app-global orientation changes are outside the allowlist.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F20",
+    "title": "Shared context and skills",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. In group click book icon; add fact “QA fact revision 1” with source and Worker/Reviewer as readers. 2. Ask each through team task, Correct to revision 2, Mark disputed, ask again. 3. Inspect Worker Details → Skills, refresh, read an imported skill then Install through manager; inspect installed version. 4. Repeat installation failure with manager unavailable. 5. Compare main chat, thread, scheduled job and direct peer request for fact visibility.\n**Expected:** Fact provenance/revision and selected readers retained; current app turns see readable correction; installed skill confirmed after backend write; imported candidate memory not labelled current backend memory. **Bug signs:** old revision silently wins, failed install says installed, fact displayed in app assumed available to server cron.\n**Grok:** G7 shared memory/per-bot skills. **Swarm: matches** per-bot skill mechanism; **worse** background shared context, S/R. Refs: `Views/ProjectContextView.swift`, `Stores/AppStore+ProjectContext.swift`, `Stores/AppStore+ImportedSkills.swift`, `BotManager/SkillLibrary.swift`.",
+    "steps": [
+      {
+        "op": "fact.write",
+        "value": "revision-1"
+      },
+      {
+        "op": "fact.write",
+        "value": "revision-2"
+      },
+      {
+        "op": "chat.send",
+        "prompt": "fact"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "fact_revision_observed",
+        "equals": 2
+      },
+      {
+        "kind": "state",
+        "key": "fact_source_visible",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "fact.revision-evidence"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "F21",
+    "title": "Grok history and template import",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Use tester-owned synthetic export; sidebar + → Import Template…; inspect mappings and unsupported triggers, cancel, then import. 2. Inspect memory/skills/routines/connectors; create imported cron on server and verify paused. 3. Where Grok app is present, Import from Grok Bot…; use recent local-only path, then optional full-history path; cancel/retry a failed fetch. 4. Import same sample twice; inspect duplicates/history ownership/read-only archives.\n**Expected:** Preview before creation; archive distinct from connected agent; cron does not imply active schedule, skills not installed by import, connectors not auto-enabled; unsupported event trigger and memory limits explicit. **Bug signs:** imported bot promises old unattended behavior before setup, duplicate history rows, import stuck without cancel, template-new bot unexpectedly lacks orientation.\n**Grok:** G3/G6/G7 standing behavior continuity. **Swarm: worse**, S/R. Refs: `docs/agentapp-bot-bundle-v1.md`, `docs/SPEC-6.1-template-import.md`, `GrokImport/GrokImportCoordinator.swift`, `TemplateImport/TemplateImport.swift`, `Stores/AppStore.swift` (`importTemplate`).",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "User Grok history/real-data import forbidden; synthetic import needs an isolated native import adapter.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F22",
+    "title": "Settings, usage, notifications and appearance",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. ⌘,; change name, Dark/Light/System and accent; close/reopen. 2. Advanced → Chats set goal limits; create goal and inspect actual stored run limits. 3. Advanced → Usage → Load/Refresh; compare session and backend usage including hidden tool exchanges. 4. Enable notifications, deny OS permission, background app and finish a task; inspect app guidance. 5. Compare orientation quiet hours, team quiet hours and heartbeat active hours.\n**Expected:** Settings persist; new-goal-only limits explained; estimates distinct from billing; denied OS permission has recovery guidance; quiet-hours scope understandable; all surfaces adapt themes. **Bug signs:** master toggle appears enabled though nothing can notify, default change implies active goal changed, unexpected nighttime ping, blank usage means zero.\n**Grok:** G3 reporting/cost control and G9 feedback; exact appearance undocumented. **Swarm: worse** operational settings consistency, **matches** theme choice mechanism, S/R. Refs: `Views/SettingsSimplePane.swift`, `Views/SettingsChatsPane.swift`, `Views/SettingsUsagePane.swift`, `Views/SettingsOrientationPane.swift`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Global settings/notification permissions/appearance need a native isolated UI adapter; no app-global changes allowed.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F23",
+    "title": "Computer, dictation, spoken and separate voice conversations",
+    "grok": "matches",
+    "qa_script": "**Steps:** 1. Worker → Computer, set a disposable web desktop URL; recheck, Take over, Open in browser; repeat with unreachable endpoint. 2. Configure test voice credentials; record dictated marker, stop, review draft, send. 3. Change chat while recording/transcribing; deny microphone once. 4. Speak a finished reply. 5. Open separate voice surface and request a harmless team action; inspect actual written conversation/task records.\n**Expected:** Reachability and real control availability differentiated; transcription belongs to originating draft, permission/config errors actionable; speech reads actual final reply; separate voice must not claim app delegation absent task evidence. **Bug signs:** mere HTTP response labelled usable desktop, transcript inserted in wrong chat, voice claims tool success with no underlying task.\n**Grok:** G9 clear progress/acknowledgements, G8 verification; voice/computer specifics undocumented. **Swarm: matches** scoped controls, R; voice/action continuity needs exploration. Refs: `Views/ComputerView.swift`, `Views/ComposerView.swift`, `Views/VoiceChatView.swift`, `Stores/AppStore+TeamCoordination.swift`, `docs/team-coordination.md`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Microphone, computer control and voice credentials are outside the allowlist.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F24",
+    "title": "Feedback reports and update flow",
+    "grok": "matches",
+    "qa_script": "**Steps:** 1. Help → Report a Problem…; inspect draft, attachments, edit and Dismiss without sending. 2. In a test environment explicitly Send to SwarmHub; simulate offline and retry once. 3. Settings → Check for Updates… in packaged release; repeat offline/no-update. 4. In source build verify fallback/reason rather than inert update button.\n**Expected:** No report leaves before Send, visible pending/error/delivered state, no duplicate report on retry; update check has result and cancel path. **Bug signs:** silent submit, generic error blocks every unrelated chat, button enabled but no result.\n**Grok:** G5 explicit outbound send and G9 feedback; updater specifics undocumented. **Swarm: matches** report-draft mechanism, R. Refs: `Views/ReportsViews.swift`, `Stores/AppStore+Reports.swift`, `Views/SettingsSimplePane.swift`, `Stores/AppUpdater.swift`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Feedback sending and updater network actions are outside the allowlist; no real reports sent.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "F25",
+    "title": "Actual iOS foundation and away-from-Mac limits",
+    "grok": "worse",
+    "qa_script": "**Steps:** 1. Build/run iOS target; Explore local sample agents, then connect verified Hermes profile. 2. Choose same disposable server session as desktop, send text, stop, background during reply, reopen and Check server status. 3. Type draft, terminate/reopen. 4. Receive live approval, Approve once, lose network during decision, Check status before retry. 5. Close app and request a new approval remotely; inspect what is actually discoverable on reopen.\n**Expected:** Shared server transcript without promise of roster/settings sync; cached drafts/history readable; interrupted turn unconfirmed until backend confirms; no automatic resend; live manual decision needs acknowledged resolution; no suggestion that undeveloped push/inbox/team UI exists. **Bug signs:** “Agents run on your server” implies the phone can advance desktop team queue, closed-app approval disappears without explanation, mobile prototype drawings mistaken for implemented routines.\n**Grok:** G3/G4/G9 unattended continuity and approval reachability. **Swarm: worse**, S/R. Refs: `Apps/iOS/README.md`, `Apps/iOS/Sources/MobileStore.swift:119`, `Apps/iOS/Sources/ApprovalsView.swift`, `Apps/iOS/Sources/RootView.swift`, `docs/ios/native-verification.md`.",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Requires iOS hardware/simulator and separate mobile adapter; Mac driver cannot certify mobile.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "B01",
+    "title": "Answer and stream",
+    "grok": "matches",
+    "qa_script": "Open Worker, send “Return QA-B01 followed by a 12-line numbered explanation.” Watch from first click through final line; switch chats and return.  |  One local acknowledgement and one remote turn; Thinking → Typing → finished; partial text stays. Fail: no immediate row, spinner after final response, empty success, duplicate answer.  |  G9 clear progress/acknowledgement → **matches** mechanisms, R. `Stores/AppStore+Turns.swift`, `Models/ChatActivityPhase.swift`, `Views/MessageView.swift`.  |",
+    "steps": [
+      {
+        "op": "chat.send",
+        "prompt": "marker"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "remote_turn",
+        "equals": 1
+      },
+      {
+        "kind": "state",
+        "key": "answer_has_marker",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "partial_preserved",
+        "equals": true
+      }
+    ],
+    "requires": [],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "B02",
+    "title": "Tools and final answer order",
+    "grok": "matches",
+    "qa_script": "Ask “Run the harmless QA wait tool for 10 seconds, show its marker, then conclude QA-B02-DONE.” Expand Steps during and after tool.  |  Actual tool lifecycle, elapsed time, failure marker, conclusion after tools, final sidebar preview; failure is not a success checkmark. Fail: all text above all steps, no final conclusion, tool row never ends.  |  G9 visible tool work, G8 verified output → **matches** ordered-reply infrastructure, R. `Views/OrderedReply.swift`, `Models/ReplyLayout.swift`, `Stores/AppStore+Turns.swift`, `Views/ActivityViews.swift`.  |",
+    "steps": [
+      {
+        "op": "chat.send",
+        "prompt": "wait"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "before",
+        "key": "tool_finished",
+        "other": "final_text",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "final_has_marker",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "qa_wait"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "B03",
+    "title": "Stop",
+    "grok": "matches",
+    "qa_script": "Start a 60-second harmless tool; click Stop or ⌘. during tool; repeat before run ID and during plain typing. Inspect remote process/session.  |  Local partial kept; app says stop requested/local only/failed truthfully; only selected conversation stops. Fail: claims server stopped while process continues, Stop affects other bot, hidden queued turn resumes immediately.  |  G3 defined stop/G9 acknowledgement → **matches** explicit stop feedback, R; lifecycle exceptions in A03/A08. `Stores/AppStore+TurnSlots.swift:79`.  |",
+    "steps": [
+      {
+        "op": "chat.send",
+        "prompt": "wait"
+      },
+      {
+        "op": "chat.stop"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "state",
+        "key": "remote_stop_acknowledged",
+        "equals": true
+      },
+      {
+        "kind": "state",
+        "key": "partial_preserved",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "chat.tool-running-checkpoint"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "B04",
+    "title": "Steer/correction",
+    "grok": "matches",
+    "qa_script": "During tool send “Use marker TWO”; during plain typing send “Make it shorter”; reject one steer via fixture and choose Send as next message.  |  Tool-time steer delivered after step; typing correction preserves earlier text and starts next turn; failed steer visibly queued once to same chat. Fail: raw out-of-band wrapper after reload, vanished correction, two sends, file silently dropped. Attachments remain in composer while steering.  |  G9 acknowledgement and G1 held delivery principle → **matches** local correction queue, R. `Stores/AppStore+Steer.swift`, `Stores/AppStore+NextMessage.swift`, `Models/OutOfBandMessage.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "B05",
+    "title": "Explicit unsent retry",
+    "grok": "matches",
+    "qa_script": "Disconnect before send; attempt harmless marker; restore network; click Retry twice rapidly on Not sent row. Repeat with ambiguous lost response.  |  Checks backend before resending; adopts existing response; ambiguous recent delivery asks second tap; offline read sends nothing. Fail: duplicate tool execution, resend after server accepted, no recovery control.  |  G8 verify before done/G9 clarity → **matches** footer retry, R. `Stores/AppStore+Retry.swift:75`, `Views/TurnStateFooter.swift`.  |",
+    "steps": [
+      {
+        "op": "chat.send",
+        "prompt": "marker"
+      },
+      {
+        "op": "transport.cut",
+        "value": "qa-response-stream"
+      },
+      {
+        "op": "transport.restore"
+      },
+      {
+        "op": "history.refresh"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "remote_turn",
+        "equals": 1
+      },
+      {
+        "kind": "state",
+        "key": "recovered_from_history",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "fault.accepted-stream-cut"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "B06",
+    "title": "`/retry` after interrupted delivery",
+    "grok": "worse",
+    "qa_script": "Inject cut stream after backend has accepted a tool run; leave row Incomplete, then type `/retry` before Refresh; count remote requests. Also run `/retry` on a finished row.  |  Incomplete/unknown turn should be reconciled first; replaying finished work needs clear “send again” semantics. Source instead falls back to last user content when `canRetry` is false. Fail: repeated app/tool action despite existing incomplete execution.  |  G8 verification/G9 accurate acknowledgement → **worse**, S/L. `Stores/AppStore+SlashCommands.swift:86`, `Stores/AppStore+Retry.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Slash retry fault recipe not implemented; source probe documents replay risk without sending it.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "B07",
+    "title": "Restart and delayed final text",
+    "grok": "matches",
+    "qa_script": "Start known long harmless reply, quit after first tool/token, allow remote outcome, reopen; Refresh incomplete row. Repeat with server stopping on client disconnect.  |  App adopts completed history without generating again; otherwise shows incomplete/local interruption with recovery choice. Fail: “Finished” solely because stream ended, double work, stopped rows unexpectedly extended.  |  G2/G3 recoverable work → **matches** ordinary history reconciliation, R; autonomous continuation differs (A02). `Stores/AppStore+Reconcile.swift`, `Stores/HistoryReconciler.swift`, `Stores/ConnectivityMonitor.swift`.  |",
+    "steps": [
+      {
+        "op": "chat.send",
+        "prompt": "wait"
+      },
+      {
+        "op": "transport.cut",
+        "value": "qa-response-stream"
+      },
+      {
+        "op": "transport.restore"
+      },
+      {
+        "op": "history.refresh"
+      }
+    ],
+    "checks": [
+      {
+        "kind": "count",
+        "key": "remote_turn",
+        "equals": 1
+      },
+      {
+        "kind": "state",
+        "key": "recovered_from_history",
+        "equals": true
+      }
+    ],
+    "requires": [
+      "fault.accepted-stream-cut"
+    ],
+    "blocked_reason": "Requires real debug app + real Hermes, QA test mode and exhaustive sandbox attestation.",
+    "uncovered": "Additional manual-script branches, failure timing, restart and overnight variants remain untested."
+  },
+  {
+    "id": "B08",
+    "title": "Offline, backend outage and model overload",
+    "grok": "worse",
+    "qa_script": "Disable network during typing/tool/approval; restore. Separately leave internet up but stop only QA server; return HTTP 429/500 or model error.  |  Cached history usable; explicit unsent/incomplete/refused state; retries bounded; provider/backend outage distinct from device offline; no silent success. Fail: permanent Working, blank screen, alert storm, all bots appear offline because one profile fails.  |  G9 truthful blocker states, G3 recovery → **worse** broad continuity until live checked; source supports bounded reconcile, R. `Stores/ConnectivityMonitor.swift`, `Backends/HermesTimeouts.swift`, `Views/OpenClawBanner.swift`, `Stores/AppStore+Turns.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "App/server-wide outage and provider 429/500 injection unavailable without forbidden backend substitution.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "B09",
+    "title": "Long history and concurrency",
+    "grok": "matches",
+    "qa_script": "Run F05; start 7 small tasks across bots and >4 on same connection via separate threads; queue one extra user message; complete earlier runs.  |  App limits 6 total/4 per connection; waiting reason visible; FIFO per chat, other chats usable; no starvation. Remote peer/cron jobs are not counted as these app slots. Fail: message silently dropped, stuck queue after free slot, queue lets automation outrun user correction.  |  G1 queue semantics/G9 progress → **matches** bounded app turn queue, **worse** unified workload view, S/R. `Stores/AppStore+TurnSlots.swift:23`, `Stores/AppStore+NextMessage.swift:47`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "B10",
+    "title": "Backend switch and feature loss",
+    "grok": "worse",
+    "qa_script": "In a disposable existing Hermes bot's settings → Advanced change Backend to OpenClaw, select test binding, Save; send marker; switch back. Inspect old main/thread history, model locks, goal/loop, grants and pending approvals.  |  New remote session binding clear; old transcript labelled local context; stale roles not reused; unsupported tools/schedules blocked with reasons. Fail: automations silently continue on different agent, main backend changed while threads retain old session IDs, app access appears equivalent.  |  G3 stable standing rules/G9 clear state; Grok adapter-switch UI undocumented → **worse**, S/L/R. `Views/BotEditorView.swift:94`, `Views/BotEditorAdvancedSection.swift:14`, `Stores/AppStore+ConnectedApps.swift:23`, `Backends/OpenClawBackend.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "Backend rebinding/global keys are outside the allowlist.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U01",
+    "title": "Creation/onboarding mental model",
+    "grok": "worse",
+    "qa_script": "Run F09 through ⌘N, manager creation, setup discovery and template import; ask a new tester which creates a remote bot and which gets orientation. Count detours to Advanced.  |  Distinct labels/preview explain card versus profile, instruction location, connection and next task. Fail: “New Bot” assumed to provision an independent backend; silent shared default profile.  |  G3/G7 durable bot identity/rules → **worse**. `Views/BotEditorView.swift`, `Stores/AppStore.swift:202`, `Views/ManageBotsViews.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U02",
+    "title": "Find work and blockers",
+    "grok": "worse",
+    "qa_script": "After A09/A15, give tester 60 seconds to locate blocked goal, pending approval, paused team, running routine and last failed job without sending a prompt.  |  One reliable overview or obvious chat attention routes. Fail: goal blocker only in old message, no sidebar marker for thread blocker, job status not represented.  |  G9 chat-level progress → **worse**. `Views/TurnStateFooter.swift` (`needsAttention` only main text/pending approvals), `Views/InfoPanel.swift`, `Views/AutomationViews.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U03",
+    "title": "Empty states and disabled controls",
+    "grok": "worse",
+    "qa_script": "Inspect no bots, no group members, no routines, no skills, no models, no app key, no media and disconnected OpenClaw. Focus disabled buttons with keyboard/VoiceOver.  |  State names prerequisite and direct action; loading, empty, unavailable and failed are distinct. Several views already implement this well. Fail: Add routine disabled because list not loaded without explanation, no models implies no agent, empty peer thread hides read failure.  |  G9 actionable feedback → **worse** at peer/read edges; basic loadable views **matches**. `Views/RoutinesView.swift`, `Views/BotCapabilitiesView.swift`, `Stores/AppStore+BotMessages.swift:70`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U04",
+    "title": "Loading, cancellation and errors",
+    "grok": "worse",
+    "qa_script": "Throttle server for 30 seconds in setup, model load, app connect, routine save, approval decision and Open result; fail each once.  |  Immediate busy state, operation named, input retained, recovery action. Fail: Approve stays clickable while decision in flight; Open result error only offers Done; global Backend Error alert for unrelated routine blocks chat shortcuts.  |  G9 acknowledgements → **worse**. `Views/ApprovalCard.swift`, `Views/RoutineResultCard.swift`, `ContentView.swift` (global alert), `AppCommands.swift` (error disables commands).  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U05",
+    "title": "Labels and inconsistent words",
+    "grok": "worse",
+    "qa_script": "Ask tester to explain Bot/Agent/Profile/Box/Gateway, “Anything else”, “Auto-review”, “Review after”, “Work together”, “Plan a workflow”, “Goal reached”, “Sent”.  |  Tooltips/copy explain scope and consequence at point of use. Fail: advisory review confused with approval, local send acceptance read as outbound delivery, Work together's coordinator not visible until card.  |  G1/G4/G8/G9 explicit routing/verified completion → **worse**. `Models/ApprovalRoutes.swift`, `Views/GroupChatView.swift`, `Views/WorkflowView.swift`, `Stores/AppStore+CardActions.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U06",
+    "title": "Quiet-hour settings",
+    "grok": "worse",
+    "qa_script": "Set orientation quiet hours to 22–08, team quiet hours off and heartbeat active through 23. Trigger all at 22:30 with app backgrounded.  |  Scope and timezone clear; held reports versus muted notifications distinct. Fail: user assumes global quiet mode, orientation sends immediately, morning report never scheduled.  |  G3 reporting windows and held delivery → **worse**. `Views/SettingsOrientationPane.swift`, `Views/TeamControlsView.swift`, `Stores/AppStore+TeamRecovery.swift:118`, `Stores/AppStore.swift:286`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U07",
+    "title": "Click count and navigation",
+    "grok": "worse",
+    "qa_script": "Count actions from chat to per-bot app grant, goal budget, heartbeat override, approval reviewer, workflow origin after opening task thread. Repeat with ⌘K/menus.  |  Relevant context preserved, direct links, obvious return. Typical goal budget route is Settings → Advanced → Chats; per-bot app control may require modal → Open Settings → account/bot controls. Fail: closing modal loses selected task; no return to originating group except sidebar search.  |  G9 clear work context → **worse**; Grok exact click count undocumented. `Views/SettingsView.swift`, `Views/ConnectAppsModal.swift`, `Stores/AppStore+ProjectContext.swift:62`, `AppCommands.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U08",
+    "title": "Reading and drafts",
+    "grok": "worse",
+    "qa_script": "Execute F05/F06; type unsent text in main, move to thread and back; read old reply during a live stream/arrival.  |  Independent context or explicit shared-draft label; stable scroll until user elects follow. Fail: shared main/thread text and per-token forced-bottom scroll.  |  G9 reliable conversational context → **worse**. `Views/ChatView.swift:56`, `:88`, `Views/GroupChatView.swift:45`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U09",
+    "title": "Keyboard and command surprises",
+    "grok": "worse",
+    "qa_script": "Execute F04/B06; type `/` then ↑↓/Tab/Return/Esc; try `/new` from existing thread, unknown `/command`, `/goal` in group and `/model` in coding thread.  |  Commands state target and scope; no unannounced replay/model change; menu does not steal Return unexpectedly. Fail: `/retry` resends unknown run, `/model` changes main, group command sent as prompt without expected automation.  |  G9/G8 clear acknowledgement/verified action → **worse** command semantics; shortcuts themselves **matches**. `Stores/AppStore+SlashCommands.swift`, `Views/SlashCommandMenu.swift`, `Views/ComposerView.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U10",
+    "title": "Accessibility labels and focus",
+    "grok": "worse",
+    "qa_script": "Enable macOS Full Keyboard Access and VoiceOver. Tab through routine switches, heartbeat chosen checkboxes, icon buttons, reorder/delete review lines, Steps disclosure and approval. Read control name/state/context; use Space/Return; dismiss sheet and check focus restoration.  |  Each control names bot/job/action, logical focus order, visible focus, no dependence on hover/color/motion. Fail: “checkbox” with no bot name, icon meaning unavailable, collapsed error not read, focus trapped under overlay. Source has useful labels for sidebar/composer/chrome but empty-labelled routine/heartbeat toggles.  |  G9 understandable state; Grok accessibility specifics undocumented → **worse** source-level label gaps, R for actual AX tree. `Views/RoutinesView.swift:80`, `Views/SettingsHeartbeatPane.swift:72`, `Views/ApprovalRouteViews.swift:97`, `Views/ComposerView.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U11",
+    "title": "Dark/light/contrast and reduced motion",
+    "grok": "matches",
+    "qa_script": "Switch Dark/Light/System during streaming, approval, draft, nested sheet, error and inactive window; use every accent. Enable Increase Contrast, Reduce Transparency and Reduce Motion; repeat keyboard focus and avatar activity; test 1280×800/scaled display.  |  Text/status readable; warning state includes text not just red/green; scheme propagates to windows; reduced motion removes nonessential movement; primary actions remain distinguishable. Fail: tertiary metadata/error unreadable, dark-on-dark disabled send, sheet clipped, hover-only affordance. No numeric contrast pass claimed from screenshots.  |  G9 clear state; Grok palette undocumented → **matches** theme/adaptive-color infrastructure, R on perceptual accessibility. `Views/DesignSystem.swift:5`, `Views/ActivityViews.swift`, `Avatars/AvatarMotion.swift`, `AgentApp.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  },
+  {
+    "id": "U12",
+    "title": "Fixed layouts and long labels",
+    "grok": "worse",
+    "qa_script": "Use minimum window, sidebar hidden/shown, Details open, long bot names/model IDs, 3 automation chips and long approval command. Open 560×720 bot editor, 760×560 Settings and 720×680 apps sheet on small usable display; increase system text/zoom where available.  |  Essential buttons always reachable, content scrolls, full truncated title obtainable. Fail: controls fall below display, chips crowd out Pause/Clear, long command makes Approve unreachable, line-limit hides needed blocker reason.  |  G9 actionable feedback; Grok sizing undocumented → **worse** fixed-size risk, R. `Views/BotEditorView.swift:33`, `Views/SettingsView.swift:25`, `Views/ConnectAppsModal.swift`, `Views/AutomationViews.swift`, `Views/ApprovalCard.swift`.  |",
+    "steps": [],
+    "checks": [],
+    "requires": [],
+    "blocked_reason": "No safe scoped adapter implemented for this full scenario; see original QA script.",
+    "uncovered": "Full manual script; native/runtime and timing branches have not been exercised."
+  }
+]
