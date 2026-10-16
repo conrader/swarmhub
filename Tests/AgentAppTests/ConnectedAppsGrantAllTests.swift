@@ -41,7 +41,7 @@ private final class ComposioAccounts: @unchecked Sendable {
     #expect(apps.grants(for: cfo).isEmpty && apps.grants(for: jarvis) == ["ca_slack"])
 }
 
-@MainActor @Test func settingsConnectKeepsABotsOtherAccountOfTheSameApp() async throws {
+@MainActor @Test func settingsConnectAddsASecondAccountOfTheSameApp() async throws {
     let (apps, accounts) = await fixture()
     let jarvis = UUID(), cfo = UUID()
     apps.setAllowed(true, account: try #require(apps.accounts.first { $0.id == "ca_work" }), botID: cfo)
@@ -49,7 +49,7 @@ private final class ComposioAccounts: @unchecked Sendable {
     accounts.add(composioAccount("ca_personal"))
     await apps.refresh()
     #expect(apps.grants(for: jarvis) == ["ca_personal"])
-    #expect(apps.grants(for: cfo) == ["ca_work"], "one account per app per bot: Cfo's choice stays")
+    #expect(apps.grants(for: cfo) == ["ca_personal", "ca_work"], "P48: the new account is added beside Cfo's first Gmail")
 }
 
 @MainActor @Test func settingsConnectNeverGrantsAnAccountThatExistedBeforeIt() async throws {

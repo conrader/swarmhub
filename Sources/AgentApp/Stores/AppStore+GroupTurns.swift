@@ -71,7 +71,7 @@ extension AppStore {
             let sessionID = group.session(for: bot.id) ?? wanted
             let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: bot.persona, messages: [(role: "user", content: context)], images: images))
             if isCurrent(token) { setSteerAvailable((try? await activeBackend.features())?.contains("run_steer") == true, token: token) }
-            end = try await consumeTurn(stream, assistant: assistant, bot: bot, sessionID: sessionID, backend: activeBackend) { [unowned self] task in upsertSubAgent(task, bot: bot, in: group, row: false) }
+            end = try await consumeTurn(stream, assistant: assistant, bot: bot, sessionID: sessionID, backend: activeBackend, in: group) { [unowned self] task in upsertSubAgent(task, bot: bot, in: group, row: false) }
         } catch is CancellationError { end = .stoppedByUser
         } catch let error as URLError where error.code == .cancelled && Task.isCancelled { end = .stoppedByUser
         } catch let refusal as ModelRefusal {

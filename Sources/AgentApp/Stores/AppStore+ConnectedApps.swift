@@ -84,7 +84,7 @@ extension AppStore {
                   let bot = bots.first(where: { $0.id.uuidString.lowercased() == row["bot_id"].string?.lowercased() }) else { continue }
             let tool = row["tool"].string ?? "App action"
             let command = (try? row["arguments"].text()) ?? "{}"
-            let approval = ApprovalRequest(id: UUID(), title: tool, summary: "Background · \(row["account"].string ?? "account")", draft: command, command: command,
+            let approval = ApprovalRequest(id: UUID(), title: tool, summary: "Background · \(row["account"].string.map { id in connectedApps.accounts.first { $0.id == id }?.label ?? id } ?? "account")", draft: command, command: command,
                                            requestID: requestID, botID: bot.id, actionKind: "background.\(tool)")
             connectedApps.localApprovals[approval.id] = .background(requestID: requestID)
             routeAppApproval(approval, for: bot)

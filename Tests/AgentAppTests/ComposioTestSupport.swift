@@ -69,7 +69,7 @@ func composioHandler(_ request: URLRequest) -> (Int, Any) {
 
 actor AppRequestBackend: AgentBackend {
     nonisolated let kind = BackendKind.hermes
-    enum Mode: Sendable { case action, normal, unknownTool, endlessSearch, connectionCard }
+    enum Mode: Sendable { case action, normal, unknownTool, endlessSearch, connectionCard, normalAfterSearch }
     let mode: Mode; var calls: [AgentRequest] = []
     init(_ mode: Mode = .action) { self.mode = mode }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
@@ -79,7 +79,8 @@ actor AppRequestBackend: AgentBackend {
         else if mode == .connectionCard { output = "Connect your inbox to continue.\n\n```connect-app\n{\"app\":\"gmail\",\"reason\":\"To find your unread emails.\"}\n```" }
         else {
             let marker = request.systemPrompt.components(separatedBy: "\n").first { $0.hasPrefix("[[SWARMHUB_APP_REQUEST_") }!
-            if calls.count == 1 || mode == .endlessSearch { output = marker + "\n{\"action\":\"search\",\"query\":\"Fetch unread Gmail emails\"}" }
+            if mode == .normalAfterSearch && calls.count > 1 { output = "Search failed, sorry." }
+            else if calls.count == 1 || mode == .endlessSearch { output = marker + "\n{\"action\":\"search\",\"query\":\"Fetch unread Gmail emails\"}" }
             else if calls.count == 2 {
                 let slug = mode == .unknownTool ? "SLACK_SEND_MESSAGE" : "GMAIL_FETCH_EMAILS"
                 output = marker + "\n{\"action\":\"execute\",\"tool\":\"\(slug)\",\"arguments\":{\"query\":\"is:unread\"}}"

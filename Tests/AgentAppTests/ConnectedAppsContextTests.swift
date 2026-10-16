@@ -26,7 +26,8 @@ import Testing
                                                    botID: botID, backend: backend, apps: restored)
     for try await _ in stream {}
     let request = try #require(await backend.recorded().first)
-    #expect(request.systemPrompt.contains("Enabled apps for this bot: [\"gmail\"]"))
+    // P48: each app with its accounts; before the first refresh after a restart an account shows by its id.
+    #expect(request.systemPrompt.contains("Enabled apps for this bot, each with the accounts you may use by name: {\"gmail\":[\"ca_work\"]}"))
     #expect(!request.systemPrompt.contains("ca_other_bot") && !request.systemPrompt.contains(syntheticComposioKey))
     #expect(request.systemPrompt.contains("Connect apps at the bottom left"))
     #expect(MockHermesProtocol.recorded(host).count == before)
@@ -48,7 +49,7 @@ import Testing
     for try await _ in stream {}
     let prompt = try #require(await backend.recorded().first?.systemPrompt)
     #expect(prompt.hasPrefix("persona\n\n") && prompt.contains("```connect-app"))
-    #expect(!prompt.contains("Enabled apps for this bot:") && !prompt.contains("SWARMHUB_APP_REQUEST_"))
+    #expect(!prompt.contains("Enabled apps for this bot") && !prompt.contains("SWARMHUB_APP_REQUEST_"))
     // P38 B: with no key and no SwarmHub service there is nothing to connect through: the request goes out unchanged.
     let nothing = ConnectedAppsStore(directory: temporaryStore().deletingLastPathComponent(), keyStore: InMemoryKeyStore())
     let plain = AppRequestBackend(.normal)

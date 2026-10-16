@@ -13,12 +13,18 @@ struct ConnectAppSheet: View {
     @State private var operation: Task<Void, Never>?
 
     private var bot: Bot? { store.connectionBot(id: botID) }
-    private var name: String { apps.catalog.first { $0.id == request.toolkit }?.name ?? ComposioToolkit.popular.first { $0.id == request.toolkit }?.name ?? request.toolkit }
+    private var app: ComposioToolkit {
+        apps.catalog.first { $0.id == request.toolkit } ?? ComposioToolkit.popular.first { $0.id == request.toolkit }
+            ?? ComposioToolkit(.object(["slug": .string(request.toolkit), "meta": .object(["logo": .string(ComposioToolkit.publicLogo(request.toolkit)?.absoluteString ?? "")])]))!
+    }
+    private var name: String { app.name }
     private var accounts: [ComposioAccount] { apps.accounts.filter { $0.toolkit == request.toolkit && $0.isActive } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack { Text("Connect \(name)").font(.title2.weight(.semibold)); Spacer(); Button("Close") { dismiss() }.keyboardShortcut(.cancelAction) }
+            // P48: the Connect apps sheet's tile: logo, detail and the accounts by name.
+            ConnectAppTile(app: app, apps: apps)
             if let bot { Text("Choose the account \(bot.name) can use. App actions will still ask for your approval.").foregroundStyle(.secondary) }
             else { Text("This bot is no longer available.").foregroundStyle(.secondary) }
             if !request.reason.isEmpty { Text(request.reason).font(.callout) }

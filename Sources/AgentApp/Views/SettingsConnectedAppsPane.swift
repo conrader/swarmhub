@@ -14,6 +14,7 @@ struct SettingsConnectedAppsPane: View {
     @State private var search = ""
     @State private var selectedBotID: UUID?
     @State private var disconnecting: ComposioAccount?
+    @State private var renaming: ComposioAccount?
     @State private var searching = false
 
     var body: some View {
@@ -49,7 +50,8 @@ struct SettingsConnectedAppsPane: View {
                     if apps.pendingLink != nil { Text("Allow access in your browser, then refresh.").font(.caption).foregroundStyle(.secondary) }
                 }
                 if let toolkit = apps.grantedToAllToolkit {
-                    Label(ConnectedAppsCopy.onForAllBots(appName(toolkit)), systemImage: "checkmark.circle").font(.callout)
+                    let named = apps.accounts.first { $0.id == apps.grantedToAllAccountID }.map { "\(appName(toolkit)) · \($0.label)" }
+                    Label(ConnectedAppsCopy.onForAllBots(named ?? appName(toolkit)), systemImage: "checkmark.circle").font(.callout)
                 }
                 if apps.accounts.isEmpty { Text("No accounts connected yet. Choose an app below.").foregroundStyle(.secondary) }
                 ForEach(apps.accounts) { account in
@@ -57,8 +59,10 @@ struct SettingsConnectedAppsPane: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(account.label)
                             Text("\(appName(account.toolkit)) · \(status(account))").font(.caption).foregroundStyle(.secondary)
+                            if apps.namingAccounts.contains(account.id) { Text("Getting the account name…").font(.caption).foregroundStyle(.secondary) }
                         }
                         Spacer()
+                        Button("Rename…") { renaming = account }.disabled(apps.busy)
                         if !account.isActive { Button("Reconnect") { connect(account.toolkit) }.disabled(apps.busy) }
                         Button("Disconnect", role: .destructive) { disconnecting = account }.disabled(apps.busy)
                     }
@@ -80,7 +84,7 @@ struct SettingsConnectedAppsPane: View {
                         }
                     }
                 }
-                Text("One account per app for each agent. App actions appear for your approval in that agent's chat.").font(.caption).foregroundStyle(.secondary)
+                Text("An agent can use several accounts of one app (up to \(ConnectedAppsStore.accountsPerApp)); it names the account for each action. App actions appear for your approval in that agent's chat.").font(.caption).foregroundStyle(.secondary)
             }
         }
         if apps.isAvailable {
@@ -112,6 +116,7 @@ struct SettingsConnectedAppsPane: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active, apps.pendingLink != nil { Task { await apps.refresh() } }
         }
+        .sheet(item: $renaming) { account in RenameAccountSheet(apps: apps, account: account) }
         .confirmationDialog("Disconnect this account from SwarmHub?", isPresented: Binding(get: { disconnecting != nil }, set: { if !$0 { disconnecting = nil } }), titleVisibility: .visible) {
             if let account = disconnecting {
                 Button("Disconnect \(account.label)", role: .destructive) { disconnecting = nil; Task { await apps.disconnect(account) } }
@@ -137,7 +142,7 @@ struct SettingsConnectedAppsPane: View {
     }
 
     private var availableBots: [Bot] { store.connectedAppsBots }
-    private func appName(_ slug: String) -> String { apps.catalog.first { $0.id == slug }?.name ?? slug.replacingOccurrences(of: "_", with: " ").capitalized }
+    private func appName(_ slug: String) -> String { apps.appName(slug) }
     private func status(_ account: ComposioAccount) -> String { account.isActive ? "Connected" : account.disabled ? "Disabled" : account.status.replacingOccurrences(of: "_", with: " ").capitalized }
     private func load() async { if apps.hasKey { await apps.refresh() }; if apps.catalog.isEmpty || !apps.hasKey { await apps.search("") } }
     private func find(more: Bool = false) { searching = true; Task { await apps.search(search, more: more); searching = false } }
@@ -157,7 +162,7 @@ struct BotConnectedAppsSection: View {
                     if apps.hasKey { Button("Load accounts") { Task { await apps.refresh() } }.disabled(apps.busy) }
                 }
                 ForEach(apps.accounts) { account in
-                    Toggle(account.label, isOn: Binding(get: { apps.allows(account, botID: bot.id) }, set: { apps.setAllowed($0, account: account, botID: bot.id) }))
+                    Toggle("\(apps.appName(account.toolkit)) · \(account.label)", isOn: Binding(get: { apps.allows(account, botID: bot.id) }, set: { apps.setAllowed($0, account: account, botID: bot.id) }))
                         .font(.system(size: 12)).disabled(apps.busy || !account.isActive && !apps.allows(account, botID: bot.id))
                 }
                 if !bot.requestedConnectorIDs.isEmpty {

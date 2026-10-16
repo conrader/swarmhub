@@ -75,12 +75,13 @@ struct SidebarView: View {
     }
 }
 
-/// P47: the bottom-left way to Settings → Advanced → Connected apps, in the bar's round-icon + pill look.
+/// P47: the bottom-left Connect apps control, in the bar's round-icon + pill look. P48: it opens the Connect apps sheet
+/// (`ConnectAppsModal`); the sheet's footer leads on to Settings → Connected apps.
 struct ConnectAppsSidebarButton: View {
     @EnvironmentObject private var store: AppStore
-    @Environment(\.openSettings) private var openSettings
+    @State private var showing = false
     var body: some View {
-        Button { store.settingsPane = .apps; openSettings() } label: {
+        Button { showing = true } label: {
             HStack(spacing: 8) {
                 Image(systemName: SettingsLayout.AdvancedPane.apps.icon).font(.system(size: 12, weight: .semibold))
                 Text(ConnectedAppsCopy.connectAppsLabel).font(.system(size: 13, weight: .medium)).lineLimit(1)
@@ -88,5 +89,6 @@ struct ConnectAppsSidebarButton: View {
                 .background(Capsule().fill(Color.primary.opacity(0.08))).contentShape(Capsule())
         }.buttonStyle(.plain).help("Connect and manage your apps").accessibilityLabel(ConnectedAppsCopy.connectAppsLabel)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .sheet(isPresented: $showing) { ConnectAppsModal(apps: store.connectedApps).environmentObject(store) }
     }
 }

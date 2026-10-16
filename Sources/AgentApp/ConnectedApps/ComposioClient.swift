@@ -1,9 +1,13 @@
 import Foundation
+import os
 
 enum ComposioError: LocalizedError {
     case missingKey, invalidResponse, invalidIdentifier, http(Int), tooLarge, accessChanged
+    /// P48: Composio's own error body on a non-2xx (`ComposioFailure`), already capped and without secrets.
+    case api(ComposioFailure)
     var errorDescription: String? {
         switch self {
+        case .api(let failure): failure.line
         case .missingKey: "Add your Composio project API key in Settings → Connected apps."
         case .invalidResponse: "Composio returned an unexpected response."
         case .invalidIdentifier: "The app or account identifier is invalid."
@@ -24,6 +28,7 @@ enum ComposioError: LocalizedError {
 /// P38 B: SwarmHub calls Composio directly from the Mac. No Hermes installation, MCP configuration or key forwarding;
 /// a test run's default session refuses anything but loopback (`TestRunGuard`).
 struct ComposioClient: Sendable {
+    static let log = Logger(subsystem: "com.konrad.agentapp", category: "composio")
     static let productionURL = URL(string: "https://backend.composio.dev/api/v3.1/")!
     static let defaultSession: URLSession = {
         let configuration = TestRunGuard.guarded(.ephemeral)
@@ -52,7 +57,14 @@ struct ComposioClient: Sendable {
         let (data, response) = try await session.data(for: request, delegate: ComposioNoRedirect())
         try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse else { throw ComposioError.invalidResponse }
-        guard (200..<300).contains(http.statusCode) else { throw ComposioError.http(http.statusCode) }
+        guard (200..<300).contains(http.statusCode) else {
+            // P48: Composio's error body (never a header, the key or the request body) becomes the error and the log line.
+            guard let failure = ComposioFailure(status: http.statusCode, body: data, key: apiKey) else { throw ComposioError.http(http.statusCode) }
+            // The route's kind only (no session or account id); the line itself is already capped and redacted.
+            let route = path.split(separator: "/").filter { !$0.contains("_") || ["tool_router", "connected_accounts"].contains(String($0)) }.joined(separator: "/")
+            Self.log.error("Composio \(method, privacy: .public) \(route, privacy: .public): \(failure.logLine, privacy: .public)")
+            throw ComposioError.api(failure)
+        }
         guard data.count <= 4_000_000 else { throw ComposioError.tooLarge }
         if data.isEmpty { return .null }
         guard let result = try? JSONDecoder().decode(ComposioValue.self, from: data) else { throw ComposioError.invalidResponse }
@@ -78,21 +90,29 @@ struct ComposioClient: Sendable {
             // Check ownership when supplied; the API may omit the deprecated user_id field.
             guard items.allSatisfy({ $0["user_id"].string == nil || $0["user_id"].string == userID }) else { throw ComposioError.invalidResponse }
             accounts += items.compactMap(ComposioAccount.init)
-            guard let next = value["next_cursor"].string, !next.isEmpty else { return accounts }
+            guard let next = value["next_cursor"].string, !next.isEmpty else { return ComposioAccount.named(accounts) }
             guard seen.insert(next).inserted else { throw ComposioError.invalidResponse }; cursor = next
         }
         throw ComposioError.tooLarge
     }
 
-    func createSession(userID: String, toolkits: [String], accounts: [String: String] = [:]) async throws -> String {
-        guard !toolkits.isEmpty, toolkits.allSatisfy(Self.validIdentifier) else { throw ComposioError.invalidIdentifier }
-        let pins = accounts.mapValues { ComposioValue.strings([$0]) }
+    /// P48: an app with one pinned account is a single-account session (`multi_account.enable:false` and nothing else);
+    /// 2–10 pinned accounts of one app make it multi-account with explicit selection. `addingAccount`: a connect for an
+    /// app that already has an account, so Composio adds the new one instead of refusing or replacing it.
+    func createSession(userID: String, toolkits: [String], accounts: [String: [String]] = [:], addingAccount: Bool = false) async throws -> String {
+        guard !toolkits.isEmpty, toolkits.allSatisfy(Self.validIdentifier),
+              accounts.values.allSatisfy({ (1...10).contains($0.count) && $0.allSatisfy(Self.validIdentifier) }) else { throw ComposioError.invalidIdentifier }
+        let pins = accounts.mapValues { ComposioValue.strings($0.sorted()) }
+        let most = accounts.values.map(\.count).max() ?? 0
+        let multi: ComposioValue = most > 1
+            ? .object(["enable": .bool(true), "max_accounts_per_toolkit": .number(Double(max(2, most))), "require_explicit_selection": .bool(true)])
+            : addingAccount ? .object(["enable": .bool(true), "max_accounts_per_toolkit": .number(10)]) : .object(["enable": .bool(false)])
         let body: ComposioValue = .object([
             "user_id": .string(userID), "toolkits": .object(["enable": .strings(toolkits.sorted())]),
             "connected_accounts": .object(pins), "instant": .bool(false),
             "manage_connections": .object(["enable": .bool(false)]),
             "workbench": .object(["enable": .bool(false)]), "proxy_execute": .object(["enable": .bool(false)]),
-            "multi_account": .object(["enable": .bool(false)])
+            "multi_account": multi
         ])
         let value = try await request("tool_router/session", method: "POST", body: body)
         guard let id = value["session_id"].string, Self.validIdentifier(id) else { throw ComposioError.invalidResponse }
@@ -118,11 +138,19 @@ struct ComposioClient: Sendable {
         return items.compactMap(ComposioTool.init).filter { slugs.contains($0.slug) }
     }
 
-    func execute(sessionID: String, tool: String, arguments: ComposioValue, account: String) async throws -> ComposioValue {
-        guard Self.validIdentifier(tool), !tool.hasPrefix("COMPOSIO_"), Self.validIdentifier(account), arguments.object != nil else { throw ComposioError.invalidIdentifier }
-        return try await request(try route(sessionID, "execute"), method: "POST", body: .object([
-            "tool_slug": .string(tool), "arguments": arguments, "account": .string(account)
-        ])).withoutCredentials()
+    /// P48: `account` only in a multi-account session; a single-account session's pin already chooses it (Composio
+    /// documents `account` for `require_explicit_selection`).
+    func execute(sessionID: String, tool: String, arguments: ComposioValue, account: String? = nil) async throws -> ComposioValue {
+        guard Self.validIdentifier(tool), !tool.hasPrefix("COMPOSIO_"), account.map(Self.validIdentifier) ?? true, arguments.object != nil else { throw ComposioError.invalidIdentifier }
+        var body: [String: ComposioValue] = ["tool_slug": .string(tool), "arguments": arguments]
+        if let account { body["account"] = .string(account) }
+        return try await request(try route(sessionID, "execute"), method: "POST", body: .object(body)).withoutCredentials()
+    }
+
+    /// P48: a connected account's alias (empty clears it). A duplicate alias answers 409.
+    func setAlias(_ alias: String, account id: String) async throws {
+        guard Self.validIdentifier(id) else { throw ComposioError.invalidIdentifier }
+        _ = try await request("connected_accounts/\(id)", method: "PATCH", body: .object(["alias": .string(alias)]))
     }
 
     func deleteAccount(_ id: String) async throws {
