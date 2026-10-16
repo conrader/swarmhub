@@ -153,7 +153,11 @@ extension VoiceSessionTests {
             ("see https://auth.openai.com/oauth?code=xyz&state=1#frag now", "see https://auth.openai.com/oauth now"),
             ("id 0123456789abcdef0123456789abcdef01", "id [token removed]"),
             ("line one\nline\ttwo\r\n", "line one line two"),
-            ("error code 429: rate limited", "error code 429: rate limited")
+            ("error code 429: rate limited", "error code 429: rate limited"),
+            ("Cookie: a=1; __Secure-next-auth.session-token=abc, more\nnext line", "[header removed] next line"),
+            ("via https://user:pa55@proxy.example/x ok", "via https://proxy.example/x ok"),
+            ("account voice@example.test is on Free", "account [email removed] is on Free"),
+            ("GET chatgpt.com/backend-api/realtime?sig=abc&exp=1 failed", "GET chatgpt.com/backend-api/realtime failed")
         ]
         for (input, expected) in cases { #expect(VoiceRedaction.redact(input) == expected, "\(input)") }
         let long = VoiceRedaction.redact(String(repeating: "word ", count: 200))

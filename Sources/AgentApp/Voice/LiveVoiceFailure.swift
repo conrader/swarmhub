@@ -109,21 +109,24 @@ struct LiveVoiceFailure: Equatable {
 }
 
 /// P55: what a voice diagnostic may show, copy or log. Provider messages can carry request headers, bearer tokens,
-/// signed URLs or account ids, so: header lines and `Name: value` pairs of credential headers are removed; bearer/basic
-/// credentials, JWTs, `sk-…` keys and `token=`/`key=`/`secret=`/`password=`-style values are replaced; any run of 32+
-/// token characters is replaced; URLs lose their query string and fragment; control characters and newlines become
-/// spaces; the result is at most 300 characters.
+/// signed URLs, emails or account ids, so: credential and `x-`/`openai-` headers are removed to the end of their line;
+/// bearer/basic credentials, JWTs, `sk-…` keys, emails and `token=`/`key=`/`secret=`/`password=`-style values are
+/// replaced; any run of 32+ token characters is replaced; URLs (with or without a scheme) lose their user part, query
+/// string and fragment; control characters and newlines become spaces; the result is at most 300 characters.
 enum VoiceRedaction {
     static let limit = 300
-    /// Runs on the raw text: a header's value ends at its line (or a `,`/`;`).
+    /// Runs on the raw text: a header is removed to the end of its line (cookies carry `;`-separated values).
     private static let header = try! NSRegularExpression(pattern:
-        #"(?i)\b(?:authorization|proxy-authorization|cookie|set-cookie|x-[a-z0-9-]+|openai-[a-z0-9-]+|chatgpt-account-id|api-key)[ \t]*:[^\r\n,;]*"#)
+        #"(?i)\b(?:authorization|proxy-authorization|cookie|set-cookie|x-[a-z0-9-]+|openai-[a-z0-9-]+|chatgpt-account-id|api-key)[ \t]*:[^\r\n]*"#)
     private static let rules: [(NSRegularExpression, String)] = [
         (#"(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]+"#, "[credential removed]"),
         (#"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?"#, "[token removed]"),
         (#"\bsk-[A-Za-z0-9_-]{6,}"#, "[key removed]"),
         (#"(?i)\b((?:access|refresh|id|session|auth)?_?(?:token|api_?key|apikey|secret|password|client_secret|session_?id))\b(["']?\s*[:=]\s*["']?)[^\s"',&;}]+"#, "$1$2[removed]"),
+        (#"(?i)\b([a-z][a-z0-9+.-]*://)[^\s/@"'<>]*@"#, "$1"),
+        (#"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+"#, "[email removed]"),
         (#"(?i)\b([a-z][a-z0-9+.-]*://[^\s?#"'<>]+)[?#][^\s"'<>;]*"#, "$1"),
+        (#"(?i)\b((?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?/[^\s?#"'<>]*)[?#][^\s"'<>;]*"#, "$1"),
         (#"[A-Za-z0-9_+/=-]{32,}"#, "[token removed]")
     ].map { (try! NSRegularExpression(pattern: $0.0), $0.1) }
 
