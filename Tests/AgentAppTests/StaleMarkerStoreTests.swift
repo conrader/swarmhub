@@ -20,6 +20,26 @@ import Testing
     return (store, bot, apps)
 }
 
+@MainActor @Test func aTurnEndingWithAnAppRequestShowsItFoldedWithTheNotRunLine() async throws {
+    let backend = MarkerBot(Array(repeating: "OLD" + markerFetch, count: 3))
+    let (store, bot, _) = await plainsayStore(backend)
+    #expect(store.send(text: "List my repos", bot: bot, conversation: bot, replyToID: nil))
+    try await waitUntil { !store.anyTurnRunning }
+    let reply = try #require(bot.messages.last { $0.role == .assistant })
+    #expect(reply.content.hasPrefix(oldMarker) && reply.turnState == .finished)
+    let after = bot.messages.drop { $0.id != reply.id }.dropFirst().map(\.content)
+    #expect(after == ["Plainsay keeps sending app requests SwarmHub can't accept", AppRequestMarker.notRun])
+    let layout = TechnicalRow.layout(bot.messages) { _ in TechnicalContext(botName: "Plainsay") }
+    #expect(layout.folds[reply.id]?.summary == "Plainsay used Gmail · Fetch emails · no result", "folded, never raw")
+}
+
+@MainActor @Test func aNormalReplyGetsNoNotRunLine() async throws {
+    let (store, bot, _) = await plainsayStore(MarkerBot(["Hello Konrad."]))
+    #expect(store.send(text: "Hi", bot: bot, conversation: bot, replyToID: nil))
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(!bot.messages.contains { $0.content == AppRequestMarker.notRun })
+}
+
 @MainActor @Test func theMarkerInstructionsReachTheFirstTurnAfterARestart() async throws {
     let (host, session) = MockHermesProtocol.serve(composioReadHandler)
     let directory = temporaryStore().deletingLastPathComponent(), keys = InMemoryKeyStore(), url = temporaryStore()

@@ -177,6 +177,8 @@ extension AppStore {
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
         let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation, backend: activeBackend)
+        // P54: a turn that still ends with an app request shows it folded (P51) with this line: never raw, never silent.
+        if TechnicalRow.isAppRequest(assistant.content) { addWarning(AppRequestMarker.notRun, in: conversation, after: assistant) }
         let abandoned = approvals.filter { $0.botID == bot.id && ($0.sessionID == nil || $0.sessionID == (conversation.hermesSessionID ?? sessionID)) }
         for approval in abandoned {
             appendAudit(to: bot, approval: approval, outcome: .denied, decidedBy: "system", reason: cancelled ? "Run stopped; pending approval was cancelled." : "Run ended; pending approval was cancelled.")

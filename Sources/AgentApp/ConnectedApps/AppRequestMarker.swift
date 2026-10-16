@@ -9,6 +9,9 @@ enum AppRequestMarker {
     /// `prefix` + 36 UUID characters + `]]`.
     static let length = prefix.count + 36 + 2
 
+    /// P54 item 5: the line under a turn that ended with an app request nothing ran.
+    static let notRun = "This app request was not run"
+
     static func make() -> String { prefix + UUID().uuidString + "]]" }
 
     /// The marker a reply begins with (leading whitespace ignored), whatever turn it belongs to.
