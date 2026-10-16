@@ -20,6 +20,7 @@ extension AppStore {
         do {
             let jobs = try await client.list()
             routines.update(bot.id) { $0.jobs = .loaded(jobs); $0.isRefreshing = false; $0.error = nil }
+            recordHeartbeatBaseline(jobs, bot: bot)
             watchRunningRoutines(jobs, bot: bot)
             await deliverFinishedRuns(jobs, bot: bot, client: client)
             return true

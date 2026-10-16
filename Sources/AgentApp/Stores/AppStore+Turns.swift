@@ -151,7 +151,7 @@ extension AppStore {
                 save()
             }
             let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
-            let stream = try await conversationStream(.init(sessionID: sessionID, systemPrompt: systemPrompt, messages: history, images: images, managementText: managementText),
+            let stream = try await conversationStream(.init(sessionID: sessionID, systemPrompt: withHeartbeatContext(systemPrompt, bot: bot), messages: history, images: images, managementText: managementText),
                                                       bot: bot, backend: activeBackend)
             if isCurrent(token) {
                 let flags = try? await activeBackend.features()

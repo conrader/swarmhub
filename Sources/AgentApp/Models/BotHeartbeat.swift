@@ -10,15 +10,22 @@ struct HeartbeatPlan: Codable, Equatable, Sendable {
     static let botChatTitle = "Bot Chat"
     static let intervals: [TimeInterval] = [900, 1_800, 3_600, 7_200, 10_800, 21_600, 86_400]
 
-    var interval: TimeInterval = 3_600
+    /// P56: changing the interval or the hours drops an adopted box schedule.
+    var interval: TimeInterval = 3_600 { didSet { boxSchedule = nil } }
     /// Minutes after midnight, both ends included; an end before the start runs over midnight; nil: all day.
-    var windowStart: Int? = 8 * 60; var windowEnd: Int? = 23 * 60
+    var windowStart: Int? = 8 * 60 { didSet { boxSchedule = nil } }
+    var windowEnd: Int? = 23 * 60 { didSet { boxSchedule = nil } }
     var prompt: String = defaultPrompt
+    /// P56 3: the box's own schedule, adopted as is ("Use the box's schedule"): its cron is written back unchanged.
+    var boxSchedule: BoxSchedule?
+
+    struct BoxSchedule: Codable, Equatable, Sendable { var cron: String; var label: String }
 
     static func delivery(_ profile: String) -> String { "bot-chat:\(profile)" }
 
     /// "hourly 08–23", "every 30 min".
     var label: String {
+        if let boxSchedule { return boxSchedule.label }
         var text = ScheduleInterval.label(interval)
         if let windowStart, let windowEnd { text += " \(Self.clock(windowStart))–\(Self.clock(windowEnd))" }
         return text
@@ -52,11 +59,44 @@ struct HeartbeatPlan: Codable, Equatable, Sendable {
     /// The cron expression in the box's time zone (`boxOffset`, `localOffset`: minutes east of UTC). Minutes and hours are
     /// written as lists; a step that does not divide an hour is rounded to the nearest one cron can say.
     func cron(stagger: Int, localOffset: Int, boxOffset: Int) -> String {
+        if let boxSchedule { return boxSchedule.cron }
         let shift = localOffset - boxOffset
         let times = runMinutes(stagger: stagger).map { (($0 - shift) % 1_440 + 1_440) % 1_440 }
         guard !times.isEmpty else { return "\(stagger % 60) \(((windowStart ?? 0) / 60 - shift / 60 + 24) % 24) * * *" }
         let minutes = Array(Set(times.map { $0 % 60 })).sorted(), hours = Array(Set(times.map { $0 / 60 })).sorted()
         return "\(Self.list(minutes)) \(hours.count == 24 ? "*" : Self.list(hours)) * * *"
+    }
+
+    /// P56 3: `plan` on the box's `cron` (`shift`: Mac minus box offset, minutes). A cron that is a regular step over a run
+    /// of hours (in Mac time) also sets the interval and hours, so the label reads "hourly 07–22"; any other keeps the cron.
+    static func adopting(_ cron: String, from plan: HeartbeatPlan, shift: Int) -> HeartbeatPlan {
+        var adopted = plan
+        let local = fireMinutes(cron).map { (($0 + shift) % 1_440 + 1_440) % 1_440 }.sorted()
+        var label = "box schedule \(cron)"
+        if local.count == 1 {
+            adopted.interval = 86_400; adopted.windowStart = nil; adopted.windowEnd = nil
+            label = "daily " + String(format: "%02d:%02d", local[0] / 60, local[0] % 60)
+        } else if local.count > 1 {
+            // Start after the largest gap of the day's circle, so a window over midnight reads in order.
+            let gaps = local.indices.map { ($0, (local[($0 + 1) % local.count] - local[$0] + 1_440) % 1_440) }
+            let after = (gaps.max { $0.1 < $1.1 }?.0 ?? local.count - 1) + 1
+            let ordered = (0..<local.count).map { local[(after + $0) % local.count] }
+            let steps = Set(zip(ordered, ordered.dropFirst()).map { ($1 - $0 + 1_440) % 1_440 })
+            if steps.count == 1, let step = steps.first, intervals.contains(TimeInterval(step * 60)), let first = ordered.first, let last = ordered.last {
+                adopted.interval = TimeInterval(step * 60)
+                let allDay = step * ordered.count == 1_440
+                adopted.windowStart = allDay ? nil : first / 60 * 60; adopted.windowEnd = allDay ? nil : last / 60 * 60
+                label = adopted.label
+            }
+        }
+        adopted.boxSchedule = BoxSchedule(cron: cron, label: label)
+        return adopted
+    }
+
+    /// The same hours and the same number of runs in each (whichever minutes).
+    static func sameShape(_ a: String, _ b: String) -> Bool {
+        let shape = { (cron: String) in Dictionary(grouping: fireMinutes(cron), by: { $0 / 60 }).mapValues(\.count) }
+        return !fireMinutes(a).isEmpty && shape(a) == shape(b)
     }
 
     /// The minutes of the (box's) day a `minute hour * * *` cron fires: every listed minute in every listed hour.
@@ -175,12 +215,26 @@ enum HeartbeatStagger {
 
 /// P46: what store.json keeps of heartbeats: the Settings template, each bot's own plan once applied or overridden, the
 /// session titled "Bot Chat" per bot (titled once), and a title another session of the profile already holds (ask).
+/// P56 3: and the cron SwarmHub last wrote for each bot's plan, to tell a schedule changed on the box.
 struct HeartbeatSettings: Codable, Equatable, Sendable {
     var template = HeartbeatPlan()
     var plans: [String: HeartbeatPlan] = [:]
     var botChats: [String: String] = [:]
     var conflicts: [String: String] = [:]
+    var schedules: [String: String] = [:]
     var isEmpty: Bool { self == HeartbeatSettings() }
+
+    init() {}
+
+    /// A store.json from before a field existed keeps the others.
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        template = try c.decodeIfPresent(HeartbeatPlan.self, forKey: .template) ?? HeartbeatPlan()
+        plans = try c.decodeIfPresent([String: HeartbeatPlan].self, forKey: .plans) ?? [:]
+        botChats = try c.decodeIfPresent([String: String].self, forKey: .botChats) ?? [:]
+        conflicts = try c.decodeIfPresent([String: String].self, forKey: .conflicts) ?? [:]
+        schedules = try c.decodeIfPresent([String: String].self, forKey: .schedules) ?? [:]
+    }
 
     func plan(for botID: UUID) -> HeartbeatPlan { plans[botID.uuidString] ?? template }
 }
