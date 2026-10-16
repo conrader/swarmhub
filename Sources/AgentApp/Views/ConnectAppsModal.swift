@@ -3,6 +3,7 @@ import SwiftUI
 /// P48: the bottom-left Connect apps sheet: what Composio is, a grid of apps with logos (popular first, then the full
 /// catalog by search), each with its connected accounts by name and Connect / Add another account. A connect here is on
 /// for every bot (P47) and is named after who it is (P48 item 3). Each account shows the bots it is on for, with a switch per bot.
+/// The search field at the top filters the tiles at once and, after a pause, adds the full catalog's matches below.
 struct ConnectAppsModal: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
@@ -11,17 +12,21 @@ struct ConnectAppsModal: View {
     @ObservedObject var apps: ConnectedAppsStore
     /// Renders pass false: no service check and no Composio request.
     var checksOnAppear = true
-    @State var search = ""
-    @State var searched = ""
-    @State private var searching = false
+    @StateObject private var search: ConnectAppsSearch
+    @FocusState private var searchFocused: Bool
+
+    init(apps: ConnectedAppsStore, checksOnAppear: Bool = true, search: ConnectAppsSearch? = nil) {
+        self.apps = apps; self.checksOnAppear = checksOnAppear
+        _search = StateObject(wrappedValue: search ?? ConnectAppsSearch(apps: apps))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header.padding([.horizontal, .top], 24).padding(.bottom, 14)
             Divider()
+            searchBar.padding([.horizontal, .top], 24).padding(.bottom, 4)
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    searchBar
                     if let error = apps.error { Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
                     if let note = apps.serviceNote, !apps.hasKey { Label(note, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(.orange) }
                     else if !apps.isAvailable { Text(ConnectedAppsCopy.serviceNotConfigured).font(.callout).foregroundStyle(.secondary) }
@@ -31,11 +36,14 @@ struct ConnectAppsModal: View {
                             Button("Refresh") { Task { await apps.refresh() } }.disabled(apps.busy)
                         }
                     }
-                    if !searched.isEmpty { Text(shown.isEmpty ? "No apps match “\(searched)”." : "Results for “\(searched)”").font(.callout.weight(.medium)) }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], alignment: .leading, spacing: 12) {
-                        ForEach(shown) { app in ConnectAppTile(app: app, apps: apps, connect: { connect(app.id) }, bots: store.connectedAppsBots) }
+                    let local = search.local(tiles), more = search.more(than: local)
+                    grid(local)
+                    if search.loading {
+                        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Searching all apps…").font(.callout).foregroundStyle(.secondary) }
                     }
-                    if apps.nextCursor != nil, apps.hasKey { Button("Load more") { find(more: true) }.disabled(searching || apps.busy) }
+                    if !more.isEmpty { Text("More apps").font(.callout.weight(.medium)).padding(.top, 4); grid(more) }
+                    if search.nothingMatches(local: local) { Text("No apps match “\(search.term)”.").font(.callout).foregroundStyle(.secondary) }
+                    if search.term.isEmpty, apps.nextCursor != nil, apps.hasKey { Button("Load more") { Task { await apps.search("", more: true) } }.disabled(apps.busy) }
                     if !apps.hasKey { Text("Connect your first app to search the full catalog.").font(.caption).foregroundStyle(.secondary) }
                 }.padding(24)
             }
@@ -43,6 +51,7 @@ struct ConnectAppsModal: View {
             footer.padding(.horizontal, 24).padding(.vertical, 14)
         }
         .frame(width: 720, height: 680).background(AppColor.panel)
+        .onAppear { searchFocused = true }
         .task {
             guard checksOnAppear else { return }
             if apps.hasKey { await apps.refresh(); if apps.catalog.count <= ComposioToolkit.popular.count { await apps.search("") } }
@@ -56,7 +65,8 @@ struct ConnectAppsModal: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(ConnectedAppsCopy.connectAppsLabel).font(.title2.weight(.semibold))
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                // Escape clears a search first (`searchBar`); with none it closes the sheet.
+                Button("Done") { dismiss() }.keyboardShortcut(search.text.isEmpty ? .cancelAction : nil)
             }
             Text(ConnectedAppsCopy.composioExplanation).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Button("Learn more about Composio") { ExternalLink.open(ConnectedAppsCopy.composioSite) }.buttonStyle(.link).font(.callout)
@@ -65,9 +75,16 @@ struct ConnectAppsModal: View {
 
     private var searchBar: some View {
         HStack {
-            TextField("Search apps", text: $search).textFieldStyle(.roundedBorder).onSubmit { find() }
-            Button("Search") { find() }.disabled(searching || apps.busy)
-            if searching || apps.busy { ProgressView().controlSize(.small) }
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search apps", text: $search.text).textFieldStyle(.roundedBorder).focused($searchFocused)
+                .onExitCommand { search.clear() }
+            if apps.busy { ProgressView().controlSize(.small) }
+        }
+    }
+
+    private func grid(_ apps: [ComposioToolkit]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], alignment: .leading, spacing: 12) {
+            ForEach(apps) { app in ConnectAppTile(app: app, apps: self.apps, connect: { connect(app.id) }, bots: store.connectedAppsBots) }
         }
     }
 
@@ -79,17 +96,17 @@ struct ConnectAppsModal: View {
         }
     }
 
-    /// Before a search: the popular apps first, then the rest of the catalog. After one: its results.
-    private var shown: [ComposioToolkit] {
-        guard searched.isEmpty else { return apps.catalog }
+    /// The popular apps first, then connected apps outside them, then the rest of the loaded catalog.
+    private var tiles: [ComposioToolkit] { Self.tiles(apps) }
+    static func tiles(_ apps: ConnectedAppsStore) -> [ComposioToolkit] {
         let popular = ComposioToolkit.popular.map { app in apps.catalog.first { $0.id == app.id }.map { $0.logo == nil ? app : $0 } ?? app }
-        return popular + apps.catalog.filter { app in !popular.contains { $0.id == app.id } }
+        let connected = Set(apps.accounts.map(\.toolkit)).subtracting(popular.map(\.id)).sorted().compactMap { slug in
+            apps.catalog.first { $0.id == slug } ?? ComposioToolkit(.object(["slug": .string(slug), "name": .string(apps.appName(slug))]))
+        }
+        let shown = popular + connected
+        return shown + apps.catalog.filter { app in !shown.contains { $0.id == app.id } }
     }
 
-    private func find(more: Bool = false) {
-        searching = true
-        Task { await apps.search(search, more: more); searched = search.trimmingCharacters(in: .whitespacesAndNewlines); searching = false }
-    }
     private func connect(_ slug: String) {
         Task { if let url = await apps.connect(slug, grantingTo: store.connectedAppsBots.map(\.id)) { ExternalLink.open(url) } }
     }

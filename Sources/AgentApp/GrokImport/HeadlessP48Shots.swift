@@ -2,13 +2,15 @@ import AppKit
 import SwiftUI
 
 /// P48 shots of `--render-setup` (alone with `--only p48`): the Connect apps sheet before any connection, after two
-/// Gmails and a GitHub (names, Add another account) and with search results; Connected accounts with the named
+/// Gmails and a GitHub (names, Add another account, the bots using each, that popover open) and searching (a local
+/// filter with catalog matches, and "No apps match"); Connected accounts with the named
 /// accounts and Agent access with two Gmails on for Jarvis; the Rename sheet; a chat with an approval card naming the
 /// account and an app error line with Composio's message. Composio answers come from an in-process protocol, logos from
 /// a fake loader (GitHub's "fails", so its tile shows the letter): no network, no Keychain, no browser.
 @MainActor enum HeadlessP48Shots {
     static let names = ["p48-modal-before-connecting", "p48-modal-connected", "p48-modal-search", "p48-settings-accounts",
-                        "p48-rename-sheet", "p48-chat-approval-and-error", "p48-modal-usage-popover"]
+                        "p48-rename-sheet", "p48-chat-approval-and-error", "p48-modal-usage-popover",
+                        "p48-modal-search-no-match"]
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
         let store = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); store.isSetupPreview = false
@@ -54,10 +56,13 @@ import SwiftUI
             write(names[6], await png(AnyView(modal), store, modalSize))
         } else { write(names[6], nil) }
 
-        // 3. Search results over the full catalog.
-        await apps.search("calendar")
-        write(names[2], await png(AnyView(ConnectAppsModal(apps: apps, checksOnAppear: false, search: "calendar", searched: "calendar").environment(\.appLogoLoader, logos)), store, modalSize))
-        await apps.search("")
+        // 3. Search: "cal" filters the tiles at once and, after the pause, adds the catalog's other matches below; "zzz"
+        //    matches nothing. The pause is skipped here (no sleep), the catalog answer is the in-process one.
+        for (index, term) in [(2, "cal"), (7, "zzz")] {
+            let search = ConnectAppsSearch(wait: { _ in }, find: { [apps] in await apps.catalogMatches($0) })
+            search.text = term; await search.settle()
+            write(names[index], await png(AnyView(ConnectAppsModal(apps: apps, checksOnAppear: false, search: search).environment(\.appLogoLoader, logos)), store, modalSize))
+        }
 
         // 4. Settings → Connected apps: the named accounts with Rename…, Agent access with both Gmails on for Jarvis.
         let chatGPT = ChatGPTConnection(makeClient: { P48SignedOutCodex() }, openURL: { _ in false })
