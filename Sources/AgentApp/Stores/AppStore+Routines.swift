@@ -114,6 +114,7 @@ extension AppStore {
             while !Task.isCancelled, let store = self {
                 await store.pollRoutinesOnce()
                 await store.pollBotMessagesOnce()
+                await store.pollLiveRowsOnce()
                 try? await Task.sleep(for: tick)
             }
         }
@@ -154,6 +155,12 @@ extension AppStore {
             setRepause(false, key: Self.runKey(bot, job.id))
             if !job.isPaused, let paused = try? await client.pause(job.id) { routines.replaceJob(paused, botID: bot.id) }
         }
+        // P46 5: a heartbeat (any `bot-chat:` routine of this bot) answers in the Bot Chat, which the live read shows; only a
+        // `[SILENT]` run is noted, for the Routines tab's "ok · silent".
+        if deliversToBotChat(job, bot: bot) {
+            if let result = try? await client.runResult(for: job), SilentReply.isSilent(result.text) { markSilentRun(job.id, runAt: job.lastRunAt ?? "", bot: bot) }
+            return
+        }
         let missed = seen.isEmpty ? [] : await catchUpRoutine(job, after: seen, bot: bot, client: client)
         var result: HermesRunResult?, lookupError: String?
         do { result = try await client.runResult(for: job) } catch { lookupError = BotInfoCache.describe(error, key: client.backend.apiKey) }
@@ -177,9 +184,9 @@ extension AppStore {
 
     private static func runKey(_ bot: Bot, _ jobID: String) -> String { "\(bot.id.uuidString)|\(jobID)" }
 
-    private func recordSeen(_ job: HermesJob, on bot: Bot) { bot.routineRunMarks[job.id] = job.lastRunAt ?? ""; save() }
+    func recordSeen(_ job: HermesJob, on bot: Bot) { bot.routineRunMarks[job.id] = job.lastRunAt ?? ""; save() }
 
-    @discardableResult private func performRoutineAction(_ bot: Bot, token: String, _ body: (HermesJobsClient) async throws -> Void) async -> String? {
+    @discardableResult func performRoutineAction(_ bot: Bot, token: String, _ body: (HermesJobsClient) async throws -> Void) async -> String? {
         routines.setBusy(token, true, botID: bot.id)
         defer { routines.setBusy(token, false, botID: bot.id) }
         do {

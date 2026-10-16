@@ -114,6 +114,10 @@ import UserNotifications
     @Published var automations: [UUID: ChatAutomation] = [:]; var automationTask: Task<Void, Never>?
     /// P45 6: the chat whose `@Bot` message waits for the messaging skill (its composer shows the install offer).
     @Published var mentionSkillOffer: UUID?
+    /// P46: heartbeats as Hermes routines (`AppStore+BotHeartbeat.swift`) and the live read of each bot's Bot Chat.
+    @Published var heartbeatSettings = HeartbeatSettings(); var liveRows = LiveRowsState()
+    /// P46 4: an "Apply to…" under way and each bot's last problem (memory only); the zone heartbeat hours are in.
+    @Published var heartbeatBatch = HeartbeatBatchState(); var heartbeatTimeZone = TimeZone.current
     var automationSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// P42: the pause between reads of a live card's session (tests inject it).
     var botWorkSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
@@ -140,7 +144,7 @@ import UserNotifications
                 let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
                 globalApprovalRoutes = file.approvalRoutes ?? []; globalReviewAfter = file.reviewAfter ?? []
                 boxReadings = file.boxReadings ?? [:]; botMessages.marks = file.botMessageMarks ?? [:]
-                restoreAutomations(file.automations)
+                restoreAutomations(file.automations); heartbeatSettings = file.heartbeat ?? .init()
                 turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
                 if !migrateArchivedGroups().isEmpty { save() }
                 var migratedLegacyApprovalRules = false

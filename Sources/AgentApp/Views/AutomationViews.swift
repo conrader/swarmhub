@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// P45: the strip under a chat's header while it has a goal, a loop or a heartbeat ("Goal: … · round 3/20 · Pause · Clear").
+/// P45: the strip under a chat's header while it has a goal, a loop or (P46, the bot's main chat) a heartbeat routine
+/// ("Goal: … · round 3/20 · Pause · Clear").
 struct AutomationStrip: View {
     @EnvironmentObject private var store: AppStore
     let bot: Bot; let conversation: any Conversation
     var body: some View {
-        let automation = store.automations[conversation.id]
-        if let automation, automation.goal?.isActive == true || automation.loop != nil || automation.heartbeat != nil {
+        let automation = store.automations[conversation.id] ?? ChatAutomation()
+        let heartbeat = conversation is Bot ? store.heartbeatJob(for: bot) : nil
+        if automation.goal?.isActive == true || automation.loop != nil || heartbeat != nil {
             HStack(spacing: 8) {
                 if let goal = automation.goal, goal.isActive { GoalChip(goal: goal, bot: bot, conversation: conversation) }
                 if let loop = automation.loop {
@@ -15,10 +17,11 @@ struct AutomationStrip: View {
                         Button("Stop") { store.loopCommand("stop", bot: bot, conversation: conversation) }
                     }.accessibilityIdentifier("chat.loopChip")
                 }
-                if let heartbeat = automation.heartbeat {
-                    AutomationChip(icon: "waveform.path.ecg", title: heartbeat.label, detail: heartbeat.paused ? "paused" : "\(heartbeat.runs) check-ins") {
-                        Button(heartbeat.paused ? "Resume" : "Pause") { store.heartbeatCommand(heartbeat.paused ? "resume" : "pause", conversation: conversation) }
-                        Button("Stop") { store.heartbeatCommand("stop", conversation: conversation) }
+                if let heartbeat {
+                    let label = store.heartbeatSettings.plans[bot.id.uuidString]?.label ?? heartbeat.scheduleDisplay
+                    AutomationChip(icon: "waveform.path.ecg", title: "Heartbeat · \(label)", detail: heartbeat.isPaused ? "paused" : store.heartbeatNextRun(heartbeat).map { "next \($0)" } ?? "on") {
+                        Button(heartbeat.isPaused ? "Resume" : "Pause") { store.heartbeatCommand(heartbeat.isPaused ? "resume" : "pause", bot: bot, conversation: conversation) }
+                        Button("Stop") { store.heartbeatCommand("stop", bot: bot, conversation: conversation) }
                     }.accessibilityIdentifier("chat.heartbeatChip")
                 }
                 Spacer(minLength: 0)

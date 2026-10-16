@@ -13,6 +13,8 @@ enum SettingsLayout {
         case voice = "Voice"
         // P45: the budget of a chat's /goal.
         case chats = "Chats"
+        // P46: heartbeats, one Hermes routine per bot.
+        case heartbeat = "Heartbeat"
         case computers = "Computers", usage = "Usage", account = "Account", reports = "Reports", about = "About"
         var id: String { rawValue }
         var icon: String {
@@ -29,6 +31,7 @@ enum SettingsLayout {
             case .about: "info.circle"
             case .voice: "mic"
             case .chats: "bubble.left.and.bubble.right"
+            case .heartbeat: "waveform.path.ecg"
             }
         }
     }
@@ -55,7 +58,9 @@ enum SettingsLayout {
                         // P38 C: voice dictation (deAPI) and live voice with ChatGPT.
                         "voice.dictationKey", "voice.live",
                         // P45: /goal's budget (rounds and hours).
-                        "chats.goalBudget"]
+                        "chats.goalBudget",
+                        // P46: the heartbeat template and each bot's heartbeat.
+                        "heartbeat.template", "heartbeat.bots"]
 
     static let entries: [(id: String, home: Home)] = [
         ("connection.status", .simple), ("connection.test", .simple), ("connection.setup", .simple), ("you.name", .simple),
@@ -73,6 +78,7 @@ enum SettingsLayout {
         ("account.serviceURL", .advanced(.account)), ("reports.list", .advanced(.reports)),
         ("apps.chatgpt", .advanced(.apps)), ("apps.composio", .advanced(.apps)), ("apps.botAccess", .advanced(.apps)), ("apps.background", .advanced(.apps)),
         ("voice.dictationKey", .advanced(.voice)), ("voice.live", .advanced(.voice)), ("chats.goalBudget", .advanced(.chats)),
+        ("heartbeat.template", .advanced(.heartbeat)), ("heartbeat.bots", .advanced(.heartbeat)),
         ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))
     ]
 

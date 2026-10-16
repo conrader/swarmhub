@@ -29,12 +29,13 @@ import SwiftUI
         // 3: Jarvis with an hourly heartbeat 08–23; the last check-in was [SILENT], so it is hidden.
         jarvis.messages = [ChatMessage(role: .user, content: "Keep an eye on the backup and the invoices today.", createdAt: now.addingTimeInterval(-5_400)),
                            ChatMessage(role: .assistant, content: "Will do. I'll check in every hour and only speak up if something needs you.", createdAt: now.addingTimeInterval(-5_380), turnState: .finished),
-                           ChatMessage(role: .user, content: HeartbeatRun.defaultPrompt, createdAt: now.addingTimeInterval(-1_800), metadata: [AutomationKey.woken: "heartbeat", AutomationKey.display: "Heartbeat", AutomationKey.silent: "1"]),
+                           ChatMessage(role: .user, content: HeartbeatPlan.defaultPrompt, createdAt: now.addingTimeInterval(-1_800), metadata: [AutomationKey.woken: "heartbeat", AutomationKey.display: "Heartbeat", AutomationKey.silent: "1"]),
                            ChatMessage(role: .assistant, content: "[SILENT]", createdAt: now.addingTimeInterval(-1_790), metadata: [AutomationKey.silent: "1"], turnState: .finished),
-                           ChatMessage(role: .user, content: HeartbeatRun.defaultPrompt, createdAt: now.addingTimeInterval(-60), metadata: [AutomationKey.woken: "heartbeat", AutomationKey.display: "Heartbeat"]),
+                           ChatMessage(role: .user, content: HeartbeatPlan.defaultPrompt, createdAt: now.addingTimeInterval(-60), metadata: [AutomationKey.woken: "heartbeat", AutomationKey.display: "Heartbeat"]),
                            ChatMessage(role: .assistant, content: "One thing: the 09:00 backup on box 2 failed (disk full). Infra can clear the old snapshots if you want.", createdAt: now.addingTimeInterval(-50), turnState: .finished)]
-        let heartbeat = try? HeartbeatRun.parse("every 1h 08:00–23:00", now: now).get()
-        store.automations[jarvis.id] = ChatAutomation(heartbeat: heartbeat.map { var run = $0; run.runs = 6; return run })
+        // P46: the heartbeat is Jarvis's routine now; the strip reads it from the routines cache.
+        store.routines.update(jarvis.id) { $0.jobs = .loaded([HeadlessP46Shots.heartbeatJob(profile: "grok-jarvis", next: now.addingTimeInterval(1_500))]) }
+        store.heartbeatSettings.plans[jarvis.id.uuidString] = HeartbeatPlan()
         store.selectedBot = jarvis
         let size = NSSize(width: 1_120, height: 640)
         write(names[2], await png(AnyView(chat(jarvis, size: size)), store, size))
