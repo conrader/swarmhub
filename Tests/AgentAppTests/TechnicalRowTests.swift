@@ -157,3 +157,17 @@ Check the queue, then report.
     #expect(layout.visible(rows).map { layout.folds[$0.id]?.summary ?? $0.content } == [
         "Jarvis looked up GitHub tools · 2 found", "Heartbeat · uses skill agent-background-operations", "Queue is empty."])
 }
+
+/// P52 item 3: the row pair 0.5.4 wrote (Jarvis, 04:45): a search request, then a result with only `tools` (no `accounts`,
+/// each tool `app`/`tool`/`name`/`arguments_schema`) and the closing instruction. It folds into one line.
+@Test func theOldJarvisSearchShapeWithoutAccountsFolds() {
+    let request = ChatMessage(role: .assistant, content: "[[SWARMHUB_APP_REQUEST_00000000-0000-4000-8000-000000000454]]\n{\"action\":\"search\",\"query\":\"Find the GitHub tools to list my repositories\"}",
+                              metadata: ["box": "4101", "restored": "added", "run": "run_00000000000000000000000000000454", "toolTokens": "900"])
+    let tools = (1...4).map { #"{"app":"github","arguments_schema":{"properties":{},"type":"object"},"name":"Synthetic tool \#($0)","tool":"GITHUB_SYNTHETIC_\#($0)"}"# }
+    let reply = ChatMessage(role: .user, content: ConnectedAppsChat.resultPrefix + #"{"tools":["# + tools.joined(separator: ",") + "]}"
+                            + "\nContinue the original task. Use the app request format only if another app call is needed.", metadata: ["box": "4102", "restored": "added"])
+    let layout = TechnicalRow.layout([request, reply]) { _ in context }
+    #expect(layout.folds[request.id]?.summary == "Jarvis looked up GitHub tools · 4 found")
+    #expect(layout.absorbed == [reply.id] && layout.visible([request, reply]).map(\.id) == [request.id], "the result is part of the line")
+    #expect(TechnicalRow.classify(reply, context: context)?.summary == "Jarvis got an app result · ok", "alone, the result folds too")
+}
