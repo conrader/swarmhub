@@ -32,7 +32,7 @@ struct ComposioRunScope: Sendable {
 @MainActor final class ConnectedAppsStore: ObservableObject {
     static let keyAccount = "composio.project-key"
     @Published private(set) var configuration = ConnectedAppsConfiguration()
-    @Published private(set) var accounts: [ComposioAccount] = []
+    @Published var accounts: [ComposioAccount] = []
     @Published private(set) var catalog = ComposioToolkit.popular
     @Published private(set) var nextCursor: String?
     @Published private(set) var busy = false
@@ -44,6 +44,11 @@ struct ComposioRunScope: Sendable {
     @Published private(set) var retryToolkit: String?
     /// P47: the app a Settings connection just turned on for every eligible bot (the pane says so once).
     @Published private(set) var grantedToAllToolkit: String?
+    /// P48: that account, so the line can name it ("Gmail · konrad@…").
+    @Published private(set) var grantedToAllAccountID: String?
+    /// P48: accounts whose name SwarmHub is reading now ("Getting the account name…"), and those it tried this launch.
+    @Published var namingAccounts: Set<String> = []
+    var namingAttempted: Set<String> = []
     let approvals = AppToolApprovalBroker()
     /// The app action cards SwarmHub made itself (by card id). Only these are decided locally; an approval from a bot's
     /// server is never treated as an app action, whatever its action kind says.
@@ -92,7 +97,7 @@ struct ComposioRunScope: Sendable {
         if key != previous {
             if let authSession { Task { await authSession.client.deleteSession(authSession.id) }; self.authSession = nil }
             configuration.grants = [:]; configuration.projectID = nil; configuration.appToolkits = nil
-            settingsConnection = nil; grantedToAllToolkit = nil
+            settingsConnection = nil; grantedToAllToolkit = nil; grantedToAllAccountID = nil
             accounts = []; catalog = key.isEmpty ? ComposioToolkit.popular : []; nextCursor = nil; pendingLink = nil
             revision = UUID(); searchToken = UUID()
         }
@@ -102,8 +107,10 @@ struct ComposioRunScope: Sendable {
     func refresh() async {
         guard !busy else { return }; busy = true; error = nil; defer { busy = false }
         do {
-            accounts = try await client.accounts(userID: configuration.userID)
+            let service = client
+            accounts = try await service.accounts(userID: configuration.userID)
             grantSettingsConnection()
+            await nameUnnamedAccounts(using: service)
             if let authSession, accounts.contains(where: { $0.toolkit == authSession.toolkit && $0.isActive }) {
                 await authSession.client.deleteSession(authSession.id); self.authSession = nil; pendingLink = nil
             }
@@ -133,7 +140,7 @@ struct ComposioRunScope: Sendable {
     /// connect card passes nil and grants its one bot itself).
     func connect(_ toolkit: String, grantingTo bots: [UUID]? = nil) async -> URL? {
         guard !busy, persistenceEnabled else { return nil }; busy = true; error = nil; retryToolkit = nil; defer { busy = false }
-        settingsConnection = nil; grantedToAllToolkit = nil
+        settingsConnection = nil; grantedToAllToolkit = nil; grantedToAllAccountID = nil
         do {
             do { try await ensureKeyForFirstConnection(toolkit) } catch { retryToolkit = toolkit; throw error }
             let service = client
@@ -173,6 +180,22 @@ struct ComposioRunScope: Sendable {
         catch { self.error = describe(error) }
     }
 
+    /// P48: Rename… in Connected accounts. An empty name puts back the automatic one: the profile name where the app has
+    /// one, else no alias (the fallback name).
+    func rename(_ account: ComposioAccount, to name: String) async {
+        guard !busy, persistenceEnabled else { return }; busy = true; error = nil; defer { busy = false }
+        let service = client
+        let wanted = name.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
+        do {
+            if !wanted.isEmpty { _ = try await saveAlias(wanted, for: account, using: service) }
+            else if AccountProfileName.table[account.toolkit] != nil, account.isActive {
+                namingAccounts.insert(account.id); defer { namingAccounts.remove(account.id) }
+                _ = try await saveAlias(try await profileName(of: account, using: service), for: account, using: service)
+            } else { try await service.setAlias("", account: account.id) }
+            accounts = try await service.accounts(userID: configuration.userID)
+        } catch { self.error = describe(error) }
+    }
+
     /// P47: the first new active account of the app a Settings connection asked for goes to every bot it named. P48: also
     /// to a bot that already has another account of that app (several accounts per app), up to 10 per app.
     private func grantSettingsConnection() {
@@ -186,7 +209,7 @@ struct ComposioRunScope: Sendable {
         }
         var names = configuration.appToolkits ?? [:]
         names[account.id] = account.toolkit; configuration.appToolkits = names
-        revision = UUID(); persist(); grantedToAllToolkit = account.toolkit
+        revision = UUID(); persist(); grantedToAllToolkit = account.toolkit; grantedToAllAccountID = account.id
     }
 
     func grants(for botID: UUID) -> [String] { configuration.grants[botID.uuidString] ?? [] }

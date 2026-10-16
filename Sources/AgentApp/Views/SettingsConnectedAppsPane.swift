@@ -14,6 +14,7 @@ struct SettingsConnectedAppsPane: View {
     @State private var search = ""
     @State private var selectedBotID: UUID?
     @State private var disconnecting: ComposioAccount?
+    @State private var renaming: ComposioAccount?
     @State private var searching = false
 
     var body: some View {
@@ -49,7 +50,8 @@ struct SettingsConnectedAppsPane: View {
                     if apps.pendingLink != nil { Text("Allow access in your browser, then refresh.").font(.caption).foregroundStyle(.secondary) }
                 }
                 if let toolkit = apps.grantedToAllToolkit {
-                    Label(ConnectedAppsCopy.onForAllBots(appName(toolkit)), systemImage: "checkmark.circle").font(.callout)
+                    let named = apps.accounts.first { $0.id == apps.grantedToAllAccountID }.map { "\(appName(toolkit)) · \($0.label)" }
+                    Label(ConnectedAppsCopy.onForAllBots(named ?? appName(toolkit)), systemImage: "checkmark.circle").font(.callout)
                 }
                 if apps.accounts.isEmpty { Text("No accounts connected yet. Choose an app below.").foregroundStyle(.secondary) }
                 ForEach(apps.accounts) { account in
@@ -57,8 +59,10 @@ struct SettingsConnectedAppsPane: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(account.label)
                             Text("\(appName(account.toolkit)) · \(status(account))").font(.caption).foregroundStyle(.secondary)
+                            if apps.namingAccounts.contains(account.id) { Text("Getting the account name…").font(.caption).foregroundStyle(.secondary) }
                         }
                         Spacer()
+                        Button("Rename…") { renaming = account }.disabled(apps.busy)
                         if !account.isActive { Button("Reconnect") { connect(account.toolkit) }.disabled(apps.busy) }
                         Button("Disconnect", role: .destructive) { disconnecting = account }.disabled(apps.busy)
                     }
@@ -112,6 +116,7 @@ struct SettingsConnectedAppsPane: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active, apps.pendingLink != nil { Task { await apps.refresh() } }
         }
+        .sheet(item: $renaming) { account in RenameAccountSheet(apps: apps, account: account) }
         .confirmationDialog("Disconnect this account from SwarmHub?", isPresented: Binding(get: { disconnecting != nil }, set: { if !$0 { disconnecting = nil } }), titleVisibility: .visible) {
             if let account = disconnecting {
                 Button("Disconnect \(account.label)", role: .destructive) { disconnecting = nil; Task { await apps.disconnect(account) } }

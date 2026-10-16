@@ -90,7 +90,7 @@ struct ComposioClient: Sendable {
             // Check ownership when supplied; the API may omit the deprecated user_id field.
             guard items.allSatisfy({ $0["user_id"].string == nil || $0["user_id"].string == userID }) else { throw ComposioError.invalidResponse }
             accounts += items.compactMap(ComposioAccount.init)
-            guard let next = value["next_cursor"].string, !next.isEmpty else { return accounts }
+            guard let next = value["next_cursor"].string, !next.isEmpty else { return ComposioAccount.named(accounts) }
             guard seen.insert(next).inserted else { throw ComposioError.invalidResponse }; cursor = next
         }
         throw ComposioError.tooLarge
