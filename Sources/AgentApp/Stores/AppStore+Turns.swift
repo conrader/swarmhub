@@ -29,7 +29,7 @@ import Foundation
 extension AppStore {
     /// Reads the stream into `assistant` (and the parts a delivered steer opens after it, `endTurnParts`). Returns how it ended; throws what the backend threw (and cancellation).
     func consumeTurn(_ stream: AsyncThrowingStream<AgentEvent, Error>, assistant: ChatMessage, bot: Bot, sessionID: String, backend activeBackend: any AgentBackend,
-                     subAgent: (SubAgentTask) -> Void) async throws -> TurnEnd {
+                     in conversation: (any Conversation)? = nil, subAgent: (SubAgentTask) -> Void) async throws -> TurnEnd {
         var completed = false; var boxFailure: String?; var sawEvent = false
         // P28 D5: a delivered steer moves the rest of the reply into a new row below its bubble.
         var row = assistant
@@ -66,6 +66,7 @@ extension AppStore {
                 request.botID = bot.id; request.profile = bot.hermesProfile ?? "default"; request.sessionID = sessionID
                 await routeApproval(request, for: bot, backend: activeBackend)
             case .steer: break
+            case .appError(let text): if let conversation { addWarning("\(bot.name): \(text)", in: conversation, after: row) }
             case .hiddenTokens(let count): assistant.metadata[TurnKey.toolTokens] = String((Int(assistant.metadata[TurnKey.toolTokens] ?? "") ?? 0) + max(0, count))
             case .completed: completed = true
             case .failed(let value): boxFailure = value
@@ -144,7 +145,7 @@ extension AppStore {
                 // P12: an OpenClaw link is up only now, so its flags (Reply in thread) are read here too.
                 if bot.backend == .openClaw, let flags { botFeatures[bot.id] = flags }
             }
-            end = try await consumeTurn(stream, assistant: assistant, bot: bot, sessionID: sessionID, backend: activeBackend) { [unowned self] task in
+            end = try await consumeTurn(stream, assistant: assistant, bot: bot, sessionID: sessionID, backend: activeBackend, in: conversation) { [unowned self] task in
                 upsertSubAgent(task, bot: bot, in: conversation)
             }
         } catch is CancellationError { end = .stoppedByUser

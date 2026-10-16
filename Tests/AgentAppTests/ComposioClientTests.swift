@@ -7,7 +7,7 @@ import Testing
     let client = ComposioClient(apiKey: syntheticComposioKey, session: session, baseURL: URL(string: "https://\(host)/api/v3.1/")!)
     let accounts = try await client.accounts(userID: "swarmhub_test")
     #expect(accounts.count == 2)
-    let id = try await client.createSession(userID: "swarmhub_test", toolkits: ["gmail"], accounts: ["gmail": "ca_work"])
+    let id = try await client.createSession(userID: "swarmhub_test", toolkits: ["gmail"], accounts: ["gmail": ["ca_work"]])
     #expect(id == "trs_synthetic")
     let requests = MockHermesProtocol.recorded(host)
     #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "x-api-key") == syntheticComposioKey })

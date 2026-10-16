@@ -2,8 +2,9 @@ import Foundation
 
 /// P38 B: one app action a bot asked for, from the approval card to its outcome. Kept in `app-receipts.json` beside
 /// `connected-apps.json` (the last 500); an action that was running when SwarmHub quit is `unknown`, never retried.
+/// P48: `failed` is an execution Composio answered with an error (it did not run); a transport failure stays `unknown`.
 struct ToolExecutionReceipt: Codable, Identifiable, Sendable, Equatable {
-    enum State: String, Codable, Sendable { case awaitingApproval, declined, executing, succeeded, unknown }
+    enum State: String, Codable, Sendable { case awaitingApproval, declined, executing, succeeded, unknown, failed }
     var id: UUID
     var botID: UUID
     var sessionID: String
@@ -22,6 +23,7 @@ struct ToolExecutionReceipt: Codable, Identifiable, Sendable, Equatable {
         case .executing: "Running"
         case .succeeded: "Done"
         case .unknown: "Outcome unknown"
+        case .failed: "Failed"
         }
     }
 }

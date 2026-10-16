@@ -63,7 +63,8 @@ import Testing
     let input = requests.map { $0.systemPrompt + $0.messages.map(\.content).joined() }.joined()
     #expect(!input.contains(syntheticComposioKey) && !input.contains("provider-token") && !input.contains("refresh-token"))
     let executions = MockHermesProtocol.recorded(host).filter { $0.url!.path.hasSuffix("/execute") }
-    #expect(executions.count == 1 && composioBody(executions[0])["account"] as? String == "ca_work")
+    // P48: one granted account is a single-account session: its pin chooses the account, execute names none.
+    #expect(executions.count == 1 && composioBody(executions[0])["account"] == nil)
 }
 
 @MainActor @Test func composioDeclineAndRevocationPreventExecution() async throws {

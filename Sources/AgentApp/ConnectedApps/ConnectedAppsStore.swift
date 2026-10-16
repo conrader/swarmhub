@@ -242,7 +242,7 @@ struct ComposioRunScope: Sendable {
             return true
         } catch { persistenceEnabled = false; self.error = "Connected app settings could not be saved. App execution is disabled until the file can be saved."; return false }
     }
-    private func describe(_ error: Error) -> String {
+    func describe(_ error: Error) -> String {
         error.localizedDescription.replacingOccurrences(of: savedKey().isEmpty ? "\u{0}" : savedKey(), with: "[key]")
     }
 }

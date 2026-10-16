@@ -27,6 +27,7 @@ private func render(_ events: [AgentEvent]) -> [String] {
         case .subAgent: "subagent"
         case .steer: "steer"
         case .hiddenTokens(let count): "hidden:\(count)"
+        case .appError(let text): "appError:\(text)"
         }
     }
 }

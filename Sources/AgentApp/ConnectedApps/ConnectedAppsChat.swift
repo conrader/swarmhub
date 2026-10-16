@@ -125,57 +125,68 @@ struct AppToolRequest: Sendable {
                             let chunk = String(full.dropFirst(offset).prefix(40_000))
                             messages.append((role: "user", content: resultPrefix + chunk + "\nNext offset: \(offset + chunk.count) of \(full.count)")); continue
                         }
-                        if scope == nil {
-                            continuation.yield(.status("Preparing connected apps"))
-                            let prepared = try await apps.scope(for: botID)
-                            scope = prepared
-                            composioSession = try await prepared.client.createSession(userID: prepared.userID, toolkits: Array(prepared.accounts.keys), accounts: prepared.accounts)
-                        }
-                        guard let scope, let sessionID = composioSession else { throw ComposioError.invalidResponse }
                         let result: ComposioValue
-                        switch action.action {
-                        case .search:
-                            continuation.yield(.status("Finding app tools"))
-                            let tools = try await scope.client.tools(sessionID: sessionID, query: action.query!)
-                            let allowed = tools.filter { scope.accounts[$0.toolkit] != nil }
-                            for tool in allowed { knownTools[tool.slug] = tool }
-                            result = .object(["tools": .array(allowed.map(\.definition))])
-                        case .readArtifact, .workflow: throw ComposioError.invalidResponse
-                        case .execute:
-                            guard let slug = action.tool, let tool = knownTools[slug], let account = scope.accounts[tool.toolkit], let arguments = action.arguments else {
-                                throw BackendError.unavailable("The bot requested an app tool it has not discovered or is not allowed to use.")
+                        do {
+                            if scope == nil {
+                                continuation.yield(.status("Preparing connected apps"))
+                                let prepared = try await apps.scope(for: botID)
+                                scope = prepared
+                                composioSession = try await prepared.client.createSession(userID: prepared.userID, toolkits: Array(prepared.accounts.keys),
+                                                                                          accounts: prepared.accounts.mapValues { [$0] })
                             }
-                            try apps.check(scope, botID: botID, account: account)
-                            let command = try ComposioValue.object(["app": .string(tool.toolkit), "account": .string(account), "tool": .string(slug), "arguments": arguments]).text()
-                            let approval = ApprovalRequest(id: UUID(), title: tool.name, summary: "\(tool.toolkit) · \(apps.accounts.first { $0.id == account }?.label ?? account)",
-                                                           draft: command, command: command, botID: botID, sessionID: request.sessionID, actionKind: "composio.\(slug)")
-                            var receipt = ToolExecutionReceipt(id: approval.id, botID: botID, sessionID: request.sessionID, tool: slug, account: account, arguments: try arguments.withoutCredentials().text())
-                            try apps.record(receipt); activeReceiptID = receipt.id
-                            apps.localApprovals[approval.id] = .chat
-                            defer { apps.localApprovals[approval.id] = nil }
-                            let approved = try await apps.approvals.wait(approval) { event in continuation.yield(event) }
-                            try Task.checkCancellation()
-                            try apps.check(scope, botID: botID, account: account)
-                            if approved {
+                            guard let scope, let sessionID = composioSession else { throw ComposioError.invalidResponse }
+                            switch action.action {
+                            case .search:
+                                continuation.yield(.status("Finding app tools"))
+                                let tools = try await scope.client.tools(sessionID: sessionID, query: action.query!)
+                                let allowed = tools.filter { scope.accounts[$0.toolkit] != nil }
+                                for tool in allowed { knownTools[tool.slug] = tool }
+                                result = .object(["tools": .array(allowed.map(\.definition))])
+                            case .readArtifact, .workflow: throw ComposioError.invalidResponse
+                            case .execute:
+                                guard let slug = action.tool, let tool = knownTools[slug], let account = scope.accounts[tool.toolkit], let arguments = action.arguments else {
+                                    throw BackendError.unavailable("The bot requested an app tool it has not discovered or is not allowed to use.")
+                                }
+                                try apps.check(scope, botID: botID, account: account)
+                                let command = try ComposioValue.object(["app": .string(tool.toolkit), "account": .string(account), "tool": .string(slug), "arguments": arguments]).text()
+                                let approval = ApprovalRequest(id: UUID(), title: tool.name, summary: "\(tool.toolkit) · \(apps.accounts.first { $0.id == account }?.label ?? account)",
+                                                               draft: command, command: command, botID: botID, sessionID: request.sessionID, actionKind: "composio.\(slug)")
+                                var receipt = ToolExecutionReceipt(id: approval.id, botID: botID, sessionID: request.sessionID, tool: slug, account: account, arguments: try arguments.withoutCredentials().text())
+                                try apps.record(receipt); activeReceiptID = receipt.id
+                                apps.localApprovals[approval.id] = .chat
+                                defer { apps.localApprovals[approval.id] = nil }
+                                let approved = try await apps.approvals.wait(approval) { event in continuation.yield(event) }
+                                try Task.checkCancellation()
+                                try apps.check(scope, botID: botID, account: account)
+                                guard approved else {
+                                    receipt.state = .declined; try apps.record(receipt)
+                                    continuation.yield(.token("App action declined.")); completed = true; break steps
+                                }
                                 continuation.yield(.status("Using \(tool.name)"))
                                 // Exactly one execution attempt; retrying an ambiguous failure could duplicate a write.
                                 receipt.state = .executing; try apps.record(receipt)
                                 do {
-                                    result = try await scope.client.execute(sessionID: sessionID, tool: slug, arguments: arguments, account: account)
+                                    // P48: the single-account session's pin chooses the account; execute names none.
+                                    result = try await scope.client.execute(sessionID: sessionID, tool: slug, arguments: arguments)
                                     receipt.state = .succeeded
                                     let output = try result.withoutCredentials().text()
                                     receipt.resultID = try apps.results().save(Data(output.utf8), botID: botID)
                                     receipt.outputExcerpt = String(output.prefix(2_000))
                                     try apps.record(receipt)
                                 } catch {
-                                    if receipt.state == .executing { receipt.state = .unknown }
+                                    if receipt.state == .executing { receipt.state = AppRequestFailure.answered(error) ? .failed : .unknown; receipt.outputExcerpt = apps.describe(error) }
                                     else { receipt.outputExcerpt = "Operation succeeded; saving the full result failed: " + error.localizedDescription }
-                                    try apps.record(receipt); throw error
+                                    try apps.record(receipt)
+                                    if receipt.state == .succeeded { throw error }
+                                    throw AppRequestFailure(error: error, tool: tool.name, ran: receipt.state == .unknown)
                                 }
-                            } else {
-                                receipt.state = .declined; try apps.record(receipt)
-                                continuation.yield(.token("App action declined.")); completed = true; break steps
                             }
+                        } catch let error where AppRequestFailure.returnsToBot(error) {
+                            // P48: the bot always gets a result row back, and the chat shows the same line (no secrets).
+                            let failure = AppRequestFailure.wrap(error, describe: apps.describe)
+                            continuation.yield(.appError(failure.chatLine))
+                            messages.append((role: "user", content: resultPrefix + failure.botResult + "\nContinue the original task. Tell the user what failed if you cannot work around it."))
+                            continue
                         }
                         var text = try result.withoutCredentials().text()
                         if text.utf8.count > 60_000 {
