@@ -111,7 +111,7 @@ extension AppStore {
         // The box had the turn (adopted, or still running): nothing is sent.
         guard row.turnState == .notSent, row.content == content else { return }
         let covers = report.coversFrom.map { $0 <= row.createdAt.addingTimeInterval(report.skew) } ?? true
-        guard report.read == report.total, !report.unreachable, covers else {
+        guard report.total == 1, report.read == 1, !report.skipped, !report.diverged, !report.unreachable, covers else {
             addWarning("\(bot.name): Can't reach the box; nothing was sent.", in: conversation, after: row); return
         }
         if report.newerUnmatched && !sendAnyway {

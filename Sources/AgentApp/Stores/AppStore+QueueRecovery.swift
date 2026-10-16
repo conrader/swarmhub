@@ -1,12 +1,12 @@
 import Foundation
 
 /// P38 E: one queued next message in the run ledger (kind `nextMessage`), written before it joins the queue and again
-/// before it is sent, so a quit never loses or repeats it. `anchorID` is the row that offered it: the failed steer
+/// before it is sent, so interrupted dispatch can be surfaced without blind replay. `anchorID` is the row that offered it: the failed steer
 /// bubble, or the review card whose notes go out.
 struct NextMessageRecord: Codable, Equatable, Sendable {
     /// `turn` (P39): a user message that waits at the turn limit; the anchor is the message itself.
     enum Kind: String, Codable, Sendable { case steer, reviewNotes, turn }
-    enum State: String, Codable, Sendable { case waiting, sent, removed }
+    enum State: String, Codable, Sendable { case waiting, submitting, uncertain, sent, removed }
     var id: UUID
     var anchorID: UUID
     var kind: Kind
@@ -42,10 +42,19 @@ extension AppStore {
     func restoreNextMessages() {
         guard persistenceEnabled, hasLedger else { return }
         do {
-            for record in try journal().records(NextMessageRecord.self, kind: Self.nextMessageKind) where record.state == .waiting {
+            for record in try journal().records(NextMessageRecord.self, kind: Self.nextMessageKind) where record.state == .waiting || record.state == .submitting || record.state == .uncertain {
                 guard !turns.nextMessages.contains(where: { $0.id == record.id }) else { continue }
                 guard let conversation = conversation(containing: record.anchorID), let anchor = conversation.messages.first(where: { $0.id == record.anchorID }) else {
                     try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString); continue
+                }
+                if record.state == .submitting || record.state == .uncertain {
+                    let warning = "Queued message delivery is uncertain after restart. Refresh server history before sending again: " + record.text
+                    if !conversation.messages.contains(where: { $0.content == warning }) {
+                        conversation.messages.append(ChatMessage(role: .system, content: warning))
+                    }
+                    // Retain the text and operation ID durably; never silently replay an uncertain send.
+                    try journal().put(with(record, state: .uncertain), kind: Self.nextMessageKind, id: record.id.uuidString)
+                    continue
                 }
                 let bubble: ChatMessage
                 switch record.kind {

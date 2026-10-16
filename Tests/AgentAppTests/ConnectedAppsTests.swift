@@ -159,10 +159,11 @@ import Testing
     try await waitUntil { store.approvals.isEmpty }
     #expect(bot.approvalAudit.last?.outcome == .approved)
     #expect(!backend.calls.all.contains { $0.hasPrefix("approval") }, "App approval must not be sent to Hermes")
-    // A bot server's approval that only names itself an app action is routed like any other (here: the allow line).
+    // A bot server's approval that only names itself an app action is routed like any other box approval. The audit's
+    // narrower auto-approval (reviewerMustEscalate) asks the user whenever the action says "send", even under the allow line.
     let forged = ApprovalRequest(id: UUID(), title: "Forged", summary: "x", draft: nil, command: "cat /tmp/x", botID: bot.id, sessionID: "chat", actionKind: "composio.GMAIL_SEND_EMAIL")
     #expect(!store.isAppAction(forged))
     await store.routeApproval(forged, for: bot, backend: backend)
-    try await backend.calls.wait { $0.contains("approval:true") }
-    #expect(!store.approvals.contains { $0.id == forged.id })
+    #expect(store.approvals.contains { $0.id == forged.id } && bot.approvalAudit.last?.outcome == .asked)
+    #expect(!backend.calls.all.contains { $0.hasPrefix("approval") }, "nothing is auto-approved on the box")
 }

@@ -30,7 +30,7 @@ import Testing
         #expect(rule.matches(action: "command", command: command))
         #expect(ApprovalRule.commandRequiresUserReview(command))
     }
-    #expect(!ApprovalRule.commandRequiresUserReview("git status --short"))
+    #expect(!ApprovalRule.commandRequiresUserReview("git --no-pager status --short"))
 }
 
 @Test func automaticAllowRejectsDangerousProgramsAndArguments() {
@@ -269,3 +269,16 @@ import Testing
     try await waitUntil { store.approvals.isEmpty }; #expect(store.approvals.isEmpty)
 }
 
+
+@Test func automaticApprovalRejectsMutationAndGitHelpers() {
+    for command in ["touch /tmp/a", "tee /tmp/a", "chmod 777 /tmp/a", "rm /tmp/a",
+                    "sed -i.bak s/a/b/ /tmp/a", "wget https://example.com",
+                    "git branch newbranch", "git branch -m old new", "git branch --delete old",
+                    "git branch --force target HEAD", "git diff --ext-diff", "git diff --textconv",
+                    "git log --ext-diff -p", "rg --pre=evil text"] {
+        #expect(ApprovalRule.commandRequiresUserReview(command))
+    }
+    for action in ["write_file", "delete_file", "send_message", "create_file"] {
+        #expect(ApprovalRule.reviewerMustEscalate(action: action, command: "cat file"))
+    }
+}

@@ -84,6 +84,8 @@ import SwarmHubCoordination
     var skillLibraryOverride: [BundledSkill]?; var pendingSkillInstalls: [UUID: SkillInstallTurn] = [:]
     /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()
+    /// P50: where each chat was left and whether it is away from the newest message.
+    let chatScroll = ChatScrollModel()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     /// P16: turn bookkeeping, the token autosave interval, the connectivity events and the reconcile timing (injectable).
@@ -151,7 +153,7 @@ import SwarmHubCoordination
                 let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
                 globalApprovalRoutes = file.approvalRoutes ?? []; globalReviewAfter = file.reviewAfter ?? []
                 boxReadings = file.boxReadings ?? [:]; botMessages.marks = file.botMessageMarks ?? [:]
-                restoreAutomations(file.automations); heartbeatSettings = file.heartbeat ?? .init()
+                restoreAutomations(file.automations); heartbeatSettings = file.heartbeat ?? .init(); chatScroll.restore(file.scrollPositions)
                 turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
                 if !migrateArchivedGroups().isEmpty { save() }
                 var migratedLegacyApprovalRules = false
