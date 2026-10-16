@@ -8,13 +8,13 @@ import Testing
 @Test func heartbeatPlanParsesAndBecomesBoxCron() throws {
     let plan = try HeartbeatPlan.parse("every 1h 08:00–23:00").get()
     #expect(plan.interval == 3_600 && plan.windowStart == 480 && plan.windowEnd == 1_380 && plan.prompt == HeartbeatPlan.defaultPrompt)
-    #expect(plan.label == "hourly 08–23" && plan.wakesPerDay(stagger: 7) == 15)
-    // Warsaw in October is UTC+2; a UTC box runs 08:07–22:07 local as 06:07–20:07.
-    #expect(plan.cron(stagger: 7, localOffset: 120, boxOffset: 0) == "7 6-20 * * *")
+    #expect(plan.label == "hourly 08–23" && plan.wakesPerDay(stagger: 7) == 16)
+    // Warsaw in October is UTC+2; a UTC box runs 08:07–23:07 local (the end hour included) as 06:07–21:07.
+    #expect(plan.cron(stagger: 7, localOffset: 120, boxOffset: 0) == "7 6-21 * * *")
     #expect(plan.cron(stagger: 0, localOffset: 120, boxOffset: 120) == "0 8-23 * * *")
     let night = try HeartbeatPlan.parse("every 30 min 22:30-06:00 check the backups").get()
     #expect(night.prompt == "check the backups" && night.label == "every 30 min 22:30–06")
-    #expect(night.cron(stagger: 12, localOffset: 0, boxOffset: 0) == "12,42 0-5,22,23 * * *")
+    #expect(night.cron(stagger: 12, localOffset: 0, boxOffset: 0) == "12,42 0-6,22,23 * * *")
     #expect(try HeartbeatPlan.parse("daily 09:00-10:00").get().cron(stagger: 25, localOffset: 60, boxOffset: 0) == "25 8 * * *")
     #expect(HeartbeatPlan.parse("soon") == .failure(.noInterval))
     #expect(try HeartbeatPlan.parse("every 1m").get().interval == 300, "at least five minutes")

@@ -18,8 +18,7 @@ struct AutomationStrip: View {
                     }.accessibilityIdentifier("chat.loopChip")
                 }
                 if let heartbeat {
-                    let label = store.heartbeatSettings.plans[bot.id.uuidString]?.label ?? heartbeat.scheduleDisplay
-                    AutomationChip(icon: "waveform.path.ecg", title: "Heartbeat · \(label)", detail: heartbeat.isPaused ? "paused" : store.heartbeatNextRun(heartbeat).map { "next \($0)" } ?? "on") {
+                    AutomationChip(icon: "waveform.path.ecg", title: store.heartbeatBar(heartbeat, bot: bot), detail: "") {
                         Button(heartbeat.isPaused ? "Resume" : "Pause") { store.heartbeatCommand(heartbeat.isPaused ? "resume" : "pause", bot: bot, conversation: conversation) }
                         Button("Stop") { store.heartbeatCommand("stop", bot: bot, conversation: conversation) }
                     }.accessibilityIdentifier("chat.heartbeatChip")
@@ -42,6 +41,13 @@ struct GoalChip: View {
     }
 }
 
+enum ChipText {
+    /// Parts joined by " · ", empty ones left out (never a stray separator).
+    static func line(_ parts: [String?]) -> String {
+        parts.compactMap { $0?.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+}
+
 /// A capsule with an icon, a title, a detail and its buttons.
 struct AutomationChip<Actions: View>: View {
     let icon: String; let title: String; let detail: String
@@ -49,8 +55,8 @@ struct AutomationChip<Actions: View>: View {
     var body: some View {
         HStack(spacing: 7) {
             Image(systemName: icon).foregroundStyle(.secondary)
-            Text(title).fontWeight(.medium).lineLimit(1).truncationMode(.tail).frame(maxWidth: 320, alignment: .leading).fixedSize(horizontal: false, vertical: true)
-            Text("· " + detail).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+            // One line at its own width (no stretched frame), the detail only when there is one.
+            (Text(title).fontWeight(.medium) + Text(verbatim: detail.isEmpty ? "" : " · " + detail).foregroundColor(.secondary)).lineLimit(1).truncationMode(.tail)
             HStack(spacing: 2) { actions() }.buttonStyle(.borderless).controlSize(.small)
         }.font(.system(size: 12)).padding(.leading, 10).padding(.trailing, 6).padding(.vertical, 4)
             .background(AppColor.card, in: Capsule()).overlay(Capsule().stroke(AppColor.separator, lineWidth: 0.5))

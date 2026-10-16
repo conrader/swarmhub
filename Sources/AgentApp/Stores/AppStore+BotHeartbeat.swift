@@ -156,11 +156,16 @@ extension AppStore {
     /// "Heartbeat · hourly 08–23 · on · next 14:07 · last ok · silent".
     func heartbeatSummary(for bot: Bot) -> String? {
         guard let job = heartbeatJob(for: bot) else { return nil }
-        var parts = ["Heartbeat · " + (heartbeatSettings.plans[bot.id.uuidString]?.label ?? job.scheduleDisplay), job.isPaused ? "paused" : "on"]
-        if !job.isPaused, let next = heartbeatNextRun(job) { parts.append("next " + next) }
-        if let last = heartbeatLastResult(job, bot: bot) { parts.append("last " + last) }
-        return parts.joined(separator: " · ")
+        return ChipText.line(["Heartbeat", heartbeatLabel(job, bot: bot), job.isPaused ? "paused" : "on", job.isPaused ? nil : heartbeatNextRun(job).map { "next " + $0 },
+                             heartbeatLastResult(job, bot: bot).map { "last " + $0 }])
     }
+
+    /// The chat's heartbeat bar: "Heartbeat · hourly 08–23 · next 14:07" (paused: "… · paused"; no next run known: "… · on").
+    func heartbeatBar(_ job: HermesJob, bot: Bot) -> String {
+        ChipText.line(["Heartbeat", heartbeatLabel(job, bot: bot), job.isPaused ? "paused" : heartbeatNextRun(job).map { "next " + $0 } ?? "on"])
+    }
+
+    func heartbeatLabel(_ job: HermesJob, bot: Bot) -> String { heartbeatSettings.plans[bot.id.uuidString]?.label ?? job.scheduleDisplay }
 
     /// "14:07" in the Mac's time.
     func heartbeatNextRun(_ job: HermesJob) -> String? {
