@@ -118,6 +118,6 @@ extension AppStore {
 
     /// Launch: what the ledger committed and store.json may have missed (a crash between the two saves).
     func restoreLedger() {
-        restoreChildTasks(); restoreRoutineDeliveries(); restoreWorkflows(); restoreNextMessages()
+        restoreChildTasks(); restoreRoutineDeliveries(); restoreWorkflows(); restoreNextMessages(); restoreProjectFacts()
     }
 }

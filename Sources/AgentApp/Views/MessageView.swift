@@ -55,6 +55,7 @@ struct MessageView: View {
 
     private var actions: some View {
         HStack(spacing: 10) {
+            SpeakReplyButton(message: message)
             Button { showingReactions.toggle() } label: { Image(systemName: "face.smiling") }.help("Tapback")
             Button(action: reply) { Image(systemName: "arrowshape.turn.up.left") }.help("Reply")
             if message.role == .assistant && message.presentation == .text { Button { copyToPasteboard(SwarmhubBlock.visibleText(message.finalText)) } label: { Image(systemName: "doc.on.doc") }.help("Copy reply") }

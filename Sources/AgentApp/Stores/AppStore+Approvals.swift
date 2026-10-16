@@ -142,6 +142,7 @@ extension AppStore {
     /// P38 B: an app action always asks you, whatever the bot's lines say (no rule, no reviewer, no bot server).
     func routeAppApproval(_ approval: ApprovalRequest, for bot: Bot) {
         appendAudit(to: bot, approval: approval, outcome: .requested, decidedBy: "system", reason: "App action requested.")
+        if routeTeamAppApproval(approval, for: bot) { return }
         askUser(approval, bot: bot, reason: "App actions always ask you.")
     }
     /// P12: an approval this app did not start (another client's run, the Gateway's automations): always asks, never

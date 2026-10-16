@@ -13,6 +13,7 @@ extension AppStore {
 
     /// Only a paused workflow's queued task, or a blocked one whose replies are all certainly unsent.
     func canReassignWorkflowTask(_ workflow: Workflow, task: WorkflowTask) -> Bool {
+        if workflow.isTeam, task.delivery?.state == .uncertain || task.delivery?.state == .dispatching || task.delivery?.state == .running { return false }
         // P38 E: a task whose reply finished (a review waiting for the user) is never sent again.
         guard workflow.state == .paused, task.state == .queued || task.state == .blocked, task.completionConfirmed != true else { return false }
         guard let thread = workflowThread(task.threadID, botID: task.botID) else {
@@ -27,10 +28,11 @@ extension AppStore {
     /// The task starts over in a new thread for `botID`; the old thread can no longer send.
     @discardableResult func reassignWorkflowTask(_ id: UUID, taskID: String, botID: UUID) -> Bool {
         guard var workflow = workflows[id], let index = workflow.tasks.firstIndex(where: { $0.id == taskID }),
-              let group = groups.first(where: { $0.id == workflow.groupID }), group.memberIDs.contains(botID),
+              workflowMembers(workflow).contains(where: { $0.id == botID }),
               bots.contains(where: { $0.id == botID }), canReassignWorkflowTask(workflow, task: workflow.tasks[index]) else {
             errorMessage = "Only a task that certainly was not sent can be reassigned. Refresh uncertain work from its server first."; return false
         }
+        if let problem = teamPolicyProblem(workflow, botID: botID) { errorMessage = problem; return false }
         let previous = workflow.tasks[index]
         if previous.replyID != nil || workflowThread(previous.threadID, botID: previous.botID) != nil {
             workflow.tasks[index].previousThreadIDs = (previous.previousThreadIDs ?? []) + [previous.threadID]
@@ -38,7 +40,7 @@ extension AppStore {
         }
         workflow.tasks[index].botID = botID; workflow.tasks[index].state = .queued; workflow.tasks[index].error = nil
         workflow.budget.reserved = max(0, workflow.budget.reserved - previous.reservation)
-        workflow.tasks[index].reservation = 0; workflow.tasks[index].replyID = nil
+        workflow.tasks[index].reservation = 0; workflow.tasks[index].replyID = nil; workflow.tasks[index].delivery = nil
         workflow.error = nil
         do { try saveWorkflow(workflow); return true } catch { errorMessage = error.localizedDescription; return false }
     }

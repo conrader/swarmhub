@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import SwarmHubCoordination
 
 /// P38 E: what an agent working on a workflow task may ask for: assign work (coordinator only), request help, request
 /// review, or report its result. Parsed from the tool envelope (`ConnectedAppsChat`), never trusted for identity: the
@@ -17,12 +18,13 @@ struct WorkflowOperation: Codable, Sendable, Equatable {
     var result: String?
     var verdict: Verdict?
     var role: Role?
+    var evidence: [TeamEvidence]?
 
     static let maximumReport = 24_000, maximumInstructions = 12_000, maximumExpected = 2_000
 
     static func parse(_ value: ComposioValue) throws -> Self {
         guard let fields = value.object,
-              Set(fields.keys).isSubset(of: ["operationID", "action", "botID", "instructions", "expectedOutput", "result", "verdict", "role"]) else {
+              Set(fields.keys).isSubset(of: ["operationID", "action", "botID", "instructions", "expectedOutput", "result", "verdict", "role", "evidence"]) else {
             throw BackendError.unavailable("Unknown workflow operation fields.")
         }
         let operation: Self
@@ -30,7 +32,7 @@ struct WorkflowOperation: Codable, Sendable, Equatable {
         catch { throw BackendError.unavailable("The workflow operation could not be read.") }
         try operation.validate()
         let allowed: Set<String> = operation.action == .reportResult
-            ? ["operationID", "action", "result", "verdict"]
+            ? ["operationID", "action", "result", "verdict", "evidence"]
             : ["operationID", "action", "botID", "instructions", "expectedOutput", "role"]
         guard Set(fields.keys).isSubset(of: allowed) else { throw BackendError.unavailable("Fields do not match the workflow operation.") }
         return operation
@@ -44,6 +46,12 @@ struct WorkflowOperation: Codable, Sendable, Equatable {
         func valid(_ text: String?, limit: Int) -> Bool {
             guard let text else { return false }
             return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.utf8.count <= limit
+        }
+        if let evidence {
+            guard action == .reportResult, evidence.count <= 16,
+                  evidence.allSatisfy({ !$0.source.isEmpty && $0.source.utf8.count <= 2_000 && !$0.observation.isEmpty && $0.observation.utf8.count <= 4_000 }) else {
+                throw BackendError.unavailable("Evidence needs up to 16 source and observation pairs on a reportResult.")
+            }
         }
         if action == .reportResult {
             guard valid(result, limit: Self.maximumReport), botID == nil, instructions == nil, expectedOutput == nil, role == nil else {
@@ -105,7 +113,7 @@ extension Workflow {
             }
             return receipt
         }
-        guard (operations?.count ?? 0) < Self.maximumOperations else { throw BackendError.unavailable("This workflow reached its operation limit.") }
+        guard (operations?.count ?? 0) < operationLimit else { throw BackendError.unavailable("This workflow reached its operation limit.") }
         let before = Set(tasks.map(\.id)); let source = tasks[index]
         var message = "Result recorded. Finish this response; the task completes when your reply finishes."
         if operation.action == .reportResult {
@@ -114,9 +122,10 @@ extension Workflow {
                 throw BackendError.unavailable("Review tasks require accepted or needsRevision; other tasks must omit verdict.")
             }
             tasks[index].reportedResult = operation.result; tasks[index].reviewVerdict = operation.verdict
+            tasks[index].evidence = operation.evidence
             if operation.verdict == .needsRevision {
                 try addRevision(after: source)
-                message += " Revision work waits for the user's review."
+                message += isTeam ? " Revision work is queued within the approved task." : " Revision work waits for the user's review."
             }
         } else {
             guard let assignee = operation.botID, members.contains(assignee) else { throw BackendError.unavailable("The assignee is not a current group member.") }
@@ -127,7 +136,7 @@ extension Workflow {
             guard operation.action != .assign || source.botID == coordinatorID else { throw BackendError.unavailable("Only the coordinator can assign additional work.") }
             guard operation.action == .assign || assignee != source.botID else { throw BackendError.unavailable("Choose another member for help or review.") }
             let depth = (source.handoffDepth ?? 0) + 1
-            guard depth <= Self.maximumHandoffDepth else { throw BackendError.unavailable("This workflow reached its handoff depth limit of \(Self.maximumHandoffDepth).") }
+            guard depth <= depthLimit else { throw BackendError.unavailable("This workflow reached its handoff depth limit of \(depthLimit).") }
             var child = WorkflowTask(id: "task-" + UUID().uuidString, botID: assignee, instructions: operation.instructions ?? "",
                                      expectedOutput: operation.expectedOutput ?? "", dependencies: [source.id], role: operation.role == .coding ? .coding : .conversation)
             child.parentTaskID = source.id; child.handoffDepth = depth
@@ -135,7 +144,7 @@ extension Workflow {
             if operation.action == .requestReview {
                 let root = source.reviewRootID ?? source.id
                 let round = (tasks.filter { $0.reviewRootID == root }.compactMap(\.reviewRound).max() ?? 0) + 1
-                guard round <= Self.maximumReviewRounds else { throw BackendError.unavailable("This work has already used its two review rounds.") }
+                guard round <= reviewLimit else { throw BackendError.unavailable("This work reached its review-round allowance.") }
                 additions[0].reviewTargetID = source.id; additions[0].reviewRootID = root; additions[0].reviewRound = round
             } else if operation.action == .requestHelp {
                 var continuation = WorkflowTask(id: "continue-" + UUID().uuidString, botID: source.botID,
@@ -146,10 +155,10 @@ extension Workflow {
                 additions.append(continuation)
             }
             try insertFollowup(additions, after: source)
-            state = .paused; error = "New handoff tasks need your review. Work already sent may finish; approve the plan to send the new tasks."
-            message = "Handoff saved for user review. Finish your current response with your findings. Do not wait for the new tasks in this turn."
+            if !isTeam { state = .paused; error = "New handoff tasks need your review. Work already sent may finish; approve the plan to send the new tasks." }
+            message = isTeam ? "Handoff queued within the approved task. Finish your current response; SwarmHub will deliver it when available." : "Handoff saved for user review. Finish your current response with your findings. Do not wait for the new tasks in this turn."
         }
-        try Self.validate(tasks, members: members)
+        try Self.validate(tasks, members: members, maximum: taskLimit)
         let receipt = WorkflowOperationReceipt(id: operation.operationID, taskID: taskID, action: operation.action, fingerprint: fingerprint,
                                                createdTaskIDs: tasks.filter { !before.contains($0.id) }.map(\.id), message: message)
         operations = (operations ?? []) + [receipt]
@@ -182,8 +191,8 @@ extension Workflow {
     private mutating func addRevision(after review: WorkflowTask) throws {
         guard let index = tasks.firstIndex(where: { $0.id == review.id }),
               let target = tasks.first(where: { $0.id == review.reviewTargetID }) else { throw BackendError.unavailable("The review target is unavailable.") }
-        state = .paused
-        guard (review.reviewRound ?? 1) < Self.maximumReviewRounds, tasks.count + 2 <= Self.maximumTasks else {
+        if !isTeam { state = .paused }
+        guard (review.reviewRound ?? 1) < reviewLimit, tasks.count + 2 <= taskLimit else {
             tasks[index].reviewBlock = "The review reached its revision or task limit. Read the findings, then accept the review with its noted limitations or cancel this workflow."
             error = tasks[index].reviewBlock; return
         }
@@ -198,6 +207,6 @@ extension Workflow {
         nextReview.reviewTargetID = revision.id; nextReview.reviewRound = (review.reviewRound ?? 1) + 1
         nextReview.reviewRootID = revision.reviewRootID
         try insertFollowup([revision, nextReview], after: review)
-        error = "The reviewer asked for changes. Review the revision and the second review before resuming."
+        if !isTeam { error = "The reviewer asked for changes. Review the revision and the second review before resuming." }
     }
 }

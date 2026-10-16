@@ -98,6 +98,7 @@ extension AppStore {
             defer { turns.running.remove(key) }
             await reconcileUnit(unit, full: full, ignoringStream: ignoringStream, into: &report)
         }
+        if isTeamThread(conversation) { reconcileTeamOutcome(conversation) }
         if report.changed { objectWillChange.send(); save() }
         return report
     }

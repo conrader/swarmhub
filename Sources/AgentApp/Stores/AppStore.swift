@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import AppKit
 import UserNotifications
+import SwarmHubCoordination
 
 
 @MainActor final class AppStore: ObservableObject {
@@ -90,6 +91,10 @@ import UserNotifications
     var reconcileTiming = ReconcileTiming.standard
     /// P38 D: the execution ledger (`runtime.sqlite`, opened by `journal()`), and the workflows it holds.
     var runtime: (any RuntimeStoring)?; @Published var workflows: [UUID: Workflow] = [:]
+    let teamLease = TeamDispatchLease()
+    var teamRecovering = false
+    var teamAppReviewsInFlight: Set<UUID> = []
+    @Published var projectFacts: [ProjectFact] = []
     let fileURL: URL
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     var historyLoadTokens: [UUID: UUID] = [:]
@@ -242,6 +247,10 @@ import UserNotifications
         let full = turnCapacityProblem(for: [bot])
         if let full, !waitWhenFull { errorMessage = full; return false }
         guard !isRetiredWorkflowThread((conversation as? ChatThread)?.id ?? bot.id) else { errorMessage = "This workflow task was reassigned. Continue from the workflow."; return false }
+        if let team = teamWorkflow(in: conversation),
+           team.tasks.first(where: { $0.threadID == conversation.id })?.delivery?.state != .dispatching {
+            errorMessage = "Use the team controls to add instructions or retry confirmed unsent work."; return false
+        }
         let user = ChatMessage(role: .user, content: text, metadata: metadata, replyToID: replyToID, attachments: attachments)
         let activeBackend: any AgentBackend; let images: [String]
         do {
@@ -257,11 +266,11 @@ import UserNotifications
     }
     /// Starts the 1:1 or thread turn answering `user`, which is already the last user row of `conversation`.
     func startChatTurn(bot: Bot, conversation: any Conversation, user: ChatMessage, images: [String] = [], backend activeBackend: any AgentBackend) {
-        let assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, turnState: .incomplete); conversation.messages.append(assistant)
+        let assistant = ChatMessage(id: intendedTeamReply(in: conversation) ?? UUID(), role: .assistant, content: "", isStreaming: true, turnState: .incomplete); conversation.messages.append(assistant)
         let turn = beginTurn(in: conversation, bot: bot, assistant: assistant)
         objectWillChange.send(); save()
         let streamToken = turn.token
-        let managementText = self.managementText(for: bot, text: user.content, conversation: conversation)
+        let managementText = isTeamThread(conversation) ? nil : self.managementText(for: bot, text: user.content, conversation: conversation)
         let history = chatHistory(conversation, excluding: assistant)
         turn.task = Task { [weak self] in
             await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.persona,
