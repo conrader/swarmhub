@@ -12,6 +12,9 @@ import Sparkle
     private var controller: SPUStandardUpdaterController?
 
     init(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment, arguments: [String] = CommandLine.arguments) {
+        #if DEBUG
+        if QAMode.enabled { unavailableReason = "Updates are disabled in QA test mode."; return }
+        #endif
         unavailableReason = UpdateConfiguration.unavailableReason(bundleURL: bundle.bundleURL,
             info: bundle.infoDictionary ?? [:], environment: environment, arguments: arguments)
         guard unavailableReason == nil else { return }

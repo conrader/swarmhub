@@ -29,6 +29,12 @@ final class StreamProbe: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     var isOpen: Bool { lock.withLock { open } }
     var requestStarted: Bool? { lock.withLock { started } }
     func opened() { lock.withLock { open = true } }
+    #if DEBUG
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(QAMode.enabled ? nil : request)
+    }
+    #endif
     func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
         // Only a real transaction list counts; mock protocols report none, which says nothing.
         guard !metrics.transactionMetrics.isEmpty else { return }
@@ -457,6 +463,9 @@ struct HermesBackend: AgentBackend {
         var request = URLRequest(url: url); request.httpMethod = method; request.timeoutInterval = timeouts.timeout(forMethod: method)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.setValue("application/json", forHTTPHeaderField: "Accept")
         if !apiKey.isEmpty { request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
+        #if DEBUG
+        if QAMode.enabled { return try QAMode.boundary.native(request) }
+        #endif
         return request
     }
 

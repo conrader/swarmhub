@@ -40,6 +40,9 @@ enum HermesURLSession {
         let configuration = TestRunGuard.guarded(.default)
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        #if DEBUG
+        if QAMode.enabled { return URLSession(configuration: configuration, delegate: QANoRedirect(), delegateQueue: nil) }
+        #endif
         return URLSession(configuration: configuration)
     }
 }

@@ -1,4 +1,6 @@
-# Debug QA hook proposal — design only, not implemented or enabled
+# Debug QA hook design reference (original simulation delivery)
+
+The later QA-mode implementation ships a DEBUG-only subset of this controller. See [QA-MODE.md](QA-MODE.md) for current code, launch instructions, limitations and the still-required real Hermes gateway. Statements below about the hook being unimplemented describe the original simulation delivery; the full protocol/capability design remains broader than the implemented subset.
 
 ## Why a hook is needed
 

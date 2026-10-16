@@ -17,6 +17,9 @@ All chat, thread, group and routine names must be `QA-<run>-<scenario> [QA-TEST]
 | `fact.write`, `review.request` | Fixed synthetic fact revisions 1/2 with synthetic source; arithmetic error `2 + 2 = 5`; QA readers and reviewer only. No real document/memory access. |
 | `peer.ask` | Scoped QA reviewer only; markers propagate; peer transport remains the real Hermes path, with QA-only routing and deny-all other tools. |
 | `transport.cut/restore`, `history.refresh` | Only instrumentation for this QA request's response stream/observation; never disable system networking, restart a production server, or substitute backend responses. Requires advertised real instrumentation. |
+| `checkpoint`, `restart.prepare` | Owned QA bot snapshot only, no caller-selected path. Restart preparation requires remotely verified zero active work and revokes the scope. No process kill/relaunch, arbitrary file import, cold restore, or accepted-action replay. |
+
+The DEBUG app implements only the subset documented in [QA-MODE.md](QA-MODE.md). The driver requires the intersection of implemented app and real Hermes gateway capabilities; this table does not imply that all catalog operations are available.
 
 The following are refused: arbitrary text/commands/URLs/file paths; production contacts/accounts/messages; real email, Slack, WhatsApp or connected-app calls including reads; OAuth; money; secrets; production data; installing skills or creating real bots; shell jobs and commits; host/process kills; backend/model/account rebinding; device-global clocks, permissions, settings or updater/report sends; unmarked or foreign resources; unknown operation parameters. The reserved `swarmhub-heartbeat`/`Bot Chat` feature cannot meet the current QA name policy, so A05 is blocked rather than renamed into a different behavior.
 

@@ -35,7 +35,7 @@ OPS = frozenset({"chat.send", "chat.stop", "chat.draft", "thread.fork",
                  "team.start", "team.pause", "team.cancel", "team.stop",
                  "approval.request", "approval.decide", "draft.create", "draft.send",
                  "fact.write", "review.request", "peer.ask", "transport.cut",
-                 "transport.restore", "history.refresh"})
+                 "transport.restore", "history.refresh", "checkpoint", "restart.prepare"})
 # Prompt selection is closed; a model/tool result can never add a new action.
 PROMPTS = {
     "marker": "Reply with exactly the supplied QA marker. Do not use tools.",
@@ -246,14 +246,14 @@ class RecordingSandbox:
 
 
 class Hook:
-    """Client for the DESIGN-ONLY debug hook; no hook server is shipped or enabled."""
+    """Client for the opt-in DEBUG app controller. Ordinary/release apps cannot serve it."""
     def __init__(self, port, token):
         if not 1024 <= port <= 65535:
             raise Refused("invalid loopback port")
         self.port, self.token = port, token
 
     def call(self, route, body):
-        if route not in {"attest", "begin", "action", "observe", "cleanup"}:
+        if route not in {"attest", "begin", "action", "observe", "cleanup", "checkpoint", "restart.prepare"}:
             raise Refused("unknown hook route")
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=8)
         try:
@@ -287,6 +287,36 @@ def read_token(path):
         return value
     finally:
         os.close(fd)
+
+
+def read_endpoint(path):
+    """Read the app's private launch descriptor, never a URL or remotely chosen target."""
+    path = Path(path)
+    parent = path.parent.resolve()
+    info = parent.stat()
+    if info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise Refused("endpoint directory must be user-owned and private")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise Refused("endpoint file must be user-owned and mode 0600")
+        raw = os.read(fd, 4097)
+        if len(raw) > 4096:
+            raise Refused("endpoint descriptor too large")
+        value = json.loads(raw)
+    finally:
+        os.close(fd)
+    if not isinstance(value, dict) or set(value) != {"schema", "port", "token_file", "data_directory"}:
+        raise Refused("invalid endpoint descriptor")
+    if value["schema"] != SCHEMA or type(value["port"]) is not int or not 1024 <= value["port"] <= 65535:
+        raise Refused("invalid endpoint protocol or port")
+    if not isinstance(value["token_file"], str) or not isinstance(value["data_directory"], str):
+        raise Refused("invalid endpoint paths")
+    token = Path(value["token_file"])
+    if not token.is_absolute() or token.name != "token" or token.parent.resolve() != parent or Path(value["data_directory"]).resolve() != parent:
+        raise Refused("endpoint token must belong to the isolated launch directory")
+    return value["port"], read_token(token)
 
 
 class Driver:
@@ -415,9 +445,12 @@ def main(argv=None):
     parser.add_argument("--mode", choices=["offline", "live"], default="offline")
     parser.add_argument("--output", type=Path, default=HERE / "results" / "latest")
     parser.add_argument("--scenario", action="append", help="exact catalog ID; repeat to select more")
-    parser.add_argument("--port", type=int, default=49371)
+    parser.add_argument("--port", type=int)
     parser.add_argument("--token-file", type=Path)
+    parser.add_argument("--endpoint-file", type=Path, help="private endpoint.json printed by the DEBUG QA app")
     args = parser.parse_args(argv)
+    if args.endpoint_file and (args.port is not None or args.token_file):
+        parser.error("use --endpoint-file or --port/--token-file, not both")
     scenarios = catalog()
     if args.scenario:
         if set(args.scenario) - {s["id"] for s in scenarios}:
@@ -438,9 +471,10 @@ def main(argv=None):
                 raise Refused("live mode only runs locally on the user's Mac; remote execution is forbidden")
             if not tests.wasSuccessful():
                 raise Refused("harness self-tests failed")
-            if not args.token_file:
+            if not args.token_file and not args.endpoint_file:
                 raise Refused("debug hook token file required")
-            driver = Driver(Hook(args.port, read_token(args.token_file)), run_id, args.output / "actions.jsonl")
+            port, token = read_endpoint(args.endpoint_file) if args.endpoint_file else (args.port or 49371, read_token(args.token_file))
+            driver = Driver(Hook(port, token), run_id, args.output / "actions.jsonl")
             driver.attest()
         except (Refused, Blocked, OSError, ValueError, http.client.HTTPException) as error:
             gate = str(error) if isinstance(error, (Refused, Blocked)) else type(error).__name__

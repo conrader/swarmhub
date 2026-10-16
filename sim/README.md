@@ -8,21 +8,21 @@ python3 -B sim/run.py
 
 This runs the harness safety tests, reads source evidence probes, and writes `sim/results/latest/results.json` and `RESULTS.md`. Exit **2 means blocked/incomplete**, **1 means a harness failure or observed bug**, and **0 means all selected bounded variants passed**. It never represents whole-plan or Grok parity acceptance. Use a fresh `--output` directory on subsequent runs; existing results are preserved.
 
-The final recorded run is in [results/final-20261016/RESULTS.md](results/final-20261016/RESULTS.md). `scenarios.json` retains the original QA scripts and source comparison ratings for A01–A18, F01–F25, B01–B10 and U01–U12. It contains 27 bounded recipes; 38 scenarios currently have no safe adapter. The 27 are **client recipes awaiting the proposed hook**, not working native UI tests on this checkout. Source probes are text checks, not Swift tests. The Grok comparison is the supplied reference, not a new Grok test.
+The catalog retains 65 scenarios and 27 bounded recipes. The historical simulation-only results are in [results/final-20261016/RESULTS.md](results/final-20261016/RESULTS.md); they are not results for QA-mode changes.
 
-No MacBook was contacted. No fake Hermes/OpenClaw backend, arbitrary model-driven action executor, OAuth flow, or app change is supplied. `RecordingSandbox` is only an outbound sink; its receipts always say `simulated: true, delivered: false`. It is tested here but **not wired into the real app or Hermes**. App-wide and server-side tool interception is required before any live recipe can run.
+The DEBUG app now supplies an isolated local controller, QA workspace, recording sink, and real-Hermes transport boundary. See [QA-MODE.md](QA-MODE.md) for launch instructions, the implemented action subset, checkpoint hooks and the exact required server contract. **The real Hermes gateway/tool sandbox/watchdog is not part of this repository and remains a live blocker.** The app refuses an ordinary or unattested Hermes server before creating a chat. No fake Hermes backend or real outbound connector is supplied.
 
-The hook is [design only](DEBUG-HOOK-DESIGN.md). This checkout has no matching endpoint or debug test-mode implementation. Consequently the live command below cannot run against the unmodified app and will fail closed. It is a client interface for a later, separately reviewed implementation; nobody should run it on the user's Mac as part of this task.
-
-Once that implementation exists, the user can run locally on the Mac (no remote-host option exists):
+On a local Mac, after provisioning that real isolated gateway:
 
 ```sh
+# Set the QA-only gateway URL/token in the launch environment.
+./scripts/run-qa.sh
 python3 -B sim/run.py --mode live --scenario F03 \
-  --token-file /private/tmp/swarmhub-qa-token \
+  --endpoint-file /absolute/path/printed/by/app/endpoint.json \
   --output sim/results/mac-first-chat
 ```
 
-The app must already be running in its explicit debug QA mode with a separate QA data store and real QA Hermes profiles. The token file must be user-owned, not a symlink, mode 0600, with at least 43 base64url characters. It is never passed in process arguments or logged. The default hook port is 49371 on numeric `127.0.0.1`; `--port` can select another local unprivileged port. There is no URL input, proxy, redirect, SSH, AppleScript launch, or automatic Mac job submission.
+Each launch chooses a numeric IPv4 loopback port and writes an owner-only descriptor/token in its fresh private data directory. `--endpoint-file` loads both safely; manual `--port`/`--token-file` remain supported. There is no remote host, proxy, redirect, SSH, AppleScript launch or automatic Mac job submission. The original [hook design](DEBUG-HOOK-DESIGN.md) remains a reference for wider capabilities that are not implemented.
 
 Every operation renews the sandbox attestation. A safety failure stops the suite. Uncertain mutation acknowledgement never causes a retry. Cleanup is attempted after every scope creation attempt, including failed begin; cleanup uncertainty stops further scenarios and relies on the separately required server watchdog. There are no per-action human prompts. The allowlist supplies authorization only for the fixed QA actions described in [SAFE-ACTIONS.md](SAFE-ACTIONS.md).
 

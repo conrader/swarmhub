@@ -35,6 +35,9 @@ extension AppStore {
         var row = assistant
         for try await event in stream {
             guard !Task.isCancelled else { break }
+            #if DEBUG
+            if QAMode.enabled { qaEventRecorder?(assistant.id, event) }
+            #endif
             if !sawEvent {
                 sawEvent = true
                 if let run = await activeBackend.currentRunID(sessionID: sessionID) { assistant.metadata[TurnKey.run] = run }
@@ -170,6 +173,9 @@ extension AppStore {
         approvals.removeAll { abandoned.map(\.id).contains($0.id) }
         endTurn(token)
         save()
+        #if DEBUG
+        if QAMode.enabled { return }
+        #endif
         let hasText = !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if outcome.state == .finished {
             if !isTeamThread(conversation) { handleManagerReply(assistant, from: bot, in: conversation); handleReportOps(assistant, from: bot); refreshModelsAfterRecipe(assistant, from: bot, in: conversation) }

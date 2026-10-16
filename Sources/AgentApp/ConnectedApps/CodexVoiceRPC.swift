@@ -66,6 +66,9 @@ enum CodexVoiceError: LocalizedError, Equatable {
     }
 
     func connect() async throws {
+        #if DEBUG
+        if QAMode.enabled { throw QAError.refused }
+        #endif
         guard process == nil else { return }
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let proc = Process(), stdin = Pipe(), stdout = Pipe()

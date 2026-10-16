@@ -148,6 +148,9 @@ final class ChatMessage: ObservableObject, Identifiable, Codable {
         self.id = id; self.role = role; self.content = content; self.createdAt = createdAt; self.isStreaming = isStreaming
         self.presentation = presentation; self.metadata = metadata; self.reactions = reactions; self.replyToID = replyToID; self.attachments = attachments; self.authorID = authorID
         self.turnState = turnState
+        #if DEBUG
+        if QAMode.enabled { self.metadata["test_mode"] = "true"; self.metadata["qa_marker"] = "[QA-TEST]" }
+        #endif
     }
     enum CodingKeys: CodingKey { case id, role, content, createdAt, presentation, metadata, reactions, replyToID, attachments, authorID, turnState, activity }
     required init(from decoder: Decoder) throws {

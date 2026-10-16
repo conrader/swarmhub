@@ -9,6 +9,9 @@ import AppKit
     private var appliedDark: Bool?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        if QAMode.enabled { return }
+        #endif
         systemAppearance = NSApp.observe(\.effectiveAppearance, options: [.initial, .new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in self?.refreshIcon() }
         }

@@ -9,6 +9,9 @@ extension AppStore {
     func isAppAction(_ approval: ApprovalRequest) -> Bool { connectedApps.localApprovals[approval.id] != nil }
 
     func makeConnectedApps() -> ConnectedAppsStore {
+        #if DEBUG
+        if QAMode.enabled { return ConnectedAppsStore(directory: fileURL.deletingLastPathComponent(), keyStore: QAKeyStore(), provisioner: nil, persistenceEnabled: persistenceEnabled) }
+        #endif
         let provisioner = connectedAppsServiceURL.map { ComposioProvisioningClient(baseURL: $0, credential: connectedAppsInstall()) }
         return ConnectedAppsStore(directory: fileURL.deletingLastPathComponent(), keyStore: keyStore, provisioner: provisioner, persistenceEnabled: persistenceEnabled)
     }
@@ -30,6 +33,15 @@ extension AppStore {
     /// A Hermes bot's turn goes through the connected-apps loop; so does any workflow task's turn (P38 E, its workflow
     /// operations); anything else is sent as it was.
     func conversationStream(_ request: AgentRequest, bot: Bot, backend: any AgentBackend) async throws -> AsyncThrowingStream<AgentEvent, Error> {
+        #if DEBUG
+        if QAMode.enabled {
+            guard QAPolicy.name(bot.name), request.sessionID == bot.hermesSessionID,
+                  request.images.isEmpty, request.managementText == nil,
+                  request.messages.last(where: { $0.role == "user" })?.content.contains(QAPolicy.marker) == true else { throw QAError.refused }
+            // Server QA tools call the authenticated recording endpoint; never construct a production app broker.
+            return try await backend.send(request)
+        }
+        #endif
         let workflow = try workflowTools(for: request, bot: bot), appsAllowed = connectionBot(id: bot.id) != nil
         guard appsAllowed || workflow != nil else { return try await backend.send(request) }
         return try await ConnectedAppsChat.stream(request, botID: bot.id, backend: backend, apps: connectedApps, appsAllowed: appsAllowed, workflow: workflow,

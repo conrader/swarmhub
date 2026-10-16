@@ -25,6 +25,8 @@ else
   BUILD_DIR="$ROOT_DIR/.build/$BUILD_CONFIGURATION"
   KIT_DIR=.build/swiftc-kit
   OPTIMIZATION=()
+  APP_DEFINES=()
+  [[ "$BUILD_CONFIGURATION" != debug ]] || APP_DEFINES=(-D DEBUG)
   [[ "$BUILD_CONFIGURATION" != release ]] || OPTIMIZATION=(-O)
   mkdir -p "$BUILD_DIR" "$KIT_DIR" /tmp/agentapp-module-cache
   # Compile shared code without xcrun/SwiftPM on the fallback path too.
@@ -47,7 +49,7 @@ else
     -emit-library -static -o "$KIT_DIR/libBotAvatarsKit.a" \
     $(find Vendor/BotAvatarsKit/Sources/BotAvatarsKit -name '*.swift' -print)
   "$TOOLCHAIN/usr/bin/swiftc" \
-    -swift-version 6 -target arm64-apple-macosx14.0 -sdk "$SDK" "${OPTIMIZATION[@]}" \
+    -swift-version 6 -target arm64-apple-macosx14.0 -sdk "$SDK" "${OPTIMIZATION[@]}" "${APP_DEFINES[@]}" \
     -module-cache-path /tmp/agentapp-module-cache -module-name AgentApp \
     -I "$KIT_DIR" -L "$KIT_DIR" -lBotAvatarsKit \
     -I Packages/SwarmHubCore/Sources/CSQLite -lSwarmHubCore -lSwarmHubCoordination -lsqlite3 \

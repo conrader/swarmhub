@@ -6,6 +6,9 @@ import SwarmHubCoordination
 
 
 @MainActor final class AppStore: ObservableObject {
+    #if DEBUG
+    var qaEventRecorder: ((UUID, AgentEvent) -> Void)?
+    #endif
     @Published var bots: [Bot] = []
     @Published var selectedBot: Bot? { didSet { if selectedBot != nil { selectedBoxProfile = nil } } }
     @Published var selectedBoxProfile: BoxProfileSelection?
@@ -273,6 +276,9 @@ import SwarmHubCoordination
     /// Starts the 1:1 or thread turn answering `user`, which is already the last user row of `conversation`.
     func startChatTurn(bot: Bot, conversation: any Conversation, user: ChatMessage, images: [String] = [], backend activeBackend: any AgentBackend) {
         let assistant = ChatMessage(id: intendedTeamReply(in: conversation) ?? UUID(), role: .assistant, content: "", isStreaming: true, turnState: .incomplete); conversation.messages.append(assistant)
+        #if DEBUG
+        if QAMode.enabled { assistant.metadata.merge(user.metadata, uniquingKeysWith: { _, source in source }) }
+        #endif
         let turn = beginTurn(in: conversation, bot: bot, assistant: assistant)
         objectWillChange.send(); save()
         let streamToken = turn.token
@@ -284,11 +290,22 @@ import SwarmHubCoordination
         }
     }
     func notifyIfNeeded(bot: Bot, message: String) {
+        #if DEBUG
+        if QAMode.enabled { return }
+        #endif
         guard !SilentReply.isSilent(message), Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
         let content = UNMutableNotificationContent(); content.title = bot.name; content.body = String(message.prefix(140)); content.sound = .default
         UNUserNotificationCenter.current().add(.init(identifier: UUID().uuidString, content: content, trigger: nil))
     }
     func backend(for bot: Bot) throws -> any AgentBackend {
+        #if DEBUG
+        if QAMode.enabled {
+            guard bot.backend == .hermes, QAPolicy.name(bot.name), bot.hermesProfile == "default",
+                  let raw = bot.hermesBaseURL, let url = URL(string: raw),
+                  url.path.hasPrefix("/qa/hermes/v1/native/QA-") else { throw QAError.refused }
+            return HermesBackend(baseURL: url, apiKey: "", profile: "default", session: hermesSession)
+        }
+        #endif
         if bot.backend == .hermes, let profile = bot.hermesProfile, prefixIgnoredHermesProfiles.contains(profile) { throw BackendError.unavailable("\(profile): \(HermesBackend.multiplexOffMessage)") }
         if bot.isGrokHistoryOnly { throw BackendError.unavailable("History only — not connected to a Hermes profile yet.") }
         if let backendFactory { return try backendFactory(bot) }
