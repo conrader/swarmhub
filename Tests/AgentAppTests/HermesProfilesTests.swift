@@ -84,6 +84,7 @@ import Testing
     #expect(store.namedHermesProfiles == ["cfo", "grok-jarvis", "ghost"])
     #expect(await store.addBotsFromBox("grok-jarvis=\(secrets[0])").first?.outcome == .alreadyPresent)
     #expect(store.bots.filter { $0.hermesProfile == "grok-jarvis" }.count == 1)
+    #expect(store.bots.allSatisfy { !store.orientationPending($0) }, "P49: bots added from the box are never oriented")
     let persisted = String(decoding: try Data(contentsOf: storeURL), as: UTF8.self)
     let defaultsDump = "\(defaults.dictionaryRepresentation())"
     let report = results.map(\.summary).joined() + (store.errorMessage ?? "")

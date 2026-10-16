@@ -133,7 +133,7 @@ extension AppStore {
     func apply(_ op: SwarmhubOp, manager: Bot) async {
         switch op {
         case .botCreated(let name, let description, let avatar):
-            await createBot(name: name, description: description, avatar: avatar, manager: manager)
+            await createBot(name: name, description: description, avatar: avatar, manager: manager, orient: true)
         case .avatar(let name, let mark):
             guard let bot = boundBot(name, manager: manager) else { return }
             bot.avatarMark = AvatarLook.effectiveMark(shape: mark.shape, colour: mark.colour, seed: bot.avatarSeed); bot.avatarMarkMigrated = false
@@ -185,8 +185,9 @@ extension AppStore {
         objectWillChange.send(); save()
     }
 
-    /// Derives the new bot's key, probes its profile and only then stores the key and adds the bot.
-    func createBot(name: String, description: String, avatar: AvatarMark?, manager: Bot) async {
+    /// Derives the new bot's key, probes its profile and only then stores the key and adds the bot. P49: `orient` only when
+    /// the manager reported it created the profile (`bot_created`), not for "Add" on a profile that already existed.
+    func createBot(name: String, description: String, avatar: AvatarMark?, manager: Bot, orient: Bool = false) async {
         if let existing = boundBot(name, manager: manager) {
             if !description.isEmpty { existing.botDescription = description }
             if let avatar { existing.avatarMark = avatar }
@@ -202,6 +203,8 @@ extension AppStore {
             if let avatar { bot.avatarMark = avatar }
             bots.append(bot); removeSampleBots()
             notice("\(manager.name) created \(bot.name)", in: manager)
+            // P49: a bot the manager really created orients itself once.
+            if orient { queueOrientation(bot) }
         case .rejected, .unreachable:
             notice("Couldn’t reach \(name) yet", in: manager)
         }

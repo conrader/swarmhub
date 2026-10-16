@@ -220,18 +220,22 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     @Published var adoptedKeyBackup: String? = nil
     /// P12: the OpenClaw Gateway and agent (nil = unbound; old stores load without it).
     @Published var openClaw: OpenClawBinding? = nil
+    /// P49: when SwarmHub sent this bot its orientation (or gave up on it); nil while one waits since `orientationQueuedAt`.
+    /// A bot only gets one when it was really created (`AppStore+Orientation.swift`); every other bot counts as oriented.
+    var orientedAt: Date?; var orientationQueuedAt: Date?
     var isReadOnlyArchive: Bool { archivedMembers != nil }
     let createdAt: Date; @Published var messages: [ChatMessage]
-    init(name: String, title: String = "Personal agent", description: String = "", persona: String = "You are a thoughtful, capable assistant.", backend: BackendKind = .mock, avatarName: BotAvatarName? = nil, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, memorySummary: String = "", skills: [String] = [], importedMemories: [String] = [], importedSkills: [ImportedTemplateSkill] = [], requestedConnectorIDs: [String] = [], gettingStartedSkill: ImportedTemplateSkill? = nil, routines: [BotRoutine] = [], messages: [ChatMessage] = [], hermesProfile: String? = nil, hermesSessionID: String? = nil, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, isDemo: Bool = false) {
+    init(name: String, title: String = "Personal agent", description: String = "", persona: String = Bot.defaultPersona, backend: BackendKind = .mock, avatarName: BotAvatarName? = nil, unreadCount: Int = 0, isHidden: Bool = false, notificationsEnabled: Bool = true, memorySummary: String = "", skills: [String] = [], importedMemories: [String] = [], importedSkills: [ImportedTemplateSkill] = [], requestedConnectorIDs: [String] = [], gettingStartedSkill: ImportedTemplateSkill? = nil, routines: [BotRoutine] = [], messages: [ChatMessage] = [], hermesProfile: String? = nil, hermesSessionID: String? = nil, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, isDemo: Bool = false) {
         id = UUID(); self.name = name; self.title = title; botDescription = description; self.persona = persona; self.backend = backend
         self.avatarName = avatarName ?? .faceCoral; self.unreadCount = unreadCount; self.isHidden = isHidden; self.notificationsEnabled = notificationsEnabled
-        self.memorySummary = memorySummary; self.skills = skills; self.importedMemories = importedMemories; self.importedSkills = importedSkills; self.requestedConnectorIDs = requestedConnectorIDs; self.gettingStartedSkill = gettingStartedSkill; self.routines = routines; self.hermesProfile = hermesProfile; self.hermesSessionID = hermesSessionID; self.approvalMode = approvalMode; self.approvalRules = approvalRules; self.reviewerBotID = reviewerBotID; approvalAudit = []; self.isDemo = isDemo; hermesBaseURL = nil; accentColor = nil; grokSourceID = nil; grokHistoryCount = 0; archivedMembers = nil; computerURL = nil; hermesModelLock = nil; routineRunMarks = [:]; threads = []; manualUnread = false; createdAt = .now; self.messages = messages
+        self.memorySummary = memorySummary; self.skills = skills; self.importedMemories = importedMemories; self.importedSkills = importedSkills; self.requestedConnectorIDs = requestedConnectorIDs; self.gettingStartedSkill = gettingStartedSkill; self.routines = routines; self.hermesProfile = hermesProfile; self.hermesSessionID = hermesSessionID; self.approvalMode = approvalMode; self.approvalRules = approvalRules; self.reviewerBotID = reviewerBotID; approvalAudit = []; self.isDemo = isDemo; hermesBaseURL = nil; accentColor = nil; grokSourceID = nil; grokHistoryCount = 0; archivedMembers = nil; computerURL = nil; hermesModelLock = nil; routineRunMarks = [:]; threads = []; manualUnread = false; createdAt = .now; self.messages = messages; orientedAt = createdAt
         // No explicit classic choice: the bot gets its derived mark (avatarName keeps the legacy default for older builds).
         avatarMark = avatarName == nil ? GrokDefaultLook.mark(for: id.uuidString.lowercased()) : nil
     }
+    static let defaultPersona = "You are a thoughtful, capable assistant."
     static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox, openClaw, installedSkills, skillBannerSnoozed, installedSkillVariants, adoptedKeyBackup, approvalRouting, reviewAfter }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox, openClaw, installedSkills, skillBannerSnoozed, installedSkillVariants, adoptedKeyBackup, approvalRouting, reviewAfter, orientedAt, orientationQueuedAt }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -263,8 +267,11 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         adoptedKeyBackup = try? c.decodeIfPresent(String.self, forKey: .adoptedKeyBackup)
         approvalRouting = (try? c.decodeIfPresent(ApprovalRouting.self, forKey: .approvalRouting)) ?? nil
         reviewAfter = (try? c.decodeIfPresent([ReviewAfterRule].self, forKey: .reviewAfter)) ?? []
+        // P49: a bot saved before orientation existed counts as oriented, so nothing fires for it after the update.
+        orientationQueuedAt = (try? c.decodeIfPresent(Date.self, forKey: .orientationQueuedAt)) ?? nil
         threads = try c.decodeIfPresent([ChatThread].self, forKey: .threads) ?? []; manualUnread = try c.decodeIfPresent(Bool.self, forKey: .manualUnread) ?? false
         createdAt = try c.decode(Date.self, forKey: .createdAt); messages = try c.decode([ChatMessage].self, forKey: .messages)
+        orientedAt = (try? c.decodeIfPresent(Date.self, forKey: .orientedAt)) ?? (orientationQueuedAt == nil ? createdAt : nil)
         // A malformed mark must not cost the store; a missing one may be recovered from what the P6 importer wrote.
         avatarMark = (try? c.decodeIfPresent(AvatarMark.self, forKey: .avatarMark)) ?? nil
         if avatarMark == nil, let migrated = AvatarMigration.mark(avatarName: avatarName, accentColor: accentColor, grokSourceID: grokSourceID) {
@@ -293,6 +300,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         if !installedSkillVariants.isEmpty { try c.encode(installedSkillVariants, forKey: .installedSkillVariants) }
         try c.encodeIfPresent(adoptedKeyBackup, forKey: .adoptedKeyBackup)
         try c.encodeIfPresent(approvalRouting, forKey: .approvalRouting); if !reviewAfter.isEmpty { try c.encode(reviewAfter, forKey: .reviewAfter) }
+        try c.encodeIfPresent(orientedAt, forKey: .orientedAt); try c.encodeIfPresent(orientationQueuedAt, forKey: .orientationQueuedAt)
     }
 }
 

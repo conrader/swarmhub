@@ -144,6 +144,7 @@ private func probed(_ host: String) -> [String] { MockHermesProtocol.recorded(ho
                               defaults: store.defaults, hermesSession: store.hermesSession)
     let manager = try #require(relaunched.bots.first { $0.id == jarvis.id })
     let scan = await relaunched.absorbListed([.init(name: "cfo", description: "", hasKey: true)], manager: manager)
+    #expect(relaunched.bots.allSatisfy { !relaunched.orientationPending($0) }, "P49: box discovery never orients")
     #expect(scan.added.isEmpty && scan.adoptable.isEmpty && relaunched.boxProfiles.isEmpty)
     #expect(!relaunched.bots.contains { $0.hermesProfile == "cfo" })
     #expect(turns(chat).isEmpty && probed(probe).isEmpty, "deletion and rediscovery never connect or change the box")
@@ -302,6 +303,7 @@ private func probed(_ host: String) -> [String] { MockHermesProtocol.recorded(ho
     #expect(store.boxProfiles[store.connection(of: ermes)]?.map(\.name) == ["krytyk", "lowcost"])
     #expect(store.startAdoption(scan.adoptable, manager: ermes))
     try await waitUntil { !store.anyTurnRunning && store.bots.count == 4 }
+    #expect(store.bots.allSatisfy { !store.orientationPending($0) }, "P49: the setup scan and adoption never orient")
     #expect(turns(chat).last?.instructions.contains("MK=$(grep '^API_SERVER_KEY=' ~/.hermes/.env") == true)
     #expect(store.boxProfiles.isEmpty && store.bots.compactMap(\.adoptedKeyBackup) == [".env.swarmhub-bak-20261015T101500Z", ""])
 }

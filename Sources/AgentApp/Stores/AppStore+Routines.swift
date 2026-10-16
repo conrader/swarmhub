@@ -115,6 +115,7 @@ extension AppStore {
                 await store.pollRoutinesOnce()
                 await store.pollBotMessagesOnce()
                 await store.pollLiveRowsOnce()
+                await store.orientationPassIfDue()
                 try? await Task.sleep(for: tick)
             }
         }

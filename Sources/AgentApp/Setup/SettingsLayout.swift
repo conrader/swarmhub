@@ -15,6 +15,8 @@ enum SettingsLayout {
         case chats = "Chats"
         // P46: heartbeats, one Hermes routine per bot.
         case heartbeat = "Heartbeat"
+        // P49: a new bot's orientation, its coordinator and the quiet hours.
+        case orientation = "Orientation"
         case computers = "Computers", usage = "Usage", account = "Account", reports = "Reports", about = "About"
         var id: String { rawValue }
         var icon: String {
@@ -32,6 +34,7 @@ enum SettingsLayout {
             case .voice: "mic"
             case .chats: "bubble.left.and.bubble.right"
             case .heartbeat: "waveform.path.ecg"
+            case .orientation: "flag"
             }
         }
     }
@@ -60,7 +63,9 @@ enum SettingsLayout {
                         // P45: /goal's budget (rounds and hours).
                         "chats.goalBudget",
                         // P46: the heartbeat template and each bot's heartbeat.
-                        "heartbeat.template", "heartbeat.bots"]
+                        "heartbeat.template", "heartbeat.bots",
+                        // P49: orientation for new bots (on/off, coordinator) and the quiet hours.
+                        "orientation.newBots", "orientation.quietHours"]
 
     static let entries: [(id: String, home: Home)] = [
         ("connection.status", .simple), ("connection.test", .simple), ("connection.setup", .simple), ("you.name", .simple),
@@ -79,6 +84,7 @@ enum SettingsLayout {
         ("apps.chatgpt", .advanced(.apps)), ("apps.composio", .advanced(.apps)), ("apps.botAccess", .advanced(.apps)), ("apps.background", .advanced(.apps)),
         ("voice.dictationKey", .advanced(.voice)), ("voice.live", .advanced(.voice)), ("chats.goalBudget", .advanced(.chats)),
         ("heartbeat.template", .advanced(.heartbeat)), ("heartbeat.bots", .advanced(.heartbeat)),
+        ("orientation.newBots", .advanced(.orientation)), ("orientation.quietHours", .advanced(.orientation)),
         ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))
     ]
 
