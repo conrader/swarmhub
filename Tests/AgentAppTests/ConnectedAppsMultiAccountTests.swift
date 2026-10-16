@@ -33,8 +33,9 @@ private func execute(_ account: String?) -> String {
     #"{"action":"execute","tool":"GMAIL_FETCH_EMAILS","# + (account.map { #""account":"\#($0)","# } ?? "") + #""arguments":{"query":"is:unread"}}"#
 }
 
-@MainActor private func run(grant ids: [String], executes: [String]) async throws -> (approvals: [ApprovalRequest], requests: [URLRequest], bot: [AgentRequest], errors: [String]) {
-    let (apps, host, _) = composioFixture(); await apps.refresh()
+@MainActor private func run(grant ids: [String], executes: [String], handler: @escaping MockHermesProtocol.Handler = composioHandler) async throws
+    -> (approvals: [ApprovalRequest], requests: [URLRequest], bot: [AgentRequest], errors: [String]) {
+    let (apps, host, _) = composioFixture(handler: handler); await apps.refresh()
     let botID = UUID()
     for id in ids { apps.setAllowed(true, account: try #require(apps.accounts.first { $0.id == id }), botID: botID) }
     let backend = ScriptedBackend(executes)
@@ -59,6 +60,22 @@ private func execute(_ account: String?) -> String {
     // The bot sees its accounts by name, in the prompt and beside the discovered tools.
     #expect(result.bot[0].systemPrompt.contains(#"{"gmail":["ca_personal","ca_work"]}"#))
     #expect(result.bot[1].messages.last?.content.contains(#""accounts":{"gmail":["ca_personal","ca_work"]}"#) == true)
+}
+
+@MainActor @Test func theApprovalCardNamesTheAccountAndOnlyTheDecidedCommandKeepsItsID() async throws {
+    let named: MockHermesProtocol.Handler = { request in
+        guard request.url!.path.hasSuffix("connected_accounts") else { return composioHandler(request) }
+        var work = composioAccount(), personal = composioAccount("ca_personal")
+        work["alias"] = "konrad@work.example"; personal["alias"] = "konrad@example.com"
+        return (200, ["items": [work, personal], "next_cursor": NSNull()])
+    }
+    let result = try await run(grant: ["ca_work", "ca_personal"], executes: [execute("konrad@work.example")], handler: named)
+    let card = try #require(result.approvals.first)
+    #expect(card.summary == "Gmail · konrad@work.example")
+    #expect(card.draft?.contains(#""account":"konrad@work.example""#) == true && card.draft?.contains("ca_work") == false, "the card shows the name, never the id")
+    #expect(card.command?.contains(#""account":"ca_work""#) == true)
+    let executions = result.requests.filter { $0.url!.path.hasSuffix("/execute") }
+    #expect(executions.count == 1 && composioBody(executions[0])["account"] as? String == "ca_work", "Composio gets the id")
 }
 
 @MainActor @Test func anUngrantedOrUnknownNameIsRefusedWithTheNames() async throws {

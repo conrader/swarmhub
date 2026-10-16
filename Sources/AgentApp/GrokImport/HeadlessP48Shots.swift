@@ -79,8 +79,11 @@ import SwiftUI
         // 6. Jarvis's chat: an approval card that names the account, then a GitHub read Composio refused (its message shown).
         let now = Date.now
         let question = ChatMessage(role: .user, content: "Check my work inbox for the accountant, then tell me who I am on GitHub", createdAt: now.addingTimeInterval(-40))
-        let command = #"{"account":"ca_mail_work","app":"gmail","arguments":{"query":"from:accountant newer_than:1d"},"tool":"GMAIL_FETCH_EMAILS"}"#
-        let action = ApprovalRequest(id: UUID(), title: "Fetch emails", summary: "Gmail · konrad@work.example", draft: command, command: command, botID: jarvis.id,
+        let scope = ComposioRunScope(client: apps.client, userID: "render", accounts: ["gmail": ["ca_mail_home", "ca_mail_work"]],
+                                     labels: Dictionary(uniqueKeysWithValues: apps.accounts.map { ($0.id, $0.label) }), revision: UUID())
+        let texts = try? AppAccountChoice.approvalTexts(app: "gmail", account: "ca_mail_work", tool: "GMAIL_FETCH_EMAILS",
+                                                        arguments: .object(["query": .string("from:accountant newer_than:1d")]), scope: scope)
+        let action = ApprovalRequest(id: UUID(), title: "Fetch emails", summary: "Gmail · konrad@work.example", draft: texts?.draft, command: texts?.command, botID: jarvis.id,
                                      actionKind: "composio.GMAIL_FETCH_EMAILS", routeNote: "App actions always ask you.")
         store.approvals = [action]; apps.localApprovals[action.id] = .chat
         let failure = ChatMessage(role: .system, content: "Jarvis: Get the authenticated user failed. Composio: Connected account ca_gh is not part of this session (ToolRouter_AccountNotInSession) Create a session that pins this account.",

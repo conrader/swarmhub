@@ -152,9 +152,9 @@ struct AppToolRequest: Sendable {
                                 let appName = apps.appName(tool.toolkit)
                                 let account = try AppAccountChoice.resolve(action.account, toolkit: tool.toolkit, appName: appName, scope: scope)
                                 try apps.check(scope, botID: botID, account: account)
-                                let command = try ComposioValue.object(["app": .string(tool.toolkit), "account": .string(account), "tool": .string(slug), "arguments": arguments]).text()
+                                let (draft, command) = try AppAccountChoice.approvalTexts(app: tool.toolkit, account: account, tool: slug, arguments: arguments, scope: scope)
                                 let approval = ApprovalRequest(id: UUID(), title: tool.name, summary: "\(appName) · \(scope.labels[account] ?? account)",
-                                                               draft: command, command: command, botID: botID, sessionID: request.sessionID, actionKind: "composio.\(slug)")
+                                                               draft: draft, command: command, botID: botID, sessionID: request.sessionID, actionKind: "composio.\(slug)")
                                 var receipt = ToolExecutionReceipt(id: approval.id, botID: botID, sessionID: request.sessionID, tool: slug, account: account, arguments: try arguments.withoutCredentials().text())
                                 try apps.record(receipt); activeReceiptID = receipt.id
                                 apps.localApprovals[approval.id] = .chat

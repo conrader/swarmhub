@@ -24,6 +24,12 @@ enum AppAccountChoice {
         throw AppAccountChoiceError(message: "\"\(wanted)\" is not one of this bot's \(appName) accounts. Use one of: \(listed).")
     }
 
+    /// The approval card's text names the account (`draft`); only `command`, which is checked and decided on, keeps its id.
+    static func approvalTexts(app: String, account: String, tool: String, arguments: ComposioValue, scope: ComposioRunScope) throws -> (draft: String, command: String) {
+        func text(_ account: String) throws -> String { try ComposioValue.object(["app": .string(app), "account": .string(account), "tool": .string(tool), "arguments": arguments]).text() }
+        return (try text(scope.labels[account] ?? account), try text(account))
+    }
+
     /// The accounts the bot sees beside discovered tools: app → names.
     static func names(for toolkits: Set<String>, scope: ComposioRunScope) -> ComposioValue {
         .object(Dictionary(uniqueKeysWithValues: toolkits.sorted().map { app in (app, ComposioValue.strings((scope.accounts[app] ?? []).map { scope.labels[$0] ?? $0 })) }))
