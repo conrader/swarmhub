@@ -3,6 +3,7 @@ import Foundation
 /// P49: quiet hours as minutes after midnight in the Mac's time zone; an end before the start runs over midnight.
 struct QuietHours: Equatable, Sendable {
     static let defaultStart = 22 * 60, defaultEnd = 8 * 60
+    static let startKey = "quietHoursStart", endKey = "quietHoursEnd"
     var start = defaultStart, end = defaultEnd
 
     static func clock(_ minute: Int) -> String { String(format: "%02d:%02d", minute / 60 % 24, minute % 60) }
@@ -11,6 +12,26 @@ struct QuietHours: Equatable, Sendable {
     /// "Warsaw" for Europe/Warsaw, "New York" for America/New_York.
     static func place(_ zone: TimeZone) -> String {
         (zone.identifier.split(separator: "/").last.map(String.init) ?? zone.identifier).replacingOccurrences(of: "_", with: " ")
+    }
+}
+
+/// P49: Settings → Advanced → Orientation → Coordinator, kept in the settings as "" (the default rule), "none" or a bot id.
+enum OrientationCoordinatorChoice: Hashable, Sendable {
+    case automatic, none, bot(UUID)
+    static let key = "orientationCoordinator"
+    init(stored: String?) {
+        switch stored {
+        case "none": self = .none
+        case let value?: self = UUID(uuidString: value).map(Self.bot) ?? .automatic
+        case nil: self = .automatic
+        }
+    }
+    var stored: String? {
+        switch self {
+        case .automatic: nil
+        case .none: "none"
+        case .bot(let id): id.uuidString
+        }
     }
 }
 

@@ -17,9 +17,38 @@ extension AppStore {
         return manager === bot ? nil : manager
     }
 
-    func orientationCoordinator(for bot: Bot) -> Bot? { defaultCoordinator(for: bot) }
+    /// Settings → Advanced → Orientation → Coordinator: what Konrad chose (a bot, or none), else the default. A choice
+    /// that is gone, or that is the new bot itself, falls back to the default.
+    func orientationCoordinator(for bot: Bot?) -> Bot? {
+        switch orientationCoordinatorChoice {
+        case .automatic: return defaultCoordinator(for: bot)
+        case .none: return nil
+        case .bot(let id):
+            guard let chosen = coordinatorCandidates.first(where: { $0.id == id }), chosen !== bot else { return defaultCoordinator(for: bot) }
+            return chosen
+        }
+    }
 
-    var quietHours: QuietHours { QuietHours() }
+    var orientationCoordinatorChoice: OrientationCoordinatorChoice {
+        get { OrientationCoordinatorChoice(stored: defaults.string(forKey: OrientationCoordinatorChoice.key)) }
+        set { defaults.set(newValue.stored, forKey: OrientationCoordinatorChoice.key); objectWillChange.send() }
+    }
+
+    /// Settings → Advanced → Orientation → Quiet hours (default 22:00–08:00, Mac time zone). No app-wide setting existed:
+    /// team quiet hours are per team and heartbeat hours per bot. SwarmHub only states them; it holds nothing back.
+    var quietHours: QuietHours {
+        get {
+            let start = defaults.object(forKey: QuietHours.startKey) as? Int, end = defaults.object(forKey: QuietHours.endKey) as? Int
+            return QuietHours(start: start.flatMap { (0..<1_440).contains($0) ? $0 : nil } ?? QuietHours.defaultStart,
+                              end: end.flatMap { (0..<1_440).contains($0) ? $0 : nil } ?? QuietHours.defaultEnd)
+        }
+        set { defaults.set(newValue.start, forKey: QuietHours.startKey); defaults.set(newValue.end, forKey: QuietHours.endKey); objectWillChange.send() }
+    }
+
+    var orientationEnabledSetting: Bool {
+        get { orientationEnabled }
+        set { defaults.set(newValue, forKey: OrientationCopy.enabledKey); objectWillChange.send() }
+    }
 
     /// The team (group chat name) the coordinator works in now, when it is a member of a running team.
     func coordinatorTeam(_ coordinator: Bot) -> String? {

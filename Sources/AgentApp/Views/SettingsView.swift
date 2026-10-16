@@ -44,6 +44,7 @@ struct SettingsView: View {
         case .voice: SettingsVoicePane()
         case .chats: SettingsChatsPane()
         case .heartbeat: SettingsHeartbeatPane()
+        case .orientation: SettingsOrientationPane()
         }
     }
 }
