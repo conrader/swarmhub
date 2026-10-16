@@ -93,7 +93,7 @@ private func execute(_ account: String?) -> String {
 @MainActor @Test func noNameWithTwoAccountsListsTheNamesWithoutGuessing() async throws {
     let result = try await run(grant: ["ca_work", "ca_personal"], executes: [execute(nil)])
     #expect(result.approvals.isEmpty && !result.requests.contains { $0.url!.path.hasSuffix("/execute") })
-    #expect(result.errors == [#"App request failed. This bot has 2 Gmail accounts. Repeat the request with "account" set to one of: "ca_personal", "ca_work"."#])
+    #expect(result.errors == [#"App request failed: This bot has 2 Gmail accounts. Repeat the request with "account" set to one of: "ca_personal", "ca_work"."#])
 }
 
 @MainActor @Test func oneAccountIsASingleAccountSessionWithOrWithoutTheName() async throws {
@@ -129,8 +129,8 @@ private func execute(_ account: String?) -> String {
 @Test func executeMayNameAnAccountButNothingElseMay() throws {
     let marker = "[[SWARMHUB_APP_REQUEST_1]]"
     #expect(try AppToolRequest.parse(marker + "\n" + execute("Work"), marker: marker)?.account == "Work")
-    #expect(throws: ComposioError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"search\",\"query\":\"gmail\",\"account\":\"Work\"}", marker: marker) }
-    #expect(throws: ComposioError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"execute\",\"tool\":\"GMAIL_SEND_EMAIL\",\"account\":7,\"arguments\":{}}", marker: marker) }
+    #expect(throws: AppRequestError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"search\",\"query\":\"gmail\",\"account\":\"Work\"}", marker: marker) }
+    #expect(throws: AppRequestError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"execute\",\"tool\":\"GMAIL_SEND_EMAIL\",\"account\":7,\"arguments\":{}}", marker: marker) }
 }
 
 @Test func aNameThatFitsTwoAccountsIsRefused() throws {

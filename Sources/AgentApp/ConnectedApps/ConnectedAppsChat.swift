@@ -10,19 +10,24 @@ struct AppToolRequest: Sendable {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard value.hasPrefix(marker) else { return nil }
         let body = value.dropFirst(marker.count).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard body.utf8.count <= 32_000, let json = try? JSONDecoder().decode(ComposioValue.self, from: Data(body.utf8)),
-              let object = json.object, let action = json["action"].string.flatMap(Action.init),
+        // P52: a request SwarmHub cannot read goes back to the bot with its shape (`AppRequestError`), never as Composio's.
+        guard body.utf8.count <= 32_000 else { throw AppRequestError(reason: "it is over 32000 bytes") }
+        guard let json = try? JSONDecoder().decode(ComposioValue.self, from: Data(body.utf8)) else {
+            throw AppRequestError(reason: "it is " + AppFailureShape.describe(Data(body.utf8)))
+        }
+        let wrongFields = AppRequestError(reason: "its fields do not match the format (" + AppFailureShape.describe(json) + ")")
+        guard let object = json.object, let action = json["action"].string.flatMap(Action.init),
               Set(object.keys).isSubset(of: ["action", "query", "tool", "arguments", "account"]),
-              object["account"] == nil || (action == .execute && json["account"].string.map { $0.count <= 200 } == true) else { throw ComposioError.invalidResponse }
+              object["account"] == nil || (action == .execute && json["account"].string.map { $0.count <= 200 } == true) else { throw wrongFields }
         switch action {
         case .search, .readArtifact:
             guard let query = json["query"].string, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, query.count <= 1024,
-                  object["tool"] == nil, object["arguments"] == nil else { throw ComposioError.invalidResponse }
+                  object["tool"] == nil, object["arguments"] == nil else { throw wrongFields }
         case .execute:
             guard let tool = json["tool"].string, ComposioClient.validIdentifier(tool), !tool.hasPrefix("COMPOSIO_"),
-                  json["arguments"].object != nil, object["query"] == nil else { throw ComposioError.invalidResponse }
+                  json["arguments"].object != nil, object["query"] == nil else { throw wrongFields }
         case .workflow:
-            guard json["arguments"].object != nil, object["query"] == nil, object["tool"] == nil else { throw ComposioError.invalidResponse }
+            guard json["arguments"].object != nil, object["query"] == nil, object["tool"] == nil else { throw wrongFields }
         }
         return .init(action: action, query: json["query"].string, tool: json["tool"].string, arguments: object["arguments"], account: json["account"].string)
     }
@@ -103,7 +108,20 @@ struct AppToolRequest: Sendable {
                         }
                         try Task.checkCancellation()
                         guard ended else { throw BackendError.unavailable("The bot’s response ended before completion.") }
-                        guard !sentNormalText, let action = try AppToolRequest.parse(output, marker: marker) else {
+                        // P48/P52: a failed app request goes back to the bot as a result row, the chat shows the same line
+                        // (no secrets) and the log gets one line; the turn goes on.
+                        @MainActor func returnToBot(_ error: Error, action: String) {
+                            let failure = AppRequestFailure.wrap(error, describe: apps.describe)
+                            ComposioClient.log.error("\(failure.logLine(action: action), privacy: .public)")
+                            continuation.yield(.appError(failure.chatLine))
+                            messages.append((role: "user", content: resultPrefix + failure.botResult + "\nContinue the original task. Tell the user what failed if you cannot work around it."))
+                        }
+                        let parsed: AppToolRequest?
+                        do { parsed = sentNormalText ? nil : try AppToolRequest.parse(output, marker: marker) }
+                        catch let error as AppRequestError {
+                            messages.append((role: "assistant", content: output)); returnToBot(error, action: "unreadable request"); continue
+                        }
+                        guard let action = parsed else {
                             if !sentNormalText && !output.isEmpty { continuation.yield(.token(output)) }
                             completed = true; break
                         }
@@ -122,10 +140,14 @@ struct AppToolRequest: Sendable {
                         guard hasApps else { throw BackendError.unavailable("This bot has no connected app grants.") }
                         if action.action == .readArtifact {
                             let parts = (action.query ?? "").split(separator: ":")
-                            guard let first = parts.first, let id = UUID(uuidString: String(first)) else { throw ComposioError.invalidResponse }
+                            guard let first = parts.first, let id = UUID(uuidString: String(first)) else {
+                                returnToBot(AppRequestError(reason: "readArtifact needs \"ARTIFACT_UUID:CHARACTER_OFFSET\""), action: "readArtifact"); continue
+                            }
                             let offset = parts.count > 1 ? Int(parts[1]) ?? -1 : 0
                             let data = try apps.results().read(id, botID: botID)
-                            guard let full = String(data: data, encoding: .utf8), offset >= 0, offset <= full.count else { throw ComposioError.invalidResponse }
+                            guard let full = String(data: data, encoding: .utf8), offset >= 0, offset <= full.count else {
+                                returnToBot(AppRequestError(reason: "the offset is outside the saved result"), action: "readArtifact"); continue
+                            }
                             let chunk = String(full.dropFirst(offset).prefix(40_000))
                             messages.append((role: "user", content: resultPrefix + chunk + "\nNext offset: \(offset + chunk.count) of \(full.count)")); continue
                         }
@@ -187,15 +209,11 @@ struct AppToolRequest: Sendable {
                                     else { receipt.outputExcerpt = "Operation succeeded; saving the full result failed: " + error.localizedDescription }
                                     try apps.record(receipt)
                                     if receipt.state == .succeeded { throw error }
-                                    throw AppRequestFailure(error: error, tool: tool.name, ran: receipt.state == .unknown)
+                                    throw AppRequestFailure(error: error, tool: "\(appName) · \(tool.name)", ran: receipt.state == .unknown)
                                 }
                             }
                         } catch let error where AppRequestFailure.returnsToBot(error) {
-                            // P48: the bot always gets a result row back, and the chat shows the same line (no secrets).
-                            let failure = AppRequestFailure.wrap(error, describe: apps.describe)
-                            continuation.yield(.appError(failure.chatLine))
-                            messages.append((role: "user", content: resultPrefix + failure.botResult + "\nContinue the original task. Tell the user what failed if you cannot work around it."))
-                            continue
+                            returnToBot(error, action: action.action == .execute ? "execute \(action.tool ?? "")" : action.action.rawValue); continue
                         }
                         var text = try result.withoutCredentials().text()
                         if text.utf8.count > 60_000 {

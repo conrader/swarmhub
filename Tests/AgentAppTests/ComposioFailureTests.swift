@@ -41,7 +41,7 @@ private func failureBody() -> [String: Any] { ["error": [
         }
     }
     #expect(text == "Your inbox contains one message.", "the turn goes on after the failure")
-    #expect(lines.count == 1 && lines[0].contains("Send email failed.") && lines[0].contains("ToolRouter_InvalidAccount") && lines[0].contains("requires an account selection"))
+    #expect(lines.count == 1 && lines[0].contains("Gmail · Send email failed:") && lines[0].contains("ToolRouter_InvalidAccount") && lines[0].contains("requires an account selection"))
     let calls = await backend.recorded()
     let result = try #require(calls.last?.messages.last?.content)
     #expect(result.hasPrefix(ConnectedAppsChat.resultPrefix) && result.contains("ToolRouter_InvalidAccount") && result.contains("requires an account selection"))
@@ -60,7 +60,7 @@ private func failureBody() -> [String: Any] { ["error": [
     let stream = try await ConnectedAppsChat.stream(.init(sessionID: "chat", systemPrompt: "persona", messages: [(role: "user", content: "Read my inbox")]), botID: botID, backend: backend, apps: apps)
     var lines: [String] = []
     for try await event in stream { if case .appError(let line) = event { lines.append(line) } }
-    #expect(lines == ["App request failed. Composio: Search is down (Internal)"])
+    #expect(lines == ["App request failed: Composio: Search is down (Internal)"])
     #expect(await backend.recorded().last?.messages.last?.content.contains("Search is down (Internal)") == true)
 }
 

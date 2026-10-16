@@ -3,6 +3,8 @@ import os
 
 enum ComposioError: LocalizedError {
     case missingKey, invalidResponse, invalidIdentifier, http(Int), tooLarge, accessChanged
+    /// P52: Composio answered (2xx) but SwarmHub could not read it; the answer's shape only (`AppFailureShape`).
+    case unreadable(String)
     /// P48: Composio's own error body on a non-2xx (`ComposioFailure`), already capped and without secrets.
     case api(ComposioFailure)
     var errorDescription: String? {
@@ -10,6 +12,7 @@ enum ComposioError: LocalizedError {
         case .api(let failure): failure.line
         case .missingKey: "Add your Composio project API key in Settings → Connected apps."
         case .invalidResponse: "Composio returned an unexpected response."
+        case .unreadable(let shape): "Composio's answer could not be read (\(shape))."
         case .invalidIdentifier: "The app or account identifier is invalid."
         case .tooLarge: "The app response exceeded SwarmHub’s size limit."
         case .accessChanged: "App access changed. Check this bot’s connected apps and try again."
@@ -54,21 +57,41 @@ struct ComposioClient: Sendable {
         request.httpMethod = method; request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body { request.httpBody = try JSONEncoder().encode(body); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        let (data, response) = try await session.data(for: request, delegate: ComposioNoRedirect())
+        // P52: every failure below gets one log line: the route's kind (no session or account id), the HTTP status, and
+        // Composio's capped, redacted message or the answer's shape; never a value, the key or the request body.
+        let route = Self.routeKind(path), fail = { (detail: String) in Self.log.error("Composio \(method, privacy: .public) \(route, privacy: .public): \(detail, privacy: .public)") }
+        let data: Data, response: URLResponse
+        do { (data, response) = try await session.data(for: request, delegate: ComposioNoRedirect()) }
+        catch let error as URLError where error.code != .cancelled { fail("no answer (URLError \(error.code.rawValue))"); throw error }
         try Task.checkCancellation()
-        guard let http = response as? HTTPURLResponse else { throw ComposioError.invalidResponse }
+        guard let http = response as? HTTPURLResponse else { fail("not an HTTP answer"); throw ComposioError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             // P48: Composio's error body (never a header, the key or the request body) becomes the error and the log line.
-            guard let failure = ComposioFailure(status: http.statusCode, body: data, key: apiKey) else { throw ComposioError.http(http.statusCode) }
-            // The route's kind only (no session or account id); the line itself is already capped and redacted.
-            let route = path.split(separator: "/").filter { !$0.contains("_") || ["tool_router", "connected_accounts"].contains(String($0)) }.joined(separator: "/")
-            Self.log.error("Composio \(method, privacy: .public) \(route, privacy: .public): \(failure.logLine, privacy: .public)")
+            guard let failure = ComposioFailure(status: http.statusCode, body: data, key: apiKey) else {
+                fail("HTTP \(http.statusCode), body \(AppFailureShape.describe(data))"); throw ComposioError.http(http.statusCode)
+            }
+            fail(failure.logLine)
             throw ComposioError.api(failure)
         }
-        guard data.count <= 4_000_000 else { throw ComposioError.tooLarge }
+        guard data.count <= 4_000_000 else { fail("HTTP \(http.statusCode), answer too large (\(data.count) bytes)"); throw ComposioError.tooLarge }
         if data.isEmpty { return .null }
-        guard let result = try? JSONDecoder().decode(ComposioValue.self, from: data) else { throw ComposioError.invalidResponse }
+        guard let result = try? JSONDecoder().decode(ComposioValue.self, from: data) else {
+            let shape = AppFailureShape.describe(data)
+            fail("HTTP \(http.statusCode), unreadable answer (\(shape))"); throw ComposioError.unreadable(shape)
+        }
         return result
+    }
+
+    /// `tool_router/session/trs_x/execute` → `tool_router/session/execute`: the route without ids.
+    static func routeKind(_ path: String) -> String {
+        path.split(separator: "/").filter { !$0.contains("_") || ["tool_router", "connected_accounts"].contains(String($0)) }.joined(separator: "/")
+    }
+
+    /// P52: a readable answer without the fields SwarmHub needs: logged with its shape, and the error that names it.
+    static func unexpected(_ value: ComposioValue, route: String) -> ComposioError {
+        let shape = AppFailureShape.describe(value)
+        log.error("Composio \(routeKind(route), privacy: .public): answer without the expected fields (\(shape, privacy: .public))")
+        return .unreadable(shape)
     }
 
     func catalog(search: String = "", cursor: String? = nil) async throws -> (items: [ComposioToolkit], cursor: String?) {
@@ -86,7 +109,7 @@ struct ComposioClient: Sendable {
             var query = [URLQueryItem(name: "user_ids", value: userID), .init(name: "limit", value: "100")]
             if let cursor { query.append(.init(name: "cursor", value: cursor)) }
             let value = try await request("connected_accounts", query: query)
-            guard let items = value["items"].array else { throw ComposioError.invalidResponse }
+            guard let items = value["items"].array else { throw Self.unexpected(value, route: "connected_accounts") }
             // Check ownership when supplied; the API may omit the deprecated user_id field.
             guard items.allSatisfy({ $0["user_id"].string == nil || $0["user_id"].string == userID }) else { throw ComposioError.invalidResponse }
             accounts += items.compactMap(ComposioAccount.init)
@@ -115,7 +138,7 @@ struct ComposioClient: Sendable {
             "multi_account": multi
         ])
         let value = try await request("tool_router/session", method: "POST", body: body)
-        guard let id = value["session_id"].string, Self.validIdentifier(id) else { throw ComposioError.invalidResponse }
+        guard let id = value["session_id"].string, Self.validIdentifier(id) else { throw Self.unexpected(value, route: "tool_router/session") }
         return id
     }
 
@@ -130,11 +153,11 @@ struct ComposioClient: Sendable {
         let value = try await request(try route(sessionID, "search"), method: "POST", body: .object([
             "queries": .array([.object(["use_case": .string(String(query.prefix(1024)))])]), "search_strategy": .string("tool_search")
         ]))
-        guard value["success"].bool == true, let schemas = value["tool_schemas"].object else { throw ComposioError.invalidResponse }
+        guard value["success"].bool == true, let schemas = value["tool_schemas"].object else { throw Self.unexpected(value, route: "tool_router/session/search") }
         let slugs = schemas.keys.sorted().filter { !$0.hasPrefix("COMPOSIO_") }
         guard !slugs.isEmpty else { return [] }
         let details = try await request("tools", query: [.init(name: "tool_slugs", value: slugs.prefix(30).joined(separator: ",")), .init(name: "toolkit_versions", value: "latest"), .init(name: "limit", value: "30")])
-        guard let items = details["items"].array else { throw ComposioError.invalidResponse }
+        guard let items = details["items"].array else { throw Self.unexpected(details, route: "tools") }
         return items.compactMap(ComposioTool.init).filter { slugs.contains($0.slug) }
     }
 
