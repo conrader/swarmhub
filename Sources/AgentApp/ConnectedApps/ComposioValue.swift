@@ -124,11 +124,14 @@ struct ComposioAccount: Identifiable, Sendable, Equatable {
 
 struct ComposioTool: Sendable, Equatable {
     let slug: String; let toolkit: String; let name: String; let schema: ComposioValue
+    /// P52: Composio's `tags` (strings only), read by `AppToolAccess`.
+    let tags: [String]
     init?(_ value: ComposioValue) {
         guard let slug = value["slug"].string, let toolkit = value["toolkit"]["slug"].string,
               ComposioClient.validIdentifier(slug), !slug.hasPrefix("COMPOSIO_"), ComposioClient.validIdentifier(toolkit),
               value["input_parameters"].object != nil else { return nil }
         self.slug = slug; self.toolkit = toolkit; name = value["name"].string ?? slug; schema = value["input_parameters"]
+        tags = (value["tags"].array ?? []).compactMap(\.string)
     }
     var definition: ComposioValue { .object(["tool": .string(slug), "app": .string(toolkit), "name": .string(name), "arguments_schema": schema]) }
 }

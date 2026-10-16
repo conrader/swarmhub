@@ -22,6 +22,9 @@ struct TechnicalFold: Equatable, Sendable {
     var profile: String? = nil
 }
 
+/// P52: metadata of the system line `.appUsed` writes (`AppStore.consumeTurn`).
+enum TechnicalKey { static let appRequest = "app.request", appResult = "app.result" }
+
 /// What a fold's summary names: this chat's bot and the names of other bots, apps and accounts.
 struct TechnicalContext {
     var botName: String
@@ -58,6 +61,12 @@ enum TechnicalRow {
     /// The fold of one row; `next` is the row shown after it (an app request's result), `isLast` whether nothing follows.
     static func classify(_ message: ChatMessage, next: ChatMessage? = nil, isLast: Bool = false, context: TechnicalContext) -> TechnicalFold? {
         if message.presentation == .botMessage { return exchange(message, context: context) }
+        // P52: an app read SwarmHub ran on its own: the request and the result's start ride on the system line.
+        if message.role == .system, let request = message.metadata[TechnicalKey.appRequest] {
+            let result = message.metadata[TechnicalKey.appResult]
+            return TechnicalFold(kind: .appRequest, summary: TechnicalApps.summary(request: request, result: result, waiting: false, context: context),
+                                 original: result.map { request + "\n\n" + $0 } ?? request)
+        }
         guard message.presentation == .text, message.role != .system else { return nil }
         let text = message.content
         if message.role == .assistant, isAppRequest(text) {

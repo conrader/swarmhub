@@ -359,8 +359,9 @@ enum StopOutcome: Sendable, Equatable { case requested, disconnectedLegacy, noAc
 /// `replace` (P12): the whole reply text so far, when a backend's snapshot no longer extends what was streamed.
 /// `tool` (P27): a tool started, progressed or finished; the reply keeps these as its activity steps.
 /// `appError`: P48, a failed app request (Composio's message, no secrets) shown as a warning line in the chat.
+/// `appUsed`: P52, an app read SwarmHub ran without asking (the bot's request and the result's start): one folded line.
 /// `hiddenTokens`: P38 E, the estimated tokens of a tool or workflow-operation exchange the chat never shows.
-enum AgentEvent: Sendable { case token(String), replace(String), status(String), tool(ToolEvent), subAgent(SubAgentTask), approval(ApprovalRequest), completed, failed(String), steer(SteerSignal), hiddenTokens(Int), appError(String) }
+enum AgentEvent: Sendable { case token(String), replace(String), status(String), tool(ToolEvent), subAgent(SubAgentTask), approval(ApprovalRequest), completed, failed(String), steer(SteerSignal), hiddenTokens(Int), appError(String), appUsed(request: String, result: String) }
 
 /// P28: what the stream says about a steer: the box took it (`run.steered`), or the turn ended before it could be
 /// delivered and the box handed the text back (`pending_steer` on the completed event).

@@ -28,13 +28,13 @@ import Testing
     let (host, session) = MockHermesProtocol.serve(composioHandler)
     let client = ComposioClient(apiKey: syntheticComposioKey, session: session, baseURL: URL(string: "https://\(host)/api/v3.1/")!)
     let tools = try await client.tools(sessionID: "trs_test", query: "read my emails")
-    #expect(tools.map(\.slug) == ["GMAIL_FETCH_EMAILS"])
+    #expect(tools.map(\.slug) == ["GMAIL_SEND_EMAIL"])
     let result = try await client.execute(sessionID: "trs_test", tool: tools[0].slug, arguments: .object(["query": .string("is:unread")]), account: "ca_work")
     #expect(result["data"]["access_token"] == .null)
     #expect(result["data"]["emails"].array?.count == 1)
     let body = composioBody(MockHermesProtocol.recorded(host).last!)
     #expect(body["account"] as? String == "ca_work")
-    #expect(body["tool_slug"] as? String == "GMAIL_FETCH_EMAILS")
+    #expect(body["tool_slug"] as? String == "GMAIL_SEND_EMAIL")
 }
 
 @Test func composioRejectsUnknownAuthDestinationAndMetaExecution() async {
@@ -42,7 +42,7 @@ import Testing
     let client = ComposioClient(apiKey: syntheticComposioKey, session: session, baseURL: URL(string: "https://\(host)/api/v3.1/")!)
     await #expect(throws: ComposioError.self) { try await client.connect(sessionID: "trs_test", toolkit: "gmail") }
     await #expect(throws: ComposioError.self) { try await client.execute(sessionID: "trs_test", tool: "COMPOSIO_REMOTE_WORKBENCH", arguments: .object([:]), account: "ca_work") }
-    await #expect(throws: ComposioError.self) { try await client.execute(sessionID: "../../other", tool: "GMAIL_FETCH_EMAILS", arguments: .object([:]), account: "ca_work") }
+    await #expect(throws: ComposioError.self) { try await client.execute(sessionID: "../../other", tool: "GMAIL_SEND_EMAIL", arguments: .object([:]), account: "ca_work") }
     #expect(MockHermesProtocol.recorded(host).count == 1)
 }
 

@@ -139,11 +139,12 @@ extension AppStore {
         else { return }
         _ = try? await backend.requestStop(target)
     }
-    /// P38 B: an app action always asks you, whatever the bot's lines say (no rule, no reviewer, no bot server).
+    /// P38 B: an app action that may change something always asks you, whatever the bot's lines say (no rule, no reviewer,
+    /// no bot server). P52: reads never get here (`ConnectedAppsChat` runs them without a card).
     func routeAppApproval(_ approval: ApprovalRequest, for bot: Bot) {
         appendAudit(to: bot, approval: approval, outcome: .requested, decidedBy: "system", reason: "App action requested.")
         if routeTeamAppApproval(approval, for: bot) { return }
-        askUser(approval, bot: bot, reason: "App actions always ask you.")
+        askUser(approval, bot: bot, reason: ConnectedAppsCopy.approvalRule)
     }
     /// P12: an approval this app did not start (another client's run, the Gateway's automations): always asks, never
     /// automatic, whatever the bot's policy.

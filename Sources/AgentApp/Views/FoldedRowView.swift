@@ -61,7 +61,7 @@ struct FoldedRowView: View {
         switch fold.kind {
         case .appRequest, .appResult:
             let parts = fold.kind == .appResult ? TechnicalApps.parts(request: nil, result: message.content)
-                : TechnicalApps.parts(request: message.content, result: partner?.content)
+                : TechnicalApps.parts(request: message.metadata[TechnicalKey.appRequest] ?? message.content, result: message.metadata[TechnicalKey.appResult] ?? partner?.content)
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(part.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)

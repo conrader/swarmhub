@@ -41,7 +41,7 @@ private func failureBody() -> [String: Any] { ["error": [
         }
     }
     #expect(text == "Your inbox contains one message.", "the turn goes on after the failure")
-    #expect(lines.count == 1 && lines[0].contains("Fetch emails failed.") && lines[0].contains("ToolRouter_InvalidAccount") && lines[0].contains("requires an account selection"))
+    #expect(lines.count == 1 && lines[0].contains("Send email failed.") && lines[0].contains("ToolRouter_InvalidAccount") && lines[0].contains("requires an account selection"))
     let calls = await backend.recorded()
     let result = try #require(calls.last?.messages.last?.content)
     #expect(result.hasPrefix(ConnectedAppsChat.resultPrefix) && result.contains("ToolRouter_InvalidAccount") && result.contains("requires an account selection"))
@@ -80,9 +80,9 @@ private func failureBody() -> [String: Any] { ["error": [
     let (host, session) = MockHermesProtocol.serve(composioHandler)
     let client = ComposioClient(apiKey: syntheticComposioKey, session: session, baseURL: URL(string: "https://\(host)/api/v3.1/")!)
     _ = try await client.createSession(userID: "u", toolkits: ["gmail"], accounts: ["gmail": ["ca_work"]])
-    _ = try await client.execute(sessionID: "trs_synthetic", tool: "GMAIL_FETCH_EMAILS", arguments: .object([:]))
+    _ = try await client.execute(sessionID: "trs_synthetic", tool: "GMAIL_SEND_EMAIL", arguments: .object([:]))
     _ = try await client.createSession(userID: "u", toolkits: ["gmail", "github"], accounts: ["gmail": ["ca_work", "ca_personal"], "github": ["ca_gh"]])
-    _ = try await client.execute(sessionID: "trs_synthetic", tool: "GMAIL_FETCH_EMAILS", arguments: .object([:]), account: "ca_personal")
+    _ = try await client.execute(sessionID: "trs_synthetic", tool: "GMAIL_SEND_EMAIL", arguments: .object([:]), account: "ca_personal")
     _ = try await client.createSession(userID: "u", toolkits: ["gmail"], addingAccount: true)
     let requests = MockHermesProtocol.recorded(host).map(composioBody)
     #expect(requests[0]["multi_account"] as? [String: Bool] == ["enable": false], "single-account: enable:false and no other multi-account key")

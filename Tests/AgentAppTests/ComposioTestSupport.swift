@@ -35,15 +35,26 @@ func composioBody(_ request: URLRequest) -> [String: Any] {
     return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
 }
 
+/// P52: the same Composio, whose search finds the read-only `GMAIL_FETCH_EMAILS` instead.
+func composioReadHandler(_ request: URLRequest) -> (Int, Any) {
+    let path = request.url!.path
+    if path.hasSuffix("/search") { return (200, ["success": true, "tool_schemas": ["GMAIL_FETCH_EMAILS": ["tool_slug": "GMAIL_FETCH_EMAILS", "toolkit": "gmail"]]]) }
+    if path.hasSuffix("/tools") {
+        return (200, ["items": [["slug": "GMAIL_FETCH_EMAILS", "name": "Fetch emails", "toolkit": ["slug": "gmail"],
+                                  "input_parameters": ["type": "object", "properties": ["query": ["type": "string"]]]]]])
+    }
+    return composioHandler(request)
+}
+
 func composioHandler(_ request: URLRequest) -> (Int, Any) {
     let path = request.url!.path
     if path.hasSuffix("connected_accounts") { return (200, ["items": [composioAccount(), composioAccount("ca_personal")], "next_cursor": NSNull()]) }
     if path.hasSuffix("tool_router/session"), request.httpMethod == "POST" { return (201, ["session_id": "trs_synthetic"]) }
     if path.hasSuffix("/search") {
-        return (200, ["success": true, "tool_schemas": ["GMAIL_FETCH_EMAILS": ["tool_slug": "GMAIL_FETCH_EMAILS", "toolkit": "gmail"]]])
+        return (200, ["success": true, "tool_schemas": ["GMAIL_SEND_EMAIL": ["tool_slug": "GMAIL_SEND_EMAIL", "toolkit": "gmail"]]])
     }
     if path.hasSuffix("/tools") {
-        return (200, ["items": [["slug": "GMAIL_FETCH_EMAILS", "name": "Fetch emails", "toolkit": ["slug": "gmail"],
+        return (200, ["items": [["slug": "GMAIL_SEND_EMAIL", "name": "Send email", "toolkit": ["slug": "gmail"],
                                   "input_parameters": ["type": "object", "properties": ["query": ["type": "string"]]]]]])
     }
     if path.hasSuffix("/execute") { return (200, ["successful": true, "data": ["emails": ["Hello from the synthetic inbox"], "access_token": "never-copy-provider-token"]]) }
@@ -69,7 +80,7 @@ func composioHandler(_ request: URLRequest) -> (Int, Any) {
 
 actor AppRequestBackend: AgentBackend {
     nonisolated let kind = BackendKind.hermes
-    enum Mode: Sendable { case action, normal, unknownTool, endlessSearch, connectionCard, normalAfterSearch }
+    enum Mode: Sendable { case action, normal, unknownTool, endlessSearch, connectionCard, normalAfterSearch, read }
     let mode: Mode; var calls: [AgentRequest] = []
     init(_ mode: Mode = .action) { self.mode = mode }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
@@ -82,7 +93,7 @@ actor AppRequestBackend: AgentBackend {
             if mode == .normalAfterSearch && calls.count > 1 { output = "Search failed, sorry." }
             else if calls.count == 1 || mode == .endlessSearch { output = marker + "\n{\"action\":\"search\",\"query\":\"Fetch unread Gmail emails\"}" }
             else if calls.count == 2 {
-                let slug = mode == .unknownTool ? "SLACK_SEND_MESSAGE" : "GMAIL_FETCH_EMAILS"
+                let slug = mode == .unknownTool ? "SLACK_SEND_MESSAGE" : mode == .read ? "GMAIL_FETCH_EMAILS" : "GMAIL_SEND_EMAIL"
                 output = marker + "\n{\"action\":\"execute\",\"tool\":\"\(slug)\",\"arguments\":{\"query\":\"is:unread\"}}"
             } else { output = "Your inbox contains one message." }
         }

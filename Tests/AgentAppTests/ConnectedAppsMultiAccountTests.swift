@@ -30,7 +30,7 @@ private actor ScriptedBackend: AgentBackend {
 }
 
 private func execute(_ account: String?) -> String {
-    #"{"action":"execute","tool":"GMAIL_FETCH_EMAILS","# + (account.map { #""account":"\#($0)","# } ?? "") + #""arguments":{"query":"is:unread"}}"#
+    #"{"action":"execute","tool":"GMAIL_SEND_EMAIL","# + (account.map { #""account":"\#($0)","# } ?? "") + #""arguments":{"query":"is:unread"}}"#
 }
 
 @MainActor private func run(grant ids: [String], executes: [String], handler: @escaping MockHermesProtocol.Handler = composioHandler) async throws
@@ -130,7 +130,7 @@ private func execute(_ account: String?) -> String {
     let marker = "[[SWARMHUB_APP_REQUEST_1]]"
     #expect(try AppToolRequest.parse(marker + "\n" + execute("Work"), marker: marker)?.account == "Work")
     #expect(throws: ComposioError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"search\",\"query\":\"gmail\",\"account\":\"Work\"}", marker: marker) }
-    #expect(throws: ComposioError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"execute\",\"tool\":\"GMAIL_FETCH_EMAILS\",\"account\":7,\"arguments\":{}}", marker: marker) }
+    #expect(throws: ComposioError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"execute\",\"tool\":\"GMAIL_SEND_EMAIL\",\"account\":7,\"arguments\":{}}", marker: marker) }
 }
 
 @Test func aNameThatFitsTwoAccountsIsRefused() throws {
