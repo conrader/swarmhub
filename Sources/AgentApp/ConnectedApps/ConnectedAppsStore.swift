@@ -46,9 +46,11 @@ struct ComposioRunScope: Sendable {
     @Published private(set) var grantedToAllToolkit: String?
     /// P48: that account, so the line can name it ("Gmail · konrad@…").
     @Published private(set) var grantedToAllAccountID: String?
-    /// P48: accounts whose name SwarmHub is reading now ("Getting the account name…"), and those it tried this launch.
+    /// P48: accounts whose name SwarmHub is reading now ("Getting the account name…"). P53: when an account whose naming
+    /// failed may be tried again (memory only), and the clock that decides it.
     @Published var namingAccounts: Set<String> = []
-    var namingAttempted: Set<String> = []
+    var namingRetryAfter: [String: Date] = [:]
+    var now: () -> Date = { Date() }
     /// P52: read or write per tool slug (`access(of:)`), memory only.
     var toolAccess: [String: AppToolAccess] = [:]
     let approvals = AppToolApprovalBroker()
@@ -182,20 +184,23 @@ struct ComposioRunScope: Sendable {
         catch { self.error = describe(error) }
     }
 
-    /// P48: Rename… in Connected accounts. An empty name puts back the automatic one: the profile name where the app has
-    /// one, else no alias (the fallback name).
+    /// P48: Rename… in Connected accounts. An empty name puts back the automatic one: the account's own name where its
+    /// identity call finds one (P53), else no alias (the fallback name).
     func rename(_ account: ComposioAccount, to name: String) async {
         guard !busy, persistenceEnabled else { return }; busy = true; error = nil; defer { busy = false }
         let service = client
         let wanted = name.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
         do {
             if !wanted.isEmpty { _ = try await saveAlias(wanted, for: account, using: service) }
-            else if AccountProfileName.table[account.toolkit] != nil, account.isActive {
-                namingAccounts.insert(account.id); defer { namingAccounts.remove(account.id) }
-                _ = try await saveAlias(try await profileName(of: account, using: service), for: account, using: service)
-            } else { try await service.setAlias("", account: account.id) }
+            else if account.isActive, let found = await ownName(of: account, using: service) { _ = try await saveAlias(found, for: account, using: service) }
+            else { try await service.setAlias("", account: account.id) }
             accounts = try await service.accounts(userID: configuration.userID)
         } catch { self.error = describe(error) }
+    }
+
+    private func ownName(of account: ComposioAccount, using service: ComposioClient) async -> String? {
+        namingAccounts.insert(account.id); defer { namingAccounts.remove(account.id) }
+        return try? await Self.identify(account, userID: configuration.userID, using: service).found?.name
     }
 
     /// P47: the first new active account of the app a Settings connection asked for goes to every bot it named. P48: also
