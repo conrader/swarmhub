@@ -80,7 +80,5 @@ extension AppStore {
         return true
     }
 
-    func orientationPrompt(for bot: Bot) -> String {
-        "Hi \(bot.name), you were just created in SwarmHub. Greet Konrad in one line and say what you will do here."
-    }
+    func orientationPrompt(for bot: Bot) -> String { OrientationPrompt.text(orientationContext(for: bot)) }
 }
