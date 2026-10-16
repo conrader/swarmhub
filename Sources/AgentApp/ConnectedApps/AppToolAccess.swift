@@ -55,8 +55,9 @@ enum AppToolAccess: String, Sendable, Equatable {
     /// Longest argument string a read may carry and still run on its own.
     static let maximumArgumentLength = 2_000
     /// `http://`, `https://`, `ftp://` or any other `//host` form.
-    nonisolated(unsafe) static let urlPattern = #/\/\/[A-Za-z0-9\[]/#
-    nonisolated(unsafe) static let emailPattern = #/[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+/#
+    nonisolated(unsafe) static let urlPattern = #/\/\/[^\s\/]/#
+    /// Any letters, not only ASCII (`x@żółw.pl`), so the whole address is compared with the account names.
+    nonisolated(unsafe) static let emailPattern = #/[^\s@<>()\[\],;:"'\/]+@[^\s@<>()\[\],;:"'\/?#]+\.[^\s@<>()\[\],;:"'\/?#]+/#
 
     /// True when any string in the arguments (values and keys, searched recursively) holds an address, an email that is
     /// not one of `accountNames` (compared case-insensitively), or more than `maximumArgumentLength` characters.
@@ -81,7 +82,7 @@ enum AppToolAccess: String, Sendable, Equatable {
         var forms = [fold(text)]
         while forms.count < 8, let decoded = forms.last!.removingPercentEncoding.map(fold), decoded != forms.last { forms.append(decoded) }
         return forms.contains { form in
-            form.contains(urlPattern) || form.matches(of: emailPattern).contains { !own.contains(String($0.output.0).lowercased()) }
+            form.contains(urlPattern) || form.matches(of: emailPattern).contains { !own.contains(String($0.output).lowercased()) }
         }
     }
 }

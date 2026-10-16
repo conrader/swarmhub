@@ -106,7 +106,7 @@ import Testing
         #expect(carries(.object(["query": .string(text)])), "\(text) asks")
     }
     #expect(carries(.object(["query": .string("from:someone@elsewhere.test")])), "another email asks")
-    for text in ["\\\\collect.test", "%2F%2Fcollect.test", "\u{FF0F}\u{FF0F}collect.test", "someone\u{FF20}elsewhere.test", "/\t/collect.test", "%252F%252Fcollect.test"] {
+    for text in ["\\\\collect.test", "%2F%2Fcollect.test", "\u{FF0F}\u{FF0F}collect.test", "someone\u{FF20}elsewhere.test", "/\t/collect.test", "%252F%252Fcollect.test", "//_collect.test", "x@żółw.pl", "evil.konrad@example.test", "żkonrad@example.test"] {
         #expect(carries(.object(["query": .string(text)])), "\(text) asks")
     }
     #expect(carries(.object(["query": .string(String(repeating: "e\u{301}", count: 1_001))])), "length counts Unicode scalars")
