@@ -58,7 +58,8 @@ struct BotRow: View {
         // P21 D3: sample bots say so instead of showing their canned last message.
         let fragment = { (now: Date) in
             bot.isDemo ? SimpleCopy.sampleLabel : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: working,
-                                                                       archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now) ?? incoming)
+                                                                       archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now) ?? incoming,
+                                                                       technical: store.technicalContext(botName: bot.name))
         }
         Button { store.open(bot) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
@@ -109,7 +110,7 @@ struct GroupRow: View {
                                             isWorking: working,
                                             archiveNewest: store.grokHistory.newestVisible(for: group.id),
                                             author: { id in id.flatMap { id in store.bots.first { $0.id == id }?.name } },
-                                            working: store.workingLine(for: group, now: now)) }
+                                            working: store.workingLine(for: group, now: now), technical: store.technicalContext(botName: group.name)) }
         Button { store.open(group) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
                 GroupAvatarStack(group: group, members: store.members(of: group), size: SidebarMetrics.mark, isHovered: hovering,

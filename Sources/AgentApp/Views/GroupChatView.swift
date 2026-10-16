@@ -52,7 +52,7 @@ struct GroupChatView: View {
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy) }
             }
             if let reply = store.replyTo {
-                HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
+                HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(store.technicalLine(reply))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
             }
             Toggle("Work together", isOn: $workTogether).toggleStyle(.switch).font(.caption).padding(.horizontal, 28)

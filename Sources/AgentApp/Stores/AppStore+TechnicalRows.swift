@@ -9,6 +9,13 @@ extension AppStore {
                                 appName: { apps.appName($0) }, accountName: { id in apps.accounts.first { $0.id == id }?.label })
     }
 
+    /// The line a notification, a reply quote or the composer's "Replying to" shows for a row: its fold, never raw protocol.
+    /// The bot is `botName`, else the row's author, else the open bot.
+    func technicalLine(_ message: ChatMessage, botName: String? = nil) -> String {
+        let name = botName ?? message.authorID.flatMap { id in bots.first { $0.id == id }?.name } ?? selectedBot?.name ?? "The bot"
+        return TechnicalRow.displayLine(message, context: technicalContext(botName: name))
+    }
+
     /// One chat's folds; a group names each reply's author.
     func technicalLayout(_ rows: [ChatMessage], botName: String) -> TechnicalLayout {
         let context = technicalContext(botName: botName)

@@ -98,9 +98,9 @@ enum TechnicalRow {
     /// the summary of its ```swarmhub block (a reply that is only a block).
     static func displayLine(_ message: ChatMessage, next: ChatMessage? = nil, context: TechnicalContext) -> String {
         if let fold = classify(message, next: next, context: context) { return fold.summary }
-        let text = message.role == .assistant ? message.finalText : message.metadata[AutomationKey.display] ?? message.content
-        let visible = SwarmhubBlock.visibleText(text)
-        if visible.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let block = SwarmhubSummary.lines(in: text).last { return block.summary }
+        guard message.role == .assistant else { return message.metadata[AutomationKey.display] ?? message.content }
+        let visible = SwarmhubBlock.visibleText(message.finalText)
+        if visible.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let block = SwarmhubSummary.lines(in: message.finalText).last { return block.summary }
         return visible
     }
 
