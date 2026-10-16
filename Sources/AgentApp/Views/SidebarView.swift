@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The left column, like Grok Bot's (P20): round search and + at the top, one flat list (newest conversations first, then a quiet
-/// "Hidden chats" disclosure), and a bottom bar with the user's initial and a Settings pill.
+/// "Hidden chats" disclosure), and a bottom bar with the user's initial and a Settings pill. P47: Connect apps sits on its
+/// own row directly above that bar (beside it, the Settings pill would truncate in a 240 pt sidebar).
 struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
     @Binding var selection: Bot?
@@ -49,6 +50,7 @@ struct SidebarView: View {
                     }
                 }.padding(.horizontal, SidebarMetrics.listInset).padding(.top, 4)
             }.chromeProbe("sidebar_list")
+            ConnectAppsSidebarButton().padding(.horizontal, SidebarMetrics.listInset + 4).padding(.top, 8)
             HStack(spacing: 10) {
                 SettingsLink { RoundSidebarLabel(symbol: nil, text: UserIdentity.initial(of: accountName)) }
                     .buttonStyle(.plain).help("Account and settings").accessibilityLabel("Account")
@@ -70,5 +72,21 @@ struct SidebarView: View {
     }
     private func row(_ bot: Bot) -> some View {
         BotRow(bot: bot, drafts: store.drafts, selected: selection == bot && store.selectedGroup == nil, botToDelete: $botToDelete)
+    }
+}
+
+/// P47: the bottom-left way to Settings → Advanced → Connected apps, in the bar's round-icon + pill look.
+struct ConnectAppsSidebarButton: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.openSettings) private var openSettings
+    var body: some View {
+        Button { store.settingsPane = .apps; openSettings() } label: {
+            HStack(spacing: 8) {
+                Image(systemName: SettingsLayout.AdvancedPane.apps.icon).font(.system(size: 12, weight: .semibold))
+                Text(ConnectedAppsCopy.connectAppsLabel).font(.system(size: 13, weight: .medium)).lineLimit(1)
+            }.padding(.leading, 12).padding(.trailing, 16).frame(height: SidebarMetrics.roundButton)
+                .background(Capsule().fill(Color.primary.opacity(0.08))).contentShape(Capsule())
+        }.buttonStyle(.plain).help("Connect and manage your apps").accessibilityLabel(ConnectedAppsCopy.connectAppsLabel)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

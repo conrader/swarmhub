@@ -130,4 +130,7 @@ enum ConnectedAppsCopy {
     static let backgroundNotAvailable = "Background app actions are not available yet."
     static let serviceNotConfigured = "App connections through SwarmHub are not set up in this build. Add your own Composio key under Advanced to connect apps."
     static let ownKeyFooter = "App connections belong to SwarmHub. Connected accounts remain in Composio when you remove the key."
+    /// P47: the sidebar's bottom-left control; the bots' prompt names it with these words (`ConnectedAppsChat.prompt`).
+    static let connectAppsLabel = "Connect apps"
+    static func onForAllBots(_ app: String) -> String { "\(app) is on for all your bots. Turn it off for any bot below." }
 }
