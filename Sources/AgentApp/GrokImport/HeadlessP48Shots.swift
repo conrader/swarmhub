@@ -8,15 +8,17 @@ import SwiftUI
 /// a fake loader (GitHub's "fails", so its tile shows the letter): no network, no Keychain, no browser.
 @MainActor enum HeadlessP48Shots {
     static let names = ["p48-modal-before-connecting", "p48-modal-connected", "p48-modal-search", "p48-settings-accounts",
-                        "p48-rename-sheet", "p48-chat-approval-and-error"]
+                        "p48-rename-sheet", "p48-chat-approval-and-error", "p48-modal-usage-popover"]
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
         let store = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); store.isSetupPreview = false
         store.botMessages.autoLoad = false
         let jarvis = Bot(name: "Jarvis", title: "Chief of staff", backend: .hermes, hermesProfile: "grok-jarvis")
         let cfo = Bot(name: "Cfo", title: "Budgets and invoices", backend: .hermes, hermesProfile: "cfo")
+        let infra = Bot(name: "Infra", title: "Servers and deploys", backend: .hermes, hermesProfile: "infra")
         jarvis.avatarName = .allCases[0]; cfo.avatarName = .allCases[min(3, BotAvatarName.allCases.count - 1)]
-        store.bots = [jarvis, cfo]; store.selectedBot = jarvis
+        infra.avatarName = .allCases[min(5, BotAvatarName.allCases.count - 1)]
+        store.bots = [jarvis, cfo, infra]; store.selectedBot = jarvis
         let directory = store.fileURL.deletingLastPathComponent()
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [P48ComposioProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -29,14 +31,28 @@ import SwiftUI
         store.connectedApps = fresh
         write(names[0], await png(AnyView(ConnectAppsModal(apps: fresh, checksOnAppear: false).environment(\.appLogoLoader, logos)), store, modalSize))
 
-        // 2. Two Gmails and a GitHub, named after who they are (the profile call ran on the first refresh).
+        // 2. Two Gmails and a GitHub, named after who they are (the profile call ran on the first refresh). Both Gmails
+        //    are on for Jarvis; the home one also for Infra, the work one for Cfo; GitHub for no bot.
         let keys = MemoryKeyStore(); keys.setKey("synthetic-render-key", for: ConnectedAppsStore.keyAccount)
         let apps = ConnectedAppsStore(directory: directory.appending(path: "p48-connected"), keyStore: keys, session: session, apiURL: P48ComposioProtocol.base)
         P48ComposioProtocol.reset()
         await apps.refresh(); await apps.search("")
-        for account in apps.accounts where account.toolkit == "gmail" { apps.setAllowed(true, account: account, botID: jarvis.id) }
+        for account in apps.accounts where account.toolkit == "gmail" {
+            apps.setAllowed(true, account: account, botID: jarvis.id)
+            apps.setAllowed(true, account: account, botID: account.id == "ca_mail_home" ? infra.id : cfo.id)
+        }
         store.connectedApps = apps
         write(names[1], await png(AnyView(ConnectAppsModal(apps: apps, checksOnAppear: false).environment(\.appLogoLoader, logos)), store, modalSize))
+
+        // 2b. The same sheet with the work Gmail's "Used by" popover open (drawn in place: a popover is its own window).
+        if let work = apps.accounts.first(where: { $0.id == "ca_mail_work" }) {
+            let popover = AccountUsagePopover(account: work, bots: store.connectedAppsBots, apps: apps)
+                .background(AppColor.raised, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppColor.separator, lineWidth: 0.5)).shadow(radius: 12, y: 4)
+            let modal = ConnectAppsModal(apps: apps, checksOnAppear: false).environment(\.appLogoLoader, logos)
+                .overlay(alignment: .topLeading) { popover.offset(x: 50, y: 368) }
+            write(names[6], await png(AnyView(modal), store, modalSize))
+        } else { write(names[6], nil) }
 
         // 3. Search results over the full catalog.
         await apps.search("calendar")

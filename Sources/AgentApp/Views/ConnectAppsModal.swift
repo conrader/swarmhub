@@ -2,7 +2,7 @@ import SwiftUI
 
 /// P48: the bottom-left Connect apps sheet: what Composio is, a grid of apps with logos (popular first, then the full
 /// catalog by search), each with its connected accounts by name and Connect / Add another account. A connect here is on
-/// for every bot (P47) and is named after who it is (P48 item 3). Which bot uses which account stays in Settings.
+/// for every bot (P47) and is named after who it is (P48 item 3). Each account shows the bots it is on for, with a switch per bot.
 struct ConnectAppsModal: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
@@ -33,7 +33,7 @@ struct ConnectAppsModal: View {
                     }
                     if !searched.isEmpty { Text(shown.isEmpty ? "No apps match “\(searched)”." : "Results for “\(searched)”").font(.callout.weight(.medium)) }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], alignment: .leading, spacing: 12) {
-                        ForEach(shown) { app in ConnectAppTile(app: app, apps: apps, connect: { connect(app.id) }) }
+                        ForEach(shown) { app in ConnectAppTile(app: app, apps: apps, connect: { connect(app.id) }, bots: store.connectedAppsBots) }
                     }
                     if apps.nextCursor != nil, apps.hasKey { Button("Load more") { find(more: true) }.disabled(searching || apps.busy) }
                     if !apps.hasKey { Text("Connect your first app to search the full catalog.").font(.caption).foregroundStyle(.secondary) }
@@ -101,6 +101,8 @@ struct ConnectAppTile: View {
     let app: ComposioToolkit
     @ObservedObject var apps: ConnectedAppsStore
     var connect: (() -> Void)?
+    /// The Connect apps sheet passes the eligible bots: each account then shows which of them use it.
+    var bots: [Bot]? = nil
 
     private var accounts: [ComposioAccount] { apps.accounts.filter { $0.toolkit == app.id } }
 
@@ -119,6 +121,7 @@ struct ConnectAppTile: View {
                     Image(systemName: account.isActive ? "checkmark.circle.fill" : "exclamationmark.circle").foregroundStyle(account.isActive ? .green : .orange).font(.caption)
                     Text(apps.namingAccounts.contains(account.id) ? "Getting the account name…" : account.label).font(.caption).lineLimit(1).truncationMode(.middle)
                 }
+                if let bots { AccountUsageLine(account: account, bots: bots, apps: apps).padding(.leading, 17) }
             }
             if let connect {
                 Spacer(minLength: 0)

@@ -242,7 +242,7 @@ struct ComposioRunScope: Sendable {
         return persistenceEnabled && allows(account, botID: botID)
     }
     /// P48: Composio's limit for one app's accounts in a session (`max_accounts_per_toolkit` 2–10).
-    static let accountsPerApp = 10
+    nonisolated static let accountsPerApp = 10
     func grantedCount(of toolkit: String, in ids: [String]) -> Int {
         ids.filter { id in (accounts.first { $0.id == id }?.toolkit ?? configuration.appToolkits?[id]) == toolkit }.count
     }
@@ -252,7 +252,7 @@ struct ComposioRunScope: Sendable {
         var ids = grants(for: botID).filter { $0 != account.id }
         if allowed {
             guard grantedCount(of: account.toolkit, in: ids) < Self.accountsPerApp else {
-                error = "A bot can use at most \(Self.accountsPerApp) accounts of one app."; return
+                error = ConnectedAppsCopy.accountsPerAppCap; return
             }
             ids.append(account.id)
             var names = configuration.appToolkits ?? [:]
