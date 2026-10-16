@@ -136,3 +136,7 @@ Merged to main 2026-10-16 (ships in 0.5.5). Was branch `codex/swarmhub-team-coor
   `/p/grok-` already forwards every sub-path. Add `/api/jobs` and `/api/model` for the default profile in P2/P3.
 - P9: `grok-import` archive sessions in each `grok-*` profile's `state.db` (backups in `/root/grok-import-backup-<ts>/`;
   `--rollback` removes only `grok-import` sessions).
+
+## Audit clarification (2026-10-16)
+
+The out-of-scope entries above describe unsupported direct server APIs. Current exceptions include manager-mediated profile creation, instruction changes and imported skills, plus connected app access through the Composio broker. Attachments, routines, child transcript reads/conditional Stop and team coordination are implemented in the current source tree; source presence alone does not establish live release verification.

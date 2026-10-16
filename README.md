@@ -40,7 +40,7 @@ Hermes is supported; OpenClaw agents connect through their Gateway (built agains
 
   SwarmHub writes and versions its own skills (instructions such as "how to manage bots" and "how to change every bot's model") and installs them into an agent's own profile as ordinary Hermes skill files, the same thing you could install by hand, so the agent follows them instead of improvising. When an agent's copy is missing or older than SwarmHub's, its chat shows "SwarmHub's instructions for <agent> need installing" with **Install** (your press is the yes; the main agent writes the file) and **Not now**; the agent's settings → Advanced → SwarmHub skills lists each skill with its version. Once installed, management requests send a one-line pointer to the skill instead of the full text. While an agent works, its reply shows what it is doing ("Running a command · step 3 · 1 m 12 s"); that row opens to the list of steps while it works and stays open when it ends, and afterwards reads "12 steps · 4 m 52 s".
 - **Import from Grok Bot:** bring your Grok bots, their avatars and their history into SwarmHub (sidebar + → Import from Grok Bot…). Read-only; the full history needs one macOS Keychain prompt for Grok Bot's sign-in, which stays in memory and is never saved. It uses Grok Bot's private interface, so it can stop working when Grok changes it; recent messages from this Mac always import without it.
-- **No reply is lost:** every reply says whether it finished, is incomplete or was not sent; cut replies complete themselves from your server, and Retry checks the server before it sends anything ([how it works](docs/reference.md#never-losing-a-reply)).
+- **Reply recovery:** every reply says whether it finished, is incomplete or was not sent; cut replies can recover available server history, and Retry checks the server before it sends anything ([how it works](docs/reference.md#never-losing-a-reply)).
 - **Sidebar and shortcuts:** every chat shows its latest message or your unsent draft; Navigate and Chat menus with keyboard shortcuts (Help → Keyboard Shortcuts). The quick switcher (⌘K) highlights the first match; ↑/↓ move, Return opens, Esc closes.
 - **Sample agents:** before you connect a box, "Look around with sample agents" shows five labelled sample agents with working draft and choice cards; they hide once a box is connected.
 
@@ -79,6 +79,6 @@ Bot avatars use [BotAvatarsKit](https://github.com/Jakubantalik/Libraries.dev/tr
 
 [Third-party notices](THIRD-PARTY-NOTICES.md) · [Project license](LICENSE)
 
-### Team coordination (development branch)
+### Team coordination
 
-App-mediated peer handoffs, directed group work, recovery, task permissions and shared context are implemented on `codex/swarmhub-team-coordination`. [Usage and boundaries](docs/team-coordination.md). New work waits when SwarmHub cannot dispatch; no additional server runtime or Hermes configuration is required.
+App-mediated peer handoffs, directed group work, recovery, task permissions and shared context are implemented in the current source tree. [Usage and boundaries](docs/team-coordination.md). New work waits when SwarmHub cannot dispatch; no additional server runtime or Hermes configuration is required.

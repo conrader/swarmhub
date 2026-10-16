@@ -45,7 +45,7 @@ extension AppStore {
                 askUser(approval, bot: bot, reason: (skipped + [reason]).joined(separator: " "), decidedBy: candidate.scope == .otherwise ? "system" : decidedBy, rule: rule)
             case .approve:
                 guard approval.hasKnownCommand else { askUser(approval, bot: bot, reason: "Rule matched, but command text is unavailable.", decidedBy: decidedBy, rule: rule); return }
-                guard !ApprovalRule.commandRequiresUserReview(facts.command) else { askUser(approval, bot: bot, reason: "Rule matched, but shell control, substitution, redirection, or newline syntax requires user review.", decidedBy: decidedBy, rule: rule); return }
+                guard !ApprovalRule.commandRequiresUserReview(facts.command), !ApprovalRule.reviewerMustEscalate(action: facts.action, command: facts.command) else { askUser(approval, bot: bot, reason: "Rule matched, but shell control, substitution, redirection, or newline syntax requires user review.", decidedBy: decidedBy, rule: rule); return }
                 await resolveAutomatically(approval, for: bot, backend: backend, approved: true, decidedBy: decidedBy, reason: "Matched rule \(ruleName).", rule: rule)
             case .deny:
                 await resolveAutomatically(approval, for: bot, backend: backend, approved: false, decidedBy: decidedBy, reason: "Matched rule \(ruleName).", rule: rule)

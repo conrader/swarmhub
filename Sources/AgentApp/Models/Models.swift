@@ -77,24 +77,28 @@ struct ApprovalRule: Identifiable, Codable, Equatable {
 
         let tokens = command.lowercased().split(separator: " ").map(String.init)
         guard let executable = tokens.first?.split(separator: "/").last.map(String.init) else { return true }
-        let dangerousPrograms: Set<String> = ["awk", "bash", "curl", "dd", "env", "find", "mkfs", "mv", "perl", "python", "python3", "scp", "sh", "ssh", "xargs"]
-        let dangerousArguments: Set<String> = ["-c", "-d", "-delete", "-e", "-exec", "-execdir", "-f", "-t", "--data", "--data-ascii", "--data-binary", "--data-raw", "--exec", "--upload-file", "--upload-pack"]
-        if dangerousPrograms.contains(executable) { return true }
+        // Unknown executables and options require a person. Keep this deliberately narrow:
+        // textual inspection cannot establish the behavior of arbitrary programs or Git config.
+        let forms: [String: Set<String>] = [
+            "pwd": [], "ls": ["-a", "-l", "-la", "-al", "-h"],
+            "cat": [], "head": [], "tail": [], "wc": ["-l", "-w", "-c"],
+            "stat": [], "grep": ["-n", "-i", "-r", "-l"],
+            "rg": ["--files", "-n", "-i", "-l", "--hidden"]
+        ]
         if executable == "git" {
-            let safeSubcommands: Set<String> = ["branch", "diff", "log", "show", "status"]
-            guard tokens.count > 1, safeSubcommands.contains(tokens[1]) else { return true }
-            if tokens.contains(where: { $0 == "--output" || $0.hasPrefix("--output=") }) { return true }
+            // Even observational Git commands can execute configured pagers/helpers.
+            // Require explicit helper suppression and allow only status (no diff drivers).
+            return tokens != ["git", "--no-pager", "status", "--short"] && tokens != ["git", "status", "--short"] && tokens != ["git", "status"]
         }
-        if tokens.dropFirst().contains(where: { token in
-            dangerousArguments.contains(token) || token.hasPrefix("--data=") || token.hasPrefix("--upload-pack=") ||
-                (executable == "rg" && (token == "--pre" || token.hasPrefix("--pre=")))
-        }) { return true }
+        guard tokens.first == executable, let flags = forms[executable] else { return true }
+        if tokens.dropFirst().contains(where: { $0.hasPrefix("-") && !flags.contains($0) }) { return true }
+
         return false
     }
 
     static func reviewerMustEscalate(action: String, command: String) -> Bool {
         let action = action.lowercased()
-        if action.contains("send") || action.contains("delete") || action.contains("destruct") { return true }
+        if action.contains("send") || action.contains("delete") || action.contains("destruct") || action.contains("write") || action.contains("edit") || action.contains("create") { return true }
         let normalized = command.lowercased().filter { !["'", "\"", "\\"].contains($0) }
         let words = normalized.split { !$0.isLetter && !$0.isNumber && $0 != "_" && $0 != "-" }.map(String.init)
         guard let executable = words.first?.split(separator: "/").last.map(String.init) else { return true }
