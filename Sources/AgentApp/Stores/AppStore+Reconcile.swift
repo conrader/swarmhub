@@ -128,7 +128,9 @@ extension AppStore {
         guard ignoringStream || !isStreamingIn(unit.conversation) else { report.skipped = true; return }
         let isBotChat: Bool; if case .chat(true) = unit.mode { isBotChat = true } else { isBotChat = false }
         if isBotChat, !read.missing, plan.diverged || (read.rows.isEmpty && snapshot.contains { $0.role != .system && !$0.isEmpty }) {
-            report.diverged = true
+            // Real divergence only: the box holds turns and none match a reply this chat already has. An empty box session
+            // (it lacks the turn) or unmatched box turns against only unsent rows (newerUnmatched) leave retry to decide.
+            report.diverged = plan.diverged && snapshot.contains { $0.role == .assistant && !$0.isEmpty }
             let note = "Hermes history was not merged because it diverges from this local conversation."
             if unit.conversation.messages.last?.content != note { unit.conversation.messages.append(ChatMessage(role: .system, content: note)); report.changed = true }
             return

@@ -152,3 +152,13 @@ import Testing
     try await waitUntil { !store.anyTurnRunning }
     #expect(box.chatPosts.isEmpty && row.turnState == .notSent)
 }
+
+@MainActor @Test func aTrulyDivergedHistoryStillRefuses() async throws {
+    let (store, bot, box, row) = unsentChat()
+    bot.messages.insert(contentsOf: [ChatMessage(role: .user, content: "earlier question"), ChatMessage(role: .assistant, content: "earlier answer", turnState: .finished)], at: 0)
+    box.add("s-alpha", "user", "something else entirely"); box.add("s-alpha", "assistant", "a different history", finish: "stop")
+    store.retry(row, sendAnyway: true)
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(box.chatPosts.isEmpty && row.turnState == .notSent)
+    #expect(bot.messages.contains { $0.content == "Alpha: Can't reach the box; nothing was sent." })
+}
