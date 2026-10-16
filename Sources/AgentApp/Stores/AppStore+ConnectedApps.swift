@@ -24,6 +24,8 @@ extension AppStore {
         guard let id else { return nil }
         return bots.first { $0.id == id && !$0.isReadOnlyArchive && !$0.isDemo && $0.backend == .hermes }
     }
+    /// The bots whose app access Settings → Connected apps toggles (P47: a new app from there is on for all of them).
+    var connectedAppsBots: [Bot] { bots.filter { connectionBot(id: $0.id) != nil } }
 
     /// A Hermes bot's turn goes through the connected-apps loop; so does any workflow task's turn (P38 E, its workflow
     /// operations); anything else is sent as it was.

@@ -38,6 +38,8 @@ struct ComposioRunScope: Sendable {
     @Published var serviceNote: String?
     /// P40: the app whose first connection failed while getting the project key; Settings offers Retry for it.
     @Published private(set) var retryToolkit: String?
+    /// P47: the app a Settings connection just turned on for every eligible bot (the pane says so once).
+    @Published private(set) var grantedToAllToolkit: String?
     let approvals = AppToolApprovalBroker()
     /// The app action cards SwarmHub made itself (by card id). Only these are decided locally; an approval from a bot's
     /// server is never treated as an app action, whatever its action kind says.
@@ -50,6 +52,9 @@ struct ComposioRunScope: Sendable {
     private var revision = UUID(); private var searchToken = UUID(); private var persistenceEnabled: Bool
     private var catalogQuery = ""
     private var authSession: (client: ComposioClient, id: String, toolkit: String)?
+    /// P47: a connection started in Settings → Connected apps: the accounts that existed before it, and the bots its new
+    /// account is granted to when it first appears. Cleared once granted, so a later refresh never grants again.
+    private var settingsConnection: (toolkit: String, known: Set<String>, bots: [UUID])?
 
     init(directory: URL, keyStore: any HermesKeyStore, session: URLSession = ComposioClient.defaultSession, apiURL: URL = ComposioClient.productionURL,
          provisioner: (any ComposioProvisioning)? = nil, persistenceEnabled: Bool = true) {
@@ -83,6 +88,7 @@ struct ComposioRunScope: Sendable {
         if key != previous {
             if let authSession { Task { await authSession.client.deleteSession(authSession.id) }; self.authSession = nil }
             configuration.grants = [:]; configuration.projectID = nil; configuration.appToolkits = nil
+            settingsConnection = nil; grantedToAllToolkit = nil
             accounts = []; catalog = key.isEmpty ? ComposioToolkit.popular : []; nextCursor = nil; pendingLink = nil
             revision = UUID(); searchToken = UUID()
         }
@@ -93,6 +99,7 @@ struct ComposioRunScope: Sendable {
         guard !busy else { return }; busy = true; error = nil; defer { busy = false }
         do {
             accounts = try await client.accounts(userID: configuration.userID)
+            grantSettingsConnection()
             if let authSession, accounts.contains(where: { $0.toolkit == authSession.toolkit && $0.isActive }) {
                 await authSession.client.deleteSession(authSession.id); self.authSession = nil; pendingLink = nil
             }
@@ -118,11 +125,19 @@ struct ComposioRunScope: Sendable {
     }
 
     /// Open this link on the user's Mac. Tokens stay with Composio, not in bot prompts or local JSON.
-    func connect(_ toolkit: String) async -> URL? {
+    /// P47: `grantingTo` is Settings' connect: the new account is turned on for these bots when it appears (a chat's
+    /// connect card passes nil and grants its one bot itself).
+    func connect(_ toolkit: String, grantingTo bots: [UUID]? = nil) async -> URL? {
         guard !busy, persistenceEnabled else { return nil }; busy = true; error = nil; retryToolkit = nil; defer { busy = false }
+        settingsConnection = nil; grantedToAllToolkit = nil
         do {
             do { try await ensureKeyForFirstConnection(toolkit) } catch { retryToolkit = toolkit; throw error }
             let service = client
+            if let bots {
+                // The accounts that exist now are never granted by this connection, whatever the pane had loaded.
+                let known = try await service.accounts(userID: configuration.userID)
+                settingsConnection = (toolkit, Set(known.map(\.id)), bots)
+            }
             let id = try await service.createSession(userID: configuration.userID, toolkits: [toolkit])
             do {
                 let link = try await service.connect(sessionID: id, toolkit: toolkit)
@@ -153,6 +168,22 @@ struct ComposioRunScope: Sendable {
         revision = UUID(); persist()
         do { try await client.deleteAccount(account.id); accounts.removeAll { $0.id == account.id } }
         catch { self.error = describe(error) }
+    }
+
+    /// P47: the first new active account of the app a Settings connection asked for goes to every bot it named, except a
+    /// bot that already has another account of that app (one account per app per bot; its choice stays).
+    private func grantSettingsConnection() {
+        guard let pending = settingsConnection,
+              let account = accounts.first(where: { $0.toolkit == pending.toolkit && $0.isActive && !pending.known.contains($0.id) }) else { return }
+        settingsConnection = nil
+        for bot in pending.bots {
+            let ids = grants(for: bot)
+            guard !ids.contains(where: { id in (accounts.first { $0.id == id }?.toolkit ?? configuration.appToolkits?[id]) == account.toolkit }) else { continue }
+            configuration.grants[bot.uuidString] = (ids + [account.id]).sorted()
+        }
+        var names = configuration.appToolkits ?? [:]
+        names[account.id] = account.toolkit; configuration.appToolkits = names
+        revision = UUID(); persist(); grantedToAllToolkit = account.toolkit
     }
 
     func grants(for botID: UUID) -> [String] { configuration.grants[botID.uuidString] ?? [] }

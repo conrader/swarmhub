@@ -215,9 +215,9 @@ struct AppToolRequest: Sendable {
         Available app accounts appear below. SwarmHub owns and executes these tools on the user's device.
         Enabled apps for this bot: \(appNames)
         These names reflect the latest local sync; current access is verified when tools are requested.
-        If an existing grant's app name is unavailable, discover tools for the requested task or ask the user to Refresh in Connect apps.
-        To add another app, display the connect-app card below. Connect apps at the bottom left also opens the full connection settings.
-        Popular apps include Gmail, Google Calendar, Google Drive, Slack, Notion and GitHub. The user can search the full catalog in Connect apps after the first connection.
+        If an existing grant's app name is unavailable, discover tools for the requested task or ask the user to Refresh in \(ConnectedAppsCopy.connectAppsLabel).
+        To add another app, display the connect-app card below. \(ConnectedAppsCopy.connectAppsLabel) at the bottom left also opens the full connection settings.
+        Popular apps include Gmail, Google Calendar, Google Drive, Slack, Notion and GitHub. The user can search the full catalog in \(ConnectedAppsCopy.connectAppsLabel) after the first connection.
         To work with those apps, request tools through SwarmHub. Do not install app tools, change server configuration, or request API keys.
         For an app request, your ENTIRE reply must begin with this exact marker and then one JSON object, without Markdown or commentary:
         \(marker)

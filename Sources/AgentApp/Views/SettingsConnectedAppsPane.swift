@@ -48,6 +48,9 @@ struct SettingsConnectedAppsPane: View {
                     if apps.busy { ProgressView().controlSize(.small) }
                     if apps.pendingLink != nil { Text("Allow access in your browser, then refresh.").font(.caption).foregroundStyle(.secondary) }
                 }
+                if let toolkit = apps.grantedToAllToolkit {
+                    Label(ConnectedAppsCopy.onForAllBots(appName(toolkit)), systemImage: "checkmark.circle").font(.callout)
+                }
                 if apps.accounts.isEmpty { Text("No accounts connected yet. Choose an app below.").foregroundStyle(.secondary) }
                 ForEach(apps.accounts) { account in
                     HStack {
@@ -133,12 +136,12 @@ struct SettingsConnectedAppsPane: View {
         }
     }
 
-    private var availableBots: [Bot] { store.bots.filter { store.connectionBot(id: $0.id) != nil } }
+    private var availableBots: [Bot] { store.connectedAppsBots }
     private func appName(_ slug: String) -> String { apps.catalog.first { $0.id == slug }?.name ?? slug.replacingOccurrences(of: "_", with: " ").capitalized }
     private func status(_ account: ComposioAccount) -> String { account.isActive ? "Connected" : account.disabled ? "Disabled" : account.status.replacingOccurrences(of: "_", with: " ").capitalized }
     private func load() async { if apps.hasKey { await apps.refresh() }; if apps.catalog.isEmpty || !apps.hasKey { await apps.search("") } }
     private func find(more: Bool = false) { searching = true; Task { await apps.search(search, more: more); searching = false } }
-    private func connect(_ slug: String) { Task { if let url = await apps.connect(slug) { ExternalLink.open(url); await apps.search(search) } } }
+    private func connect(_ slug: String) { Task { if let url = await apps.connect(slug, grantingTo: availableBots.map(\.id)) { ExternalLink.open(url); await apps.search(search) } } }
 }
 
 /// P38 B: a Hermes agent's connected app accounts in its Overview tab; only shown where app connections are possible.
