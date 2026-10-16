@@ -100,7 +100,11 @@ extension AppStore {
             if kind != .linked || policy == .legacyFileImport { bot.archivedMembers = nil; bot.isDemo = false }
             bot.grokSourceID = bundle.sourceId
             bot.grokHistoryCount = historyCount
-            if kind == .new { bots.append(bot) }
+            if kind == .new {
+                bots.append(bot)
+                // P49: a new bot from a Grok import orients itself once (a history-only one never chats, so it does not).
+                if bot.hermesProfile != nil { queueOrientation(bot) }
+            }
             return GrokImportRow(name: bot.name, profile: bot.hermesProfile, historyCount: historyCount, mark: mapped,
                                  sourceShape: bundle.avatar?.shape, sourceColour: bundle.avatar?.colour,
                                  isGroup: false, created: kind == .new)

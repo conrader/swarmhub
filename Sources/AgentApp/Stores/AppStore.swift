@@ -121,6 +121,8 @@ import SwarmHubCoordination
     @Published var mentionSkillOffer: UUID?
     /// P46: heartbeats as Hermes routines (`AppStore+BotHeartbeat.swift`) and the live read of each bot's Bot Chat.
     @Published var heartbeatSettings = HeartbeatSettings(); var liveRows = LiveRowsState()
+    /// P49: the orientations being checked or sent now and the last retry pass (memory only).
+    var orientationRun = OrientationRunState()
     /// P46 4: an "Apply to…" under way and each bot's last problem (memory only); the zone heartbeat hours are in.
     @Published var heartbeatBatch = HeartbeatBatchState(); var heartbeatTimeZone = TimeZone.current
     var automationSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }

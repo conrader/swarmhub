@@ -167,6 +167,7 @@ private func threeAgents() -> FakeGateway.Handler {
     #expect(Set(claws.compactMap { $0.openClaw?.agentID }) == ["agent-alpha", "agent-gamma"] && !claws.contains { $0.joinsGroups })
     #expect(store.selectedBot === added.first && FirstRun.state(store.defaults) == .done && store.bots.filter(\.isDemo).allSatisfy(\.isHidden))
     #expect(store.setupCreatedGatewayID == nil, "Add keeps the Gateway")
+    #expect(claws.allSatisfy { !store.orientationPending($0) }, "P49: OpenClaw agents are never oriented")
     await store.abandonSetupGateway(); #expect(store.openClawGateways.count == 1, "closing the window after Add forgets nothing")
     let again = try store.commitSetupOpenClaw(gatewayID: tested.gatewayID, agents: agents, chosen: ["agent-alpha", "agent-gamma"])
     #expect(again.isEmpty && store.bots.filter { $0.backend == .openClaw }.count == 2)

@@ -107,6 +107,7 @@ private func snapshot(_ defaults: UserDefaults) -> [String: String] {
     #expect(keys.all() == ["hermes": goodKey, "hermes.research": researchKey], "the unticked agent's key is not saved")
     #expect(defaults.string(forKey: "hermesBaseURL") == server.address && store.namedHermesProfiles == ["research"])
     #expect(FirstRun.state(defaults) == .done && store.selectedBot === added[0])
+    #expect(added.allSatisfy { !store.orientationPending($0) }, "P49: setup connects bots that exist; none is oriented")
     #expect(store.bots.filter(\.isDemo).allSatisfy(\.isHidden) && store.hiddenChatBots.isEmpty, "sample bots are hidden at once and not listed")
     let saved = try StoreFile.decode(Data(contentsOf: store.fileURL))
     #expect(saved.bots.filter { !$0.isDemo }.map(\.name) == ["hermes-agent", "Research"])

@@ -18,6 +18,8 @@ enum AutomationKey {
     static let card = "automation.card", detail = "automation.detail"
     /// P46: a delivered heartbeat (or routine) row whose reply was exactly `[SILENT]`: both rows are hidden ("1").
     static let silent = "automation.silent"
+    /// P49: on the user row of a new bot's orientation turn ("1"); its bubble shows "Orientation" (`display`).
+    static let orientation = "automation.orientation"
 }
 
 struct GoalRun: Codable, Equatable, Sendable {

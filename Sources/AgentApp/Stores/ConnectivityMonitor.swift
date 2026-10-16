@@ -69,6 +69,8 @@ extension AppStore {
             await hermesSession.flush()
             await recoverTeams()
             reconcileAttention(reason: event == .didWake ? .wake : .path)
+            // P49: a new bot's orientation that waited for the connection tries again.
+            await orientationPass()
         }
     }
 
@@ -81,6 +83,6 @@ extension AppStore {
         if connectivity is SystemConnectivity { turns.terminateObserver = SystemConnectivity.observeTerminate(self) }
         recoverInterruptedRounds()
         // P38 E: the queue a quit left waits for the sweep, so an earlier reply it would follow can be confirmed first.
-        Task { await launchSweep(); await recoverTeams(); resumeRestoredNextMessages() }
+        Task { await launchSweep(); await recoverTeams(); resumeRestoredNextMessages(); await orientationPass() }
     }
 }
