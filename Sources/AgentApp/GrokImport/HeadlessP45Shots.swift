@@ -34,7 +34,7 @@ import SwiftUI
                            ChatMessage(role: .user, content: HeartbeatPlan.defaultPrompt, createdAt: now.addingTimeInterval(-60), metadata: [AutomationKey.woken: "heartbeat", AutomationKey.display: "Heartbeat"]),
                            ChatMessage(role: .assistant, content: "One thing: the 09:00 backup on box 2 failed (disk full). Infra can clear the old snapshots if you want.", createdAt: now.addingTimeInterval(-50), turnState: .finished)]
         // P46: the heartbeat is Jarvis's routine now; the strip reads it from the routines cache.
-        store.routines.update(jarvis.id) { $0.jobs = .loaded([HeadlessP46Shots.heartbeatJob(profile: "grok-jarvis", next: now.addingTimeInterval(1_500))]) }
+        store.routines.update(jarvis.id) { $0.jobs = .loaded([HeadlessP46Shots.heartbeatJob(profile: "grok-jarvis", schedule: HeartbeatPlan().cron(stagger: store.heartbeatStagger(for: jarvis), localOffset: store.heartbeatLocalOffset, boxOffset: 0), now: now)]) }
         store.heartbeatSettings.plans[jarvis.id.uuidString] = HeartbeatPlan()
         store.selectedBot = jarvis
         let size = NSSize(width: 1_120, height: 640)

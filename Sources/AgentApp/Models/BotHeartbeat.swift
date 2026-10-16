@@ -24,9 +24,11 @@ struct HeartbeatPlan: Codable, Equatable, Sendable {
         return text
     }
 
+    /// Active hours are whole hours, the start hour through the end hour: "08–23" runs at 23:07 too (cron's hour field).
     func inWindow(minute: Int) -> Bool {
         guard let windowStart, let windowEnd else { return true }
-        return windowStart <= windowEnd ? (windowStart...windowEnd).contains(minute) : minute >= windowStart || minute <= windowEnd
+        let hour = minute / 60 % 24, from = windowStart / 60, to = windowEnd / 60
+        return from <= to ? (from...to).contains(hour) : hour >= from || hour <= to
     }
 
     /// The local minutes of the day it runs, `stagger` minutes past the hour (or past the window's first hour).
@@ -43,8 +45,9 @@ struct HeartbeatPlan: Codable, Equatable, Sendable {
         return Array(Set(times)).sorted()
     }
 
-    /// Wakes per day; each non-silent one costs two agent turns (the cron run and the chat turn).
-    func wakesPerDay(stagger: Int = 0) -> Int { runMinutes(stagger: stagger).count }
+    /// Wakes per day: how often the cron it becomes fires in a day (the one count the template, each bot and the turn
+    /// warning show). Each non-silent wake costs two agent turns (the cron run and the chat turn).
+    func wakesPerDay(stagger: Int = 0) -> Int { Self.fireMinutes(cron(stagger: stagger, localOffset: 0, boxOffset: 0)).count }
 
     /// The cron expression in the box's time zone (`boxOffset`, `localOffset`: minutes east of UTC). Minutes and hours are
     /// written as lists; a step that does not divide an hour is rounded to the nearest one cron can say.
@@ -54,6 +57,43 @@ struct HeartbeatPlan: Codable, Equatable, Sendable {
         guard !times.isEmpty else { return "\(stagger % 60) \(((windowStart ?? 0) / 60 - shift / 60 + 24) % 24) * * *" }
         let minutes = Array(Set(times.map { $0 % 60 })).sorted(), hours = Array(Set(times.map { $0 / 60 })).sorted()
         return "\(Self.list(minutes)) \(hours.count == 24 ? "*" : Self.list(hours)) * * *"
+    }
+
+    /// The minutes of the (box's) day a `minute hour * * *` cron fires: every listed minute in every listed hour.
+    static func fireMinutes(_ cron: String) -> [Int] {
+        let fields = cron.split(separator: " ").map(String.init)
+        guard fields.count >= 2, let minutes = values(fields[0], below: 60), let hours = values(fields[1], below: 24) else { return [] }
+        return hours.flatMap { hour in minutes.map { hour * 60 + $0 } }.sorted()
+    }
+
+    /// The first time after `date` the cron fires in the box's time zone.
+    static func nextFire(_ cron: String, after date: Date, boxZone: TimeZone) -> Date? {
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = boxZone
+        let fires = fireMinutes(cron)
+        guard !fires.isEmpty else { return nil }
+        let day = calendar.startOfDay(for: date)
+        for offset in 0...2 {
+            guard let start = calendar.date(byAdding: .day, value: offset, to: day) else { continue }
+            for minute in fires {
+                guard let fire = calendar.date(bySettingHour: minute / 60, minute: minute % 60, second: 0, of: start) else { continue }
+                if fire > date { return fire }
+            }
+        }
+        return nil
+    }
+
+    /// "*", "7", "6-21", "0-5,22,23", "*/15".
+    private static func values(_ field: String, below limit: Int) -> [Int]? {
+        var result = Set<Int>()
+        for part in field.split(separator: ",") {
+            let pieces = part.split(separator: "/", maxSplits: 1).map(String.init)
+            let step = pieces.count == 2 ? Int(pieces[1]) : 1
+            guard let step, step > 0 else { return nil }
+            let bounds = pieces[0] == "*" ? [0, limit - 1] : pieces[0].split(separator: "-").compactMap { Int($0) }
+            guard (1...2).contains(bounds.count), let low = bounds.first, let high = bounds.last, 0 <= low, low <= high, high < limit else { return nil }
+            result.formUnion(stride(from: low, through: high, by: step))
+        }
+        return result.sorted()
     }
 
     /// "1,3,5", "8-22", "0-6,22-23".
