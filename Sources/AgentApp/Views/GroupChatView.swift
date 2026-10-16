@@ -5,6 +5,8 @@ struct GroupChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var group: GroupChat
     @State private var draft = ""; @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
     @State private var planningWorkflow = false
+    @State private var workTogether = false
+    @State private var showProjectContext = false
     @Environment(\.grokHistoryExpanded) private var historyExpanded
 
     var body: some View {
@@ -16,6 +18,7 @@ struct GroupChatView: View {
                 Button { store.showInfo.toggle() } label: { Text(group.name).font(.system(size: 14, weight: .semibold)).lineLimit(1) }.buttonStyle(.plain)
                 Text(members.isEmpty ? "No bots yet" : ([store.userName] + members.map(\.name)).joined(separator: ", ")).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
+                Button { showProjectContext = true } label: { Image(systemName: "text.book.closed") }.help("Shared project context")
                 if !members.isEmpty {
                     Button { planningWorkflow = true } label: { Label("Plan a workflow", systemImage: "list.bullet.rectangle") }
                         .buttonStyle(.borderless).help("Plan a workflow: a coordinator splits a request into tasks for the members")
@@ -46,6 +49,8 @@ struct GroupChatView: View {
                 HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(authorName(reply)): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768)
             }
+            Toggle("Work together", isOn: $workTogether).toggleStyle(.switch).font(.caption).padding(.horizontal, 28)
+                .help("Allow directed questions, corrections and review within this request. New work runs only while SwarmHub is available.")
             ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: group), canSteer: store.canSteer(in: group), hint: store.steerHint,
                          send: send, stop: { store.stop(group) }, attach: { intake.attach($0, store: store) },
                          pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
@@ -59,6 +64,7 @@ struct GroupChatView: View {
                 guard !files.isEmpty else { return false }
                 intake.attach(files, store: store); return true
             }
+            .sheet(isPresented: $showProjectContext) { ProjectContextView(projectID: group.id, members: members) }
             .sheet(isPresented: $planningWorkflow) { WorkflowStartSheet(group: group) }
             .task(id: group.id) { draft = store.drafts.text(for: group.id) }
             .onChange(of: draft) { _, value in store.drafts.set(value, for: group.id) }
@@ -73,6 +79,14 @@ struct GroupChatView: View {
     }
     private func send() {
         let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
+        if workTogether, let coordinator = store.members(of: group).first {
+            guard intake.items.isEmpty else { store.errorMessage = "Add documents through shared project context or send them in a regular group round first."; return }
+            let roster = store.members(of: group)
+            let targets = GroupRouting.recipients(of: value, members: store.routingMembers(of: group))
+            let recipient = roster.first { targets.contains($0.id) } ?? coordinator
+            if store.startTeamRequest(value, origin: group, coordinator: coordinator, recipient: recipient, roster: roster) { draft = "" }
+            return
+        }
         let steering = !store.isIdle(group)
         if store.send(text: value, attachments: steering ? [] : intake.items, to: group) { draft = ""; if !steering { intake.items = [] } }
     }

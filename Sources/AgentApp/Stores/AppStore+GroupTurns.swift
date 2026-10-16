@@ -93,6 +93,7 @@ extension AppStore {
         let text = reply.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty && !reply.isSilent && (outcome.state == .finished || outcome.state == .incomplete) && selectedGroup?.id != group.id { group.unreadCount += 1 }
         if outcome.state == .finished && !text.isEmpty {
+            startReviewIfNeeded(reply, from: bot, in: group)
             AvatarReactions.shared.completed(bot)
             notifyIfNeeded(group: group, bot: bot, message: reply.finalText.trimmingCharacters(in: .whitespacesAndNewlines))
         }

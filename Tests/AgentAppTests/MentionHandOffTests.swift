@@ -30,22 +30,24 @@ import Testing
     #expect(GroupRouting.suggestions(for: "In", names: store.mentionTargets(for: jarvis).map(\.name)) == ["Infra", "Infra Ops"])
 }
 
-@MainActor @Test func atBotInAOneToOneChatSendsTheHandOff() async throws {
-    let backend = ScriptedTurnBackend(); let (store, jarvis) = mentionStore(backend, skilled: true)
+@MainActor @Test func atBotInAOneToOneChatDispatchesInsideSwarmHub() async throws {
+    let backend = ScriptedTurnBackend(); let (store, jarvis) = mentionStore(backend, skilled: false)
     #expect(store.submitComposer(text: "@Infra is the backup disk healthy?"))
-    try await backend.calls.wait { $0.contains { $0.hasPrefix("send:[SwarmHub hand-off]") } }
-    let sent = try #require(backend.calls.all.first { $0.hasPrefix("send:") })
-    #expect(sent.contains("pass this message to Infra (Hermes profile `grok-infra`) with SwarmHub's bot-msg") && sent.hasSuffix("Message for Infra:\nis the backup disk healthy?"))
-    let row = try #require(jarvis.messages.first { $0.role == .user })
-    #expect(row.metadata[AutomationKey.display] == "@Infra is the backup disk healthy?", "the bubble shows what was typed")
-    await backend.emit(.token("Asked Infra."), .completed); await backend.end()
+    try await backend.calls.wait { $0.contains { $0.hasPrefix("send:Task:") } }
+    let workflow = try #require(store.workflows.values.first)
+    let task = try #require(workflow.tasks.first)
+    #expect(task.botID == store.bots[1].id && task.delivery?.envelope.recipient == store.teamIdentity(store.bots[1]))
+    #expect(jarvis.messages.first?.content == "@Infra is the backup disk healthy?")
+    #expect(store.mentionSkillOffer == nil)
+    store.pauseWorkflow(workflow.id)
+    await backend.emit(.token("Disk checked."), .completed); await backend.end()
     try await waitUntil { !store.anyTurnRunning }
 }
 
-@MainActor @Test func withoutTheMessagingSkillTheInstallIsOfferedFirst() async throws {
-    let backend = ScriptedTurnBackend(); let (store, jarvis) = mentionStore(backend, skilled: false)
-    #expect(!store.submitComposer(text: "@Infra ping"), "the draft stays")
-    #expect(store.mentionSkillOffer == jarvis.id && jarvis.messages.isEmpty && backend.calls.all.isEmpty)
-    // Plain text and unknown names are untouched.
+@MainActor @Test func duplicateNamesNeedTheStablePickerIdentity() {
+    let (store, jarvis) = mentionStore(ScriptedTurnBackend(), skilled: false)
+    let duplicate = Bot(name: "Infra", backend: .hermes, hermesProfile: "grok-infra-other"); store.bots.append(duplicate)
+    #expect(store.mentionSend("@Infra ping", in: jarvis) == .ambiguous)
+    #expect(store.mentionSend("@" + store.mentionLabel(duplicate) + " ping", in: jarvis) == .team(botID: duplicate.id, text: "ping"))
     #expect(store.mentionSend("@Nobody hello", in: jarvis) == .none && store.mentionSend("hello @Infra", in: jarvis) == .none)
 }

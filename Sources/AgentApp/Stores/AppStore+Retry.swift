@@ -58,6 +58,7 @@ extension AppStore {
     /// Offered on a `notSent` reply row: in a bot chat any such row; in a group only a current member's newest row.
     func canRetry(_ row: ChatMessage) -> Bool {
         guard row.role == .assistant, row.turnState == .notSent, let conversation = conversation(containing: row.id) else { return false }
+        if isTeamThread(conversation) { return false }
         if let group = conversation as? GroupChat {
             guard let id = row.authorID, group.memberIDs.contains(id), let bot = bots.first(where: { $0.id == id }), !needsKey(bot), (try? backend(for: bot)) != nil,
                   !isLegacyTransport(bot, session: group.session(for: id)) else { return false }

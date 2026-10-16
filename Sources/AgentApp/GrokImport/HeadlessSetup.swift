@@ -84,6 +84,11 @@ import SwiftUI
             output("Rendered p38c shots to \(directory.path); \(failures) failed")
             return failures == 0 ? 0 : 1
         }
+        if only == "team" {
+            await HeadlessTeamShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+            output("Rendered team coordination to \(directory.path); \(failures) failed")
+            return failures == 0 ? 0 : 1
+        }
         if only == "p38d" {
             await HeadlessP38DShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
             output("Rendered P38 D to \(directory.path); \(failures) failed")

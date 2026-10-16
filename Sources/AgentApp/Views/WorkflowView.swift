@@ -9,13 +9,12 @@ struct WorkflowView: View {
     @ObservedObject var group: GroupChat
 
     var body: some View {
-        ForEach(store.workflows(in: group)) { workflow in WorkflowCard(group: group, workflow: workflow).id("workflow-\(workflow.id)") }
+        ForEach(store.workflows(in: group)) { workflow in WorkflowCard(workflow: workflow).id("workflow-\(workflow.id)") }
     }
 }
 
-private struct WorkflowCard: View {
+struct WorkflowCard: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var group: GroupChat
     let workflow: Workflow
     @State private var expanded = true
 
@@ -30,7 +29,7 @@ private struct WorkflowCard: View {
                 }
                 if let error = workflow.error { Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
                 if workflow.state == .planning { Text("\(name(workflow.coordinatorID)) is planning. Nothing runs until you approve the plan.").font(.caption).foregroundStyle(.secondary) }
-                ForEach(workflow.tasks) { task in WorkflowTaskRow(group: group, workflow: workflow, task: task) }
+                ForEach(workflow.tasks) { task in WorkflowTaskRow(workflow: workflow, task: task) }
                 if let operations = workflow.operations, !operations.isEmpty {
                     DisclosureGroup("Handoff and result history (\(operations.count))") {
                         VStack(alignment: .leading, spacing: 3) {
@@ -40,19 +39,23 @@ private struct WorkflowCard: View {
                         }.padding(.leading, 4)
                     }.font(.caption)
                 }
+                if workflow.isTeam { TeamControlsView(workflow: workflow) }
+                else if workflow.state == .paused {
+                    Button("Allow in-scope help and reviews") { store.authorizeTeamWorkflow(workflow.id) }.font(.caption)
+                }
                 HStack {
                     if workflow.state == .paused, !workflow.tasks.isEmpty, !workflow.tasks.contains(where: { $0.state == .blocked }) {
                         Button(workflow.tasks.allSatisfy { $0.state == .queued } ? "Approve plan and run" : "Resume") { store.resumeWorkflow(workflow.id) }
                             .buttonStyle(NeutralPrimaryButtonStyle())
                     }
-                    if workflow.state == .running { Button("Pause") { store.pauseWorkflow(workflow.id) } }
-                    if !workflow.isFinished { Button("Cancel workflow", role: .destructive) { store.pauseWorkflow(workflow.id, cancel: true) } }
+                    if workflow.state == .running { Button("Pause new work") { store.pauseWorkflow(workflow.id) } }
+                    if !workflow.isFinished { Button("Request Stop for workflow", role: .destructive) { store.pauseWorkflow(workflow.id, cancel: true) } }
                 }.font(.caption)
             }.padding(.top, 6)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "list.bullet.rectangle").foregroundStyle(.secondary)
-                Text("Workflow").font(.callout.weight(.semibold))
+                Text(workflow.isTeam ? "Team work" : "Workflow").font(.callout.weight(.semibold))
                 Text(workflow.stateLabel).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Text("Coordinator: \(name(workflow.coordinatorID))").font(.caption).foregroundStyle(.tertiary)
@@ -80,13 +83,12 @@ private struct WorkflowCard: View {
 
 private struct WorkflowTaskRow: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var group: GroupChat
     let workflow: Workflow
     let task: WorkflowTask
     @State private var expanded: Bool
+    @State private var instruction = ""
 
-    init(group: GroupChat, workflow: Workflow, task: WorkflowTask) {
-        self.group = group; self.workflow = workflow; self.task = task
+    init(workflow: Workflow, task: WorkflowTask) { self.workflow = workflow; self.task = task
         _expanded = State(initialValue: task.state == .blocked)
     }
 
@@ -94,10 +96,31 @@ private struct WorkflowTaskRow: View {
         DisclosureGroup(isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.instructions).textSelection(.enabled)
+                Button("Open task thread") { store.openWorkflowTask(task) }
+                if let delivery = task.delivery {
+                    Text(delivery.state.label).foregroundStyle(.secondary)
+                    DisclosureGroup("Delivery details") {
+                        Text("Operation: " + delivery.envelope.operationID).textSelection(.enabled)
+                        Text("Session: " + delivery.sessionID).textSelection(.enabled)
+                        Text("Run: " + (delivery.runID ?? "Not reported by backend")).textSelection(.enabled)
+                        Text("Executing model: not attested by this API").foregroundStyle(.secondary)
+                    }.font(.caption2)
+                    if task.completionConfirmed == true {
+                        Text(task.verifiedByUser == true ? "Acceptance checks confirmed by you" : "Remote reply finished; acceptance checks not verified")
+                        if task.verifiedByUser != true { Button("I verified the acceptance checks") { store.confirmTeamEvidence(workflow.id, taskID: task.id) } }
+                    }
+                    ForEach(task.evidence ?? [], id: \.source) { evidence in Text(evidence.source + ": " + evidence.observation).textSelection(.enabled) }
+                }
+                if workflow.isTeam && task.state == .queued {
+                    HStack {
+                        TextField("Instructions for this task", text: $instruction)
+                        Button("Add") { store.interveneInTeamTask(workflow.id, taskID: task.id, text: instruction); instruction = "" }.disabled(instruction.isEmpty)
+                    }
+                }
                 Text("Expected: " + task.expectedOutput).foregroundStyle(.secondary)
                 if let parent = task.parentTaskID { Text("From: " + parent).foregroundStyle(.secondary) }
                 if let round = task.reviewRound {
-                    Text("Review round \(round) of \(Workflow.maximumReviewRounds) · \(task.reviewVerdict.map { $0 == .accepted ? "Accepted" : "Needs revision" } ?? "Awaiting verdict")").foregroundStyle(.secondary)
+                    Text("Review round \(round) of \(workflow.reviewLimit) · \(task.reviewVerdict.map { $0 == .accepted ? "Accepted" : "Needs revision" } ?? "Awaiting verdict")").foregroundStyle(.secondary)
                 }
                 if !task.dependencies.isEmpty { Text("After: " + task.dependencies.joined(separator: ", ")).foregroundStyle(.secondary) }
                 if let result = task.result { Text(result).lineLimit(8).textSelection(.enabled).padding(.top, 2) }
@@ -111,7 +134,7 @@ private struct WorkflowTaskRow: View {
                     if store.canReassignWorkflowTask(workflow, task: task) {
                         if task.state == .blocked { Button("Send again") { store.reassignWorkflowTask(workflow.id, taskID: task.id, botID: task.botID) } }
                         Picker("Agent", selection: Binding(get: { task.botID }, set: { store.reassignWorkflowTask(workflow.id, taskID: task.id, botID: $0) })) {
-                            ForEach(store.members(of: group)) { Text($0.name).tag($0.id) }
+                            ForEach(store.workflowMembers(workflow)) { Text($0.name).tag($0.id) }
                         }.frame(maxWidth: 220)
                     }
                 }

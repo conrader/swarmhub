@@ -1,4 +1,5 @@
 import Foundation
+import SwarmHubCoordination
 
 /// P38 D: a token allowance for a workflow. Work reserves an estimate before it is sent; the reply settles it.
 struct RunBudget: Codable, Sendable, Equatable {
@@ -48,6 +49,9 @@ struct WorkflowTask: Codable, Identifiable, Sendable, Equatable {
     var reviewBlock: String?
     var completionConfirmed: Bool?
     var reviewAcceptedByUser: Bool?
+    var delivery: TeamDelivery?
+    var evidence: [TeamEvidence]?
+    var verifiedByUser: Bool?
 }
 
 /// P38 D: a group request split by a coordinator into dependent tasks. Planning ends paused: nothing runs before the
@@ -71,6 +75,7 @@ struct Workflow: Codable, Identifiable, Sendable, Equatable {
     var planReplyID: UUID?
     /// P38 E: every handoff and report, committed with the graph so a repeated tool call creates nothing twice.
     var operations: [WorkflowOperationReceipt]?
+    var coordination: TeamCoordination?
 
     var isActive: Bool { state == .planning || state == .running }
     var isFinished: Bool { state == .completed || state == .cancelled }
@@ -78,8 +83,8 @@ struct Workflow: Codable, Identifiable, Sendable, Equatable {
     var stateLabel: String {
         switch state {
         case .planning: "Planning"
-        case .running: "Running"
-        case .paused: tasks.isEmpty ? "Paused" : (tasks.allSatisfy { $0.state == .queued } ? "Waiting for your approval" : "Paused")
+        case .running: coordination != nil && !tasks.contains(where: { $0.state == .running }) ? "Waiting to continue" : "Running"
+        case .paused: coordination != nil ? "Paused" : tasks.isEmpty ? "Paused" : (tasks.allSatisfy { $0.state == .queued } ? "Waiting for your approval" : "Paused")
         case .completed: "Completed"
         case .cancelled: "Cancelled"
         }

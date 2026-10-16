@@ -9,13 +9,23 @@ extension AppStore {
     static let workflowKind = "workflow", workflowDefaultBudget = 64_000
 
     func saveWorkflow(_ workflow: Workflow) throws {
+        if let team = workflow.coordination {
+            guard ownsTeamDispatcher(), team.policy.ownerDeviceID == teamDeviceID else {
+                throw BackendError.unavailable("Only the coordinating SwarmHub instance may change this team task.")
+            }
+        }
         try journal().put(workflow, kind: Self.workflowKind, id: workflow.id.uuidString)
         workflows[workflow.id] = workflow; objectWillChange.send()
     }
 
     /// Saves, or reports why it could not.
     func commitWorkflow(_ workflow: Workflow) {
-        do { try saveWorkflow(workflow) } catch { workflows[workflow.id] = workflow; errorMessage = error.localizedDescription }
+        do { try saveWorkflow(workflow); notifyTeamBlocker(workflow) }
+        catch {
+            // Fail closed locally if a pause/revocation cannot be persisted. Never let a later turn release new work.
+            if workflow.state == .paused || workflow.state == .cancelled { workflows[workflow.id] = workflow }
+            errorMessage = error.localizedDescription
+        }
     }
 
     func workflows(in group: GroupChat) -> [Workflow] { workflows.values.filter { $0.groupID == group.id }.sorted { $0.createdAt < $1.createdAt } }
@@ -27,6 +37,7 @@ extension AppStore {
         do {
             var rebuilt = false
             for var workflow in try journal().records(Workflow.self, kind: Self.workflowKind) {
+                if workflow.isTeam { restoreTeamWorkflow(workflow); continue }
                 // P38 E: a handoff pauses a workflow while its task still runs; that task is unconfirmed too.
                 if workflow.isActive || workflow.tasks.contains(where: { $0.state == .running }) {
                     workflow.state = .paused; workflow.error = "\(AppConstants.name) quit while this workflow ran. Refresh tasks that were sent before resuming."
@@ -126,13 +137,18 @@ extension AppStore {
     // MARK: Running
 
     func resumeWorkflow(_ id: UUID) {
-        guard var workflow = workflows[id], workflow.state == .paused, let group = groups.first(where: { $0.id == workflow.groupID }) else { return }
+        guard var workflow = workflows[id], workflow.state == .paused else { return }
         do {
-            try Workflow.validate(workflow.tasks, members: Set(group.memberIDs))
+            try Workflow.validate(workflow.tasks, members: Set(workflowMembers(workflow).map(\.id)), maximum: workflow.taskLimit)
             if workflow.tasks.contains(where: { $0.state == .blocked && $0.reviewBlock != nil && $0.reviewAcceptedByUser != true }) {
                 throw BackendError.unavailable("A review still has open findings. Accept the review with its noted limitations or cancel the workflow.")
             }
             guard !workflow.tasks.contains(where: { $0.state == .blocked }) else { throw BackendError.unavailable("Refresh or reassign blocked tasks first. Completed work is not repeated.") }
+            if workflow.isTeam {
+                if let problem = teamPolicyProblem(workflow) { throw BackendError.unavailable(problem) }
+                workflow.state = .running; workflow.error = nil; workflow.coordination?.resumeAfterRecovery = false
+                try saveWorkflow(workflow); dispatchWorkflows(); return
+            }
             if workflow.deadline == nil { workflow.deadline = now().addingTimeInterval(Workflow.deadline) }
             guard let deadline = workflow.deadline, deadline > now() else { throw BackendError.unavailable("This workflow reached its 30-minute limit. Review the partial results and start a new one.") }
             workflow.state = .running; workflow.error = nil
@@ -146,7 +162,7 @@ extension AppStore {
         let sleep = workflowSleep, wait = max(0, deadline.timeIntervalSince(now()))
         Task { [weak self] in
             do { try await sleep(.seconds(wait)) } catch { return }
-            guard let self, let current = self.workflows[id], current.isActive else { return }
+            guard let self, let current = self.workflows[id], current.isActive, !current.isTeam else { return }
             self.pauseWorkflow(id, cancel: true)
             if var stopped = self.workflows[id] {
                 stopped.error = "The 30-minute limit passed. Unfinished tasks were stopped; completed results are kept."
@@ -159,12 +175,15 @@ extension AppStore {
     /// reservation that was not sent.
     func pauseWorkflow(_ id: UUID, cancel: Bool = false) {
         guard var workflow = workflows[id], !workflow.isFinished else { return }
+        if workflow.isTeam, !ownsTeamDispatcher() { return }
+        workflow.coordination?.resumeAfterRecovery = false
         workflow.state = cancel ? .cancelled : .paused
         if cancel {
             for index in workflow.tasks.indices where workflow.tasks[index].state != .completed {
                 if workflow.tasks[index].replyID == nil || workflow.tasks[index].state != .running {
                     workflow.budget.reserved = max(0, workflow.budget.reserved - workflow.tasks[index].reservation); workflow.tasks[index].reservation = 0
                 }
+                if workflow.tasks[index].state == .queued { workflow.tasks[index].delivery?.record(.cancelledBeforeSend, at: now()) }
                 workflow.tasks[index].state = .cancelled
             }
         }
@@ -203,6 +222,7 @@ extension AppStore {
 
     private func settleTask(_ workflow: inout Workflow, index: Int, reply: ChatMessage) {
         let task = workflow.tasks[index]
+        defer { settleTeamDelivery(&workflow, index: index, reply: reply) }
         workflow.tasks[index].chargedTokens = settleUsage(&workflow.budget, charged: task.chargedTokens, reservation: task.reservation, reply: reply)
         workflow.tasks[index].reservation = 0
         guard task.state != .cancelled else { return }
@@ -214,7 +234,9 @@ extension AppStore {
             workflow.tasks[index].state = .blocked
             workflow.tasks[index].error = TurnOutcome.footer(state: reply.turnState, why: reply.metadata[TurnKey.why], ambiguous: reply.metadata[TurnKey.ambiguous] == "1", empty: reply.content.isEmpty) ?? "The reply did not finish."
         }
-        if workflow.tasks[index].state == .blocked, workflow.state == .running { workflow.state = .paused; workflow.error = "A task did not finish. Refresh it, retry it in its thread, or reassign it." }
+        if workflow.tasks[index].state == .blocked, workflow.state == .running {
+            if workflow.isTeam { workflow.coordination?.resumeAfterRecovery = true }
+            workflow.state = .paused; workflow.error = "A task did not finish. Refresh it, retry it in its thread, or reassign it." }
     }
 
     /// Replaces the task's earlier charge with this reply's tokens (reported, else estimated at 4 bytes a token).
@@ -231,8 +253,8 @@ extension AppStore {
     }
 
     func saveTaskArtifact(_ workflow: inout Workflow, index: Int) throws {
-        guard workflow.tasks[index].resultArtifactID == nil, let group = groups.first(where: { $0.id == workflow.groupID }) else { return }
-        let artifact = try artifacts().save(Data((workflow.tasks[index].result ?? "").utf8), name: "Task \(workflow.tasks[index].id) result", mimeType: "text/plain", owners: group.memberIDs)
+        guard workflow.tasks[index].resultArtifactID == nil else { return }
+        let artifact = try artifacts().save(Data((workflow.tasks[index].result ?? "").utf8), name: "Task \(workflow.tasks[index].id) result", mimeType: "text/plain", owners: workflowMembers(workflow).map(\.id))
         workflow.tasks[index].resultArtifactID = artifact.id
     }
 
@@ -241,7 +263,9 @@ extension AppStore {
     func dispatchWorkflows() {
         for workflow in workflows.values.filter({ $0.state == .running }).sorted(by: { $0.createdAt < $1.createdAt }) {
             guard turnCapacityProblem(for: []) == nil else { return }
-            dispatchNext(workflow.id)
+            if workflow.isTeam {
+                for _ in 0..<workflow.parallelLimit { if !dispatchTeamTask(workflow.id) { break } }
+            } else { dispatchNext(workflow.id) }
         }
     }
 
@@ -299,12 +323,15 @@ extension AppStore {
 
     /// The group message is a repeatable projection of the completed workflow (one per workflow).
     func projectWorkflowResult(_ workflow: Workflow) {
-        guard workflow.state == .completed, let artifactID = workflow.artifactID, let group = groups.first(where: { $0.id == workflow.groupID }),
+        if workflow.isTeam, !ownsTeamDispatcher() { return }
+        guard workflow.state == .completed, let artifactID = workflow.artifactID, let group = workflowDestination(workflow),
               !group.messages.contains(where: { $0.metadata["workflowResultID"] == workflow.id.uuidString }) else { return }
         group.messages.append(ChatMessage(role: .assistant, content: workflow.tasks.last?.result ?? "",
                                           metadata: ["workflowID": workflow.id.uuidString, "workflowResultID": workflow.id.uuidString, "artifactID": artifactID.uuidString],
                                           authorID: workflow.coordinatorID))
-        if selectedGroup?.id != group.id { group.unreadCount += 1 }
+        if selectedGroup?.id != group.id { (group as? GroupChat)?.unreadCount += 1 }
+        if let bot = group as? Bot, selectedBot?.id != bot.id { bot.unreadCount += 1 }
         objectWillChange.send(); save()
+        notifyTeamResult(workflow)
     }
 }

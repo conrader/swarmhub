@@ -43,6 +43,10 @@ Everything planned that is not merged yet, so nobody has to remember it. Built =
 | Test flakiness under load | fixed: load-tolerant waits merged b6d40d1 (green under deliberate load) | — |
 | Box/ops: Codex login has no refresh token (Konrad re-logs in), DB password in plain text in the context-api unit, staged P9 bundles on the box to delete | open | flagged to Konrad |
 
+## SwarmHub team coordination
+
+Implementation branch: `codex/swarmhub-team-coordination`; approved scope: `briefs/team-coordination.md`. App-owned routing, recovery and context over existing remote APIs. No new service or Hermes changes.
+
 ## Standing constraints (from BRIEF*.md and SPEC-6.1)
 - Copy Grok Bot's look and match its features with our own code and assets only. No Grok images,
   icons, fonts, prompts or tool definitions. Exception (P15, accepted 2026-10-13): the vendored, pinned MIT

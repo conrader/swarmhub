@@ -78,3 +78,7 @@ The **iOS and Android apps are in development**. These screenshots show the firs
 Bot avatars use [BotAvatarsKit](https://github.com/Jakubantalik/Libraries.dev/tree/a27566557b4def79bcdcedc71858c0fb28020b6d/packages/bot-avatars/ports/ios/BotAvatarsKit) by **Jakub Antalik (Libraries.dev)**, licensed under [MIT](Vendor/BotAvatarsKit/LICENSE).
 
 [Third-party notices](THIRD-PARTY-NOTICES.md) · [Project license](LICENSE)
+
+### Team coordination (development branch)
+
+App-mediated peer handoffs, directed group work, recovery, task permissions and shared context are implemented on `codex/swarmhub-team-coordination`. [Usage and boundaries](docs/team-coordination.md). New work waits when SwarmHub cannot dispatch; no additional server runtime or Hermes configuration is required.

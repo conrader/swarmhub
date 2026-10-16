@@ -26,16 +26,17 @@ extension AppStore {
             guard let workflow = self.workflows[id], workflow.state == .running || workflow.state == .paused,
                   workflow.deadline.map({ $0 > self.now() }) ?? true,
                   let task = workflow.tasks.first(where: { $0.id == taskID }), task.state == .running, task.botID == bot.id, task.threadID == thread.id,
-                  let group = self.groups.first(where: { $0.id == workflow.groupID }), group.memberIDs.contains(bot.id) else {
+                  self.workflowMembers(workflow).contains(where: { $0.id == bot.id }) else {
                 throw BackendError.unavailable("The workflow, its group or the task's agent changed. Review the task before continuing.")
             }
+            if let problem = self.teamPolicyProblem(workflow, action: "reportResult", botID: bot.id) { throw BackendError.unavailable(problem) }
             return workflow
         }
         _ = try current()
         return WorkflowTools(instructions: { [weak self] marker in
             let workflow = try current()
             guard let self, let task = workflow.tasks.first(where: { $0.id == taskID }) else { throw CancellationError() }
-            let roster = (self.groups.first { $0.id == workflow.groupID }.map { self.members(of: $0) } ?? [])
+            let roster = self.workflowMembers(workflow)
                 .map { ComposioValue.object(["botID": .string($0.id.uuidString), "name": .string($0.name)]) }
             let review = task.reviewTargetID.map { "reviews task \($0) in round \(task.reviewRound ?? 1); reportResult with a verdict is required" } ?? "is not a review; omit verdict"
             return """
@@ -49,16 +50,18 @@ extension AppStore {
             reportResult takes operationID, action, result (at most 24,000 UTF-8 bytes), and verdict ONLY for a review task: accepted or needsRevision.
             This task \(review).
             Reuse the SAME operationID and arguments after an uncertain response. A different payload with that ID is rejected.
-            One handoff is allowed per task. Limits: \(Workflow.maximumTasks) total tasks, \(Workflow.maximumHandoffDepth) handoff levels, \(Workflow.maximumReviewRounds) review rounds per work item, and the workflow's token allowance and 30-minute limit.
-            Handoffs wait for the user's review. Finish your current response with your findings; do not wait for a new task inside this turn.
+            One handoff is allowed per task. Limits: \(workflow.taskLimit) total tasks, \(workflow.depthLimit) handoff levels, \(workflow.reviewLimit) review rounds per work item, and the workflow's token and active-time allowances.
+            \(workflow.isTeam ? "Handoffs within this user request and roster are authorized for routing by SwarmHub. This grants no extra tool, account, or backend permission. Never use bot-msg, shell messaging, or edit Hermes files to coordinate. A changed scope needs the user." : "Handoffs wait for the user's review.") Finish your current response with your findings; do not wait for a new task inside this turn.
             Help adds a helper task and then a continuation for you. A review can add one revision and a second review; findings still open after that go to the user.
+            reportResult may include evidence: [{"source":"test log or source reference","observation":"what was observed"}]. Evidence is attributed to you, not automatically verified. A job-start acknowledgement is not proof that the job finished; state when external job status is unavailable.
             Reporting records a result; the task completes when your reply finishes. Reply normally after the operation succeeds.
             """
         }, validate: { _ = try current() }, perform: { [weak self] arguments in
             var workflow = try current()
-            guard let self, let group = self.groups.first(where: { $0.id == workflow.groupID }) else { throw CancellationError() }
+            guard let self else { throw CancellationError() }
             let operation = try WorkflowOperation.parse(arguments)
-            let receipt = try workflow.apply(operation, taskID: taskID, members: Set(group.memberIDs).intersection(self.bots.map(\.id)))
+            if let problem = self.teamPolicyProblem(workflow, action: operation.action.rawValue, botID: operation.botID ?? bot.id) { throw BackendError.unavailable(problem) }
+            let receipt = try workflow.apply(operation, taskID: taskID, members: Set(self.workflowMembers(workflow).map(\.id)))
             try self.saveWorkflow(workflow)
             return try receipt.toolResult()
         })

@@ -39,6 +39,10 @@ extension AppStore {
                 sawEvent = true
                 if let run = await activeBackend.currentRunID(sessionID: sessionID) { assistant.metadata[TurnKey.run] = run }
             }
+            if let conversation = runningTurns.values.first(where: { $0.assistant?.id == assistant.id })?.conversation {
+                if isTeamThread(conversation), let run = await activeBackend.currentRunID(sessionID: sessionID) { assistant.metadata[TurnKey.run] = run }
+                try noteTeamEvent(in: conversation, assistant: assistant, runID: assistant.metadata[TurnKey.run], event: event)
+            }
             row = steerRow(for: event, origin: assistant, row: row)
             switch event {
             case .token(let token):
@@ -118,6 +122,9 @@ extension AppStore {
         let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
         do {
             let workflowThread = isWorkflowThread(conversation)
+            if isTeamThread(conversation), try await activeBackend.sessionTransport() != .nativeSessions {
+                throw BackendError.unavailable("This backend cannot provide task-specific server sessions. Delegation is waiting.")
+            }
             if conversation.hermesSessionID == nil, conversation === bot || workflowThread, try await activeBackend.sessionTransport() == .nativeSessions {
                 let note = { [unowned self] (text: String) in insertNote(text, in: conversation, before: assistant) }
                 let plan = try await prepareModel(for: bot, backend: activeBackend, note: note)
@@ -146,6 +153,11 @@ extension AppStore {
             end = .error(refusal)
         } catch { end = .error(error) }
         if Task.isCancelled { end = .stoppedByUser }
+        if let task = teamWorkflow(in: conversation)?.tasks.first(where: { $0.threadID == conversation.id }), task.delivery?.submissionStarted == true,
+           case .error(let error) = end {
+            // A wrapper/protocol error after submission is not proof of a rejected request.
+            end = .error(StreamBreak(delivered: true, underlying: error))
+        }
         let (assistant, steers) = endTurnParts(assistant)
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
@@ -159,12 +171,12 @@ extension AppStore {
         save()
         let hasText = !assistant.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if outcome.state == .finished {
-            handleManagerReply(assistant, from: bot, in: conversation); handleReportOps(assistant, from: bot); refreshModelsAfterRecipe(assistant, from: bot, in: conversation)
+            if !isTeamThread(conversation) { handleManagerReply(assistant, from: bot, in: conversation); handleReportOps(assistant, from: bot); refreshModelsAfterRecipe(assistant, from: bot, in: conversation) }
             startReviewIfNeeded(assistant, from: bot, in: conversation)
         }
         if outcome.state == .finished && hasText && !SilentReply.isSilent(SwarmhubBlock.visibleText(assistant.finalText)) {
             AvatarReactions.shared.completed(bot)
-            notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.finalText))
+            if !isTeamThread(conversation) { notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.finalText)) }
         }
         // P45: a stop for a typed correction (P28) is not the user stopping the goal; the correction's own turn continues it.
         let corrected = turns.correcting.contains(token)
@@ -191,7 +203,7 @@ extension AppStore {
     }
 
     /// Terminate and sleep: write at once.
-    func flushNow() { save() }
+    func flushNow() { suspendTeamClock(); save() }
 
     func noteBoxSuccess() {
         guard turns.failureStreak > 0 else { return }

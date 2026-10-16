@@ -7,6 +7,7 @@ let package = Package(
     products: [.executable(name: "AgentApp", targets: ["AgentApp"])],
     dependencies: [
         .package(path: "Packages/SwarmHubCore"),
+        .package(path: "Packages/SwarmHubCoordination"),
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
     ],
     targets: [
@@ -18,7 +19,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "AgentApp",
-            dependencies: ["BotAvatarsKit", .product(name: "Sparkle", package: "Sparkle"), .product(name: "SwarmHubCore", package: "SwarmHubCore")],
+            dependencies: ["BotAvatarsKit", .product(name: "Sparkle", package: "Sparkle"), .product(name: "SwarmHubCore", package: "SwarmHubCore"), .product(name: "SwarmHubCoordination", package: "SwarmHubCoordination")],
             path: ".",
             // Output folders too: dist/ holds packaged .app bundles whose Sparkle nibs/lproj SwiftPM would treat as resources
             // (hidden .build* folders, incl. .build-release, are skipped by SwiftPM anyway). Guarded by PackageManifestTests.

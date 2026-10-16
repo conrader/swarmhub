@@ -5,7 +5,7 @@ import Foundation
 /// carries this Mac's install key; nothing here signs in.
 extension AppStore {
     /// An app action card SwarmHub made itself (the chat tool loop, the worker inbox): decided by SwarmHub, never by the
-    /// bot's server, a rule or a reviewer; it always asks you. Looked up by card id, never by the card's own fields.
+    /// bot's server; it asks you unless a task has an explicit app-review scope. Looked up by card id, never by the card's own fields.
     func isAppAction(_ approval: ApprovalRequest) -> Bool { connectedApps.localApprovals[approval.id] != nil }
 
     func makeConnectedApps() -> ConnectedAppsStore {
@@ -30,7 +30,8 @@ extension AppStore {
     func conversationStream(_ request: AgentRequest, bot: Bot, backend: any AgentBackend) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         let workflow = try workflowTools(for: request, bot: bot), appsAllowed = connectionBot(id: bot.id) != nil
         guard appsAllowed || workflow != nil else { return try await backend.send(request) }
-        return try await ConnectedAppsChat.stream(request, botID: bot.id, backend: backend, apps: connectedApps, appsAllowed: appsAllowed, workflow: workflow)
+        return try await ConnectedAppsChat.stream(request, botID: bot.id, backend: backend, apps: connectedApps, appsAllowed: appsAllowed, workflow: workflow,
+            willSend: { [weak self] request in try self?.recordTeamSubmission(request, bot: bot) })
     }
 
     /// An app action card's answer: a chat action goes to the waiting tool loop, a background one to the SwarmHub

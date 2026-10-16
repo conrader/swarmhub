@@ -3,6 +3,7 @@ import SwiftUI
 struct ChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft = ""
     @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
+    @State private var showProjectContext = false
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     var body: some View {
         let thread = store.openThread(in: bot), coding = store.codingThreadChoice(for: bot)
@@ -18,6 +19,7 @@ struct ChatView: View {
                 if let incoming { Text(incoming).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 if let members = bot.archivedMembers { Text("Archived group · \(members.joined(separator: ", "))").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
+                Button { showProjectContext = true } label: { Image(systemName: "text.book.closed") }.help("Shared project context")
                 OpenVoiceButton(name: bot.name, target: .bot(botID: bot.id, threadID: thread?.id),
                                 messages: { (thread?.messages ?? bot.messages).map { (role: $0.role.rawValue, text: $0.content) } })
                 if store.isManager(bot) {
@@ -44,6 +46,7 @@ struct ChatView: View {
                                             codeInThread: { store.codeInThread(to: message, in: bot) }).id(message.id)
                             }
                         }
+                        TeamWorkView(conversationID: thread?.id ?? bot.id)
                         ForEach(store.approvals.filter { $0.botID == bot.id && !($0.sessionID?.hasPrefix("group-") ?? false) }) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
                         Color.clear.frame(height: 1).id("bottom")
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity)
@@ -81,6 +84,7 @@ struct ChatView: View {
                 guard !files.isEmpty, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly else { return false }
                 attach(files); return true
             }
+            .sheet(isPresented: $showProjectContext) { ProjectContextView(projectID: thread?.id ?? bot.id, members: [bot] + store.mentionTargets(for: bot)) }
             .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); draft = store.drafts.text(for: bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
             .onChange(of: draft) { _, value in store.drafts.set(value, for: bot.id) }
             .onChange(of: store.composerFill) { _, _ in takeComposerFill() }
@@ -91,7 +95,7 @@ struct ChatView: View {
         return ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: conversation), canSteer: store.canSteer(in: conversation), hint: store.steerHint,
                      send: send, stop: { store.stop(conversation) }, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
-                     mentionNames: store.mentionTargets(for: bot).map(\.name),
+                     mentionNames: store.mentionTargets(for: bot).map(store.mentionLabel),
                      manageActions: store.isManager(bot) && thread == nil ? ManageBotsAction.actions(for: bot.backend) : [], manage: manage,
                      dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", slashCommands: bot.isReadOnlyArchive ? [] : SlashCommand.menu, dictation: dictation)
     }

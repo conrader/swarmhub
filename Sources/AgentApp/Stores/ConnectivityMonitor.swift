@@ -60,12 +60,14 @@ extension AppStore {
     /// No stream is ever cancelled here (the box interrupts a run whose client disconnects; a stalled stream ends by its
     /// own idle timeout). Wake, path restored: flush the URL session, then reconcile what needs it.
     func handle(_ event: ConnectivityEvent) async {
+        defer { objectWillChange.send() }
         switch event {
-        case .willSleep: flushNow()
-        case .pathDown: turns.pathDown = true; automationTick()
+        case .willSleep: turns.pathDown = true; suspendTeamClock(); flushNow()
+        case .pathDown: turns.pathDown = true; suspendTeamClock(); automationTick()
         case .didWake, .pathUp:
             turns.pathDown = false; automationTick()
             await hermesSession.flush()
+            await recoverTeams()
             reconcileAttention(reason: event == .didWake ? .wake : .path)
         }
     }
@@ -79,6 +81,6 @@ extension AppStore {
         if connectivity is SystemConnectivity { turns.terminateObserver = SystemConnectivity.observeTerminate(self) }
         recoverInterruptedRounds()
         // P38 E: the queue a quit left waits for the sweep, so an earlier reply it would follow can be confirmed first.
-        Task { await launchSweep(); resumeRestoredNextMessages() }
+        Task { await launchSweep(); await recoverTeams(); resumeRestoredNextMessages() }
     }
 }
