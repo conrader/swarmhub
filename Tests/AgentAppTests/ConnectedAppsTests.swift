@@ -8,7 +8,7 @@ import Testing
     let bot = UUID(); let first = apps.accounts[0]; let second = apps.accounts[1]
     apps.setAllowed(true, account: first, botID: bot)
     apps.setAllowed(true, account: second, botID: bot)
-    #expect(apps.grants(for: bot) == [second.id], "Switching accounts for one app replaces the prior selection")
+    #expect(apps.grants(for: bot) == [first.id, second.id].sorted(), "P48: several accounts of one app stay on together")
     let bytes = try Data(contentsOf: directory.appending(path: "connected-apps.json"))
     let saved = String(decoding: bytes, as: UTF8.self)
     #expect(!saved.contains(syntheticComposioKey) && !saved.contains("provider-token") && !saved.contains("refresh-token"))

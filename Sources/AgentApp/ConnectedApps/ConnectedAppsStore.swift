@@ -17,9 +17,13 @@ enum AppApprovalOrigin: Equatable, Sendable {
     case background(requestID: String)
 }
 
+/// P48: app → this bot's granted account ids (1–10 each) and each account's name at the time the run started.
 struct ComposioRunScope: Sendable {
-    let client: ComposioClient; let userID: String; let accounts: [String: String]
+    let client: ComposioClient; let userID: String; let accounts: [String: [String]]
+    var labels: [String: String] = [:]
     let revision: UUID
+    /// Any app with several accounts makes the whole session multi-account; then every execute names its account.
+    var isMultiAccount: Bool { accounts.values.contains { $0.count > 1 } }
 }
 
 /// P38 B: Composio app connections. The project key lives in the key store (`keyAccount`); `connected-apps.json` holds
@@ -133,12 +137,11 @@ struct ComposioRunScope: Sendable {
         do {
             do { try await ensureKeyForFirstConnection(toolkit) } catch { retryToolkit = toolkit; throw error }
             let service = client
-            if let bots {
-                // The accounts that exist now are never granted by this connection, whatever the pane had loaded.
-                let known = try await service.accounts(userID: configuration.userID)
-                settingsConnection = (toolkit, Set(known.map(\.id)), bots)
-            }
-            let id = try await service.createSession(userID: configuration.userID, toolkits: [toolkit])
+            let known = try await service.accounts(userID: configuration.userID)
+            // The accounts that exist now are never granted by this connection, whatever the pane had loaded.
+            if let bots { settingsConnection = (toolkit, Set(known.map(\.id)), bots) }
+            // P48: another account of an app that has one: a multi-account link session, so Composio adds it.
+            let id = try await service.createSession(userID: configuration.userID, toolkits: [toolkit], addingAccount: known.contains { $0.toolkit == toolkit })
             do {
                 let link = try await service.connect(sessionID: id, toolkit: toolkit)
                 if let authSession { await authSession.client.deleteSession(authSession.id) }
@@ -170,15 +173,15 @@ struct ComposioRunScope: Sendable {
         catch { self.error = describe(error) }
     }
 
-    /// P47: the first new active account of the app a Settings connection asked for goes to every bot it named, except a
-    /// bot that already has another account of that app (one account per app per bot; its choice stays).
+    /// P47: the first new active account of the app a Settings connection asked for goes to every bot it named. P48: also
+    /// to a bot that already has another account of that app (several accounts per app), up to 10 per app.
     private func grantSettingsConnection() {
         guard let pending = settingsConnection,
               let account = accounts.first(where: { $0.toolkit == pending.toolkit && $0.isActive && !pending.known.contains($0.id) }) else { return }
         settingsConnection = nil
         for bot in pending.bots {
             let ids = grants(for: bot)
-            guard !ids.contains(where: { id in (accounts.first { $0.id == id }?.toolkit ?? configuration.appToolkits?[id]) == account.toolkit }) else { continue }
+            guard !ids.contains(account.id), grantedCount(of: account.toolkit, in: ids) < Self.accountsPerApp else { continue }
             configuration.grants[bot.uuidString] = (ids + [account.id]).sorted()
         }
         var names = configuration.appToolkits ?? [:]
@@ -196,6 +199,18 @@ struct ComposioRunScope: Sendable {
         }).sorted()
     }
     func allows(_ account: ComposioAccount, botID: UUID) -> Bool { grants(for: botID).contains(account.id) }
+    /// P48: what the bot sees: each enabled app with its granted accounts by name (an account not loaded yet by its id).
+    func enabledAccounts(for botID: UUID) -> [String: [String]] {
+        guard hasKey else { return [:] }
+        var apps: [String: [String]] = [:]
+        for id in grants(for: botID) {
+            if let account = accounts.first(where: { $0.id == id }) { if account.isActive { apps[account.toolkit, default: []].append(account.label) } }
+            else if let toolkit = configuration.appToolkits?[id], ComposioClient.validIdentifier(toolkit) { apps[toolkit, default: []].append(id) }
+        }
+        return apps.mapValues { $0.sorted() }
+    }
+    /// An app's name for people: the catalog's, the popular list's, else the identifier in words.
+    func appName(_ slug: String) -> String { ComposioToolkit.displayName(slug, catalog: catalog) }
     /// A connection card may grant only an active account for the app shown to the user.
     @discardableResult func allowConnection(toolkit: String, accountID: String, botID: UUID) -> Bool {
         guard hasKey, persistenceEnabled, !busy,
@@ -203,13 +218,20 @@ struct ComposioRunScope: Sendable {
         setAllowed(true, account: account, botID: botID)
         return persistenceEnabled && allows(account, botID: botID)
     }
+    /// P48: Composio's limit for one app's accounts in a session (`max_accounts_per_toolkit` 2–10).
+    static let accountsPerApp = 10
+    func grantedCount(of toolkit: String, in ids: [String]) -> Int {
+        ids.filter { id in (accounts.first { $0.id == id }?.toolkit ?? configuration.appToolkits?[id]) == toolkit }.count
+    }
+    /// P48: a bot may have several accounts of one app switched on, at most `accountsPerApp`.
     func setAllowed(_ allowed: Bool, account: ComposioAccount, botID: UUID) {
         guard persistenceEnabled, !busy, !allowed || account.isActive else { return }
         var ids = grants(for: botID).filter { $0 != account.id }
         if allowed {
-            // Select exactly one account for each app; switching accounts replaces the previous choice.
-            let sameApp = Set(accounts.filter { $0.toolkit == account.toolkit }.map(\.id))
-            ids.removeAll { sameApp.contains($0) }; ids.append(account.id)
+            guard grantedCount(of: account.toolkit, in: ids) < Self.accountsPerApp else {
+                error = "A bot can use at most \(Self.accountsPerApp) accounts of one app."; return
+            }
+            ids.append(account.id)
             var names = configuration.appToolkits ?? [:]
             names[account.id] = account.toolkit; configuration.appToolkits = names
         }
@@ -226,8 +248,10 @@ struct ComposioRunScope: Sendable {
         guard revision == capturedRevision else { throw ComposioError.accessChanged }
         accounts = live
         let chosen = live.filter { selected.contains($0.id) && $0.isActive }
-        guard chosen.count == selected.count, Set(chosen.map(\.toolkit)).count == chosen.count else { throw ComposioError.accessChanged }
-        return .init(client: service, userID: configuration.userID, accounts: Dictionary(uniqueKeysWithValues: chosen.map { ($0.toolkit, $0.id) }), revision: capturedRevision)
+        let byApp = Dictionary(grouping: chosen, by: \.toolkit).mapValues { $0.map(\.id).sorted() }
+        guard chosen.count == selected.count, byApp.values.allSatisfy({ $0.count <= Self.accountsPerApp }) else { throw ComposioError.accessChanged }
+        return .init(client: service, userID: configuration.userID, accounts: byApp,
+                     labels: Dictionary(uniqueKeysWithValues: chosen.map { ($0.id, $0.label) }), revision: capturedRevision)
     }
 
     func check(_ scope: ComposioRunScope, botID: UUID, account: String) throws {

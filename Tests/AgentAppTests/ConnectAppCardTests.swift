@@ -65,7 +65,7 @@ import Testing
     #expect(apps.allowConnection(toolkit: "gmail", accountID: "ca_personal", botID: bot))
     #expect(apps.grants(for: bot) == ["ca_personal"] && apps.grants(for: otherBot) == ["ca_work"])
     #expect(apps.allowConnection(toolkit: "gmail", accountID: "ca_work", botID: bot))
-    #expect(apps.grants(for: bot) == ["ca_work"], "Changing the selected account replaces the previous account for this app")
+    #expect(apps.grants(for: bot) == ["ca_personal", "ca_work"], "P48: allowing another account of the app adds it beside the first")
 }
 
 @MainActor @Test func connectAppCardTargetsItsChatAuthorAndNeverFallsBackToTheSelectedBot() {

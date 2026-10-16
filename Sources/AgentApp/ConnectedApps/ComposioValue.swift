@@ -57,6 +57,9 @@ struct ComposioToolkit: Identifiable, Sendable, Equatable {
         guard let slug = value["slug"].string, ComposioClient.validIdentifier(slug) else { return nil }
         id = slug; name = value["name"].string ?? slug; detail = value["meta"]["description"].string ?? ""
     }
+    static func displayName(_ slug: String, catalog: [Self] = []) -> String {
+        (catalog + popular).first { $0.id == slug }?.name ?? slug.replacingOccurrences(of: "_", with: " ").capitalized
+    }
     /// Initial choices need no user key. The full catalog loads after the first connection is started.
     static let popular: [Self] = [
         ("gmail", "Gmail", "Email and drafts"), ("googlecalendar", "Google Calendar", "Events and calendars"),

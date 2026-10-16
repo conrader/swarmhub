@@ -80,7 +80,7 @@ struct SettingsConnectedAppsPane: View {
                         }
                     }
                 }
-                Text("One account per app for each agent. App actions appear for your approval in that agent's chat.").font(.caption).foregroundStyle(.secondary)
+                Text("An agent can use several accounts of one app (up to \(ConnectedAppsStore.accountsPerApp)); it names the account for each action. App actions appear for your approval in that agent's chat.").font(.caption).foregroundStyle(.secondary)
             }
         }
         if apps.isAvailable {
@@ -137,7 +137,7 @@ struct SettingsConnectedAppsPane: View {
     }
 
     private var availableBots: [Bot] { store.connectedAppsBots }
-    private func appName(_ slug: String) -> String { apps.catalog.first { $0.id == slug }?.name ?? slug.replacingOccurrences(of: "_", with: " ").capitalized }
+    private func appName(_ slug: String) -> String { apps.appName(slug) }
     private func status(_ account: ComposioAccount) -> String { account.isActive ? "Connected" : account.disabled ? "Disabled" : account.status.replacingOccurrences(of: "_", with: " ").capitalized }
     private func load() async { if apps.hasKey { await apps.refresh() }; if apps.catalog.isEmpty || !apps.hasKey { await apps.search("") } }
     private func find(more: Bool = false) { searching = true; Task { await apps.search(search, more: more); searching = false } }
@@ -157,7 +157,7 @@ struct BotConnectedAppsSection: View {
                     if apps.hasKey { Button("Load accounts") { Task { await apps.refresh() } }.disabled(apps.busy) }
                 }
                 ForEach(apps.accounts) { account in
-                    Toggle(account.label, isOn: Binding(get: { apps.allows(account, botID: bot.id) }, set: { apps.setAllowed($0, account: account, botID: bot.id) }))
+                    Toggle("\(apps.appName(account.toolkit)) · \(account.label)", isOn: Binding(get: { apps.allows(account, botID: bot.id) }, set: { apps.setAllowed($0, account: account, botID: bot.id) }))
                         .font(.system(size: 12)).disabled(apps.busy || !account.isActive && !apps.allows(account, botID: bot.id))
                 }
                 if !bot.requestedConnectorIDs.isEmpty {

@@ -21,7 +21,7 @@ struct AppRequestFailure: Error {
     }
 
     static func returnsToBot(_ error: Error) -> Bool {
-        if error is AppRequestFailure { return true }
+        if error is AppRequestFailure || error is AppAccountChoiceError { return true }
         if let error = error as? URLError { return error.code != .cancelled }
         switch error as? ComposioError {
         case .api, .http, .invalidResponse, .tooLarge: return true
