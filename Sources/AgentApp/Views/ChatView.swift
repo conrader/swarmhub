@@ -61,7 +61,6 @@ struct ChatView: View {
                 // P50: opens where it was left; new rows and streaming text follow only at the bottom.
                 .overlay(alignment: .bottom) { JumpToLatestButton(scroll: store.chatScroll, conversationID: conversationID, proxy: proxy) }
                 .task(id: conversationID) { await viewport.open(conversationID, model: store.chatScroll, proxy: proxy) }
-                .onDisappear { store.save() }
                 .onChange(of: shown.last?.content) { _, _ in if thread == nil { viewport.grew(proxy: proxy) } }
                 .onChange(of: shown.count) { old, new in if thread == nil { viewport.arrived(new - old, proxy: proxy) } }
                 .onChange(of: store.scrollTarget) { _, target in

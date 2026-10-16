@@ -46,7 +46,6 @@ struct GroupChatView: View {
                 // P50: opens where it was left; new rows and streaming text follow only at the bottom.
                 .overlay(alignment: .bottom) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, proxy: proxy) }
                 .task(id: group.id) { await viewport.open(group.id, model: store.chatScroll, proxy: proxy) }
-                .onDisappear { store.save() }
                 .onChange(of: shown.last?.content) { _, _ in viewport.grew(proxy: proxy) }
                 .onChange(of: shown.count) { old, new in viewport.arrived(new - old, proxy: proxy) }
             }

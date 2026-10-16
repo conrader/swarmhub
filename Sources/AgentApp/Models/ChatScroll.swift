@@ -6,7 +6,7 @@ import Foundation
 @MainActor final class ChatScrollModel: ObservableObject {
     enum Opening: Equatable { case newest, message(UUID) }
 
-    /// Conversation id → its top visible message, saved with the store.
+    /// Conversation id → its top visible message, written with the next store save (quit flushes it).
     private(set) var positions: [UUID: UUID] = [:]
     /// Conversations scrolled up from the bottom → messages that arrived below since.
     @Published private(set) var away: [UUID: Int] = [:]
