@@ -12,9 +12,14 @@ struct AppToolRequest: Sendable {
         let body = value.dropFirst(marker.count).trimmingCharacters(in: .whitespacesAndNewlines)
         // P52: a request SwarmHub cannot read goes back to the bot with its shape (`AppRequestError`), never as Composio's.
         guard body.utf8.count <= 32_000 else { throw AppRequestError(reason: "it is over 32000 bytes") }
-        guard let json = try? JSONDecoder().decode(ComposioValue.self, from: Data(body.utf8)) else {
-            throw AppRequestError(reason: "it is " + AppFailureShape.describe(Data(body.utf8)))
+        var decoded = try? JSONDecoder().decode(ComposioValue.self, from: Data(body.utf8))
+        // P54: `{…}}}` (stray closing brackets after one complete object) is read as the object; the trim is logged.
+        if decoded == nil, let (object, stray) = AppRequestMarker.trimmedObject(body),
+           let json = try? JSONDecoder().decode(ComposioValue.self, from: Data(object.utf8)) {
+            decoded = json
+            ComposioClient.log.notice("App request had \(stray, privacy: .public) stray closing bracket(s) after its JSON; trimmed")
         }
+        guard let json = decoded else { throw AppRequestError(reason: "it is " + AppFailureShape.describe(Data(body.utf8))) }
         let wrongFields = AppRequestError(reason: "its fields do not match the format (" + AppFailureShape.describe(json) + ")")
         guard let object = json.object, let action = json["action"].string.flatMap(Action.init),
               Set(object.keys).isSubset(of: ["action", "query", "tool", "arguments", "account"]),

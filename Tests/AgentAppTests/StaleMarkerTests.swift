@@ -104,3 +104,21 @@ func executes(_ host: String) -> Int { MockHermesProtocol.recorded(host).filter 
     #expect(run.text == "The email says: " + planted, "a marker later in the reply is plain text")
     #expect(run.bot.count == 3)
 }
+
+@Test func strayClosingBracketsAfterOneObjectAreTrimmed() throws {
+    let marker = AppRequestMarker.make()
+    let request = try #require(try AppToolRequest.parse(marker + " " + listRequest, marker: marker))
+    #expect(request.tool == "GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER" && request.account == "conrader")
+    #expect(request.arguments?["page"] == .number(1))
+    #expect(AppRequestMarker.trimmedObject(#"{"a":"}"} ] }"# + "\n")?.trimmed == 2)
+    for broken in [#"{"action":"search","query":"x"} and more"#, #"{"action":"search","query":"x""#, #"{"a":1}{"b":2}"#] {
+        #expect(throws: AppRequestError.self) { try AppToolRequest.parse(marker + "\n" + broken, marker: marker) }
+    }
+}
+
+@MainActor @Test func anExtraBraceRequestRunsInTheTurn() async throws {
+    let run = try await runMarkerTurn([markerSearch, markerFetch + "}}", "Your inbox contains one message."])
+    #expect(run.errors.isEmpty && run.failure == nil)
+    #expect(executes(run.host) == 1)
+    #expect(run.text == "Your inbox contains one message.")
+}
