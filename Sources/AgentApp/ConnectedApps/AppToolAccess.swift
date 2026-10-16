@@ -8,6 +8,7 @@ import Foundation
 /// 4. an action part starting with one of `readStarts` → runs;
 /// (a slug that does not start with its app's prefix has no action part: asks, whatever its tags);
 /// 5. anything else → asks.
+/// A read still asks when its arguments could carry data out (`mayCarryDataOut`): see `access(of:arguments:accountNames:)`.
 enum AppToolAccess: String, Sendable, Equatable {
     case read, write
 
@@ -20,6 +21,9 @@ enum AppToolAccess: String, Sendable, Equatable {
         // Beyond the brief's list, the same spirit (only ever makes a tool ask): verbs that change or share data.
         "REPLACE", "INSERT", "APPEND", "SHARE", "RENAME", "RESET", "RESTORE", "CLEAR", "IMPORT", "EXPORT", "SYNC", "DRAFT",
         "UNSUBSCRIBE", "ASSIGN", "RESOLVE", "REOPEN",
+        // Tools that reach an address the bot names (`X_FETCH_URL`): a request to it can carry data out.
+        "URL", "WEBHOOK", "HTTP", "HTTPS", "REQUEST", "CALLBACK", "REDIRECT", "EMBED", "SCRAPE", "CRAWL", "BROWSE", "NAVIGATE",
+        "PING", "NOTIFY",
     ]
     /// Each entry is one or more words the action part must start with (`WHO_AM_I` is three).
     static let readStarts: [[String]] = [
@@ -47,6 +51,39 @@ enum AppToolAccess: String, Sendable, Equatable {
         guard !prefix.isEmpty, words.starts(with: prefix) else { return [] }
         return Array(words.dropFirst(prefix.count))
     }
+
+    /// Longest argument string a read may carry and still run on its own.
+    static let maximumArgumentLength = 2_000
+    /// `http://`, `https://`, `ftp://` or any other `//host` form.
+    nonisolated(unsafe) static let urlPattern = #/\/\/[A-Za-z0-9\[]/#
+    nonisolated(unsafe) static let emailPattern = #/[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+/#
+
+    /// True when any string in the arguments (values and keys, searched recursively) holds an address, an email that is
+    /// not one of `accountNames` (compared case-insensitively), or more than `maximumArgumentLength` characters.
+    static func mayCarryDataOut(_ arguments: ComposioValue, accountNames: Set<String>) -> Bool {
+        switch arguments {
+        case .object(let values): return values.contains { suspicious($0.key, accountNames) || mayCarryDataOut($0.value, accountNames: accountNames) }
+        case .array(let values): return values.contains { mayCarryDataOut($0, accountNames: accountNames) }
+        case .string(let text): return suspicious(text, accountNames)
+        case .number, .bool, .null: return false
+        }
+    }
+
+    /// Measured in Unicode scalars (combining marks count); matched after NFKC folding (fullwidth `／`, `＠`), without tabs
+    /// and line breaks (URL parsers drop them), with `\` read as `/`, both as written and percent-decoded until stable.
+    private static func suspicious(_ text: String, _ accountNames: Set<String>) -> Bool {
+        if text.unicodeScalars.count > maximumArgumentLength { return true }
+        let own = Set(accountNames.map { $0.precomposedStringWithCompatibilityMapping.lowercased() })
+        func fold(_ text: String) -> String {
+            String(text.precomposedStringWithCompatibilityMapping.unicodeScalars.filter { !"\t\n\r".unicodeScalars.contains($0) })
+                .replacingOccurrences(of: "\\", with: "/")
+        }
+        var forms = [fold(text)]
+        while forms.count < 8, let decoded = forms.last!.removingPercentEncoding.map(fold), decoded != forms.last { forms.append(decoded) }
+        return forms.contains { form in
+            form.contains(urlPattern) || form.matches(of: emailPattern).contains { !own.contains(String($0.output.0).lowercased()) }
+        }
+    }
 }
 
 extension ConnectedAppsStore {
@@ -56,5 +93,10 @@ extension ConnectedAppsStore {
         let access = AppToolAccess.classify(slug: tool.slug, toolkit: tool.toolkit, tags: tool.tags)
         toolAccess[tool.slug] = access
         return access
+    }
+
+    /// P52: one call's access: a read whose arguments could carry data out (`AppToolAccess.mayCarryDataOut`) asks.
+    func access(of tool: ComposioTool, arguments: ComposioValue, accountNames: Set<String>) -> AppToolAccess {
+        access(of: tool) == .read && !AppToolAccess.mayCarryDataOut(arguments, accountNames: accountNames) ? .read : .write
     }
 }

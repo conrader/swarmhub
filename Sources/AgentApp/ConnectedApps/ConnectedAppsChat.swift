@@ -177,7 +177,8 @@ struct AppToolRequest: Sendable {
                                 try apps.check(scope, botID: botID, account: account)
                                 var receipt = ToolExecutionReceipt(id: UUID(), botID: botID, sessionID: request.sessionID, tool: slug, account: account, arguments: try arguments.withoutCredentials().text())
                                 // P52: a read runs on its own and shows as one folded line; anything else waits for its card.
-                                if apps.access(of: tool) == .read { readRequest = output; try apps.record(receipt); activeReceiptID = receipt.id }
+                                let accountNames = Set((scope.accounts[tool.toolkit] ?? []).map { scope.labels[$0] ?? $0 })
+                                if apps.access(of: tool, arguments: arguments, accountNames: accountNames) == .read { readRequest = output; try apps.record(receipt); activeReceiptID = receipt.id }
                                 else {
                                     let (draft, command) = try AppAccountChoice.approvalTexts(app: tool.toolkit, account: account, tool: slug, arguments: arguments, scope: scope)
                                     let approval = ApprovalRequest(id: receipt.id, title: tool.name, summary: "\(appName) · \(scope.labels[account] ?? account)",

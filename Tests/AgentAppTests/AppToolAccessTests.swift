@@ -89,3 +89,46 @@ import Testing
     #expect(ConnectedAppsCopy.approvalRule == "Changes in your apps ask you; reading runs on its own.")
     #expect(ConnectedAppsCopy.composioExplanation.contains("Reading, such as checking your email, runs on its own"))
 }
+
+@Test func toolsThatReachAnAddressAsk() {
+    for slug in ["X_FETCH_URL", "X_GET_URL_CONTENT", "X_SEND_WEBHOOK", "X_GET_HTTP", "X_FETCH_HTTPS_PAGE", "X_GET_REQUEST", "X_LIST_CALLBACK",
+                 "X_GET_REDIRECT", "X_GET_EMBED", "X_SCRAPE_PAGE", "X_CRAWL_SITE", "X_BROWSE", "X_NAVIGATE", "X_PING", "X_NOTIFY"] {
+        #expect(AppToolAccess.classify(slug: slug, toolkit: "x", tags: ["readOnlyHint"]) == .write, "\(slug) asks")
+    }
+}
+
+@Test func aReadWhoseArgumentsCouldCarryDataOutAsks() {
+    let own: Set<String> = ["konrad@example.test"]
+    func carries(_ arguments: ComposioValue) -> Bool { AppToolAccess.mayCarryDataOut(arguments, accountNames: own) }
+    #expect(!carries(.object(["query": .string("is:unread newer_than:1d"), "max_results": .number(10), "include_spam": .bool(false)])))
+    #expect(!carries(.object(["query": .string("to:Konrad@Example.test"), "path": .string("a/b")])), "the bot's own account is not an address out")
+    for text in ["see http://collect.test/c", "HTTPS://collect.test", "ftp://collect.test/x", "//collect.test/c?d=1", "//[::1]/c"] {
+        #expect(carries(.object(["query": .string(text)])), "\(text) asks")
+    }
+    #expect(carries(.object(["query": .string("from:someone@elsewhere.test")])), "another email asks")
+    for text in ["\\\\collect.test", "%2F%2Fcollect.test", "\u{FF0F}\u{FF0F}collect.test", "someone\u{FF20}elsewhere.test", "/\t/collect.test", "%252F%252Fcollect.test"] {
+        #expect(carries(.object(["query": .string(text)])), "\(text) asks")
+    }
+    #expect(carries(.object(["query": .string(String(repeating: "e\u{301}", count: 1_001))])), "length counts Unicode scalars")
+    #expect(carries(.object(["filters": .array([.object(["deep": .array([.string("https://collect.test")])])])])), "searched recursively")
+    #expect(carries(.object(["https://collect.test/?d=1": .null])), "keys too")
+    #expect(!carries(.object(["query": .string(String(repeating: "a", count: 2_000))])))
+    #expect(carries(.object(["query": .string(String(repeating: "a", count: 2_001))])), "longer than 2,000 characters asks")
+}
+
+@MainActor @Test func fetchEmailsWithAURLInTheQueryAsks() async throws {
+    let (apps, host, _) = composioFixture(handler: composioReadHandler); await apps.refresh()
+    let backend = AppRequestBackend(.readWithURL)
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    store.connectedApps = apps
+    let bot = Bot(name: "Plainsay", backend: .hermes, hermesSessionID: "existing-chat")
+    store.bots = [bot]; store.selectedBot = bot
+    apps.setAllowed(true, account: apps.accounts[0], botID: bot.id)
+    #expect(store.send(text: "Read my inbox"))
+    try await waitUntil { !store.approvals.isEmpty }
+    #expect(store.approvals[0].actionKind == "composio.GMAIL_FETCH_EMAILS")
+    #expect(MockHermesProtocol.recorded(host).allSatisfy { !$0.url!.path.hasSuffix("/execute") }, "nothing ran before the card")
+    #expect(apps.toolAccess["GMAIL_FETCH_EMAILS"] == .read, "the tool is still a read; this call asks")
+    store.decide(store.approvals[0], approved: false)
+    try await waitUntil { !store.anyTurnRunning }
+}
