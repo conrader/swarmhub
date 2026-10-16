@@ -48,7 +48,7 @@ struct AppToolRequest: Sendable {
             .range(of: #"^\[\[SWARMHUB_APP_REQUEST_[0-9A-Fa-f-]{36}\]\]"#, options: .regularExpression) != nil
     }
     static func stream(_ request: AgentRequest, botID: UUID, backend: any AgentBackend,
-                       apps: ConnectedAppsStore, appsAllowed: Bool = true, maximumSteps: Int = 8, workflow: WorkflowTools? = nil,
+                       apps: ConnectedAppsStore, appsAllowed: Bool = true, maximumSteps: Int = 8, workflow: WorkflowTools? = nil, botName: String = "The bot",
                        willSend: (@MainActor (AgentRequest) throws -> Void)? = nil) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         // `appsAllowed`: the store's gate (`connectionBot`); a workflow turn of any other bot never reaches app tools.
         let hasApps = appsAllowed && apps.hasKey && !apps.grants(for: botID).isEmpty
@@ -67,9 +67,9 @@ struct AppToolRequest: Sendable {
                 var scope: ComposioRunScope?; var composioSession: String?
                 var activeReceiptID: UUID?
                 do {
-                    let marker = "[[SWARMHUB_APP_REQUEST_\(UUID().uuidString)]]"
+                    let marker = AppRequestMarker.make()
                     var messages = request.messages; var knownTools: [String: ComposioTool] = [:]
-                    var completed = false
+                    var completed = false; var corrections = 0
                     steps: for step in 0..<maximumSteps {
                         try Task.checkCancellation()
                         try workflow?.validate()
@@ -90,7 +90,7 @@ struct AppToolRequest: Sendable {
                                 if sentNormalText { continuation.yield(.token(text)) }
                                 else {
                                     let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    if !trimmed.isEmpty && !marker.hasPrefix(trimmed) && !trimmed.hasPrefix(marker) {
+                                    if !trimmed.isEmpty && !AppRequestMarker.mayStart(trimmed) {
                                         sentNormalText = true; continuation.yield(.token(output))
                                     }
                                 }
@@ -98,7 +98,7 @@ struct AppToolRequest: Sendable {
                                 output = text
                                 guard output.utf8.count <= 1_000_000 else { throw ComposioError.tooLarge }
                                 let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                                if !trimmed.isEmpty && !marker.hasPrefix(trimmed) && !trimmed.hasPrefix(marker) {
+                                if !trimmed.isEmpty && !AppRequestMarker.mayStart(trimmed) {
                                     sentNormalText = true; continuation.yield(.replace(output))
                                 }
                             case .completed: ended = true
@@ -116,8 +116,24 @@ struct AppToolRequest: Sendable {
                             continuation.yield(.appError(failure.chatLine))
                             messages.append((role: "user", content: resultPrefix + failure.botResult + "\nContinue the original task. Tell the user what failed if you cannot work around it."))
                         }
+                        // P54: a reply that begins with an older turn's marker is an app request SwarmHub can't accept, never
+                        // plain text: the bot is told the current marker (at most `staleMarkerCorrections` times a turn).
+                        let leading = sentNormalText ? nil : AppRequestMarker.leading(output)
+                        if let leading, leading.uppercased() != marker.uppercased() {
+                            messages.append((role: "assistant", content: output))
+                            corrections += 1
+                            guard corrections <= staleMarkerCorrections else {
+                                ComposioClient.log.error("App request used an old marker again after \(staleMarkerCorrections, privacy: .public) corrections; the turn ends")
+                                continuation.yield(.token(output))
+                                continuation.yield(.appNotice("\(botName) keeps sending app requests SwarmHub can't accept"))
+                                completed = true; break
+                            }
+                            ComposioClient.log.error("App request used an old marker (correction \(corrections, privacy: .public) of \(staleMarkerCorrections, privacy: .public)); the current one was sent back")
+                            let error = (try? ComposioValue.object(["error": .string("That request used an old marker. Use this one: \(marker)")]).text()) ?? ""
+                            messages.append((role: "user", content: resultPrefix + error + "\nContinue the original task.")); continue
+                        }
                         let parsed: AppToolRequest?
-                        do { parsed = sentNormalText ? nil : try AppToolRequest.parse(output, marker: marker) }
+                        do { parsed = sentNormalText ? nil : try AppToolRequest.parse(output, marker: leading ?? marker) }
                         catch let error as AppRequestError {
                             messages.append((role: "assistant", content: output)); returnToBot(error, action: "unreadable request"); continue
                         }
@@ -242,6 +258,9 @@ struct AppToolRequest: Sendable {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
+    /// P54: wrong-marker replies SwarmHub answers with the current marker before the turn ends with a line.
+    nonisolated static let staleMarkerCorrections = 2
 
     private static func prompt(persona: String, marker: String, enabledApps: [String: [String]], tools: [String: ComposioTool]) throws -> String {
         // Tool definitions come from Composio, filtered against explicit account grants, never from the bot.

@@ -67,6 +67,7 @@ extension AppStore {
                 await routeApproval(request, for: bot, backend: activeBackend)
             case .steer: break
             case .appError(let text): if let conversation { addWarning("\(bot.name): \(text)", in: conversation, after: row) }
+            case .appNotice(let text): if let conversation { addWarning(text, in: conversation, after: row) }
             case .appUsed(let request, let result):
                 if let conversation {
                     let line = ChatMessage(role: .system, content: request, metadata: [TechnicalKey.appRequest: request, TechnicalKey.appResult: result])
