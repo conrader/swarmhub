@@ -75,7 +75,7 @@ extension AppStore {
         let schedule = plan.cron(stagger: heartbeatStagger(for: bot), localOffset: heartbeatLocalOffset, boxOffset: Self.boxOffset(jobs))
         let delivery = HeartbeatPlan.delivery(profile(of: bot))
         let existing = Self.heartbeatJob(in: jobs, profile: profile(of: bot))
-        return await performRoutineAction(bot, token: existing?.id ?? RoutinesCache.newJobToken) { client in
+        let problem = await performRoutineAction(bot, token: existing?.id ?? RoutinesCache.newJobToken) { client in
             var job: HermesJob
             if let existing {
                 job = existing
@@ -90,6 +90,8 @@ extension AppStore {
             }
             self.routines.replaceJob(job, botID: bot.id)
         }
+        if problem == nil { heartbeatSettings.schedules[bot.id.uuidString] = schedule }
+        return problem
     }
 
     /// "Apply to…": one batch over the chosen bots, each with `plan` (nil: its own plan, else the template). The summary
@@ -122,7 +124,7 @@ extension AppStore {
                 self.routines.removeJob(job.id, botID: bot.id); bot.routineRunMarks[job.id] = nil
             }
         } else { error = job.isPaused ? nil : await setHeartbeat(bot, enabled: false) }
-        if error == nil { heartbeatSettings.plans[bot.id.uuidString] = nil; save() }
+        if error == nil { heartbeatSettings.plans[bot.id.uuidString] = nil; heartbeatSettings.schedules[bot.id.uuidString] = nil; save() }
         return error
     }
 
@@ -165,7 +167,11 @@ extension AppStore {
         ChipText.line(["Heartbeat", heartbeatLabel(job, bot: bot), job.isPaused ? "paused" : heartbeatNextRun(job).map { "next " + $0 } ?? "on"])
     }
 
-    func heartbeatLabel(_ job: HermesJob, bot: Bot) -> String { heartbeatSettings.plans[bot.id.uuidString]?.label ?? job.scheduleDisplay }
+    /// The plan's label while the box runs it; the box's own schedule once it was changed there (P56), in Mac time when regular.
+    func heartbeatLabel(_ job: HermesJob, bot: Bot) -> String {
+        guard heartbeatBoxChange(for: bot) != nil else { return heartbeatSettings.plans[bot.id.uuidString]?.label ?? job.scheduleDisplay }
+        return boxHeartbeatLabel(job.schedule, jobs: routines.state(for: bot.id).jobs.value ?? []) ?? job.scheduleDisplay
+    }
 
     /// "14:07" in the Mac's time.
     func heartbeatNextRun(_ job: HermesJob) -> String? {
