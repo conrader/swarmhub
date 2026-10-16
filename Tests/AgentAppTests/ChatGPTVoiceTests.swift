@@ -79,7 +79,7 @@ extension VoiceSessionTests {
     var changes = 0
     let watching = voice.objectWillChange.sink { changes += 1 }
     voice.start()
-    #expect(audio.permissionRequests == 0 && voice.state == .idle && voice.errorMessage == account.voiceAccessMessage)
+    #expect(audio.permissionRequests == 0 && voice.state == .idle && voice.errorMessage == "Your ChatGPT account can't use live voice here: " + account.voiceAccessMessage)
     account.canUseVoice = true
     #expect(changes > 0, "The session forwards the connection's changes to its views")
     voice.start(); try await waitUntil { voice.isLive }
@@ -127,11 +127,11 @@ extension VoiceSessionTests {
     let audio = VoiceAudioFixture(), voice = CodexVoiceSession(account: account, makeAudio: { audio })
     voice.start(); try await waitUntil { voice.errorMessage != nil && voice.state == .idle }
     #expect(audio.starts == 0 && audio.stops > 0 && account.isConnected)
-    #expect(voice.errorMessage == LiveVoiceError.unavailable.localizedDescription)
+    #expect(voice.failure?.step == .realtimeStart && voice.errorMessage == "Starting live voice failed: " + LiveVoiceError.unavailable.localizedDescription)
     #expect(account.requests.contains { $0.0 == "thread/realtime/stop" })
 }
 
-@MainActor @Test func chatGPTVoiceShowsOnlyFixedErrorLines() async throws {
+@MainActor @Test func chatGPTVoiceShowsTheFailedStepWithoutTheLeakedHeader() async throws {
     struct Leaky: LocalizedError { var errorDescription: String? { "Authorization: Bearer synthetic-token" } }
     @MainActor final class LeakyAccount: VoiceAccount {
         let isConnected = true, canUseVoice = true, voiceAccessMessage = "Voice enabled"; let plan: String? = nil
@@ -141,7 +141,7 @@ extension VoiceSessionTests {
     }
     let voice = CodexVoiceSession(account: LeakyAccount(), makeAudio: { VoiceAudioFixture() })
     voice.start(); try await waitUntil { voice.errorMessage != nil }
-    #expect(voice.errorMessage == LiveVoiceError.unavailable.localizedDescription)
+    #expect(voice.errorMessage == "Opening a Codex thread failed: [header removed]")
 }
 
 @Test func chatGPTVoiceTranscriptDoesNotDuplicateCanonicalAndLegacyEvents() throws {
