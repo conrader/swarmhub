@@ -13,14 +13,26 @@ struct MessageView: View {
     var botRepliesExpanded = false
     /// P38: the chat its cards answer into.
     let actionTarget: ConversationActionTarget?
+    /// P51: the row's folded line (and an app request's result row); nil draws the row as it is.
+    var fold: TechnicalFold? = nil; var partner: ChatMessage? = nil
     @State private var showingReactions = false
     static let tapbacks = ["👍", "❤️", "😂", "‼️", "?"]
     init(message: ChatMessage, repliedMessage: ChatMessage? = nil, thread: ChatThread? = nil, canThread: Bool = false, codingModel: String? = nil,
-         actionTarget: ConversationActionTarget? = nil, reply: @escaping () -> Void = {}, openThread: @escaping () -> Void = {}, codeInThread: @escaping () -> Void = {}) {
-        self.actionTarget = actionTarget; self.message = message; self.repliedMessage = repliedMessage; self.thread = thread; self.canThread = canThread; self.codingModel = codingModel
+         actionTarget: ConversationActionTarget? = nil, fold: TechnicalFold? = nil, partner: ChatMessage? = nil,
+         reply: @escaping () -> Void = {}, openThread: @escaping () -> Void = {}, codeInThread: @escaping () -> Void = {}) {
+        self.actionTarget = actionTarget; self.fold = fold; self.partner = partner; self.message = message; self.repliedMessage = repliedMessage; self.thread = thread; self.canThread = canThread; self.codingModel = codingModel
         self.reply = reply; self.openThread = openThread; self.codeInThread = codeInThread
     }
     var body: some View {
+        if let fold {
+            HStack(spacing: 0) {
+                FoldedRowView(folds: store.technicalFolds, message: message, fold: fold, partner: partner)
+                Spacer(minLength: 80)
+            }.padding(.horizontal, 28).padding(.vertical, 5)
+        } else { row }
+    }
+
+    private var row: some View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == .user { Spacer(minLength: 110) }
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {

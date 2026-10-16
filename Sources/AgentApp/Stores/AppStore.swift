@@ -86,6 +86,8 @@ import SwarmHubCoordination
     let drafts = ComposerDrafts()
     /// P50: where each chat was left and whether it is away from the newest message.
     let chatScroll = ChatScrollModel()
+    /// P51: folded technical rows the user opened (memory only).
+    let technicalFolds = TechnicalFolds()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     /// P16: turn bookkeeping, the token autosave interval, the connectivity events and the reconcile timing (injectable).

@@ -4,9 +4,11 @@ import SwiftUI
 struct BotMark: View {
     @EnvironmentObject private var store: AppStore
     let profile: String; var size: CGFloat = 16
+    /// P51: a folded bot-to-bot line keeps P42's busy avatar while its exchange runs.
+    var isWorking = false
     var body: some View {
         if let bot = store.bot(forProfile: profile) {
-            BotAvatar(bot: bot, size: size)
+            BotAvatar(bot: bot, size: size, isWorking: isWorking)
         } else {
             Circle().fill(AppColor.raised).frame(width: size, height: size)
                 .overlay(Text(profile.prefix(1).uppercased()).font(.system(size: size * 0.5, weight: .semibold)).foregroundStyle(.secondary))

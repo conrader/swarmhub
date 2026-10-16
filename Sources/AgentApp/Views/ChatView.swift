@@ -8,8 +8,14 @@ struct ChatView: View {
     var body: some View {
         let thread = store.openThread(in: bot), coding = store.codingThreadChoice(for: bot)
         let incoming = store.isWorking(bot) ? nil : store.workingForOthersLine(for: bot)
-        let shown = bot.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }, conversationID = thread?.id ?? bot.id
-        let order = thread.map { thread in store.arrivalsAboveThread(in: bot).map(\.id) + thread.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }.map(\.id) } ?? shown.map(\.id)
+        // P51: technical rows read as one folded line; an app request's result row is part of its line.
+        let all = bot.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }, layout = store.technicalLayout(all, botName: bot.name)
+        let shown = layout.visible(all), conversationID = thread?.id ?? bot.id
+        let threadShown = thread.map { thread in
+            let rows = thread.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }
+            return store.technicalLayout(rows, botName: bot.name).visible(rows)
+        }
+        let order = threadShown.map { store.arrivalsAboveThread(in: bot).map(\.id) + $0.map(\.id) } ?? shown.map(\.id)
         let _ = viewport.show(conversationID, order: order)
         VStack(spacing: 0) {
             HStack(spacing: 11) {
@@ -37,8 +43,8 @@ struct ChatView: View {
                         Color.clear.frame(height: 20)
                         if let thread {
                             // P41: an arrival shows here too, whatever thread is open.
-                            ForEach(store.arrivalsAboveThread(in: bot)) { MessageView(message: $0).id($0.id).chatRow($0.id, in: viewport) }
-                            ThreadTranscript(thread: thread, parent: bot.messages.first { $0.id == thread.parentMessageID }, botID: bot.id, viewport: viewport) { count in
+                            ForEach(store.arrivalsAboveThread(in: bot)) { MessageView(message: $0, fold: layout.folds[$0.id]).id($0.id).chatRow($0.id, in: viewport) }
+                            ThreadTranscript(thread: thread, parent: bot.messages.first { $0.id == thread.parentMessageID }, botID: bot.id, botName: bot.name, viewport: viewport) { count in
                                 if count > 0 { viewport.arrived(count, proxy: proxy) } else { viewport.grew(proxy: proxy) }
                             }
                         } else {
@@ -47,7 +53,8 @@ struct ChatView: View {
                             ForEach(shown) { message in
                                 MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
                                             thread: bot.thread(for: message.id), canThread: store.canFork(bot), codingModel: coding?.model,
-                                            actionTarget: .bot(botID: bot.id, threadID: nil), reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) },
+                                            actionTarget: .bot(botID: bot.id, threadID: nil), fold: layout.folds[message.id], partner: layout.folds[message.id]?.partnerID.flatMap { id in all.first { $0.id == id } },
+                                            reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) },
                                             codeInThread: { store.codeInThread(to: message, in: bot) }).id(message.id).chatRow(message.id, in: viewport)
                             }
                         }
@@ -131,16 +138,18 @@ struct ChatView: View {
 /// An open thread: the message it branched from, then the thread's own replies.
 private struct ThreadTranscript: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var thread: ChatThread; let parent: ChatMessage?; var botID: UUID? = nil; let viewport: ChatViewport
+    @ObservedObject var thread: ChatThread; let parent: ChatMessage?; var botID: UUID? = nil; var botName = ""; let viewport: ChatViewport
     /// Rows that arrived (0: the newest row's text grew).
     let changed: (Int) -> Void
     var body: some View {
-        if let parent { MessageView(message: parent).opacity(0.85) }
+        let rows = thread.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }, layout = store.technicalLayout(rows, botName: botName)
+        if let parent { MessageView(message: parent, fold: store.technicalLayout([parent], botName: botName).folds[parent.id]).opacity(0.85) }
         HStack { Rectangle().fill(AppColor.separator).frame(height: 0.5); Text(thread.replyCount == 1 ? "1 reply" : "\(thread.replyCount) replies").font(.caption).foregroundStyle(.secondary).fixedSize(); Rectangle().fill(AppColor.separator).frame(height: 0.5) }
             .padding(.horizontal, 28).padding(.vertical, 6)
-        ForEach(thread.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }) { message in
+        ForEach(layout.visible(rows)) { message in
             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in thread.messages.first { $0.id == id } },
-                        actionTarget: botID.map { .bot(botID: $0, threadID: thread.id) }, reply: { store.replyTo = message }).id(message.id).chatRow(message.id, in: viewport)
+                        actionTarget: botID.map { .bot(botID: $0, threadID: thread.id) }, fold: layout.folds[message.id],
+                        partner: layout.folds[message.id]?.partnerID.flatMap { id in rows.first { $0.id == id } }, reply: { store.replyTo = message }).id(message.id).chatRow(message.id, in: viewport)
         }
         Color.clear.frame(height: 0)
             .onChange(of: thread.messages.last?.content) { _, _ in changed(0) }
