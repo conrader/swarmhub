@@ -72,7 +72,7 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
     #expect(skill.files.map(\.path) == ["references/accounts.md", "references/box.md", "references/capacity.md", "references/models.md"], "P31 C, D+E: the recipe files as references")
     #expect(skill.files.map(\.content) == [BotManagerText.recipe(.accounts), BotManagerText.recipe(.box), BotManagerText.recipe(.capacity), BotManagerText.recipe(.models)], "shipped from Resources/BotManager/recipes")
     #expect(SkillLibrary.bundled(managerReferences: nil).map(\.name) == ["swarmhub-coding", "swarmhub-feedback", "swarmhub-messages"], "no recipes, no manager skill")
-    #expect(skill.version == SkillVersion("1.2.0")!, "P31 D+E: + the models and capacity references")
+    #expect(skill.version == SkillVersion("1.3.0")!, "P31 D+E: + the models and capacity references; P56: + Heartbeat")
     #expect(SkillLibrary.state(installed: "1.0.0", bundled: skill.version) == .outdated(installed: "1.0.0"), "bots on 1.0.0 get the Update banner")
     let fields = SkillLibrary.frontmatter(skill.template)
     #expect(fields["name"] == "swarmhub-manager" && fields["version"] == skill.version.description)
@@ -93,7 +93,8 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
         let manager = BotManagerText.filled(template, managerProfile: profile).trimmingCharacters(in: .whitespacesAndNewlines)
         let folder = SkillLibrary.installPath(SkillLibrary.managerSkill, profile: profile)
         #expect(rendered.contains(manager + "\n\nWhen asked to list every bot, connect bots made before SwarmHub"))
-        #expect(rendered.hasSuffix("first read `\(folder)/references/capacity.md` (`cat` it).\n") && rendered.contains("first read `\(folder)/references/box.md`"))
+        #expect(rendered.contains("first read `\(folder)/references/capacity.md` (`cat` it).\n\n## Heartbeat\n") && rendered.contains("first read `\(folder)/references/box.md`"))
+        #expect(rendered.hasSuffix("SwarmHub reads it back and asks Konrad whether to keep the box's schedule or put its own back.\n"), "P56: the Heartbeat section ends it")
         #expect(rendered.contains("first read `\(folder)/references/accounts.md`") && rendered.contains("first read `\(folder)/references/models.md`"))
         #expect(rendered.contains("You are the profile `\(profile)`"))
     }
@@ -149,4 +150,16 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
     #expect(BotManagerText.template(candidates: managerCandidates) == "manager {{MANAGER}}")
     let skillFolder = SkillLibrary.folder(candidates: managerCandidates.map { $0.deletingLastPathComponent().deletingLastPathComponent().appending(path: "Skills") })
     #expect(SkillLibrary.bundled(in: skillFolder).map(\.version.description) == ["2.0.0"])
+}
+
+/// P56 2: the manager skill tells a bot its heartbeat is the one routine SwarmHub manages, to edit and never duplicate.
+@Test func theManagerSkillTellsBotsToEditTheirOneHeartbeatRoutine() throws {
+    let skill = try #require(SkillLibrary.bundled().first { $0.name == SkillLibrary.managerSkill })
+    #expect(skill.version == SkillVersion("1.3.0"))
+    #expect(skill.template.contains("version: 1.3.0") && skill.template.contains("\n## Heartbeat\n"))
+    for phrase in ["routine SwarmHub manages", "swarmhub-heartbeat", "never create a second heartbeat routine", "deliver: bot-chat:<profile>", "say what changed", "SwarmHub reads it back"] {
+        #expect(skill.template.contains(phrase), "\(phrase)")
+    }
+    #expect(SkillLibrary.state(installed: "1.2.0", bundled: skill.version, installedVariant: nil, wantedVariant: nil) == .outdated(installed: "1.2.0"),
+            "a manager with 1.2.0 is offered the update")
 }

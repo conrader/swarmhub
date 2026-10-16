@@ -129,7 +129,7 @@ private func check(_ name: String, _ text: String?, carries wanted: Set<String>)
         #expect(text.contains("first read `\(folder)/references/\(recipe.rawValue).md`"))
     }
     #expect(!text.contains("{{") && !text.contains("chmod 755"), "references are not scripts")
-    #expect(text.contains(#"{"name":"swarmhub-manager","version":"1.2.0"}"#))
+    #expect(text.contains(#"{"name":"swarmhub-manager","version":"1.3.0"}"#))
     let rendered = try #require(SkillLibrary.render(skill, forProfile: "grok-jarvis", managerTemplate: BotManagerText.template()))
     print("P31C-SIZE rendered SKILL.md (grok-jarvis): \(rendered.utf8.count) bytes; install turn: \(text.utf8.count) bytes")
 }
