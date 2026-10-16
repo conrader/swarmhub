@@ -53,10 +53,15 @@ enum ComposioValue: Codable, Sendable, Equatable {
 
 struct ComposioToolkit: Identifiable, Sendable, Equatable {
     let id: String; let name: String; let detail: String
+    /// P48: the toolkit's `meta.logo`, https only; loaded only from `AppLogoLoader.hosts`.
+    let logo: URL?
     init?(_ value: ComposioValue) {
         guard let slug = value["slug"].string, ComposioClient.validIdentifier(slug) else { return nil }
         id = slug; name = value["name"].string ?? slug; detail = value["meta"]["description"].string ?? ""
+        logo = value["meta"]["logo"].string.flatMap(URL.init(string:)).flatMap { $0.scheme == "https" ? $0 : nil }
     }
+    /// Composio's public logo address (no key needed; the form its catalog page uses): the popular apps' logos before a key exists.
+    static func publicLogo(_ slug: String) -> URL? { URL(string: "https://logos.composio.dev/api/\(slug)") }
     static func displayName(_ slug: String, catalog: [Self] = []) -> String {
         (catalog + popular).first { $0.id == slug }?.name ?? slug.replacingOccurrences(of: "_", with: " ").capitalized
     }
@@ -65,7 +70,9 @@ struct ComposioToolkit: Identifiable, Sendable, Equatable {
         ("gmail", "Gmail", "Email and drafts"), ("googlecalendar", "Google Calendar", "Events and calendars"),
         ("slack", "Slack", "Channels and messages"), ("googledrive", "Google Drive", "Files and documents"),
         ("notion", "Notion", "Pages and databases"), ("github", "GitHub", "Repositories and issues")
-    ].compactMap { slug, name, detail in Self(.object(["slug": .string(slug), "name": .string(name), "meta": .object(["description": .string(detail)])])) }
+    ].compactMap { slug, name, detail in
+        Self(.object(["slug": .string(slug), "name": .string(name), "meta": .object(["description": .string(detail), "logo": .string(publicLogo(slug)?.absoluteString ?? "")])]))
+    }
 }
 
 struct ComposioAccount: Identifiable, Sendable, Equatable {

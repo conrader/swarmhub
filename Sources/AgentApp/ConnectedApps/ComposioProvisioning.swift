@@ -132,5 +132,10 @@ enum ConnectedAppsCopy {
     static let ownKeyFooter = "App connections belong to SwarmHub. Connected accounts remain in Composio when you remove the key."
     /// P47: the sidebar's bottom-left control; the bots' prompt names it with these words (`ConnectedAppsChat.prompt`).
     static let connectAppsLabel = "Connect apps"
+    /// P48: the Connect apps sheet's explanation. Only what the code does: Composio's own page for each sign-in
+    /// (`ComposioClient.connect`), its data never kept (`ComposioAccount`), every bot action approved (`AppStore.routeApproval`;
+    /// a team task's named reviewer can decide instead), the one profile read that names an account (`AccountProfileName`).
+    static let composioExplanation = "SwarmHub connects your apps through Composio, a service that keeps your app sign-ins and runs app actions when your bots ask. You sign in to each app on its own page in your browser; SwarmHub never sees your password, and it does not keep the app's tokens. Each action a bot asks for waits for your approval in its chat (or for a reviewer bot you named for a team task). To name each new account, SwarmHub reads who it is once, for example your email address. An app you connect here is on for all your bots, and you can disconnect any account at any time."
+    static let composioSite = URL(string: "https://composio.dev")!
     static func onForAllBots(_ app: String) -> String { "\(app) is on for all your bots. Turn it off for any bot below." }
 }

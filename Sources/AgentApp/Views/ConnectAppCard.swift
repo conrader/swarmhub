@@ -18,13 +18,15 @@ struct ConnectAppCard: View {
     @State private var connecting = false
 
     private var bot: Bot? { store.connectionBot(id: botID) }
-    private var name: String { apps.catalog.first { $0.id == request.toolkit }?.name ?? ComposioToolkit.popular.first { $0.id == request.toolkit }?.name ?? request.toolkit }
+    private var app: ComposioToolkit? { apps.catalog.first { $0.id == request.toolkit } ?? ComposioToolkit.popular.first { $0.id == request.toolkit } }
+    private var name: String { app?.name ?? request.toolkit }
     private var allowed: Bool { bot.map { apps.enabledToolkits(for: $0.id).contains(request.toolkit) } ?? false }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: "square.stack.3d.up").font(.title3).frame(width: 34, height: 34).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 8))
+                // P48: the same logo as the Connect apps sheet's tiles.
+                AppLogoView(slug: request.toolkit, name: name, logo: app?.logo ?? ComposioToolkit.publicLogo(request.toolkit), size: 34)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(name).font(.callout.weight(.semibold))
                     if let bot { Text(allowed ? "Enabled for \(bot.name)" : "Connect an account for \(bot.name)").font(.caption).foregroundStyle(.secondary) }
