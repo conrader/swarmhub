@@ -122,3 +122,17 @@ func executes(_ host: String) -> Int { MockHermesProtocol.recorded(host).filter 
     #expect(executes(run.host) == 1)
     #expect(run.text == "Your inbox contains one message.")
 }
+
+@MainActor @Test func anUndiscoveredToolGoesBackToTheBotAndTheTurnContinues() async throws {
+    let run = try await runMarkerTurn([markerSearch, viewerRequest, markerFetch, "Your inbox contains one message."])
+    #expect(run.failure == nil)
+    #expect(run.errors == ["App request failed: unknown tool GITHUB_GET_VIEWER_GRAPHQL; search first, then use a tool slug from the search result."])
+    #expect(run.bot[2].messages.last?.content.contains("unknown tool GITHUB_GET_VIEWER_GRAPHQL; search first") == true)
+    #expect(executes(run.host) == 1 && run.text == "Your inbox contains one message.")
+}
+
+@MainActor @Test func aForbiddenToolStillEndsTheTurn() async throws {
+    let run = try await runMarkerTurn([markerSearch, #"{"action":"execute","tool":"COMPOSIO_REMOTE_WORKBENCH","arguments":{}}"#, "never"])
+    #expect(run.failure?.localizedDescription.contains("COMPOSIO_REMOTE_WORKBENCH, a tool SwarmHub never runs") == true)
+    #expect(run.bot.count == 2 && executes(run.host) == 0)
+}

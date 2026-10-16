@@ -66,3 +66,14 @@ enum AppRequestMarker {
     }
 }
 
+/// P54 item 3: an execute of a tool the bot never discovered in this turn. It goes back to the bot; the turn goes on.
+struct AppUnknownToolError: LocalizedError {
+    let tool: String
+    var errorDescription: String? { "unknown tool \(tool); search first, then use a tool slug from the search result." }
+}
+
+/// P38 B: a tool SwarmHub never runs for a bot (`COMPOSIO_*`). It ends the turn with a line.
+struct AppForbiddenToolError: LocalizedError {
+    let tool: String
+    var errorDescription: String? { "The bot requested \(tool), a tool SwarmHub never runs." }
+}

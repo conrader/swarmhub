@@ -20,6 +20,7 @@ struct AppToolRequest: Sendable {
             ComposioClient.log.notice("App request had \(stray, privacy: .public) stray closing bracket(s) after its JSON; trimmed")
         }
         guard let json = decoded else { throw AppRequestError(reason: "it is " + AppFailureShape.describe(Data(body.utf8))) }
+        if json["action"].string == "execute", let tool = json["tool"].string, tool.hasPrefix("COMPOSIO_") { throw AppForbiddenToolError(tool: tool) }
         let wrongFields = AppRequestError(reason: "its fields do not match the format (" + AppFailureShape.describe(json) + ")")
         guard let object = json.object, let action = json["action"].string.flatMap(Action.init),
               Set(object.keys).isSubset(of: ["action", "query", "tool", "arguments", "account"]),
@@ -29,7 +30,7 @@ struct AppToolRequest: Sendable {
             guard let query = json["query"].string, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, query.count <= 1024,
                   object["tool"] == nil, object["arguments"] == nil else { throw wrongFields }
         case .execute:
-            guard let tool = json["tool"].string, ComposioClient.validIdentifier(tool), !tool.hasPrefix("COMPOSIO_"),
+            guard let tool = json["tool"].string, ComposioClient.validIdentifier(tool),
                   json["arguments"].object != nil, object["query"] == nil else { throw wrongFields }
         case .workflow:
             guard json["arguments"].object != nil, object["query"] == nil, object["tool"] == nil else { throw wrongFields }
@@ -141,7 +142,7 @@ struct AppToolRequest: Sendable {
                         do { parsed = sentNormalText ? nil : try AppToolRequest.parse(output, marker: leading ?? marker) }
                         catch let error as AppRequestError {
                             messages.append((role: "assistant", content: output)); returnToBot(error, action: "unreadable request"); continue
-                        }
+                        } catch let error as AppForbiddenToolError { throw BackendError.unavailable(error.localizedDescription) }
                         guard let action = parsed else {
                             if !sentNormalText && !output.isEmpty { continuation.yield(.token(output)) }
                             completed = true; break
@@ -190,6 +191,8 @@ struct AppToolRequest: Sendable {
                                 result = .object(["tools": .array(allowed.map(\.definition)), "accounts": AppAccountChoice.names(for: Set(allowed.map(\.toolkit)), scope: scope)])
                             case .readArtifact, .workflow: throw ComposioError.invalidResponse
                             case .execute:
+                                // P54: an undiscovered tool goes back to the bot ("search first"); a discovered one it may no longer use ends the turn.
+                                if let slug = action.tool, knownTools[slug] == nil { throw AppUnknownToolError(tool: slug) }
                                 guard let slug = action.tool, let tool = knownTools[slug], scope.accounts[tool.toolkit] != nil, let arguments = action.arguments else {
                                     throw BackendError.unavailable("The bot requested an app tool it has not discovered or is not allowed to use.")
                                 }

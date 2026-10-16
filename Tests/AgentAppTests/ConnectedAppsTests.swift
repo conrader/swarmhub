@@ -103,7 +103,9 @@ import Testing
         let (apps, host, _) = composioFixture(); await apps.refresh()
         let botID = UUID(); apps.setAllowed(true, account: apps.accounts[0], botID: botID)
         let stream = try await ConnectedAppsChat.stream(.init(sessionID: "chat", systemPrompt: "persona", messages: [(role: "user", content: "Read my inbox")]), botID: botID, backend: AppRequestBackend(mode), apps: apps, maximumSteps: 3)
-        do { for try await _ in stream {}; Issue.record("Expected a bounded failure") } catch {}
+        // P54: an undiscovered tool goes back to the bot and the turn finishes; endless searching hits the step limit.
+        if mode == .unknownTool { for try await _ in stream {} }
+        else { do { for try await _ in stream {}; Issue.record("Expected a bounded failure") } catch {} }
         #expect(MockHermesProtocol.recorded(host).allSatisfy { !$0.url!.path.hasSuffix("/execute") })
     }
 }
@@ -111,7 +113,7 @@ import Testing
 @Test func composioProtocolRejectsMalformedAndQuotedRequests() throws {
     let marker = "[[SWARMHUB_APP_REQUEST_123]]"
     #expect(try AppToolRequest.parse("Example: " + marker + "\n{}", marker: marker) == nil)
-    #expect(throws: AppRequestError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"execute\",\"tool\":\"COMPOSIO_REMOTE_WORKBENCH\",\"arguments\":{}}", marker: marker) }
+    #expect(throws: AppForbiddenToolError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"execute\",\"tool\":\"COMPOSIO_REMOTE_WORKBENCH\",\"arguments\":{}}", marker: marker) }
     #expect(throws: AppRequestError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"search\",\"query\":\"gmail\",\"account\":\"foreign\"}", marker: marker) }
     #expect(throws: AppRequestError.self) { try AppToolRequest.parse(marker + "\n{\"action\":\"search\",\"query\":\"gmail\"} extra text", marker: marker) }
 }
