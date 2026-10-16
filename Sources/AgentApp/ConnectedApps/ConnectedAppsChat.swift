@@ -120,7 +120,7 @@ struct AppToolRequest: Sendable {
                             let failure = AppRequestFailure.wrap(error, describe: apps.describe)
                             ComposioClient.log.error("\(failure.logLine(action: action), privacy: .public)")
                             continuation.yield(.appError(failure.chatLine))
-                            messages.append((role: "user", content: resultPrefix + failure.botResult + "\nContinue the original task. Tell the user what failed if you cannot work around it."))
+                            messages.append((role: "user", content: resultPrefix + failure.botResult + "\nContinue the original task. Tell the user what failed if you cannot work around it." + markerReminder(marker)))
                         }
                         // P54: a reply that begins with an older turn's marker is an app request SwarmHub can't accept, never
                         // plain text: the bot is told the current marker (at most `staleMarkerCorrections` times a turn).
@@ -136,7 +136,7 @@ struct AppToolRequest: Sendable {
                             }
                             ComposioClient.log.error("App request used an old marker (correction \(corrections, privacy: .public) of \(staleMarkerCorrections, privacy: .public)); the current one was sent back")
                             let error = (try? ComposioValue.object(["error": .string("That request used an old marker. Use this one: \(marker)")]).text()) ?? ""
-                            messages.append((role: "user", content: resultPrefix + error + "\nContinue the original task.")); continue
+                            messages.append((role: "user", content: resultPrefix + error + "\nContinue the original task." + markerReminder(marker))); continue
                         }
                         let parsed: AppToolRequest?
                         do { parsed = sentNormalText ? nil : try AppToolRequest.parse(output, marker: leading ?? marker) }
@@ -157,7 +157,7 @@ struct AppToolRequest: Sendable {
                             let result: String
                             do { result = try workflow.perform(arguments); continuation.yield(.status("Workflow updated")) }
                             catch { result = "Workflow operation refused: " + error.localizedDescription }
-                            messages.append((role: "user", content: resultPrefix + result)); continue
+                            messages.append((role: "user", content: resultPrefix + result + "\n" + markerReminder(marker).dropFirst())); continue
                         }
                         guard hasApps else { throw BackendError.unavailable("This bot has no connected app grants.") }
                         if action.action == .readArtifact {
@@ -171,7 +171,7 @@ struct AppToolRequest: Sendable {
                                 returnToBot(AppRequestError(reason: "the offset is outside the saved result"), action: "readArtifact"); continue
                             }
                             let chunk = String(full.dropFirst(offset).prefix(40_000))
-                            messages.append((role: "user", content: resultPrefix + chunk + "\nNext offset: \(offset + chunk.count) of \(full.count)")); continue
+                            messages.append((role: "user", content: resultPrefix + chunk + "\nNext offset: \(offset + chunk.count) of \(full.count)\n" + markerReminder(marker).dropFirst())); continue
                         }
                         let result: ComposioValue; var readRequest: String?
                         do {
@@ -246,7 +246,7 @@ struct AppToolRequest: Sendable {
                             text = String(text.prefix(12_000)) + "\n[Excerpt. Full result artifact: \(saved.uuidString). Use readArtifact to read more.]"
                         }
                         if let readRequest { continuation.yield(.appUsed(request: readRequest, result: resultPrefix + String(text.prefix(TechnicalApps.previewLimit)))) }
-                        messages.append((role: "user", content: resultPrefix + text + "\nContinue the original task. Use the app request format only if another app call is needed."))
+                        messages.append((role: "user", content: resultPrefix + text + "\nContinue the original task. Use the app request format only if another app call is needed." + markerReminder(marker)))
                     }
                     guard completed else { throw BackendError.unavailable("This app task reached SwarmHub’s limit of \(maximumSteps) steps. Send a follow-up to continue.") }
                     if let scope, let composioSession { Task { await scope.client.deleteSession(composioSession) } }
@@ -269,6 +269,8 @@ struct AppToolRequest: Sendable {
 
     /// P54: wrong-marker replies SwarmHub answers with the current marker before the turn ends with a line.
     nonisolated static let staleMarkerCorrections = 2
+    /// P54: every result SwarmHub sends back carries this turn's marker, so the bot always has the current one in front of it.
+    nonisolated static func markerReminder(_ marker: String) -> String { " An app request must begin with this turn's marker: \(marker)" }
 
     private static func prompt(persona: String, marker: String, enabledApps: [String: [String]], tools: [String: ComposioTool]) throws -> String {
         // Tool definitions come from Composio, filtered against explicit account grants, never from the bot.
@@ -286,7 +288,8 @@ struct AppToolRequest: Sendable {
         To add another app, display the connect-app card below. \(ConnectedAppsCopy.connectAppsLabel) at the bottom left also opens the full connection settings.
         Popular apps include Gmail, Google Calendar, Google Drive, Slack, Notion and GitHub. The user can search the full catalog in \(ConnectedAppsCopy.connectAppsLabel) after the first connection.
         To work with those apps, request tools through SwarmHub. Do not install app tools, change server configuration, or request API keys.
-        For an app request, your ENTIRE reply must begin with this exact marker and then one JSON object, without Markdown or commentary:
+        For an app request, your ENTIRE reply must begin with this exact marker and then one JSON object, without Markdown or commentary.
+        The marker is new in every turn; a marker from an earlier message is refused:
         \(marker)
         {"action":"search","query":"describe the app task and the tools you need"}
         After discovery you may request one discovered tool:

@@ -136,3 +136,13 @@ func executes(_ host: String) -> Int { MockHermesProtocol.recorded(host).filter 
     #expect(run.failure?.localizedDescription.contains("COMPOSIO_REMOTE_WORKBENCH, a tool SwarmHub never runs") == true)
     #expect(run.bot.count == 2 && executes(run.host) == 0)
 }
+
+@MainActor @Test func everyResultCarriesTheCurrentMarker() async throws {
+    let run = try await runMarkerTurn([markerSearch, viewerRequest, markerFetch, "Done."])
+    let marker = try #require(MarkerBot.marker(run.bot[0]))
+    for call in run.bot.dropFirst() {
+        #expect(MarkerBot.marker(call) == marker, "one marker for the turn, in every step's instructions")
+        let last = try #require(call.messages.last?.content)
+        #expect(last.contains("Continue the original task") && last.hasSuffix(ConnectedAppsChat.markerReminder(marker)))
+    }
+}
