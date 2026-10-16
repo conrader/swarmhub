@@ -7,6 +7,7 @@ import Foundation
 ///   AgentApp --check-bots [--chat "<bot name>" "<text>"]   (see HeadlessCheckBots.swift)
 ///   AgentApp --check-server <base-url> --profile <name|default> --key-file <path> [--report <file>]   (see HeadlessCheckServer.swift)
 ///   AgentApp --check-reports [<base URL>]   (SwarmHub reports end to end: install, one self-test report, list; see HeadlessCheckReports.swift)
+///   AgentApp --check-account-names   (each connected account's identity call, read-only; see HeadlessCheckAccountNames.swift)
 ///   AgentApp --check-openclaw   (each saved OpenClaw Gateway: connect + agents.list, no secrets; see HeadlessOpenClaw.swift)
 ///   AgentApp --render-snapshot <dir> [--bot "<name>"]...         (see HeadlessSnapshot.swift)
 ///   AgentApp --reconcile [--dry-run] [--bot "<name>"] [--group "<name>"] [--store <path>]   (GET only; see HeadlessReconcile.swift)
@@ -21,7 +22,7 @@ import Foundation
 /// Launch arguments of the normal app (window shown): `--ui-smoke <report.json>` and `--setup-preview` (SetupPreview.swift).
 @MainActor enum HeadlessCommands {
     /// Every flag the app recognises; the dispatcher below and the launch arguments read this list.
-    static let flags = ["--check-bots", "--check-server", "--check-reports", "--check-openclaw", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--capture-events", "--grok-fetch", "--grok-probe",
+    static let flags = ["--check-bots", "--check-server", "--check-reports", "--check-account-names", "--check-openclaw", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--capture-events", "--grok-fetch", "--grok-probe",
                         "--grok-parity", "--import-grok", "--import-keys", "--ui-smoke", "--setup-preview", "--render-setup"]
     /// The flags that run without a window and exit.
     static let headless = flags.filter { $0 != "--ui-smoke" && $0 != "--setup-preview" }
@@ -32,6 +33,7 @@ import Foundation
         if arguments.contains("--check-bots") { return runCheckBots(arguments: arguments) }
         if arguments.contains("--check-server") { return HeadlessCheckServer.run(arguments: arguments) }
         if arguments.contains("--check-reports") { return HeadlessCheckReports.run(arguments: arguments) }
+        if arguments.contains(HeadlessCheckAccountNames.flag) { return HeadlessCheckAccountNames.run(arguments: arguments) }
         if arguments.contains("--check-openclaw") { return HeadlessOpenClaw.run(arguments: arguments) }
         if arguments.contains("--render-setup") { return HeadlessSetup.run(arguments: arguments) }
         if arguments.contains("--render-snapshot") { return HeadlessSnapshot.run(arguments: arguments) }

@@ -161,6 +161,22 @@ struct ComposioClient: Sendable {
         return items.compactMap(ComposioTool.init).filter { slugs.contains($0.slug) }
     }
 
+    /// P53: every tool of one app (latest version), for finding its identity tool.
+    func toolkitTools(_ toolkit: String) async throws -> [ComposioTool] {
+        guard Self.validIdentifier(toolkit) else { throw ComposioError.invalidIdentifier }
+        var tools: [ComposioTool] = [], cursor: String?, seen: Set<String> = []
+        for _ in 0..<10 {
+            var query = [URLQueryItem(name: "toolkit_slug", value: toolkit), .init(name: "toolkit_versions", value: "latest"), .init(name: "limit", value: "200")]
+            if let cursor { query.append(.init(name: "cursor", value: cursor)) }
+            let value = try await request("tools", query: query)
+            guard let items = value["items"].array else { throw Self.unexpected(value, route: "tools") }
+            tools += items.compactMap(ComposioTool.init)
+            guard let next = value["next_cursor"].string, !next.isEmpty, seen.insert(next).inserted else { break }
+            cursor = next
+        }
+        return tools
+    }
+
     /// P48: `account` only in a multi-account session; a single-account session's pin already chooses it (Composio
     /// documents `account` for `require_explicit_selection`).
     func execute(sessionID: String, tool: String, arguments: ComposioValue, account: String? = nil) async throws -> ComposioValue {

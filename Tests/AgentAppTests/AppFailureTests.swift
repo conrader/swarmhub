@@ -79,10 +79,10 @@ private let secret = "never-shown-value-ca_secret_123"
     #expect(result.text == "Search did not work.")
 }
 
-@MainActor @Test func aRequestWithAnExtraBraceGoesBackToTheBotNotAsComposios() async throws {
-    // The 2026-10-16 GraphQL request had one `}` too many; SwarmHub's own parser refused it before any Composio call.
-    let result = try await run([search, fetch + "}", fetch, "Your inbox contains one message."], handler: composioReadHandler)
-    #expect(result.errors == ["App request failed: SwarmHub could not read the app request: it is not JSON, 83 bytes, one JSON object followed by 1 byte more. Send one JSON object exactly in the format shown."])
+@MainActor @Test func aRequestWithTextAfterItsJSONGoesBackToTheBotNotAsComposios() async throws {
+    // P54: stray `}` after the object are trimmed (`StaleMarkerTests`); other text after it is still refused before any Composio call.
+    let result = try await run([search, fetch + " please", fetch, "Your inbox contains one message."], handler: composioReadHandler)
+    #expect(result.errors == ["App request failed: SwarmHub could not read the app request: it is not JSON, 89 bytes, one JSON object followed by 6 bytes more. Send one JSON object exactly in the format shown."])
     #expect(result.text == "Your inbox contains one message.", "the bot resent it and the turn finished")
     #expect(MockHermesProtocol.recorded(result.host).filter { $0.url!.path.hasSuffix("/execute") }.count == 1, "only the readable request ran")
     #expect(result.bot[2].messages.last?.content.contains("could not read the app request") == true)
