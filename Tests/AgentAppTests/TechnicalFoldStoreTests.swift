@@ -30,7 +30,7 @@ import Testing
     let asked = ChatMessage(role: .user, content: "[Message from grok-infra via SwarmHub]\nDisk at 91%?")
     #expect(store.technicalLayout([asked], botName: jarvis.name).folds[asked.id]?.summary == "Infra → Jarvis: Disk at 91%?")
     let group = GroupChat(name: "Ops", memberIDs: [jarvis.id, infra.id])
-    let request = ChatMessage(role: .assistant, content: "[[SWARMHUB_APP_REQUEST_C687FDE6-BD8F-4E9E-B3B1-098F2863562C]]\n{\"action\":\"execute\",\"tool\":\"SLACK_SEND_MESSAGE\",\"arguments\":{}}", authorID: infra.id)
+    let request = ChatMessage(role: .assistant, content: "[[SWARMHUB_APP_REQUEST_00000000-0000-4000-8000-0000000051A1]]\n{\"action\":\"execute\",\"tool\":\"SLACK_SEND_MESSAGE\",\"arguments\":{}}", authorID: infra.id)
     let normal = ChatMessage(role: .assistant, content: "Sent.", authorID: infra.id)
     let layout = store.technicalLayout([request, normal], in: group)
     #expect(layout.folds[request.id]?.summary == "Infra used Slack · Send message · no result")

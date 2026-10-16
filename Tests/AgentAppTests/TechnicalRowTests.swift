@@ -4,10 +4,10 @@ import Testing
 
 // P51: technical rows fold into one line, whatever wrote them. All rows are synthetic (shaped like a real store's).
 
-private let marker = "[[SWARMHUB_APP_REQUEST_C687FDE6-BD8F-4E9E-B3B1-098F2863562C]]"
+private let marker = "[[SWARMHUB_APP_REQUEST_00000000-0000-4000-8000-0000000051A1]]"
 private var context: TechnicalContext { TechnicalContext(botName: "Jarvis", displayName: { ["grok-infra": "Infra", "grok-jarvis": "Jarvis"][$0] ?? $0 }) }
 /// Metadata of a row the P16 reconcile adopted from the box, and of one this app wrote while streaming.
-private let adopted = ["box": "3761", "restored": "added"], written = ["run": "run_0c0f0739e0aa41eaad0553b07184a1d7", "status": "terminal"]
+private let adopted = ["box": "3761", "restored": "added"], written = ["run": "run_00000000000000000000000000051051", "status": "terminal"]
 
 private func search(_ metadata: [String: String]) -> ChatMessage {
     ChatMessage(role: .assistant, content: marker + "\n{\"action\":\"search\",\"query\":\"Read the authenticated GitHub user\"}", metadata: metadata)
