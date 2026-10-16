@@ -121,7 +121,7 @@ import SwiftUI
 }
 
 /// Renders only: a ChatGPT account that is not signed in (no Codex process).
-@MainActor private final class P48SignedOutCodex: CodexVoiceConnection {
+@MainActor final class P48SignedOutCodex: CodexVoiceConnection {
     var onNotification: ((String, JSONValue) -> Void)?
     var onClose: (() -> Void)?
     func connect() async throws {}
