@@ -65,8 +65,8 @@ enum QAHTTP {
         listener.stateUpdateHandler = { [weak self] state in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if case .ready = state, let port = listener.port {
-                    do { try ready(port.rawValue) } catch { stop() }
+                if case .ready = state, let port = self.listener.port {
+                    do { try ready(port.rawValue) } catch { self.stop() }
                 }
             }
         }
@@ -94,15 +94,15 @@ enum QAHTTP {
                 guard let self else { connection.cancel(); return }
                 var buffer = buffer; if let data { buffer.append(data) }
                 do {
-                    guard let port = listener.port else { throw QAError.blocked }
-                    if let (route, value) = try QAHTTP.parse(buffer, port: port.rawValue, token: token) {
+                    guard let port = self.listener.port else { throw QAError.blocked }
+                    if let (route, value) = try QAHTTP.parse(buffer, port: port.rawValue, token: self.token) {
                         Task { @MainActor in
-                            do { respond(connection, id: id, status: 200, value: try await handler(route, value)) }
-                            catch { respond(connection, id: id, status: 403, value: .object(["error": .string("QA operation blocked or refused")])) }
+                            do { self.respond(connection, id: id, status: 200, value: try await self.handler(route, value)) }
+                            catch { self.respond(connection, id: id, status: 403, value: .object(["error": .string("QA operation blocked or refused")])) }
                         }
-                    } else if complete || error != nil { connection.cancel(); connections[id] = nil }
-                    else { receive(connection, id: id, buffer: buffer) }
-                } catch { respond(connection, id: id, status: 403, value: .object(["error": .string("QA request refused")])) }
+                    } else if complete || error != nil { connection.cancel(); self.connections[id] = nil }
+                    else { self.receive(connection, id: id, buffer: buffer) }
+                } catch { self.respond(connection, id: id, status: 403, value: .object(["error": .string("QA request refused")])) }
             }
         }
     }

@@ -46,18 +46,18 @@ import Foundation
         let token = try QAMode.secret()
         try QAMode.writePrivate(Data(token.utf8), to: directory.appending(path: "token"))
         let server = try QALocalServer(token: token) { [weak self] route, body in
-            guard let self else { throw QAError.blocked }; return try await handle(route, body)
+            guard let self else { throw QAError.blocked }; return try await self.handle(route, body)
         }
         self.server = server
         server.start { [weak self] port in
             guard let self else { return }
             let descriptor: ComposioValue = .object(["schema": .string(QAPolicy.schema), "port": .number(Double(port)),
-                "token_file": .string(directory.appending(path: "token").path), "data_directory": .string(directory.path)])
-            try QAMode.writePrivate(try JSONEncoder().encode(descriptor), to: directory.appending(path: "endpoint.json"))
-            sinkRegistration = .object(["host": .string("127.0.0.1"), "port": .number(Double(port)),
+                "token_file": .string(self.directory.appending(path: "token").path), "data_directory": .string(self.directory.path)])
+            try QAMode.writePrivate(try JSONEncoder().encode(descriptor), to: self.directory.appending(path: "endpoint.json"))
+            self.sinkRegistration = .object(["host": .string("127.0.0.1"), "port": .number(Double(port)),
                 "token": .string(token), "route": .string("/qa/v1/record")])
-            print("QA endpoint descriptor: \(directory.appending(path: "endpoint.json").path)")
-            status = "QA TEST MODE · 127.0.0.1:\(port) · isolated data: \(directory.path)"
+            print("QA endpoint descriptor: \(self.directory.appending(path: "endpoint.json").path)")
+            self.status = "QA TEST MODE · 127.0.0.1:\(port) · isolated data: \(self.directory.path)"
         }
     }
     private func remote(_ route: String, _ body: ComposioValue) async throws -> ComposioValue {
