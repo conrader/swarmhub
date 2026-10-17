@@ -149,7 +149,9 @@ private func qaHTTP(_ headers: String = "", token: String = qaToken, route: Stri
     let unsafe = try QAController(directory: secondDirectory, transport: { _ in .object(["test_mode": .bool(true)]) })
     await #expect(throws: QAError.self) { try await unsafe.handle("attest", body) }
     #expect(controller.store.bots.isEmpty && unsafe.store.bots.isEmpty)
-    #expect(controller.store.fileURL.deletingLastPathComponent() == directory)
+    // macOS temporary directories can use symlink aliases such as /var and /private/var.
+    #expect(controller.store.fileURL.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
+            == directory.resolvingSymlinksInPath().standardizedFileURL)
 }
 
 private actor QAControlProbe {
