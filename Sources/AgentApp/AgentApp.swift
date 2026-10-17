@@ -11,36 +11,17 @@ private struct FixtureReviewerBackend: AgentBackend {
     func testConnection() async throws -> String { "fixture reviewer" }
 }
 
-@main struct AgentAppMain: App {
+#if !DEBUG
+@main
+#endif
+struct AgentAppMain: App {
     @StateObject private var store: AppStore
     @StateObject private var updater: AppUpdater
     @NSApplicationDelegateAdaptor(AppIconAppearance.self) private var iconAppearance
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
     private let snapshotAppearance: String?
-    #if DEBUG
-    private var qaController: QAController?
-    #endif
     init() {
-        #if DEBUG
-        if QAMode.enabled {
-            do {
-                let controller = try QAController(directory: QAMode.activate())
-                qaController = controller
-                snapshotAppearance = nil
-                _store = StateObject(wrappedValue: controller.store)
-                _appearance = AppStorage(wrappedValue: AppTheme.defaultPreference, "appearance", store: controller.store.defaults)
-                _accent = AppStorage(wrappedValue: AppTheme.defaultAccent, "accent", store: controller.store.defaults)
-                _updater = StateObject(wrappedValue: AppUpdater())
-                try controller.start()
-                return
-            } catch {
-                // Never fall through to the user's normal launch after an invalid QA configuration.
-                FileHandle.standardError.write(Data("QA launch refused: isolated local Hermes configuration required.\n".utf8))
-                exit(78)
-            }
-        }
-        #endif
         if let code = HeadlessCommands.runIfRequested() { exit(code) }
         SidebarWidth.dropStaleSavedWidths()
         snapshotAppearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"]
@@ -130,17 +111,7 @@ private struct FixtureReviewerBackend: AgentBackend {
         } catch { print("Hermes integration failed: \(error.localizedDescription)"); return false }
     }
     var body: some Scene {
-        #if DEBUG
-        if let controller = qaController {
-            WindowGroup("[QA-TEST] QA TEST MODE") {
-                QAWorkspace(controller: controller, store: controller.store).frame(minWidth: 800, minHeight: 600)
-            }
-        } else {
-            normalScenes
-        }
-        #else
         normalScenes
-        #endif
     }
     @SceneBuilder private var normalScenes: some Scene {
         WindowGroup(AppConstants.name, id: ContentView.windowID) {
