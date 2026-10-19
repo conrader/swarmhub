@@ -1,0 +1,548 @@
+{
+  "scope": "Saved-evidence adjudication, zero additional model calls; app runtime untested",
+  "results": [
+    {
+      "name": "QA-initial-idle",
+      "status": "PASS",
+      "detail": "Health before model calls",
+      "evidence": "QA-initial-health"
+    },
+    {
+      "name": "QA-create-B01-native",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-B01-native"
+    },
+    {
+      "name": "QA-B01-native",
+      "status": "PASS",
+      "detail": "Generated native answer and Unicode survive SSE; UI untested",
+      "evidence": "QA-B01-native"
+    },
+    {
+      "name": "QA-create-B01-legacy",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-B01-legacy"
+    },
+    {
+      "name": "QA-B01-legacy",
+      "status": "PASS",
+      "detail": "Concatenated saved content deltas equal QA-LEGACY-\u2713; wire fragments need not contain the whole marker.",
+      "evidence": "QA-B01-legacy",
+      "adjudicated": true
+    },
+    {
+      "name": "QA-create-B02-tool-order",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-B02-tool-order"
+    },
+    {
+      "name": "QA-B02-tool-order",
+      "status": "PASS",
+      "detail": "Real todo tool lifecycle before final answer; no wait tool installed",
+      "evidence": "QA-B02-tool-order"
+    },
+    {
+      "name": "QA-create-B03-stop",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-B03-stop"
+    },
+    {
+      "name": "QA-B03-stop",
+      "status": "PASS",
+      "detail": "Stop during actual text delta; independently polled terminal status=cancelled",
+      "evidence": "QA-B03-stop"
+    },
+    {
+      "name": "QA-A03-failure-precedence-wire",
+      "status": "PASS",
+      "detail": "Cancellation must beat assistant.completed and done; Swift execution blocked",
+      "evidence": "QA-B03-stop"
+    },
+    {
+      "name": "QA-create-B04-steer",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-B04-steer"
+    },
+    {
+      "name": "QA-B04-steer",
+      "status": "PASS",
+      "detail": "Tool-time steer acceptance and final correction",
+      "evidence": "QA-B04-steer"
+    },
+    {
+      "name": "QA-A12-late-control",
+      "status": "PASS",
+      "detail": "Terminal run refuses late steer; peer held/priority delivery requires bot-msg",
+      "evidence": "QA-A12-late-steer"
+    },
+    {
+      "name": "QA-create-B07-reconnect",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-B07-reconnect"
+    },
+    {
+      "name": "QA-B07-reconnect",
+      "status": "PASS",
+      "detail": "Saved run status completed; corrected GET order=oldest returns 200 and exactly one original user turn plus the explicit continuation.",
+      "evidence": "QA-B07-reconnect",
+      "adjudicated": true
+    },
+    {
+      "name": "QA-A02-explicit-continuation",
+      "status": "PASS",
+      "detail": "One explicit new turn after reconciliation; app restart/ticker not executed",
+      "evidence": "QA-A02-continuation"
+    },
+    {
+      "name": "QA-create-A01-done-claim",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-A01-done-claim"
+    },
+    {
+      "name": "QA-A01-done-claim-capture",
+      "status": "PASS",
+      "detail": "Real generated unverified done fixture captured; acceptance gate requires app/source assessment",
+      "evidence": "QA-A01-done-claim"
+    },
+    {
+      "name": "QA-create-A04-backlog",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-A04-backlog"
+    },
+    {
+      "name": "QA-A04-backlog-representation",
+      "status": "PASS",
+      "detail": "Real task list and blocker response; no autonomous queue/scheduler claim certified",
+      "evidence": "QA-A04-backlog"
+    },
+    {
+      "name": "QA-create-A09-clarify",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-A09-clarify"
+    },
+    {
+      "name": "QA-A09-clarify-tool-invoked",
+      "status": "PASS",
+      "detail": "Real clarify invocation; inspect receipt for actual interactive support",
+      "evidence": "QA-A09-clarify"
+    },
+    {
+      "name": "QA-A09-late-answer",
+      "status": "PASS",
+      "detail": "Resolved generation refuses duplicate/late response",
+      "evidence": "QA-A09-late-answer"
+    },
+    {
+      "name": "QA-create-A15-timeout",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-A15-timeout"
+    },
+    {
+      "name": "QA-A15-client-timeout",
+      "status": "PASS",
+      "detail": "Real 50 ms socket deadline, separate client polls late terminal result; 90s Swift idle timer untested",
+      "evidence": "QA-A15-timeout"
+    },
+    {
+      "name": "QA-create-B09-same",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-B09-same"
+    },
+    {
+      "name": "QA-create-B09-distinct-0",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-B09-distinct-0"
+    },
+    {
+      "name": "QA-create-B09-distinct-1",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-B09-distinct-1"
+    },
+    {
+      "name": "QA-B09-concurrency",
+      "status": "PASS",
+      "detail": "Four parallel requests: two same session, two independent; app 6/4 slot policy untested",
+      "evidence": [
+        "QA-B09-same-A",
+        "QA-B09-same-B",
+        "QA-B09-distinct-0",
+        "QA-B09-distinct-1"
+      ]
+    },
+    {
+      "name": "QA-create-F09-persona",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-F09-persona"
+    },
+    {
+      "name": "QA-F09-session-persona",
+      "status": "FAIL",
+      "detail": "Stored session system prompt behavior",
+      "evidence": "QA-F09-persona"
+    },
+    {
+      "name": "QA-F09-rename",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-F09-rename"
+    },
+    {
+      "name": "QA-F09-persona-edit-refusal",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-F09-persona-edit-refusal"
+    },
+    {
+      "name": "QA-F11-model-lock",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-F11-model-lock"
+    },
+    {
+      "name": "QA-F11-locked-execution",
+      "status": "PASS",
+      "detail": "Inspect runtime for actual configured model after explicit session lock",
+      "evidence": "QA-F11-model-execution"
+    },
+    {
+      "name": "QA-cleanup-run-run_02eb3f31a02443f28d3b1dca877fd1af",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_10b439cf3f37454085aedf824a507033",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_16770845143245a5b247405328522e25",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_19dfe9e8c1b044a0a05fb0497500781a",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_1b45f806a5074a01acdb2fd12c9b73df",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_45c4d07fa0f345238e9cdd9e9fae5b6b",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_54d7b7df86344523a2a2145b7aaecd74",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_659aa86fff9041b58ac6d85c15d5ef75",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_6c496668c1e44012a413458314b42c6d",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_7ab7d1708e8b4388a98e7167775c73d2",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_80db2d558fc14632b864016397a902a8",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_8285d28602a54755aa987118d6f1b4c2",
+      "status": "PASS",
+      "detail": "Remote terminal status=cancelled",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_b8b95cf680974a76ba889d73bc6739bb",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_ce3ef1c4143b46a7bb90f5b1b749f5a3",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_ee7942603f5341d1b50ec07e95e6a89d",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_fc58c0c48b4440e983f559b8688d1064",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-A01-done-claim",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-A04-backlog",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-A09-clarify",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-A15-timeout",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-B01-legacy",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-B01-native",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-B02-tool-order",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-B03-stop",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-B04-steer",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-B07-reconnect",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-B09-distinct-0",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-B09-distinct-1",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-B09-same",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085018-fc2eae-F09-persona",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-create-A08-queue",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-A08-queue"
+    },
+    {
+      "name": "QA-A09-pending-observable",
+      "status": "PASS",
+      "detail": "Detached run exposes actual unanswered clarify in status",
+      "evidence": "QA-B05-launch"
+    },
+    {
+      "name": "QA-B05-idempotent-replay",
+      "status": "PASS",
+      "detail": "Fresh connection replays same Idempotency-Key; same run, no second accepted execution",
+      "evidence": "QA-B05-replay"
+    },
+    {
+      "name": "QA-A03-busy-queue",
+      "status": "PASS",
+      "detail": "Same-session second turn waits behind human input",
+      "evidence": "QA-A08-queued-launch"
+    },
+    {
+      "name": "QA-A08-cancel-before-dispatch",
+      "status": "PASS",
+      "detail": "Queued turn cancelled before owner answers",
+      "evidence": "QA-A08-queued-launch"
+    },
+    {
+      "name": "QA-A10-no-pending-approval",
+      "status": "PASS",
+      "detail": "Incomplete approval body correctly rejected with HTTP 400 invalid_params; previous assertion incorrectly required 409.",
+      "evidence": "QA-A10-no-approval",
+      "adjudicated": true
+    },
+    {
+      "name": "QA-A10-stale-generation",
+      "status": "PASS",
+      "detail": "Wrong generation cannot consume live question",
+      "evidence": "QA-A10-stale-generation"
+    },
+    {
+      "name": "QA-A09-answer-resume",
+      "status": "PASS",
+      "detail": "One actual question answer resumes only its owner run",
+      "evidence": "QA-A09-queue-answer"
+    },
+    {
+      "name": "QA-B07-detached-reconnect",
+      "status": "PASS",
+      "detail": "New events subscriber recovers settled detached run without model replay",
+      "evidence": "QA-B07-late-event-replay"
+    },
+    {
+      "name": "QA-create-B08-model-failure",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-B08-model-failure"
+    },
+    {
+      "name": "QA-B08-model-failure",
+      "status": "PASS",
+      "detail": "Single deliberate unavailable-model turn; explicit terminal failure beats done",
+      "evidence": "QA-B08-model-failure"
+    },
+    {
+      "name": "QA-create-A16-verification",
+      "status": "PASS",
+      "detail": "Exactly registered QA session",
+      "evidence": "QA-create-A16-verification"
+    },
+    {
+      "name": "QA-A16-reject-unverified-claim",
+      "status": "PASS",
+      "detail": "Independent session rejects wrong arithmetic and missing verification; same model, cross-model gating untested",
+      "evidence": "QA-A16-verification"
+    },
+    {
+      "name": "QA-cleanup-run-run_929776a9e8a5476c85b4e6b4fa76f660",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_d1d5d93ab59e462db66c8f14cc7809b3",
+      "status": "PASS",
+      "detail": "Remote terminal status=cancelled",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_f3e82ecb067c4ebdad0c2a98a535d376",
+      "status": "PASS",
+      "detail": "Remote terminal status=failed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-run-run_fd15ae95f77f4474bc08d476c489d8aa",
+      "status": "PASS",
+      "detail": "Remote terminal status=completed",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085320-01fd3e-A08-queue",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085320-01fd3e-A16-verification",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE2-20261019T085320-01fd3e-B08-model-failure",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    }
+  ],
+  "corrections": {
+    "QA-B01-legacy": "Concatenated saved content deltas equal QA-LEGACY-\u2713; wire fragments need not contain the whole marker.",
+    "QA-B07-reconnect": "Saved run status completed; corrected GET order=oldest returns 200 and exactly one original user turn plus the explicit continuation.",
+    "QA-A10-no-pending-approval": "Incomplete approval body correctly rejected with HTTP 400 invalid_params; previous assertion incorrectly required 409."
+  },
+  "counts": {
+    "PASS": 84,
+    "FAIL": 1,
+    "BLOCKED": 0
+  },
+  "provider_calls": {
+    "recorded_completed_calls": 25,
+    "interrupted_streamed_call_not_in_counter": 1,
+    "nonretryable_unavailable_model_attempt_not_in_counter": 1,
+    "total_observed_attempts": 27
+  },
+  "sessions_deleted": 17,
+  "owned_run_statuses_terminal": 20,
+  "api_turn_posts_including_one_replay_and_one_cancelled_queued_turn": 22,
+  "usage_totals": {
+    "input_tokens": 43978,
+    "output_tokens": 1288,
+    "cache_read_tokens": 26368,
+    "reasoning_tokens": 107
+  }
+}

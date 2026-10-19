@@ -1,0 +1,141 @@
+{
+  "run": "QA-LIVE1-20261019T084750-9390ef",
+  "time": "2026-10-19T08:47:50.063936+00:00",
+  "endpoint": "http://127.0.0.1:8742",
+  "model": "hermes-qa-swarmhub",
+  "scope": "direct real Hermes transport; app behavior is source review only",
+  "results": [],
+  "traces": [
+    {
+      "name": "QA-discovery--health-detailed",
+      "method": "GET",
+      "path": "/health/detailed",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "1686",
+        "Date": "Mon, 19 Oct 2026 08:47:50 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0056,
+      "body": "{\"status\": \"ok\", \"readiness\": {\"status\": \"ok\", \"checks\": {\"state_db\": {\"status\": \"ok\"}, \"session_store\": {\"status\": \"ok\"}, \"config\": {\"status\": \"ok\"}, \"model\": {\"status\": \"ok\"}, \"disk\": {\"status\": \"ok\", \"used_percent\": 17.7, \"free_bytes\": 110387236864}, \"gateway\": {\"status\": \"ok\", \"state\": \"running\", \"connected_platforms\": 1, \"platforms\": 1}, \"background_queues\": {\"status\": \"ok\", \"active_api_runs\": 0, \"process_completions\": 0, \"active_delegations\": 0}}}, \"platform\": \"hermes-agent\", \"version\": \"unknown\", \"gateway_state\": \"running\", \"platforms\": {\"api_server\": {\"state\": \"connected\", \"error_code\": null, \"error_message\": null, \"needs_attention\": false, \"updated_at\": \"2026-10-19T08:47:21.467047+00:00\", \"writer_pid\": 197155, \"writer_start_time\": 2007890, \"retrying_since\": null, \"listener_base\": \"http://127.0.0.1:8742\", \"metrics\": {\"host\": \"127.0.0.1\", \"port\": 8742, \"active_runs\": 0, \"stored_runs\": 0, \"last_request_at\": null, \"last_heartbeat\": \"2026-10-19T08:47:50.018481+00:00\", \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 0, \"messages\": 0, \"tokens\": 0, \"latency_p95_ms\": null}}}}, \"api_server\": {\"host\": \"127.0.0.1\", \"port\": 8742, \"active_runs\": 0, \"stored_runs\": 0, \"last_request_at\": null, \"last_heartbeat\": \"2026-10-19T08:47:50.018481+00:00\", \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 0, \"messages\": 0, \"tokens\": 0, \"latency_p95_ms\": null}}, \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 0, \"messages\": 0, \"tokens\": 0, \"latency_p95_ms\": null}, \"last_heartbeat\": \"2026-10-19T08:47:50.018481+00:00\", \"active_agents\": 0, \"gateway_busy\": false, \"gateway_drainable\": true, \"exit_reason\": null, \"updated_at\": \"2026-10-19T08:47:23.727629+00:00\", \"pid\": 197155}",
+      "client_abort": null,
+      "seconds": 0.0057
+    },
+    {
+      "name": "QA-discovery--v1-capabilities",
+      "method": "GET",
+      "path": "/v1/capabilities",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "4257",
+        "Date": "Mon, 19 Oct 2026 08:47:50 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0014,
+      "body": "{\"object\": \"hermes.api_server.capabilities\", \"platform\": \"hermes-agent\", \"model\": \"hermes-qa-swarmhub\", \"auth\": {\"type\": \"bearer\", \"required\": true}, \"runtime\": {\"mode\": \"server_agent\", \"tool_execution\": \"server\", \"split_runtime\": false, \"description\": \"The API server creates a server-side Hermes AIAgent; tools execute on the API-server host unless a future explicit split-runtime mode is enabled.\"}, \"features\": {\"chat_completions\": true, \"chat_completions_streaming\": true, \"responses_api\": true, \"responses_streaming\": true, \"run_submission\": true, \"runs_idempotency\": {\"supported\": true, \"durable\": true, \"retention_seconds\": 86400}, \"run_status\": true, \"run_events_sse\": true, \"run_stop\": true, \"run_steer\": true, \"run_approval_response\": true, \"tool_progress_events\": true, \"approval_events\": true, \"session_resources\": true, \"model_options\": true, \"session_chat\": true, \"session_chat_streaming\": true, \"session_fork\": true, \"session_model_lock\": true, \"reasoning_streaming\": true, \"admin_config_rw\": false, \"jobs_admin\": false, \"memory_write_api\": false, \"skills_api\": true, \"audio_api\": false, \"realtime_voice\": false, \"session_continuity_header\": \"X-Hermes-Session-Id\", \"session_key_header\": \"X-Hermes-Session-Key\", \"run_unknown_resolution\": true, \"cors\": false, \"browser_extension_control\": {\"enabled\": false, \"protocol_version\": 1, \"capabilities\": [\"browser_back\", \"browser_click\", \"browser_navigate\", \"browser_press\", \"browser_screenshot\", \"browser_scroll\", \"browser_snapshot\", \"browser_tab_activate\", \"browser_tabs\", \"browser_type\", \"controller.noop\"], \"artifact_capabilities\": [\"browser_artifact_download\", \"browser_artifact_upload\"], \"developer_capabilities\": [\"browser_cdp\", \"browser_evaluate\"], \"developer_mode\": false, \"artifact_transport\": {\"upload\": {\"method\": \"POST\", \"path\": \"/v1/artifacts/upload\"}, \"download\": {\"method\": \"GET\", \"path\": \"/v1/artifacts/download/{artifact_id}\"}, \"max_bytes\": 10485760, \"ttl_seconds\": 300.0, \"allowed_mime_types\": [\"application/json\", \"application/pdf\", \"image/gif\", \"image/jpeg\", \"image/png\", \"image/webp\", \"text/plain\"]}, \"real_browser_actions\": true, \"transports\": {\"local_vps\": \"websocket-subprotocol-ticket\", \"cloud\": \"authenticated-gateway-rpc\"}}}, \"endpoints\": {\"health\": {\"method\": \"GET\", \"path\": \"/health\"}, \"health_detailed\": {\"method\": \"GET\", \"path\": \"/health/detailed\"}, \"models\": {\"method\": \"GET\", \"path\": \"/v1/models\"}, \"model_options\": {\"method\": \"GET\", \"path\": \"/api/model/options\"}, \"chat_completions\": {\"method\": \"POST\", \"path\": \"/v1/chat/completions\"}, \"responses\": {\"method\": \"POST\", \"path\": \"/v1/responses\"}, \"runs\": {\"method\": \"POST\", \"path\": \"/v1/runs\"}, \"run_status\": {\"method\": \"GET\", \"path\": \"/v1/runs/{run_id}\"}, \"run_events\": {\"method\": \"GET\", \"path\": \"/v1/runs/{run_id}/events\"}, \"run_approval\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/approval\"}, \"run_steer\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/steer\"}, \"run_unknown_resolution\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/resolve-unknown\"}, \"run_stop\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/stop\"}, \"skills\": {\"method\": \"GET\", \"path\": \"/v1/skills\"}, \"toolsets\": {\"method\": \"GET\", \"path\": \"/v1/toolsets\"}, \"sessions\": {\"method\": \"GET\", \"path\": \"/api/sessions\"}, \"session_create\": {\"method\": \"POST\", \"path\": \"/api/sessions\"}, \"session\": {\"method\": \"GET\", \"path\": \"/api/sessions/{session_id}\"}, \"session_update\": {\"method\": \"PATCH\", \"path\": \"/api/sessions/{session_id}\"}, \"session_delete\": {\"method\": \"DELETE\", \"path\": \"/api/sessions/{session_id}\"}, \"session_messages\": {\"method\": \"GET\", \"path\": \"/api/sessions/{session_id}/messages\"}, \"session_fork\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/fork\"}, \"session_chat\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/chat\"}, \"session_chat_stream\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/chat/stream\"}, \"session_model_lock\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/model\"}, \"browser_control_register\": {\"method\": \"POST\", \"path\": \"/v1/browser-control/register\"}, \"browser_control_ws\": {\"method\": \"GET\", \"path\": \"/v1/browser-control/ws\"}, \"artifact_upload\": {\"method\": \"POST\", \"path\": \"/v1/artifacts/upload\"}, \"artifact_download\": {\"method\": \"GET\", \"path\": \"/v1/artifacts/download/{artifact_id}\"}}}",
+      "client_abort": null,
+      "seconds": 0.0014
+    },
+    {
+      "name": "QA-discovery--v1-toolsets",
+      "method": "GET",
+      "path": "/v1/toolsets",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "6800",
+        "Date": "Mon, 19 Oct 2026 08:47:50 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0387,
+      "body": "{\"object\": \"list\", \"platform\": \"api_server\", \"data\": [{\"name\": \"web\", \"label\": \"\\ud83d\\udd0d Web Search & Scraping\", \"description\": \"web_search, web_extract\", \"enabled\": false, \"configured\": true, \"tools\": [\"web_extract\", \"web_search\"]}, {\"name\": \"browser\", \"label\": \"\\ud83c\\udf10 Browser Automation\", \"description\": \"navigate, click, type, scroll\", \"enabled\": false, \"configured\": true, \"tools\": [\"browser_back\", \"browser_cdp\", \"browser_click\", \"browser_console\", \"browser_dialog\", \"browser_exec\", \"browser_get_images\", \"browser_navigate\", \"browser_press\", \"browser_scroll\", \"browser_snapshot\", \"browser_type\", \"browser_vault\", \"browser_vision\"]}, {\"name\": \"terminal\", \"label\": \"\\ud83d\\udcbb Terminal & Processes\", \"description\": \"terminal, process\", \"enabled\": false, \"configured\": true, \"tools\": [\"process_manage\", \"terminal\"]}, {\"name\": \"file\", \"label\": \"\\ud83d\\udcc1 File Operations\", \"description\": \"read, write, patch, search\", \"enabled\": false, \"configured\": true, \"tools\": [\"patch\", \"read_file\", \"search_files\", \"write_file\"]}, {\"name\": \"code_execution\", \"label\": \"\\u26a1 Code Execution\", \"description\": \"execute_code\", \"enabled\": false, \"configured\": true, \"tools\": [\"execute_code\"]}, {\"name\": \"vision\", \"label\": \"\\ud83d\\udc41\\ufe0f  Vision / Image Analysis\", \"description\": \"vision_analyze\", \"enabled\": false, \"configured\": false, \"tools\": [\"vision_analyze\"]}, {\"name\": \"video\", \"label\": \"\\ud83c\\udfac Video Analysis\", \"description\": \"video_analyze (requires video-capable model)\", \"enabled\": false, \"configured\": true, \"tools\": [\"video_analyze\"]}, {\"name\": \"image_gen\", \"label\": \"\\ud83c\\udfa8 Image Generation\", \"description\": \"image_generate\", \"enabled\": false, \"configured\": true, \"tools\": [\"image_generate\"]}, {\"name\": \"video_gen\", \"label\": \"\\ud83c\\udfac Video Generation\", \"description\": \"video_generate (text/image/reference)\", \"enabled\": false, \"configured\": true, \"tools\": [\"video_generate\", \"xai_video_edit\", \"xai_video_extend\"]}, {\"name\": \"x_search\", \"label\": \"\\ud83d\\udc26 X (Twitter) Search\", \"description\": \"x_search (requires xAI OAuth or XAI_API_KEY)\", \"enabled\": false, \"configured\": true, \"tools\": [\"x_search\"]}, {\"name\": \"tts\", \"label\": \"\\ud83d\\udd0a Text-to-Speech\", \"description\": \"text_to_speech\", \"enabled\": false, \"configured\": true, \"tools\": [\"text_to_speech\"]}, {\"name\": \"stt\", \"label\": \"\\ud83c\\udf99\\ufe0f Speech-to-Text\", \"description\": \"voice transcription (gateway voice messages + voice mode)\", \"enabled\": false, \"configured\": true, \"tools\": []}, {\"name\": \"skills\", \"label\": \"\\ud83d\\udcda Skills\", \"description\": \"list, view, manage\", \"enabled\": false, \"configured\": true, \"tools\": [\"skill_manage\", \"skill_view\", \"skills_list\"]}, {\"name\": \"todo\", \"label\": \"\\ud83d\\udccb Task Planning\", \"description\": \"todo_list\", \"enabled\": true, \"configured\": true, \"tools\": [\"todo_list\"]}, {\"name\": \"kanban\", \"label\": \"\\ud83d\\udccc Kanban\", \"description\": \"opt-in task board tools for this platform\", \"enabled\": false, \"configured\": true, \"tools\": [\"kanban_attach\", \"kanban_attach_url\", \"kanban_attachments\", \"kanban_block\", \"kanban_comment\", \"kanban_complete\", \"kanban_create\", \"kanban_heartbeat\", \"kanban_link\", \"kanban_list\", \"kanban_request_changes\", \"kanban_request_review\", \"kanban_schedule\", \"kanban_show\", \"kanban_unblock\"]}, {\"name\": \"memory\", \"label\": \"\\ud83d\\udcbe Memory\", \"description\": \"persistent memory across sessions\", \"enabled\": false, \"configured\": true, \"tools\": [\"memory\"]}, {\"name\": \"context_engine\", \"label\": \"\\ud83e\\udde9 Context Engine\", \"description\": \"runtime tools from the active context engine\", \"enabled\": false, \"configured\": true, \"tools\": []}, {\"name\": \"session_search\", \"label\": \"\\ud83d\\udd0e Session Search\", \"description\": \"search past conversations\", \"enabled\": false, \"configured\": true, \"tools\": [\"session_search\"]}, {\"name\": \"connections\", \"label\": \"\\ud83d\\udd0c Connections\", \"description\": \"remote connector tools and account authorization\", \"enabled\": false, \"configured\": true, \"tools\": [\"manage_connections\"]}, {\"name\": \"clarify\", \"label\": \"\\u2753 Clarifying Questions\", \"description\": \"clarify\", \"enabled\": true, \"configured\": true, \"tools\": [\"clarify\"]}, {\"name\": \"delegation\", \"label\": \"\\ud83d\\udc65 Task Delegation\", \"description\": \"delegate_task\", \"enabled\": false, \"configured\": true, \"tools\": [\"delegate_task\"]}, {\"name\": \"cronjob\", \"label\": \"\\u23f0 Cron Jobs\", \"description\": \"create/list/update/pause/resume/run, with optional attached skills\", \"enabled\": false, \"configured\": true, \"tools\": [\"cronjob_manage\"]}, {\"name\": \"discord\", \"label\": \"\\ud83d\\udcac Discord (read/participate)\", \"description\": \"fetch messages, search members, create thread\", \"enabled\": false, \"configured\": true, \"tools\": [\"discord\"]}, {\"name\": \"discord_admin\", \"label\": \"\\ud83d\\udee1\\ufe0f  Discord Server Admin\", \"description\": \"list channels/roles, pin, assign roles\", \"enabled\": false, \"configured\": true, \"tools\": [\"discord_admin\"]}, {\"name\": \"yuanbao\", \"label\": \"\\ud83e\\udd16 Yuanbao\", \"description\": \"group info, member queries, DM\", \"enabled\": false, \"configured\": true, \"tools\": [\"yb_query_group_info\", \"yb_query_group_members\", \"yb_search_sticker\", \"yb_send_dm\", \"yb_send_sticker\"]}, {\"name\": \"computer_use\", \"label\": \"\\ud83d\\uddb1\\ufe0f  Computer Use (macOS/Windows/Linux)\", \"description\": \"background desktop control via cua-driver\", \"enabled\": false, \"configured\": true, \"tools\": [\"computer_use\"]}, {\"name\": \"a2a\", \"label\": \"\\ud83d\\udd0c A2A\", \"description\": \"A2A (Agent-to-Agent) protocol v1.0 support for Hermes Agent \\u2014 both directions of the open Linux Foundation standard for inter-agent communication.\\nOUTBOUND (client tools): a2a_discover, a2a_call, a2a_list, a2a_history, and a2a_orchestrate let the agent fetch another agent's Agent Card and send it tasks over JSON-RPC \\u2014 works with any A2A-compliant peer (Hermes, LangChain, CrewAI, Google ADK, OpenClaw, ...).\\nINBOUND (platform adapter): exposes Hermes as an A2A-discoverable agent. An Agent Card is served at /.well-known/agent-card.json (v1.0 canonical path; legacy agent.json also answers) and incoming tasks are routed into the agent's live gateway session like any other platform \\u2014 so the agent that replies is the same one talking to its user, with full memory and context, not a throwaway clone.\\nSecurity is on by default: no bearer token configured => localhost-only bind. Inbound task text passes through prompt-injection filters; outbound text is scrubbed of credential-shaped strings; every exchange is audit-logged and persisted to disk outside the context-compaction pipeline so conversations survive compaction and restarts.\\nPure stdlib transport (http.server + urllib) \\u2014 no a2a-sdk dependency required.\\n\", \"enabled\": false, \"configured\": true, \"tools\": [\"a2a_call\", \"a2a_discover\", \"a2a_history\", \"a2a_list\", \"a2a_orchestrate\"]}]}",
+      "client_abort": null,
+      "seconds": 0.0388
+    },
+    {
+      "name": "QA-discovery--api-agents",
+      "method": "GET",
+      "path": "/api/agents",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 404,
+      "response_headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Length": "14",
+        "Date": "Mon, 19 Oct 2026 08:47:50 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0017,
+      "body": "404: Not Found",
+      "client_abort": null,
+      "seconds": 0.0017
+    },
+    {
+      "name": "QA-discovery--api-profiles",
+      "method": "GET",
+      "path": "/api/profiles",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 404,
+      "response_headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Length": "14",
+        "Date": "Mon, 19 Oct 2026 08:47:50 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0006,
+      "body": "404: Not Found",
+      "client_abort": null,
+      "seconds": 0.0006
+    }
+  ]
+}

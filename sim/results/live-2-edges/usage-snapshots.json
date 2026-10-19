@@ -1,0 +1,32 @@
+{
+  "QA-LIVE2-20261019T085320-01fd3e-A08-queue": {
+    "id": "QA-LIVE2-20261019T085320-01fd3e-A08-queue",
+    "model": "gpt-6-astra",
+    "api_call_count": 2,
+    "tool_call_count": 1,
+    "input_tokens": 2912,
+    "output_tokens": 45,
+    "cache_read_tokens": 2560,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085320-01fd3e-B08-model-failure": {
+    "id": "QA-LIVE2-20261019T085320-01fd3e-B08-model-failure",
+    "model": "QA-unavailable-model",
+    "api_call_count": 0,
+    "tool_call_count": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085320-01fd3e-A16-verification": {
+    "id": "QA-LIVE2-20261019T085320-01fd3e-A16-verification",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2709,
+    "output_tokens": 37,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  }
+}

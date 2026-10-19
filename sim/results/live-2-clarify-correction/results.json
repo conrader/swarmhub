@@ -1,0 +1,39 @@
+{
+  "run": "QA-LIVE1-20261019T085157-a21fd5",
+  "time": "2026-10-19T08:51:57.679912+00:00",
+  "endpoint": "http://127.0.0.1:8742",
+  "model": "hermes-qa-swarmhub",
+  "scope": "direct real Hermes transport; app behavior is source review only",
+  "results": [],
+  "traces": [
+    {
+      "name": "QA-A09-correct-answer",
+      "method": "POST",
+      "path": "/v1/runs/run_19dfe9e8c1b044a0a05fb0497500781a/clarify",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"request_id\": \"47f9c05522\", \"execution_generation\": 1, \"answer\": \"QA-BLUE\"}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "99",
+        "Date": "Mon, 19 Oct 2026 08:51:57 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.013,
+      "body": "{\"run_id\": \"run_19dfe9e8c1b044a0a05fb0497500781a\", \"status\": \"resolved\", \"prompt_id\": \"47f9c05522\"}",
+      "client_abort": null,
+      "seconds": 0.0131
+    }
+  ]
+}

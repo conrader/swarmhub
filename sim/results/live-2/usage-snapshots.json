@@ -1,0 +1,142 @@
+{
+  "QA-LIVE2-20261019T085018-fc2eae-B01-legacy": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-B01-legacy",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2660,
+    "output_tokens": 10,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-B01-native": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-B01-native",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2689,
+    "output_tokens": 61,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-B02-tool-order": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-B02-tool-order",
+    "model": "gpt-6-astra",
+    "api_call_count": 3,
+    "tool_call_count": 2,
+    "input_tokens": 3433,
+    "output_tokens": 76,
+    "cache_read_tokens": 5504,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-B03-stop": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-B03-stop",
+    "model": "gpt-6-astra",
+    "api_call_count": 0,
+    "tool_call_count": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-B04-steer": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-B04-steer",
+    "model": "gpt-6-astra",
+    "api_call_count": 2,
+    "tool_call_count": 1,
+    "input_tokens": 3225,
+    "output_tokens": 28,
+    "cache_read_tokens": 2560,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-B07-reconnect": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-B07-reconnect",
+    "model": "gpt-6-astra",
+    "api_call_count": 2,
+    "tool_call_count": 0,
+    "input_tokens": 884,
+    "output_tokens": 641,
+    "cache_read_tokens": 5120,
+    "reasoning_tokens": 28
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-A01-done-claim": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-A01-done-claim",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2711,
+    "output_tokens": 69,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 41
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-A04-backlog": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-A04-backlog",
+    "model": "gpt-6-astra",
+    "api_call_count": 3,
+    "tool_call_count": 2,
+    "input_tokens": 3609,
+    "output_tokens": 178,
+    "cache_read_tokens": 5504,
+    "reasoning_tokens": 38
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-A09-clarify": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-A09-clarify",
+    "model": "gpt-6-astra",
+    "api_call_count": 2,
+    "tool_call_count": 1,
+    "input_tokens": 2962,
+    "output_tokens": 47,
+    "cache_read_tokens": 2560,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-A15-timeout": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-A15-timeout",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2674,
+    "output_tokens": 10,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-B09-distinct-0": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-B09-distinct-0",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2674,
+    "output_tokens": 10,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-B09-distinct-1": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-B09-distinct-1",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2674,
+    "output_tokens": 10,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-B09-same": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-B09-same",
+    "model": "gpt-6-astra",
+    "api_call_count": 2,
+    "tool_call_count": 0,
+    "input_tokens": 2786,
+    "output_tokens": 18,
+    "cache_read_tokens": 2560,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE2-20261019T085018-fc2eae-F09-persona": {
+    "id": "QA-LIVE2-20261019T085018-fc2eae-F09-persona",
+    "model": "gpt-6-astra",
+    "api_call_count": 2,
+    "tool_call_count": 0,
+    "input_tokens": 5376,
+    "output_tokens": 48,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  }
+}

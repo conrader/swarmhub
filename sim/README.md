@@ -1,5 +1,31 @@
 # Swarm Hub real-app QA harness
 
+For generated-output testing on the working isolated Hermes, use the focused
+LIVE2 runner. Its core and edge sets cover different protocol/session variants;
+they do not run the native app. This consumes shared model quota.
+
+```sh
+set -a
+source /workspace/ermes/qa-swarmhub/hermes-endpoint.env
+set +a
+python3 -B sim/live_behavior.py --usage-db /workspace/ermes/qa-swarmhub/home/state.db --output sim/results/QA-live2-core-new
+python3 -B sim/live_behavior.py --extended --usage-db /workspace/ermes/qa-swarmhub/home/state.db --output sim/results/QA-live2-edges-new
+```
+
+Each invocation requires a fresh output directory. Enabled toolsets must be exactly
+todo/clarify. The optional SQLite argument records usage read-only for exact owned
+QA IDs before deletion; it never queries unrelated sessions. Counters can omit
+interrupted/rejected attempts, so they are not a billing total. The runner limits
+requests and turn POSTs, refuses uncertain chat retries, and cleans registered
+sessions after checking their run status. A requested tool-call bound is also
+included in prompts; it is not a server-enforced quota cap. Exit 1 means an assertion
+failed. App-only branches remain blocked regardless of that exit status.
+
+See [LIVE-REPORT-2.md](../LIVE-REPORT-2.md) for per-scenario scope, 27 observed
+provider attempts, upstream findings and the corrected assertion audit. Preserve
+the original captures: [adjudicated results](results/live-2/adjudicated-results.json)
+explain three harness assertion corrections made without re-running model turns.
+
 For the explicitly provisioned throwaway Linux Hermes, a separate direct transport
 suite exercises the real HTTP APIs without claiming macOS app QA coverage:
 
@@ -21,6 +47,8 @@ source-confirmed compatibility failure; exit 2 means remaining blocked checks.
 See [LIVE-REPORT-1.md](../LIVE-REPORT-1.md) and
 [live evidence](results/live-1/RESULTS.md). Existing app QA attestation gates below
 remain required for real app scenarios.
+That older suite expects the pass-1 missing-provider failure and retains historical
+source projections; use LIVE2 for the current working-model behavior.
 
 Run locally on Linux, without dependencies, Swift, a backend or network access:
 

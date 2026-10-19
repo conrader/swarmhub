@@ -1,0 +1,13 @@
+{
+  "commit": "0d6a4d7c665cce55be463c831537a22b8a845cc5",
+  "qa_plan": "/home/box/work/swarmhub/wt-qa/QA-PLAN.md",
+  "server_source": "eea83bb (server README)",
+  "local_timezone": "Europe/Warsaw",
+  "artifacts": {
+    "sim/results/live-2/results.json": "97830e6073e024bbe92bc2a7f07747c8d46eff72f569716d4a7ae5a3c17456dc",
+    "sim/results/live-2-edges/results.json": "13c311804c2ce14fdfbc33c00a432850072446e79e2512a5c54acbd11f7286d6",
+    "sim/results/live-2/history-recovery.json": "eb76098f2411e8283431427f11896a89f6f7acb0185a351749ab619e4e57669c",
+    "sim/results/live-2/usage-snapshots.json": "5b00fb310e3302bb7449c8de9edc9c10cb265d260707ec3e3c43f7697bb0863e",
+    "sim/results/live-2-edges/usage-snapshots.json": "671f7419b4a0f1aeb05089e93b7c827d6725bfed9d1fb433a53efa2a89d61114"
+  }
+}
