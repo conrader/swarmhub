@@ -280,6 +280,7 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
                   "Summarize the failure, then fix the failing tests", "The scraper times out, can you fix it?",
                   "Can you explain the failure, then fix the bug?",
                   "Explain this function and fix the bug",
+                  "Explain the failure and then fix it",
                   "Describe the parser and then refactor it",
                   "Could you describe the failure and add a test?",
                   "Explain the bug then patch it",
@@ -290,7 +291,10 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
                    "Review the pull request and list concerns", "How do I fix the build?",
                    "How do I add tests, then fix the build?", "The tests are failing; explain why",
                    "The build is broken. Please write a summary for the team", "What does the parser do? Describe it",
-                   "The meeting notes are messy; clean them up"]
+                   "The meeting notes are messy; clean them up",
+                   "Explain how to build and test the parser",
+                   "Describe how to add and remove a Python package",
+                   "Can you explain how to build and then test the parser?"]
     for phrase in coding {
         #expect(GoalProtocol.looksLikeCoding(phrase), "expected coding: \(phrase)")
     }

@@ -47,9 +47,16 @@ class SandboxBase(unittest.TestCase):
         make_repo(self.repo)
         self.marker = self.root / 'ESCAPED'
 
+    def trust_git(self):
+        self.git_snapshot = self.root / 'git-trust.json'
+        result = subprocess.run([sys.executable, '-B', str(SANDBOX), '--capture-git',
+                                 str(self.repo), str(self.git_snapshot)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def run_verify(self, command, timeout=60):
         env = dict(os.environ, QA_SECRET='synthetic-secret', SWARMHUB_VERIFY_NAMESPACES=self.namespaces)
-        return subprocess.run([sys.executable, '-B', str(SANDBOX), str(self.repo), command],
+        trust = ['', str(self.git_snapshot)] if hasattr(self, 'git_snapshot') else []
+        return subprocess.run([sys.executable, '-B', str(SANDBOX), str(self.repo), command] + trust,
                               env=env, capture_output=True, text=True, timeout=timeout)
 
     def assert_refused_not_unavailable(self, result):
@@ -105,6 +112,7 @@ class GitMetadataEscapeTests(SandboxBase):
         linked = self.root / 'linked'
         self.assertEqual(git(self.repo, 'worktree', 'add', '-q', str(linked)).returncode, 0)
         self.repo = linked
+        self.trust_git()
         gitdir = Path((linked / '.git').read_text().split('gitdir:', 1)[1].strip())
         before = (self.root / 'workspace/.git/config').read_bytes()
         attempts = ['printf x >> .git', 'printf "[core]\\n\\tfsmonitor = true\\n" >> %s' % shlex.quote(str(gitdir / 'config')),
@@ -260,6 +268,7 @@ class DarwinProfileTextTests(unittest.TestCase):
     def profile(self, workspace):
         import runpy
         module = runpy.run_path(str(SANDBOX))
+        module['git_dir'].__globals__['GIT_SNAPSHOT'] = module['verify_git'].layout(workspace)
         return module['darwin_profile'](workspace, '/private/tmp/swarmhub-verify-x')
 
     def test_mach_lookup_is_an_explicit_allowlist_without_pasteboard_or_launchservices(self):

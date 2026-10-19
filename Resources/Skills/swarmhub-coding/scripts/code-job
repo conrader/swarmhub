@@ -93,7 +93,8 @@ VTIMEOUT=${CODE_JOB_VERIFY_TIMEOUT:-600}
 case $VTIMEOUT in ''|*[!0-9]*|0) VTIMEOUT=600 ;; esac
 printf '%s\n' "$VERIFY" > "$JOB/verify-command"
 POLL=${CODE_JOB_POLL:-5}
-T=$(mktemp -d "${TMPDIR:-/tmp}/code-job.XXXXXX") || exit 1
+# Keep launcher evidence outside a workspace-controlled TMPDIR (including HOME workspaces).
+T=$(mktemp -d "/tmp/code-job.XXXXXX") || exit 1
 
 SLOT= APID= MPID= VPID= O1= O2= AGENT=none SKIPPED= WAITED=0 RAN=0 PEAK=0 LOGGED=
 HEAD_BEFORE= HEAD_AFTER=- COMMIT=not-checked VEXIT=- VMODE=- TESTS=not-run EVIDENCE=none
@@ -127,7 +128,7 @@ collect_evidence() {
   esac
   if [ -n "$VERIFY" ]; then
     # The launcher records its isolation mode (namespaced, fallback = limited, seatbelt) in $T, out of the verifier's reach.
-    ( exec python3 "$(dirname "$0")/verify-sandbox.py" "$DIR" "$VERIFY" "$T/verify-mode" ) < /dev/null > "$T/verify" 2>&1 &
+    ( exec python3 "$(dirname "$0")/verify-sandbox.py" "$DIR" "$VERIFY" "$T/verify-mode" "$T/git-trust.json" ) < /dev/null > "$T/verify" 2>&1 &
     VPID=$!
     t0=$(date +%s); VEXIT=
     while kill -0 "$VPID" 2>/dev/null; do
@@ -228,6 +229,10 @@ trap 'release; rm -rf "$T"' EXIT
 trap 'interrupted 130' INT
 trap 'interrupted 143' TERM
 trap 'interrupted 129' HUP
+
+# Capture authority before any coding CLI can edit .git pointers. Failure cannot
+# be repaired by accepting a post-tool layout. $T is outside workspace authority.
+python3 "$(dirname "$0")/verify-sandbox.py" --capture-git "$DIR" "$T/git-trust.json" || finish 77 failed
 
 # One of SLOTS slots: `mkdir slots/<i>.lock` is atomic. A lock whose pid is dead is stale; it is removed under a short
 # reclaim guard so two waiters cannot both remove it (and so one cannot remove the other's fresh lock).

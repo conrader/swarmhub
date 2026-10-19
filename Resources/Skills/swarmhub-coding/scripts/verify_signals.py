@@ -22,6 +22,7 @@ from pathlib import Path
 import select
 import signal
 import struct
+import time
 
 import verify_processes
 
@@ -288,22 +289,58 @@ class Supervisor:
         self.kill_tree()
         raise SystemExit(128 + signum)
 
-    def kill_tree(self):
-        """Like the PID namespace's teardown: when the root is gone, every remaining descendant is killed."""
-        for entry in PROC.iterdir():
-            if not entry.name.isdigit() or int(entry.name) in (self.root, self.launcher):
-                continue
+    def kill_tree(self, timeout=5.0):
+        """Pin, kill, acknowledge exit, then reap; success never means just signal delivery.
+
+        Repeat discovery after each batch: descendants may fork during the first
+        scan or be adopted while their parents exit. Preserve the root's wait
+        status for linux(), but reap every adopted descendant before returning.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            pinned = {}
             try:
-                fd = self.pinned(int(entry.name))
-            except OSError:
-                continue
-            try:
-                if self.descendant(int(entry.name)):
-                    signal.pidfd_send_signal(fd, signal.SIGKILL)
-            except OSError:
-                pass
+                for entry in PROC.iterdir():
+                    if not entry.name.isdigit() or int(entry.name) == self.launcher:
+                        continue
+                    pid = int(entry.name)
+                    try:
+                        fd = self.pinned(pid)
+                    except ProcessLookupError:
+                        continue
+                    if not self.descendant(pid):
+                        os.close(fd)
+                        continue
+                    pinned[fd] = pid
+                    try:
+                        signal.pidfd_send_signal(fd, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                pending = set(pinned)
+                poller = select.poll()
+                for fd in pending:
+                    poller.register(fd, select.POLLIN)
+                while pending:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise OSError('verification descendant teardown timed out')
+                    for fd, events in poller.poll(max(1, int(remaining * 1000))):
+                        if events & select.POLLIN:
+                            pending.discard(fd)
+                            poller.unregister(fd)
+                descendants = [pid for pid in pinned.values() if pid != self.root]
+                for pid in descendants:
+                    try:
+                        os.waitpid(pid, os.WNOHANG)
+                    except ChildProcessError:
+                        pass  # Its parent reaped it, or adoption is still settling.
+                if not descendants:
+                    return
+                if time.monotonic() >= deadline:
+                    raise OSError('verification descendant reaping timed out')
             finally:
-                os.close(fd)
+                for fd in pinned:
+                    os.close(fd)
 
     def run(self):
         """Serve until the sandbox root exits, then kill what it left behind."""

@@ -16,6 +16,7 @@ cp "$JOB" "$ROOT/skills/swarmhub-coding/scripts/code-job" || exit 1
 cp "$(dirname "$JOB")/completion-contract.py" "$ROOT/skills/swarmhub-coding/scripts/completion-contract.py" || exit 1
 cp "$(dirname "$JOB")/verify-sandbox.py" "$ROOT/skills/swarmhub-coding/scripts/verify-sandbox.py" || exit 1
 cp "$(dirname "$JOB")/verify_darwin.py" "$ROOT/skills/swarmhub-coding/scripts/verify_darwin.py" || exit 1
+cp "$(dirname "$JOB")/verify_git.py" "$ROOT/skills/swarmhub-coding/scripts/verify_git.py" || exit 1
 cp "$(dirname "$JOB")/verify_processes.py" "$ROOT/skills/swarmhub-coding/scripts/verify_processes.py" || exit 1
 cp "$(dirname "$JOB")/verify_signals.py" "$ROOT/skills/swarmhub-coding/scripts/verify_signals.py" || exit 1
 JOB=$ROOT/skills/swarmhub-coding/scripts/code-job

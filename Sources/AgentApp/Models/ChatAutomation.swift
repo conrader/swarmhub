@@ -138,7 +138,7 @@ enum GoalProtocol {
                                          "node", "npm", "pip", "docker", "dockerfile", "kubernetes", "scraper", "crawler", "parser",
                                          "compiler", "library", "package", "dependency", "dependencies", "module", "class", "method",
                                          "schema", "database", "sql", "query", "route", "handler", "middleware", "component", "cli",
-                                         "sdk", "readme", "makefile", "config", "yaml", "json", "regex", "crash", "exception",
+                                         "sdk", "readme", "makefile", "config", "yaml", "json", "regex", "crash", "exception", "failure",
                                          "traceback", "segfault", "xcode", "html", "css", "frontend", "backend", "server",
                                          "deployment", "pipeline", "unittest", "pytest", "jest", "cargo", "gradle", "webpack",
                                          "eslint", "mypy", "ruff"]
@@ -174,11 +174,15 @@ enum GoalProtocol {
             let question = questionStarters.contains(words[0])
             var clauseStart = true
             var explains = false
+            var embedded = false
             var index = 0
             while index < words.count {
                 let word = words[index]
                 index += 1
-                if explains && (word == "and" || word == "then") {
+                // "Explain how to build and test" keeps both verbs inside the
+                // explanation. A new sentence still starts a fresh imperative.
+                if explains && questionStarters.contains(word) { embedded = true }
+                if explains && !embedded && (word == "and" || word == "then") {
                     clauseStart = true
                     continue
                 }
@@ -186,7 +190,7 @@ enum GoalProtocol {
                     explains = true
                 }
                 if word == "," || clauseWords.contains(word) {
-                    clauseStart = clauseStart || !question
+                    clauseStart = clauseStart || (!question && !embedded)
                     continue
                 }
                 if clauseStart && leadIns.contains(word) { continue }

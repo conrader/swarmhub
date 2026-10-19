@@ -1,7 +1,7 @@
 ---
 name: swarmhub-coding
 description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.6
+version: 1.3.7
 author: SwarmHub
 metadata:
   swarmhub:
@@ -97,7 +97,7 @@ shared memory is the host's /dev/shm opened by name (no listing, no directories;
 records the mode (`verify-mode`: `namespaced`, `fallback`, `seatbelt`) in the job record and the completion wake names
 the limited mode. If the limited mode cannot confine either, the verification is refused (exit 77). macOS uses sandbox-exec with a named Mach service allowlist (no pasteboard, LaunchServices,
 AppleEvents or keychain) and `.git` write-denied, including linked worktree metadata. Exact Xcode license/selection
-files and the selected developer directory are readable so system toolchain shims can start (`verify_darwin.py`). Unsupported isolation fails the verification; there is no host-shell
+files and the selected developer directory are readable so system toolchain shims can start (`verify_darwin.py`). Repository roots and reciprocal worktree pointers are captured before the coding tool runs and checked again before verification (`verify_git.py`); changed pointers refuse verification. Standalone linked-worktree verification requires an explicit pre-tool `--capture-git` snapshot. Required syscall resolution or installation failures refuse startup. Descendant exit is acknowledged and adopted children reaped before reporting completion. Unsupported isolation fails the verification; there is no host-shell
 fallback. Managed coding tasks wait for the owner's decision unless the owner published `coding_gate: auto` (the
 sandboxed Codex route); an order that includes claude waits for the owner regardless. Additional host/network authority is not supported by this verifier and must not
 be obtained by changing the command. Use a separately owner-gated managed operation when extra authority is needed.

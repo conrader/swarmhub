@@ -17,6 +17,7 @@ The repository metadata must stay immutable: a verifier that could write
 unsandboxed host execution from the next `git status` anyone runs there.
 """
 import ctypes
+import json
 import errno
 import os
 from pathlib import Path
@@ -30,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import verify_signals  # noqa: E402
 import verify_processes
 import verify_darwin
+import verify_git
 
 # Landlock access rights (ABI 3: through TRUNCATE).
 EXECUTE, WRITE_FILE, READ_FILE, READ_DIR = 1, 2, 4, 8
@@ -75,26 +77,12 @@ def checked(value, what='verification sandbox unavailable'):
     return value
 
 
-def git_dir(workspace):
-    """The repository metadata paths: `.git` and, for a gitfile (worktree), its target and common dir.
+# Set once by the trusted launcher before forking; never sourced from workspace content.
+GIT_SNAPSHOT = None
 
-    Parsed by hand: running git here would execute the very config this sandbox protects.
-    """
-    dot = workspace / '.git'
-    paths = []
-    if dot.is_file():
-        try:
-            line = dot.read_text(errors='replace').splitlines()[0]
-        except (OSError, IndexError):
-            line = ''
-        if line.startswith('gitdir:'):
-            target = Path(line[7:].strip())
-            target = (workspace / target).resolve()
-            paths.append(target)
-            common = target / 'commondir'
-            if common.is_file():
-                paths.append((target / common.read_text().strip()).resolve())
-    return paths
+
+def git_dir(workspace):
+    return verify_git.validated_paths(workspace, GIT_SNAPSHOT)
 
 
 def namespaces_requested():
@@ -184,6 +172,15 @@ def landlock(rules):
         os.close(fd)
 
 
+def required_syscall(sec, name):
+    number = sec.seccomp_syscall_resolve_name(name.encode())
+    # No implicit architecture exceptions: an unsupported architecture/library
+    # refuses startup until its inapplicable calls have an audited policy.
+    if number < 0:
+        raise OSError('seccomp required syscall unresolved: ' + name)
+    return number
+
+
 def seccomp(signals_confined):
     """Install the filter. Returns the user-notification listener when signals are supervised instead of denied."""
     sec = ctypes.CDLL('libseccomp.so.2', use_errno=True)
@@ -199,9 +196,7 @@ def seccomp(signals_confined):
     eperm = SCMP_ACT_ERRNO | errno.EPERM
 
     def deny(name, action=eperm, *conditions):
-        number = sec.seccomp_syscall_resolve_name(name.encode())
-        if number < 0:
-            return
+        number = required_syscall(sec, name)
         if conditions:
             array = (ArgCmp * len(conditions))(*conditions)
             rc = sec.seccomp_rule_add_array(ctx, action, number, len(conditions), array)
@@ -262,10 +257,10 @@ def install_with_listener(sec, ctx):
         raise OSError('seccomp export produced no program')
     buffer = ctypes.create_string_buffer(program, len(program))
     prog = Program(len(program) // 8, ctypes.addressof(buffer))
-    number = sec.seccomp_syscall_resolve_name(b'seccomp')
+    number = required_syscall(sec, 'seccomp')
     lib = libc()
     listener = lib.syscall(number, SECCOMP_SET_MODE_FILTER, FLAG_NEW_LISTENER | FLAG_WAIT_KILLABLE_RECV, ctypes.byref(prog))
-    return checked(listener, 'seccomp install with listener failed')
+    return checked(listener, 'seccomp syscall filter installation failed')
 
 
 def supervised_syscalls():
@@ -274,9 +269,7 @@ def supervised_syscalls():
     sec = ctypes.CDLL('libseccomp.so.2')
     numbers = {}
     for name in verify_signals.SUPERVISED_SYSCALLS + verify_signals.HELPER_SYSCALLS + verify_processes.SYSCALLS:
-        number = sec.seccomp_syscall_resolve_name(name.encode())
-        if number >= 0:
-            numbers[number] = name
+        numbers[required_syscall(sec, name)] = name
     return numbers
 
 
@@ -371,7 +364,8 @@ def linux_child(workspace, temporary, command, env, to_launcher):
         with os.fdopen(reader, 'rb') as pipe:
             report = pipe.read()
         if report == b'namespaced':
-            to_launcher.sendall(MODE_NAMESPACED.encode())
+            if to_launcher.sendmsg([MODE_NAMESPACED.encode()]) != len(MODE_NAMESPACED):
+                raise OSError('incomplete sandbox mode report')
             to_launcher.close()
         _, status = os.waitpid(attempt, 0)
         if report == b'namespaced' or report == b'':
@@ -384,6 +378,7 @@ def linux(workspace, temporary, command, env, mode_file=None):
     """Fork so only the child receives irreversible restrictions; a setup failure is reported, never bypassed.
 
     The launcher stays unconfined: in limited mode it answers the verifier's signal requests."""
+    syscall_names = supervised_syscalls()  # Resolve BEFORE a child can run any workspace command.
     lib = libc()
     checked(lib.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0))  # Orphaned verifier processes stay in this tree.
     reader, writer = os.pipe()
@@ -407,7 +402,7 @@ def linux(workspace, temporary, command, env, mode_file=None):
         record_mode(mode_file, mode)
     if fds:
         try:
-            verify_signals.supervise(fds[0], pid, supervised_syscalls())
+            verify_signals.supervise(fds[0], pid, syscall_names)
         finally:
             os.close(fds[0])
     with os.fdopen(reader, 'rb') as pipe:
@@ -429,8 +424,14 @@ def darwin_profile(workspace, temporary):
 
 
 def main():
+    global GIT_SNAPSHOT
+    if len(sys.argv) == 4 and sys.argv[1] == '--capture-git':
+        verify_git.capture(Path(sys.argv[2]), Path(sys.argv[3]))
+        return 0
     workspace = Path(sys.argv[1]).resolve(strict=True)
     command = sys.argv[2]
+    GIT_SNAPSHOT = json.loads(Path(sys.argv[4]).read_text()) if len(sys.argv) > 4 else None
+    git_dir(workspace)  # Refuse changed/forged pointers before either platform launches.
     if sys.platform == 'linux':
         verify_processes.close_inherited_descriptors()
     mode_file = sys.argv[3] if len(sys.argv) > 3 else None  # code-job records the mode in the job result.
