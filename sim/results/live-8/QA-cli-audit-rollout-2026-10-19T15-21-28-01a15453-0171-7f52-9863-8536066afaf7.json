@@ -1,0 +1,110 @@
+[
+  {
+    "time": "2026-10-19T13:21:29.690Z",
+    "type": "session_meta",
+    "payload": {
+      "id": "01a15453-0171-7f52-9863-8536066afaf7",
+      "timestamp": "2026-10-19T13:21:28.436Z",
+      "cwd": "/tmp/QA-LIVE8-s5_0yd3c/QA-repo",
+      "cli_version": "0.163.0",
+      "model_provider": "openai"
+    }
+  },
+  {
+    "time": "2026-10-19T13:21:29.690Z",
+    "type": "event_msg",
+    "payload": {
+      "type": "task_started",
+      "turn_attribution": {
+        "turn_id": "01a15453-0657-7283-b7cb-7b30fe0dc577",
+        "turn_trigger": "exec",
+        "parent_turn_id": null,
+        "initiating_agent_path": null,
+        "root_turn_id": "01a15453-0657-7283-b7cb-7b30fe0dc577"
+      },
+      "turn_id": "01a15453-0657-7283-b7cb-7b30fe0dc577",
+      "root_turn_id": "01a15453-0657-7283-b7cb-7b30fe0dc577",
+      "started_at": 1792416089,
+      "model_context_window": 258400,
+      "collaboration_mode_kind": "default"
+    }
+  },
+  {
+    "time": "2026-10-19T13:21:32.638Z",
+    "type": "turn_context",
+    "payload": {
+      "turn_id": "01a15453-0657-7283-b7cb-7b30fe0dc577",
+      "cwd": "/tmp/QA-LIVE8-s5_0yd3c/QA-repo",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "approval_policy": "never",
+      "sandbox_policy": {
+        "type": "workspace-write",
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    }
+  },
+  {
+    "time": "2026-10-19T13:21:35.855Z",
+    "type": "response_item",
+    "payload": {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "time": "2026-10-19T13:21:35.963Z",
+    "type": "token_usage_record",
+    "payload": {
+      "response_id": "resp_05aabcc61c9c907e016ad6195cf9ec8191b82f94fa5730fdcb",
+      "usage": {
+        "input_tokens": 14536,
+        "cached_input_tokens": 12288,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 39,
+        "reasoning_output_tokens": 33,
+        "total_tokens": 14575
+      },
+      "turn_token_usage": {
+        "input_tokens": 14536,
+        "cached_input_tokens": 12288,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 39,
+        "reasoning_output_tokens": 33,
+        "total_tokens": 14575
+      },
+      "thread_token_usage": {
+        "input_tokens": 14536,
+        "cached_input_tokens": 12288,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 39,
+        "reasoning_output_tokens": 33,
+        "total_tokens": 14575
+      }
+    }
+  },
+  {
+    "time": "2026-10-19T13:21:35.967Z",
+    "type": "event_msg",
+    "payload": {
+      "type": "task_complete",
+      "root_turn_id": "01a15453-0657-7283-b7cb-7b30fe0dc577",
+      "turn_id": "01a15453-0657-7283-b7cb-7b30fe0dc577",
+      "last_agent_message": null,
+      "started_at": 1792416089,
+      "completed_at": 1792416095,
+      "duration_ms": 6278
+    }
+  }
+]
