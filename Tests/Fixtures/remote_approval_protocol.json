@@ -1,0 +1,9 @@
+{
+  "key": "synthetic-interoperability-key",
+  "request": "{\"expires\":1060,\"issued\":1000,\"nonce\":\"11111111-2222-3333-4444-555555555555\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"verb\":\"get\",\"version\":1}",
+  "requestSignature": "e4e8d7fa1cf1ffaa142c0c619f7bb14bff4947d71ccd876d0bdab416aef1b070",
+  "response": {
+    "payload": "eyJleHBpcmVzIjoxMDYwLCJyZWNvcmQiOnsiZGVjaWRlciI6Im93bmVyIiwiZmluZ2VycHJpbnQiOiJhYzJlNDg3YTEzYTlkMTU0NDA3OTllMmUxODM3ZTQ5OGQyODhiY2JmZjY2ZGFmMzExZTg4Zjc0ZTZjNWFjNzg1IiwiZ2F0ZSI6Im93bmVyIiwiaWQiOiJ0YXNrLmFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwicmVtb3RlQmluZGluZyI6eyJvcmlnaW4iOiJodHRwczovL2JveC5leGFtcGxlLmludmFsaWQiLCJwcm9maWxlIjoib3duZXIiLCJydW50aW1lIjoiYWFhYWFhYWEtYmJiYi1jY2NjLWRkZGQtZWVlZWVlZWVlZWVlIn0sInNwZWMiOnsiYXJndiI6WyIvYmluL3RydWUiXSwiYm90Ijoid29ya2VyIiwiZmFrZSI6dHJ1ZSwiaW50ZW50IjoiZml4dHVyZSIsImtpbmQiOiJvdXRib3VuZCIsInJpc2tzIjpbIm1vbmV5Il0sInRleHQiOiJGQUtFIG5ldmVyIHNlbnQiLCJ0byI6Im5vYm9keUBleGFtcGxlLmludmFsaWQifSwic3RhdHVzIjoiYXdhaXRpbmctb3duZXIifSwicmVxdWVzdCI6ImRjZjdjYjQ3MjU3MzEyNWUzYThiYzM3YWI1NmYxODMwNTgxMTU4M2M4YmM0MWFkOWViODliOGYzYTNlNjZhYjgifQ==",
+    "signature": "4f856d5d87dcb52836b99d5839e89836f108271887699ce0d9bfa85ae0a54517"
+  }
+}

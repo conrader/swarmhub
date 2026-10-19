@@ -37,6 +37,12 @@ def main(args):
         return control.action(args[0])
     if command == "control":
         # Structured local app interface. Notifications never supply card content.
+        if args and args[0] == "serve":
+            import swarm_remote
+            if len(args) not in (2, 3):
+                raise ValueError("control serve https://existing-hermes-origin [loopback-port]")
+            swarm_remote.serve(args[1], int(args[2]) if len(args) == 3 else 8653, start)
+            return None
         verb, ident, *rest = args
         if verb == "decide":
             payload = json.load(sys.stdin)

@@ -50,6 +50,17 @@ struct ManagedRecord: Codable, Equatable, Sendable {
     let spec: Spec
     var decided_by: String? = nil
     var decided_at: Double? = nil
+    struct RemoteBinding: Codable, Equatable, Sendable {
+        let origin: String
+        let runtime: String
+        let profile: String
+    }
+    struct RemoteReceipt: Codable, Equatable, Sendable {
+        let id: String
+        let approved: Bool
+    }
+    var remoteBinding: RemoteBinding? = nil
+    var remoteReceipt: RemoteReceipt? = nil
 
     var awaiting: Bool { status == "awaiting-" + gate }
     func request(botID: UUID) throws -> ApprovalRequest {
@@ -65,13 +76,20 @@ struct ManagedRecord: Codable, Equatable, Sendable {
         var request = notice.request(botID: botID, profile: decider)
         request.command = operation
         request.managedRecord = self
-        request.routeNote = "Runtime operation verified locally. Decision binds fingerprint \(fingerprint) and gate \(gate)."
+        request.routeNote = "Runtime operation verified\(remoteBinding.map { " at " + $0.origin } ?? " locally"). Decision binds fingerprint \(fingerprint) and gate \(gate)."
         return request
     }
-    func confirms(_ approved: Bool, original: ManagedRecord) -> Bool {
+    func sameOperation(as original: ManagedRecord) -> Bool {
         id == original.id && fingerprint == original.fingerprint && gate == original.gate &&
-        decided_by == original.decider && decided_at != nil &&
-        (approved ? ["queued", "running", "done", "failed"].contains(status) : status == "denied")
+        spec == original.spec && decider == original.decider && remoteBinding == original.remoteBinding
+    }
+    func confirms(_ approved: Bool, original: ManagedRecord) -> Bool {
+        guard sameOperation(as: original), decided_by == original.decider, decided_at != nil else { return false }
+        if remoteBinding != nil {
+            guard let remoteReceipt, UUID(uuidString: remoteReceipt.id) != nil else { return false }
+            return remoteReceipt.approved == approved
+        }
+        return approved ? ["queued", "running", "done", "failed"].contains(status) : status == "denied"
     }
 }
 
@@ -102,7 +120,7 @@ enum ManagedControlError: LocalizedError {
     case unavailable, invalidRecord, rejected
     var errorDescription: String? {
         switch self {
-        case .unavailable: "Managed approval requires SwarmHub's local control interface on the runtime host. Remote notifications cannot authorize an operation."
+        case .unavailable: "Managed approval requires an authenticated SwarmHub control service at this Hermes connection. The operation remains pending."
         case .invalidRecord: "The runtime record is stale or does not match this approval."
         case .rejected: "The runtime did not confirm the decision. Refresh status before retrying."
         }

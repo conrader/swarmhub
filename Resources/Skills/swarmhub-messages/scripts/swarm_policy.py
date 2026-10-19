@@ -305,20 +305,24 @@ def decide(ident, actor, approved, fingerprint=None, gate=None):
         raise ValueError("actor does not match the invoking gateway profile")
     with database() as db:
         db.execute("BEGIN IMMEDIATE")
-        row = db.execute("SELECT * FROM actions WHERE id=?", (ident,)).fetchone()
-        if not row or not row["status"].startswith("awaiting-"):
-            raise ValueError("decision is final or task is not awaiting approval")
-        if fingerprint is not None and (row["fingerprint"] != fingerprint or row["gate"] != gate):
-            raise ValueError("stale or mismatched approval")
-        expected = policy(db).get(row["gate"])
-        if not expected or actor != expected:
-            raise ValueError("decision requires " + row["gate"])
-        db.execute("UPDATE actions SET status=?,decided_by=?,decided_pid=?,decided_at=? WHERE id=?",
-                   ("queued" if approved else "denied", actor, os.getpid(), time.time(), ident))
-        if not approved:
-            db.execute("INSERT OR REPLACE INTO denials VALUES(?,?)", (row["intent"], operation_fingerprint(json.loads(row["spec"]))))
+        decide_in_transaction(db, ident, actor, approved, fingerprint, gate)
+
+
+def decide_in_transaction(db, ident, actor, approved, fingerprint, gate):
+    """Caller authenticates actor; caller owns BEGIN IMMEDIATE and commit."""
+    row = db.execute("SELECT * FROM actions WHERE id=?", (ident,)).fetchone()
+    if not row or not row["status"].startswith("awaiting-"):
+        raise ValueError("decision is final or task is not awaiting approval")
+    if fingerprint is not None and (row["fingerprint"] != fingerprint or row["gate"] != gate):
+        raise ValueError("stale or mismatched approval")
+    expected = policy(db).get(row["gate"])
+    if not expected or actor != expected:
+        raise ValueError("decision requires " + row["gate"])
+    db.execute("UPDATE actions SET status=?,decided_by=?,decided_pid=?,decided_at=? WHERE id=?",
+               ("queued" if approved else "denied", actor, os.getpid(), time.time(), ident))
     if not approved:
-        stop(ident)
+        db.execute("INSERT OR REPLACE INTO denials VALUES(?,?)", (row["intent"], operation_fingerprint(json.loads(row["spec"]))))
+        stop_in_transaction(db, ident)
 
 
 def operation_fingerprint(spec):
@@ -331,21 +335,25 @@ def stop(ident):
     # managed message and coding watchdog checks these persistent tombstones.
     with database() as db:
         db.execute("BEGIN IMMEDIATE")
-        rows = db.execute("SELECT id,spec,status FROM actions").fetchall()
-        ids = {ident}
-        while True:
-            expanded = ids | {r["id"] for r in rows if json.loads(r["spec"]).get("parent") in ids}
-            if expanded == ids:
-                break
-            ids = expanded
-        if not any(r["id"] == ident for r in rows):
-            raise ValueError("unknown task")
-        folder = state() / "cancelled"
-        folder.mkdir(exist_ok=True, mode=0o700)
-        for task in ids:
-            (folder / task).touch(mode=0o600)
-            db.execute("UPDATE actions SET status='cancelled' WHERE id=? AND status NOT IN ('done','denied')", (task,))
-            db.execute("UPDATE deliveries SET status='cancelled',error='Task stopped' WHERE task=? AND status!='delivered'", (task,))
+        return stop_in_transaction(db, ident)
+
+
+def stop_in_transaction(db, ident):
+    rows = db.execute("SELECT id,spec,status FROM actions").fetchall()
+    ids = {ident}
+    while True:
+        expanded = ids | {r["id"] for r in rows if json.loads(r["spec"]).get("parent") in ids}
+        if expanded == ids:
+            break
+        ids = expanded
+    if not any(r["id"] == ident for r in rows):
+        raise ValueError("unknown task")
+    folder = state() / "cancelled"
+    folder.mkdir(exist_ok=True, mode=0o700)
+    for task in ids:
+        (folder / task).touch(mode=0o600)
+        db.execute("UPDATE actions SET status='cancelled' WHERE id=? AND status NOT IN ('done','denied')", (task,))
+        db.execute("UPDATE deliveries SET status='cancelled',error='Task stopped' WHERE task=? AND status!='delivered'", (task,))
     return sorted(ids)
 
 

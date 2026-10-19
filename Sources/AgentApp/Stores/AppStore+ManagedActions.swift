@@ -16,8 +16,9 @@ extension AppStore {
                           let actor = record.decider, let decider = boundBot(actor, manager: bot) else { return }
                     // The fence is only a notification. Card content comes entirely from the runtime.
                     let request = try record.request(botID: decider.id)
-                    if let index = approvals.firstIndex(where: { $0.requestID == record.id }) {
-                        if approvals[index].decisionPending != true { approvals[index] = request }
+                    if approvals.contains(where: { $0.requestID == record.id && $0.botID == decider.id }) {
+                        // A notification must never replace a reviewed/persisted binding or uncertain decision.
+                        return
                     } else {
                         approvals.append(request)
                         appendAudit(to: decider, approval: request, outcome: .asked, decidedBy: "system",
@@ -31,9 +32,18 @@ extension AppStore {
 
     func managedRuntime(_ bot: Bot, verb: String, task: String, input: Data? = nil) async throws -> ManagedRecord {
         if let managedControl { return try await managedControl(bot, verb, task, input) }
+        let address = bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL
+        let profile = bot.hermesProfile ?? "default"
+        if let host = URL(string: address)?.host, !["localhost", "127.0.0.1", "::1"].contains(host) {
+            guard !prefixIgnoredHermesProfiles.contains(profile) else { throw ManagedControlError.unavailable }
+            let account = Self.keyAccount(forProfile: profile)
+            let key = keyStore.key(for: account)
+            if key.isEmpty, keyStore.needsReentry(account) { throw BackendError.unavailable(KeychainStore.reenterMessage) }
+            return try await ManagedRemoteControl.request(address: address, profile: profile, key: key,
+                                                          verb: verb, task: task, input: input, session: hermesSession)
+        }
         return try await ManagedLocalControl.request(
-            address: bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL,
-            profile: bot.hermesProfile ?? "default", verb: verb, task: task, input: input,
+            address: address, profile: profile, verb: verb, task: task, input: input,
             home: managedHome ?? FileManager.default.homeDirectoryForCurrentUser)
     }
 
@@ -42,10 +52,16 @@ extension AppStore {
     func decideManagedAction(_ approval: ApprovalRequest, approved: Bool) {
         guard !managedDecisionsInFlight.contains(approval.id) else { return }
         guard let index = approvals.firstIndex(where: { $0.id == approval.id }),
-              let original = approval.managedRecord, let botID = approval.botID,
+              let original = approvals[index].managedRecord, original == approval.managedRecord, let botID = approval.botID,
               let bot = bots.first(where: { $0.id == botID }), approval.profile == original.decider else {
             errorMessage = "This card has no verified runtime operation. Refresh its notification."; return
         }
+        // A lost ACK retains the user's original choice, including across app restarts.
+        if let previous = approvals[index].managedDecision, previous != approved {
+            errorMessage = "The earlier decision is still awaiting a receipt. Retry that decision to reconcile it."
+            return
+        }
+        approvals[index].managedDecision = approved
         managedDecisionsInFlight.insert(approval.id)
         guard approvals[index].decisionPending != true else {
             // A persisted uncertain decision can be reconciled by a fresh notification/status query.
@@ -64,11 +80,20 @@ extension AppStore {
 
     private func reconcileManagedDecision(_ approval: ApprovalRequest, bot: Bot, approved: Bool, original: ManagedRecord, sendDecision: Bool) async {
         do {
+            if let binding = original.remoteBinding {
+                let address = bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL
+                guard try ManagedRemoteControl.origin(address: address) == binding.origin,
+                      (bot.hermesProfile ?? "default") == binding.profile else { throw ManagedControlError.invalidRecord }
+            }
             var receipt = try await managedRuntime(bot, verb: "get", task: original.id)
             if !receipt.confirms(approved, original: original) {
-                guard receipt == original, receipt.awaiting else { throw ManagedControlError.invalidRecord }
+                guard receipt.sameOperation(as: original), receipt.awaiting else { throw ManagedControlError.invalidRecord }
                 if sendDecision {
-                    let input = try JSONSerialization.data(withJSONObject: ["approved": approved, "fingerprint": original.fingerprint, "gate": original.gate])
+                    var body: [String: Any] = ["approved": approved, "fingerprint": original.fingerprint, "gate": original.gate]
+                    if let binding = original.remoteBinding {
+                        body["binding"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(binding))
+                    }
+                    let input = try JSONSerialization.data(withJSONObject: body)
                     receipt = try await managedRuntime(bot, verb: "decide", task: original.id, input: input)
                 }
             }

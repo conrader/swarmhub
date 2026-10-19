@@ -144,7 +144,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let (store, _, coder, _) = codingStore()
     let coding = try codingSkill()
     let messages = try #require(SkillLibrary.bundled().first { $0.name == "swarmhub-messages" })
-    #expect(coding.version == SkillVersion("1.3.4")! && messages.version == SkillVersion("1.3.5")!)
+    #expect(coding.version == SkillVersion("1.3.4")! && messages.version == SkillVersion("1.3.6")!)
     let variant = store.codingOrder(for: coder).argument
     coder.installedSkills = ["swarmhub-coding": "1.3.3", "swarmhub-messages": "1.3.4"]
     coder.installedSkillVariants = ["swarmhub-coding": variant]
@@ -155,7 +155,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     coder.installedSkills["swarmhub-coding"] = "1.3.4"
     #expect(store.skillState(coding, for: coder) == .current)
     #expect(store.skillBanner(for: coder)?.state == .outdated(installed: "1.3.4"), "then the messages skill")
-    coder.installedSkills["swarmhub-messages"] = "1.3.5"
+    coder.installedSkills["swarmhub-messages"] = "1.3.6"
     #expect(store.skillState(messages, for: coder) == .current)
     #expect(store.skillBanner(for: coder) == nil)
 }

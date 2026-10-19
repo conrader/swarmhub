@@ -1,7 +1,7 @@
 ---
 name: swarmhub-messages
 description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.5
+version: 1.3.6
 author: SwarmHub
 metadata:
   swarmhub:
@@ -131,8 +131,8 @@ SwarmHub treats as a notification. For a local runtime, the app fetches `swarmct
 and renders only its authoritative spec; the fence fields never authorize an operation. The app submits JSON
 `{"fingerprint":"<record fingerprint>","gate":"<current gate>","approved":true|false}` to
 `swarmctl control decide <task-id> <deciding-profile>` with that profile's HERMES_HOME. The transaction checks both
-bindings and role, and the card stays pending until its runtime receipt confirms the decision. Remote notifications
-fail closed until a trusted runtime control transport is provided; the app never asks a model to decide instead. The opening line must be exactly three backticks followed by `swarmhub`,
+bindings and role, and the card stays pending until its runtime receipt confirms the decision. Remote runtimes use the authenticated SwarmHub transport described below; unavailable or unverified transport
+fails closed, and the app never asks a model to decide instead. The opening line must be exactly three backticks followed by `swarmhub`,
 then JSON on the next line, then three backticks alone on the closing line. Bare JSON, a `json` fence, or saying
 "swarmhub fence" in prose does not follow this output contract. Example (replace these example values with the
 actual awaiting record; never invent a task):
@@ -142,7 +142,7 @@ actual awaiting record; never invent a task):
 Only present a card for an actually awaiting record. App Draft Send always submits `fake: true`, with the exact text,
 recipient and stable card intent. It reports the returned task's actual status; an automatic FAKE record needs no
 approval. Never turn that record into a real send. A card click sends a decision request to the configured profile
-on the same Mac through the structured control interface; only its matching authoritative receipt proves acceptance.
+through the local or authenticated remote control interface; only its matching authoritative receipt proves acceptance.
 To obtain a user secret, end the reply with this exact fence format, replacing the name and reason as needed.
 Never put the secret value in JSON or chat:
 ```swarmhub
@@ -154,3 +154,47 @@ bot with unrestricted shell/file access. Gates cover managed entrypoints; unrela
 still require their own permission boundaries. Use `--task-id <id>` on associated messages so Stop propagates to
 held messages and running streams. Gateways must cancel model runs when their client stream disconnects, as Hermes
 does; remote tool side effects already accepted cannot be undone by Stop.
+
+
+## Remote managed approvals (operator setup)
+
+Install/update this skill on the remote box. Run its app-owned service under the same Unix account as the managed
+runtime, with HOME pointing to that account. This does not change Hermes code or its plugin/API routes:
+
+```sh
+python3 /absolute/path/to/swarmhub-messages/scripts/swarmctl control serve https://hermes.example.com 8653
+```
+
+Use the exact existing Hermes HTTPS origin (lowercase host, explicit port if configured in the app, no `/v1`).
+The service binds **127.0.0.1 only**; keep port 8653 private. Supervise this command with the box's process manager.
+On the existing TLS reverse proxy, route only `/swarmhub/control/v1/` to `http://127.0.0.1:8653`, preserving the
+path and `Authorization` / `X-SwarmHub-Signature` headers. For nginx inside the existing HTTPS server block:
+
+```nginx
+location ^~ /swarmhub/control/v1/ {
+    client_max_body_size 1m;
+    proxy_pass http://127.0.0.1:8653;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header X-SwarmHub-Signature $http_x_swarmhub_signature;
+    proxy_read_timeout 20s;
+    add_header Cache-Control "no-store" always;
+}
+```
+
+The app uses its existing Hermes connection and `hermes` / `hermes.<profile>` Keychain account. The server reads
+the existing profile's `API_SERVER_KEY` from `.env` on every request, just as bot-msg does; never paste keys into
+this command, proxy configuration, new files or chat. The submitting profile may read its own operation; only
+the configured deciding profile may decide. Keep the deciding profile's key private.
+
+Requests and responses have domain-separated HMAC-SHA256 authentication in addition to HTTPS and Bearer auth.
+Each request binds the origin, profile, operation ID, nonce and a maximum 60-second validity window. Decisions
+also bind the persisted runtime UUID, fixes5 fingerprint, gate and exact boolean choice. Responses bind to the
+hash of the complete request. Runtime identity, nonce use and atomic decision receipts live in the existing
+private control SQLite database. Do not clone that database to another independently writable runtime at the
+same origin; a restored/replaced runtime needs fresh cards. Clock skew, changed scope, expiry, redirects, missing
+service/key and ambiguous receipts fail closed. Keep clocks synchronized.
+
+Cards retain the reviewed binding and original decision across uncertain responses/restarts. Retries query first;
+only a matching authenticated receipt removes a card. Never turn a failed transport into a model turn or CLI
+impersonation. The existing peer worker executes committed approved operations; service startup is separate from
+Hermes, and setup requires no Hermes source modifications. No independent secret is generated or stored.
