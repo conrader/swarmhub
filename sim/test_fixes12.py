@@ -201,6 +201,9 @@ class CodeJobLayoutTests(GitLayoutBase):
             args += ['--verify', verify]
         env = dict(fixture.GIT_ENV, HOME=str(self.home), PATH=str(self.bin) + ':/usr/bin:/bin', CODE_JOB_TICK='0.05',
                    SWARMHUB_VERIFY_NAMESPACES='0')
+        # Preserve the tmp root used by the parent fixture (macOS normally uses /var/folders/.../T).
+        # Without it, the child only knows /tmp and cannot recognize a HOME created under that root.
+        env['TMPDIR'] = os.environ.get('TMPDIR', tempfile.gettempdir())
         return subprocess.run(args + ['--', 'synthetic task'], env=env, capture_output=True, text=True, timeout=60)
 
     def committed(self, result):
@@ -251,10 +254,11 @@ class CodeJobLayoutTests(GitLayoutBase):
 
     def test_snapshot_is_kept_in_launcher_state_outside_codex_writable_roots(self):
         # The fixture HOME must lie outside /tmp and $TMPDIR (codex-writable), as a real one does.
-        base = Path.home().resolve()
+        # Keep disposable files in the writable checkout, including when the user's HOME is read-only.
+        base = ROOT.resolve()
         if any(base == Path(d).resolve() or Path(d).resolve() in base.parents
                for d in ('/tmp', os.environ.get('TMPDIR', '/tmp'))):
-            self.skipTest('HOME is inside a temporary directory here')
+            self.skipTest('checkout is inside a temporary directory here')
         outside = tempfile.TemporaryDirectory(dir=str(base), prefix='.swarmhub-fixes12-')
         self.addCleanup(outside.cleanup)
         self.home = Path(outside.name) / 'home'
@@ -272,7 +276,40 @@ class CodeJobLayoutTests(GitLayoutBase):
         _, linked, _ = self.linked()
         result = self.job(linked, 'true')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('sandbox_workspace_write.exclude_slash_tmp=true', (self.root / 'codex.args').read_text())
+        args = (self.root / 'codex.args').read_text().splitlines()
+        self.assertIn('sandbox_workspace_write.exclude_slash_tmp=true', args)
+        self.assertIn('sandbox_workspace_write.exclude_tmpdir_env_var=true', args)
+
+    def test_symlinked_tmpdir_outside_slash_tmp_falls_back_and_denies_codex_tmp(self):
+        # Keep the physical HOME outside /tmp: otherwise Linux's /tmp check masks a lost TMPDIR.
+        base = ROOT.resolve()
+        if base == Path('/tmp').resolve() or Path('/tmp').resolve() in base.parents:
+            self.skipTest('checkout is inside /tmp; this regression needs a separate temporary root')
+        outside = tempfile.TemporaryDirectory(dir=str(base), prefix='.swarmhub-fixes12-')
+        self.addCleanup(outside.cleanup)
+        layout = Path(outside.name)
+        physical_tmp = layout / 'private/var/folders/synthetic/T'
+        physical_tmp.mkdir(parents=True)
+        (layout / 'var').symlink_to(layout / 'private/var', target_is_directory=True)
+        tmp_alias = layout / 'var/folders/synthetic/T'
+        self.home = physical_tmp / 'home'
+        self.home.mkdir()
+        _, linked, _ = self.linked()
+        listing = self.root / 'scratch.list'
+        self.stub('ls -A "$HOME"/.hermes/swarmhub/scratch > ' + shlex.quote(str(listing)))
+        # Exercise both physical and aliased HOME spellings, with TMPDIR's usual trailing slash.
+        for home in (physical_tmp / 'home', tmp_alias / 'home'):
+            with self.subTest(home=str(home)), patch.dict(os.environ, TMPDIR=str(tmp_alias) + '/'):
+                self.home = home
+                (linked / 'REPORT.txt').unlink(missing_ok=True)
+                result = self.job(linked, 'true')
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                args = (self.root / 'codex.args').read_text().splitlines()
+                self.assertIn('sandbox_workspace_write.exclude_slash_tmp=true', args)
+                self.assertIn('sandbox_workspace_write.exclude_tmpdir_env_var=true', args)
+                # The private snapshot must have moved out of HOME before the coding CLI starts.
+                self.assertEqual(listing.read_text(), '')
+                self.assertEqual(list((home / '.hermes/swarmhub/scratch').iterdir()), [])
 
     def test_home_workspace_falls_back_to_tmp_and_denies_codex_tmp(self):
         listing = self.root / 'scratch.list'
