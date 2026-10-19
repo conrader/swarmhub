@@ -44,6 +44,7 @@ def main():
             shutil.copyfile(shipped, runner)
             shutil.copyfile(shipped.with_name('completion-contract.py'), runner.with_name('completion-contract.py'))
             shutil.copyfile(shipped.with_name('verify-sandbox.py'), runner.with_name('verify-sandbox.py'))
+            shutil.copyfile(shipped.with_name('verify_signals.py'), runner.with_name('verify_signals.py'))
             repo = qa_repo(root / 'QA-repo')
             verify = "grep -Fxq 'QA-live6 CLI tools work' NOTES.md && grep -Fxq 'QA-command ran' COMMAND.txt"
             argv = ['/bin/sh', str(runner), '--bot', 'QA-Live6', '--order', 'codex', '--model', 'gpt-6-astra',

@@ -96,7 +96,7 @@ POLL=${CODE_JOB_POLL:-5}
 T=$(mktemp -d "${TMPDIR:-/tmp}/code-job.XXXXXX") || exit 1
 
 SLOT= APID= MPID= VPID= O1= O2= AGENT=none SKIPPED= WAITED=0 RAN=0 PEAK=0 LOGGED=
-HEAD_BEFORE= HEAD_AFTER=- COMMIT=not-checked VEXIT=- TESTS=not-run EVIDENCE=none
+HEAD_BEFORE= HEAD_AFTER=- COMMIT=not-checked VEXIT=- VMODE=- TESTS=not-run EVIDENCE=none
 
 # Host git for evidence only, with the repository's executable settings overridden: even if an agent with a host
 # shell planted core.fsmonitor or a hooks path in .git/config, code-job's own git never runs it.
@@ -126,7 +126,8 @@ collect_evidence() {
        fi ;;
   esac
   if [ -n "$VERIFY" ]; then
-    ( exec python3 "$(dirname "$0")/verify-sandbox.py" "$DIR" "$VERIFY" ) < /dev/null > "$T/verify" 2>&1 &
+    # The launcher records its isolation mode (namespaced, fallback = limited, seatbelt) in $T, out of the verifier's reach.
+    ( exec python3 "$(dirname "$0")/verify-sandbox.py" "$DIR" "$VERIFY" "$T/verify-mode" ) < /dev/null > "$T/verify" 2>&1 &
     VPID=$!
     t0=$(date +%s); VEXIT=
     while kill -0 "$VPID" 2>/dev/null; do
@@ -138,6 +139,10 @@ collect_evidence() {
     VPID=
     [ -n "$VEXIT" ] || VEXIT=$rc
     TESTS=false; [ "$VEXIT" -eq 0 ] && TESTS=true
+    case $(cat "$T/verify-mode" 2>/dev/null) in
+      namespaced) VMODE=namespaced ;; fallback) VMODE=fallback ;; seatbelt) VMODE=seatbelt ;; *) VMODE=- ;;
+    esac
+    [ "$VMODE" = fallback ] && echo "code-job: verification ran in the limited sandbox (no user namespace); the result says so" >&2
   fi
   if [ "$TESTS" = true ] && [ "$COMMIT" = true ]; then EVIDENCE=commit+tests
   elif [ "$TESTS" = true ]; then EVIDENCE=tests
@@ -190,6 +195,7 @@ finish() {
   printf '%s\n' "$HEAD_AFTER" > "$JOB/head-after"
   printf '%s\n' "$COMMIT" > "$JOB/commit-evidence"
   printf '%s\n' "$VEXIT" > "$JOB/verify-exit"
+  printf '%s\n' "$VMODE" > "$JOB/verify-mode"
   printf '%s\n' "$TESTS" > "$JOB/tests-passed"
   printf '%s\n' "$EVIDENCE" > "$JOB/evidence"
   : > "$JOB/ready"

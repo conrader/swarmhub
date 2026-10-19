@@ -15,6 +15,7 @@ mkdir -p "$ROOT/skills/swarmhub-coding/scripts" || exit 1
 cp "$JOB" "$ROOT/skills/swarmhub-coding/scripts/code-job" || exit 1
 cp "$(dirname "$JOB")/completion-contract.py" "$ROOT/skills/swarmhub-coding/scripts/completion-contract.py" || exit 1
 cp "$(dirname "$JOB")/verify-sandbox.py" "$ROOT/skills/swarmhub-coding/scripts/verify-sandbox.py" || exit 1
+cp "$(dirname "$JOB")/verify_signals.py" "$ROOT/skills/swarmhub-coding/scripts/verify_signals.py" || exit 1
 JOB=$ROOT/skills/swarmhub-coding/scripts/code-job
 # Claude Code only runs for a managed task (--task-id) that the control interface's check-job accepted. The real
 # check-job (owner gate for claude orders) is covered by sim/test_fixes6_policy.py; this stand-in accepts the fixture
@@ -360,6 +361,7 @@ expect "unverified reason on stderr" has "$C/err" "code-job: unverified: fresh r
 expect "status unverified" [ "$(rec status)" = unverified ]
 expect "evidence none" [ "$(rec evidence)" = none ]
 expect "tests not-run" [ "$(rec tests-passed)" = not-run ]
+expect "verify mode - when nothing ran" [ "$(rec verify-mode)" = - ]
 expect "not a repo" [ "$(rec commit-evidence)" = not-a-repo ]
 expect "report-valid true" [ "$(rec report-valid)" = true ]
 expect "cli-exit 0" [ "$(rec cli-exit)" = 0 ]
@@ -422,6 +424,11 @@ expect "tests true" [ "$(rec tests-passed)" = true ]
 expect "verify exit 0" [ "$(rec verify-exit)" = 0 ]
 expect "verify ran in --dir" [ "$(cat "$C/work/verify.pwd")" = "$(cd "$C/work" && pwd -P)" ]
 expect "no verify output kept" [ ! -f "$C/home/.hermes/swarmhub/job-completions/verify" ]
+# The launcher's isolation mode is part of the record (fixes7): a known word, written out of the verifier's reach.
+vm=$(rec verify-mode)
+case $vm in namespaced|fallback|seatbelt) ;; *) PROBLEMS="$PROBLEMS; verify mode recorded (got '$vm')" ;; esac
+[ "$vm" = fallback ] && expect "limited mode said on stderr" has "$C/err" "verification ran in the limited sandbox"
+[ "$vm" = fallback ] || expect "no limited-mode line when namespaced" lacks "$C/err" "limited sandbox"
 mode codex quiet
 CASE_VERIFY='true'; job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?; unset CASE_VERIFY
 expect "empty work still 65 before any evidence (got $RC)" [ "$RC" -eq 65 ]

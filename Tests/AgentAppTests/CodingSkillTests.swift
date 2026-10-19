@@ -36,7 +36,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(description.hasPrefix("Use for any coding task") && description.contains("supersedes the claude-code, codex and opencode skills")
             && description.hasSuffix("Installed by SwarmHub, v{{VERSION}}."))
     let script = try #require(skill.files.first { $0.path == "scripts/code-job" })
-    #expect(skill.files.map(\.path) == ["scripts/code-job", "scripts/completion-contract.py", "scripts/swarmhub-claude-login", "scripts/verify-sandbox.py"] && script.isExecutable && script.content.hasPrefix("#!/bin/sh\n"))
+    #expect(skill.files.map(\.path) == ["scripts/code-job", "scripts/completion-contract.py", "scripts/swarmhub-claude-login", "scripts/verify-sandbox.py", "scripts/verify_signals.py"] && script.isExecutable && script.content.hasPrefix("#!/bin/sh\n"))
     // POSIX only: none of the tools the brief rules out, no bash-only syntax.
     #expect(script.content.range(of: #"(?m)(^|[;&|(]|then|do)\s*(timeout|flock|setsid|local)\s"#, options: .regularExpression) == nil)
     for banned in ["[[ ", "function ", "<(", "$'", "pipefail", "#!/bin/bash", "declare ", "source "] {
@@ -75,7 +75,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let script = try #require(try codingSkill().files.first { $0.path == "scripts/code-job" })
     #expect(text.contains("mkdir -p \(folder) \(folder)/scripts\n"))
     #expect(text.contains("cat > \(folder)/scripts/code-job <<'SWARMHUB_EOF'\n\(script.content)SWARMHUB_EOF\ncat > \(folder)/scripts/completion-contract.py <<'SWARMHUB_EOF'\n"))
-    #expect(text.contains("chmod 755 \(folder)/scripts/code-job \(folder)/scripts/completion-contract.py \(folder)/scripts/swarmhub-claude-login \(folder)/scripts/verify-sandbox.py\n"))
+    #expect(text.contains("chmod 755 \(folder)/scripts/code-job \(folder)/scripts/completion-contract.py \(folder)/scripts/swarmhub-claude-login \(folder)/scripts/verify-sandbox.py \(folder)/scripts/verify_signals.py\n"))
     #expect(text.contains("--order codex,claude,hermes"))
     #expect(text.contains(#"{"name":"swarmhub-coding","version":"1.3.3","variant":"codex,claude,hermes"}"#))
 }

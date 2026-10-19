@@ -169,6 +169,12 @@ def bot_msg():
     return Path(__file__).with_name("bot-msg")
 
 
+# verify-sandbox.py's mode without a usable user namespace (verify-mode "fallback"): still fail-closed, less isolated.
+LIMITED_SANDBOX = ("Verification sandbox: limited (no user namespace): .git read-only entry by entry; no new top-level "
+                   "workspace entries; signals only to the verifier's own processes; shared memory through the host's "
+                   "/dev/shm by name.")
+
+
 def evidence_lines(job):
     """What code-job itself verified on disk versus what nobody has checked; never the report text."""
     def field(key, default="-"):
@@ -184,19 +190,25 @@ def evidence_lines(job):
     else:
         unverified.append({"not-a-repo": "commit (directory is not a git repository)", "false": "commit (HEAD unchanged)"}
                           .get(commit, "commit (not checked)"))
-    tests, command = field("tests-passed"), field("verify-command", "")
+    tests, command, mode = field("tests-passed"), field("verify-command", ""), field("verify-mode")
+    limited = " in the limited sandbox" if mode == "fallback" else ""
     if tests == "true":
-        verified.append(f"verification command exit 0 ({command})")
+        verified.append(f"verification command exit 0{limited} ({command})")
+    elif tests == "false" and field("verify-exit") == "77":
+        unverified.append(f"verification (the sandbox refused to start on this host, exit 77: {command})")
     elif tests == "false":
-        unverified.append(f"verification command exit {field('verify-exit')} ({command})")
+        unverified.append(f"verification command exit {field('verify-exit')}{limited} ({command})")
     else:
         unverified.append(f"tests (verification configured but not run: {command})" if command
                           else "tests (no verification command configured)")
     if field("cli-exit") == "not-run":
         unverified.append("any CLI work (no coding CLI ran)")
     unverified.append("correctness of the report and of the work itself")
-    return ("Verified by code-job: " + ("; ".join(verified) or "nothing") + ".\n"
+    text = ("Verified by code-job: " + ("; ".join(verified) or "nothing") + ".\n"
             "Unverified: " + "; ".join(unverified) + ".\n")
+    if mode == "fallback":
+        text += LIMITED_SANDBOX + "\n"
+    return text
 
 
 def retry_once():

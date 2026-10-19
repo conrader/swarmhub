@@ -85,8 +85,13 @@ repository metadata (`.git`, a worktree's gitdir) is read-only for the verifier,
 libseccomp; with unprivileged user namespaces the verifier also gets a private mount/PID namespace (read-only `.git`
 bind, private /proc and /dev/shm, signals confined to the sandbox, AF_UNIX socketpairs allowed), so ordinary test
 commands work: `>/dev/null`, `git status`, node child processes, Python asyncio/multiprocessing/subprocess timeouts.
-Without user namespaces the workspace is granted entry by entry (new top-level entries and signals to other
-processes are denied). macOS uses sandbox-exec with a named Mach service allowlist (no pasteboard, LaunchServices,
+Without a usable user namespace (unshare refused, or unshare granted but mount denied as under Ubuntu's AppArmor
+`apparmor_restrict_unprivileged_userns`) the same commands work in the **limited mode**: the workspace is granted entry
+by entry (no new top-level entries), `kill`/`tkill`/`tgkill` are answered by the unconfined launcher and reach only
+the verifier's own process tree and groups (`verify_signals.py`; `kill -1`, the launcher and every host process get
+EPERM), and shared memory is the host's /dev/shm opened by name (no listing, no directories; not private). The launcher
+records the mode (`verify-mode`: `namespaced`, `fallback`, `seatbelt`) in the job record and the completion wake names
+the limited mode. If the limited mode cannot confine either, the verification is refused (exit 77). macOS uses sandbox-exec with a named Mach service allowlist (no pasteboard, LaunchServices,
 AppleEvents or keychain) and `.git` denied. Unsupported isolation fails the verification; there is no host-shell
 fallback. Managed coding tasks wait for the owner's decision unless the owner published `coding_gate: auto` (the
 sandboxed Codex route); an order that includes claude waits for the owner regardless. Additional host/network authority is not supported by this verifier and must not
