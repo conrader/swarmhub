@@ -36,8 +36,9 @@ import SwarmHubCoordination
         let (store, _, id) = try WorkflowInteractionTests().fixture()
         store.authorizeTeamWorkflow(id)
         store.bots[1].hermesProfile = "another-profile"
-        #expect(store.workflowMembers(try #require(store.workflows[id])).count == 1)
-        #expect(store.teamPolicyProblem(try #require(store.workflows[id]), botID: store.bots[1].id) != nil)
+        let workflow = try #require(store.workflows[id])
+        #expect(store.workflowMembers(workflow).count == 1)
+        #expect(store.teamPolicyProblem(workflow, botID: store.bots[1].id) != nil)
     }
 
     @Test func anotherDeviceCannotTakeOverByReauthorizing() throws {
@@ -106,9 +107,12 @@ import SwarmHubCoordination
     @Test func quietHoursUseLocalCivilTimeAcrossDST() throws {
         var reporting = TeamReporting(); reporting.timeZoneID = "Europe/Warsaw"; reporting.quietStartMinute = 22 * 60; reporting.quietEndMinute = 8 * 60
         let parser = ISO8601DateFormatter()
-        #expect(reporting.isQuiet(at: try #require(parser.date(from: "2026-10-25T00:30:00Z"))))
-        #expect(reporting.isQuiet(at: try #require(parser.date(from: "2026-10-25T01:30:00Z"))))
-        #expect(!reporting.isQuiet(at: try #require(parser.date(from: "2026-10-25T07:00:00Z"))))
+        let beforeFallback = try #require(parser.date(from: "2026-10-25T00:30:00Z"))
+        #expect(reporting.isQuiet(at: beforeFallback))
+        let afterFallback = try #require(parser.date(from: "2026-10-25T01:30:00Z"))
+        #expect(reporting.isQuiet(at: afterFallback))
+        let morning = try #require(parser.date(from: "2026-10-25T07:00:00Z"))
+        #expect(!reporting.isQuiet(at: morning))
     }
 
     @Test func speechUsesOnlyTheFinishedRealReply() {

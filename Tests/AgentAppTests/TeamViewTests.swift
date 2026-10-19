@@ -10,7 +10,8 @@ import Testing
         #expect(await HeadlessSetup.render(to: directory, only: "team", output: { _ in }) == 0)
         for name in ["team-uncertain", "team-project-context"] {
             let data = try Data(contentsOf: directory.appending(path: name + ".png"))
-            #expect(try #require(NSBitmapImageRep(data: data)).pixelsWide > 0 && data.count > 4_000)
+            let bitmap = try #require(NSBitmapImageRep(data: data))
+            #expect(bitmap.pixelsWide > 0 && data.count > 4_000)
         }
     }
 }

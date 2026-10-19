@@ -46,7 +46,9 @@ actor TeamRecoveryBackend: AgentBackend {
         #expect(store.workflows[id]?.tasks[0].delivery?.state == .uncertain)
         await store.recoverTeams()
         #expect(await backend.count() == 1, "Missing history cannot justify a resend")
-        #expect(!store.canReassignWorkflowTask(try #require(store.workflows[id]), task: try #require(store.workflows[id]?.tasks[0])))
+        let workflow = try #require(store.workflows[id])
+        let task = try #require(store.workflows[id]?.tasks[0])
+        #expect(!store.canReassignWorkflowTask(workflow, task: task))
         await backend.finishRemote()
         await store.recoverTeams()
         try await waitUntil { store.workflows[id]?.state == .completed }

@@ -99,7 +99,8 @@ private func runtimeRecord(status: String = "awaiting-coordinator", decided: Boo
     store.managedControl = { _, verb, task, input in
         #expect(task == taskID)
         if verb == "decide" {
-            let payload = try #require(try JSONSerialization.jsonObject(with: try #require(input)) as? [String: Any])
+            let input = try #require(input)
+            let payload = try #require(try JSONSerialization.jsonObject(with: input) as? [String: Any])
             #expect(payload["fingerprint"] as? String == record.fingerprint)
             #expect(payload["gate"] as? String == record.gate)
             runtime = runtimeRecord(status: "queued", decided: true)

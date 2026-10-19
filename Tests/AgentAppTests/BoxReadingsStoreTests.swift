@@ -87,7 +87,8 @@ private func turns(_ host: String) -> [(input: String, instructions: String)] {
     try await waitUntil { !store.anyTurnRunning && store.boxReadings(on: target).capacity?.slots == 2 }
     #expect(turns(chat).allSatisfy { $0.instructions.contains("( N=2; D=~/.hermes/swarmhub;") })
     #expect(jarvis.messages.first?.content == "Let this box run 2 coding jobs at a time." && store.managementExchanges[jarvis.id] == nil, "the block closes the exchange")
-    #expect(BoxCapacity(try #require(store.boxReadings(on: target).capacity)).line.hasSuffix("2 coding jobs at a time (set by you)"))
+    let capacity = try #require(store.boxReadings(on: target).capacity)
+    #expect(BoxCapacity(capacity).line.hasSuffix("2 coding jobs at a time (set by you)"))
 }
 
 @Test @MainActor func modelLogDoneAlsoRequestsModels() async throws {

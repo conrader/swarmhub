@@ -180,7 +180,8 @@ import Testing
     #expect(RoutineTime.isLater("2026-10-13T09:00:06.5+02:00", than: "2026-10-13T08:59:00+02:00"))
     #expect(!RoutineTime.isLater("2026-10-13T08:00:00+02:00", than: "2026-10-13T09:00:00+02:00"))
     #expect(RoutineTime.isLater("2026-10-13T08:00:00+02:00", than: ""))
-    #expect(RoutineTime.relative("2026-10-13T09:00:00+00:00", now: try #require(RoutineTime.date("2026-10-13T11:00:00+00:00"))) == "2 hours ago")
+    let now = try #require(RoutineTime.date("2026-10-13T11:00:00+00:00"))
+    #expect(RoutineTime.relative("2026-10-13T09:00:00+00:00", now: now) == "2 hours ago")
 
     var interval = jobPayload(id: "0123456789ab", name: "Pulse", enabled: false)
     interval["schedule"] = ["kind": "interval", "minutes": 30, "display": "every 30m"]

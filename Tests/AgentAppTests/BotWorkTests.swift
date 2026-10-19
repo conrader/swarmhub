@@ -220,5 +220,6 @@ final class WorkClock: @unchecked Sendable {
                        key: .init(bot: infra.id, target: "swarmhub-from-grok-jarvis"), start: clock.now)
     #expect(infra.messages.last?.isStreaming == true && !store.isWorking(infra))
     #expect(!store.isStreamingIn(infra), "the recipient's own chat still reconciles while the card is live")
-    #expect(HistoryReconciler.LocalRow(try #require(infra.messages.last)).isTextTurn == false, "never paired with the main session's turns")
+    let message = try #require(infra.messages.last)
+    #expect(HistoryReconciler.LocalRow(message).isTextTurn == false, "never paired with the main session's turns")
 }

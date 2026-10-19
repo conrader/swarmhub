@@ -52,11 +52,14 @@ private final class SleepGate: @unchecked Sendable {
     let manual = try #require(HermesJob.parse(row))
     #expect(manual.manualRunAt == "2026-10-15T20:03:01+02:00" && RoutineWatch.serverSaysRunning(manual))
     row["last_run_at"] = "2026-10-15T20:06:30+02:00"
-    #expect(!RoutineWatch.serverSaysRunning(try #require(HermesJob.parse(row))), "a manual run older than the last run is over")
+    let finished = try #require(HermesJob.parse(row))
+    #expect(!RoutineWatch.serverSaysRunning(finished), "a manual run older than the last run is over")
     row["manual_run_at"] = NSNull(); row["fire_claim"] = ["owner": "scheduler-1", "claimed_at": "2026-10-15T20:03:02+02:00"]
-    #expect(try #require(HermesJob.parse(row)).fireClaimed)
+    let claimed = try #require(HermesJob.parse(row))
+    #expect(claimed.fireClaimed)
     row["fire_claim"] = NSNull()
-    #expect(!(try #require(HermesJob.parse(row))).fireClaimed)
+    let unclaimed = try #require(HermesJob.parse(row))
+    #expect(!unclaimed.fireClaimed)
 }
 
 @Test @MainActor func aBotsCronStepRefreshesItsRoutines() async throws {

@@ -110,7 +110,8 @@ private func swarmHub(provision: @escaping @Sendable () -> (Int, Any) = { (200, 
     let (composio, session) = MockHermesProtocol.serve(composioHandler)
     let apps = ConnectedAppsStore(directory: temporaryStore().deletingLastPathComponent(), keyStore: keys, session: session, apiURL: URL(string: "https://\(composio)/api/v3.1/")!, provisioner: provisioner)
     #expect(await apps.connect("gmail") == nil && apps.retryToolkit == "gmail")
-    #expect(await apps.connect(try #require(apps.retryToolkit)) != nil)
+    let retryToolkit = try #require(apps.retryToolkit)
+    #expect(await apps.connect(retryToolkit) != nil)
     #expect(apps.retryToolkit == nil && apps.error == nil && apps.hasKey)
 }
 

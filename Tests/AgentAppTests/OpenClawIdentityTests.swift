@@ -24,11 +24,14 @@ private let nodeV2Signature = "9cCfRKUG1ts7z_aNshv0je9U0lyrV-nfYcqzIKWxZhnXiHUML
     #expect(DeviceAuthPayload.v3(vectorFields) == expectedV3)
     #expect(DeviceAuthPayload.v2(vectorFields) == expectedV2)
     let publicKey = try Curve25519.Signing.PublicKey(rawRepresentation: try #require(Base64URL.decode(identity.publicKey)))
-    #expect(publicKey.isValidSignature(try #require(Base64URL.decode(nodeV3Signature)), for: Data(expectedV3.utf8)), "Node's v3 signature verifies")
-    #expect(publicKey.isValidSignature(try #require(Base64URL.decode(nodeV2Signature)), for: Data(expectedV2.utf8)), "Node's v2 signature verifies")
-    #expect(!publicKey.isValidSignature(try #require(Base64URL.decode(nodeV3Signature)), for: Data(expectedV2.utf8)))
+    let decodedV3Signature = try #require(Base64URL.decode(nodeV3Signature))
+    #expect(publicKey.isValidSignature(decodedV3Signature, for: Data(expectedV3.utf8)), "Node's v3 signature verifies")
+    let decodedV2Signature = try #require(Base64URL.decode(nodeV2Signature))
+    #expect(publicKey.isValidSignature(decodedV2Signature, for: Data(expectedV2.utf8)), "Node's v2 signature verifies")
+    #expect(!publicKey.isValidSignature(decodedV3Signature, for: Data(expectedV2.utf8)))
     let ours = try identity.sign(expectedV3)
-    #expect(publicKey.isValidSignature(try #require(Base64URL.decode(ours)), for: Data(expectedV3.utf8)), "our own signature verifies")
+    let decodedOurs = try #require(Base64URL.decode(ours))
+    #expect(publicKey.isValidSignature(decodedOurs, for: Data(expectedV3.utf8)), "our own signature verifies")
     #expect(!ours.contains("=") && !ours.contains("+") && !ours.contains("/"), "base64url without padding")
 }
 

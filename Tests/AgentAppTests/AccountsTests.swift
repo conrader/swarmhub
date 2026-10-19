@@ -46,7 +46,8 @@ private let loggedIn = #"{"op":"accounts","claude":{"installed":true,"version":"
     let template = try #require(BotManagerText.recipe(.accounts))
     let status = try #require(CodingAccounts.statusInstructions(template: template))
     #expect(status.contains(#"op:"accounts""#) && status.contains("swarmhub block"))
-    #expect(try #require(CodingAccounts.installInstructions(template: template)).contains("npm install -g --prefix ~/.local @anthropic-ai/claude-code @openai/codex"))
+    let install = try #require(CodingAccounts.installInstructions(template: template))
+    #expect(install.contains("npm install -g --prefix ~/.local @anthropic-ai/claude-code @openai/codex"))
     let codex = try #require(CodingAccounts.loginInstructions(.codex, template: template))
     #expect(codex.contains("T=codex;") && codex.contains("background process") && !codex.contains("<tool>") && !codex.contains("SWARMHUB_EOF"))
     #expect(CodingAccounts.loginInstructions(.claude, template: template, script: nil) == nil, "Claude needs the script")
@@ -58,7 +59,8 @@ private let loggedIn = #"{"op":"accounts","claude":{"installed":true,"version":"
     #expect(code.contains("swarmhub-claude-login code 'good-code#st8'") && code.contains("Never repeat"))
     for bad in ["short", "has space here", "quote'here12", "semi;colon12", "$(reboot)xyz"] { #expect(CodingAccounts.codeInstructions(bad, template: template) == nil, "\(bad)") }
     #expect(CodingAccounts.logoutInstructions(.chatgpt, template: template) == nil, "the pool is shared by every bot: no log out")
-    #expect(try #require(CodingAccounts.logoutInstructions(.codex, template: template)).contains("case codex in"))
+    let logout = try #require(CodingAccounts.logoutInstructions(.codex, template: template))
+    #expect(logout.contains("case codex in"))
 }
 
 // MARK: State machine

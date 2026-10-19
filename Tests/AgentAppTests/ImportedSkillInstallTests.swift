@@ -71,9 +71,11 @@ private func sentInstructions(_ host: String) -> [String] {
     let block = "```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"travel\",\"skills\":[{\"name\":\"getting-started\",\"version\":\"1.0.0\"}]}\n```"
     let (store, _, travel, host) = importedStore(replies: [block])
     #expect(store.importedSkills(for: travel).map(\.name) == ["Travel Planner", "Getting started"])
-    #expect(store.installImportedSkill(try #require(travel.gettingStartedSkill), on: travel))
+    let skill = try #require(travel.gettingStartedSkill)
+    #expect(store.installImportedSkill(skill, on: travel))
     try await waitUntil { !store.anyTurnRunning && travel.gettingStartedSkill?.isEnabled == true }
-    #expect(try #require(sentInstructions(host).first).contains("skills/imported/getting-started/SKILL.md"))
+    let instructions = try #require(sentInstructions(host).first)
+    #expect(instructions.contains("skills/imported/getting-started/SKILL.md"))
     #expect(travel.importedSkills[0].isEnabled == false)
 }
 

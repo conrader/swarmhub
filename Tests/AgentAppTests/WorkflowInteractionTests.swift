@@ -229,7 +229,8 @@ actor ReportThenDisconnectBackend: AgentBackend {
     #expect(await HeadlessSetup.render(to: directory, only: "p38e", output: { lines.append($0) }) == 0, "\(lines)")
     for name in HeadlessP38EShots.names {
         let data = try Data(contentsOf: directory.appending(path: "\(name).png"))
-        #expect(try #require(NSBitmapImageRep(data: data)).pixelsWide > 0 && data.count > 4_000, "\(name) looks blank")
+        let bitmap = try #require(NSBitmapImageRep(data: data))
+        #expect(bitmap.pixelsWide > 0 && data.count > 4_000, "\(name) looks blank")
     }
     #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == HeadlessP38EShots.names.count, "only the P38 E shots")
 }

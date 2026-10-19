@@ -20,7 +20,8 @@ import Testing
         store.connectedApps.localApprovals[approval.id] = .chat
         let first = try #require(store.teamAppReview(approval, bot: bot))
         approval.command = #"{"app":"fixture","tool":"FIXTURE_READ","account":"fixture-account","arguments":{"target":"b"}}"#
-        #expect(try #require(store.teamAppReview(approval, bot: bot)).2 != first.2)
+        let changed = try #require(store.teamAppReview(approval, bot: bot))
+        #expect(changed.2 != first.2)
         approval.command = #"{"app":"fixture","tool":"FIXTURE_READ","account":"different-account","arguments":{"target":"a"}}"#
         #expect(store.teamAppReview(approval, bot: bot) == nil)
         approval.command = #"{"app":"fixture","tool":"FIXTURE_WRITE","account":"fixture-account","arguments":{"target":"a"}}"#

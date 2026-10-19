@@ -42,7 +42,8 @@ private func steps(_ previews: String?...) -> [ToolStep] { previews.map { ToolSt
     // The turn's own feature check reads capabilities once; the refresh adds one read per bot.
     try await waitUntil { !store.anyTurnRunning && capabilityReads(host) >= 3 }
     #expect(!reads(host).contains { $0.hasSuffix("/v1/skills") }, "skills are not read")
-    #expect(store.refreshModelsAfterRecipe(try #require(jarvis.messages.last), from: jarvis, in: jarvis).map(\.id) == [jarvis.id, mira.id])
+    let reply = try #require(jarvis.messages.last)
+    #expect(store.refreshModelsAfterRecipe(reply, from: jarvis, in: jarvis).map(\.id) == [jarvis.id, mira.id])
 }
 
 @Test @MainActor func anOrdinaryReplyRefreshesNothing() async throws {
