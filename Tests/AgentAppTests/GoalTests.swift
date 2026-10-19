@@ -266,6 +266,31 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
     #expect(goal.accepts(GoalEvidence(testsPassed: true, report: "/workspace/report.md"), reply: ""))
 }
 
+// Cross-review finding 8 and Codex issue B: the classification follows the requested action (change or build code
+// versus explain or describe it), so plain coding requests without a keyword noun are coding and explanations are not.
+@Test func plainGoalsAreClassifiedByTheRequestedAction() {
+    let coding = ["fix the failing build", "Refactor the parser", "open a pull request for it",
+                  "Add pagination to the users API", "Upgrade React to 19", "Write a Python scraper",
+                  "Can you fix the typo in the README", "Bump the Node version in CI", "Make the tests pass",
+                  "Port the CLI to TypeScript", "the login bug", "Add retry logic to the scraper and explain the approach"]
+    let general = ["Explain the result", "write the changelog", "summarize the meeting", "Explain this function",
+                   "Describe how the users API works", "Summarize the test results", "What does this script do?",
+                   "Write a blog post about Python", "Build a presentation for the board", "Draft the release notes",
+                   "Review the pull request and list concerns", "How do I fix the build?"]
+    for phrase in coding {
+        #expect(GoalProtocol.looksLikeCoding(phrase), "expected coding: \(phrase)")
+    }
+    for phrase in general {
+        #expect(!GoalProtocol.looksLikeCoding(phrase), "expected general: \(phrase)")
+    }
+    let explanation = GoalRun(text: "Explain this function", maxRounds: 2, startedAt: Date(), maxDuration: 60)
+    #expect(!explanation.requiresCodingEvidence)
+    #expect(explanation.accepts(GoalEvidence(), reply: "It parses the header and returns the fields."))
+    let upgrade = GoalRun(text: "Upgrade React to 19", maxRounds: 2, startedAt: Date(), maxDuration: 60)
+    #expect(upgrade.requiresCodingEvidence)
+    #expect(!upgrade.accepts(GoalEvidence(), reply: "Upgraded."))
+}
+
 // Cross-review finding 8: a plain /goal whose text changes code is held to the coding evidence contract; --general opts out.
 @Test func codingLikeGoalsRequireEvidenceUnlessMarkedGeneral() {
     #expect(GoalProtocol.looksLikeCoding("fix the failing build") && GoalProtocol.looksLikeCoding("Refactor the parser") && GoalProtocol.looksLikeCoding("open a pull request for it"))

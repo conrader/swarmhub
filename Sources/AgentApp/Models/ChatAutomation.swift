@@ -111,16 +111,53 @@ enum GoalProtocol {
     /// How many times a `done` without evidence is sent back before the goal is blocked for you.
     static let maxEvidenceRounds = 2
 
-    /// Words that mean the goal changes code; such a goal is held to the coding evidence contract unless started
-    /// `--general`. Deliberately narrow: "write the changelog" or "explain the result" stay general.
-    static let codingWords: Set<String> = ["fix", "bug", "bugs", "implement", "refactor", "rewrite", "code", "repo", "repository",
-                                           "commit", "merge", "branch", "pr", "test", "tests", "build", "compile", "ci", "lint",
-                                           "migration", "migrate", "script", "function", "endpoint", "patch", "debug", "typecheck"]
+    /// Cross-review issue B: a plain goal is classified by the requested action, not by nouns alone. Asking to change
+    /// or build something that names a code object is coding; explaining, describing or reviewing it is general even
+    /// when the same nouns appear. The first recognised verb decides; words after "about"/"regarding" are the topic
+    /// of prose ("a blog post about Python"), not the object of the work.
+    static let explainVerbs: Set<String> = ["explain", "describe", "summarize", "summarise", "document", "outline", "review",
+                                            "compare", "analyze", "analyse", "assess", "evaluate", "research", "list", "tell",
+                                            "teach", "walk", "clarify", "read", "recap", "what", "why", "how", "which", "who",
+                                            "when", "where", "is", "are", "does"]
+    /// Actions that change or build. Alone they are not coding ("build a presentation", "write the changelog"): a
+    /// code noun must follow them.
+    static let changeVerbs: Set<String> = ["add", "fix", "write", "upgrade", "update", "bump", "build", "create", "remove",
+                                           "delete", "rename", "port", "convert", "optimize", "optimise", "replace", "integrate",
+                                           "set", "configure", "make", "run", "ship", "release", "deploy", "open", "land", "revert",
+                                           "install", "pin", "drop", "enable", "disable", "improve", "finish", "clean", "split",
+                                           "move", "change", "modify", "stop", "prevent", "handle", "support", "wire", "extract",
+                                           "generate", "migrate", "merge", "test", "address"]
+    /// Actions that only make sense for code: coding whether or not an object is named.
+    static let codingOnlyVerbs: Set<String> = ["implement", "refactor", "rewrite", "debug", "patch", "compile", "lint", "typecheck",
+                                               "commit", "rebase", "backport", "scaffold", "deduplicate"]
+    /// Objects of coding work. Deliberately no plain product words: "the changelog", "the meeting", "a presentation".
+    static let codeNouns: Set<String> = ["bug", "bugs", "code", "codebase", "repo", "repository", "commit", "commits", "branch", "pr",
+                                         "prs", "test", "tests", "build", "ci", "lint", "linter", "migration", "migrations", "script",
+                                         "scripts", "function", "functions", "endpoint", "endpoints", "api", "apis", "typecheck",
+                                         "react", "python", "javascript", "typescript", "swift", "swiftui", "rust", "java", "kotlin",
+                                         "node", "npm", "pip", "docker", "dockerfile", "kubernetes", "scraper", "crawler", "parser",
+                                         "compiler", "library", "package", "dependency", "dependencies", "module", "class", "method",
+                                         "schema", "database", "sql", "query", "route", "handler", "middleware", "component", "cli",
+                                         "sdk", "readme", "makefile", "config", "yaml", "json", "regex", "crash", "exception",
+                                         "traceback", "segfault", "xcode", "html", "css", "frontend", "backend", "server",
+                                         "deployment", "pipeline", "unittest", "pytest", "jest", "cargo", "gradle", "webpack",
+                                         "eslint", "mypy", "ruff"]
+    static let codePhrases = ["pull request", "stack trace", "unit test", "merge conflict", "type error", "compile error"]
 
     static func looksLikeCoding(_ text: String) -> Bool {
-        let lowered = text.lowercased()
-        let words = lowered.split { !($0.isLetter || $0.isNumber) }.map(String.init)
-        return words.contains { codingWords.contains($0) } || lowered.contains("pull request")
+        var words = text.lowercased().split { !($0.isLetter || $0.isNumber) }.map(String.init)
+        if let topic = words.firstIndex(where: { $0 == "about" || $0 == "regarding" }) {
+            words = Array(words[..<topic])
+        }
+        var objects = words[...]
+        if let action = words.firstIndex(where: { explainVerbs.contains($0) || changeVerbs.contains($0) || codingOnlyVerbs.contains($0) }) {
+            let verb = words[action]
+            if explainVerbs.contains(verb) { return false }
+            if codingOnlyVerbs.contains(verb) { return true }
+            objects = words[(action + 1)...]
+        }
+        let scope = objects.joined(separator: " ")
+        return objects.contains { codeNouns.contains($0) } || codePhrases.contains { scope.contains($0) }
     }
 
     /// The round that answers a `done` block without accepted evidence.
