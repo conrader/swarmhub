@@ -65,10 +65,10 @@ gateway with curl over loopback, so nothing in the suite can run without `socket
   `socket.socket().bind(("127.0.0.1", 0))`, it prints `SKIP: bot-msg tests under <shell>: no loopback socket in
   this environment (PermissionError: [Errno 1] Operation not permitted)` and exits **77**. Any other gateway start
   failure is still a `FAIL`.
-- Exit 77 is the usual "skipped" code (automake/meson). The Swift wrappers (`AccountsTests.swift`,
-  `BotMessageSkillTests.swift`) still require exit 0 and the exact `N passed, 0 failed` line, so a skip surfaces
-  there as a failure whose message is the `SKIP:` reason. They were not edited: no Swift toolchain on this box to
-  compile them, and the Mac they run on is not sandboxed.
+- Exit 77 is the usual "skipped" code (automake/meson). Update 2026-10-19 (macOS fixes pass): every shell-suite
+  wrapper now returns early when the suite exits 77 with a `SKIP:` line (`shellSuiteSkipped` in
+  `TestSupport.swift`), the same way a missing shell or node skips it; exit 0 and the exact `N passed, 0 failed`
+  line are still required otherwise. Not compiled here (no Swift toolchain on this box).
 
 ## Verification
 
@@ -81,8 +81,9 @@ gateway with curl over loopback, so nothing in the suite can run without `socket
 
 ## Not changed (for Konrad to decide)
 
-- The Accounts-status recipe in `Resources/BotManager/recipes/accounts.md` could pass
-  `stdio: ["ignore", "pipe", "pipe"]` to `execSync`, which avoids the `shutdown(2)` call and would make the status
-  read correct even under such a sandbox. Not applied: it is product text that Swift tests may pin, those tests
-  cannot be compiled here, and on the target boxes the current code is correct.
+- ~~The Accounts-status recipe could pass `stdio: ["ignore", "pipe", "pipe"]` to `execSync`.~~ Applied
+  2026-10-19 (macOS fixes pass): the recipe's version read now passes `stdio:["ignore","pipe","pipe"]`, and the
+  accounts-recipes preflight runs the same call shape. Under the seccomp replica (`SystemCallFilter=~shutdown`,
+  EPERM) the old call still fails with EPERM while the suite now runs and passes 6/6 instead of skipping; it also
+  passes 6/6 under `/bin/sh` and `/bin/dash` without the filter. No Swift test pins the recipe text (grep).
 - Swift tests were not run (no Swift here); the 1,327-test MacBook total remains unrevalidated, as in the Codex report.

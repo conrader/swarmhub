@@ -137,6 +137,12 @@ func runToEnd(_ process: Process) async throws -> (status: Int32, output: String
     }
 }
 
+/// A shell suite that cannot run on this box prints one `SKIP:` line and exits 77 (the automake/meson skip code)
+/// instead of running cases; its wrapper then passes without asserting counts, as it does when the shell is absent.
+func shellSuiteSkipped(_ status: Int32, _ output: String) -> Bool {
+    status == 77 && output.contains("SKIP:")
+}
+
 /// Hang ceiling for every test wait. Waits end on the awaited state or event, never on a timer; this only
 /// bounds a real hang, it is not an assertion. Under the parallel run on a loaded Mac (1-min load 8–20) waits
 /// that end fine took over 30 s, so it is very generous: a passing wait never comes near it.

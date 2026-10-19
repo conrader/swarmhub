@@ -25,17 +25,46 @@ spec.loader.exec_module(peer)
 
 
 def children_by_home(home):
-    """Pids of every other process whose environment HOME is ``home`` (Linux /proc)."""
-    marker = b"HOME=" + str(home).encode()
+    """Pids of every other process whose environment HOME is ``home``.
+
+    Linux reads ``/proc/<pid>/environ``. macOS has no /proc: one ``ps -E``
+    listing carries the environment of the caller's own processes after each
+    command. Elsewhere nothing is reported; a late supervisor still stops on
+    its own once the state folder is gone.
+    """
+    marker = "HOME=" + str(home)
+    if Path("/proc/self/environ").exists():
+        return _pids_by_home_proc(marker.encode(), os.getpid())
+    if sys.platform != "darwin":
+        return []
+    try:
+        listing = subprocess.run(["/bin/ps", "-axEww", "-o", "pid=,command="], capture_output=True,
+                                 text=True, timeout=10, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return _pids_by_home_ps(listing, marker, os.getpid())
+
+
+def _pids_by_home_proc(marker, me):
     found = []
     for entry in Path("/proc").iterdir():
-        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+        if not entry.name.isdigit() or int(entry.name) == me:
             continue
         try:
             if marker in (entry / "environ").read_bytes().split(b"\0"):
                 found.append(int(entry.name))
         except OSError:
             continue
+    return found
+
+
+def _pids_by_home_ps(listing, marker, me):
+    """``ps -E -o pid=,command=`` rows: pid, argv, then KEY=VALUE environment words."""
+    found = []
+    for line in listing.splitlines():
+        fields = line.split()
+        if len(fields) > 1 and fields[0].isdigit() and int(fields[0]) != me and marker in fields[1:]:
+            found.append(int(fields[0]))
     return found
 
 

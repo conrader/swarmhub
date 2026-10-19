@@ -162,3 +162,38 @@ app-side run tracking by connection and session. Both affected skills and the
 peer plugin are now **1.3.1**. The report test's permission check uses Python's
 portable mode bits. See the cross-review for current test counts and sandbox
 limits; Swift remains unavailable here. No Hermes changes or commit were made.
+
+## macOS fixes (2026-10-19)
+
+MacBook `swift test` (macOS, `/usr/bin/python3` = 3.9.6) had two failures;
+fixed uncommitted, on top of `464595f`:
+
+- `observedPatternManagedRuntimeReplay` for P01, P02, P03, P06 and P08:
+  `sim/test_peer_runtime.py`'s `children_by_home` iterated `/proc`, which macOS
+  lacks (`FileNotFoundError`). Discovery is now portable: Linux still reads
+  `/proc/<pid>/environ`; macOS reads one `ps -axEww -o pid=,command=` listing,
+  whose rows carry the caller's own processes' environment after the argv, and
+  matches the `HOME=<temp home>` word; other platforms report nothing (a late
+  supervisor exits on its own once the state folder is gone). The `ps` row
+  parser is a separate function checked here against a synthetic listing.
+- `codeJobShardsCoverEveryCaseOnce`: `code-job-test.sh` has 16 cases since the
+  cross-review; `codeJobShards` now ends `"10 11 12 13 14 15 16"` (case 16 is
+  quick: stderr-only output on exit 0).
+- Every shell-suite wrapper treats exit 77 with a `SKIP:` line as skipped
+  (`shellSuiteSkipped` in `TestSupport.swift`, early return like the missing
+  shell/node guards), and the Accounts-status recipe passes
+  `stdio:["ignore","pipe","pipe"]` to `execSync`; details in
+  [SHELL-TESTS-REPORT.md](SHELL-TESTS-REPORT.md).
+
+Verified here (Linux, Python 3.12.3; no Python 3.9 and no Swift on this box,
+and installing either would need network): `test_peer_runtime.py` 13/13,
+`test_patterns.py` 18/18, `live_observed.py --offline` for P01/P02/P03/P06/P08
+with the Swift test's environment all `matches` with 0 model calls, no
+`peer-runtime.py` process left behind; `code-job-test.sh` shard `10..16` 7/7;
+accounts-recipes 6/6 under `/bin/sh` and `/bin/dash`, and 6/6 under the seccomp
+replica that denies `shutdown(2)` where the old call still fails with EPERM. A
+static scan of all 23 Python files and python-shebang scripts under `sim/`,
+`Tests/Scripts/` and the skills found no 3.10+ constructs (match, union
+annotations, `zip(strict=)`, parenthesized `with`, 3.10+ stdlib keywords); the
+`ps -E` path and the Swift edits are not executed here and need the MacBook run.
+No Hermes files were touched; nothing was committed.

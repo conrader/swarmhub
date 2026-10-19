@@ -16,6 +16,7 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
     process.arguments = [repoRoot.appending(path: "Tests/Scripts/box-adopt-test.sh").path, repoRoot.appending(path: "Resources/BotManager/recipes/box.md").path]
     process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "BOX_SH": shell]
     let (status, output) = try await runToEnd(process)
+    if shellSuiteSkipped(status, output) { return }
     #expect(status == 0, "\(shell):\n\(output)")
     #expect(output.contains("box-adopt tests under \(shell): 11 passed, 0 failed"), "\(output)")
     #expect(!output.contains("FAIL"), "\(output)")

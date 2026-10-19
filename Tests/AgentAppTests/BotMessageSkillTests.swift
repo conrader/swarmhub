@@ -51,6 +51,7 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
     process.arguments = [repoRoot.appending(path: "Tests/Scripts/bot-msg-test.sh").path, repoRoot.appending(path: "Resources/Skills/swarmhub-messages/scripts/bot-msg").path]
     process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "BOT_MSG_SH": shell]
     let (status, output) = try await runToEnd(process)
+    if shellSuiteSkipped(status, output) { return }
     #expect(status == 0, "\(shell):\n\(output)")
     #expect(output.contains("bot-msg tests under \(shell): 14 passed, 0 failed"), "\(output)")
     #expect(!output.contains("FAIL"), "\(output)")
