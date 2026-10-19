@@ -1,0 +1,42 @@
+[
+  {
+    "name": "QA-health-followup-0",
+    "time": "2026-10-19T08:32:57.842831+00:00",
+    "http_status": 200,
+    "active_agents": 1,
+    "active_runs": 0,
+    "gateway_busy": true,
+    "updated_at": "2026-10-19T08:32:46.539194+00:00",
+    "last_heartbeat": "2026-10-19T08:32:57.840207+00:00"
+  },
+  {
+    "name": "QA-health-followup-1",
+    "time": "2026-10-19T08:32:58.846748+00:00",
+    "http_status": 200,
+    "active_agents": 1,
+    "active_runs": 0,
+    "gateway_busy": true,
+    "updated_at": "2026-10-19T08:32:46.539194+00:00",
+    "last_heartbeat": "2026-10-19T08:32:58.844501+00:00"
+  },
+  {
+    "name": "QA-health-followup-2",
+    "time": "2026-10-19T08:32:59.850720+00:00",
+    "http_status": 200,
+    "active_agents": 1,
+    "active_runs": 0,
+    "gateway_busy": true,
+    "updated_at": "2026-10-19T08:32:46.539194+00:00",
+    "last_heartbeat": "2026-10-19T08:32:59.848257+00:00"
+  },
+  {
+    "name": "QA-health-followup-3",
+    "time": "2026-10-19T08:33:00.855100+00:00",
+    "http_status": 200,
+    "active_agents": 1,
+    "active_runs": 0,
+    "gateway_busy": true,
+    "updated_at": "2026-10-19T08:32:46.539194+00:00",
+    "last_heartbeat": "2026-10-19T08:33:00.852217+00:00"
+  }
+]

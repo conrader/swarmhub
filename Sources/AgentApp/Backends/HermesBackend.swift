@@ -11,15 +11,25 @@ private actor HermesRunRegistry {
     }
 }
 
-/// Forwards stream events and remembers whether a terminal one (`.completed` or `.failed`) went out.
+/// Remembers terminal events and the latest failure diagnostic; failure blocks later success.
 final class EventSink: @unchecked Sendable {
     private let continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation
-    private let lock = NSLock(); private var terminal = false
+    private let lock = NSLock(); private var terminal = false; private var failure: String?
     init(_ continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation) { self.continuation = continuation }
     var sawTerminal: Bool { lock.withLock { terminal } }
+    var failureReason: String? { lock.withLock { failure } }
     func yield(_ event: AgentEvent) {
-        switch event { case .completed, .failed: lock.withLock { terminal = true }; default: break }
-        continuation.yield(event)
+        let forward = lock.withLock {
+            switch event {
+            case .completed:
+                guard failure == nil else { return false }
+                terminal = true
+            case .failed(let reason): terminal = true; failure = reason
+            default: break
+            }
+            return true
+        }
+        if forward { continuation.yield(event) }
     }
 }
 
@@ -313,7 +323,7 @@ struct HermesBackend: AgentBackend {
         return sseStream(urlRequest, sessionID: request.sessionID, legacy: true)
     }
 
-    /// The chat stream. A turn ends only with a terminal event (`assistant.completed`, `run.completed`, the box's `error` /
+    /// The chat stream. A turn ends only with a terminal result (successful `assistant.completed` / `run.completed`, `error` /
     /// `run.failed`, legacy `[DONE]` or a failed finish chunk); EOF without one throws `StreamBreak(delivered: true)`, so
     /// does any error after the headers. An error before them is `StreamBreak(delivered: false)`; HTTP status errors stay
     /// `BackendError.http` and cancellation stays cancellation. Headers must arrive within the open deadline.
@@ -336,7 +346,7 @@ struct HermesBackend: AgentBackend {
                             do { (bytes, response) = try await session.bytes(for: request, delegate: probe) }
                             catch let error as URLError where error.code != .cancelled { throw StreamBreak(delivered: false, underlying: error, requestStarted: probe.requestStarted) }
                             probe.opened()
-                            try validate(response)
+                            try await validateStreamResponse(response, bytes: bytes)
                             try await readEvents(bytes, sessionID: sessionID, legacy: legacy, token: streamToken, sink: sink)
                             return true
                         }
@@ -373,7 +383,7 @@ struct HermesBackend: AgentBackend {
                 if line.hasPrefix("event:") { eventName = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces); continue }
                 guard line.hasPrefix("data:") else { continue }
                 let text = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                if text == "[DONE]" { sink.yield(.completed); return }
+                if text == "[DONE]" { if !sink.sawTerminal { sink.yield(.completed) }; return }
                 guard let data = text.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
                 if let runID = json["run_id"] as? String { await HermesRunRegistry.shared.set(runID, for: sessionID, token: token) }
                 HermesStreamTap.shared.record(legacy ? "legacy:\(eventName)" : eventName, json)
@@ -391,10 +401,12 @@ struct HermesBackend: AgentBackend {
 
     private func parseLegacy(_ event: String, _ json: [String: Any], _ continuation: EventSink) {
         if event == "hermes.tool.progress" { continuation.yield(.tool(legacyTool(json))); return }
-        if event == "hermes.failed" { continuation.yield(.failed(json["error"] as? String ?? json["message"] as? String ?? "Hermes run failed.")); return }
+        if event == "hermes.failed" { continuation.yield(.failed(failureMessage(json))); return }
         let choice = (json["choices"] as? [[String: Any]])?.first
         if let delta = choice?["delta"] as? [String: Any], let content = delta["content"] as? String { continuation.yield(.token(content)) }
-        if (choice?["finish_reason"] as? String) == "error" { continuation.yield(.failed("Hermes ended the reply with an error.")) }
+        if (choice?["finish_reason"] as? String) == "error" || Self.resultFailed(json) || json["error"] is [String: Any] || json["error"] is String {
+            continuation.yield(.failed(failureMessage(json, fallback: "Hermes ended the reply with an error.")))
+        }
     }
 
     private func parseNative(_ event: String, _ json: [String: Any], _ continuation: EventSink, emittedAssistantDelta: inout Bool, children: inout ChildTaskCorrelation) {
@@ -406,7 +418,9 @@ struct HermesBackend: AgentBackend {
         case "assistant.completed":
             if !emittedAssistantDelta, let content = json["content"] as? String, !content.isEmpty { continuation.yield(.token(content)) }
             if let text = json["pending_steer"] as? String, !text.isEmpty { continuation.yield(.steer(.returned(text))) }
-            continuation.yield(.completed)
+            if Self.resultFailed(json) {
+                continuation.yield(.failed(failureMessage(json, fallback: continuation.failureReason ?? json["content"] as? String ?? "Hermes did not complete the reply.")))
+            } else { continuation.yield(.completed) }
         case "approval.request":
             // v0.21.7 emits `command` at the top level. Pollable run status and some
             // compatible gateways wrap the same approval object, so inspect those too.
@@ -433,12 +447,13 @@ struct HermesBackend: AgentBackend {
             continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command ?? displayCommandSource?.0 ?? "Command unknown", draft: nil, command: command, runID: runID, requestID: requestID, actionKind: actionKind)))
         case "run.completed":
             if let text = json["pending_steer"] as? String, !text.isEmpty { continuation.yield(.steer(.returned(text))) }
-            continuation.yield(.completed)
+            if Self.resultFailed(json) { continuation.yield(.failed(failureMessage(json, fallback: continuation.failureReason ?? "Hermes did not complete the reply."))) }
+            else { continuation.yield(.completed) }
         // P28: the box queued a steer for this run (it lands after the current tool batch).
         case "run.steered": continuation.yield(.steer(.accepted))
         // The box closed the run without a full answer (another client's Stop); the reconcile reads what it kept.
         case "run.cancelled": continuation.yield(.failed("The box cancelled this run."))
-        case "run.failed", "error": continuation.yield(.failed(json["error"] as? String ?? json["message"] as? String ?? "Hermes run failed."))
+        case "run.failed", "error": continuation.yield(.failed(failureMessage(json, fallback: continuation.failureReason ?? "Hermes run failed.")))
         default: break
         }
     }
@@ -478,9 +493,9 @@ struct HermesBackend: AgentBackend {
     func validate(_ response: URLResponse, data: Data = Data()) throws {
         guard let http = response as? HTTPURLResponse else { throw BackendError.unavailable("Hermes returned no HTTP response.") }
         guard (200..<300).contains(http.statusCode) else {
-            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]; let nested = json?["error"] as? [String: Any]
-            let message = nested?["message"] as? String ?? json?["detail"] as? String ?? json?["error"] as? String ?? String(data: data, encoding: .utf8) ?? "Hermes rejected the request."
-            throw BackendError.http(http.statusCode, message)
+            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let message = json.flatMap { errorDetail($0) } ?? String(decoding: data, as: UTF8.self)
+            throw BackendError.http(http.statusCode, diagnosticText(message, fallback: "Hermes rejected the request."))
         }
     }
 }

@@ -76,8 +76,8 @@ extension AppStore {
             }
         }
         if Task.isCancelled { throw CancellationError() }
-        if completed { return .completed }
         if let boxFailure { return .failedByBox(boxFailure) }
+        if completed { return .completed }
         return .endedWithoutTerminal
     }
 
@@ -101,8 +101,10 @@ extension AppStore {
         default: break
         }
         if warn, let reason = outcome.reason {
-            let text: String
-            if case .error(let error) = end { text = BotInfoCache.describe(error, key: key) } else { text = key.isEmpty ? reason : reason.replacingOccurrences(of: key, with: "[key]") }
+            // Hermes filters its HTTP diagnostics at the transport boundary. Preserve
+            // that detail here too, including authentication error codes.
+            var text = key.isEmpty ? reason : reason.replacingOccurrences(of: key, with: "[key]")
+            if case .error(let error) = end, !(activeBackend is HermesBackend) { text = BotInfoCache.describe(error, key: key) }
             addWarning("\(bot.name): \(text)", in: conversation, after: assistant)
         }
         if case .stopsRest = outcome.round { turns.failureStreak += 1 } else if outcome.state == .finished { noteBoxSuccess() }

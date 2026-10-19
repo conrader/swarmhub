@@ -1,0 +1,20 @@
+{
+  "name": "QA-source-provenance",
+  "swarmhub_commit": "2bc145c99581165846951d13b3d21b5105083c4b",
+  "hermes_commit": "eea83bb603c397396acaf6cc453cf3012a8524aa",
+  "sha256": {
+    "Sources/AgentApp/Backends/HermesBackend.swift": "4aea1a0614a5f2a3f2b8d58c2bbdd84c3acd331d9c20b343448dc97a0123b0ae",
+    "Sources/AgentApp/Stores/AppStore+Turns.swift": "db533294445633c9a3ae461b2c875b565457f512fc817cd55e6fc06cc736cfbb",
+    "Sources/AgentApp/Models/TurnState.swift": "014a817198c78c538aba0f1b1ab9370cfea902f78847254fb7544903b9a4df06",
+    "sim/live_transport.py": "8fce2832601c048f1076319d87b712dacdc2e747e5b8d41c52a64f2b679f7a9a",
+    "sim/test_live_transport.py": "8c9f3d3efde368b8d20f0e3300d61ac0c961bc9a0b759ed76d814257c55f0931"
+  },
+  "hermes_sha256": {
+    "gateway/platforms/api_server.py": "71ac56c28683aa6b935a432b58e5bfe3753492363ef2cf9f8853b121d0e8214f",
+    "gateway/platforms/api_server_openai_routes.py": "63bfae2509fe84db7fa6c48daef18dfbac544f848e5f19516e8e2511ab70228d",
+    "gateway/platforms/api_server_runs.py": "a9c3b02e51407ca30fc948753149984c0ec75dcc047763cf75a356c1baaba466"
+  },
+  "secret_scan_files": 12,
+  "loaded_key_occurrences": 0,
+  "swift_executed": false
+}

@@ -1,0 +1,3130 @@
+{
+  "run": "QA-LIVE1-20261019T082948-0c58c0",
+  "time": "2026-10-19T08:29:49.975761+00:00",
+  "endpoint": "http://127.0.0.1:8742",
+  "model": "hermes-qa-swarmhub",
+  "scope": "direct real Hermes transport; app behavior is source review only",
+  "results": [
+    {
+      "name": "QA-auth-models-missing",
+      "status": "PASS",
+      "detail": "Expected HTTP 401; observed 401",
+      "evidence": "QA-auth-models-missing"
+    },
+    {
+      "name": "QA-auth-models-wrong",
+      "status": "PASS",
+      "detail": "Expected HTTP 401; observed 401",
+      "evidence": "QA-auth-models-wrong"
+    },
+    {
+      "name": "QA-auth-capabilities-missing",
+      "status": "PASS",
+      "detail": "Expected HTTP 401; observed 401",
+      "evidence": "QA-auth-capabilities-missing"
+    },
+    {
+      "name": "QA-auth-capabilities-wrong",
+      "status": "PASS",
+      "detail": "Expected HTTP 401; observed 401",
+      "evidence": "QA-auth-capabilities-wrong"
+    },
+    {
+      "name": "QA-auth-session-missing",
+      "status": "PASS",
+      "detail": "Expected HTTP 401; observed 401",
+      "evidence": "QA-auth-session-missing"
+    },
+    {
+      "name": "QA-auth-session-wrong",
+      "status": "PASS",
+      "detail": "Expected HTTP 401; observed 401",
+      "evidence": "QA-auth-session-wrong"
+    },
+    {
+      "name": "QA-health-public",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-health-public"
+    },
+    {
+      "name": "QA-health-detailed",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-health-detailed"
+    },
+    {
+      "name": "QA-models-valid",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-models-valid"
+    },
+    {
+      "name": "QA-model-listed",
+      "status": "PASS",
+      "detail": "Configured QA model is advertised",
+      "evidence": "QA-models-valid"
+    },
+    {
+      "name": "QA-capabilities",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-capabilities"
+    },
+    {
+      "name": "QA-native-selected",
+      "status": "PASS",
+      "detail": "HermesBackend.transport() selects nativeSessions",
+      "evidence": "QA-capabilities"
+    },
+    {
+      "name": "QA-auth-chat-missing",
+      "status": "PASS",
+      "detail": "Expected HTTP 401; observed 401",
+      "evidence": "QA-auth-chat-missing"
+    },
+    {
+      "name": "QA-auth-create-missing",
+      "status": "PASS",
+      "detail": "Expected HTTP 401; observed 401",
+      "evidence": "QA-auth-create-missing"
+    },
+    {
+      "name": "QA-auth-chat-wrong",
+      "status": "PASS",
+      "detail": "Expected HTTP 401; observed 401",
+      "evidence": "QA-auth-chat-wrong"
+    },
+    {
+      "name": "QA-auth-create-wrong",
+      "status": "PASS",
+      "detail": "Expected HTTP 401; observed 401",
+      "evidence": "QA-auth-create-wrong"
+    },
+    {
+      "name": "QA-missing-route",
+      "status": "PASS",
+      "detail": "Expected HTTP 404; observed 404",
+      "evidence": "QA-missing-route"
+    },
+    {
+      "name": "QA-wrong-method",
+      "status": "PASS",
+      "detail": "Expected HTTP 405; observed 405",
+      "evidence": "QA-wrong-method"
+    },
+    {
+      "name": "QA-missing-session",
+      "status": "PASS",
+      "detail": "Expected HTTP 404; observed 404",
+      "evidence": "QA-missing-session"
+    },
+    {
+      "name": "QA-create-native",
+      "status": "PASS",
+      "detail": "Expected HTTP 201; observed 201",
+      "evidence": "QA-create-native"
+    },
+    {
+      "name": "QA-identity-native",
+      "status": "PASS",
+      "detail": "Session preserves exact QA ID and title",
+      "evidence": "QA-create-native"
+    },
+    {
+      "name": "QA-duplicate-session",
+      "status": "PASS",
+      "detail": "Expected HTTP 409; observed 409",
+      "evidence": "QA-duplicate-session"
+    },
+    {
+      "name": "QA-legacy-malformed-broken-json",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-legacy-malformed-broken-json"
+    },
+    {
+      "name": "QA-native-malformed-broken-json",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-native-malformed-broken-json"
+    },
+    {
+      "name": "QA-legacy-malformed-empty-object",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-legacy-malformed-empty-object"
+    },
+    {
+      "name": "QA-native-malformed-empty-object",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-native-malformed-empty-object"
+    },
+    {
+      "name": "QA-legacy-malformed-empty-messages",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-legacy-malformed-empty-messages"
+    },
+    {
+      "name": "QA-native-malformed-empty-messages",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-native-malformed-empty-messages"
+    },
+    {
+      "name": "QA-legacy-malformed-invalid-message",
+      "status": "FAIL",
+      "detail": "Expected HTTP 400; observed 500",
+      "evidence": "QA-legacy-malformed-invalid-message"
+    },
+    {
+      "name": "QA-native-malformed-invalid-message",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-native-malformed-invalid-message"
+    },
+    {
+      "name": "QA-legacy-malformed-array",
+      "status": "FAIL",
+      "detail": "Expected HTTP 400; observed 500",
+      "evidence": "QA-legacy-malformed-array"
+    },
+    {
+      "name": "QA-native-malformed-array",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-native-malformed-array"
+    },
+    {
+      "name": "QA-legacy-malformed-null",
+      "status": "FAIL",
+      "detail": "Expected HTTP 400; observed 500",
+      "evidence": "QA-legacy-malformed-null"
+    },
+    {
+      "name": "QA-native-malformed-null",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-native-malformed-null"
+    },
+    {
+      "name": "QA-legacy-malformed-scalar",
+      "status": "FAIL",
+      "detail": "Expected HTTP 400; observed 500",
+      "evidence": "QA-legacy-malformed-scalar"
+    },
+    {
+      "name": "QA-native-malformed-scalar",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-native-malformed-scalar"
+    },
+    {
+      "name": "QA-native-invalid-input",
+      "status": "PASS",
+      "detail": "Expected HTTP 400; observed 400",
+      "evidence": "QA-native-invalid-input"
+    },
+    {
+      "name": "QA-native-stream-framing",
+      "status": "PASS",
+      "detail": "HTTP 200, SSE content type, complete blank-line frames, JSON data",
+      "evidence": "QA-native-stream"
+    },
+    {
+      "name": "QA-native-stream-error-terminal",
+      "status": "PASS",
+      "detail": "Expected missing-provider failure followed by stream terminator",
+      "evidence": "QA-native-stream"
+    },
+    {
+      "name": "QA-native-stream-swift-failure-outcome",
+      "status": "FAIL",
+      "detail": "Source-derived app outcome: completed; Swift runtime unavailable",
+      "evidence": "QA-native-stream"
+    },
+    {
+      "name": "QA-native-run-status",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-native-run-status"
+    },
+    {
+      "name": "QA-native-history",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-native-history"
+    },
+    {
+      "name": "QA-legacy-stream-framing",
+      "status": "PASS",
+      "detail": "HTTP 200, SSE content type, complete blank-line frames, JSON data",
+      "evidence": "QA-legacy-stream"
+    },
+    {
+      "name": "QA-legacy-stream-error-terminal",
+      "status": "PASS",
+      "detail": "Expected missing-provider failure followed by stream terminator",
+      "evidence": "QA-legacy-stream"
+    },
+    {
+      "name": "QA-legacy-stream-swift-failure-outcome",
+      "status": "FAIL",
+      "detail": "Source-derived app outcome: completed; Swift runtime unavailable",
+      "evidence": "QA-legacy-stream"
+    },
+    {
+      "name": "QA-legacy-app-model-framing",
+      "status": "PASS",
+      "detail": "HTTP 200, SSE content type, complete blank-line frames, JSON data",
+      "evidence": "QA-legacy-app-model"
+    },
+    {
+      "name": "QA-legacy-app-model-error-terminal",
+      "status": "PASS",
+      "detail": "Expected missing-provider failure followed by stream terminator",
+      "evidence": "QA-legacy-app-model"
+    },
+    {
+      "name": "QA-legacy-app-model-swift-failure-outcome",
+      "status": "FAIL",
+      "detail": "Source-derived app outcome: completed; Swift runtime unavailable",
+      "evidence": "QA-legacy-app-model"
+    },
+    {
+      "name": "QA-legacy-nonstream-error",
+      "status": "FAIL",
+      "detail": "Expected HTTP 502; observed 200",
+      "evidence": "QA-legacy-nonstream-error"
+    },
+    {
+      "name": "QA-create-native-abort-byte",
+      "status": "PASS",
+      "detail": "Expected HTTP 201; observed 201",
+      "evidence": "QA-create-native-abort-byte"
+    },
+    {
+      "name": "QA-identity-native-abort-byte",
+      "status": "PASS",
+      "detail": "Session preserves exact QA ID and title",
+      "evidence": "QA-create-native-abort-byte"
+    },
+    {
+      "name": "QA-native-abort-byte",
+      "status": "PASS",
+      "detail": "Client closed real response after byte; remote cancellation race requires status verification",
+      "evidence": "QA-native-abort-byte"
+    },
+    {
+      "name": "QA-native-abort-byte-reconnect",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-native-abort-byte-reconnect"
+    },
+    {
+      "name": "QA-create-native-abort-frame",
+      "status": "PASS",
+      "detail": "Expected HTTP 201; observed 201",
+      "evidence": "QA-create-native-abort-frame"
+    },
+    {
+      "name": "QA-identity-native-abort-frame",
+      "status": "PASS",
+      "detail": "Session preserves exact QA ID and title",
+      "evidence": "QA-create-native-abort-frame"
+    },
+    {
+      "name": "QA-native-abort-frame",
+      "status": "PASS",
+      "detail": "Client closed real response after frame; remote cancellation race requires status verification",
+      "evidence": "QA-native-abort-frame"
+    },
+    {
+      "name": "QA-native-abort-frame-reconnect",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-native-abort-frame-reconnect"
+    },
+    {
+      "name": "QA-native-abort-frame-status",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-native-abort-frame-status"
+    },
+    {
+      "name": "QA-legacy-abort-byte",
+      "status": "PASS",
+      "detail": "Client closed real response after byte; remote cancellation race requires status verification",
+      "evidence": "QA-legacy-abort-byte"
+    },
+    {
+      "name": "QA-legacy-abort-byte-reconnect",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-legacy-abort-byte-reconnect"
+    },
+    {
+      "name": "QA-legacy-abort-frame",
+      "status": "PASS",
+      "detail": "Client closed real response after frame; remote cancellation race requires status verification",
+      "evidence": "QA-legacy-abort-frame"
+    },
+    {
+      "name": "QA-legacy-abort-frame-reconnect",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-legacy-abort-frame-reconnect"
+    },
+    {
+      "name": "QA-native-reconnect-chat-framing",
+      "status": "PASS",
+      "detail": "HTTP 200, SSE content type, complete blank-line frames, JSON data",
+      "evidence": "QA-native-reconnect-chat"
+    },
+    {
+      "name": "QA-native-reconnect-chat-error-terminal",
+      "status": "PASS",
+      "detail": "Expected missing-provider failure followed by stream terminator",
+      "evidence": "QA-native-reconnect-chat"
+    },
+    {
+      "name": "QA-native-reconnect-chat-swift-failure-outcome",
+      "status": "FAIL",
+      "detail": "Source-derived app outcome: completed; Swift runtime unavailable",
+      "evidence": "QA-native-reconnect-chat"
+    },
+    {
+      "name": "QA-legacy-reconnect-chat-framing",
+      "status": "PASS",
+      "detail": "HTTP 200, SSE content type, complete blank-line frames, JSON data",
+      "evidence": "QA-legacy-reconnect-chat"
+    },
+    {
+      "name": "QA-legacy-reconnect-chat-error-terminal",
+      "status": "PASS",
+      "detail": "Expected missing-provider failure followed by stream terminator",
+      "evidence": "QA-legacy-reconnect-chat"
+    },
+    {
+      "name": "QA-legacy-reconnect-chat-swift-failure-outcome",
+      "status": "FAIL",
+      "detail": "Source-derived app outcome: completed; Swift runtime unavailable",
+      "evidence": "QA-legacy-reconnect-chat"
+    },
+    {
+      "name": "QA-create-concurrent-0",
+      "status": "PASS",
+      "detail": "Expected HTTP 201; observed 201",
+      "evidence": "QA-create-concurrent-0"
+    },
+    {
+      "name": "QA-identity-concurrent-0",
+      "status": "PASS",
+      "detail": "Session preserves exact QA ID and title",
+      "evidence": "QA-create-concurrent-0"
+    },
+    {
+      "name": "QA-create-concurrent-1",
+      "status": "PASS",
+      "detail": "Expected HTTP 201; observed 201",
+      "evidence": "QA-create-concurrent-1"
+    },
+    {
+      "name": "QA-identity-concurrent-1",
+      "status": "PASS",
+      "detail": "Session preserves exact QA ID and title",
+      "evidence": "QA-create-concurrent-1"
+    },
+    {
+      "name": "QA-create-concurrent-2",
+      "status": "PASS",
+      "detail": "Expected HTTP 201; observed 201",
+      "evidence": "QA-create-concurrent-2"
+    },
+    {
+      "name": "QA-identity-concurrent-2",
+      "status": "PASS",
+      "detail": "Session preserves exact QA ID and title",
+      "evidence": "QA-create-concurrent-2"
+    },
+    {
+      "name": "QA-create-concurrent-3",
+      "status": "PASS",
+      "detail": "Expected HTTP 201; observed 201",
+      "evidence": "QA-create-concurrent-3"
+    },
+    {
+      "name": "QA-identity-concurrent-3",
+      "status": "PASS",
+      "detail": "Session preserves exact QA ID and title",
+      "evidence": "QA-create-concurrent-3"
+    },
+    {
+      "name": "QA-concurrent-0-framing",
+      "status": "PASS",
+      "detail": "HTTP 200, SSE content type, complete blank-line frames, JSON data",
+      "evidence": "QA-concurrent-0"
+    },
+    {
+      "name": "QA-concurrent-0-error-terminal",
+      "status": "PASS",
+      "detail": "Expected missing-provider failure followed by stream terminator",
+      "evidence": "QA-concurrent-0"
+    },
+    {
+      "name": "QA-concurrent-0-swift-failure-outcome",
+      "status": "FAIL",
+      "detail": "Source-derived app outcome: completed; Swift runtime unavailable",
+      "evidence": "QA-concurrent-0"
+    },
+    {
+      "name": "QA-concurrent-1-framing",
+      "status": "PASS",
+      "detail": "HTTP 200, SSE content type, complete blank-line frames, JSON data",
+      "evidence": "QA-concurrent-1"
+    },
+    {
+      "name": "QA-concurrent-1-error-terminal",
+      "status": "PASS",
+      "detail": "Expected missing-provider failure followed by stream terminator",
+      "evidence": "QA-concurrent-1"
+    },
+    {
+      "name": "QA-concurrent-1-swift-failure-outcome",
+      "status": "FAIL",
+      "detail": "Source-derived app outcome: completed; Swift runtime unavailable",
+      "evidence": "QA-concurrent-1"
+    },
+    {
+      "name": "QA-concurrent-2-framing",
+      "status": "PASS",
+      "detail": "HTTP 200, SSE content type, complete blank-line frames, JSON data",
+      "evidence": "QA-concurrent-2"
+    },
+    {
+      "name": "QA-concurrent-2-error-terminal",
+      "status": "PASS",
+      "detail": "Expected missing-provider failure followed by stream terminator",
+      "evidence": "QA-concurrent-2"
+    },
+    {
+      "name": "QA-concurrent-2-swift-failure-outcome",
+      "status": "FAIL",
+      "detail": "Source-derived app outcome: completed; Swift runtime unavailable",
+      "evidence": "QA-concurrent-2"
+    },
+    {
+      "name": "QA-concurrent-3-framing",
+      "status": "PASS",
+      "detail": "HTTP 200, SSE content type, complete blank-line frames, JSON data",
+      "evidence": "QA-concurrent-3"
+    },
+    {
+      "name": "QA-concurrent-3-error-terminal",
+      "status": "PASS",
+      "detail": "Expected missing-provider failure followed by stream terminator",
+      "evidence": "QA-concurrent-3"
+    },
+    {
+      "name": "QA-concurrent-3-swift-failure-outcome",
+      "status": "FAIL",
+      "detail": "Source-derived app outcome: completed; Swift runtime unavailable",
+      "evidence": "QA-concurrent-3"
+    },
+    {
+      "name": "QA-partial-upload-client-timeout",
+      "status": "PASS",
+      "detail": "Real incomplete HTTP upload; client timed out at 0.2s and closed socket. Does not test Swift stream idle/open deadlines.",
+      "evidence": null
+    },
+    {
+      "name": "QA-after-timeout-reconnect",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-after-timeout-reconnect"
+    },
+    {
+      "name": "QA-provider-token-stream",
+      "status": "BLOCKED",
+      "detail": "No provider key: successful tokens, tool lifecycle, long generation and provider fault timing unavailable."
+    },
+    {
+      "name": "QA-server-idle-timeout-keepalive",
+      "status": "BLOCKED",
+      "detail": "Missing provider finishes immediately; cannot exercise real 30s keepalives or Swift 90s idle timeout."
+    },
+    {
+      "name": "QA-swift-runtime",
+      "status": "BLOCKED",
+      "detail": "Linux box has no Swift toolchain/macOS UI. Compatibility conclusions use raw live traces plus source review."
+    },
+    {
+      "name": "QA-app-qa-catalog",
+      "status": "BLOCKED",
+      "detail": "Native DEBUG app and attested QA gateway absent. This direct transport pass does not run/claim the 65 app scenarios."
+    },
+    {
+      "name": "QA-provider-429-503",
+      "status": "BLOCKED",
+      "detail": "No provider credentials/fault control; observed genuine 500/502 only where server returns them. No fabricated 429/503."
+    },
+    {
+      "name": "QA-mid-token-abort",
+      "status": "BLOCKED",
+      "detail": "First-byte/frame aborts exercised; an abort during meaningful generated content needs provider output."
+    },
+    {
+      "name": "QA-swift-captured-truncation",
+      "status": "BLOCKED",
+      "detail": "No Swift execution. Captured prefix has no terminal and source would throw StreamBreak; runtime verification deferred."
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-0",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-0"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-1",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-1"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-2",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-2"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-3",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-3"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-abort-byte",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-abort-byte"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-abort-frame",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-abort-frame"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-app-model",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-app-model"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-reconnect-chat",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-reconnect-chat"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-stream",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-stream"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-native",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-native"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-native-abort-byte",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-native-abort-byte"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-native-abort-frame",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-native-abort-frame"
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-nonstream",
+      "status": "PASS",
+      "detail": "Owned QA session deletion or already absent",
+      "evidence": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-nonstream"
+    },
+    {
+      "name": "QA-final-health",
+      "status": "PASS",
+      "detail": "Expected HTTP 200; observed 200",
+      "evidence": "QA-final-health"
+    }
+  ],
+  "traces": [
+    {
+      "name": "QA-auth-models-missing",
+      "method": "GET",
+      "path": "/v1/models",
+      "auth": "missing",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 401,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "127",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0053,
+      "body": "{\"error\": {\"message\": \"Invalid gateway API key (API_SERVER_KEY)\", \"type\": \"gateway_auth_error\", \"code\": \"gateway_auth_failed\"}}",
+      "client_abort": null,
+      "seconds": 0.0054
+    },
+    {
+      "name": "QA-auth-models-wrong",
+      "method": "GET",
+      "path": "/v1/models",
+      "auth": "wrong",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 401,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "127",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.002,
+      "body": "{\"error\": {\"message\": \"Invalid gateway API key (API_SERVER_KEY)\", \"type\": \"gateway_auth_error\", \"code\": \"gateway_auth_failed\"}}",
+      "client_abort": null,
+      "seconds": 0.002
+    },
+    {
+      "name": "QA-auth-capabilities-missing",
+      "method": "GET",
+      "path": "/v1/capabilities",
+      "auth": "missing",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 401,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "127",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0014,
+      "body": "{\"error\": {\"message\": \"Invalid gateway API key (API_SERVER_KEY)\", \"type\": \"gateway_auth_error\", \"code\": \"gateway_auth_failed\"}}",
+      "client_abort": null,
+      "seconds": 0.0014
+    },
+    {
+      "name": "QA-auth-capabilities-wrong",
+      "method": "GET",
+      "path": "/v1/capabilities",
+      "auth": "wrong",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 401,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "127",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0015,
+      "body": "{\"error\": {\"message\": \"Invalid gateway API key (API_SERVER_KEY)\", \"type\": \"gateway_auth_error\", \"code\": \"gateway_auth_failed\"}}",
+      "client_abort": null,
+      "seconds": 0.0015
+    },
+    {
+      "name": "QA-auth-session-missing",
+      "method": "GET",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-absent",
+      "auth": "missing",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 401,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "127",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0022,
+      "body": "{\"error\": {\"message\": \"Invalid gateway API key (API_SERVER_KEY)\", \"type\": \"gateway_auth_error\", \"code\": \"gateway_auth_failed\"}}",
+      "client_abort": null,
+      "seconds": 0.0022
+    },
+    {
+      "name": "QA-auth-session-wrong",
+      "method": "GET",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-absent",
+      "auth": "wrong",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 401,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "127",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0012,
+      "body": "{\"error\": {\"message\": \"Invalid gateway API key (API_SERVER_KEY)\", \"type\": \"gateway_auth_error\", \"code\": \"gateway_auth_failed\"}}",
+      "client_abort": null,
+      "seconds": 0.0012
+    },
+    {
+      "name": "QA-health-public",
+      "method": "GET",
+      "path": "/health",
+      "auth": "missing",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "66",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0017,
+      "body": "{\"status\": \"ok\", \"platform\": \"hermes-agent\", \"version\": \"unknown\"}",
+      "client_abort": null,
+      "seconds": 0.0017
+    },
+    {
+      "name": "QA-health-detailed",
+      "method": "GET",
+      "path": "/health/detailed",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "1704",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0041,
+      "body": "{\"status\": \"degraded\", \"readiness\": {\"status\": \"degraded\", \"checks\": {\"state_db\": {\"status\": \"ok\"}, \"session_store\": {\"status\": \"ok\"}, \"config\": {\"status\": \"ok\"}, \"model\": {\"status\": \"degraded\"}, \"disk\": {\"status\": \"ok\", \"used_percent\": 17.6, \"free_bytes\": 110589644800}, \"gateway\": {\"status\": \"ok\", \"state\": \"running\", \"connected_platforms\": 1, \"platforms\": 1}, \"background_queues\": {\"status\": \"ok\", \"active_api_runs\": 0, \"process_completions\": 0, \"active_delegations\": 0}}}, \"platform\": \"hermes-agent\", \"version\": \"unknown\", \"gateway_state\": \"running\", \"platforms\": {\"api_server\": {\"state\": \"connected\", \"error_code\": null, \"error_message\": null, \"needs_attention\": false, \"updated_at\": \"2026-10-19T08:29:46.528789+00:00\", \"writer_pid\": 178850, \"writer_start_time\": 1905314, \"retrying_since\": null, \"listener_base\": \"http://127.0.0.1:8742\", \"metrics\": {\"host\": \"127.0.0.1\", \"port\": 8742, \"active_runs\": 0, \"stored_runs\": 0, \"last_request_at\": null, \"last_heartbeat\": \"2026-10-19T08:29:48.651253+00:00\", \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 0, \"messages\": 0, \"tokens\": 0, \"latency_p95_ms\": null}}}}, \"api_server\": {\"host\": \"127.0.0.1\", \"port\": 8742, \"active_runs\": 0, \"stored_runs\": 0, \"last_request_at\": null, \"last_heartbeat\": \"2026-10-19T08:29:48.651253+00:00\", \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 0, \"messages\": 0, \"tokens\": 0, \"latency_p95_ms\": null}}, \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 0, \"messages\": 0, \"tokens\": 0, \"latency_p95_ms\": null}, \"last_heartbeat\": \"2026-10-19T08:29:48.651253+00:00\", \"active_agents\": 0, \"gateway_busy\": false, \"gateway_drainable\": true, \"exit_reason\": null, \"updated_at\": \"2026-10-19T08:29:46.528703+00:00\", \"pid\": 178850}",
+      "client_abort": null,
+      "seconds": 0.0042
+    },
+    {
+      "name": "QA-models-valid",
+      "method": "GET",
+      "path": "/v1/models",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "186",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0009,
+      "body": "{\"object\": \"list\", \"data\": [{\"id\": \"hermes-qa-swarmhub\", \"object\": \"model\", \"created\": 1792398588, \"owned_by\": \"hermes\", \"permission\": [], \"root\": \"hermes-qa-swarmhub\", \"parent\": null}]}",
+      "client_abort": null,
+      "seconds": 0.0009
+    },
+    {
+      "name": "QA-capabilities",
+      "method": "GET",
+      "path": "/v1/capabilities",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "4257",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0011,
+      "body": "{\"object\": \"hermes.api_server.capabilities\", \"platform\": \"hermes-agent\", \"model\": \"hermes-qa-swarmhub\", \"auth\": {\"type\": \"bearer\", \"required\": true}, \"runtime\": {\"mode\": \"server_agent\", \"tool_execution\": \"server\", \"split_runtime\": false, \"description\": \"The API server creates a server-side Hermes AIAgent; tools execute on the API-server host unless a future explicit split-runtime mode is enabled.\"}, \"features\": {\"chat_completions\": true, \"chat_completions_streaming\": true, \"responses_api\": true, \"responses_streaming\": true, \"run_submission\": true, \"runs_idempotency\": {\"supported\": true, \"durable\": true, \"retention_seconds\": 86400}, \"run_status\": true, \"run_events_sse\": true, \"run_stop\": true, \"run_steer\": true, \"run_approval_response\": true, \"tool_progress_events\": true, \"approval_events\": true, \"session_resources\": true, \"model_options\": true, \"session_chat\": true, \"session_chat_streaming\": true, \"session_fork\": true, \"session_model_lock\": true, \"reasoning_streaming\": true, \"admin_config_rw\": false, \"jobs_admin\": false, \"memory_write_api\": false, \"skills_api\": true, \"audio_api\": false, \"realtime_voice\": false, \"session_continuity_header\": \"X-Hermes-Session-Id\", \"session_key_header\": \"X-Hermes-Session-Key\", \"run_unknown_resolution\": true, \"cors\": false, \"browser_extension_control\": {\"enabled\": false, \"protocol_version\": 1, \"capabilities\": [\"browser_back\", \"browser_click\", \"browser_navigate\", \"browser_press\", \"browser_screenshot\", \"browser_scroll\", \"browser_snapshot\", \"browser_tab_activate\", \"browser_tabs\", \"browser_type\", \"controller.noop\"], \"artifact_capabilities\": [\"browser_artifact_download\", \"browser_artifact_upload\"], \"developer_capabilities\": [\"browser_cdp\", \"browser_evaluate\"], \"developer_mode\": false, \"artifact_transport\": {\"upload\": {\"method\": \"POST\", \"path\": \"/v1/artifacts/upload\"}, \"download\": {\"method\": \"GET\", \"path\": \"/v1/artifacts/download/{artifact_id}\"}, \"max_bytes\": 10485760, \"ttl_seconds\": 300.0, \"allowed_mime_types\": [\"application/json\", \"application/pdf\", \"image/gif\", \"image/jpeg\", \"image/png\", \"image/webp\", \"text/plain\"]}, \"real_browser_actions\": true, \"transports\": {\"local_vps\": \"websocket-subprotocol-ticket\", \"cloud\": \"authenticated-gateway-rpc\"}}}, \"endpoints\": {\"health\": {\"method\": \"GET\", \"path\": \"/health\"}, \"health_detailed\": {\"method\": \"GET\", \"path\": \"/health/detailed\"}, \"models\": {\"method\": \"GET\", \"path\": \"/v1/models\"}, \"model_options\": {\"method\": \"GET\", \"path\": \"/api/model/options\"}, \"chat_completions\": {\"method\": \"POST\", \"path\": \"/v1/chat/completions\"}, \"responses\": {\"method\": \"POST\", \"path\": \"/v1/responses\"}, \"runs\": {\"method\": \"POST\", \"path\": \"/v1/runs\"}, \"run_status\": {\"method\": \"GET\", \"path\": \"/v1/runs/{run_id}\"}, \"run_events\": {\"method\": \"GET\", \"path\": \"/v1/runs/{run_id}/events\"}, \"run_approval\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/approval\"}, \"run_steer\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/steer\"}, \"run_unknown_resolution\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/resolve-unknown\"}, \"run_stop\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/stop\"}, \"skills\": {\"method\": \"GET\", \"path\": \"/v1/skills\"}, \"toolsets\": {\"method\": \"GET\", \"path\": \"/v1/toolsets\"}, \"sessions\": {\"method\": \"GET\", \"path\": \"/api/sessions\"}, \"session_create\": {\"method\": \"POST\", \"path\": \"/api/sessions\"}, \"session\": {\"method\": \"GET\", \"path\": \"/api/sessions/{session_id}\"}, \"session_update\": {\"method\": \"PATCH\", \"path\": \"/api/sessions/{session_id}\"}, \"session_delete\": {\"method\": \"DELETE\", \"path\": \"/api/sessions/{session_id}\"}, \"session_messages\": {\"method\": \"GET\", \"path\": \"/api/sessions/{session_id}/messages\"}, \"session_fork\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/fork\"}, \"session_chat\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/chat\"}, \"session_chat_stream\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/chat/stream\"}, \"session_model_lock\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/model\"}, \"browser_control_register\": {\"method\": \"POST\", \"path\": \"/v1/browser-control/register\"}, \"browser_control_ws\": {\"method\": \"GET\", \"path\": \"/v1/browser-control/ws\"}, \"artifact_upload\": {\"method\": \"POST\", \"path\": \"/v1/artifacts/upload\"}, \"artifact_download\": {\"method\": \"GET\", \"path\": \"/v1/artifacts/download/{artifact_id}\"}}}",
+      "client_abort": null,
+      "seconds": 0.0011
+    },
+    {
+      "name": "QA-auth-chat-missing",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "missing",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"messages\": [{\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}]}",
+      "status": 401,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "127",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0017,
+      "body": "{\"error\": {\"message\": \"Invalid gateway API key (API_SERVER_KEY)\", \"type\": \"gateway_auth_error\", \"code\": \"gateway_auth_failed\"}}",
+      "client_abort": null,
+      "seconds": 0.0017
+    },
+    {
+      "name": "QA-auth-create-missing",
+      "method": "POST",
+      "path": "/api/sessions",
+      "auth": "missing",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"id\": \"QA-LIVE1-20261019T082948-0c58c0-denied-missing\", \"title\": \"QA-LIVE1-20261019T082948-0c58c0-denied-missing\"}",
+      "status": 401,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "127",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0014,
+      "body": "{\"error\": {\"message\": \"Invalid gateway API key (API_SERVER_KEY)\", \"type\": \"gateway_auth_error\", \"code\": \"gateway_auth_failed\"}}",
+      "client_abort": null,
+      "seconds": 0.0014
+    },
+    {
+      "name": "QA-auth-chat-wrong",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "wrong",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"messages\": [{\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}]}",
+      "status": 401,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "127",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0011,
+      "body": "{\"error\": {\"message\": \"Invalid gateway API key (API_SERVER_KEY)\", \"type\": \"gateway_auth_error\", \"code\": \"gateway_auth_failed\"}}",
+      "client_abort": null,
+      "seconds": 0.0011
+    },
+    {
+      "name": "QA-auth-create-wrong",
+      "method": "POST",
+      "path": "/api/sessions",
+      "auth": "wrong",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"id\": \"QA-LIVE1-20261019T082948-0c58c0-denied-wrong\", \"title\": \"QA-LIVE1-20261019T082948-0c58c0-denied-wrong\"}",
+      "status": 401,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "127",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0018,
+      "body": "{\"error\": {\"message\": \"Invalid gateway API key (API_SERVER_KEY)\", \"type\": \"gateway_auth_error\", \"code\": \"gateway_auth_failed\"}}",
+      "client_abort": null,
+      "seconds": 0.0019
+    },
+    {
+      "name": "QA-missing-route",
+      "method": "GET",
+      "path": "/QA-no-such-route",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 404,
+      "response_headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Length": "14",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0023,
+      "body": "404: Not Found",
+      "client_abort": null,
+      "seconds": 0.0023
+    },
+    {
+      "name": "QA-wrong-method",
+      "method": "POST",
+      "path": "/v1/models",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{}",
+      "status": 405,
+      "response_headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Allow": "GET",
+        "Content-Length": "23",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0008,
+      "body": "405: Method Not Allowed",
+      "client_abort": null,
+      "seconds": 0.0008
+    },
+    {
+      "name": "QA-missing-session",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-absent/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"input\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}",
+      "status": 404,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "160",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0014,
+      "body": "{\"error\": {\"message\": \"Session not found: QA-LIVE1-20261019T082948-0c58c0-absent\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": \"session_not_found\"}}",
+      "client_abort": null,
+      "seconds": 0.0014
+    },
+    {
+      "name": "QA-create-native",
+      "method": "POST",
+      "path": "/api/sessions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"title\": \"QA-LIVE1-20261019T082948-0c58c0-native [QA-TEST]\", \"system_prompt\": \"[QA-TEST] QA transport check. Do not use tools.\", \"source\": \"api_server\"}",
+      "status": 201,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "667",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0239,
+      "body": "{\"object\": \"hermes.session\", \"session\": {\"id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"source\": \"api_server\", \"user_id\": null, \"model\": null, \"title\": \"QA-LIVE1-20261019T082948-0c58c0-native [QA-TEST]\", \"started_at\": 1792398588.6893694, \"ended_at\": null, \"end_reason\": null, \"message_count\": 0, \"tool_call_count\": 0, \"input_tokens\": 0, \"output_tokens\": 0, \"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"reasoning_tokens\": 0, \"estimated_cost_usd\": null, \"actual_cost_usd\": null, \"api_call_count\": 0, \"parent_session_id\": null, \"pinned\": false, \"archived\": false, \"hidden\": false, \"has_system_prompt\": true, \"has_model_config\": false, \"is_internal_child\": false}}",
+      "client_abort": null,
+      "seconds": 0.0239
+    },
+    {
+      "name": "QA-duplicate-session",
+      "method": "POST",
+      "path": "/api/sessions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"title\": \"QA-LIVE1-20261019T082948-0c58c0-native [QA-TEST]\"}",
+      "status": 409,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "162",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0016,
+      "body": "{\"error\": {\"message\": \"Session already exists: QA-LIVE1-20261019T082948-0c58c0-native\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": \"session_exists\"}}",
+      "client_abort": null,
+      "seconds": 0.0016
+    },
+    {
+      "name": "QA-legacy-malformed-broken-json",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"QA-\":",
+      "status": 400,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "116",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0008,
+      "body": "{\"error\": {\"message\": \"Invalid JSON in request body\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": null}}",
+      "client_abort": null,
+      "seconds": 0.0008
+    },
+    {
+      "name": "QA-native-malformed-broken-json",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"QA-\":",
+      "status": 400,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "116",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.001,
+      "body": "{\"error\": {\"message\": \"Invalid JSON in request body\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": null}}",
+      "client_abort": null,
+      "seconds": 0.001
+    },
+    {
+      "name": "QA-legacy-malformed-empty-object",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{}",
+      "status": 400,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "94",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0006,
+      "body": "{\"error\": {\"message\": \"Missing or invalid 'messages' field\", \"type\": \"invalid_request_error\"}}",
+      "client_abort": null,
+      "seconds": 0.0006
+    },
+    {
+      "name": "QA-native-malformed-empty-object",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{}",
+      "status": 400,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "124",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0011,
+      "body": "{\"error\": {\"message\": \"Missing 'message' field\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": \"missing_message\"}}",
+      "client_abort": null,
+      "seconds": 0.0011
+    },
+    {
+      "name": "QA-legacy-malformed-empty-messages",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"messages\":[]}",
+      "status": 400,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "94",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0006,
+      "body": "{\"error\": {\"message\": \"Missing or invalid 'messages' field\", \"type\": \"invalid_request_error\"}}",
+      "client_abort": null,
+      "seconds": 0.0006
+    },
+    {
+      "name": "QA-native-malformed-empty-messages",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"messages\":[]}",
+      "status": 400,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "124",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0013,
+      "body": "{\"error\": {\"message\": \"Missing 'message' field\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": \"missing_message\"}}",
+      "client_abort": null,
+      "seconds": 0.0013
+    },
+    {
+      "name": "QA-legacy-malformed-invalid-message",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"messages\":[\"QA-invalid\"]}",
+      "status": 500,
+      "response_headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Length": "55",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5",
+        "Connection": "close"
+      },
+      "header_seconds": 0.0097,
+      "body": "500 Internal Server Error\n\nServer got itself in trouble",
+      "client_abort": null,
+      "seconds": 0.0097
+    },
+    {
+      "name": "QA-native-malformed-invalid-message",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"messages\":[\"QA-invalid\"]}",
+      "status": 400,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "124",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0027,
+      "body": "{\"error\": {\"message\": \"Missing 'message' field\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": \"missing_message\"}}",
+      "client_abort": null,
+      "seconds": 0.0027
+    },
+    {
+      "name": "QA-legacy-malformed-array",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "[]",
+      "status": 500,
+      "response_headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Length": "55",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5",
+        "Connection": "close"
+      },
+      "header_seconds": 0.0056,
+      "body": "500 Internal Server Error\n\nServer got itself in trouble",
+      "client_abort": null,
+      "seconds": 0.0056
+    },
+    {
+      "name": "QA-native-malformed-array",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "[]",
+      "status": 400,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "122",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.001,
+      "body": "{\"error\": {\"message\": \"Request body must be a JSON object\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": null}}",
+      "client_abort": null,
+      "seconds": 0.001
+    },
+    {
+      "name": "QA-legacy-malformed-null",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "null",
+      "status": 500,
+      "response_headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Length": "55",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5",
+        "Connection": "close"
+      },
+      "header_seconds": 0.005,
+      "body": "500 Internal Server Error\n\nServer got itself in trouble",
+      "client_abort": null,
+      "seconds": 0.0051
+    },
+    {
+      "name": "QA-native-malformed-null",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "null",
+      "status": 400,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "122",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0009,
+      "body": "{\"error\": {\"message\": \"Request body must be a JSON object\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": null}}",
+      "client_abort": null,
+      "seconds": 0.001
+    },
+    {
+      "name": "QA-legacy-malformed-scalar",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "\"QA-invalid\"",
+      "status": 500,
+      "response_headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Length": "55",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5",
+        "Connection": "close"
+      },
+      "header_seconds": 0.0022,
+      "body": "500 Internal Server Error\n\nServer got itself in trouble",
+      "client_abort": null,
+      "seconds": 0.0022
+    },
+    {
+      "name": "QA-native-malformed-scalar",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "\"QA-invalid\"",
+      "status": 400,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "122",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0041,
+      "body": "{\"error\": {\"message\": \"Request body must be a JSON object\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": null}}",
+      "client_abort": null,
+      "seconds": 0.0041
+    },
+    {
+      "name": "QA-native-invalid-input",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"input\": {\"QA-invalid\": true}}",
+      "status": 400,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "124",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0011,
+      "body": "{\"error\": {\"message\": \"Missing 'message' field\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": \"missing_message\"}}",
+      "client_abort": null,
+      "seconds": 0.0011
+    },
+    {
+      "name": "QA-native-stream",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache"
+      },
+      "request_body": "{\"input\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}], \"instructions\": \"[QA-TEST] Do not use tools.\"}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-native",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0024,
+      "body": "event: run.started\ndata: {\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_02cf6ba9d7f743deb9031a837ec94658\", \"seq\": 1, \"ts\": 1792398588.7344956}\n\nevent: message.started\ndata: {\"message\": {\"id\": \"msg_7fdc2111536743e8ac4b89b20e048834\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_02cf6ba9d7f743deb9031a837ec94658\", \"seq\": 2, \"ts\": 1792398588.734523}\n\nevent: assistant.completed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"message_id\": \"msg_7fdc2111536743e8ac4b89b20e048834\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_02cf6ba9d7f743deb9031a837ec94658\", \"seq\": 3, \"ts\": 1792398588.8022318}\n\nevent: run.failed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"message_id\": \"msg_7fdc2111536743e8ac4b89b20e048834\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_02cf6ba9d7f743deb9031a837ec94658\", \"seq\": 4, \"ts\": 1792398588.8022435}\n\nevent: done\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_02cf6ba9d7f743deb9031a837ec94658\", \"seq\": 5, \"ts\": 1792398588.8022776}\n\n",
+      "client_abort": null,
+      "seconds": 0.0704,
+      "sse_frames": [
+        {
+          "event": "run.started",
+          "data": "{\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_02cf6ba9d7f743deb9031a837ec94658\", \"seq\": 1, \"ts\": 1792398588.7344956}",
+          "comments": []
+        },
+        {
+          "event": "message.started",
+          "data": "{\"message\": {\"id\": \"msg_7fdc2111536743e8ac4b89b20e048834\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_02cf6ba9d7f743deb9031a837ec94658\", \"seq\": 2, \"ts\": 1792398588.734523}",
+          "comments": []
+        },
+        {
+          "event": "assistant.completed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"message_id\": \"msg_7fdc2111536743e8ac4b89b20e048834\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_02cf6ba9d7f743deb9031a837ec94658\", \"seq\": 3, \"ts\": 1792398588.8022318}",
+          "comments": []
+        },
+        {
+          "event": "run.failed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"message_id\": \"msg_7fdc2111536743e8ac4b89b20e048834\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_02cf6ba9d7f743deb9031a837ec94658\", \"seq\": 4, \"ts\": 1792398588.8022435}",
+          "comments": []
+        },
+        {
+          "event": "done",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_02cf6ba9d7f743deb9031a837ec94658\", \"seq\": 5, \"ts\": 1792398588.8022776}",
+          "comments": []
+        }
+      ],
+      "swift_projection": {
+        "events": [
+          "completed",
+          "failed"
+        ],
+        "terminal": true,
+        "projected_app_outcome": "completed",
+        "evidence_kind": "source-derived projection; Swift not executed"
+      }
+    },
+    {
+      "name": "QA-native-run-status",
+      "method": "GET",
+      "path": "/v1/runs/run_02cf6ba9d7f743deb9031a837ec94658",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "554",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0108,
+      "body": "{\"object\": \"hermes.run\", \"model\": \"hermes-qa-swarmhub\", \"created_at\": 1792398588.734172, \"pending_controls\": [], \"run_id\": \"run_02cf6ba9d7f743deb9031a837ec94658\", \"status\": \"failed\", \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"admission_id\": \"2bfb5316bf1f4b40b97dcf67bdc59636\", \"execution_generation\": 1, \"output\": \"\\u26a0\\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"usage\": {}}",
+      "client_abort": null,
+      "seconds": 0.0108
+    },
+    {
+      "name": "QA-native-history",
+      "method": "GET",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native/messages?order=oldest&limit=500&offset=0&inline_images=false",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "475",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0028,
+      "body": "{\"object\": \"list\", \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"data\": [{\"id\": 2, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"role\": \"session_meta\", \"content\": null, \"tool_call_id\": null, \"tool_calls\": null, \"tool_name\": null, \"timestamp\": 1792398588.7870164, \"token_count\": null, \"finish_reason\": null, \"reasoning\": null, \"reasoning_content\": null, \"display_kind\": null}], \"pagination\": {\"limit\": 500, \"offset\": 0, \"order\": \"oldest\", \"returned\": 1}}",
+      "client_abort": null,
+      "seconds": 0.0028
+    },
+    {
+      "name": "QA-legacy-stream",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-legacy-stream"
+      },
+      "request_body": "{\"model\": \"hermes-qa-swarmhub\", \"stream\": true, \"messages\": [{\"role\": \"system\", \"content\": \"[QA-TEST] QA transport check. Do not use tools.\"}, {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}]}]}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-legacy-stream",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0021,
+      "body": "data: {\"id\": \"chatcmpl-eb059926e5884754bdc672050f483\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"chatcmpl-eb059926e5884754bdc672050f483\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\\u26a0\\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"chatcmpl-eb059926e5884754bdc672050f483\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"error\"}], \"usage\": {\"prompt_tokens\": 0, \"completion_tokens\": 0, \"total_tokens\": 0}, \"error\": {\"message\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"type\": \"agent_error\"}, \"hermes\": {\"completed\": false, \"partial\": false, \"failed\": true, \"error\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"error_code\": \"agent_error\"}}\n\ndata: [DONE]\n\n",
+      "client_abort": null,
+      "seconds": 0.0679,
+      "sse_frames": [
+        {
+          "event": "message",
+          "data": "{\"id\": \"chatcmpl-eb059926e5884754bdc672050f483\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\"}, \"finish_reason\": null}]}",
+          "comments": []
+        },
+        {
+          "event": "message",
+          "data": "{\"id\": \"chatcmpl-eb059926e5884754bdc672050f483\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\\u26a0\\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\"}, \"finish_reason\": null}]}",
+          "comments": []
+        },
+        {
+          "event": "message",
+          "data": "{\"id\": \"chatcmpl-eb059926e5884754bdc672050f483\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"error\"}], \"usage\": {\"prompt_tokens\": 0, \"completion_tokens\": 0, \"total_tokens\": 0}, \"error\": {\"message\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"type\": \"agent_error\"}, \"hermes\": {\"completed\": false, \"partial\": false, \"failed\": true, \"error\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"error_code\": \"agent_error\"}}",
+          "comments": []
+        },
+        {
+          "event": "message",
+          "data": "[DONE]",
+          "comments": []
+        }
+      ],
+      "swift_projection": {
+        "events": [
+          "failed",
+          "completed"
+        ],
+        "terminal": true,
+        "projected_app_outcome": "completed",
+        "evidence_kind": "source-derived projection; Swift not executed"
+      }
+    },
+    {
+      "name": "QA-legacy-app-model",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-legacy-app-model"
+      },
+      "request_body": "{\"model\": \"hermes-agent\", \"stream\": true, \"messages\": [{\"role\": \"system\", \"content\": \"[QA-TEST] QA transport check. Do not use tools.\"}, {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}]}]}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-legacy-app-model",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:48 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0026,
+      "body": "data: {\"id\": \"chatcmpl-992d8e92da7d4ab0a050bce6baa90\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-agent\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"chatcmpl-992d8e92da7d4ab0a050bce6baa90\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-agent\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\\u26a0\\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"chatcmpl-992d8e92da7d4ab0a050bce6baa90\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-agent\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"error\"}], \"usage\": {\"prompt_tokens\": 0, \"completion_tokens\": 0, \"total_tokens\": 0}, \"error\": {\"message\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"type\": \"agent_error\"}, \"hermes\": {\"completed\": false, \"partial\": false, \"failed\": true, \"error\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"error_code\": \"agent_error\"}}\n\ndata: [DONE]\n\n",
+      "client_abort": null,
+      "seconds": 0.0705,
+      "sse_frames": [
+        {
+          "event": "message",
+          "data": "{\"id\": \"chatcmpl-992d8e92da7d4ab0a050bce6baa90\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-agent\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\"}, \"finish_reason\": null}]}",
+          "comments": []
+        },
+        {
+          "event": "message",
+          "data": "{\"id\": \"chatcmpl-992d8e92da7d4ab0a050bce6baa90\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-agent\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\\u26a0\\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\"}, \"finish_reason\": null}]}",
+          "comments": []
+        },
+        {
+          "event": "message",
+          "data": "{\"id\": \"chatcmpl-992d8e92da7d4ab0a050bce6baa90\", \"object\": \"chat.completion.chunk\", \"created\": 1792398588, \"model\": \"hermes-agent\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"error\"}], \"usage\": {\"prompt_tokens\": 0, \"completion_tokens\": 0, \"total_tokens\": 0}, \"error\": {\"message\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"type\": \"agent_error\"}, \"hermes\": {\"completed\": false, \"partial\": false, \"failed\": true, \"error\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"error_code\": \"agent_error\"}}",
+          "comments": []
+        },
+        {
+          "event": "message",
+          "data": "[DONE]",
+          "comments": []
+        }
+      ],
+      "swift_projection": {
+        "events": [
+          "failed",
+          "completed"
+        ],
+        "terminal": true,
+        "projected_app_outcome": "completed",
+        "evidence_kind": "source-derived projection; Swift not executed"
+      }
+    },
+    {
+      "name": "QA-legacy-nonstream-error",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-nonstream"
+      },
+      "request_body": "{\"model\": \"hermes-qa-swarmhub\", \"stream\": false, \"messages\": [{\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}]}",
+      "status": 200,
+      "response_headers": {
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-nonstream",
+        "X-Hermes-Completed": "false",
+        "X-Hermes-Partial": "false",
+        "X-Hermes-Error": "Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_",
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "872",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0517,
+      "body": "{\"id\": \"chatcmpl-7ea21b2885104615858a804efc150\", \"object\": \"chat.completion\", \"created\": 1792398588, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"\\u26a0\\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\"}, \"finish_reason\": \"error\"}], \"usage\": {\"prompt_tokens\": 0, \"completion_tokens\": 0, \"total_tokens\": 0}, \"hermes\": {\"completed\": false, \"partial\": false, \"failed\": true, \"error\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"error_code\": \"agent_error\"}}",
+      "client_abort": null,
+      "seconds": 0.0517
+    },
+    {
+      "name": "QA-create-native-abort-byte",
+      "method": "POST",
+      "path": "/api/sessions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"id\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-byte\", \"title\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-byte [QA-TEST]\", \"system_prompt\": \"[QA-TEST] QA transport check. Do not use tools.\", \"source\": \"api_server\"}",
+      "status": 201,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "689",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0033,
+      "body": "{\"object\": \"hermes.session\", \"session\": {\"id\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-byte\", \"source\": \"api_server\", \"user_id\": null, \"model\": null, \"title\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-byte [QA-TEST]\", \"started_at\": 1792398589.0088248, \"ended_at\": null, \"end_reason\": null, \"message_count\": 0, \"tool_call_count\": 0, \"input_tokens\": 0, \"output_tokens\": 0, \"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"reasoning_tokens\": 0, \"estimated_cost_usd\": null, \"actual_cost_usd\": null, \"api_call_count\": 0, \"parent_session_id\": null, \"pinned\": false, \"archived\": false, \"hidden\": false, \"has_system_prompt\": true, \"has_model_config\": false, \"is_internal_child\": false}}",
+      "client_abort": null,
+      "seconds": 0.0033
+    },
+    {
+      "name": "QA-native-abort-byte",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native-abort-byte/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache"
+      },
+      "request_body": "{\"input\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}], \"instructions\": \"[QA-TEST] Do not use tools.\"}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-native-abort-byte",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0016,
+      "body": "e",
+      "client_abort": "byte",
+      "seconds": 0.0016
+    },
+    {
+      "name": "QA-native-abort-byte-reconnect",
+      "method": "GET",
+      "path": "/v1/models",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "186",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.001,
+      "body": "{\"object\": \"list\", \"data\": [{\"id\": \"hermes-qa-swarmhub\", \"object\": \"model\", \"created\": 1792398589, \"owned_by\": \"hermes\", \"permission\": [], \"root\": \"hermes-qa-swarmhub\", \"parent\": null}]}",
+      "client_abort": null,
+      "seconds": 0.001
+    },
+    {
+      "name": "QA-create-native-abort-frame",
+      "method": "POST",
+      "path": "/api/sessions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"id\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-frame\", \"title\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-frame [QA-TEST]\", \"system_prompt\": \"[QA-TEST] QA transport check. Do not use tools.\", \"source\": \"api_server\"}",
+      "status": 201,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "690",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0041,
+      "body": "{\"object\": \"hermes.session\", \"session\": {\"id\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-frame\", \"source\": \"api_server\", \"user_id\": null, \"model\": null, \"title\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-frame [QA-TEST]\", \"started_at\": 1792398589.016373, \"ended_at\": null, \"end_reason\": null, \"message_count\": 0, \"tool_call_count\": 0, \"input_tokens\": 0, \"output_tokens\": 0, \"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"reasoning_tokens\": 0, \"estimated_cost_usd\": null, \"actual_cost_usd\": null, \"api_call_count\": 0, \"parent_session_id\": null, \"pinned\": false, \"archived\": false, \"hidden\": false, \"has_system_prompt\": true, \"has_model_config\": false, \"is_internal_child\": false}}",
+      "client_abort": null,
+      "seconds": 0.0041
+    },
+    {
+      "name": "QA-native-abort-frame",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native-abort-frame/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache"
+      },
+      "request_body": "{\"input\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}], \"instructions\": \"[QA-TEST] Do not use tools.\"}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-native-abort-frame",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0018,
+      "body": "event: run.started\ndata: {\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-frame\", \"run_id\": \"run_7469ff5139634282af6396df696d7147\", \"seq\": 1, \"ts\": 1792398589.0195968}\n\n",
+      "client_abort": "frame",
+      "seconds": 0.0022
+    },
+    {
+      "name": "QA-native-abort-frame-reconnect",
+      "method": "GET",
+      "path": "/v1/models",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "186",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0036,
+      "body": "{\"object\": \"list\", \"data\": [{\"id\": \"hermes-qa-swarmhub\", \"object\": \"model\", \"created\": 1792398589, \"owned_by\": \"hermes\", \"permission\": [], \"root\": \"hermes-qa-swarmhub\", \"parent\": null}]}",
+      "client_abort": null,
+      "seconds": 0.0036
+    },
+    {
+      "name": "QA-native-abort-frame-status",
+      "method": "GET",
+      "path": "/v1/runs/run_7469ff5139634282af6396df696d7147",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "290",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0029,
+      "body": "{\"object\": \"hermes.run\", \"run_id\": \"run_7469ff5139634282af6396df696d7147\", \"status\": \"running\", \"updated_at\": 1792398589.019604, \"created_at\": 1792398589.0194376, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-frame\", \"model\": \"hermes-qa-swarmhub\", \"last_event\": \"run.started\"}",
+      "client_abort": null,
+      "seconds": 0.003
+    },
+    {
+      "name": "QA-legacy-abort-byte",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-legacy-abort-byte"
+      },
+      "request_body": "{\"model\": \"hermes-qa-swarmhub\", \"stream\": true, \"messages\": [{\"role\": \"system\", \"content\": \"[QA-TEST] QA transport check. Do not use tools.\"}, {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}]}]}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-legacy-abort-byte",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0086,
+      "body": "d",
+      "client_abort": "byte",
+      "seconds": 0.0086
+    },
+    {
+      "name": "QA-legacy-abort-byte-reconnect",
+      "method": "GET",
+      "path": "/v1/models",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "186",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0012,
+      "body": "{\"object\": \"list\", \"data\": [{\"id\": \"hermes-qa-swarmhub\", \"object\": \"model\", \"created\": 1792398589, \"owned_by\": \"hermes\", \"permission\": [], \"root\": \"hermes-qa-swarmhub\", \"parent\": null}]}",
+      "client_abort": null,
+      "seconds": 0.0012
+    },
+    {
+      "name": "QA-legacy-abort-frame",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-legacy-abort-frame"
+      },
+      "request_body": "{\"model\": \"hermes-qa-swarmhub\", \"stream\": true, \"messages\": [{\"role\": \"system\", \"content\": \"[QA-TEST] QA transport check. Do not use tools.\"}, {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}]}]}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-legacy-abort-frame",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0018,
+      "body": "data: {\"id\": \"chatcmpl-5ce5c94841f94b4aa16508b252c63\", \"object\": \"chat.completion.chunk\", \"created\": 1792398589, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\"}, \"finish_reason\": null}]}\n\n",
+      "client_abort": "frame",
+      "seconds": 0.002
+    },
+    {
+      "name": "QA-legacy-abort-frame-reconnect",
+      "method": "GET",
+      "path": "/v1/models",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "186",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0005,
+      "body": "{\"object\": \"list\", \"data\": [{\"id\": \"hermes-qa-swarmhub\", \"object\": \"model\", \"created\": 1792398589, \"owned_by\": \"hermes\", \"permission\": [], \"root\": \"hermes-qa-swarmhub\", \"parent\": null}]}",
+      "client_abort": null,
+      "seconds": 0.0005
+    },
+    {
+      "name": "QA-native-reconnect-chat",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache"
+      },
+      "request_body": "{\"input\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}], \"instructions\": \"[QA-TEST] Do not use tools.\"}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-native",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0091,
+      "body": "event: run.started\ndata: {\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_b8d1383ff84b4246ac783aadb9826c96\", \"seq\": 1, \"ts\": 1792398589.0484686}\n\nevent: message.started\ndata: {\"message\": {\"id\": \"msg_f8410669be86427097fc88d7d59d30d7\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_b8d1383ff84b4246ac783aadb9826c96\", \"seq\": 2, \"ts\": 1792398589.048478}\n\nevent: assistant.completed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"message_id\": \"msg_f8410669be86427097fc88d7d59d30d7\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_b8d1383ff84b4246ac783aadb9826c96\", \"seq\": 3, \"ts\": 1792398589.335983}\n\nevent: run.failed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"message_id\": \"msg_f8410669be86427097fc88d7d59d30d7\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_b8d1383ff84b4246ac783aadb9826c96\", \"seq\": 4, \"ts\": 1792398589.33599}\n\nevent: done\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_b8d1383ff84b4246ac783aadb9826c96\", \"seq\": 5, \"ts\": 1792398589.3360085}\n\n",
+      "client_abort": null,
+      "seconds": 0.2969,
+      "sse_frames": [
+        {
+          "event": "run.started",
+          "data": "{\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_b8d1383ff84b4246ac783aadb9826c96\", \"seq\": 1, \"ts\": 1792398589.0484686}",
+          "comments": []
+        },
+        {
+          "event": "message.started",
+          "data": "{\"message\": {\"id\": \"msg_f8410669be86427097fc88d7d59d30d7\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_b8d1383ff84b4246ac783aadb9826c96\", \"seq\": 2, \"ts\": 1792398589.048478}",
+          "comments": []
+        },
+        {
+          "event": "assistant.completed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"message_id\": \"msg_f8410669be86427097fc88d7d59d30d7\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_b8d1383ff84b4246ac783aadb9826c96\", \"seq\": 3, \"ts\": 1792398589.335983}",
+          "comments": []
+        },
+        {
+          "event": "run.failed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"message_id\": \"msg_f8410669be86427097fc88d7d59d30d7\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_b8d1383ff84b4246ac783aadb9826c96\", \"seq\": 4, \"ts\": 1792398589.33599}",
+          "comments": []
+        },
+        {
+          "event": "done",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"run_id\": \"run_b8d1383ff84b4246ac783aadb9826c96\", \"seq\": 5, \"ts\": 1792398589.3360085}",
+          "comments": []
+        }
+      ],
+      "swift_projection": {
+        "events": [
+          "completed",
+          "failed"
+        ],
+        "terminal": true,
+        "projected_app_outcome": "completed",
+        "evidence_kind": "source-derived projection; Swift not executed"
+      }
+    },
+    {
+      "name": "QA-legacy-reconnect-chat",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-legacy-reconnect-chat"
+      },
+      "request_body": "{\"model\": \"hermes-qa-swarmhub\", \"stream\": true, \"messages\": [{\"role\": \"system\", \"content\": \"[QA-TEST] QA transport check. Do not use tools.\"}, {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}]}]}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-legacy-reconnect-chat",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0028,
+      "body": "data: {\"id\": \"chatcmpl-f9406161d9684c56a8305d5502cd2\", \"object\": \"chat.completion.chunk\", \"created\": 1792398589, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"chatcmpl-f9406161d9684c56a8305d5502cd2\", \"object\": \"chat.completion.chunk\", \"created\": 1792398589, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\\u26a0\\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\"}, \"finish_reason\": null}]}\n\ndata: {\"id\": \"chatcmpl-f9406161d9684c56a8305d5502cd2\", \"object\": \"chat.completion.chunk\", \"created\": 1792398589, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"error\"}], \"usage\": {\"prompt_tokens\": 0, \"completion_tokens\": 0, \"total_tokens\": 0}, \"error\": {\"message\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"type\": \"agent_error\"}, \"hermes\": {\"completed\": false, \"partial\": false, \"failed\": true, \"error\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"error_code\": \"agent_error\"}}\n\ndata: [DONE]\n\n",
+      "client_abort": null,
+      "seconds": 0.0522,
+      "sse_frames": [
+        {
+          "event": "message",
+          "data": "{\"id\": \"chatcmpl-f9406161d9684c56a8305d5502cd2\", \"object\": \"chat.completion.chunk\", \"created\": 1792398589, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\"}, \"finish_reason\": null}]}",
+          "comments": []
+        },
+        {
+          "event": "message",
+          "data": "{\"id\": \"chatcmpl-f9406161d9684c56a8305d5502cd2\", \"object\": \"chat.completion.chunk\", \"created\": 1792398589, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\\u26a0\\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\"}, \"finish_reason\": null}]}",
+          "comments": []
+        },
+        {
+          "event": "message",
+          "data": "{\"id\": \"chatcmpl-f9406161d9684c56a8305d5502cd2\", \"object\": \"chat.completion.chunk\", \"created\": 1792398589, \"model\": \"hermes-qa-swarmhub\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"error\"}], \"usage\": {\"prompt_tokens\": 0, \"completion_tokens\": 0, \"total_tokens\": 0}, \"error\": {\"message\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"type\": \"agent_error\"}, \"hermes\": {\"completed\": false, \"partial\": false, \"failed\": true, \"error\": \"Hermes is not connected to any AI provider yet. Run `hermes model` to pick one, type `/login` in chat, or add a key with `hermes auth add <provider>`. (Advanced: put an API key such as OPENROUTER_API_KEY in /workspace/ermes/qa-swarmhub/home/.env.)\", \"error_code\": \"agent_error\"}}",
+          "comments": []
+        },
+        {
+          "event": "message",
+          "data": "[DONE]",
+          "comments": []
+        }
+      ],
+      "swift_projection": {
+        "events": [
+          "failed",
+          "completed"
+        ],
+        "terminal": true,
+        "projected_app_outcome": "completed",
+        "evidence_kind": "source-derived projection; Swift not executed"
+      }
+    },
+    {
+      "name": "QA-create-concurrent-0",
+      "method": "POST",
+      "path": "/api/sessions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"title\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0 [QA-TEST]\", \"system_prompt\": \"[QA-TEST] QA transport check. Do not use tools.\", \"source\": \"api_server\"}",
+      "status": 201,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "679",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0038,
+      "body": "{\"object\": \"hermes.session\", \"session\": {\"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"source\": \"api_server\", \"user_id\": null, \"model\": null, \"title\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0 [QA-TEST]\", \"started_at\": 1792398589.3912363, \"ended_at\": null, \"end_reason\": null, \"message_count\": 0, \"tool_call_count\": 0, \"input_tokens\": 0, \"output_tokens\": 0, \"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"reasoning_tokens\": 0, \"estimated_cost_usd\": null, \"actual_cost_usd\": null, \"api_call_count\": 0, \"parent_session_id\": null, \"pinned\": false, \"archived\": false, \"hidden\": false, \"has_system_prompt\": true, \"has_model_config\": false, \"is_internal_child\": false}}",
+      "client_abort": null,
+      "seconds": 0.0038
+    },
+    {
+      "name": "QA-create-concurrent-1",
+      "method": "POST",
+      "path": "/api/sessions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"title\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1 [QA-TEST]\", \"system_prompt\": \"[QA-TEST] QA transport check. Do not use tools.\", \"source\": \"api_server\"}",
+      "status": 201,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "678",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0018,
+      "body": "{\"object\": \"hermes.session\", \"session\": {\"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"source\": \"api_server\", \"user_id\": null, \"model\": null, \"title\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1 [QA-TEST]\", \"started_at\": 1792398589.393984, \"ended_at\": null, \"end_reason\": null, \"message_count\": 0, \"tool_call_count\": 0, \"input_tokens\": 0, \"output_tokens\": 0, \"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"reasoning_tokens\": 0, \"estimated_cost_usd\": null, \"actual_cost_usd\": null, \"api_call_count\": 0, \"parent_session_id\": null, \"pinned\": false, \"archived\": false, \"hidden\": false, \"has_system_prompt\": true, \"has_model_config\": false, \"is_internal_child\": false}}",
+      "client_abort": null,
+      "seconds": 0.0018
+    },
+    {
+      "name": "QA-create-concurrent-2",
+      "method": "POST",
+      "path": "/api/sessions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"title\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2 [QA-TEST]\", \"system_prompt\": \"[QA-TEST] QA transport check. Do not use tools.\", \"source\": \"api_server\"}",
+      "status": 201,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "678",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0012,
+      "body": "{\"object\": \"hermes.session\", \"session\": {\"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"source\": \"api_server\", \"user_id\": null, \"model\": null, \"title\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2 [QA-TEST]\", \"started_at\": 1792398589.395557, \"ended_at\": null, \"end_reason\": null, \"message_count\": 0, \"tool_call_count\": 0, \"input_tokens\": 0, \"output_tokens\": 0, \"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"reasoning_tokens\": 0, \"estimated_cost_usd\": null, \"actual_cost_usd\": null, \"api_call_count\": 0, \"parent_session_id\": null, \"pinned\": false, \"archived\": false, \"hidden\": false, \"has_system_prompt\": true, \"has_model_config\": false, \"is_internal_child\": false}}",
+      "client_abort": null,
+      "seconds": 0.0012
+    },
+    {
+      "name": "QA-create-concurrent-3",
+      "method": "POST",
+      "path": "/api/sessions",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": "{\"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"title\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3 [QA-TEST]\", \"system_prompt\": \"[QA-TEST] QA transport check. Do not use tools.\", \"source\": \"api_server\"}",
+      "status": 201,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "679",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0015,
+      "body": "{\"object\": \"hermes.session\", \"session\": {\"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"source\": \"api_server\", \"user_id\": null, \"model\": null, \"title\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3 [QA-TEST]\", \"started_at\": 1792398589.3968794, \"ended_at\": null, \"end_reason\": null, \"message_count\": 0, \"tool_call_count\": 0, \"input_tokens\": 0, \"output_tokens\": 0, \"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"reasoning_tokens\": 0, \"estimated_cost_usd\": null, \"actual_cost_usd\": null, \"api_call_count\": 0, \"parent_session_id\": null, \"pinned\": false, \"archived\": false, \"hidden\": false, \"has_system_prompt\": true, \"has_model_config\": false, \"is_internal_child\": false}}",
+      "client_abort": null,
+      "seconds": 0.0015
+    },
+    {
+      "name": "QA-concurrent-0",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-concurrent-0/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache"
+      },
+      "request_body": "{\"input\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}], \"instructions\": \"[QA-TEST] Do not use tools.\"}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-concurrent-0",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0019,
+      "body": "event: run.started\ndata: {\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"run_id\": \"run_485790db47704a4797bf81d190d6ee9e\", \"seq\": 1, \"ts\": 1792398589.39994}\n\nevent: message.started\ndata: {\"message\": {\"id\": \"msg_25711f6563e341bb969b0bef10647658\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"run_id\": \"run_485790db47704a4797bf81d190d6ee9e\", \"seq\": 2, \"ts\": 1792398589.3999507}\n\nevent: assistant.completed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"message_id\": \"msg_25711f6563e341bb969b0bef10647658\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_485790db47704a4797bf81d190d6ee9e\", \"seq\": 3, \"ts\": 1792398589.6073122}\n\nevent: run.failed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"message_id\": \"msg_25711f6563e341bb969b0bef10647658\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_485790db47704a4797bf81d190d6ee9e\", \"seq\": 4, \"ts\": 1792398589.6073234}\n\nevent: done\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"run_id\": \"run_485790db47704a4797bf81d190d6ee9e\", \"seq\": 5, \"ts\": 1792398589.6073656}\n\n",
+      "client_abort": null,
+      "seconds": 0.2097,
+      "sse_frames": [
+        {
+          "event": "run.started",
+          "data": "{\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"run_id\": \"run_485790db47704a4797bf81d190d6ee9e\", \"seq\": 1, \"ts\": 1792398589.39994}",
+          "comments": []
+        },
+        {
+          "event": "message.started",
+          "data": "{\"message\": {\"id\": \"msg_25711f6563e341bb969b0bef10647658\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"run_id\": \"run_485790db47704a4797bf81d190d6ee9e\", \"seq\": 2, \"ts\": 1792398589.3999507}",
+          "comments": []
+        },
+        {
+          "event": "assistant.completed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"message_id\": \"msg_25711f6563e341bb969b0bef10647658\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_485790db47704a4797bf81d190d6ee9e\", \"seq\": 3, \"ts\": 1792398589.6073122}",
+          "comments": []
+        },
+        {
+          "event": "run.failed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"message_id\": \"msg_25711f6563e341bb969b0bef10647658\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_485790db47704a4797bf81d190d6ee9e\", \"seq\": 4, \"ts\": 1792398589.6073234}",
+          "comments": []
+        },
+        {
+          "event": "done",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"run_id\": \"run_485790db47704a4797bf81d190d6ee9e\", \"seq\": 5, \"ts\": 1792398589.6073656}",
+          "comments": []
+        }
+      ],
+      "swift_projection": {
+        "events": [
+          "completed",
+          "failed"
+        ],
+        "terminal": true,
+        "projected_app_outcome": "completed",
+        "evidence_kind": "source-derived projection; Swift not executed"
+      }
+    },
+    {
+      "name": "QA-concurrent-1",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-concurrent-1/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache"
+      },
+      "request_body": "{\"input\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}], \"instructions\": \"[QA-TEST] Do not use tools.\"}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-concurrent-1",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0044,
+      "body": "event: run.started\ndata: {\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"run_id\": \"run_5d71ae8b2d1048ddb49e933f65ca4abd\", \"seq\": 1, \"ts\": 1792398589.4028437}\n\nevent: message.started\ndata: {\"message\": {\"id\": \"msg_c6a6109e098e4629bb1fd210cf2b0f65\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"run_id\": \"run_5d71ae8b2d1048ddb49e933f65ca4abd\", \"seq\": 2, \"ts\": 1792398589.4028575}\n\nevent: assistant.completed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"message_id\": \"msg_c6a6109e098e4629bb1fd210cf2b0f65\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_5d71ae8b2d1048ddb49e933f65ca4abd\", \"seq\": 3, \"ts\": 1792398589.6432004}\n\nevent: run.failed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"message_id\": \"msg_c6a6109e098e4629bb1fd210cf2b0f65\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_5d71ae8b2d1048ddb49e933f65ca4abd\", \"seq\": 4, \"ts\": 1792398589.64321}\n\nevent: done\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"run_id\": \"run_5d71ae8b2d1048ddb49e933f65ca4abd\", \"seq\": 5, \"ts\": 1792398589.6432364}\n\n",
+      "client_abort": null,
+      "seconds": 0.2453,
+      "sse_frames": [
+        {
+          "event": "run.started",
+          "data": "{\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"run_id\": \"run_5d71ae8b2d1048ddb49e933f65ca4abd\", \"seq\": 1, \"ts\": 1792398589.4028437}",
+          "comments": []
+        },
+        {
+          "event": "message.started",
+          "data": "{\"message\": {\"id\": \"msg_c6a6109e098e4629bb1fd210cf2b0f65\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"run_id\": \"run_5d71ae8b2d1048ddb49e933f65ca4abd\", \"seq\": 2, \"ts\": 1792398589.4028575}",
+          "comments": []
+        },
+        {
+          "event": "assistant.completed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"message_id\": \"msg_c6a6109e098e4629bb1fd210cf2b0f65\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_5d71ae8b2d1048ddb49e933f65ca4abd\", \"seq\": 3, \"ts\": 1792398589.6432004}",
+          "comments": []
+        },
+        {
+          "event": "run.failed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"message_id\": \"msg_c6a6109e098e4629bb1fd210cf2b0f65\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_5d71ae8b2d1048ddb49e933f65ca4abd\", \"seq\": 4, \"ts\": 1792398589.64321}",
+          "comments": []
+        },
+        {
+          "event": "done",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"run_id\": \"run_5d71ae8b2d1048ddb49e933f65ca4abd\", \"seq\": 5, \"ts\": 1792398589.6432364}",
+          "comments": []
+        }
+      ],
+      "swift_projection": {
+        "events": [
+          "completed",
+          "failed"
+        ],
+        "terminal": true,
+        "projected_app_outcome": "completed",
+        "evidence_kind": "source-derived projection; Swift not executed"
+      }
+    },
+    {
+      "name": "QA-concurrent-2",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-concurrent-2/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache"
+      },
+      "request_body": "{\"input\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}], \"instructions\": \"[QA-TEST] Do not use tools.\"}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-concurrent-2",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0045,
+      "body": "event: run.started\ndata: {\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"run_id\": \"run_d88faaeb92f84900b53f5bec248ce8ab\", \"seq\": 1, \"ts\": 1792398589.4033754}\n\nevent: message.started\ndata: {\"message\": {\"id\": \"msg_bf79bca31c2f43078c9ded1f1313bad8\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"run_id\": \"run_d88faaeb92f84900b53f5bec248ce8ab\", \"seq\": 2, \"ts\": 1792398589.403387}\n\nevent: assistant.completed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"message_id\": \"msg_bf79bca31c2f43078c9ded1f1313bad8\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_d88faaeb92f84900b53f5bec248ce8ab\", \"seq\": 3, \"ts\": 1792398589.6582062}\n\nevent: run.failed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"message_id\": \"msg_bf79bca31c2f43078c9ded1f1313bad8\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_d88faaeb92f84900b53f5bec248ce8ab\", \"seq\": 4, \"ts\": 1792398589.6582153}\n\nevent: done\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"run_id\": \"run_d88faaeb92f84900b53f5bec248ce8ab\", \"seq\": 5, \"ts\": 1792398589.658238}\n\n",
+      "client_abort": null,
+      "seconds": 0.2598,
+      "sse_frames": [
+        {
+          "event": "run.started",
+          "data": "{\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"run_id\": \"run_d88faaeb92f84900b53f5bec248ce8ab\", \"seq\": 1, \"ts\": 1792398589.4033754}",
+          "comments": []
+        },
+        {
+          "event": "message.started",
+          "data": "{\"message\": {\"id\": \"msg_bf79bca31c2f43078c9ded1f1313bad8\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"run_id\": \"run_d88faaeb92f84900b53f5bec248ce8ab\", \"seq\": 2, \"ts\": 1792398589.403387}",
+          "comments": []
+        },
+        {
+          "event": "assistant.completed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"message_id\": \"msg_bf79bca31c2f43078c9ded1f1313bad8\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_d88faaeb92f84900b53f5bec248ce8ab\", \"seq\": 3, \"ts\": 1792398589.6582062}",
+          "comments": []
+        },
+        {
+          "event": "run.failed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"message_id\": \"msg_bf79bca31c2f43078c9ded1f1313bad8\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_d88faaeb92f84900b53f5bec248ce8ab\", \"seq\": 4, \"ts\": 1792398589.6582153}",
+          "comments": []
+        },
+        {
+          "event": "done",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"run_id\": \"run_d88faaeb92f84900b53f5bec248ce8ab\", \"seq\": 5, \"ts\": 1792398589.658238}",
+          "comments": []
+        }
+      ],
+      "swift_projection": {
+        "events": [
+          "completed",
+          "failed"
+        ],
+        "terminal": true,
+        "projected_app_outcome": "completed",
+        "evidence_kind": "source-derived projection; Swift not executed"
+      }
+    },
+    {
+      "name": "QA-concurrent-3",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-concurrent-3/chat/stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache"
+      },
+      "request_body": "{\"input\": [{\"type\": \"text\", \"text\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}], \"instructions\": \"[QA-TEST] Do not use tools.\"}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE1-20261019T082948-0c58c0-concurrent-3",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.005,
+      "body": "event: run.started\ndata: {\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"run_id\": \"run_5e5d2643687344b3bf76c5bf8665f71e\", \"seq\": 1, \"ts\": 1792398589.404124}\n\nevent: message.started\ndata: {\"message\": {\"id\": \"msg_6a0fa04274cc4c5e8dc105ff322aa1c7\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"run_id\": \"run_5e5d2643687344b3bf76c5bf8665f71e\", \"seq\": 2, \"ts\": 1792398589.4041336}\n\nevent: assistant.completed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"message_id\": \"msg_6a0fa04274cc4c5e8dc105ff322aa1c7\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_5e5d2643687344b3bf76c5bf8665f71e\", \"seq\": 3, \"ts\": 1792398589.6638465}\n\nevent: run.failed\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"message_id\": \"msg_6a0fa04274cc4c5e8dc105ff322aa1c7\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_5e5d2643687344b3bf76c5bf8665f71e\", \"seq\": 4, \"ts\": 1792398589.663855}\n\nevent: done\ndata: {\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"run_id\": \"run_5e5d2643687344b3bf76c5bf8665f71e\", \"seq\": 5, \"ts\": 1792398589.6638825}\n\n",
+      "client_abort": null,
+      "seconds": 0.265,
+      "sse_frames": [
+        {
+          "event": "run.started",
+          "data": "{\"user_message\": {\"role\": \"user\", \"content\": \"[QA-TEST] Reply with exactly QA-OK. Do not use tools.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"run_id\": \"run_5e5d2643687344b3bf76c5bf8665f71e\", \"seq\": 1, \"ts\": 1792398589.404124}",
+          "comments": []
+        },
+        {
+          "event": "message.started",
+          "data": "{\"message\": {\"id\": \"msg_6a0fa04274cc4c5e8dc105ff322aa1c7\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"run_id\": \"run_5e5d2643687344b3bf76c5bf8665f71e\", \"seq\": 2, \"ts\": 1792398589.4041336}",
+          "comments": []
+        },
+        {
+          "event": "assistant.completed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"message_id\": \"msg_6a0fa04274cc4c5e8dc105ff322aa1c7\", \"content\": \"\u26a0\ufe0f I couldn't connect to the AI model service, so this message wasn't processed. Use /login to sign in again, or /model to pick a different model. If it keeps failing, run `hermes doctor` on the host.\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_5e5d2643687344b3bf76c5bf8665f71e\", \"seq\": 3, \"ts\": 1792398589.6638465}",
+          "comments": []
+        },
+        {
+          "event": "run.failed",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"message_id\": \"msg_6a0fa04274cc4c5e8dc105ff322aa1c7\", \"completed\": false, \"partial\": false, \"interrupted\": false, \"messages\": [], \"usage\": {}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_5e5d2643687344b3bf76c5bf8665f71e\", \"seq\": 4, \"ts\": 1792398589.663855}",
+          "comments": []
+        },
+        {
+          "event": "done",
+          "data": "{\"session_id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"run_id\": \"run_5e5d2643687344b3bf76c5bf8665f71e\", \"seq\": 5, \"ts\": 1792398589.6638825}",
+          "comments": []
+        }
+      ],
+      "swift_projection": {
+        "events": [
+          "completed",
+          "failed"
+        ],
+        "terminal": true,
+        "projected_app_outcome": "completed",
+        "evidence_kind": "source-derived projection; Swift not executed"
+      }
+    },
+    {
+      "name": "QA-after-timeout-reconnect",
+      "method": "GET",
+      "path": "/v1/models",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "186",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0019,
+      "body": "{\"object\": \"list\", \"data\": [{\"id\": \"hermes-qa-swarmhub\", \"object\": \"model\", \"created\": 1792398589, \"owned_by\": \"hermes\", \"permission\": [], \"root\": \"hermes-qa-swarmhub\", \"parent\": null}]}",
+      "client_abort": null,
+      "seconds": 0.0019
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-0",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-concurrent-0",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "107",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0267,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-0\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.0268
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-1",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-concurrent-1",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "107",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.007,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-1\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.007
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-2",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-concurrent-2",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "107",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0075,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-2\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.0075
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-concurrent-3",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-concurrent-3",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "107",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0065,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-concurrent-3\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.0065
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-abort-byte",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-legacy-abort-byte",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "112",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0065,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-legacy-abort-byte\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.0065
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-abort-frame",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-legacy-abort-frame",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "113",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0066,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-legacy-abort-frame\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.0066
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-app-model",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-legacy-app-model",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "111",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0068,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-legacy-app-model\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.0068
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-reconnect-chat",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-legacy-reconnect-chat",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "116",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0058,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-legacy-reconnect-chat\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.0058
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-legacy-stream",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-legacy-stream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "108",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.006,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-legacy-stream\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.006
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-native",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "101",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0061,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-native\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.0061
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-native-abort-byte",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native-abort-byte",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "112",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0068,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-byte\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.0068
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-native-abort-frame",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-native-abort-frame",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "113",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0054,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-native-abort-frame\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.0054
+    },
+    {
+      "name": "QA-cleanup-QA-LIVE1-20261019T082948-0c58c0-nonstream",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE1-20261019T082948-0c58c0-nonstream",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "104",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0055,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE1-20261019T082948-0c58c0-nonstream\", \"deleted\": true}",
+      "client_abort": null,
+      "seconds": 0.0055
+    },
+    {
+      "name": "QA-final-health",
+      "method": "GET",
+      "path": "/health/detailed",
+      "auth": "valid",
+      "request_headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "1705",
+        "Date": "Mon, 19 Oct 2026 08:29:49 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0038,
+      "body": "{\"status\": \"degraded\", \"readiness\": {\"status\": \"degraded\", \"checks\": {\"state_db\": {\"status\": \"ok\"}, \"session_store\": {\"status\": \"ok\"}, \"config\": {\"status\": \"ok\"}, \"model\": {\"status\": \"degraded\"}, \"disk\": {\"status\": \"ok\", \"used_percent\": 17.6, \"free_bytes\": 110586220544}, \"gateway\": {\"status\": \"ok\", \"state\": \"running\", \"connected_platforms\": 1, \"platforms\": 1}, \"background_queues\": {\"status\": \"ok\", \"active_api_runs\": 0, \"process_completions\": 0, \"active_delegations\": 0}}}, \"platform\": \"hermes-agent\", \"version\": \"unknown\", \"gateway_state\": \"running\", \"platforms\": {\"api_server\": {\"state\": \"connected\", \"error_code\": null, \"error_message\": null, \"needs_attention\": false, \"updated_at\": \"2026-10-19T08:29:46.528789+00:00\", \"writer_pid\": 178850, \"writer_start_time\": 1905314, \"retrying_since\": null, \"listener_base\": \"http://127.0.0.1:8742\", \"metrics\": {\"host\": \"127.0.0.1\", \"port\": 8742, \"active_runs\": 0, \"stored_runs\": 13, \"last_request_at\": null, \"last_heartbeat\": \"2026-10-19T08:29:49.972592+00:00\", \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 0, \"messages\": 0, \"tokens\": 0, \"latency_p95_ms\": null}}}}, \"api_server\": {\"host\": \"127.0.0.1\", \"port\": 8742, \"active_runs\": 0, \"stored_runs\": 13, \"last_request_at\": null, \"last_heartbeat\": \"2026-10-19T08:29:49.972592+00:00\", \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 0, \"messages\": 0, \"tokens\": 0, \"latency_p95_ms\": null}}, \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 0, \"messages\": 0, \"tokens\": 0, \"latency_p95_ms\": null}, \"last_heartbeat\": \"2026-10-19T08:29:49.972592+00:00\", \"active_agents\": 1, \"gateway_busy\": true, \"gateway_drainable\": true, \"exit_reason\": null, \"updated_at\": \"2026-10-19T08:29:49.667957+00:00\", \"pid\": 178850}",
+      "client_abort": null,
+      "seconds": 0.0039
+    }
+  ]
+}

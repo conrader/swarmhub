@@ -1,5 +1,27 @@
 # Swarm Hub real-app QA harness
 
+For the explicitly provisioned throwaway Linux Hermes, a separate direct transport
+suite exercises the real HTTP APIs without claiming macOS app QA coverage:
+
+```sh
+set -a
+source /workspace/ermes/qa-swarmhub/hermes-endpoint.env
+set +a
+python3 -B sim/live_transport.py --output sim/results/QA-live-new-run
+```
+
+Use a fresh output directory. This suite accepts only numeric IPv4 HTTP loopback,
+never prints the key, and uses fixed `[QA-TEST]` prompts and `QA-` session names.
+It checks native and legacy streams, authentication, malformed requests,
+concurrency, client disconnects/read deadlines, reconnect and owned-session cleanup.
+Requests and turn creation are bounded; no server configuration or tools are changed.
+It retains raw responses and source-derived Swift projections separately: Swift
+and the app are **not executed** on Linux. Exit 1 means an observed server bug or
+source-confirmed compatibility failure; exit 2 means remaining blocked checks.
+See [LIVE-REPORT-1.md](../LIVE-REPORT-1.md) and
+[live evidence](results/live-1/RESULTS.md). Existing app QA attestation gates below
+remain required for real app scenarios.
+
 Run locally on Linux, without dependencies, Swift, a backend or network access:
 
 ```sh
