@@ -7,6 +7,9 @@ struct BotMessageCall: Codable, Equatable, Sendable {
     var to: String; var from: String?; var text: String; var noWait = false; var reply: String?
     /// P42: sent with `hermes -p <bot> chat --oneshot`, and the recipient's session it landed in once found.
     var oneshot: Bool?; var session: String?
+    /// Absent in saved calls from older builds, which always woke immediately.
+    var priority: Bool? = nil
+    var isHeld: Bool { priority == false }
 
     static let textLimit = 4000
 
@@ -27,7 +30,7 @@ struct BotMessageCall: Codable, Equatable, Sendable {
         guard command.contains("bot-msg") else { return nil }
         let words = ShellWords.split(command)
         guard let start = words.firstIndex(where: { isScript($0.word, quoted: $0.quoted) }) else { return nil }
-        var to: String?, from: String?, noWait = false, text: [String] = []
+        var to: String?, from: String?, noWait = false, priority = false, text: [String] = []
         var index = start + 1, afterDashes = false
         while index < words.count {
             let (word, quoted) = words[index]
@@ -39,6 +42,8 @@ struct BotMessageCall: Codable, Equatable, Sendable {
                 case "--from": from = words[safe: index + 1]?.word; index += 1
                 case "--wait": index += 1
                 case "--no-wait": noWait = true
+                case "--priority": priority = true
+                case "--held": priority = false
                 case "--": afterDashes = true
                 default: if word.hasPrefix("--to=") { to = String(word.dropFirst(5)) } else if word.hasPrefix("--from=") { from = String(word.dropFirst(7)) }
                 }
@@ -46,7 +51,9 @@ struct BotMessageCall: Codable, Equatable, Sendable {
             index += 1
         }
         guard let to, !to.isEmpty, to.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0)) }) else { return nil }
-        return BotMessageCall(to: to, from: from, text: String(text.joined(separator: " ").prefix(textLimit)), noWait: noWait)
+        var call = BotMessageCall(to: to, from: from, text: String(text.joined(separator: " ").prefix(textLimit)), noWait: noWait)
+        call.priority = priority
+        return call
     }
 
     /// The text the recipient got, without bot-msg's own first line.
@@ -62,10 +69,10 @@ struct BotMessageCall: Codable, Equatable, Sendable {
         guard let raw, !raw.isEmpty else { return nil }
         if let data = raw.data(using: .utf8), let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
             let output = (json["output"] ?? json["stdout"] ?? json["result"]) as? String
-            return output.map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(textLimit)) }.flatMap { $0.isEmpty ? nil : $0 }
+            return output.map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(textLimit)) }.flatMap { $0.isEmpty || SilentReply.isSilent($0) ? nil : $0 }
         }
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : String(text.prefix(textLimit))
+        return text.isEmpty || SilentReply.isSilent(text) ? nil : String(text.prefix(textLimit))
     }
 }
 
@@ -154,6 +161,7 @@ enum BotMessageCopy {
     static func chip(_ name: String, _ state: BotMessageChipState) -> String {
         switch state {
         case .sent: chip(name)
+        case .held: "Held for \(name)’s next turn"
         case .asking: asking(name)
         case .replied: replied(name)
         }

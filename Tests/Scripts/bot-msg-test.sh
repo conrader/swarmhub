@@ -51,9 +51,9 @@ msg() { msg_with "$MSG" "$@"; }
 msg_with() {
   script=$1; shift
   if [ -n "$GWURL" ]; then
-    env -i HOME="$C/home" PATH=/usr/bin:/bin TMPDIR="$ROOT" SWARMHUB_GATEWAY="$GWURL" "$SH" "$script" "$@" > "$C/out" 2> "$C/err"
+    env -i HOME="$C/home" PATH=/usr/bin:/bin TMPDIR="$ROOT" SWARMHUB_GATEWAY="$GWURL" "$SH" "$script" --priority "$@" > "$C/out" 2> "$C/err"
   else
-    env -i HOME="$C/home" PATH=/usr/bin:/bin TMPDIR="$ROOT" "$SH" "$script" "$@" > "$C/out" 2> "$C/err"
+    env -i HOME="$C/home" PATH=/usr/bin:/bin TMPDIR="$ROOT" "$SH" "$script" --priority "$@" > "$C/out" 2> "$C/err"
   fi
   RC=$?
 }

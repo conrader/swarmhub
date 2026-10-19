@@ -64,7 +64,8 @@ extension AppStore {
         return """
         Konrad pressed “\(AllBotsSkillCopy.button)” in SwarmHub and confirmed it once for all of these profiles: \(names). \
         That confirmation is his yes for every one of them: do not ask again. Run exactly these commands in your terminal with \
-        the shell (not the file tool), change nothing else, then reply in one short line and end with the block below.
+        the shell (not the file tool), change nothing else, then reply in one short line and end with the block below. \
+        Report whether the peer plugins activated; if the gateway did not reload them, mention that a reload is needed for held delivery.
         ````sh
         \(commands.joined(separator: "\n"))
         ````

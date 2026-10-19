@@ -10,23 +10,23 @@ private let script = "~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-me
 // MARK: Step parsing
 
 @Test(arguments: [
-    ("\(script) --from grok-jarvis --to grok-infra -- \"Is /data above 80%?\"", "grok-infra", "grok-jarvis", "Is /data above 80%?", false),
-    ("\(script) --from grok-jarvis --to grok-infra -- 'It'\\''s down, can you \"check\"?'", "grok-infra", "grok-jarvis", "It's down, can you \"check\"?", false),
-    ("cd /tmp && \(script) --to=grok-infra --no-wait -- \"Restart \\\"backup\\\" \\$NOW\" && echo done", "grok-infra", nil, "Restart \"backup\" $NOW", true),
-    ("bot-msg --to infra --wait 60 -- Please check the disk", "infra", nil, "Please check the disk", false),
-    ("/usr/bin/env sh ./scripts/bot-msg --from a --to default -- \"multi\nline\"", "default", "a", "multi\nline", false),
-    ("bot-msg --to infra -- \"a; b && c\" | tee /tmp/out", "infra", nil, "a; b && c", false)
+    ("\(script) --priority --from grok-jarvis --to grok-infra -- \"Is /data above 80%?\"", "grok-infra", "grok-jarvis", "Is /data above 80%?", false),
+    ("\(script) --priority --from grok-jarvis --to grok-infra -- 'It'\\''s down, can you \"check\"?'", "grok-infra", "grok-jarvis", "It's down, can you \"check\"?", false),
+    ("cd /tmp && \(script) --priority --to=grok-infra --no-wait -- \"Restart \\\"backup\\\" \\$NOW\" && echo done", "grok-infra", nil, "Restart \"backup\" $NOW", true),
+    ("bot-msg --priority --to infra --wait 60 -- Please check the disk", "infra", nil, "Please check the disk", false),
+    ("/usr/bin/env sh ./scripts/bot-msg --priority --from a --to default -- \"multi\nline\"", "default", "a", "multi\nline", false),
+    ("bot-msg --priority --to infra -- \"a; b && c\" | tee /tmp/out", "infra", nil, "a; b && c", false)
 ] as [(String, String, String?, String, Bool)])
 func botMsgCommandsParse(_ command: String, _ to: String, _ from: String?, _ text: String, _ noWait: Bool) throws {
     let call = try #require(BotMessageCall.parse(command: command))
-    #expect(call == BotMessageCall(to: to, from: from, text: text, noWait: noWait))
+    #expect(call == BotMessageCall(to: to, from: from, text: text, noWait: noWait, priority: true))
 }
 
 @Test func otherCommandsAreNotBotMessages() {
     #expect(BotMessageCall.parse(command: "hermes -p grok-infra chat -c 'Bot Chat' --create-if-missing -Q --query-file -") == nil)
-    #expect(BotMessageCall.parse(command: "echo 'bot-msg --to infra -- hi'") == nil, "a quoted mention is text")
-    #expect(BotMessageCall.parse(command: "bot-msg -- \"no recipient\"") == nil)
-    #expect(BotMessageCall.parse(command: "bot-msg --to '../etc' -- x") == nil)
+    #expect(BotMessageCall.parse(command: "echo 'bot-msg --priority --to infra -- hi'") == nil, "a quoted mention is text")
+    #expect(BotMessageCall.parse(command: "bot-msg --priority -- \"no recipient\"") == nil)
+    #expect(BotMessageCall.parse(command: "bot-msg --priority --to '../etc' -- x") == nil)
     #expect(BotMessageCall.parse(command: "cat bot-msg-notes.txt") == nil)
 }
 
@@ -40,11 +40,11 @@ func botMsgCommandsParse(_ command: String, _ to: String, _ from: String?, _ tex
 
 @Test func hermesToolEventsCarryTheCommandAndResult() {
     let backend = HermesBackend(baseURL: URL(string: "http://127.0.0.1:8642/v1")!, apiKey: "", profile: "grok-jarvis")
-    let started = backend.nativeTool("tool.started", ["tool_name": "terminal", "tool_call_id": "c1", "preview": "bot-msg --to grok-infra",
-                                                      "args": ["command": "\(script) --from grok-jarvis --to grok-infra -- \"Disk?\""]])
+    let started = backend.nativeTool("tool.started", ["tool_name": "terminal", "tool_call_id": "c1", "preview": "bot-msg --priority --to grok-infra",
+                                                      "args": ["command": "\(script) --priority --from grok-jarvis --to grok-infra -- \"Disk?\""]])
     #expect(started.command?.hasSuffix("-- \"Disk?\"") == true)
-    let stringArgs = backend.nativeTool("tool.started", ["tool_name": "terminal", "args": #"{"command":"bot-msg --to x -- hi"}"#])
-    #expect(stringArgs.command == "bot-msg --to x -- hi")
+    let stringArgs = backend.nativeTool("tool.started", ["tool_name": "terminal", "args": #"{"command":"bot-msg --priority --to x -- hi"}"#])
+    #expect(stringArgs.command == "bot-msg --priority --to x -- hi")
     #expect(backend.nativeTool("tool.started", ["tool_name": "terminal", "args": ["command": "ls -la"]]).command == nil, "only bot-msg commands are kept")
     let done = backend.nativeTool("tool.completed", ["tool_name": "terminal", "tool_call_id": "c1", "result": ["output": "62%", "exit_code": 0]])
     #expect(done.command == nil && BotMessageCall.reply(fromResult: done.result) == "62%")
@@ -53,7 +53,7 @@ func botMsgCommandsParse(_ command: String, _ to: String, _ from: String?, _ tex
     activity.apply(started, at: now)
     activity.apply(ToolEvent(phase: .started, name: "read_file", preview: "notes.md", callID: "c2"), at: now)
     activity.apply(done, at: now.addingTimeInterval(3))
-    #expect(activity.steps[0].botMessage == BotMessageCall(to: "grok-infra", from: "grok-jarvis", text: "Disk?", reply: "62%"))
+    #expect(activity.steps[0].botMessage == BotMessageCall(to: "grok-infra", from: "grok-jarvis", text: "Disk?", reply: "62%", priority: true))
     #expect(activity.steps[1].botMessage == nil)
     // An old store without the field still loads.
     let old = try? JSONDecoder().decode(ToolStep.self, from: Data(#"{"name":"terminal","startedAt":0,"failed":false}"#.utf8))
@@ -81,7 +81,7 @@ func botMsgCommandsParse(_ command: String, _ to: String, _ from: String?, _ tex
     let infra = Bot(name: "Infra", backend: .hermes, hermesProfile: "grok-infra")
     let reply = ChatMessage(role: .assistant, content: "Infra says the disk is at 62%.", createdAt: Date(timeIntervalSince1970: 2_000))
     var activity = ToolActivity()
-    activity.apply(ToolEvent(phase: .started, name: "terminal", callID: "c1", command: "\(script) --from grok-jarvis --to grok-infra -- \"How full is /data?\""),
+    activity.apply(ToolEvent(phase: .started, name: "terminal", callID: "c1", command: "\(script) --priority --from grok-jarvis --to grok-infra -- \"How full is /data?\""),
                    at: Date(timeIntervalSince1970: 2_000))
     activity.apply(ToolEvent(phase: .completed, name: "terminal", callID: "c1", result: #"{"output":"62%, fine."}"#), at: Date(timeIntervalSince1970: 2_004))
     reply.activity = activity
@@ -181,7 +181,7 @@ private func row(_ sender: String, count: Int, active: Double) -> [String: Any] 
 @Test @MainActor func aSendersEndedStepChecksTheRecipientAtOnce() async throws {
     let (store, jarvis, infra, host) = threadStore(rows: [row("grok-jarvis", count: 2, active: 2_003)])
     var before = ToolActivity()
-    before.apply(ToolEvent(phase: .started, name: "terminal", callID: "c9", command: "bot-msg --from grok-jarvis --to grok-infra -- hi"), at: .now)
+    before.apply(ToolEvent(phase: .started, name: "terminal", callID: "c9", command: "bot-msg --priority --from grok-jarvis --to grok-infra -- hi"), at: .now)
     var after = before; after.apply(ToolEvent(phase: .completed, name: "terminal", callID: "c9"), at: .now)
     store.noteEndedBotMessageSteps(before: before, after: after, sender: jarvis)
     try await waitUntil { infra.messages.count == 1 }

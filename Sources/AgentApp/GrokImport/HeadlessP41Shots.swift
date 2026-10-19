@@ -16,7 +16,7 @@ import SwiftUI
         let coder = Bot(name: "Coder", title: "Writes and fixes code", backend: .hermes, hermesProfile: "coder")
         jarvis.avatarName = .allCases[0]; infra.avatarName = .allCases[min(3, BotAvatarName.allCases.count - 1)]; coder.avatarName = .allCases[min(6, BotAvatarName.allCases.count - 1)]
         let now = Date.now, start = now.addingTimeInterval(-200)
-        let command = "/home/hermes/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages/scripts/bot-msg --from grok-jarvis --to grok-infra --wait 300 -- 'Is the backup disk on box 2 healthy, and did last night's run finish?'"
+        let command = "/home/hermes/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages/scripts/bot-msg --priority --from grok-jarvis --to grok-infra --wait 300 -- 'Is the backup disk on box 2 healthy, and did last night's run finish?'"
         let answer = "Backup disk on box 2 is healthy (SMART ok, 41 % used). Last night's run finished at 03:12: 41 GB, no errors. I also rotated the old snapshots."
 
         // 1: the finished reply, its bot-msg step with Infra's answer open.

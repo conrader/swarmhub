@@ -16,7 +16,7 @@ import SwiftUI
         let coder = Bot(name: "Coder", title: "Writes and fixes code", backend: .hermes, hermesProfile: "coder")
         jarvis.avatarName = .allCases[0]; infra.avatarName = .allCases[min(3, BotAvatarName.allCases.count - 1)]; coder.avatarName = .allCases[min(6, BotAvatarName.allCases.count - 1)]
         let now = Date.now, start = now.addingTimeInterval(-420)
-        let script = "~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages/scripts/bot-msg --from grok-jarvis"
+        let script = "~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages/scripts/bot-msg --priority --from grok-jarvis"
         let reply = ChatMessage(role: .assistant, content: "Infra says **/data is at 62 %** and the nightly backup finished at 03:12. I asked Coder to look at the slow export; it will answer in its thread.",
                                 createdAt: start, turnState: .finished)
         var activity = ToolActivity()

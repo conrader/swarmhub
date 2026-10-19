@@ -7,7 +7,8 @@ enum SilentReply {
     static let marker = "[SILENT]"
 
     static func isSilent(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(marker) == .orderedSame
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.caseInsensitiveCompare(marker) == .orderedSame || value.caseInsensitiveCompare("NO_REPLY") == .orderedSame
     }
 }
 

@@ -2,19 +2,19 @@
 # code-job: run one coding task with the first available coding agent, one of SLOTS jobs at a time on this box.
 # Installed by SwarmHub with the swarmhub-coding skill. POSIX sh (dash, macOS sh); no flock/timeout/setsid.
 #
-#   code-job --bot <name> --order claude,codex,hermes [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- "<task>"
+#   code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- "<task>"
 #
 # Exit: the agent's own code; 124 timeout; 75 + CODE_JOB_USE_DELEGATE on stdout when the order reaches hermes;
 # 69 when every agent in the order was skipped; 64 usage. Box-wide state lives in ~/.hermes/swarmhub/.
 
-usage() { echo "usage: code-job --bot <name> --order claude,codex,hermes [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- \"<task>\"" >&2; exit 64; }
+usage() { echo "usage: code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- \"<task>\"" >&2; exit 64; }
 
-BOT= ORDER= DIR=. TIMEOUT=1800 MAXTURNS=40
+BOT= ORDER= DIR=. TIMEOUT=1800 MAXTURNS=40 ORIGIN=${SWARMHUB_ORDERING_BOT:-}
 while [ $# -gt 0 ]; do
   case $1 in
-    --bot|--order|--dir|--timeout|--max-turns)
+    --bot|--order|--dir|--timeout|--max-turns|--origin)
       [ $# -ge 2 ] || usage
-      case $1 in --bot) BOT=$2 ;; --order) ORDER=$2 ;; --dir) DIR=$2 ;; --timeout) TIMEOUT=$2 ;; --max-turns) MAXTURNS=$2 ;; esac
+      case $1 in --bot) BOT=$2 ;; --order) ORDER=$2 ;; --dir) DIR=$2 ;; --timeout) TIMEOUT=$2 ;; --max-turns) MAXTURNS=$2 ;; --origin) ORIGIN=$2 ;; esac
       shift 2 ;;
     --) shift; break ;;
     *) usage ;;
@@ -22,7 +22,11 @@ while [ $# -gt 0 ]; do
 done
 [ $# -eq 1 ] && [ -n "$1" ] || usage
 TASK=$1
+if [ -z "$ORIGIN" ]; then
+  case ${HERMES_SESSION_ID:-} in swarmhub-from-*) ORIGIN=${HERMES_SESSION_ID#swarmhub-from-} ;; esac
+fi
 case $BOT in ''|*[!A-Za-z0-9_.-]*) echo "code-job: --bot must be a bot name" >&2; exit 64 ;; esac
+case $ORIGIN in *[!A-Za-z0-9_.-]*|.*) echo "code-job: --origin must be a bot name" >&2; exit 64 ;; esac
 case $TIMEOUT in ''|*[!0-9]*|0) echo "code-job: --timeout must be a number of seconds" >&2; exit 64 ;; esac
 case $MAXTURNS in ''|*[!0-9]*|0) echo "code-job: --max-turns must be a number" >&2; exit 64 ;; esac
 [ -n "$ORDER" ] || usage
@@ -35,7 +39,15 @@ done
 case :$PATH: in *":$HOME/.local/bin:"*) ;; *) PATH=$HOME/.local/bin:$PATH; export PATH ;; esac
 
 S=$HOME/.hermes/swarmhub
+umask 077
 mkdir -p "$S/slots" && chmod 700 "$S" || exit 1
+# Publish metadata before starting the CLI; finish publishes ready only after all fields exist.
+mkdir -p "$S/job-completions" || exit 1
+JOB=$(mktemp -d "$S/job-completions/job.XXXXXXXX") || exit 1
+printf '%s\n' "$BOT" > "$JOB/bot"
+printf '%s\n' "$ORIGIN" > "$JOB/origin"
+printf '%s\n' "$DIR" > "$JOB/directory"
+MSG=$(dirname "$0")/../../swarmhub-messages/scripts/bot-msg
 SLOTS=$(sed -n 's/^SLOTS=\([0-9][0-9]*\)[[:space:]]*$/\1/p' "$S/coding.conf" 2>/dev/null | tail -n 1)
 case $SLOTS in ''|0) SLOTS=1 ;; esac
 POLL=${CODE_JOB_POLL:-5}
@@ -76,6 +88,17 @@ release() {
 finish() {
   rc=$1 word=$2
   release
+  printf '%s\n' "$AGENT" > "$JOB/agent"
+  printf '%s\n' "$rc" > "$JOB/exit"
+  printf '%s\n' "$word" > "$JOB/status"
+  printf '%s\n' "$WAITED" > "$JOB/waited"
+  printf '%s\n' "$RAN" > "$JOB/ran"
+  : > "$JOB/ready"
+  if [ -f "$MSG" ]; then
+    /bin/sh "$MSG" --retry >/dev/null 2>&1 || echo "code-job: wake pending in $JOB" >&2
+  else
+    echo "code-job: wake pending in $JOB; install swarmhub-messages to deliver" >&2
+  fi
   rm -rf "$T"
   sk=${SKIPPED#, }
   line="code-job: $AGENT $word · waited ${WAITED}s · ran ${RAN}s · peak $(( (PEAK + 1023) / 1024 )) MB"

@@ -143,15 +143,16 @@ class ObservedSuite(BehaviorSuite):
         thread.start()
         return server, thread
 
-    def send(self, pattern, source, target, message, mode="wait", wait=12):
+    def send(self, pattern, source, target, message, mode="wait", wait=12, priority=True):
         if source not in ROLES or target not in ROLES:
             raise ValueError("Unowned QA role")
         args = ["/bin/sh", str(SCRIPT), "--from", source, "--to", target]
+        args += ["--priority" if priority else "--held"]
         args += ["--no-wait"] if mode == "no-wait" else ["--wait", str(wait)]
         args += ["--", "[QA-TEST] " + message]
         started = time.monotonic()
         process = subprocess.run(args, env=self.child_env, capture_output=True, text=True, timeout=25)
-        record = {"pattern": pattern, "from": source, "to": target, "mode": mode, "wait": wait,
+        record = {"pattern": pattern, "from": source, "to": target, "mode": mode, "wait": wait, "priority": priority,
                   "message": message, "returncode": process.returncode,
                   "stdout": process.stdout, "stderr": process.stderr,
                   "seconds": round(time.monotonic() - started, 3)}
@@ -204,15 +205,16 @@ class ObservedSuite(BehaviorSuite):
                   'The key must be visible only to the user, never pasted in chat. Act within available tools and report the actual blocker.')
         self.blocked("P02-automatic-fallback-webhook", "Recorded request delivered; webhook registration and unknown-origin wake router unavailable; no key generated or exposed")
 
-        # Observed 3: FYI held vs action priority. no-wait is the closest available
-        # flag; real receipt below shows it wakes immediately rather than holds.
+        # The bundled script now has a held inbox. The bridge does not install
+        # the box-local Hermes plugin, so only admission can be checked here.
         before = len(self.peer_traces("QA-Ermes", "QA-Swarmhub"))
-        self.send("P03-held-FYI", "QA-Swarmhub", "QA-Ermes",
-                  'FYI, held until your next turn: QA Hermes is for this team QA pass. No action requested.', mode="no-wait")
+        held = self.send("P03-held-FYI", "QA-Swarmhub", "QA-Ermes",
+                  'FYI, held until your next turn: QA Hermes is for this team QA pass. No action requested.', mode="no-wait", priority=False)
         self.settle()
         after = self.peer_traces("QA-Ermes", "QA-Swarmhub")
-        self.result("P03-FYI-wakes-immediately", len(after) == before + 1 and successful(after[-1]),
-                    "Gap reproduction: no-wait creates a real peer model turn immediately; it is not Grok held delivery")
+        self.result("P03-FYI-is-held", len(after) == before and held["returncode"] == 0 and held["stdout"].startswith("held:"),
+                    "Held receipt without an upstream turn; next-turn delivery requires the box-local peer plugin")
+        self.blocked("P03-held-next-turn", "The namespace bridge and temporary HOME do not install the Hermes peer plugin; test_peer_runtime.py covers the hook offline")
 
         # Observed 6 also supplies the action ask for observed 3; no new scenario.
         priority = self.send("P06-priority-provision", "QA-Swarmhub", "QA-Ermes",

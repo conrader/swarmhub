@@ -106,7 +106,8 @@ extension AppStore {
         return """
         Konrad pressed Install in SwarmHub to install SwarmHub’s instructions (skills) for \(botName) (profile `\(profile)`). \
         That press is his yes: do not ask again. Run exactly these commands in your terminal with the shell (not the file tool), \
-        change nothing else, then reply in one short line and end with the block below.
+        change nothing else, then reply in one short line and end with the block below. \
+        If swarmhub-messages was installed, report whether its peer plugin activated; if the gateway did not reload it, mention that a reload is needed for held delivery.
         ````sh
         \(install.commands.joined(separator: "\n"))
         ````
@@ -135,6 +136,11 @@ extension AppStore {
             }
             let executables = files.filter(\.isExecutable).map { "\(folder)/\($0.path)" }
             if !executables.isEmpty { commands.append("chmod 755 " + executables.joined(separator: " ")) }
+            if skill.name == "swarmhub-messages" {
+                commands.append("python3 \(folder)/scripts/peer-runtime.py install \(profile)")
+                commands.append("hermes -p \(profile) plugins enable swarmhub-peer")
+                commands.append("python3 \(folder)/scripts/peer-runtime.py start")
+            }
         }
         let listed = skills.map { skill in
             let variant = SkillLibrary.variant(of: skill, codingOrder: codingOrder).map { #","variant":"\#($0)""# } ?? ""

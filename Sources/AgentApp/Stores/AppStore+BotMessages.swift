@@ -60,7 +60,7 @@ extension AppStore {
         guard let sender = bot(forProfile: key.from) else { return [] }
         return botMessageSteps(of: sender).filter { $0.call.to == key.to }.enumerated().flatMap { index, item -> [BotThreadLine] in
             var lines = [BotThreadLine(id: "s\(index)", author: key.from, text: item.call.text, date: item.step.startedAt)]
-            if let reply = item.call.reply, !item.call.noWait { lines.append(BotThreadLine(id: "r\(index)", author: key.to, text: reply, date: item.step.finishedAt)) }
+            if let reply = item.call.reply, !item.call.noWait, !item.call.isHeld, !SilentReply.isSilent(reply) { lines.append(BotThreadLine(id: "r\(index)", author: key.to, text: reply, date: item.step.finishedAt)) }
             return lines
         }
     }
@@ -83,7 +83,7 @@ extension AppStore {
                 let text = BotWorkOrigin.header(user.content)?.text ?? BotMessageCall.strippingHeader(user.content).text
                 lines.append(BotThreadLine(id: "m\(user.id.map(String.init) ?? "t\(turn.index)")", author: key.from, text: text, date: user.createdAt))
             }
-            if let last = turn.rows.last {
+            if let last = turn.rows.last, !SilentReply.isSilent(turn.replyText) {
                 // The newest answer's last step runs until its reply lands.
                 let activity = turn.index == turns.count - 1 ? live?.activity : turn.activity
                 lines.append(BotThreadLine(id: "a\(last.id.map(String.init) ?? "t\(turn.index)")", author: key.to, text: turn.replyText, date: last.createdAt, activity: activity))
@@ -114,12 +114,16 @@ extension AppStore {
         for sender in bots where sender.backend == .hermes {
             for item in botMessageSteps(of: sender) {
                 let key = BotThreadKey(from: profile(of: sender), to: item.call.to)
-                add(key, line: item.call.reply ?? item.call.text, date: item.step.finishedAt ?? item.step.startedAt)
+                let reply = item.call.isHeld ? nil : item.call.reply.flatMap { SilentReply.isSilent($0) ? nil : $0 }
+                add(key, line: reply ?? item.call.text, date: item.step.finishedAt ?? item.step.startedAt)
             }
         }
         for (recipientID, rows) in botMessages.rows {
             guard let recipient = bots.first(where: { $0.id == recipientID }) else { continue }
-            for row in rows { add(BotThreadKey(from: row.sender, to: profile(of: recipient)), line: row.preview ?? "", date: row.updatedAt) }
+            for row in rows {
+                let preview = row.preview.flatMap { SilentReply.isSilent($0) ? nil : $0 } ?? ""
+                add(BotThreadKey(from: row.sender, to: profile(of: recipient)), line: preview, date: row.updatedAt)
+            }
         }
         for (key, lines) in botMessages.loaded { if let last = lines.last { add(key, line: last.text, date: last.date) } }
         return byKey.values.sorted { ($0.date ?? .distantPast, $0.key.id) > ($1.date ?? .distantPast, $1.key.id) }
@@ -211,7 +215,7 @@ extension AppStore {
         let wasRunning = Set((before?.steps ?? []).filter { $0.isRunning && $0.botMessage != nil }.map(\.startedAt))
         guard !wasRunning.isEmpty else { return }
         for step in after.steps where !step.isRunning && wasRunning.contains(step.startedAt) {
-            guard let call = step.botMessage, let recipient = bot(forProfile: call.to), !needsKey(recipient) else { continue }
+            guard let call = step.botMessage, !call.isHeld, let recipient = bot(forProfile: call.to), !needsKey(recipient) else { continue }
             let from = profile(of: sender)
             Task { await checkBotMessages(for: recipient, expecting: from) }
         }

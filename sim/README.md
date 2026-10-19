@@ -1,5 +1,14 @@
 # Swarm Hub real-app QA harness
 
+Peer delivery regressions run without sockets or providers:
+`python3 -B -m unittest discover -s sim -p 'test_peer_runtime.py' -v`.
+These execute the bundled shell scripts with a local curl stub and exercise the
+held-inbox plugin callbacks and durable coding-completion outbox. The LIVE3 runner
+now explicitly uses `--priority` for action asks and checks that a held FYI starts
+no upstream turn. It marks next-turn held delivery blocked because its temporary
+HOME and namespace bridge do not install the peer plugin on the remote gateway.
+See [PEER-REPORT.md](../PEER-REPORT.md) for installation and validation limits.
+
 For the ten real team interaction patterns recorded in `grokbot-observed.md`, use
 `live_observed.py --usage-db /workspace/ermes/qa-swarmhub/home/state.db --output
 sim/results/QA-live3-new` after sourcing the QA endpoint env as below. It runs the

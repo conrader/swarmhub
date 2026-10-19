@@ -1,7 +1,7 @@
 ---
 name: swarmhub-coding
 description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v{{VERSION}}."
-version: 1.1.1
+version: 1.2.0
 author: SwarmHub
 metadata:
   swarmhub:
@@ -31,3 +31,14 @@ task with your own delegate_task (a sub-agent) instead.
 
 Never print, read or copy `~/.hermes/swarmhub/claude.token`, and never set ANTHROPIC_API_KEY. Logins are SwarmHub's
 Accounts sheet's job (`scripts/swarmhub-claude-login`, run by the manager bot): never run it or a login yourself.
+
+Completion routing: when this task came from another bot, add `--origin <ordering-profile>` to code-job (or set
+`SWARMHUB_ORDERING_BOT`). A Hermes terminal in `swarmhub-from-<sender>` also infers it from `HERMES_SESSION_ID`.
+Use the sender of the original request, not the worker's own profile. Unknown/missing origin
+falls back to `COORDINATOR=<profile>` in `~/.hermes/swarmhub/coding.conf` or `SWARMHUB_COORDINATOR`. Without either,
+the completion remains pending until a coordinator is configured. Install swarmhub-messages alongside this skill.
+Every exit publishes a private record in `~/.hermes/swarmhub/job-completions/job.*` before temporary output is removed.
+The record contains routing, agent, exit/status, work directory and timings, never the task text or CLI output.
+The messaging worker retries priority wakes until delivered, including after restart; no keys need copying.
+A repeated completion carries the same job ID. Check that ID before repeating follow-up work. Exit 75 is a delegate
+handoff, not a completed coding task. Exit zero reports CLI success; inspect artifacts before claiming completion.

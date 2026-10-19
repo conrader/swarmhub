@@ -6,12 +6,12 @@ import Testing
 // line, never the 80-character preview. Synthetic only.
 
 /// Jarvis's terminal command on the box; the script path alone is 88 characters.
-let liveBotMsgCommand = "/home/hermes/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages/scripts/bot-msg --from grok-jarvis --to grok-infra --wait 300 -- 'Can you check the backup disk on box 2?'"
+let liveBotMsgCommand = "/home/hermes/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages/scripts/bot-msg --priority --from grok-jarvis --to grok-infra --wait 300 -- 'Can you check the backup disk on box 2?'"
 
 @Test(arguments: [
     (liveBotMsgCommand, "grok-jarvis", "Can you check the backup disk on box 2?"),
-    ("bot-msg --to grok-infra --from grok-jarvis --wait 300 -- hi", "grok-jarvis", "hi"),
-    ("../scripts/bot-msg --wait 60 --to grok-infra -- 'relative'", nil, "relative"),
+    ("bot-msg --priority --to grok-infra --from grok-jarvis --wait 300 -- hi", "grok-jarvis", "hi"),
+    ("../scripts/bot-msg --priority --wait 60 --to grok-infra -- 'relative'", nil, "relative"),
     ("cd ~ && \"$HOME/.hermes/skills/swarmhub/swarmhub-messages/scripts/bot-msg\" --to grok-infra -- quoted", nil, "quoted"),
     ("sh scripts/bot-msg.sh --to grok-infra -- 'tell coder: use --to coder next time'", nil, "tell coder: use --to coder next time")
 ] as [(String, String?, String)])
@@ -38,11 +38,11 @@ func liveBotMsgCommandsParse(_ command: String, _ from: String?, _ text: String)
     #expect(legacy.command == liveBotMsgCommand)
     // A preview is never parsed: a cut command with no `command` gives no call.
     var cut = ToolActivity()
-    cut.apply(ToolEvent(phase: .started, name: "terminal", preview: "bot-msg --to grok-infra -- hi"), at: .now)
+    cut.apply(ToolEvent(phase: .started, name: "terminal", preview: "bot-msg --priority --to grok-infra -- hi"), at: .now)
     #expect(cut.steps[0].botMessage == nil)
     // Other commands are not kept, and a key in the line is removed.
     #expect(backend.nativeTool("tool.started", ["tool_name": "terminal", "preview": "ls -la"]).command == nil)
-    let keyed = backend.nativeTool("tool.started", ["tool_name": "terminal", "preview": "bot-msg --to grok-infra -- 'sk-synthetic-key'"])
+    let keyed = backend.nativeTool("tool.started", ["tool_name": "terminal", "preview": "bot-msg --priority --to grok-infra -- 'sk-synthetic-key'"])
     #expect(keyed.command?.contains("sk-synthetic-key") == false)
 }
 
@@ -119,7 +119,7 @@ private func threadRow(_ sender: String, mark: String, updated: Date) -> BotThre
     let (store, _, _) = liveStore()
     let start = Date(timeIntervalSince1970: 1_000), key = BotThreadKey(from: "grok-jarvis", to: "grok-infra")
     var activity = ToolActivity()
-    activity.apply(ToolEvent(phase: .started, name: "terminal", callID: "c1", command: "bot-msg --to grok-infra -- hi"), at: start)
+    activity.apply(ToolEvent(phase: .started, name: "terminal", callID: "c1", command: "bot-msg --priority --to grok-infra -- hi"), at: start)
     activity.apply(ToolEvent(phase: .completed, name: "terminal", callID: "c1"), at: start.addingTimeInterval(5))
     let step = activity.steps[0]
     #expect(store.chipState(for: step, key: key, streaming: false) == .sent)

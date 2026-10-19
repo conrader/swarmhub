@@ -2,7 +2,8 @@
 # bot-msg: send one message to another Hermes bot on this box through its gateway, and print its reply.
 # Installed by SwarmHub with the swarmhub-messages skill. POSIX sh (dash, macOS sh) + curl; no jq, no GNU-only tools.
 #
-#   bot-msg --to <bot> [--from <bot>] [--wait <s> (default 300) | --no-wait] -- "<text>"
+#   bot-msg --to <bot> [--from <bot>] [--held | --priority [--wait <s> | --no-wait]] -- "<text>"
+# Default: held in the durable inbox, delivered by the Hermes plugin on the next turn.
 #
 # The recipient's session is `swarmhub-from-<sender>`, titled "From <sender>": created on first use, reused after.
 # The recipient's API_SERVER_KEY is read from its profile's .env and handed to curl on stdin (`-K -`), so it is never
@@ -19,9 +20,13 @@
 # `swarmhub-from-<recipient>` ("[Reply from <recipient> via SwarmHub]"), which starts the sender's turn. Logged as
 # late-reply (from = the recipient, to = the sender). A message that is itself a delivered reply never gets one.
 
-usage() { echo "usage: bot-msg --to <bot> [--from <bot>] [--wait <seconds> | --no-wait] -- \"<text>\"" >&2; exit 64; }
+usage() { echo "usage: bot-msg --to <bot> [--from <bot>] [--held | --priority [--wait <seconds> | --no-wait]] -- \"<text>\"" >&2; exit 64; }
 
-TO= FROM= WAIT=300 NOWAIT=
+TO= FROM= WAIT=300 NOWAIT= PRIORITY= NOREPLY=
+RUNTIME=$(dirname "$0")/peer-runtime.py
+if [ "${1:-}" = --retry ]; then
+  exec python3 "$RUNTIME" start
+fi
 while [ $# -gt 0 ]; do
   case $1 in
     --to|--from|--wait)
@@ -29,6 +34,9 @@ while [ $# -gt 0 ]; do
       case $1 in --to) TO=$2 ;; --from) FROM=$2 ;; --wait) WAIT=$2 ;; esac
       shift 2 ;;
     --no-wait) NOWAIT=1; shift ;;
+    --priority) PRIORITY=1; shift ;;
+    --held) PRIORITY=; shift ;;
+    --no-reply) NOREPLY=1; shift ;;
     --) shift; break ;;
     *) usage ;;
   esac
@@ -46,6 +54,12 @@ fi
 case $TO in ''|*[!A-Za-z0-9_.-]*|.*) echo "bot-msg: --to must be a bot name" >&2; exit 64 ;; esac
 case $FROM in ''|*[!A-Za-z0-9_.-]*|.*) echo "bot-msg: --from must be a bot name (could not tell who is sending)" >&2; exit 64 ;; esac
 case $WAIT in ''|*[!0-9]*|0) echo "bot-msg: --wait must be a number of seconds" >&2; exit 64 ;; esac
+
+# Held is the default. No HTTP request, session creation or model turn until the recipient's next turn.
+if [ -z "$PRIORITY" ]; then
+  if [ "$TO" != default ] && [ ! -d "$HOME/.hermes/profiles/$TO" ]; then echo "bot-msg: no bot named $TO on this box" >&2; exit 2; fi
+  exec python3 "$RUNTIME" hold "$FROM" "$TO" "$TEXT"
+fi
 
 H=$HOME/.hermes
 if [ "$TO" = default ]; then ENVF=$H/.env; else ENVF=$H/profiles/$TO/.env; fi
@@ -126,6 +140,7 @@ rm -f "$T/input"
 
 # A message that is itself a delivered reply never gets a follow-up (no loops).
 FOLLOW=1
+[ -n "$NOREPLY" ] && FOLLOW=
 case $TEXT in '[Reply from '*) FOLLOW= ;; esac
 
 # The reply in an event stream ($1): assistant.completed's content, else the deltas, into $2; run.failed/error's
@@ -166,16 +181,23 @@ parse_stream() {
   /^data:/ {
     d = $0; sub(/^data:[ ]*/, "", d)
     if (ev == "assistant.delta" || ev == "message.delta") { t = field(d, "delta"); if (!found) t = field(d, "text"); deltas = deltas t }
-    else if (ev == "assistant.completed") { t = field(d, "content"); if (found && t != "") final = t }
+    else if (ev == "assistant.completed") { complete = 1; t = field(d, "content"); if (found && t != "") final = t }
+    else if (ev == "run.completed") complete = 1
     else if (ev == "run.failed" || ev == "error") { t = field(d, "error"); if (t == "") t = field(d, "message"); failed = (t == "" ? "the run failed" : t) }
     else if (ev == "run.cancelled") failed = "the run was cancelled"
     next
   }
   END {
+    if (!complete && failed == "") failed = "the stream ended without a completion"
     if (failed != "") { printf "%s\n", failed > err; exit }
     r = (final != "" ? final : deltas)
     printf "%s", r > out
   }' "$1"
+}
+
+# Acknowledgements never produce a reverse wake. Match the whole trimmed reply, like SilentReply in the app.
+silent_reply() {
+  LC_ALL=C awk '{ s = s (NR > 1 ? "\n" : "") $0 } END { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); s = toupper(s); exit !(s == "NO_REPLY" || s == "[SILENT]") }' "$1"
 }
 
 # Background, once the chat ended after the waiting side gave up: the reply goes to the sender as a new message in its
@@ -183,6 +205,10 @@ parse_stream() {
 deliver_late() {
   START=$(now_ms) T=$F word=error
   parse_stream "$F/stream" "$F/reply" "$F/failed"
+  if [ "$(cat "$F/rc" 2>/dev/null)" = 0 ] && [ "$(cat "$F/code" 2>/dev/null)" = 200 ] && [ ! -s "$F/failed" ] && silent_reply "$F/reply"; then
+    printf '%s\t%s\t%s\t%s\tsuppressed\t0\tok\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TO" "$FROM" "swarmhub-from-$TO" >> "$S/bot-messages.log"
+    return
+  fi
   if [ "$(cat "$F/rc" 2>/dev/null)" = 0 ] && [ "$(cat "$F/code" 2>/dev/null)" = 200 ] && [ ! -s "$F/failed" ] && [ -s "$F/reply" ]; then
     if [ "$FROM" = default ]; then SENV=$H/.env; else SENV=$H/profiles/$FROM/.env; fi
     KEY=$(env_value API_SERVER_KEY "$SENV")
