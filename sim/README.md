@@ -1,5 +1,15 @@
 # Swarm Hub real-app QA harness
 
+For the ten real team interaction patterns recorded in `grokbot-observed.md`, use
+`live_observed.py --usage-db /workspace/ermes/qa-swarmhub/home/state.db --output
+sim/results/QA-live3-new` after sourcing the QA endpoint env as below. It runs the
+unchanged bundled `bot-msg` through a temporary namespace-only loopback bridge to
+real Hermes sessions; the runner initiates sends. It does not provision backend
+agents or certify native app, coding-job, approval or overnight behavior. Exit 2
+means coverage remains blocked. This consumes shared model quota; reserve calls
+before another run. See [LIVE-REPORT-3.md](../LIVE-REPORT-3.md) for the observed
+patterns, precise grades, bridge boundaries, accounting and verified cleanup.
+
 For generated-output testing on the working isolated Hermes, use the focused
 LIVE2 runner. Its core and edge sets cover different protocol/session variants;
 they do not run the native app. This consumes shared model quota.

@@ -1,0 +1,44 @@
+QA-P01-wake-relay bot-msg rc 0
+QA-P01-async-reply-routing PASS
+QA-P02-fallback-webhook bot-msg rc 0
+QA-P03-held-FYI bot-msg rc 0
+QA-P03-FYI-wakes-immediately PASS
+QA-P06-priority-provision bot-msg rc 124
+QA-P06-delayed-provisioning-reply PASS
+QA-P04-coordinator-correction bot-msg rc 0
+QA-P04-no-artifact-in-fixture PASS
+QA-P05-quota-QA-Ermes bot-msg rc 0
+QA-P05-quota-QA-Infra bot-msg rc 0
+QA-P05-quota-QA-Swarmhub bot-msg rc 0
+QA-P07-gates-scope-update bot-msg rc 0
+QA-P08-reporting-hours bot-msg rc 0
+QA-P09-autonomous-allowlist bot-msg rc 0
+QA-P09-reversible-action PASS
+QA-P10-offline-target bot-msg rc 3
+QA-P10-unreachable-diagnostic PASS
+QA-P10-later-retry bot-msg rc 0
+QA-P03-no-transport-reply-loop PASS
+QA-cleanup-run-run_0169fe72f632434d8d47163ac2f11468 PASS
+QA-cleanup-run-run_02183324ccac43b79d92bf275e2e5523 PASS
+QA-cleanup-run-run_278aefae8729495c8754ea2760bafaea PASS
+QA-cleanup-run-run_40da39273a654ccf97555aef9a663e87 PASS
+QA-cleanup-run-run_472deba6876643dd91b7ff0942068516 PASS
+QA-cleanup-run-run_4a299ac56a0f4f5a865e27102b05b000 PASS
+QA-cleanup-run-run_6aa7f43543fa4c2b94d54a3c3c2ed372 PASS
+QA-cleanup-run-run_7c762c554f904ef6a8acea7ff7c728dc PASS
+QA-cleanup-run-run_a46493653fe7467f94b913a66f6b089b PASS
+QA-cleanup-run-run_b23bcabbe09a4e1fab511d56c6aa49b0 PASS
+QA-cleanup-run-run_c0547bba5acc4940ad64c1cea7867200 PASS
+QA-cleanup-run-run_cf39282267034fc3a65859d1a06e1abe PASS
+QA-cleanup-run-run_d6a144bc92c14e93910e95e96d932a27 PASS
+QA-cleanup-run-run_d74e47b2f08748bdbd1b6d325503efb2 PASS
+QA-cleanup-run-run_eba9db6d9d864f509fd6e4ac8079e86a PASS
+QA-cleanup-session-QA-LIVE3-20261019T090236-30ca1f-QA-Ermes-from-QA-Infra PASS
+QA-cleanup-session-QA-LIVE3-20261019T090236-30ca1f-QA-Ermes-from-QA-Jarvis PASS
+QA-cleanup-session-QA-LIVE3-20261019T090236-30ca1f-QA-Ermes-from-QA-Swarmhub PASS
+QA-cleanup-session-QA-LIVE3-20261019T090236-30ca1f-QA-Infra-from-QA-Jarvis PASS
+QA-cleanup-session-QA-LIVE3-20261019T090236-30ca1f-QA-Jarvis-from-QA-Swarmhub PASS
+QA-cleanup-session-QA-LIVE3-20261019T090236-30ca1f-QA-Swarmhub-from-QA-Ermes PASS
+QA-cleanup-session-QA-LIVE3-20261019T090236-30ca1f-QA-Swarmhub-from-QA-Infra PASS
+QA-cleanup-session-QA-LIVE3-20261019T090236-30ca1f-QA-Swarmhub-from-QA-Jarvis PASS
+QA-LIVE3-20261019T090236-30ca1f {"PASS": 30, "FAIL": 0, "BLOCKED": 6} turns 15 recorded calls 17

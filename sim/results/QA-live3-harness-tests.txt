@@ -1,0 +1,73 @@
+test_failure_and_unsuccessful_flags_beat_completion (test_live_behavior.LiveBehaviorTests.test_failure_and_unsuccessful_flags_beat_completion) ... ok
+test_legacy_marker_must_be_reassembled_from_deltas (test_live_behavior.LiveBehaviorTests.test_legacy_marker_must_be_reassembled_from_deltas) ... ok
+test_turn_budget_refuses_before_network (test_live_behavior.LiveBehaviorTests.test_turn_budget_refuses_before_network) ... ok
+test_usage_reads_exact_owned_ids_and_does_not_modify_database (test_live_behavior.LiveBehaviorTests.test_usage_reads_exact_owned_ids_and_does_not_modify_database) ... ok
+test_usage_refuses_non_QA_before_database_access (test_live_behavior.LiveBehaviorTests.test_usage_refuses_non_QA_before_database_access) ... ok
+test_caller_cannot_inject_instructions_or_model (test_live_observed.ObservedRoutingTests.test_caller_cannot_inject_instructions_or_model) ... ok
+test_foreign_session_names_rejected (test_live_observed.ObservedRoutingTests.test_foreign_session_names_rejected) ... ok
+test_production_and_extra_routes_rejected (test_live_observed.ObservedRoutingTests.test_production_and_extra_routes_rejected) ... ok
+test_profile_namespace_separates_same_sender (test_live_observed.ObservedRoutingTests.test_profile_namespace_separates_same_sender) ... ok
+test_reply_routes_back_to_asking_peer (test_live_observed.ObservedRoutingTests.test_reply_routes_back_to_asking_peer) ... ok
+test_QA_budget_refuses_before_network (test_live_transport.QALiveTransportTests.test_QA_budget_refuses_before_network) ... ok
+test_QA_evidence_redacts_key (test_live_transport.QALiveTransportTests.test_QA_evidence_redacts_key) ... ok
+test_QA_multiline_CRLF_comment_and_partial_frame (test_live_transport.QALiveTransportTests.test_QA_multiline_CRLF_comment_and_partial_frame) ... ok
+test_QA_never_overwrites_evidence (test_live_transport.QALiveTransportTests.test_QA_never_overwrites_evidence) ... ok
+test_QA_refuses_remote_or_ambiguous_endpoint_before_output (test_live_transport.QALiveTransportTests.test_QA_refuses_remote_or_ambiguous_endpoint_before_output) ... ok
+test_bad_protocol_and_port_types_refused (test_qamode.EndpointTests.test_bad_protocol_and_port_types_refused) ... ok
+test_checkpoint_hooks_accept_no_arbitrary_parameters (test_qamode.EndpointTests.test_checkpoint_hooks_accept_no_arbitrary_parameters) ... ok
+test_foreign_token_or_directory_refused (test_qamode.EndpointTests.test_foreign_token_or_directory_refused) ... ok
+test_missing_fields_refused (test_qamode.EndpointTests.test_missing_fields_refused) ... ok
+test_oversize_descriptor_refused (test_qamode.EndpointTests.test_oversize_descriptor_refused) ... ok
+test_private_app_descriptor_selects_only_numeric_loopback (test_qamode.EndpointTests.test_private_app_descriptor_selects_only_numeric_loopback) ... ok
+test_public_directory_and_descriptor_refused (test_qamode.EndpointTests.test_public_directory_and_descriptor_refused) ... ok
+test_symlink_descriptor_and_token_refused (test_qamode.EndpointTests.test_symlink_descriptor_and_token_refused) ... ok
+test_cleanup_failure_halts_suite (test_runner.DriverTests.test_cleanup_failure_halts_suite) ... ok
+test_every_request_preceded_by_attestation (test_runner.DriverTests.test_every_request_preceded_by_attestation) ... ok
+test_exhausted_action_budget_never_dispatches (test_runner.DriverTests.test_exhausted_action_budget_never_dispatches) ... ok
+test_linux_live_gate_never_contacts_hook (test_runner.DriverTests.test_linux_live_gate_never_contacts_hook) ... /usr/lib/python3.13/unittest/mock.py:2247: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f760c3d04f0>
+  def __init__(self, name, parent):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/usr/lib/python3.13/unittest/mock.py:2247: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f760c3d05e0>
+  def __init__(self, name, parent):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+
+----------------------------------------------------------------------
+Ran 0 tests in 0.000s
+
+NO TESTS RAN
+ok
+test_midrun_real_connector_halts_before_any_action (test_runner.DriverTests.test_midrun_real_connector_halts_before_any_action) ... ok
+test_uncertain_mutation_not_retried_cleanup_attempted (test_runner.DriverTests.test_uncertain_mutation_not_retried_cleanup_attempted) ... ok
+test_unlisted_action_never_crosses_boundary (test_runner.DriverTests.test_unlisted_action_never_crosses_boundary) ... ok
+test_boolean_does_not_satisfy_execution_count (test_runner.OracleTests.test_boolean_does_not_satisfy_execution_count) ... ok
+test_counts_and_order (test_runner.OracleTests.test_counts_and_order) ... ok
+test_duplicate_or_unordered_events_block (test_runner.OracleTests.test_duplicate_or_unordered_events_block) ... ok
+test_incomplete_evidence_blocks (test_runner.OracleTests.test_incomplete_evidence_blocks) ... ok
+test_missing_state_not_pass (test_runner.OracleTests.test_missing_state_not_pass) ... ok
+test_model_text_is_not_execution_evidence (test_runner.OracleTests.test_model_text_is_not_execution_evidence) ... ok
+test_no_continuation_can_satisfy_reconcile_first (test_runner.OracleTests.test_no_continuation_can_satisfy_reconcile_first) ... ok
+test_unsupported_done_is_failed_check (test_runner.OracleTests.test_unsupported_done_is_failed_check) ... ok
+test_valid_evidence_bound_to_scope (test_runner.OracleTests.test_valid_evidence_bound_to_scope) ... ok
+test_wrong_origin_refused (test_runner.OracleTests.test_wrong_origin_refused) ... ok
+test_zero_count_requires_instrumentation (test_runner.OracleTests.test_zero_count_requires_instrumentation) ... ok
+test_catalog_complete_unique (test_runner.PolicyTests.test_catalog_complete_unique) ... ok
+test_every_safety_field_required (test_runner.PolicyTests.test_every_safety_field_required) ... ok
+test_expired_replayed_and_long_lease_refused (test_runner.PolicyTests.test_expired_replayed_and_long_lease_refused) ... ok
+test_inventory_and_sandbox_drift_refused (test_runner.PolicyTests.test_inventory_and_sandbox_drift_refused) ... ok
+test_real_names_and_unmarked_qa_refused (test_runner.PolicyTests.test_real_names_and_unmarked_qa_refused) ... ok
+test_token_requires_owner_only_file (test_runner.PolicyTests.test_token_requires_owner_only_file) ... ok
+test_token_symlink_and_short_token_refused (test_runner.PolicyTests.test_token_symlink_and_short_token_refused) ... ok
+test_unknown_mutations_and_parameters_refused (test_runner.PolicyTests.test_unknown_mutations_and_parameters_refused) ... ok
+test_valid_safety_attestation (test_runner.PolicyTests.test_valid_safety_attestation) ... ok
+test_all_outbound_channels_are_record_only (test_runner.SinkTests.test_all_outbound_channels_are_record_only) ... ok
+test_changed_payload_same_key_refused (test_runner.SinkTests.test_changed_payload_same_key_refused) ... ok
+test_duplicate_attempts_retained_across_sink_restart (test_runner.SinkTests.test_duplicate_attempts_retained_across_sink_restart) ... ok
+test_real_recipient_account_body_and_extra_data_refused (test_runner.SinkTests.test_real_recipient_account_body_and_extra_data_refused) ... ok
+test_record_only_never_delivers_or_networks (test_runner.SinkTests.test_record_only_never_delivers_or_networks) ... ok
+test_unknown_tools_refused (test_runner.SinkTests.test_unknown_tools_refused) ... ok
+
+----------------------------------------------------------------------
+Ran 56 tests in 0.033s
+
+OK
+{"output": "/tmp/tmpgv6ozt6_", "counts": {"blocked": 1}, "self_tests_passed": true}

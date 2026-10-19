@@ -1,0 +1,100 @@
+{
+  "kind": "Read-only adjudication from saved real traces; no new model turns",
+  "run": "QA-LIVE3-20261019T090236-30ca1f",
+  "first_native_run_at": 1792400556.8233082,
+  "turns": 15,
+  "all_turns_successful": true,
+  "unique_run_ids": 15,
+  "history_user_rows": 15,
+  "NO_REPLY_turns": [
+    "QA-bridge-004",
+    "QA-bridge-008",
+    "QA-bridge-010",
+    "QA-bridge-014",
+    "QA-bridge-018",
+    "QA-bridge-020",
+    "QA-bridge-022"
+  ],
+  "FYI_two_model_turns": [
+    "QA-bridge-008",
+    "QA-bridge-010"
+  ],
+  "late_provisioning_reply_input": "[Reply from QA-Ermes via SwarmHub]\nI can\u2019t provision QA Hermes or create and chmod a secrets file with the available tools, so I have no verified secrets file path to report. Which model provider will QA Hermes use? Its API key is required, but don\u2019t paste it here; enter it through your deployment\u2019s secure secret-input mechanism.",
+  "todo_receipts": [
+    {
+      "session_id": "QA-LIVE3-20261019T090236-30ca1f-QA-Swarmhub-from-QA-Jarvis",
+      "tool": "todo_list",
+      "receipt": {
+        "todos": [
+          {
+            "id": "?",
+            "content": "QA-build: pending because coding tools are unavailable",
+            "status": "pending"
+          }
+        ],
+        "revision": 1,
+        "summary": {
+          "total": 1,
+          "pending": 1,
+          "in_progress": 0,
+          "completed": 0,
+          "cancelled": 0
+        }
+      }
+    },
+    {
+      "session_id": "QA-LIVE3-20261019T090236-30ca1f-QA-Swarmhub-from-QA-Jarvis",
+      "tool": "todo_list",
+      "receipt": {
+        "todos": [
+          {
+            "id": "QA-autonomous",
+            "content": "QA-autonomous",
+            "status": "completed"
+          },
+          {
+            "id": "QA-outbound",
+            "content": "QA-outbound: FAKE",
+            "status": "pending"
+          }
+        ],
+        "revision": 2,
+        "summary": {
+          "total": 2,
+          "pending": 1,
+          "in_progress": 0,
+          "completed": 1,
+          "cancelled": 0
+        }
+      }
+    }
+  ],
+  "owned_sessions": 8,
+  "all_owned_deleted_and_404": true,
+  "terminal_run_checks": 15,
+  "health": {
+    "active_runs": 0,
+    "active_agents": 0,
+    "gateway_busy": false
+  },
+  "private_temp_removed": true,
+  "recorded_usage": {
+    "api_call_count": 17,
+    "tool_call_count": 2,
+    "input_tokens": 25759,
+    "output_tokens": 566,
+    "cache_read_tokens": 25856,
+    "reasoning_tokens": 12
+  },
+  "limits": {
+    "turn_POST_cap": 18,
+    "recorded_call_ceiling": 23,
+    "prior_pass2_observed_attempts": 27,
+    "combined_observed_attempts": 44
+  },
+  "harness_assertions": {
+    "PASS": 30,
+    "BLOCKED": 6
+  },
+  "warning": "PASS on P03-FYI-wakes-immediately means the missing-held-behavior gap was reproduced, not Grok parity."
+}

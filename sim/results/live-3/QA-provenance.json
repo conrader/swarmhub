@@ -1,0 +1,24 @@
+{
+  "baseline_commit": "730a23c4058a15a12aa8d17d7a1643dadbe8260b",
+  "hashes": {
+    "sim/live_observed.py": "2327b3bf8928c720150b1a196947f3fa4bf07b6c3b883d1cdc778797a424f68b",
+    "sim/test_live_observed.py": "be14e4d0cb2e84b1bd74ee1be8d9cb8bc48fb6c4b876c3aa4e69f6b2103b051d",
+    "Resources/Skills/swarmhub-messages/scripts/bot-msg": "d17bf3f17d70f9509e599627cf35d06e2d017f84b65d96beb3943fadb68b565f",
+    "Resources/Skills/swarmhub-messages/SKILL.md": "0b26af335e39d554510eb2896a7281f7f2ebda4490f413a6b56978a4a310c9d4",
+    "Resources/Skills/swarmhub-coding/scripts/code-job": "727bdf380e55afb1308c3c201c9d3282ffee0f839f46e7d67a61d742c91b4f66",
+    "/home/box/work/swarmhub/grokbot-observed.md": "adcea0c2965a4ef3cbe626951d764fd28a83c0b2af4e0e97e61542dd379cdef1",
+    "/home/box/work/swarmhub/live3-brief.md": "c81b1d34f288760be6b22857e6913773f9249a6a1a944cedeee62bb192ea76cf",
+    "/home/box/work/swarmhub/wt-qa/QA-PLAN.md": "d46aeb5b8474aba04d3921115d24fc872fb4c3cf73c003ab22f9c62cc0c9ff26",
+    "/home/box/work/swarmhub/grokbot-comparison.md": "63d9cd99ca5dfa6fadbb38d4620254e91ee7bca18a18b9fc594d13de26109e28",
+    "LIVE-REPORT-1.md": "1dffb17054e852273092bd59037097256180023a7426d89e15ae0a9c18a7d84a",
+    "LIVE-REPORT-2.md": "4e1a18bf1b82b92be091624ce71d66063b9d9b75ac29e74c70685ac8f3935338",
+    "LIVE-REPORT-3.md": "ea5fd01f24015ba93c96c62dd8c6c1a051a2d7446bc741fa7cf059a9caca0cac",
+    "sim/README.md": "b013022feb902412a572be2739d62fe95efc82cd2e7c511b607ca895206c35b3",
+    "sim/results/live-3/results.json": "c5e7b15c42de20940e5905a425cce0fa88c569d8c5f8f017b5fd1fa56eefab65",
+    "sim/results/live-3/audit.json": "29913d7c30d7104e70a0d1318eb33308a97380c663150f22b3747c00bca445d7",
+    "sim/results/QA-live3-harness-tests.txt": "a3d4614d5c8a33d7c741b2b3b7e5c02b382952dc61655cf5a7ae78d3dfd793f1"
+  },
+  "platform": "Linux",
+  "swift_available": false,
+  "model_calls_for_audit": 0
+}
