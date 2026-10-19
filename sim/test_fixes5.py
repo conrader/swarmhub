@@ -42,8 +42,10 @@ class VerificationTests(unittest.TestCase):
         # Exercise dyld startup on macOS as well as exec and cwd after startup.
         (self.repo / 'check').write_text('#!/bin/sh\nprintf checked > checked.txt\nexit 3\n')
         (self.repo / 'check').chmod(0o755)
-        for command, expected in [('true', 0), ('exit 5', 5), ('./check', 3),
-                                  ('./missing-verifier', 127)]:
+        commands = [('true', 0), ('exit 5', 5), ('./check', 3), ('./missing-verifier', 127)]
+        if sys.platform == 'darwin':
+            commands.append(('printf checked > /dev/null', 0))
+        for command, expected in commands:
             with self.subTest(command=command):
                 result = self.run_verify(command)
                 self.assertEqual(result.returncode, expected, result.stderr)
@@ -59,6 +61,7 @@ class VerificationTests(unittest.TestCase):
             self.assertEqual(cwd, self.repo.resolve())
             self.assertNotIn('QA_SECRET', env)
             self.assertTrue(argv[2].startswith('(version 1)(deny default)'))
+            self.assertIn('(allow file-read* (literal "/"))', argv[2])
             rules = re.findall(r'\(allow ([\w* -]+) \((subpath|literal) ("(?:[^"\\]|\\.)*")\)\)', argv[2])
 
             def allowed(operation, path):
@@ -71,6 +74,12 @@ class VerificationTests(unittest.TestCase):
                         return True
                 return False
 
+            self.assertTrue(allowed('file-read-data', '/'))
+            self.assertFalse(allowed('file-write-data', '/'))
+            self.assertFalse(allowed('file-map-executable', '/'))
+            self.assertTrue(allowed('file-write-data', '/dev/null'))
+            for path in ['/dev', '/dev/random', '/dev/tty']:
+                self.assertFalse(allowed('file-write-data', path), path)
             for path in ['/bin/sh', '/usr/lib/dyld', '/System/Library/dyld/dyld_shared_cache_arm64e',
                          '/private/var/db/dyld/dyld_shared_cache_x86_64', str(cwd / 'check'),
                          str(Path(env['TMPDIR']) / 'check')]:
@@ -78,7 +87,8 @@ class VerificationTests(unittest.TestCase):
                 self.assertTrue(allowed('file-map-executable', path), path)
             for parent in cwd.parents:
                 self.assertTrue(allowed('file-read-metadata', str(parent)), str(parent))
-            for path in [str(self.outside), '/Users/fixture/.ssh/id_rsa', '/private/tmp/unrelated']:
+            for path in [str(self.outside), '/Users/fixture/.ssh/id_rsa', '/private/tmp/unrelated',
+                         '/host-secret']:
                 self.assertFalse(allowed('file-read-data', path), path)
                 self.assertFalse(allowed('file-write-data', path), path)
             self.assertFalse(allowed('file-write-data', '/usr/lib/dyld'))

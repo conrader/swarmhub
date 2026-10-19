@@ -75,6 +75,10 @@ def linux(workspace, temporary):
 def darwin_profile(workspace, temporary):
     quote = json.dumps
     profile = '(version 1)(deny default)(allow process*)(allow sysctl-read)(allow mach-lookup)'
+    # dyld also needs to read the root directory itself before the shell starts.
+    # A literal rule grants no access to files below it.
+    profile += '(allow file-read* (literal "/"))'
+    profile += '(allow file-write* (literal "/dev/null"))'
     # Seatbelt treats executable mappings separately from file reads. Without
     # this right dyld can abort before /bin/sh runs, even for the builtin true.
     runtime = ('/usr', '/bin', '/sbin', '/System', '/Library', '/private/var/db/dyld')
