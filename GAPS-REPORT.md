@@ -126,3 +126,39 @@ Final Linux results ([retained test output](sim/results/gaps-final/QA-tests.txt)
 **Still requires the native environment:** `swift build` and `swift test` on macOS (Swift is absent here), visual
 verification of cards/the secret sheet, actual loopback HTTP, and a full QA live replay. These are unexecuted
 validation steps, not claims of passing behavior. No deploy or Hermes modification was performed.
+
+## macOS fixes 2
+
+The exit-66 failures came from the fixtures configuring `/bin/true` as their verifier. macOS places that
+executable in `/usr/bin`; verification already runs through a POSIX shell, so the fixtures now use its `true`
+builtin. This also explains P01: the first job became unverified, and the scheduler correctly held the second
+job behind it. The replay now checks the first job's status and includes its evidence/verification fields before
+waiting for the second job. The eight-second `eventually` timeout is unchanged.
+
+Shell and Python commit fixtures explicitly export synthetic `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`,
+`GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL`, with global/system Git configuration disabled and temporary HOMEs.
+A failed fixture commit now fails the stub; failed shell repository initialization fails the case rather than
+silently reporting a pass. `ManagedActions.swift` comments use `host-local` in place of the reserved fixture name.
+
+The production evidence gate is unchanged: report content fingerprints use Python SHA-256, commit evidence uses
+Git ancestry, and configured verification must actually exit zero. No GNU `stat`/`date` evidence workaround or
+relaxed completion rule was needed. The shell regression now also checks an unavailable verifier: exit 127 must
+produce job exit 66, `tests-passed=false` and `evidence=none`.
+
+Validation on Linux, using synthetic CLI/curl fixtures only:
+
+- `env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B -m unittest discover -s sim -p 'test_*.py' -v`:
+  **124 tests, 123 passed, one loopback-socket skip**, no failures.
+- All seven `Tests/Scripts/*-test.sh` suites under `/bin/sh`, `/bin/dash` and a wrapper executing
+  `/bin/bash --posix`, with an empty temporary HOME: **234 cases passed** (78 per shell). Each `bot-msg` suite
+  explicitly skipped with exit 77 because this sandbox denies loopback sockets.
+- P01–P10 through `sim/live_observed.py --offline`, in a temporary copy routing shell launches and shebangs
+  through `bash --posix`: **all ten matched, zero model calls**. Injecting a nonexistent verifier into that copy
+  reproduced P01's blocked queue with `status=unverified`, `evidence=none`, `verify-exit=127`.
+- The Swift fixture-name assertion was mirrored across **434 source files**, with no forbidden names found.
+  Python 3.9 grammar parsing passed for **30 Python files**; `git diff --check` passed.
+
+Native macOS/Swift tests remain unexecuted here: Swift, Python 3.9 and Bash 3.2 are unavailable. The available
+interpreters are Python 3.12.3 and Bash 5.2.21; POSIX mode and 3.9 grammar checks do not certify those older runtimes.
+No Hermes installation was read or modified, no real credentials/providers/outbound actions were used, and no
+repository commit was made (Git commits occurred only inside disposable evidence fixtures).

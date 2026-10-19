@@ -51,8 +51,9 @@ exit 0
             path = folder / name
             path.write_text(script)
             path.chmod(0o755)
+        # POSIX shell builtin, independent of the platform location of true.
         # Trivial evidence for the other contract rules; the evidence gate itself is covered by test_gaps.py.
-        self.env.update(PATH=str(folder) + ":" + self.env["PATH"], CODE_JOB_TICK="0.05", CODE_JOB_VERIFY="/bin/true")
+        self.env.update(PATH=str(folder) + ":" + self.env["PATH"], CODE_JOB_TICK="0.05", CODE_JOB_VERIFY="true")
         os.environ.update(self.env)
 
     def spec(self, intent, **changes):
@@ -80,6 +81,12 @@ exit 0
         self.assertEqual(control.action(second)["status"], "queued")
         self.eventually(lambda: (self.job(first) / "ready").exists())
         control.tick()
+        # A failed first job intentionally holds the queue. Diagnose its evidence
+        # before waiting for a second job that would never be admitted.
+        first_job = self.job(first)
+        evidence = {key: (first_job / key).read_text().strip()
+                    for key in ("status", "evidence", "verify-command", "verify-exit")}
+        self.assertEqual(control.action(first)["status"], "done", evidence)
         self.eventually(lambda: (self.job(second) / "ready").exists())
         control.tick()
         self.assertEqual(control.action(first)["status"], "done")

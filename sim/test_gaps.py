@@ -59,19 +59,19 @@ class GapTests(unittest.TestCase):
         job = self.newest_job()
         self.assertEqual([self.field(job, k) for k in ("status", "evidence", "tests-passed", "commit-evidence", "report-valid", "cli-exit")],
                          ["unverified", "none", "not-run", "not-a-repo", "true", "0"])
-        self.assertEqual(self.code_job("--verify", "/bin/true").returncode, 0)
+        self.assertEqual(self.code_job("--verify", "true").returncode, 0)
         self.assertEqual(self.field(self.newest_job(), "evidence"), "tests")
         self.assertEqual(self.code_job("--verify", "exit 4").returncode, 66)
         self.assertEqual([self.field(self.newest_job(), k) for k in ("verify-exit", "tests-passed", "verify-command")], ["4", "false", "exit 4"])
 
-        verified = self.submit("verified-work", verify="/bin/true")
+        verified = self.submit("verified-work", verify="true")
         control.tick()
         self.eventually(lambda: (self.job(verified) / "ready").exists())
         control.tick()
         self.assertEqual(control.action(verified)["status"], "done")
         message = self.wake_for(verified)
         self.assertIn("status: ok", message)
-        self.assertIn("Verified by code-job: fresh report at the recorded path; verification command exit 0 (/bin/true).", message)
+        self.assertIn("Verified by code-job: fresh report at the recorded path; verification command exit 0 (true).", message)
         self.assertIn("Unverified: commit (directory is not a git repository); correctness of the report and of the work itself.", message)
         self.assertNotIn("verified work by", message, "report text never enters the wake")
 
@@ -95,14 +95,14 @@ class GapTests(unittest.TestCase):
     def test_P01_P04_a_new_commit_in_the_directory_is_evidence(self):
         repo = self.home / "repo"
         repo.mkdir()
-        git = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
-        for argv in (["git", "init", "-q"], ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "base"]):
+        git = dict(self.env, PATH="/usr/bin:/bin")
+        for argv in (["git", "init", "-q"], ["git", "commit", "-q", "--allow-empty", "-m", "base"]):
             subprocess.run(argv, cwd=repo, env=git, check=True, capture_output=True)
         before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, env=git, capture_output=True, text=True).stdout.strip()
         folder = self.home / "cli"
         folder.mkdir(exist_ok=True)
-        (folder / "codex").write_text('#!/bin/sh\nprintf work > "$SWARMHUB_REPORT_FILE"\necho changed > work.txt\n'
-                                      'git add -A && git -c user.name=t -c user.email=t@example.invalid commit -qm done\necho result\nexit 0\n')
+        (folder / "codex").write_text('#!/bin/sh\nset -e\nprintf work > "$SWARMHUB_REPORT_FILE"\necho changed > work.txt\n'
+                                      'git add -A && git commit -qm done\necho result\nexit 0\n')
         (folder / "codex").chmod(0o755)
         env = dict(self.env, PATH=str(folder) + ":" + self.env["PATH"], CODE_JOB_TICK="0.05")  # keeps the curl stub
         env.pop("CODE_JOB_VERIFY", None)

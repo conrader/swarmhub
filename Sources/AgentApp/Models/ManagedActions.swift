@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-/// Gap closures after live pass 4 (P02/P06/P07): what the app knows about the box-local managed control plane
+/// Gap closures after live pass 4 (P02/P06/P07): what the app knows about the host-local managed control plane
 /// (`swarmctl` in the swarmhub-messages skill). The app never runs `swarmctl` itself: a bot presents a managed action
 /// in a ```` ```swarmhub ```` fence, the app shows a real approval card, and the decision goes back as the deciding
 /// bot's own turn, because `swarmctl decide` accepts a decision only from the deciding profile's gateway.
@@ -86,7 +86,7 @@ struct ManagedApproval: Equatable, Sendable {
 }
 
 extension ApprovalRequest {
-    /// A card for a box-local managed action (never a Hermes/OpenClaw tool approval).
+    /// A card for a host-local managed action (never a Hermes/OpenClaw tool approval).
     var isManaged: Bool { actionKind.hasPrefix(ManagedApproval.actionKindPrefix) }
 }
 

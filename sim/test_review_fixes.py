@@ -46,7 +46,7 @@ class ReviewFixTests(unittest.TestCase):
             path.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" > "$HOME/$(basename "$0").args"\n'
                             'printf ok > "$SWARMHUB_REPORT_FILE"\necho result\nexit 0\n')
             path.chmod(0o755)
-        self.env.update(PATH=str(folder) + ":" + self.env["PATH"], CODE_JOB_TICK="0.05", CODE_JOB_VERIFY="/bin/true")
+        self.env.update(PATH=str(folder) + ":" + self.env["PATH"], CODE_JOB_TICK="0.05", CODE_JOB_VERIFY="true")
         os.environ.update(self.env)
 
     def coding(self, intent, **changes):

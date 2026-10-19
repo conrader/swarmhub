@@ -17,6 +17,11 @@ cp "$(dirname "$JOB")/completion-contract.py" "$ROOT/skills/swarmhub-coding/scri
 JOB=$ROOT/skills/swarmhub-coding/scripts/code-job
 PASSED=0 FAILED=0
 TASK='Fix the failing test in calc.py'
+# Synthetic identities must reach both setup git and the CLI subprocess, even on
+# a fresh Mac with no gitconfig. Ignore host signing/hooks/identity configuration.
+export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
+export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 
 cat > "$ROOT/stub" <<'STUB'
 #!/bin/sh
@@ -40,7 +45,7 @@ case $(cat "$d/$me.mode" 2>/dev/null) in
   quiet) echo "$me: warning on stderr only" >&2; exit 0 ;;
   slow) : > "$d/$me.slow"; while [ ! -f "$d/release" ]; do sleep 0.05; done; echo "$me slow done"; exit 0 ;;
   tree) sleep 60 & echo $! > "$d/$me.child"; sleep 60; exit 0 ;;
-  commit) git add -A >/dev/null 2>&1 && git -c user.name=stub -c user.email=stub@example.invalid commit -qm "stub work" >/dev/null 2>&1; echo "$me committed"; exit 0 ;;
+  commit) git add -A && git commit -qm "stub work" || exit 3; echo "$me committed"; exit 0 ;;
   *) echo "stub $me: no mode" >&2; exit 99 ;;
 esac
 STUB
@@ -56,12 +61,13 @@ new_case() {
 }
 mode() { echo "$2" > "$C/state/$1.mode"; }
 # code-job with the case's HOME and PATH (stubs first, nothing from /usr/local or ~/.local); output in $C/out, $C/err.
+# Use the POSIX true builtin: macOS has no /bin/true.
 # Cases 1-16 supply trivial evidence; cases 17-22 set CASE_VERIFY to test evidence and cleanup.
 # (No `VAR=x job` prefixes: bash's POSIX mode keeps them after a function call.)
 job() { job_to "$C/out" "$C/err" "$@"; }
 job_to() {
   out=$1 err=$2; shift 2
-  env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin" STUB_STATE="$C/state" CODE_JOB_MODEL=synthetic-model CODE_JOB_REPORT="$C/work/REPORT.txt" CODE_JOB_POLL=0.2 CODE_JOB_TICK=0.25 CODE_JOB_VERIFY="${CASE_VERIFY-/bin/true}" ${CALLER_ENV:-} "$SH" "$JOB" "$@" > "$out" 2> "$err"
+  env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin" STUB_STATE="$C/state" CODE_JOB_MODEL=synthetic-model CODE_JOB_REPORT="$C/work/REPORT.txt" CODE_JOB_POLL=0.2 CODE_JOB_TICK=0.25 CODE_JOB_VERIFY="${CASE_VERIFY-true}" ${CALLER_ENV:-} "$SH" "$JOB" "$@" > "$out" 2> "$err"
 }
 expect() { what=$1; shift; "$@" || PROBLEMS="$PROBLEMS; $what"; }
 has() { grep -Fq -- "$2" "$1"; }
@@ -308,7 +314,7 @@ done_case
 
 # The newest job record's field $1.
 rec() { f=$(ls -td "$C"/home/.hermes/swarmhub/job-completions/job.* 2>/dev/null | head -n 1); cat "$f/$1" 2>/dev/null; }
-git_repo() { command -v git >/dev/null 2>&1 || return 1; git -C "$1" init -q && git -C "$1" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m init; }
+git_repo() { command -v git >/dev/null 2>&1 || return 1; HOME="$C/home" git -C "$1" init -q && HOME="$C/home" git -C "$1" commit -q --allow-empty -m init; }
 
 # 17
 case_17() {
@@ -338,6 +344,12 @@ expect "tests false" [ "$(rec tests-passed)" = false ]
 expect "verify command recorded" [ "$(rec verify-command)" = 'exit 3' ]
 expect "evidence none" [ "$(rec evidence)" = none ]
 expect "verify exit on stderr" has "$C/err" "(verify exit 3)"
+# An unavailable verifier must still fail closed (the macOS /bin/true failure).
+CASE_VERIFY="$C/missing-verifier"; job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?; unset CASE_VERIFY
+expect "missing verification: 66 (got $RC)" [ "$RC" -eq 66 ]
+expect "missing verify exit 127" [ "$(rec verify-exit)" = 127 ]
+expect "missing verify tests false" [ "$(rec tests-passed)" = false ]
+expect "missing verify evidence none" [ "$(rec evidence)" = none ]
 done_case
 }
 
@@ -359,7 +371,7 @@ if git_repo "$C/work"; then
   expect "commit still recorded" [ "$(rec commit-evidence)" = true ]
   expect "evidence none" [ "$(rec evidence)" = none ]
 else
-  echo "note: git missing, commit evidence not exercised" >&2
+  PROBLEMS="$PROBLEMS; git fixture initialization failed (commit evidence not exercised)"
 fi
 done_case
 }

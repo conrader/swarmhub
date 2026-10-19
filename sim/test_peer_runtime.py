@@ -88,7 +88,10 @@ class PeerTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.home = Path(self.tmp.name)
-        self.env = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "TMPDIR": str(self.home), "PYTHONDONTWRITEBYTECODE": "1"}
+        self.env = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "TMPDIR": str(self.home), "PYTHONDONTWRITEBYTECODE": "1",
+                    "GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+                    "GIT_COMMITTER_NAME": "fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+                    "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
         self.patcher = patch.dict(os.environ, self.env, clear=True)
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
