@@ -14,6 +14,7 @@ trap 'rm -rf "$ROOT"' EXIT
 mkdir -p "$ROOT/skills/swarmhub-coding/scripts" || exit 1
 cp "$JOB" "$ROOT/skills/swarmhub-coding/scripts/code-job" || exit 1
 cp "$(dirname "$JOB")/completion-contract.py" "$ROOT/skills/swarmhub-coding/scripts/completion-contract.py" || exit 1
+cp "$(dirname "$JOB")/verify-sandbox.py" "$ROOT/skills/swarmhub-coding/scripts/verify-sandbox.py" || exit 1
 JOB=$ROOT/skills/swarmhub-coding/scripts/code-job
 PASSED=0 FAILED=0
 TASK='Fix the failing test in calc.py'

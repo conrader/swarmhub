@@ -173,7 +173,14 @@ def validate_spec(spec):
             raise ValueError("coding directory must be an existing absolute path")
         if set(spec.get("order", "codex").split(",")) - {"claude", "codex", "hermes"}:
             raise ValueError("unknown coding agent")
-        if "verify" in spec and (not isinstance(spec["verify"], str) or not spec["verify"].strip() or "\n" in spec["verify"]):
+        if "verify" not in spec:
+            default = os.environ.get("CODE_JOB_VERIFY", "")
+            config = state() / "coding.conf"
+            if not default and config.is_file():
+                defaults = [line[7:] for line in config.read_text().splitlines() if line.startswith("VERIFY=")]
+                default = defaults[-1] if defaults else ""
+            spec["verify"] = default  # Empty means explicitly no verifier; frozen before fingerprinting.
+        if not isinstance(spec["verify"], str) or "\n" in spec["verify"]:
             raise ValueError("verify must be a one-line command")
         coding_plan(spec.get("order", "codex"), spec.get("speculative", False))
     elif kind == "peer":
@@ -275,7 +282,7 @@ def action(ident):
         return dict(row)
 
 
-def decide(ident, actor, approved):
+def decide(ident, actor, approved, fingerprint=None, gate=None):
     """Only the deciding role, acting from its own gateway, can decide.
 
     The actor is verified against the invoking gateway's HERMES_HOME, so a bot
@@ -293,6 +300,8 @@ def decide(ident, actor, approved):
         row = db.execute("SELECT * FROM actions WHERE id=?", (ident,)).fetchone()
         if not row or not row["status"].startswith("awaiting-"):
             raise ValueError("decision is final or task is not awaiting approval")
+        if fingerprint is not None and (row["fingerprint"] != fingerprint or row["gate"] != gate):
+            raise ValueError("stale or mismatched approval")
         expected = policy(db).get(row["gate"])
         if not expected or actor != expected:
             raise ValueError("decision requires " + row["gate"])

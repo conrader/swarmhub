@@ -1,7 +1,7 @@
 ---
 name: swarmhub-coding
 description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.2
+version: 1.3.3
 author: SwarmHub
 metadata:
   swarmhub:
@@ -71,3 +71,11 @@ scope replacement cancel the old task tree, including queued peer deliveries and
 Changed scope requires a new intent and fresh approval; `swarmctl replace <old-id>` reads the new JSON from stdin.
 Direct code-job remains available for an already-authorized local task. It enforces the same global coding route,
 speculation rule (`--speculative`) and completion contract. Managed `--task-id` jobs must match their approved record.
+
+Verification authority: `verify-sandbox.py` executes the command and all imported test/build code with only the
+recorded workspace and a private temporary directory writable, a scrubbed environment, and no network. Linux
+requires Landlock ABI 3+ and libseccomp; macOS uses sandbox-exec. Unsupported isolation fails the verification;
+there is no host-shell fallback. Additional host/network authority is not supported by this verifier and must not
+be obtained by changing the command. Use a separately owner-gated managed operation when extra authority is needed.
+Managed admission freezes the effective VERIFY default into the immutable spec before fingerprinting; `"verify":""`
+explicitly disables verification. Managed execution never re-reads environment/config defaults.

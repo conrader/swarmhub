@@ -1,10 +1,8 @@
 import Foundation
 import Darwin
 
-/// Gap closures after live pass 4 (P02/P06/P07): what the app knows about the host-local managed control plane
-/// (`swarmctl` in the swarmhub-messages skill). The app never runs `swarmctl` itself: a bot presents a managed action
-/// in a ```` ```swarmhub ```` fence (or one bare JSON object), the app shows a real approval card, and the decision goes back as the deciding
-/// bot's own turn, because `swarmctl decide` accepts a decision only from the deciding profile's gateway.
+/// Model-authored managed fences are notifications only. ManagedControl fetches the runtime spec,
+/// binds decisions to its fingerprint/gate, and waits for an authoritative receipt.
 
 /// Prefer protocol fences. The compatibility fallback consumes only a whole-reply JSON object,
 /// never prose containing JSON, another fence language, or an unfenced array.
@@ -51,23 +49,11 @@ struct ManagedApproval: Equatable, Sendable {
         return UUID(uuidString: groups.joined(separator: "-")) ?? UUID()
     }
 
-    /// What the deciding bot runs, exactly, from its swarmhub-messages skill folder (its own gateway sets HERMES_HOME).
-    static func decideCommand(task: String, actor: String, approved: Bool) -> String {
-        "scripts/swarmctl decide \(task) \(actor) \(approved ? "approve" : "deny")"
-    }
-    /// The turn SwarmHub sends to the deciding bot when the user decides on the card.
-    static func decisionTurn(task: String, actor: String, approved: Bool, title: String) -> String {
-        "[SwarmHub approval decision] The user chose to \(approved ? "approve" : "deny") \"\(title)\". Run exactly, from your " +
-        "swarmhub-messages skill folder: `\(decideCommand(task: task, actor: actor, approved: approved))` and reply with its " +
-        "output in one line. Do not run anything else for this task."
-    }
-
     func request(botID: UUID?, profile: String?) -> ApprovalRequest {
-        var request = ApprovalRequest(id: cardID, title: title, summary: detail, draft: draft,
-                                      command: Self.decideCommand(task: task, actor: decider ?? gate, approved: true))
+        var request = ApprovalRequest(id: cardID, title: title, summary: detail, draft: draft)
         request.requestID = task; request.botID = botID; request.profile = profile; request.actionKind = actionKind
         request.rule = "Managed action · gate \(gate)"
-        request.routeNote = "Decided by \(decider ?? "the \(gate)") from its own gateway; SwarmHub sends your choice as that bot's turn."
+        request.routeNote = "Notification only. A runtime record is required before this operation can be approved."
         return request
     }
 
@@ -178,9 +164,10 @@ enum SecretFileWriter {
     static let limit = 65536
 
     static var defaultFolder: URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
-        return support.appending(path: AppConstants.name).appending(path: "secrets")
+        intakeFolder(home: FileManager.default.homeDirectoryForCurrentUser)
     }
+
+    static func intakeFolder(home: URL) -> URL { home.appending(path: ".hermes/swarmhub/secrets") }
 
     @discardableResult static func write(_ secret: String, name: String, in folder: URL? = nil) throws -> URL {
         guard let name = SecretRequest.validName(name) else { throw SecretFileError.invalidName }

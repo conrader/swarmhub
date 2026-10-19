@@ -9,40 +9,76 @@ extension AppStore {
     func routeManagedApprovals(in reply: ChatMessage, bot: Bot) {
         guard bot.backend == .hermes else { return }
         for item in ManagedApproval.parse(in: reply.finalText) {
-            guard !approvals.contains(where: { $0.requestID == item.task }) else { continue }
-            let decider = item.decider.flatMap { boundBot($0, manager: bot) } ?? bot
-            guard !decider.approvalAudit.contains(where: { $0.approvalID == item.cardID && ($0.outcome == .approved || $0.outcome == .denied) }) else { continue }
-            var request = item.request(botID: decider.id, profile: item.decider)
-            if item.decider != (decider.hermesProfile ?? "default") {
-                request.routeNote = "Add the deciding profile \(item.decider ?? "(missing)") on this box before sending a decision."
+            Task { @MainActor in
+                do {
+                    let record = try await managedRuntime(bot, verb: "get", task: item.task)
+                    guard record.id == item.task, record.awaiting,
+                          let actor = record.decider, let decider = boundBot(actor, manager: bot) else { return }
+                    // The fence is only a notification. Card content comes entirely from the runtime.
+                    let request = try record.request(botID: decider.id)
+                    if let index = approvals.firstIndex(where: { $0.requestID == record.id }) {
+                        if approvals[index].decisionPending != true { approvals[index] = request }
+                    } else {
+                        approvals.append(request)
+                        appendAudit(to: decider, approval: request, outcome: .asked, decidedBy: "system",
+                                    reason: "Runtime confirmed pending operation.", rule: request.rule)
+                    }
+                    save()
+                } catch { errorMessage = error.localizedDescription }
             }
-            approvals.append(request)
-            appendAudit(to: decider, approval: request, outcome: .asked, decidedBy: "system",
-                        reason: "Managed \(item.kind) action \(item.task) awaits the \(item.gate).", rule: request.rule)
         }
     }
 
-    /// The user's choice on a managed card is sent as the deciding bot's own turn with the exact `swarmctl decide`
-    /// command: that gateway's HERMES_HOME is what swarmctl verifies. The card leaves the list only when the turn was
-    /// accepted; the audit and a system line record the choice. The result of the command is the bot's reply.
+    func managedRuntime(_ bot: Bot, verb: String, task: String, input: Data? = nil) async throws -> ManagedRecord {
+        if let managedControl { return try await managedControl(bot, verb, task, input) }
+        return try await ManagedLocalControl.request(
+            address: bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL,
+            profile: bot.hermesProfile ?? "default", verb: verb, task: task, input: input)
+    }
+
+    /// Keep the persisted pending card until an authoritative runtime receipt confirms the decision.
+    /// Every retry queries first, including after a restart or an uncertain transport acknowledgement.
     func decideManagedAction(_ approval: ApprovalRequest, approved: Bool) {
-        guard approvals.contains(where: { $0.id == approval.id }),
-              let botID = approval.botID, let presenter = bots.first(where: { $0.id == botID }), let task = approval.requestID else {
-            errorMessage = "This approval no longer names a bot that can decide it."; return
+        guard !managedDecisionsInFlight.contains(approval.id) else { return }
+        guard let index = approvals.firstIndex(where: { $0.id == approval.id }),
+              let original = approval.managedRecord, let botID = approval.botID,
+              let bot = bots.first(where: { $0.id == botID }), approval.profile == original.decider else {
+            errorMessage = "This card has no verified runtime operation. Refresh its notification."; return
         }
-        guard let actor = approval.profile, presenter.backend == .hermes,
-              let decider = boundBot(actor, manager: presenter) else {
-            errorMessage = "The deciding profile is not connected on this box. Add it before sending a decision."; return
+        managedDecisionsInFlight.insert(approval.id)
+        guard approvals[index].decisionPending != true else {
+            // A persisted uncertain decision can be reconciled by a fresh notification/status query.
+            Task { @MainActor in
+                defer { managedDecisionsInFlight.remove(approval.id) }
+                await reconcileManagedDecision(approval, bot: bot, approved: approved, original: original, sendDecision: false)
+            }
+            return
         }
-        let text = ManagedApproval.decisionTurn(task: task, actor: actor, approved: approved, title: approval.title)
-        let metadata = [AutomationKey.display: (approved ? "Approve " : "Deny ") + task]
-        guard send(text: text, bot: decider, conversation: decider, replyToID: nil, waitWhenFull: true, metadata: metadata) else {
-            errorMessage = "The decision could not be sent to \(decider.name); try again when its chat is free."; return
+        approvals[index].decisionPending = true; save()
+        Task { @MainActor in
+            defer { managedDecisionsInFlight.remove(approval.id) }
+            await reconcileManagedDecision(approval, bot: bot, approved: approved, original: original, sendDecision: true)
         }
-        approvals.removeAll { $0.id == approval.id }
-        appendAudit(to: decider, approval: approval, outcome: approved ? .approved : .denied, decidedBy: "user",
-                    reason: "User chose " + (approved ? "approve" : "deny") + "; sent as \(decider.name)'s turn to run swarmctl decide.", rule: approval.rule)
-        decider.messages.append(ChatMessage(role: .system, content: "Decision sent (\(approved ? "approve" : "deny")): " + approval.title + ". Awaiting the managed runtime result."))
+    }
+
+    private func reconcileManagedDecision(_ approval: ApprovalRequest, bot: Bot, approved: Bool, original: ManagedRecord, sendDecision: Bool) async {
+        do {
+            var receipt = try await managedRuntime(bot, verb: "get", task: original.id)
+            if !receipt.confirms(approved, original: original) {
+                guard receipt == original, receipt.awaiting else { throw ManagedControlError.invalidRecord }
+                if sendDecision {
+                    let input = try JSONSerialization.data(withJSONObject: ["approved": approved, "fingerprint": original.fingerprint, "gate": original.gate])
+                    receipt = try await managedRuntime(bot, verb: "decide", task: original.id, input: input)
+                }
+            }
+            guard receipt.confirms(approved, original: original) else { throw ManagedControlError.rejected }
+            approvals.removeAll { $0.id == approval.id }
+            appendAudit(to: bot, approval: approval, outcome: approved ? .approved : .denied, decidedBy: "user",
+                        reason: "Runtime confirmed bound decision.", rule: approval.rule)
+        } catch {
+            if let index = approvals.firstIndex(where: { $0.id == approval.id }) { approvals[index].decisionPending = false }
+            errorMessage = error.localizedDescription
+        }
         objectWillChange.send(); save()
     }
 

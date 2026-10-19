@@ -28,7 +28,7 @@ def coding_cli(env=None):
             private = writable_cli_state({"codex_home": codex_home, "bin": str(Path(path).parent)},
                                          Path(temporary) / "codex")
             status = subprocess.run([path, "login", "status"], capture_output=True, text=True, timeout=20,
-                                    env=cli_env(dict(source, HOME=str(home)), private))
+                                    env=cli_env({"HOME": str(home)}, private))
     except (OSError, subprocess.TimeoutExpired):
         return None
     finally:
@@ -41,7 +41,12 @@ def coding_cli(env=None):
 
 def cli_env(base, cli):
     """Child environment for managed jobs: the CLI's folder first on PATH and its own auth home (HOME stays the QA home)."""
-    env = dict(base)
+    # Allow only harness routing/timing and disposable workspace metadata. Never
+    # inherit provider keys, proxies, shell startup, connector or plugin settings.
+    allowed = {"HOME", "TMPDIR", "PYTHONDONTWRITEBYTECODE", "CODE_JOB_POLL", "CODE_JOB_TICK",
+               "SWARMHUB_GATEWAY", "GIT_DIR", "GIT_WORK_TREE", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"}
+    env = {key: value for key, value in base.items() if key in allowed}
+    env["PATH"] = "/usr/bin:/bin"
     if cli:
         env["PATH"] = cli["bin"] + ":" + env.get("PATH", "/usr/bin:/bin")
         env["CODEX_HOME"] = cli["codex_home"]
@@ -52,7 +57,7 @@ def cli_env(base, cli):
 
 
 def writable_cli_state(cli, folder):
-    """Copy existing auth/config into private, disposable CLI state.
+    """Copy authentication only and generate a capability-free QA configuration.
 
     The installed auth home can be read-only under the outer QA sandbox. Login status
     alone does not detect that exec needs writable state. In particular config.toml
@@ -70,12 +75,21 @@ def writable_cli_state(cli, folder):
     for private in (runtime, temporary):
         private.mkdir(mode=0o700)
         private.chmod(0o700)
-    for name in ("auth.json", "config.toml"):
+    for name in ("auth.json",):
         path = source / name
         if path.is_file():
             with (folder / name).open("xb") as target:
                 (folder / name).chmod(0o600)
                 target.write(path.read_bytes())
+    # Source config is intentionally never copied or interpreted. Default OpenAI
+    # provider authentication comes only from the private auth.json. No custom
+    # providers, MCP commands, apps, hooks, profiles or inherited writable roots.
+    config = folder / "config.toml"
+    config.write_text('sandbox_mode = "workspace-write"\napproval_policy = "never"\n'
+                      '[sandbox_workspace_write]\nnetwork_access = false\nwritable_roots = []\n'
+                      '[features]\napps = false\nweb_search_request = false\n'
+                      '[mcp_servers]\n')
+    config.chmod(0o600)
     return dict(cli, source_auth_home=str(source), codex_home=str(folder),
                 runtime_dir=str(runtime), tmp_dir=str(temporary))
 

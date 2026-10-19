@@ -331,6 +331,8 @@ struct ApprovalRequest: Identifiable, Codable, Sendable {
     var command: String? = nil
     var runID: String? = nil; var requestID: String? = nil
     var botID: UUID? = nil; var profile: String? = nil; var sessionID: String? = nil
+    var managedRecord: ManagedRecord? = nil
+    var decisionPending: Bool? = nil
     var actionKind: String = "command"
     /// P37 D5: the line that sent it to you and why, and the reviewer involved (shown on the card).
     var rule: String? = nil; var routeNote: String? = nil; var reviewerID: UUID? = nil

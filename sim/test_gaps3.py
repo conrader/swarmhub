@@ -119,7 +119,10 @@ class Gaps3Tests(unittest.TestCase):
                 self.assertFalse(copy.is_symlink())
                 self.assertNotEqual(copy.stat().st_ino, (source / name).stat().st_ino)
                 self.assertEqual(stat.S_IMODE(copy.stat().st_mode), 0o600)
-                self.assertEqual(copy.read_bytes(), before[name][0])
+                if name == "auth.json":
+                    self.assertEqual(copy.read_bytes(), before[name][0])
+                else:
+                    self.assertIn(b"network_access = false", copy.read_bytes())
                 # Exercise the original trust leak and a credential refresh.
                 copy.write_text('QA private update: trusted project or refreshed auth')
             self.assertEqual(before, {p.name: (p.read_bytes(), p.stat().st_mode) for p in source.iterdir()})

@@ -10,7 +10,7 @@ extension AppStore {
         StoreFile(bots: bots, groups: groups, modelDefaults: modelDefaults.isEmpty ? nil : modelDefaults,
                   approvalRoutes: globalApprovalRoutes.isEmpty ? nil : globalApprovalRoutes, reviewAfter: globalReviewAfter.isEmpty ? nil : globalReviewAfter,
                   boxReadings: boxReadings.isEmpty ? nil : boxReadings, botMessageMarks: botMessages.marks.isEmpty ? nil : botMessages.marks,
-                  automations: storedAutomations, heartbeat: heartbeatSettings.isEmpty ? nil : heartbeatSettings)
+                  automations: storedAutomations, heartbeat: heartbeatSettings.isEmpty ? nil : heartbeatSettings, managedApprovals: approvals.filter(\.isManaged).isEmpty ? nil : approvals.filter(\.isManaged))
     }
 
     /// What to lock once the session exists.

@@ -37,12 +37,13 @@ def main():
             root = Path(temporary)
             home = root / 'QA-home'; home.mkdir(mode=0o700)
             private = writable_cli_state(cli, root / 'QA-codex')
-            env = cli_env(dict(source_env, HOME=str(home), PYTHONDONTWRITEBYTECODE='1', CODE_JOB_POLL='1'), private)
+            env = cli_env({'HOME': str(home), 'PYTHONDONTWRITEBYTECODE': '1', 'CODE_JOB_POLL': '1'}, private)
             runner = root / 'isolated/coding/scripts/code-job'
             runner.parent.mkdir(parents=True)
             shipped = ROOT / 'Resources/Skills/swarmhub-coding/scripts/code-job'
             shutil.copyfile(shipped, runner)
             shutil.copyfile(shipped.with_name('completion-contract.py'), runner.with_name('completion-contract.py'))
+            shutil.copyfile(shipped.with_name('verify-sandbox.py'), runner.with_name('verify-sandbox.py'))
             repo = qa_repo(root / 'QA-repo')
             verify = "grep -Fxq 'QA-live6 CLI tools work' NOTES.md && grep -Fxq 'QA-command ran' COMMAND.txt"
             argv = ['/bin/sh', str(runner), '--bot', 'QA-Live6', '--order', 'codex', '--model', 'gpt-6-astra',

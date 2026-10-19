@@ -84,8 +84,11 @@ SLOTS=$(sed -n 's/^SLOTS=\([0-9][0-9]*\)[[:space:]]*$/\1/p' "$S/coding.conf" 2>/
 case $SLOTS in ''|0) SLOTS=1 ;; esac
 # Verification command: --verify, else CODE_JOB_VERIFY, else VERIFY= in coding.conf (the box default). Run by code-job
 # itself in --dir after the CLI exits 0; its exit code is evidence the model cannot write.
-VERIFY=${VERIFY_ARG:-${CODE_JOB_VERIFY:-}}
-[ -n "$VERIFY" ] || VERIFY=$(sed -n 's/^VERIFY=//p' "$S/coding.conf" 2>/dev/null | tail -n 1)
+VERIFY=$VERIFY_ARG
+if [ -z "$TASKID" ]; then
+  VERIFY=${VERIFY_ARG:-${CODE_JOB_VERIFY:-}}
+  [ -n "$VERIFY" ] || VERIFY=$(sed -n 's/^VERIFY=//p' "$S/coding.conf" 2>/dev/null | tail -n 1)
+fi
 VTIMEOUT=${CODE_JOB_VERIFY_TIMEOUT:-600}
 case $VTIMEOUT in ''|*[!0-9]*|0) VTIMEOUT=600 ;; esac
 printf '%s\n' "$VERIFY" > "$JOB/verify-command"
@@ -119,7 +122,7 @@ collect_evidence() {
        fi ;;
   esac
   if [ -n "$VERIFY" ]; then
-    ( cd "$DIR" && exec /bin/sh -c "$VERIFY" ) < /dev/null > "$T/verify" 2>&1 &
+    ( exec python3 "$(dirname "$0")/verify-sandbox.py" "$DIR" "$VERIFY" ) < /dev/null > "$T/verify" 2>&1 &
     VPID=$!
     t0=$(date +%s); VEXIT=
     while kill -0 "$VPID" 2>/dev/null; do

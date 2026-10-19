@@ -1,0 +1,282 @@
+"""Review 3 regressions; synthetic credentials/CLI only, no live Hermes or outbound sends."""
+from contextlib import ExitStack
+import io
+import json
+import os
+from pathlib import Path
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import tomllib
+import unittest
+from unittest.mock import Mock, patch
+
+from live_cli import cli_env, writable_cli_state
+from live_managed import ManagedSuite
+import test_peer_runtime as boundary
+import test_patterns as patterns
+
+ROOT = Path(__file__).resolve().parents[1]
+SANDBOX = ROOT / 'Resources/Skills/swarmhub-coding/scripts/verify-sandbox.py'
+control = boundary.peer.control
+
+
+class VerificationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.repo = self.root / 'workspace'; self.repo.mkdir()
+        self.outside = self.root / 'outside'
+
+    def run_verify(self, command):
+        return subprocess.run([sys.executable, '-B', str(SANDBOX), str(self.repo), command],
+                              env=dict(os.environ, QA_SECRET='synthetic-secret'),
+                              capture_output=True, text=True, timeout=15)
+
+    def test_B1_outside_write_from_verify_command_is_denied(self):
+        result = self.run_verify('printf executed > ' + shlex.quote(str(self.outside)))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.outside.exists())
+        # A refusal to initialize a sandbox must not masquerade as a negative security test.
+        positive = self.run_verify('printf local > local.txt')
+        self.assertEqual(positive.returncode, 0, positive.stderr)
+        self.assertEqual((self.repo / 'local.txt').read_text(), 'local')
+
+    def test_B1_edited_test_cannot_write_outside_or_read_host_secret(self):
+        self.outside.write_text('synthetic-host-secret')
+        module = self.repo / 'edited.py'
+        for statement in [f'Path({str(self.root / "escape")!r}).write_text("executed")',
+                          f'Path({str(self.outside)!r}).read_text()']:
+            with self.subTest(statement=statement):
+                module.write_text('from pathlib import Path\n' + statement + '\n')
+                result = self.run_verify('/usr/bin/python3 edited.py')
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn('PermissionError', result.stderr)
+        self.assertFalse((self.root / 'escape').exists())
+        self.assertEqual(self.outside.read_text(), 'synthetic-host-secret')
+
+    def test_B1_network_from_command_and_edited_test_is_denied(self):
+        # Attempt socket creation only; no endpoint is ever contacted even on a broken sandbox.
+        code = 'import socket; socket.socket(socket.AF_INET, socket.SOCK_STREAM)'
+        (self.repo / 'edited.py').write_text(code)
+        for command in ['/usr/bin/python3 -c ' + shlex.quote(code), '/usr/bin/python3 edited.py']:
+            result = self.run_verify(command)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('PermissionError', result.stderr)
+
+    def test_B1_environment_scrubbed_and_symlink_escape_denied(self):
+        (self.repo / 'link').symlink_to(self.outside)
+        result = self.run_verify('printf nope > link')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.outside.exists())
+        self.assertEqual(self.run_verify('test -z "${QA_SECRET-}"').returncode, 0)
+
+    def test_B1_admitted_code_job_cannot_execute_host_verification(self):
+        scripts = self.root / 'isolated/coding/scripts'; scripts.mkdir(parents=True)
+        shipped = SANDBOX.parent
+        for name in ('code-job', 'completion-contract.py', 'verify-sandbox.py'):
+            shutil.copyfile(shipped / name, scripts / name)
+        fake_home = self.root / 'home'; fake_home.mkdir()
+        stub_bin = self.root / 'bin'; stub_bin.mkdir()
+        cli = stub_bin / 'codex'
+        cli.write_text('#!/bin/sh\nprintf "%s" "$$" > "$SWARMHUB_REPORT_FILE"\necho synthetic-work\n')
+        cli.chmod(0o755)
+        (self.repo / 'edited.py').write_text('from pathlib import Path\n' +
+                                           f'Path({str(self.outside)!r}).write_text("executed")\n')
+        commands = ['printf executed > ' + shlex.quote(str(self.outside)), '/usr/bin/python3 edited.py']
+        for command in commands:
+            result = subprocess.run(['/bin/sh', str(scripts / 'code-job'), '--bot', 'QA', '--order', 'codex',
+                                     '--model', 'synthetic-model', '--report', 'REPORT.txt', '--dir', str(self.repo),
+                                     '--verify', command, '--', 'synthetic task'],
+                                    env={'HOME': str(fake_home), 'PATH': str(stub_bin) + ':/usr/bin:/bin',
+                                         'CODE_JOB_TICK': '0.05'}, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 66, result.stderr)
+            self.assertFalse(self.outside.exists())
+
+    def test_B1_missing_sandbox_fails_closed(self):
+        import runpy
+        module = runpy.run_path(str(SANDBOX))
+        with patch.object(sys, 'argv', [str(SANDBOX), str(self.repo), 'touch marker']), \
+             patch.object(sys, 'platform', 'unsupported'):
+            with self.assertRaises(OSError):
+                module['main']()
+        self.assertFalse((self.repo / 'marker').exists())
+
+
+class RuntimeBindingTests(unittest.TestCase):
+    setUp = boundary.PeerTests.setUp
+    stop_background = boundary.PeerTests.stop_background
+    sync = boundary.PeerTests.sync
+    cli = patterns.ObservedPatternTests.cli
+    spec = patterns.ObservedPatternTests.spec
+    submit = patterns.ObservedPatternTests.submit
+    job = patterns.ObservedPatternTests.job
+    eventually = boundary.PeerTests.eventually
+
+    def test_M1_owner_gated_verifier_is_frozen_before_defaults_change(self):
+        self.cli()
+        os.environ['CODE_JOB_VERIFY'] = 'printf frozen > frozen.txt'
+        ident = self.submit('freeze-verifier', risks=['prod'])
+        row = control.action(ident)
+        self.assertEqual(json.loads(row['spec'])['verify'], 'printf frozen > frozen.txt')
+        os.environ['CODE_JOB_VERIFY'] = 'printf changed > changed.txt'
+        self.env['CODE_JOB_VERIFY'] = os.environ['CODE_JOB_VERIFY']
+        (control.state() / 'coding.conf').write_text('VERIFY=printf config > config.txt\n')
+        with patch.dict(os.environ, HERMES_HOME=str(self.home / '.hermes/profiles/coordinator')):
+            control.publish({'owner': 'coordinator'})
+            control.decide(ident, 'coordinator', True, row['fingerprint'], row['gate'])
+        control.tick()
+        self.eventually(lambda: (self.job(ident) / 'ready').exists())
+        self.assertEqual((self.job(ident) / 'verify-command').read_text().strip(), 'printf frozen > frozen.txt')
+        self.assertTrue((self.home / 'frozen.txt').exists())
+        self.assertFalse((self.home / 'changed.txt').exists())
+        self.assertFalse((self.home / 'config.txt').exists())
+
+    def test_M1_explicit_no_verifier_ignores_environment_fallback(self):
+        self.cli()
+        os.environ['CODE_JOB_VERIFY'] = 'printf fallback > fallback.txt'
+        ident = self.submit('no-verifier', verify='')
+        control.tick()
+        self.eventually(lambda: (self.job(ident) / 'ready').exists())
+        self.assertEqual(json.loads(control.action(ident)['spec'])['verify'], '')
+        self.assertEqual((self.job(ident) / 'verify-command').read_text().strip(), '')
+        self.assertFalse((self.home / 'fallback.txt').exists())
+
+    def test_B3_decision_rejects_wrong_fingerprint_or_gate(self):
+        control.publish({'owner': 'coordinator'})
+        # FAKE so even an accidental later scheduler tick cannot execute argv.
+        ident = control.submit({'kind': 'prod', 'bot': 'worker', 'intent': 'B-operation',
+                                'argv': ['/bin/echo', 'B-operation'], 'risks': ['prod'], 'fake': True})
+        row = control.action(ident)
+        with patch.dict(os.environ, HERMES_HOME=str(self.home / '.hermes/profiles/coordinator')):
+            for fingerprint, gate in [('a' * 64, 'owner'), (row['fingerprint'], 'coordinator')]:
+                with self.assertRaisesRegex(ValueError, 'mismatched'):
+                    control.decide(ident, 'coordinator', True, fingerprint, gate)
+            self.assertEqual(control.action(ident)['status'], 'awaiting-owner')
+            control.decide(ident, 'coordinator', False, row['fingerprint'], 'owner')
+        self.assertEqual(control.action(ident)['status'], 'denied')
+
+    def test_B3_structured_control_returns_immutable_operation_B(self):
+        ident = control.submit({'kind': 'prod', 'bot': 'worker', 'intent': 'B-operation',
+                                'argv': ['/bin/echo', 'B-operation'], 'fake': True})
+        result = subprocess.run([sys.executable, '-B', str(boundary.RUNTIME.with_name('swarmctl')),
+                                 'control', 'get', ident], env=self.env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        record = json.loads(result.stdout)
+        self.assertEqual(record['spec']['argv'], ['/bin/echo', 'B-operation'])
+        self.assertEqual(record['fingerprint'], control.action(ident)['fingerprint'])
+
+    def test_M3_swift_shared_intake_path_passes_real_provision_validator(self):
+        # The native Swift test runs the actual writer + this same validator on macOS.
+        folder = self.home / '.hermes/swarmhub/secrets'
+        folder.mkdir(parents=True, mode=0o700)
+        path = folder / 'qa-token'
+        path.write_text('synthetic-key'); path.chmod(0o600)
+        control.publish({'provisioner': ['/bin/echo', 'FAKE']})
+        self.assertTrue(control.intake.is_intake_path(str(path)))
+        argv = control.provisioner_argv({'api_key': str(path)})
+        self.assertNotIn('synthetic-key', repr(argv))
+        self.assertEqual(json.loads(argv[-1])['api_key'], str(path))
+
+
+class HarnessIsolationTests(unittest.TestCase):
+    def test_B2_unsafe_source_config_and_environment_capabilities_are_removed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); source = root / 'source'; source.mkdir()
+            unsafe = ('sandbox_mode="danger-full-access"\n[features]\napps=true\n'
+                      '[sandbox_workspace_write]\nnetwork_access=true\nwritable_roots=["/production"]\n'
+                      '[mcp_servers.production]\ncommand="/production/sender"\nenv={TOKEN="synthetic-production-token"}\n')
+            (source / 'config.toml').write_text(unsafe)
+            (source / 'auth.json').write_text('{"token":"synthetic-auth"}')
+            private = writable_cli_state({'codex_home': str(source), 'bin': '/qa/bin'}, root / 'private')
+            effective = tomllib.loads((Path(private['codex_home']) / 'config.toml').read_text())
+            self.assertEqual(effective['mcp_servers'], {})
+            self.assertFalse(effective['features']['apps'])
+            self.assertFalse(effective['sandbox_workspace_write']['network_access'])
+            self.assertEqual(effective['sandbox_workspace_write']['writable_roots'], [])
+            self.assertNotIn('production', repr(effective))
+            env = cli_env({'HOME': '/qa', 'PATH': '/production/bin', 'OPENAI_API_KEY': 'synthetic',
+                           'HTTP_PROXY': 'http://production', 'BASH_ENV': '/production/hooks',
+                           'CODEX_HOME': str(source), 'MCP_TOKEN': 'synthetic'}, private)
+            for key in ('OPENAI_API_KEY', 'HTTP_PROXY', 'BASH_ENV', 'MCP_TOKEN'):
+                self.assertNotIn(key, env)
+            self.assertNotIn('/production', env['PATH'])
+            self.assertEqual((source / 'config.toml').read_text(), unsafe)
+
+    def suite_fixture(self, root):
+        suite = ManagedSuite.__new__(ManagedSuite)
+        suite._resources = ExitStack()
+        suite.temp = Path(suite._resources.enter_context(tempfile.TemporaryDirectory(dir=root)))
+        (suite.temp / 'auth.json').write_text('synthetic-auth')
+        suite.home = suite.temp / 'home'
+        suite.close_server = Mock(); suite.stop_local_processes = Mock(); suite.export_final = Mock()
+        suite.capture_usage = Mock(); suite.cleanup = Mock(); suite.result = Mock(); suite.save = Mock()
+        return suite
+
+    def test_M5_export_failure_cannot_skip_process_session_or_credential_cleanup(self):
+        with tempfile.TemporaryDirectory() as root:
+            suite = self.suite_fixture(root)
+            order = []
+            suite.stop_local_processes.side_effect = lambda: order.append('stop')
+            def export():
+                order.append('export')
+                raise OSError('synthetic export failure')
+            suite.export_final.side_effect = export
+            with patch('live_managed.children_by_home', return_value=[]):
+                with self.assertRaisesRegex(OSError, 'export'):
+                    suite.finish()
+            self.assertEqual(order, ['stop', 'export'])
+            suite.cleanup.assert_called_once()
+            suite.close_server.assert_called_once()
+            self.assertFalse(suite.temp.exists())
+
+    def test_M5_server_and_session_cleanup_failures_still_delete_credentials(self):
+        for stage in ('close_server', 'cleanup'):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as root:
+                suite = self.suite_fixture(root)
+                getattr(suite, stage).side_effect = OSError('synthetic ' + stage)
+                with patch('live_managed.children_by_home', return_value=[]):
+                    with self.assertRaises(OSError):
+                        suite.finish()
+                suite.stop_local_processes.assert_called_once()
+                suite.cleanup.assert_called_once()
+                self.assertFalse(suite.temp.exists())
+
+    def test_M5_initialization_failure_after_credential_copy_cleans_tree(self):
+        seen = []
+        def initialize(suite):
+            seen.append(suite.temp)
+            (suite.temp / 'auth.json').write_text('synthetic-auth')
+            raise OSError('synthetic initialization failure')
+        with patch('live_managed.BehaviorSuite.__init__'), patch.object(ManagedSuite, 'initialize_local', initialize):
+            with self.assertRaises(OSError):
+                ManagedSuite(Path('/unused'))
+        self.assertTrue(seen)
+        self.assertFalse(seen[0].exists())
+
+    def test_M5_server_close_runs_when_shutdown_fails(self):
+        suite = ManagedSuite.__new__(ManagedSuite)
+        suite.server = Mock(); server = suite.server
+        server.shutdown.side_effect = OSError('synthetic shutdown')
+        with self.assertRaises(OSError):
+            suite.close_server()
+        server.server_close.assert_called_once()
+        self.assertIsNone(suite.server)
+
+    def test_M5_partial_cli_record_does_not_abort_export(self):
+        with tempfile.TemporaryDirectory() as root:
+            suite = ManagedSuite.__new__(ManagedSuite)
+            suite.state = Path(root) / 'state'; suite.output = Path(root); suite.repo = None
+            suite.cli = {'codex_home': str(Path(root) / 'cli')}; suite.clean = lambda value: value
+            sessions = Path(suite.cli['codex_home']) / 'sessions'; sessions.mkdir(parents=True)
+            (sessions / 'session.jsonl').write_text('{"type":"session_meta","payload":{"id":"QA"}}\n{"type":')
+            suite.export_local('QA-final')
+            audit = json.loads((suite.output / 'QA-cli-audit-session.json').read_text())
+            self.assertEqual(audit[-1]['type'], 'incomplete-record')
+
+
+if __name__ == '__main__':
+    unittest.main()

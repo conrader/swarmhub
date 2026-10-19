@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pass 8: shipped managed entrypoints, real QA Hermes, no server installation.
+"""Pass 9: shipped managed entrypoints, real QA Hermes, no server installation.
 
 The loopback bridge namespaces five QA roles and explicitly invokes the shipped
 pre/post hook functions in isolated child processes. It is not plugin activation.
@@ -8,6 +8,7 @@ When an authenticated Codex CLI is available, P01/P04 use model-selected bounded
 local actions and real jobs in an environment-addressed throwaway git repository.
 Missing authentication marks those chains failed/untested, never successful.
 """
+from contextlib import ExitStack
 import argparse
 import http.client
 from datetime import datetime, timezone
@@ -48,10 +49,18 @@ def hook_main():
 class ManagedSuite(ChainMixin, BehaviorSuite):
     def __init__(self, output):
         super().__init__(output)
-        self.run = "QA-LIVE8-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(3)
+        self.run = "QA-LIVE9-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(3)
         self.commands, self.hooks = [], []
         self.sequence = 0
-        self.temp = Path(tempfile.mkdtemp(prefix="QA-LIVE8-"))
+        self._resources = ExitStack()
+        self.temp = Path(self._resources.enter_context(tempfile.TemporaryDirectory(prefix="QA-LIVE9-")))
+        try:
+            self.initialize_local()
+        except BaseException:
+            self._resources.close()
+            raise
+
+    def initialize_local(self):
         self.private_values = []
         self.home = self.temp / "QA-home"
         self.state = self.home / ".hermes/swarmhub"
@@ -83,7 +92,7 @@ class ManagedSuite(ChainMixin, BehaviorSuite):
                     coding_cli=self.cli, cli_execution_path=os.environ.get("QA_CLI_EXECUTION_PATH", "unspecified caller; unchanged code-job workspace-write"),
                     qa_git_layout={"work_tree": str(self.repo), "git_dir": str(self.repo / "QA-git-store"),
                                    "dot_git_entry": False} if self.repo else None,
-                    app_contract_source="Resources/Skills/swarmhub-messages/SKILL.md 1.3.3")
+                    app_contract_source="Resources/Skills/swarmhub-messages/SKILL.md 1.3.4")
         path.write_text(self.clean(json.dumps(data, indent=2)) + "\n")
 
     def request(self, label, path, method="GET", body=None, **kwargs):
@@ -91,7 +100,7 @@ class ManagedSuite(ChainMixin, BehaviorSuite):
             with self.usage_lock:
                 self.capture_usage()
                 if self.turns >= 24 or self.observed_calls >= 24:
-                    raise RuntimeError("Pass 8 Hermes call reserve reached")
+                    raise RuntimeError("Pass 9 Hermes call reserve reached")
         return super().request(label, path, method, body, **kwargs)
 
     def clean(self, value):
@@ -224,7 +233,12 @@ class ManagedSuite(ChainMixin, BehaviorSuite):
             for path in sessions.rglob("*.jsonl"):
                 audit = []
                 for line in path.read_text().splitlines():
-                    record = json.loads(line)
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        # A process killed during a JSONL append can leave a partial last record.
+                        audit.append({"type": "incomplete-record", "payload": {}})
+                        continue
                     value = record.get("payload", {})
                     kind = record.get("type")
                     if kind == "session_meta":
@@ -528,42 +542,66 @@ class ManagedSuite(ChainMixin, BehaviorSuite):
         with sqlite3.connect(self.state / "control.sqlite") as db:
             return db.execute("SELECT COALESCE(max(attempts),0) FROM deliveries WHERE status='pending'").fetchone()[0]
 
-    def finish(self):
-        self.export_local("QA-final-local-state")
-        log = self.state / "bot-messages.log"
-        if log.exists():
-            (self.output / "QA-bot-messages.tsv").write_text(self.clean(log.read_text()))
-        children = children_by_home(str(self.home))
+    def stop_local_processes(self):
+        children = set(children_by_home(str(self.home)))
+        # Include descendants whose sandbox correctly replaced HOME. Retain this
+        # snapshot so an orphan cannot escape the final kill by being reparented.
+        pairs = subprocess.check_output(["ps", "-A", "-o", "pid=", "-o", "ppid="], text=True)
+        rows = [tuple(map(int, line.split())) for line in pairs.splitlines()]
+        while True:
+            expanded = children | {child for child, parent in rows if parent in children}
+            if expanded == children:
+                break
+            children = expanded
         for pid in children:
             try:
                 os.kill(pid, 15)
             except ProcessLookupError:
                 pass
         time.sleep(.5)
-        for pid in children_by_home(str(self.home)):
+        for pid in children | set(children_by_home(str(self.home))):
             try:
                 os.kill(pid, 9)
             except ProcessLookupError:
                 pass
+
+    def close_server(self):
         if self.server:
-            self.server.shutdown()
-            self.server.server_close()
-        self.capture_usage()
-        self.cleanup()
+            try:
+                self.server.shutdown()
+            finally:
+                self.server.server_close()
+                self.server = None
+
+    def export_final(self):
+        self.export_local("QA-final-local-state")
+        log = self.state / "bot-messages.log"
+        if log.exists():
+            (self.output / "QA-bot-messages.tsv").write_text(self.clean(log.read_text()))
         unchanged = self.cli is None or self.source_auth_before == source_auth_snapshot(self.cli)
         isolation = {"source_auth_config_unchanged": unchanged, "files": ["auth.json", "config.toml"],
-                     "comparison": "contents, mode, inode, mtime; no source values exported",
-                     "private_files": {name: {"symlink": (Path(self.cli["codex_home"]) / name).is_symlink(),
-                                               "mode": oct((Path(self.cli["codex_home"]) / name).stat().st_mode & 0o777)}
-                                       for name in ("auth.json", "config.toml")
-                                       if self.cli and (Path(self.cli["codex_home"]) / name).exists()}}
+                     "comparison": "contents, mode, inode, mtime; no source values exported"}
         (self.output / "QA-cli-isolation.json").write_text(json.dumps(isolation, indent=2) + "\n")
         self.result("source-auth-config-unchanged", unchanged, "Source auth/config contents and metadata unchanged")
-        self.result("cleanup-local-processes", not children_by_home(str(self.home)), "No isolated runtime processes remain")
-        shutil.rmtree(self.temp)
-        self.result("cleanup-private-files", not self.temp.exists(), "Temporary QA credentials/state removed after evidence export")
-        self.save()
         assert unchanged, "Source CLI auth/config changed; isolation evidence retained"
+
+    def finish(self):
+        errors = []
+        # Quiesce writers first; every stage runs even if any other stage fails.
+        try:
+            for operation in (self.close_server, self.stop_local_processes, self.export_final,
+                              self.capture_usage, self.cleanup):
+                try:
+                    operation()
+                except BaseException as exc:
+                    errors.append(exc)
+        finally:
+            self._resources.close()  # Credential copies are owned from their creation onward.
+        self.result("cleanup-local-processes", not children_by_home(str(self.home)), "No isolated runtime processes remain")
+        self.result("cleanup-private-files", not self.temp.exists(), "Temporary QA credentials/state removed")
+        self.save()
+        if errors:
+            raise errors[0]
 
 
 def main():

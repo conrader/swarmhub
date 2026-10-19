@@ -1,7 +1,7 @@
 ---
 name: swarmhub-messages
 description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.3
+version: 1.3.4
 author: SwarmHub
 metadata:
   swarmhub:
@@ -86,7 +86,7 @@ same check without HTTP. An accepted call journals one durable self-delivery for
 Secure key intake: `scripts/swarmctl secret intake <name>` reads the value from **stdin** and writes
 `~/.hermes/swarmhub/secrets/<name>` with mode 0600; it prints the path, never the value. Pass that path, not the key,
 to provisioning. SwarmHub's secret-entry sheet writes the same kind of file on the user's Mac and hands the bot only
-the path. A Mac-local path is not a remote intake path: when provisioning another host, request intake on that host;
+the path under `~/.hermes/swarmhub/secrets`, matching the runtime validator. A Mac-local path is not a remote intake path: when provisioning another host, request intake on that host;
 do not claim the remote host can read the Mac's file. Never ask the user to paste a key into chat; ask for the sheet
 or the intake command. Both writers replace files atomically with owner-only permissions.
 
@@ -124,8 +124,12 @@ Only the configured role is accepted, and only from its own gateway: `swarmctl` 
 `HERMES_HOME` and refuses a decision when it is unset or names another profile; actor, pid and time are recorded on
 the action. The stored action is immutable and denial is final by intent and operation. Bots must present awaiting
 approvals to that role, never impersonate it to decide. Present one by ending the reply with a `swarmhub` fence that
-SwarmHub turns into an approval card in the deciding role's chat (the card runs `swarmctl decide` from that role's
-own gateway when the user chooses). The opening line must be exactly three backticks followed by `swarmhub`,
+SwarmHub treats as a notification. For a local runtime, the app fetches `swarmctl control get <task-id>` directly
+and renders only its authoritative spec; the fence fields never authorize an operation. The app submits JSON
+`{"fingerprint":"<record fingerprint>","gate":"<current gate>","approved":true|false}` to
+`swarmctl control decide <task-id> <deciding-profile>` with that profile's HERMES_HOME. The transaction checks both
+bindings and role, and the card stays pending until its runtime receipt confirms the decision. Remote notifications
+fail closed until a trusted runtime control transport is provided; the app never asks a model to decide instead. The opening line must be exactly three backticks followed by `swarmhub`,
 then JSON on the next line, then three backticks alone on the closing line. Bare JSON, a `json` fence, or saying
 "swarmhub fence" in prose does not follow this output contract. Example (replace these example values with the
 actual awaiting record; never invent a task):
@@ -135,7 +139,7 @@ actual awaiting record; never invent a task):
 Only present a card for an actually awaiting record. App Draft Send always submits `fake: true`, with the exact text,
 recipient and stable card intent. It reports the returned task's actual status; an automatic FAKE record needs no
 approval. Never turn that record into a real send. A card click sends a decision request to the configured profile
-on the same box; only a successful `swarmctl decide` result proves the runtime accepted it.
+on the same Mac through the structured control interface; only its matching authoritative receipt proves acceptance.
 To obtain a user secret, end the reply with this exact fence format, replacing the name and reason as needed.
 Never put the secret value in JSON or chat:
 ```swarmhub

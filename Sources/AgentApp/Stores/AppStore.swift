@@ -17,6 +17,9 @@ import SwarmHubCoordination
     @Published var approvals: [ApprovalRequest] = []
     /// P06 gap: a bot's pending secret request; the chat shows the secret-entry sheet while it is set. Secret files go to
     /// `secretFolder` (tests) or `SecretFileWriter.defaultFolder`.
+    /// Test injection for the structured host-local SwarmHub interface (no model turns).
+    var managedDecisionsInFlight: Set<UUID> = []
+    var managedControl: ((Bot, String, String, Data?) async throws -> ManagedRecord)?
     @Published var secretRequest: SecretRequestPrompt?; var secretFolder: URL?
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
@@ -157,6 +160,7 @@ import SwarmHubCoordination
                 let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
                 globalApprovalRoutes = file.approvalRoutes ?? []; globalReviewAfter = file.reviewAfter ?? []
                 boxReadings = file.boxReadings ?? [:]; botMessages.marks = file.botMessageMarks ?? [:]
+                approvals = file.managedApprovals ?? []
                 restoreAutomations(file.automations); heartbeatSettings = file.heartbeat ?? .init()
                 turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
                 if !migrateArchivedGroups().isEmpty { save() }

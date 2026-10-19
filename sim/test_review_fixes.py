@@ -316,7 +316,7 @@ class ReviewFixTests(unittest.TestCase):
         self.assertEqual(control.action(ident)["status"], "running")
         control.publish({"route": "codex", "codex_model": "other-model"})
         control.check_job(ident, "worker", str(self.home), "synthetic-model", "high",
-                          str(self.home / "approved scope.txt"), "approved scope", "claude")
+                          str(self.home / "approved scope.txt"), "approved scope", "claude", json.loads(control.action(ident)["spec"])["verify"])
         with self.assertRaises(ValueError):
             control.check_job(ident, "worker", str(self.home), "other-model", "high",
                               str(self.home / "approved scope.txt"), "approved scope", "codex")

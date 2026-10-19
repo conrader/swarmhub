@@ -36,6 +36,13 @@ struct GoalRun: Codable, Equatable, Sendable {
     var lastSummary: String?; var need: String?; var endReason: String?
     /// Rounds spent asking for evidence after a `done` block that had none (optional: goals saved before it existed).
     var evidenceRounds: Int?
+    /// Explicit /goal --coding opts into commit/test + report evidence. Older/general goals accept chat deliverables.
+    var codingEvidence: Bool?
+
+    func accepts(_ evidence: GoalEvidence, reply: String) -> Bool {
+        if codingEvidence == true { return evidence.isSufficient }
+        return evidence.deliverable != nil || !SwarmhubBlock.visibleText(reply).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var isActive: Bool { state == .running || state == .paused }
     var deadline: Date { startedAt.addingTimeInterval(maxDuration) }
@@ -52,7 +59,18 @@ enum GoalProtocol {
     static let roundsKey = "goalMaxRounds", hoursKey = "goalMaxHours"
 
     static func firstTurn(_ goal: GoalRun) -> String {
-        """
+        if goal.codingEvidence != true {
+            return """
+            [SwarmHub goal] Work toward this goal across turns until it is fully achieved: \(goal.text)\(criteria(goal))
+            Deliver the requested result in chat or name the actual deliverable in evidence.deliverable. Respect all acceptance criteria and constraints.
+            When complete, end with:
+            ```swarmhub
+            {"op":"goal","status":"done","summary":"<what was delivered>","evidence":{"deliverable":"<actual result or source reference>"}}
+            ```
+            If blocked, end with a swarmhub goal block with status "blocked" and "need". Never invent evidence.
+            """
+        }
+        return """
         [SwarmHub goal] Work toward this goal across turns until it is fully achieved: \(goal.text)\(criteria(goal))
 
         SwarmHub sends "Continue toward the goal" after each of your replies until you end it. When the goal is fully \
@@ -85,7 +103,10 @@ enum GoalProtocol {
 
     /// The round that answers a `done` block without accepted evidence.
     static func evidenceRequest(_ goal: GoalRun, evidence: GoalEvidence) -> String {
-        "Your done block for the goal \"\(goal.text)\" has no accepted evidence (missing: \(evidence.missing.joined(separator: "; "))). " +
+        if goal.codingEvidence != true {
+            return "Deliver the requested result for \(goal.text) in chat, or identify its actual reference in evidence.deliverable, then send the done block. If blocked, report blocked."
+        }
+        return "Your done block for the goal \"\(goal.text)\" has no accepted evidence (missing: \(evidence.missing.joined(separator: "; "))). " +
         "Either end your reply with the done block again, adding \"evidence\": {\"tests\": \"passed\", " +
         "\"report\": \"<fresh report path>\"} for work you actually did (or replace tests with a commit id), or report blocked with what is missing. " +
         "Never invent a commit, a test run or a report."
@@ -110,9 +131,9 @@ enum GoalProtocol {
 }
 
 /// What a `done` goal block claims as evidence (P01/P04 gap). SwarmHub cannot read the bot's box, so it records these as
-/// claimed by the bot, not verified, and refuses a `done` with neither a commit nor a test pass or without a report path.
+/// claimed by the bot, not verified. Explicit coding goals require commit/tests + report; other goals accept their deliverable.
 struct GoalEvidence: Equatable, Codable, Sendable {
-    var commit: String?; var testsPassed = false; var report: String?
+    var commit: String?; var testsPassed = false; var report: String?; var deliverable: String? = nil
 
     var isSufficient: Bool { (commit != nil || testsPassed) && report != nil }
     var claimed: [String] {
@@ -120,6 +141,7 @@ struct GoalEvidence: Equatable, Codable, Sendable {
         if let commit { items.append("commit \(commit)") }
         if testsPassed { items.append("tests passed") }
         if let report { items.append("report \(report)") }
+        if let deliverable { items.append("deliverable \(deliverable)") }
         return items
     }
     var missing: [String] {
@@ -150,6 +172,11 @@ struct GoalEvidence: Equatable, Codable, Sendable {
                   !["none", "unknown", "n/a", "pending"].contains(value.lowercased()) else { return nil }
             return value
         }
-        return GoalEvidence(commit: commit, testsPassed: tests, report: report)
+        let deliverable = text("deliverable").flatMap { value -> String? in
+            guard !value.contains("<"), !value.contains(">"),
+                  !["none", "unknown", "n/a", "pending"].contains(value.lowercased()) else { return nil }
+            return value
+        }
+        return GoalEvidence(commit: commit, testsPassed: tests, report: report, deliverable: deliverable)
     }
 }

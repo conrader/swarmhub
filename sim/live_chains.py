@@ -8,6 +8,8 @@ import hashlib
 import json
 from pathlib import Path
 import shlex
+import os
+import stat
 import time
 
 from live_behavior import answer, successful
@@ -22,8 +24,8 @@ ACTION_RULES = (
     'return NO_REPLY when action is required. No other operation is available. '
 )
 
-# The verifier lives outside the model's working directory and runs in its own
-# process after the CLI. It compiles the actual fresh source and runs real tests.
+# The verifier runs in the workspace sandbox after the CLI, including all source it imports.
+# Independent rebuilds use the same sandbox and export receipts only after execution.
 VERIFIER = '''import hashlib, importlib.util, json, pathlib, py_compile, sys, time, unittest
 repo, mode, receipt = pathlib.Path(sys.argv[1]), sys.argv[2], pathlib.Path(sys.argv[3])
 source = repo / "qa_work.py"
@@ -123,12 +125,12 @@ class ChainMixin:
         self.result(label, True, json.dumps(data))
 
     def init_chain_verifier(self):
-        self.verifier = self.temp / "QA-verify.py"
+        self.verifier = self.repo / "QA-verify.py"
         self.verifier.write_text(VERIFIER)
 
     def verify_command(self, intent, mode="add"):
         return shlex.join(["/usr/bin/python3", str(self.verifier), str(self.repo), mode,
-                           str(self.temp / (intent + "-verify.json"))])
+                           str(self.repo / (intent + "-verify.json"))])
 
     def local_git(self, label, *args):
         return self.command(label, ["git", "-C", str(self.repo), *args])
@@ -137,6 +139,23 @@ class ChainMixin:
         fields = ("status", "exit", "cli-exit", "model", "effort", "report", "report-valid", "report-sha256",
                   "head-before", "head-after", "commit-evidence", "verify-exit", "tests-passed")
         return {name: self.job_field(ident, name) for name in fields}
+
+    def sandbox_check(self, label, mode, receipt):
+        local = self.repo / (receipt.stem + ".json")
+        sandbox = Path(__file__).resolve().parents[1] / "Resources/Skills/swarmhub-coding/scripts/verify-sandbox.py"
+        local.unlink(missing_ok=True)
+        try:
+            self.command(label, ["/usr/bin/python3", str(sandbox), str(self.repo),
+                                 shlex.join(["/usr/bin/python3", str(self.verifier), str(self.repo), mode, str(local)])])
+        finally:
+            # Retain failed test receipts too; never follow model-created links during export.
+            if local.exists():
+                fd = os.open(local, os.O_RDONLY | os.O_NOFOLLOW)
+                with os.fdopen(fd, "rb") as stream:
+                    info = os.fstat(stream.fileno())
+                    if not stat.S_ISREG(info.st_mode) or info.st_size > 65536:
+                        raise ValueError("Invalid verification receipt")
+                    receipt.write_bytes(stream.read(65537))
 
     def independent_check(self, label, ident, intent, mode="add", require_commit=True):
         fields = self.job_evidence(ident)
@@ -148,7 +167,7 @@ class ChainMixin:
                                     fields["head-before"] == fields["head-after"]))):
             raise ValueError("Fresh output/commit/verification contract failed: " + json.dumps(fields))
         receipt = self.output / (label + "-build.json")
-        self.command(label + "-compile-test", ["/usr/bin/python3", str(self.verifier), str(self.repo), mode, str(receipt)])
+        self.sandbox_check(label + "-compile-test", mode, receipt)
         checked = json.loads(receipt.read_text())
         if not checked["compiled"] or not checked["passed"] or checked["tests_run"] != 2:
             raise ValueError("Independent compile/tests failed")
@@ -210,8 +229,7 @@ class ChainMixin:
         if new_head == action["head"]:
             raise ValueError("Ordering bot commit did not change HEAD")
         self.local_git("P01-ordering-committed-diff", "show", "--format=fuller", "HEAD")
-        self.command("P01-ordering-rebuild-test", ["/usr/bin/python3", str(self.verifier), str(self.repo), "add",
-                                                  str(self.output / "QA-P01-ordering-build.json")])
+        self.sandbox_check("P01-ordering-rebuild-test", "add", self.output / "QA-P01-ordering-build.json")
         build = json.loads((self.output / "QA-P01-ordering-build.json").read_text())
         self.chain_event("P01-ordering-commit-rebuilt", {"head_before": action["head"], "head_after": new_head,
                                                        "verification": build})

@@ -35,6 +35,21 @@ def main(args):
         control.decide(args[0], args[1], args[2] == "approve")
         start()
         return control.action(args[0])
+    if command == "control":
+        # Structured local app interface. Notifications never supply card content.
+        verb, ident, *rest = args
+        if verb == "decide":
+            payload = json.load(sys.stdin)
+            if type(payload.get("approved")) is not bool or not payload.get("fingerprint") or not payload.get("gate"):
+                raise ValueError("bound decision required")
+            control.decide(ident, rest[0], payload["approved"], payload["fingerprint"], payload["gate"])
+            start()
+        elif verb != "get":
+            raise ValueError("control get|decide")
+        row = control.action(ident)
+        row["spec"] = json.loads(row["spec"])
+        row["decider"] = control.policy().get(row["gate"])
+        return row
     if command == "status":
         with control.database() as db:
             return {"actions": [dict(r) for r in db.execute("SELECT id,gate,status,error,decided_by,decided_at FROM actions")],

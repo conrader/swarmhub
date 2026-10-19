@@ -83,8 +83,7 @@ def tick():
                                "--origin", spec.get("origin", ""), "--dir", spec["directory"],
                                "--model", model, "--effort", spec["effort"], "--report", spec["report"],
                                "--task-id", row["id"], "--job-id", job.name]
-                    if spec.get("verify"):
-                        command += ["--verify", spec["verify"]]
+                    command += ["--verify", spec.get("verify", "")]
                     command += ["--", spec["task"]]
                     pid, started = spawn_recorded(command)
                     db.execute("UPDATE actions SET status='running',pid=?,pid_start=?,launched=? WHERE id=?",
