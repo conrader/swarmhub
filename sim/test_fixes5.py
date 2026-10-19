@@ -148,7 +148,7 @@ class VerificationTests(unittest.TestCase):
     def test_B1_admitted_code_job_cannot_execute_host_verification(self):
         scripts = self.root / 'isolated/coding/scripts'; scripts.mkdir(parents=True)
         shipped = SANDBOX.parent
-        for name in ('code-job', 'completion-contract.py', 'verify-sandbox.py', 'verify_signals.py', 'verify_processes.py', 'verify_darwin.py', 'verify_git.py'):
+        for name in ('code-job', 'completion-contract.py', 'scratch.py', 'verify-sandbox.py', 'verify_signals.py', 'verify_processes.py', 'verify_darwin.py', 'verify_git.py'):
             shutil.copyfile(shipped / name, scripts / name)
         fake_home = self.root / 'home'; fake_home.mkdir()
         stub_bin = self.root / 'bin'; stub_bin.mkdir()

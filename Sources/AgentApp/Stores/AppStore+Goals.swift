@@ -62,8 +62,10 @@ extension AppStore {
         let coding = text.hasPrefix("--coding "), general = text.hasPrefix("--general ")
         let goalText = coding ? String(text.dropFirst(9)) : general ? String(text.dropFirst(10)) : text
         let evidence: Bool? = coding ? true : general ? false : nil
-        automations[conversation.id, default: .init()].goal = GoalRun(text: goalText, maxRounds: budget.rounds, startedAt: now(), maxDuration: budget.hours * 3600, codingEvidence: evidence)
+        let goal = GoalRun(text: goalText, maxRounds: budget.rounds, startedAt: now(), maxDuration: budget.hours * 3600, codingEvidence: evidence)
+        automations[conversation.id, default: .init()].goal = goal
         save(); startAutomationTicker()
+        commandLine("Goal: \(goal.text)\n\(goal.evidenceStatus)", in: conversation)
         advanceGoal(in: conversation, bot: bot)
     }
 
@@ -76,6 +78,7 @@ extension AppStore {
     func goalStatus(_ goal: GoalRun) -> String {
         let minutes = Int(now().timeIntervalSince(goal.startedAt) / 60)
         var lines = ["Goal: \(goal.text)", "\(goal.state.rawValue.capitalized)\(goal.pausedOffline ? " (offline)" : "") · \(goal.progress) · \(minutes) min of \(Int(goal.maxDuration / 60))"]
+        lines.append(goal.evidenceStatus)
         lines += goal.subgoals.enumerated().map { "  \($0.offset + 1). \($0.element)" }
         if let need = goal.need { lines.append("Needs: \(need)") }
         if let summary = goal.lastSummary { lines.append("Last: \(summary)") }

@@ -14,6 +14,7 @@ trap 'rm -rf "$ROOT"' EXIT
 mkdir -p "$ROOT/skills/swarmhub-coding/scripts" || exit 1
 cp "$JOB" "$ROOT/skills/swarmhub-coding/scripts/code-job" || exit 1
 cp "$(dirname "$JOB")/completion-contract.py" "$ROOT/skills/swarmhub-coding/scripts/completion-contract.py" || exit 1
+cp "$(dirname "$JOB")/scratch.py" "$ROOT/skills/swarmhub-coding/scripts/scratch.py" || exit 1
 cp "$(dirname "$JOB")/verify-sandbox.py" "$ROOT/skills/swarmhub-coding/scripts/verify-sandbox.py" || exit 1
 cp "$(dirname "$JOB")/verify_darwin.py" "$ROOT/skills/swarmhub-coding/scripts/verify_darwin.py" || exit 1
 cp "$(dirname "$JOB")/verify_git.py" "$ROOT/skills/swarmhub-coding/scripts/verify_git.py" || exit 1

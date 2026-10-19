@@ -1,7 +1,7 @@
 ---
 name: swarmhub-messages
 description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.8
+version: 1.3.9
 author: SwarmHub
 metadata:
   swarmhub:
@@ -117,7 +117,10 @@ Managed actions use `scripts/swarmctl submit` with JSON on stdin. Supported kind
 `provision`, `money`, `prod`, `secrets`. Every action has `bot` and a stable `intent`. Peer actions include `to`, `text`
 and optionally `parent`; external actions use an immutable `argv` array. Money/prod/secrets risks and provisioning
 require the owner; real outbound text requires the coordinator. Outbound `argv` is composed from the owner's `outbound`
-sender with the exact recipient and text; omit it, since a different caller-supplied `argv` is refused. Only absolute system `pwd`, `ls`, `stat` commands
+sender with the exact recipient and text; omit it, since a different caller-supplied `argv` is refused. Execution
+rechecks the stored command against the current sender and exact draft, including records admitted before 1.3.8.
+A mismatch or missing sender fails the action; resubmit for approval after reviewing the current configuration.
+The runtime never silently changes an approved command. Only absolute system `pwd`, `ls`, `stat` commands
 are automatically allowed reads; other commands ask the owner. Any action with `fake: true` is a dry run: it keeps
 its gate, then records `FAKE: no <kind> operation executed` and never executes its argv, launches a coding CLI or
 admits a delivery. A FAKE task ID cannot authorize direct execution or peer sends, even after completion.

@@ -43,6 +43,7 @@ def main():
             shipped = ROOT / 'Resources/Skills/swarmhub-coding/scripts/code-job'
             shutil.copyfile(shipped, runner)
             shutil.copyfile(shipped.with_name('completion-contract.py'), runner.with_name('completion-contract.py'))
+            shutil.copyfile(shipped.with_name('scratch.py'), runner.with_name('scratch.py'))
             shutil.copyfile(shipped.with_name('verify-sandbox.py'), runner.with_name('verify-sandbox.py'))
             shutil.copyfile(shipped.with_name('verify_darwin.py'), runner.with_name('verify_darwin.py'))
             shutil.copyfile(shipped.with_name('verify_git.py'), runner.with_name('verify_git.py'))

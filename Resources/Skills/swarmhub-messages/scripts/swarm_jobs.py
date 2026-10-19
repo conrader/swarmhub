@@ -5,7 +5,7 @@ import subprocess
 import sys
 import time
 
-from swarm_policy import action, active, coding_model, coding_plan
+from swarm_policy import action, active, coding_model, coding_plan, outbound_argv
 from swarm_store import canonical, database, process_alive, spawn_recorded, state, terminate
 
 
@@ -126,11 +126,27 @@ def run_action(ident):
         return
     if not active(ident):
         return
-    # Only the immutable argv in the approved record reaches the process.
+    # Pre-1.3.8 outbound records could store arbitrary argv. Recheck even approved legacy rows against today's
+    # owner-configured sender and the exact reviewed draft. Never silently switch a changed hook after approval.
+    command = spec.get("argv")
+    if spec.get("kind") == "outbound":
+        try:
+            if not all(isinstance(spec.get(k), str) and spec[k].strip() for k in ("to", "text")):
+                raise ValueError("missing outbound draft")
+            composed = outbound_argv(spec["to"], spec["text"], False)
+            if command != composed:
+                raise ValueError("outbound command changed")
+            command = composed
+        except (ValueError, TypeError):
+            with database() as db:
+                db.execute("UPDATE actions SET status='failed',error=? WHERE id=? AND status='running'",
+                           ("Outbound sender/draft binding failed; resubmit for approval", ident))
+            return
+    # Only the immutable argv in the approved record (rechecked for outbound) reaches the process.
     try:
-        child = subprocess.Popen(spec["argv"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
-    except OSError:
+    except (OSError, ValueError):
         with database() as db:
             db.execute("UPDATE actions SET status='failed',error='Unable to start approved command' WHERE id=? AND status='running'", (ident,))
         return

@@ -41,6 +41,14 @@ struct GoalRun: Codable, Equatable, Sendable {
     var codingEvidence: Bool?
     var requiresCodingEvidence: Bool { codingEvidence ?? GoalProtocol.looksLikeCoding(text) }
 
+    /// Shared by the local start notice and /goal status, including restored goals with no explicit override.
+    var evidenceStatus: String {
+        let mode = requiresCodingEvidence ? "coding" : "general"
+        let source = codingEvidence == nil ? "auto" : "explicit"
+        let requirement = requiresCodingEvidence ? "commit or test pass + report required" : "chat deliverable; coding evidence not required"
+        return "Evidence: \(mode) (\(source); \(requirement)).\nTo override, /goal clear, then /goal --coding <text> or /goal --general <text>."
+    }
+
     func accepts(_ evidence: GoalEvidence, reply: String) -> Bool {
         if requiresCodingEvidence { return evidence.isSufficient }
         return evidence.deliverable != nil || !SwarmhubBlock.visibleText(reply).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

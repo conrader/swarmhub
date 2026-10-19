@@ -28,11 +28,36 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
     #expect(SwarmhubBlock.visibleText(doneReply) == "All shipped.", "the block is not shown")
 }
 
+@MainActor @Test func goalEvidenceModeIsVisibleAtStartAndInStatus() throws {
+    let cases: [(String, String, Bool?)] = [
+        ("fix the failing build", "Evidence: coding (auto; commit or test pass + report required).", nil),
+        ("write the changelog", "Evidence: general (auto; chat deliverable; coding evidence not required).", nil),
+        ("--coding write the changelog", "Evidence: coding (explicit; commit or test pass + report required).", true),
+        ("--general fix the failing build", "Evidence: general (explicit; chat deliverable; coding evidence not required).", false)
+    ]
+    for (command, expected, override) in cases {
+        let (store, bot) = goalStore(ScriptedTurnBackend())
+        store.turns.pathDown = true // The notice must also be visible before an offline goal can send.
+        #expect(store.submitComposer(text: "/goal \(command)"))
+        let notice = try #require(bot.messages.last { $0.metadata[SlashKey.line] == "1" })
+        #expect(notice.content.contains(expected))
+        #expect(notice.content.contains("To override, /goal clear, then /goal --coding <text> or /goal --general <text>."))
+        let goal = try #require(store.goal(in: bot))
+        #expect(goal.codingEvidence == override)
+        #expect(store.submitComposer(text: "/goal status"))
+        #expect(bot.messages.last?.content == store.goalStatus(goal))
+        #expect(bot.messages.last?.content.contains(goal.evidenceStatus) == true)
+        let restored = try JSONDecoder().decode(GoalRun.self, from: JSONEncoder().encode(goal))
+        #expect(restored.evidenceStatus == goal.evidenceStatus)
+    }
+}
+
 @MainActor @Test func aGoalRunsRoundsUntilTheDoneBlock() async throws {
     let backend = ScriptedTurnBackend(); let (store, bot) = goalStore(backend)
     #expect(store.submitComposer(text: "/goal --coding ship the release notes"))
     try await backend.calls.wait { $0.contains { $0.hasPrefix("send:[SwarmHub goal]") && $0.contains("ship the release notes") } }
     let first = try #require(bot.messages.first { $0.role == .user })
+    #expect(bot.messages.first { $0.metadata[SlashKey.line] == "1" }?.content.contains("Evidence: coding (explicit;") == true)
     #expect(first.metadata[AutomationKey.display] == "Goal: ship the release notes" && first.metadata[AutomationKey.woken] == nil)
     #expect(store.goal(in: bot)?.round == 1 && store.goal(in: bot)?.awaitingReply == true)
 

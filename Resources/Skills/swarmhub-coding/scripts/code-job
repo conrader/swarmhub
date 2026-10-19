@@ -98,7 +98,14 @@ POLL=${CODE_JOB_POLL:-5}
 # workspace) does it fall back to /tmp, and codex is then denied /tmp and $TMPDIR (NOTMP).
 under() { case $1 in /) return 0 ;; esac; case $2/ in "$1"/*) return 0 ;; esac; return 1; }
 mkdir -p "$S/scratch" || exit 1
-T=$(mktemp -d "$S/scratch/code-job.XXXXXX") && T=$(cd "$T" && pwd -P) || exit 1
+# Best effort: only old entries with a definitely dead launcher are removed; uncertain/legacy entries stay.
+python3 "$(dirname "$0")/scratch.py" "$S/scratch" || echo "code-job: scratch cleanup unavailable" >&2
+T=$(mktemp -d "$S/scratch/code-job.$$.XXXXXX") || exit 1
+trap 'rm -rf "$T"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+CANONICAL_T=$(cd "$T" && pwd -P) || exit 1
+T=$CANONICAL_T
 NOTMP=false
 for d in /tmp "${TMPDIR:-/tmp}"; do
   d=$(cd "$d" 2>/dev/null && pwd -P) && under "$d" "$T" && NOTMP=true

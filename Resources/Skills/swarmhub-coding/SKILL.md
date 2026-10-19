@@ -1,7 +1,7 @@
 ---
 name: swarmhub-coding
 description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.8
+version: 1.3.9
 author: SwarmHub
 metadata:
   swarmhub:
@@ -96,10 +96,20 @@ pidfds/sockets are discarded before confinement (`verify_processes.py`). All chi
 shared memory is the host's /dev/shm opened by name (no listing, no directories; not private). The launcher
 records the mode (`verify-mode`: `namespaced`, `fallback`, `seatbelt`) in the job record and the completion wake names
 the limited mode. If the limited mode cannot confine either, the verification is refused (exit 77). macOS uses sandbox-exec with a named Mach service allowlist (no pasteboard, LaunchServices,
-AppleEvents or keychain) and `.git` write-denied, including linked worktree metadata; the verifier runs in its own process group, killed when it exits. Exact Xcode license/selection
-files and the selected developer directory are readable so system toolchain shims can start (`verify_darwin.py`). Repository roots and reciprocal worktree pointers are captured before the coding tool runs and checked again before verification (`verify_git.py`); changed pointers refuse verification. The capture runs only when a verification command is configured; a layout it does not admit (submodule, separate-git-dir) still runs the job and its verification refuses with the reason, so the job reports unverified. Standalone linked-worktree verification requires an explicit pre-tool `--capture-git` snapshot. Required syscall resolution or installation failures refuse startup. Descendant exit is acknowledged and adopted children reaped before reporting completion. Unsupported isolation fails the verification; there is no host-shell
+AppleEvents or keychain) and `.git` write-denied, including linked worktree metadata; the verifier runs in its own process group, killed when it exits.
+Darwin teardown limit: a descendant that calls `setsid()` or `setpgid()` can leave that group and escape its cleanup
+(Seatbelt has no pidfd/subreaper equivalent). The leader is currently reaped before the group kill, leaving a small
+process-group ID reuse race; group death is not awaited. Do not treat a result as proof that every Darwin descendant
+has stopped. Exact Xcode license/selection
+files and the selected developer directory are readable so system toolchain shims can start (`verify_darwin.py`). Repository roots and reciprocal worktree pointers are captured before the coding tool runs and checked again before verification (`verify_git.py`); changed pointers refuse verification. The capture runs only when a verification command is configured; a layout it does not admit (submodule, separate-git-dir) still runs the job and its verification refuses with the reason, so the job reports unverified. Standalone linked-worktree verification requires an explicit pre-tool `--capture-git` snapshot. Required syscall resolution or installation failures refuse startup. On Linux, descendant exit is acknowledged and adopted children reaped before reporting completion. Unsupported isolation fails the verification; there is no host-shell
 fallback. Managed coding tasks wait for the owner's decision unless the owner published `coding_gate: auto` (the
 sandboxed Codex route); an order that includes claude waits for the owner regardless. Additional host/network authority is not supported by this verifier and must not
 be obtained by changing the command. Use a separately owner-gated managed operation when extra authority is needed.
 Managed admission freezes the effective VERIFY default into the immutable spec before fingerprinting; `"verify":""`
 explicitly disables verification. Managed execution never re-reads environment/config defaults.
+
+Scratch cleanup: an EXIT trap is installed immediately after allocation. Each startup sweeps private
+`~/.hermes/swarmhub/scratch/code-job.<launcher-pid>.*` directories older than one day only if that PID is definitely
+gone. Live/reused PIDs, permission errors, symlinks and legacy entries without a PID are retained; age alone is not
+proof that a job has stopped. This reclaims most hard-kill leftovers on a later launch, not immediately. Remove legacy
+entries manually only after confirming no job uses them. The HOME-workspace fallback still uses system `/tmp`.
