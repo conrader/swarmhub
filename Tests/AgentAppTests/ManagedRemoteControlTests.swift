@@ -104,13 +104,59 @@ struct ManagedRemoteControlTests {
         let (host, session) = MockHermesProtocol.serve { _ in (307, ["location": "https://\(target)/stolen"]) }
         defer { session.invalidateAndCancel(); targetSession.invalidateAndCancel() }
         for (address, key) in [("http://\(host)/v1", remoteKey), ("https://\(host)/v1", ""), ("https://\(host)/v1", remoteKey)] {
+            let start = ContinuousClock.now
             await #expect(throws: ManagedControlError.self) {
-                try await ManagedRemoteControl.request(address: address, profile: "owner", key: key,
-                                                        verb: "get", task: remoteTask, input: nil, session: session)
+                do {
+                    return try await ManagedRemoteControl.request(address: address, profile: "owner", key: key,
+                                                                  verb: "get", task: remoteTask, input: nil, session: session)
+                } catch let error as ManagedControlError {
+                    if address.hasPrefix("http:") || key.isEmpty {
+                        guard case .unavailable = error else { Issue.record("expected unavailable"); throw error }
+                    } else {
+                        guard case .rejected = error else { Issue.record("expected rejected"); throw error }
+                    }
+                    throw error
+                }
             }
+            #expect(ContinuousClock.now - start < .seconds(2))
+            if address.hasPrefix("http:") || key.isEmpty { #expect(MockHermesProtocol.recorded(host).isEmpty) }
         }
         #expect(MockHermesProtocol.recorded(target).isEmpty)
         #expect(MockHermesProtocol.recorded(host).count == 1)
+    }
+
+    @Test(arguments: [301, 302, 303, 307, 308])
+    func redirectsRejectWithoutWaitingForBody(status: Int) async throws {
+        // MockHermesProtocol reports the redirect but never finishes its original body.
+        // Every destination is intercepted, including same-origin paths and HTTPS downgrades.
+        let (target, targetSession) = MockHermesProtocol.serve { _ in Issue.record("redirect must not be followed"); return (200, [:]) }
+        defer { targetSession.invalidateAndCancel() }
+        for destination in ["/stolen", "https://\(target)/stolen", "http://\(target)/stolen"] {
+            let (host, session) = MockHermesProtocol.serve { request in
+                #expect(request.url?.path == "/swarmhub/control/v1/owner")
+                return (status, ["location": destination])
+            }
+            defer { session.invalidateAndCancel() }
+            for verb in ["get", "decide"] {
+                let input = try JSONSerialization.data(withJSONObject: [
+                    "approved": true, "fingerprint": String(repeating: "b", count: 64), "gate": "owner",
+                    "binding": ["origin": "https://" + host, "runtime": runtimeID, "profile": "owner"]
+                ])
+                let start = ContinuousClock.now
+                await #expect(throws: ManagedControlError.self) {
+                    do {
+                        return try await ManagedRemoteControl.request(address: "https://\(host)/v1", profile: "owner", key: remoteKey,
+                                                                      verb: verb, task: remoteTask, input: input, session: session, timeout: 5)
+                    } catch let error as ManagedControlError {
+                        guard case .rejected = error else { Issue.record("redirect must be rejected, not unsent"); throw error }
+                        throw error
+                    }
+                }
+                #expect(ContinuousClock.now - start < .seconds(2))
+            }
+            #expect(MockHermesProtocol.recorded(host).count == 2)
+        }
+        #expect(MockHermesProtocol.recorded(target).isEmpty)
     }
 
     @Test func unreachableAndDeadlineFailClosed() async {
@@ -219,12 +265,16 @@ struct ManagedRemoteControlTests {
             Issue.record("preflight failure must not dispatch"); return (500, [:])
         }
         defer { session.invalidateAndCancel() }
-        do {
-            _ = try await ManagedRemoteControl.request(address: "https://\(host)", profile: "owner", key: "",
-                                                        verb: "decide", task: remoteTask, input: nil, session: session)
-            Issue.record("missing key should fail")
-        } catch ManagedControlError.unsent { } catch { Issue.record(error) }
-        #expect(MockHermesProtocol.recorded(host).isEmpty)
+        for (address, key) in [("http://\(host)", remoteKey), ("https://\(host)", "")] {
+            let start = ContinuousClock.now
+            do {
+                _ = try await ManagedRemoteControl.request(address: address, profile: "owner", key: key,
+                                                            verb: "decide", task: remoteTask, input: nil, session: session)
+                Issue.record("plaintext or missing key should fail")
+            } catch ManagedControlError.unsent { } catch { Issue.record(error) }
+            #expect(ContinuousClock.now - start < .seconds(2))
+            #expect(MockHermesProtocol.recorded(host).isEmpty)
+        }
     }
 
     @Test @MainActor func signedRetirementRemovesOnlyTheBoundRuntimeCardAndAudits() async throws {

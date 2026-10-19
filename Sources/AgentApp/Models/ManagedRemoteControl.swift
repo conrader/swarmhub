@@ -59,10 +59,20 @@ enum ManagedRemoteControl {
             defer { if session == nil { client.finishTasksAndInvalidate() } }
             // Task delegate also applies to injected sessions; never leak credentials through a redirect.
             let outbound = request
+            let redirects = NoRedirect()
             started = true
             let (data, response) = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
                 defer { group.cancelAll() }
-                group.addTask { try await client.data(for: outbound, delegate: NoRedirect()) }
+                group.addTask {
+                    do {
+                        let result = try await client.data(for: outbound, delegate: redirects)
+                        guard !redirects.rejected else { throw ManagedControlError.rejected }
+                        return result
+                    } catch {
+                        if redirects.rejected { throw ManagedControlError.rejected }
+                        throw error
+                    }
+                }
                 group.addTask {
                     try await Task.sleep(for: .seconds(timeout))
                     throw URLError(.timedOut)
@@ -113,9 +123,17 @@ enum ManagedRemoteControl {
         return record
     }
 
-    private final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
+    private final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        private let lock = NSLock()
+        private var sawRedirect = false
+        var rejected: Bool { lock.withLock { sawRedirect } }
+
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                         newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+            lock.withLock { sawRedirect = true }
+            // Declining alone can wait for the original response body indefinitely. Cancel this
+            // task as well, recording the policy error first so cancellation cannot mask it.
+            task.cancel()
             completionHandler(nil)
         }
     }
