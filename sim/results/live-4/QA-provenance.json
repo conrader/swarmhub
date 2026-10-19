@@ -1,0 +1,17 @@
+{
+  "checkout": "56ca8b1",
+  "skill_version": "1.3.1",
+  "sha256": {
+    "sim/live_managed.py": "80bfc20f9bda83e4886970af827a44520956739a838c41764631fe7a8d186f85",
+    "Resources/Skills/swarmhub-messages/scripts/bot-msg": "f7c0f5cdfffbfe05d7856a952603b84315d4089eedfd8a9af7dcf6281a2ee77e",
+    "Resources/Skills/swarmhub-messages/scripts/peer-runtime.py": "04d7cb7770219b21f0f63bc71d48446b9d0f3c70c2f352d896adfbe6cf96bdf9",
+    "Resources/Skills/swarmhub-messages/scripts/swarm_control.py": "f01bee6da126344d60c248d5a81156af645d6edfece6ed3e2e7ea3242c0cddad",
+    "Resources/Skills/swarmhub-messages/scripts/swarmctl": "f4da630698fb0011a3af6ad01b12df0190dd39447690aa91c519808e69146393",
+    "Resources/Skills/swarmhub-messages/scripts/swarm_delivery.py": "4ed1288ec63326b17ca1272941cc56328af1a73de1b84c1a345864e0b33c4cc0",
+    "Resources/Skills/swarmhub-messages/scripts/swarm_jobs.py": "bfb7bdcb0478f96d5fdd00c7c3f3e821cc5ea2b70bce961baf16b733d2014b9a",
+    "Resources/Skills/swarmhub-messages/scripts/swarm_policy.py": "a29b4c3c5272adbdbb0495411fc08503fc0416e338c2f33aab27df262742d171",
+    "Resources/Skills/swarmhub-messages/scripts/swarm_store.py": "1310dd2d6fa98880f8fa13df4613a0e68af698842073a716263321a4ac18defb",
+    "Resources/Skills/swarmhub-coding/scripts/code-job": "69314aefdd0d7d2859e8b64d2371a2ebf245af770e713cbacd3b4d85d656e545",
+    "Resources/Skills/swarmhub-coding/scripts/completion-contract.py": "d4db70b4d6dfb26eea6dba06284cd3e543a4b2216644dfba306b0adda3e40362"
+  }
+}

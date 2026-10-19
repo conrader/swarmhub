@@ -1,0 +1,57 @@
+{
+  "time": "2026-10-19T11:05:55.619648+00:00",
+  "files": {},
+  "control.sqlite": {
+    "settings": [
+      {
+        "id": 1,
+        "revision": 2,
+        "body": "{\"allow_speculative\":true,\"coordinator\":\"QA-Jarvis\",\"end\":1380,\"owner\":\"QA-Konrad\",\"route\":\"auto\",\"start\":480,\"timezone\":\"Europe/Warsaw\"}"
+      }
+    ],
+    "subscribers": [
+      {
+        "profile": "QA-Ermes",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Infra",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Jarvis",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Konrad",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Swarmhub",
+        "revision": -1
+      }
+    ],
+    "policy_turns": [],
+    "actions": [
+      {
+        "id": "task.35717abe48c04c77ae5233ec36df96ca",
+        "fingerprint": "c370042b884a8f0b2a778a1e87b7720c1fb3451ccb3bb99d8b6281b88cba4058",
+        "intent": "QA-P01-first",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE4-q8hc_m23/QA-home\",\"effort\":\"high\",\"intent\":\"QA-P01-first\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE4-q8hc_m23/QA-home/QA-P01-first.txt\",\"task\":\"QA replay: review result, verify report, rebuild and take the next authorized step. No outbound.\"}",
+        "gate": "auto",
+        "status": "queued",
+        "pid": null,
+        "error": null,
+        "created": 1792407955.6001344,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": null,
+        "launched": null
+      }
+    ],
+    "denials": [],
+    "deliveries": [],
+    "receipts": []
+  }
+}

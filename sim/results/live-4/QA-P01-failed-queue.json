@@ -1,0 +1,106 @@
+{
+  "time": "2026-10-19T11:06:33.937985+00:00",
+  "files": {
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/agent": "none\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/attempts": "1",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/bot": "QA-Swarmhub\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/cli-exit": "not-run\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/delivered": "1792407993.6998549",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/directory": "/tmp/QA-LIVE4-c0oiib3d/QA-home\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/effort": "high\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/exit": "69\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/model": "gpt-6-astra\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/next-attempt": "1792407988.7628057",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/origin": "QA-Jarvis\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/pid": "31\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/ran": "0\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/ready": "",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/report": "/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P01-first.txt\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/report-exists": "false\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/status": "failed\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/task-id": "task.66ef6987bafd42e78aa85b9d02cd37d2\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/waited": "0\n"
+  },
+  "control.sqlite": {
+    "settings": [
+      {
+        "id": 1,
+        "revision": 2,
+        "body": "{\"allow_speculative\":true,\"coordinator\":\"QA-Jarvis\",\"end\":1380,\"owner\":\"QA-Konrad\",\"route\":\"auto\",\"start\":480,\"timezone\":\"Europe/Warsaw\"}"
+      }
+    ],
+    "subscribers": [
+      {
+        "profile": "QA-Ermes",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Infra",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Jarvis",
+        "revision": 2
+      },
+      {
+        "profile": "QA-Konrad",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Swarmhub",
+        "revision": -1
+      }
+    ],
+    "policy_turns": [],
+    "actions": [
+      {
+        "id": "task.66ef6987bafd42e78aa85b9d02cd37d2",
+        "fingerprint": "afc64d1a2b2643be59a78e591b90290e231b86b600356a1229e86ccd47e62d2e",
+        "intent": "QA-P01-first",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home\",\"effort\":\"high\",\"intent\":\"QA-P01-first\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P01-first.txt\",\"task\":\"QA replay: review result, verify report, rebuild and take the next authorized step. No outbound.\"}",
+        "gate": "auto",
+        "status": "failed",
+        "pid": 31,
+        "error": null,
+        "created": 1792407982.9971569,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": "Mon Oct 19 13:06:23 2026",
+        "launched": "{\"model\":\"gpt-6-astra\",\"order\":\"codex\"}"
+      },
+      {
+        "id": "task.c58918dfd286404699682f6fa2d8e939",
+        "fingerprint": "4bd446473d3cda345b8b4ce48c6fb174a7230bcb7aaa9da67a7f3ee3546e8f74",
+        "intent": "QA-P01-next",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home\",\"effort\":\"high\",\"intent\":\"QA-P01-next\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P01-next.txt\",\"task\":\"QA replay: review result, verify report, rebuild and take the next authorized step. No outbound.\"}",
+        "gate": "auto",
+        "status": "queued",
+        "pid": null,
+        "error": null,
+        "created": 1792407983.057225,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": null,
+        "launched": null
+      }
+    ],
+    "denials": [],
+    "deliveries": [],
+    "receipts": [
+      {
+        "target": "QA-Jarvis",
+        "id": "job.66ef6987bafd42e78aa85b9d02cd37d2",
+        "status": "received",
+        "token": "889d4bf7d7fd4602955e7c8c5ae1ddd9",
+        "expires": 1792411686.763589,
+        "session": "swarmhub-from-QA-Swarmhub",
+        "turn": "QA-bridge-002"
+      }
+    ]
+  },
+  "peer-inbox.sqlite": {
+    "inbox": []
+  }
+}

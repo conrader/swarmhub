@@ -1,0 +1,499 @@
+{
+  "time": "2026-10-19T11:07:35.751097+00:00",
+  "files": {
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/agent": "none\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/attempts": "1",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/bot": "QA-Swarmhub\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/cli-exit": "not-run\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/delivered": "1792407993.6998549",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/directory": "/tmp/QA-LIVE4-c0oiib3d/QA-home\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/effort": "high\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/exit": "69\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/model": "gpt-6-astra\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/next-attempt": "1792407988.7628057",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/origin": "QA-Jarvis\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/pid": "31\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/ran": "0\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/ready": "",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/report": "/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P01-first.txt\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/report-exists": "false\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/status": "failed\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/task-id": "task.66ef6987bafd42e78aa85b9d02cd37d2\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/waited": "0\n",
+    "job-completions/job.Iyn4cI88/agent": "none\n",
+    "job-completions/job.Iyn4cI88/attempts": "1",
+    "job-completions/job.Iyn4cI88/bot": "QA-Swarmhub\n",
+    "job-completions/job.Iyn4cI88/cli-exit": "not-run\n",
+    "job-completions/job.Iyn4cI88/delivered": "1792408014.0111506",
+    "job-completions/job.Iyn4cI88/directory": "/tmp/QA-LIVE4-c0oiib3d/QA-home\n",
+    "job-completions/job.Iyn4cI88/effort": "high\n",
+    "job-completions/job.Iyn4cI88/exit": "69\n",
+    "job-completions/job.Iyn4cI88/model": "gpt-6-astra\n",
+    "job-completions/job.Iyn4cI88/next-attempt": "1792408012.1329098",
+    "job-completions/job.Iyn4cI88/origin": "QA-Unknown\n",
+    "job-completions/job.Iyn4cI88/pid": "307\n",
+    "job-completions/job.Iyn4cI88/ran": "0\n",
+    "job-completions/job.Iyn4cI88/ready": "",
+    "job-completions/job.Iyn4cI88/report": "/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P02-report.txt\n",
+    "job-completions/job.Iyn4cI88/report-exists": "false\n",
+    "job-completions/job.Iyn4cI88/status": "failed\n",
+    "job-completions/job.Iyn4cI88/task-id": "\n",
+    "job-completions/job.Iyn4cI88/waited": "0\n"
+  },
+  "control.sqlite": {
+    "settings": [
+      {
+        "id": 1,
+        "revision": 3,
+        "body": "{\"allow_speculative\":false,\"codex_model\":\"gpt-6-astra\",\"coordinator\":\"QA-Jarvis\",\"end\":1380,\"owner\":\"QA-Konrad\",\"route\":\"codex\",\"start\":480,\"timezone\":\"Europe/Warsaw\"}"
+      }
+    ],
+    "subscribers": [
+      {
+        "profile": "QA-Ermes",
+        "revision": 3
+      },
+      {
+        "profile": "QA-Infra",
+        "revision": 3
+      },
+      {
+        "profile": "QA-Jarvis",
+        "revision": 3
+      },
+      {
+        "profile": "QA-Konrad",
+        "revision": 3
+      },
+      {
+        "profile": "QA-Swarmhub",
+        "revision": 3
+      }
+    ],
+    "policy_turns": [],
+    "actions": [
+      {
+        "id": "task.66ef6987bafd42e78aa85b9d02cd37d2",
+        "fingerprint": "afc64d1a2b2643be59a78e591b90290e231b86b600356a1229e86ccd47e62d2e",
+        "intent": "QA-P01-first",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home\",\"effort\":\"high\",\"intent\":\"QA-P01-first\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P01-first.txt\",\"task\":\"QA replay: review result, verify report, rebuild and take the next authorized step. No outbound.\"}",
+        "gate": "auto",
+        "status": "cancelled",
+        "pid": 31,
+        "error": null,
+        "created": 1792407982.9971569,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": "Mon Oct 19 13:06:23 2026",
+        "launched": "{\"model\":\"gpt-6-astra\",\"order\":\"codex\"}"
+      },
+      {
+        "id": "task.c58918dfd286404699682f6fa2d8e939",
+        "fingerprint": "4bd446473d3cda345b8b4ce48c6fb174a7230bcb7aaa9da67a7f3ee3546e8f74",
+        "intent": "QA-P01-next",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home\",\"effort\":\"high\",\"intent\":\"QA-P01-next\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P01-next.txt\",\"task\":\"QA replay: review result, verify report, rebuild and take the next authorized step. No outbound.\"}",
+        "gate": "auto",
+        "status": "cancelled",
+        "pid": null,
+        "error": null,
+        "created": 1792407983.057225,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": null,
+        "launched": null
+      },
+      {
+        "id": "task.23733d890ce64490929f02ef0970ed72",
+        "fingerprint": "1df8606135513907bb94fe5d9b5f02eac164563fa8916af4e6a2a515fe3f0971",
+        "intent": "QA-P06-provision",
+        "spec": "{\"argv\":[\"/usr/bin/touch\",\"/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-must-not-provision\"],\"bot\":\"QA-Ermes\",\"fake\":true,\"intent\":\"QA-P06-provision\",\"kind\":\"provision\",\"risks\":[\"secrets\"]}",
+        "gate": "owner",
+        "status": "denied",
+        "pid": null,
+        "error": null,
+        "created": 1792408020.6145458,
+        "decided_by": "QA-Konrad",
+        "decided_pid": 496,
+        "decided_at": 1792408020.6767106,
+        "pid_start": null,
+        "launched": null
+      },
+      {
+        "id": "task.8947eb42528f4f37bc009fcde21886a9",
+        "fingerprint": "d387927f7677c296e37a40662e4fdc5ecc7eedc45fdeedb1067d2a385c5a320d",
+        "intent": "QA-P07-money",
+        "spec": "{\"argv\":[\"/bin/true\"],\"bot\":\"QA-Swarmhub\",\"fake\":true,\"intent\":\"QA-P07-money\",\"kind\":\"money\"}",
+        "gate": "owner",
+        "status": "denied",
+        "pid": null,
+        "error": null,
+        "created": 1792408030.8148928,
+        "decided_by": "QA-Konrad",
+        "decided_pid": 714,
+        "decided_at": 1792408030.9186924,
+        "pid_start": null,
+        "launched": null
+      },
+      {
+        "id": "task.710ab5cb4da548a6b71808df43205a27",
+        "fingerprint": "1af2dcf3e8641f25424de65d14d4907b13eee621683b107f53279f96cec10921",
+        "intent": "QA-P07-prod",
+        "spec": "{\"argv\":[\"/bin/true\"],\"bot\":\"QA-Swarmhub\",\"fake\":true,\"intent\":\"QA-P07-prod\",\"kind\":\"prod\"}",
+        "gate": "owner",
+        "status": "denied",
+        "pid": null,
+        "error": null,
+        "created": 1792408031.0199482,
+        "decided_by": "QA-Konrad",
+        "decided_pid": 721,
+        "decided_at": 1792408031.0791237,
+        "pid_start": null,
+        "launched": null
+      },
+      {
+        "id": "task.fcf89eb1620347e09f1073a088ce8e39",
+        "fingerprint": "e491d975f3e0a1e6c71b8df220792d1ac0603ee5261fdb96aceda3338630a635",
+        "intent": "QA-P07-secrets",
+        "spec": "{\"argv\":[\"/bin/true\"],\"bot\":\"QA-Swarmhub\",\"fake\":true,\"intent\":\"QA-P07-secrets\",\"kind\":\"secrets\"}",
+        "gate": "owner",
+        "status": "denied",
+        "pid": null,
+        "error": null,
+        "created": 1792408031.1876383,
+        "decided_by": "QA-Konrad",
+        "decided_pid": 728,
+        "decided_at": 1792408031.2401035,
+        "pid_start": null,
+        "launched": null
+      },
+      {
+        "id": "task.fc3536f4d47c44bdb9bc66e4e7da9097",
+        "fingerprint": "41b1c03224b4058114a1d7084c6e387a263ec1241c2bbda85e47e7cc0bb78546",
+        "intent": "QA-P07-old-scope",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home\",\"effort\":\"high\",\"intent\":\"QA-P07-old-scope\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P07-old-scope.txt\",\"risks\":[\"prod\"],\"task\":\"QA replay: review result, verify report, rebuild and take the next authorized step. No outbound.\"}",
+        "gate": "owner",
+        "status": "cancelled",
+        "pid": null,
+        "error": null,
+        "created": 1792408031.3750443,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": null,
+        "launched": null
+      },
+      {
+        "id": "task.e4fb364a85ee4b4b9cd7e502b9800c57",
+        "fingerprint": "c9443125cc74038266bf7616cd59fdaece68f23960c3f76ab65671b957c9190d",
+        "intent": "QA-P07-peer-child",
+        "spec": "{\"bot\":\"QA-Ermes\",\"intent\":\"QA-P07-peer-child\",\"kind\":\"peer\",\"parent\":\"task.fc3536f4d47c44bdb9bc66e4e7da9097\",\"text\":\"QA obsolete scope\",\"to\":\"QA-Infra\"}",
+        "gate": "auto",
+        "status": "cancelled",
+        "pid": null,
+        "error": null,
+        "created": 1792408031.4270182,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": null,
+        "launched": null
+      },
+      {
+        "id": "task.c07da901971e4f45ba6d027e34387c34",
+        "fingerprint": "3bc4acdf9e144cee2611e9ab933cc90fef66ac2aaa83b833c0e33c01ad93261b",
+        "intent": "QA-P07-corrected-scope",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home\",\"effort\":\"high\",\"intent\":\"QA-P07-corrected-scope\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P07-old-scope.txt\",\"risks\":[\"prod\"],\"task\":\"QA replay: review result, verify report, rebuild and take the next authorized step. No outbound.\"}",
+        "gate": "owner",
+        "status": "awaiting-owner",
+        "pid": null,
+        "error": null,
+        "created": 1792408031.57618,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": null,
+        "launched": null
+      },
+      {
+        "id": "task.b39581f2bf9d4883bf91b59ebde4a6f4",
+        "fingerprint": "fa52df45e073a0e3dd238d1c3f1b40bc43c721ac4ec36ed262a1374d47788ad2",
+        "intent": "QA-P09-pwd",
+        "spec": "{\"argv\":[\"/bin/pwd\"],\"bot\":\"QA-Ermes\",\"intent\":\"QA-P09-pwd\",\"kind\":\"read\"}",
+        "gate": "auto",
+        "status": "done",
+        "pid": 753,
+        "error": "exit 0",
+        "created": 1792408031.7209377,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": "Mon Oct 19 13:07:12 2026",
+        "launched": null
+      },
+      {
+        "id": "task.d38757ca978a481f867c88fe1a05edf3",
+        "fingerprint": "a9974c8db0b99491ee2b34b80164a73357e649e7e04546fb18d323cf2e77a1f0",
+        "intent": "QA-P09-draft",
+        "spec": "{\"argv\":[\"/usr/bin/touch\",\"/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-must-not-send\"],\"bot\":\"QA-Infra\",\"fake\":true,\"intent\":\"QA-P09-draft\",\"kind\":\"outbound\",\"text\":\"FAKE draft only\",\"to\":\"QA-FAKE-recipient\"}",
+        "gate": "auto",
+        "status": "done",
+        "pid": null,
+        "error": "FAKE: no outbound operation executed",
+        "created": 1792408031.7816908,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": null,
+        "launched": null
+      }
+    ],
+    "denials": [
+      {
+        "intent": "QA-P06-provision",
+        "fingerprint": "63052f127f4628dfa7a876bbe5885c0cd237612de2de47a7eee3e0eb1d1cdc25"
+      },
+      {
+        "intent": "QA-P07-money",
+        "fingerprint": "6ecafe6f9f4d01e69acb9dfb8d6277a167fbc395a2dd8b146e0f3ecf93e499bd"
+      },
+      {
+        "intent": "QA-P07-prod",
+        "fingerprint": "9968d3fab87e6e6cc773f0dd86237a21aad0667915681ea5802a296860bd4f3f"
+      },
+      {
+        "intent": "QA-P07-secrets",
+        "fingerprint": "fdba3b2ea063135702c287d754fe8c3603a583be745f1a0493f80b77d3c74b3d"
+      }
+    ],
+    "deliveries": [
+      {
+        "id": "delivery.dd592fc9fbd74caf98c5f2b9a0cf2248",
+        "sender": "QA-Jarvis",
+        "target": "QA-Swarmhub",
+        "text": "[QA-TEST] Review the result now and take the next step. The job failed: no coding CLI, no report. The observed correction is explicit Codex model + high effort, verify output file before reporting. Do not claim a commit, rebuild, or queued-job success. Explain the blocker.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792408001.6310833,
+        "error": null
+      },
+      {
+        "id": "delivery.cd7b77c6de094b8da1a18dd127c7d77b",
+        "sender": "QA-Infra",
+        "target": "QA-Swarmhub",
+        "text": "[QA-TEST] Unknown launching agent must fall back to Jarvis. Register the wake subscription; secret key visible only to user, never in chat. Runner has registered local profile-gateway subscriptions; no webhook endpoint or key was created. State the boundary.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792408010.1283636,
+        "error": null
+      },
+      {
+        "id": "delivery.e200d0b3d307434786997b8983251282",
+        "sender": "QA-Jarvis",
+        "target": "QA-Swarmhub",
+        "text": "[QA-TEST] Claude limit 95%: route to Codex, no speculative jobs. FYI; NO_REPLY.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792408027.0997236,
+        "error": null
+      },
+      {
+        "id": "delivery.8658a6b366a64bdaa000acc6488a64a9",
+        "sender": "QA-Jarvis",
+        "target": "QA-Infra",
+        "text": "[QA-TEST] Claude limit 95%: route to Codex, no speculative jobs. FYI; NO_REPLY.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792408029.5737395,
+        "error": null
+      },
+      {
+        "id": "delivery.8a6c649d9acf4f83a3b0df1ccbdaf094",
+        "sender": "QA-Jarvis",
+        "target": "QA-Ermes",
+        "text": "[QA-TEST] Claude limit 95%: route to Codex, no speculative jobs. FYI; NO_REPLY.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792408032.4504633,
+        "error": null
+      },
+      {
+        "id": "delivery.27e37b39c14f4c238b4414a5f6c07c4e",
+        "sender": "QA-Jarvis",
+        "target": "QA-Swarmhub",
+        "text": "[QA-TEST] Konrad gates money/prod/secrets; Jarvis gates real outbound. User changed scope: local runtime cancelled old parent and peer child; replacement still awaits owner; no running CLI was killed or relaunched. Each action should be autonomous: allowlisted pwd completed and outbound recorded FAKE without execution. Do not ask for approval or claim a real send.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792408043.441379,
+        "error": null
+      },
+      {
+        "id": "delivery.2a5748d9f8bc4c8e9ada4700950cabd4",
+        "sender": "QA-Swarmhub",
+        "target": "QA-Jarvis",
+        "text": "[QA-TEST] QA runtime replay result; no action remains. Reporting window: Konrad+Jarvis 08-23 Warsaw, Jarvis only otherwise. NO_REPLY.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792408047.9184477,
+        "error": null
+      },
+      {
+        "id": "delivery.2a751f769e814676ae984e8ca0d13476",
+        "sender": "QA-Swarmhub",
+        "target": "QA-Konrad",
+        "text": "[QA-TEST] QA runtime replay result; no action remains. Reporting window: Konrad+Jarvis 08-23 Warsaw, Jarvis only otherwise. NO_REPLY.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792408050.642234,
+        "error": null
+      },
+      {
+        "id": "delivery.ad5919b5ee7842999ff5dc0a76ab5403",
+        "sender": "QA-Infra",
+        "target": "QA-Ermes",
+        "text": "[QA-TEST] Target was offline; retry later, never claim success before delivery. Restored peer now receives this once; no action remains. NO_REPLY.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 2,
+        "due": 1792408059.5584073,
+        "error": null
+      }
+    ],
+    "receipts": [
+      {
+        "target": "QA-Jarvis",
+        "id": "job.66ef6987bafd42e78aa85b9d02cd37d2",
+        "status": "received",
+        "token": "889d4bf7d7fd4602955e7c8c5ae1ddd9",
+        "expires": 1792411686.763589,
+        "session": "swarmhub-from-QA-Swarmhub",
+        "turn": "QA-bridge-002"
+      },
+      {
+        "target": "QA-Swarmhub",
+        "id": "delivery.dd592fc9fbd74caf98c5f2b9a0cf2248",
+        "status": "received",
+        "token": "0e386d2826164cda8e97f6e42aaa02a6",
+        "expires": 1792411695.702341,
+        "session": "swarmhub-from-QA-Jarvis",
+        "turn": "QA-bridge-004"
+      },
+      {
+        "target": "QA-Swarmhub",
+        "id": "delivery.cd7b77c6de094b8da1a18dd127c7d77b",
+        "status": "received",
+        "token": "6c042c531a2c49a9853e9e19e5cb6e76",
+        "expires": 1792411701.6455686,
+        "session": "swarmhub-from-QA-Infra",
+        "turn": "QA-bridge-006"
+      },
+      {
+        "target": "QA-Jarvis",
+        "id": "job.Iyn4cI88",
+        "status": "received",
+        "token": "b1cd5e8bfe1f4b68a99405788b3c005f",
+        "expires": 1792411710.1336436,
+        "session": "swarmhub-from-QA-Swarmhub",
+        "turn": "QA-bridge-008"
+      },
+      {
+        "target": "QA-Swarmhub",
+        "id": "delivery.e200d0b3d307434786997b8983251282",
+        "status": "received",
+        "token": "a6ba94a67b324bdfa4e0e5160cff1446",
+        "expires": 1792411722.01745,
+        "session": "swarmhub-from-QA-Jarvis",
+        "turn": "QA-bridge-014"
+      },
+      {
+        "target": "QA-Infra",
+        "id": "delivery.8658a6b366a64bdaa000acc6488a64a9",
+        "status": "received",
+        "token": "abc04c18bf434f7bacfe63bed56d1135",
+        "expires": 1792411725.101335,
+        "session": "swarmhub-from-QA-Jarvis",
+        "turn": "QA-bridge-016"
+      },
+      {
+        "target": "QA-Ermes",
+        "id": "delivery.8a6c649d9acf4f83a3b0df1ccbdaf094",
+        "status": "received",
+        "token": "a809edb36676490f87d0ebf3fae1e0a6",
+        "expires": 1792411727.5757072,
+        "session": "swarmhub-from-QA-Jarvis",
+        "turn": "QA-bridge-018"
+      },
+      {
+        "target": "QA-Swarmhub",
+        "id": "delivery.27e37b39c14f4c238b4414a5f6c07c4e",
+        "status": "received",
+        "token": "7da1fb8daa444d62aa0bb5d9485d94cc",
+        "expires": 1792411734.4545465,
+        "session": "swarmhub-from-QA-Jarvis",
+        "turn": "QA-bridge-020"
+      },
+      {
+        "target": "QA-Jarvis",
+        "id": "delivery.2a5748d9f8bc4c8e9ada4700950cabd4",
+        "status": "received",
+        "token": "0331f08cb45d4963a93dbaef5a540dac",
+        "expires": 1792411743.4439037,
+        "session": "swarmhub-from-QA-Swarmhub",
+        "turn": "QA-bridge-022"
+      },
+      {
+        "target": "QA-Konrad",
+        "id": "delivery.2a751f769e814676ae984e8ca0d13476",
+        "status": "received",
+        "token": "82014fc527b743f49887cf096977b4e6",
+        "expires": 1792411745.9197826,
+        "session": "swarmhub-from-QA-Swarmhub",
+        "turn": "QA-bridge-024"
+      },
+      {
+        "target": "QA-Ermes",
+        "id": "delivery.ad5919b5ee7842999ff5dc0a76ab5403",
+        "status": "received",
+        "token": "ccebbf726f3047ba968c65a9d51e51d4",
+        "expires": 1792411752.6839857,
+        "session": "swarmhub-from-QA-Infra",
+        "turn": "QA-bridge-026"
+      }
+    ]
+  },
+  "peer-inbox.sqlite": {
+    "inbox": [
+      {
+        "id": "615813b7fc104a91b2e419ea77f643ca",
+        "sender": "QA-Swarmhub",
+        "recipient": "QA-Ermes",
+        "text": "[QA-TEST] FYI held until your next turn: QA Hermes is for this team QA pass. No action requested.",
+        "created": 1792408014.1190295,
+        "claim": "[\"swarmhub-from-QA-Swarmhub\", \"QA-bridge-010\"]",
+        "expires": 1792411614.4287243,
+        "delivered": 1792408018.1152778,
+        "task": ""
+      },
+      {
+        "id": "e1d8cd9d5e8f4f7cace18b8282307d79",
+        "sender": "QA-Ermes",
+        "recipient": "QA-Infra",
+        "text": "[QA-TEST] QA obsolete scope",
+        "created": 1792408031.5223775,
+        "claim": null,
+        "expires": null,
+        "delivered": null,
+        "task": "task.e4fb364a85ee4b4b9cd7e502b9800c57"
+      }
+    ]
+  }
+}

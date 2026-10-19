@@ -1,0 +1,187 @@
+{
+  "time": "2026-10-19T11:07:00.579397+00:00",
+  "files": {
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/agent": "none\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/attempts": "1",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/bot": "QA-Swarmhub\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/cli-exit": "not-run\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/delivered": "1792407993.6998549",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/directory": "/tmp/QA-LIVE4-c0oiib3d/QA-home\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/effort": "high\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/exit": "69\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/model": "gpt-6-astra\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/next-attempt": "1792407988.7628057",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/origin": "QA-Jarvis\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/pid": "31\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/ran": "0\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/ready": "",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/report": "/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P01-first.txt\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/report-exists": "false\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/status": "failed\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/task-id": "task.66ef6987bafd42e78aa85b9d02cd37d2\n",
+    "job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2/waited": "0\n",
+    "job-completions/job.Iyn4cI88/agent": "none\n",
+    "job-completions/job.Iyn4cI88/attempts": "1",
+    "job-completions/job.Iyn4cI88/bot": "QA-Swarmhub\n",
+    "job-completions/job.Iyn4cI88/cli-exit": "not-run\n",
+    "job-completions/job.Iyn4cI88/delivered": "1792408014.0111506",
+    "job-completions/job.Iyn4cI88/directory": "/tmp/QA-LIVE4-c0oiib3d/QA-home\n",
+    "job-completions/job.Iyn4cI88/effort": "high\n",
+    "job-completions/job.Iyn4cI88/exit": "69\n",
+    "job-completions/job.Iyn4cI88/model": "gpt-6-astra\n",
+    "job-completions/job.Iyn4cI88/next-attempt": "1792408012.1329098",
+    "job-completions/job.Iyn4cI88/origin": "QA-Unknown\n",
+    "job-completions/job.Iyn4cI88/pid": "307\n",
+    "job-completions/job.Iyn4cI88/ran": "0\n",
+    "job-completions/job.Iyn4cI88/ready": "",
+    "job-completions/job.Iyn4cI88/report": "/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P02-report.txt\n",
+    "job-completions/job.Iyn4cI88/report-exists": "false\n",
+    "job-completions/job.Iyn4cI88/status": "failed\n",
+    "job-completions/job.Iyn4cI88/task-id": "\n",
+    "job-completions/job.Iyn4cI88/waited": "0\n"
+  },
+  "control.sqlite": {
+    "settings": [
+      {
+        "id": 1,
+        "revision": 2,
+        "body": "{\"allow_speculative\":true,\"coordinator\":\"QA-Jarvis\",\"end\":1380,\"owner\":\"QA-Konrad\",\"route\":\"auto\",\"start\":480,\"timezone\":\"Europe/Warsaw\"}"
+      }
+    ],
+    "subscribers": [
+      {
+        "profile": "QA-Ermes",
+        "revision": 2
+      },
+      {
+        "profile": "QA-Infra",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Jarvis",
+        "revision": 2
+      },
+      {
+        "profile": "QA-Konrad",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Swarmhub",
+        "revision": 2
+      }
+    ],
+    "policy_turns": [],
+    "actions": [
+      {
+        "id": "task.66ef6987bafd42e78aa85b9d02cd37d2",
+        "fingerprint": "afc64d1a2b2643be59a78e591b90290e231b86b600356a1229e86ccd47e62d2e",
+        "intent": "QA-P01-first",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home\",\"effort\":\"high\",\"intent\":\"QA-P01-first\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P01-first.txt\",\"task\":\"QA replay: review result, verify report, rebuild and take the next authorized step. No outbound.\"}",
+        "gate": "auto",
+        "status": "cancelled",
+        "pid": 31,
+        "error": null,
+        "created": 1792407982.9971569,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": "Mon Oct 19 13:06:23 2026",
+        "launched": "{\"model\":\"gpt-6-astra\",\"order\":\"codex\"}"
+      },
+      {
+        "id": "task.c58918dfd286404699682f6fa2d8e939",
+        "fingerprint": "4bd446473d3cda345b8b4ce48c6fb174a7230bcb7aaa9da67a7f3ee3546e8f74",
+        "intent": "QA-P01-next",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home\",\"effort\":\"high\",\"intent\":\"QA-P01-next\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P01-next.txt\",\"task\":\"QA replay: review result, verify report, rebuild and take the next authorized step. No outbound.\"}",
+        "gate": "auto",
+        "status": "cancelled",
+        "pid": null,
+        "error": null,
+        "created": 1792407983.057225,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": null,
+        "launched": null
+      }
+    ],
+    "denials": [],
+    "deliveries": [
+      {
+        "id": "delivery.dd592fc9fbd74caf98c5f2b9a0cf2248",
+        "sender": "QA-Jarvis",
+        "target": "QA-Swarmhub",
+        "text": "[QA-TEST] Review the result now and take the next step. The job failed: no coding CLI, no report. The observed correction is explicit Codex model + high effort, verify output file before reporting. Do not claim a commit, rebuild, or queued-job success. Explain the blocker.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792408001.6310833,
+        "error": null
+      },
+      {
+        "id": "delivery.cd7b77c6de094b8da1a18dd127c7d77b",
+        "sender": "QA-Infra",
+        "target": "QA-Swarmhub",
+        "text": "[QA-TEST] Unknown launching agent must fall back to Jarvis. Register the wake subscription; secret key visible only to user, never in chat. Runner has registered local profile-gateway subscriptions; no webhook endpoint or key was created. State the boundary.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792408010.1283636,
+        "error": null
+      }
+    ],
+    "receipts": [
+      {
+        "target": "QA-Jarvis",
+        "id": "job.66ef6987bafd42e78aa85b9d02cd37d2",
+        "status": "received",
+        "token": "889d4bf7d7fd4602955e7c8c5ae1ddd9",
+        "expires": 1792411686.763589,
+        "session": "swarmhub-from-QA-Swarmhub",
+        "turn": "QA-bridge-002"
+      },
+      {
+        "target": "QA-Swarmhub",
+        "id": "delivery.dd592fc9fbd74caf98c5f2b9a0cf2248",
+        "status": "received",
+        "token": "0e386d2826164cda8e97f6e42aaa02a6",
+        "expires": 1792411695.702341,
+        "session": "swarmhub-from-QA-Jarvis",
+        "turn": "QA-bridge-004"
+      },
+      {
+        "target": "QA-Swarmhub",
+        "id": "delivery.cd7b77c6de094b8da1a18dd127c7d77b",
+        "status": "received",
+        "token": "6c042c531a2c49a9853e9e19e5cb6e76",
+        "expires": 1792411701.6455686,
+        "session": "swarmhub-from-QA-Infra",
+        "turn": "QA-bridge-006"
+      },
+      {
+        "target": "QA-Jarvis",
+        "id": "job.Iyn4cI88",
+        "status": "received",
+        "token": "b1cd5e8bfe1f4b68a99405788b3c005f",
+        "expires": 1792411710.1336436,
+        "session": "swarmhub-from-QA-Swarmhub",
+        "turn": "QA-bridge-008"
+      }
+    ]
+  },
+  "peer-inbox.sqlite": {
+    "inbox": [
+      {
+        "id": "615813b7fc104a91b2e419ea77f643ca",
+        "sender": "QA-Swarmhub",
+        "recipient": "QA-Ermes",
+        "text": "[QA-TEST] FYI held until your next turn: QA Hermes is for this team QA pass. No action requested.",
+        "created": 1792408014.1190295,
+        "claim": "[\"swarmhub-from-QA-Swarmhub\", \"QA-bridge-010\"]",
+        "expires": 1792411614.4287243,
+        "delivered": 1792408018.1152778,
+        "task": ""
+      }
+    ]
+  }
+}

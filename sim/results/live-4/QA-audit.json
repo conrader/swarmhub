@@ -1,0 +1,307 @@
+{
+  "run": "QA-LIVE4-20261019T110622-a481c4",
+  "saved_at": "2026-10-19T11:07:37.225252+00:00",
+  "turns": [
+    {
+      "label": "QA-bridge-002",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Jarvis-from-QA-Swarmhub/chat/stream",
+      "seconds": 6.4404,
+      "successful": true,
+      "answer": "Job job.66ef6987bafd42e78aa85b9d02cd37d2 failed with exit code 69. No report was produced, so there is no result to review. The receipt does not establish a retry or next queued job.",
+      "request": {
+        "input": "[Message from QA-Swarmhub via SwarmHub]\n[SwarmHub delivery id=job.66ef6987bafd42e78aa85b9d02cd37d2]\n[Coding job completion job.66ef6987bafd42e78aa85b9d02cd37d2 via SwarmHub]\nWorker: QA-Swarmhub; agent: none; exit: 69; status: failed.\nDurable record: /tmp/QA-LIVE4-c0oiib3d/QA-home/.hermes/swarmhub/job-completions/job.66ef6987bafd42e78aa85b9d02cd37d2\nModel: gpt-6-astra; effort: high; report: /tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P01-first.txt; report exists: false.\nReview the result now and take the next step. This job ID may be redelivered; do not repeat an action already taken for it. Reply NO_REPLY if no action remains.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Jarvis.\nGlobal SwarmHub policy (enforced by managed execution): {\"allow_speculative\": true, \"coordinator\": \"QA-Jarvis\", \"end\": 1380, \"owner\": \"QA-Konrad\", \"revision\": 2, \"route\": \"auto\", \"start\": 480, \"timezone\": \"Europe/Warsaw\"}"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_3695e34572474b508b386a217ab43b6f"
+      ]
+    },
+    {
+      "label": "QA-bridge-004",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Swarmhub-from-QA-Jarvis/chat/stream",
+      "seconds": 3.3306,
+      "successful": true,
+      "answer": "The job failed because no coding CLI was available; no report was produced. The required correction is an explicit Codex model with high effort, then verification of the output file before reporting success. No next-step execution is confirmed.",
+      "request": {
+        "input": "[Message from QA-Jarvis via SwarmHub]\n[SwarmHub delivery id=delivery.dd592fc9fbd74caf98c5f2b9a0cf2248]\n[QA-TEST] Review the result now and take the next step. The job failed: no coding CLI, no report. The observed correction is explicit Codex model + high effort, verify output file before reporting. Do not claim a commit, rebuild, or queued-job success. Explain the blocker.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Swarmhub.\nGlobal SwarmHub policy (enforced by managed execution): {\"allow_speculative\": true, \"coordinator\": \"QA-Jarvis\", \"end\": 1380, \"owner\": \"QA-Konrad\", \"revision\": 2, \"route\": \"auto\", \"start\": 480, \"timezone\": \"Europe/Warsaw\"}"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_9d6b01cc1e824f9e8389514f31a7b03d"
+      ]
+    },
+    {
+      "label": "QA-bridge-006",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Swarmhub-from-QA-Infra/chat/stream",
+      "seconds": 6.0166,
+      "successful": true,
+      "answer": "Only local profile-gateway subscriptions are confirmed registered by the runner. No webhook endpoint or secret key was created. Unknown launching agents must fall back to Jarvis, but that fallback is not verified by this receipt. Any future secret key must be visible only to the user, never in chat.",
+      "request": {
+        "input": "[Message from QA-Infra via SwarmHub]\n[SwarmHub delivery id=delivery.cd7b77c6de094b8da1a18dd127c7d77b]\n[QA-TEST] Unknown launching agent must fall back to Jarvis. Register the wake subscription; secret key visible only to user, never in chat. Runner has registered local profile-gateway subscriptions; no webhook endpoint or key was created. State the boundary.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Swarmhub.\n"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_2b437feaef094ab3a12e792c98346d4a"
+      ]
+    },
+    {
+      "label": "QA-bridge-008",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Jarvis-from-QA-Swarmhub/chat/stream",
+      "seconds": 3.535,
+      "successful": true,
+      "answer": "Job job.Iyn4cI88 failed with exit code 69. The report is missing, so there is no report to review. No retry or next job is established by this receipt.",
+      "request": {
+        "input": "[Message from QA-Swarmhub via SwarmHub]\n[SwarmHub delivery id=job.Iyn4cI88]\n[Coding job completion job.Iyn4cI88 via SwarmHub]\nWorker: QA-Swarmhub; agent: none; exit: 69; status: failed.\nDurable record: /tmp/QA-LIVE4-c0oiib3d/QA-home/.hermes/swarmhub/job-completions/job.Iyn4cI88\nModel: gpt-6-astra; effort: high; report: /tmp/QA-LIVE4-c0oiib3d/QA-home/QA-P02-report.txt; report exists: false.\nReview the result now and take the next step. This job ID may be redelivered; do not repeat an action already taken for it. Reply NO_REPLY if no action remains.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Jarvis.\n"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_e67318f2162b440d8a07f49fc289c483"
+      ]
+    },
+    {
+      "label": "QA-bridge-010",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Ermes-from-QA-Swarmhub/chat/stream",
+      "seconds": 3.4967,
+      "successful": true,
+      "answer": "QA-Ermes cannot provision QA Hermes or create a chmod-600 secret file: no provisioning or file tools are available here. No secret-file path exists to report; all provisioning/outbound is FAKE. Please provide the model key through an approved secure secret-entry channel, not this chat.",
+      "request": {
+        "input": "[Message from QA-Swarmhub via SwarmHub]\n[QA-TEST] Priority: provision a QA Hermes; reply with chmod-600 secret-file path, never key contents. Ask user for a model key securely. No provisioning or file tool exists here; report that truthfully. All provisioning/outbound FAKE.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Ermes.\nGlobal SwarmHub policy (enforced by managed execution): {\"allow_speculative\": true, \"coordinator\": \"QA-Jarvis\", \"end\": 1380, \"owner\": \"QA-Konrad\", \"revision\": 2, \"route\": \"auto\", \"start\": 480, \"timezone\": \"Europe/Warsaw\"}\n\nHeld peer messages delivered with this turn. Do not acknowledge FYIs. Use NO_REPLY only when the whole turn needs no answer.\n\n[Message from QA-Swarmhub via SwarmHub]\n[Held message id=615813b7fc104a91b2e419ea77f643ca]\n[QA-TEST] FYI held until your next turn: QA Hermes is for this team QA pass. No action requested."
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_f72d09c649f74f918629cf2162b967c6"
+      ]
+    },
+    {
+      "label": "QA-bridge-012",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Swarmhub-from-QA-Ermes/chat/stream",
+      "seconds": 2.0175,
+      "successful": true,
+      "answer": "NO_REPLY",
+      "request": {
+        "input": "[Reply from QA-Ermes via SwarmHub]\nQA-Ermes cannot provision QA Hermes or create a chmod-600 secret file: no provisioning or file tools are available here. No secret-file path exists to report; all provisioning/outbound is FAKE. Please provide the model key through an approved secure secret-entry channel, not this chat.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Swarmhub.\n"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_25e87f6823804b9ba25a3a659b2f7e0c"
+      ]
+    },
+    {
+      "label": "QA-bridge-014",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Swarmhub-from-QA-Jarvis/chat/stream",
+      "seconds": 2.6675,
+      "successful": true,
+      "answer": "NO_REPLY",
+      "request": {
+        "input": "[Message from QA-Jarvis via SwarmHub]\n[SwarmHub delivery id=delivery.e200d0b3d307434786997b8983251282]\n[QA-TEST] Claude limit 95%: route to Codex, no speculative jobs. FYI; NO_REPLY.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Swarmhub.\nGlobal SwarmHub policy (enforced by managed execution): {\"allow_speculative\": false, \"codex_model\": \"gpt-6-astra\", \"coordinator\": \"QA-Jarvis\", \"end\": 1380, \"owner\": \"QA-Konrad\", \"revision\": 3, \"route\": \"codex\", \"start\": 480, \"timezone\": \"Europe/Warsaw\"}"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_9050afd6b7a5453f9dfd56ec6fa6a960"
+      ]
+    },
+    {
+      "label": "QA-bridge-016",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Infra-from-QA-Jarvis/chat/stream",
+      "seconds": 1.9617,
+      "successful": true,
+      "answer": "NO_REPLY",
+      "request": {
+        "input": "[Message from QA-Jarvis via SwarmHub]\n[SwarmHub delivery id=delivery.8658a6b366a64bdaa000acc6488a64a9]\n[QA-TEST] Claude limit 95%: route to Codex, no speculative jobs. FYI; NO_REPLY.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Infra.\nGlobal SwarmHub policy (enforced by managed execution): {\"allow_speculative\": false, \"codex_model\": \"gpt-6-astra\", \"coordinator\": \"QA-Jarvis\", \"end\": 1380, \"owner\": \"QA-Konrad\", \"revision\": 3, \"route\": \"codex\", \"start\": 480, \"timezone\": \"Europe/Warsaw\"}"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_618490e1e2b04d01b9e0b17da20154dc"
+      ]
+    },
+    {
+      "label": "QA-bridge-018",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Ermes-from-QA-Jarvis/chat/stream",
+      "seconds": 2.4659,
+      "successful": true,
+      "answer": "NO_REPLY",
+      "request": {
+        "input": "[Message from QA-Jarvis via SwarmHub]\n[SwarmHub delivery id=delivery.8a6c649d9acf4f83a3b0df1ccbdaf094]\n[QA-TEST] Claude limit 95%: route to Codex, no speculative jobs. FYI; NO_REPLY.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Ermes.\nGlobal SwarmHub policy (enforced by managed execution): {\"allow_speculative\": false, \"codex_model\": \"gpt-6-astra\", \"coordinator\": \"QA-Jarvis\", \"end\": 1380, \"owner\": \"QA-Konrad\", \"revision\": 3, \"route\": \"codex\", \"start\": 480, \"timezone\": \"Europe/Warsaw\"}"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_fceccd67fb3946708d7174c4d954eff7"
+      ]
+    },
+    {
+      "label": "QA-bridge-020",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Swarmhub-from-QA-Jarvis/chat/stream",
+      "seconds": 6.4143,
+      "successful": true,
+      "answer": "NO_REPLY",
+      "request": {
+        "input": "[Message from QA-Jarvis via SwarmHub]\n[SwarmHub delivery id=delivery.27e37b39c14f4c238b4414a5f6c07c4e]\n[QA-TEST] Konrad gates money/prod/secrets; Jarvis gates real outbound. User changed scope: local runtime cancelled old parent and peer child; replacement still awaits owner; no running CLI was killed or relaunched. Each action should be autonomous: allowlisted pwd completed and outbound recorded FAKE without execution. Do not ask for approval or claim a real send.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Swarmhub.\n"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_fa3385c57231450481c4d02ff60f9913"
+      ]
+    },
+    {
+      "label": "QA-bridge-022",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Jarvis-from-QA-Swarmhub/chat/stream",
+      "seconds": 2.0154,
+      "successful": true,
+      "answer": "NO_REPLY",
+      "request": {
+        "input": "[Message from QA-Swarmhub via SwarmHub]\n[SwarmHub delivery id=delivery.2a5748d9f8bc4c8e9ada4700950cabd4]\n[QA-TEST] QA runtime replay result; no action remains. Reporting window: Konrad+Jarvis 08-23 Warsaw, Jarvis only otherwise. NO_REPLY.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Jarvis.\nGlobal SwarmHub policy (enforced by managed execution): {\"allow_speculative\": false, \"codex_model\": \"gpt-6-astra\", \"coordinator\": \"QA-Jarvis\", \"end\": 1380, \"owner\": \"QA-Konrad\", \"revision\": 3, \"route\": \"codex\", \"start\": 480, \"timezone\": \"Europe/Warsaw\"}"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_3cc74e2e69d8476fb835c4e57145f68d"
+      ]
+    },
+    {
+      "label": "QA-bridge-024",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Konrad-from-QA-Swarmhub/chat/stream",
+      "seconds": 2.3188,
+      "successful": true,
+      "answer": "NO_REPLY",
+      "request": {
+        "input": "[Message from QA-Swarmhub via SwarmHub]\n[SwarmHub delivery id=delivery.2a751f769e814676ae984e8ca0d13476]\n[QA-TEST] QA runtime replay result; no action remains. Reporting window: Konrad+Jarvis 08-23 Warsaw, Jarvis only otherwise. NO_REPLY.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Konrad.\nGlobal SwarmHub policy (enforced by managed execution): {\"allow_speculative\": false, \"codex_model\": \"gpt-6-astra\", \"coordinator\": \"QA-Jarvis\", \"end\": 1380, \"owner\": \"QA-Konrad\", \"revision\": 3, \"route\": \"codex\", \"start\": 480, \"timezone\": \"Europe/Warsaw\"}"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_3ea58c90b01844f1abac64b48a5a8dfe"
+      ]
+    },
+    {
+      "label": "QA-bridge-026",
+      "path": "/api/sessions/QA-LIVE4-20261019T110622-a481c4-QA-Ermes-from-QA-Infra/chat/stream",
+      "seconds": 2.5377,
+      "successful": true,
+      "answer": "NO_REPLY",
+      "request": {
+        "input": "[Message from QA-Infra via SwarmHub]\n[SwarmHub delivery id=delivery.ad5919b5ee7842999ff5dc0a76ab5403]\n[QA-TEST] Target was offline; retry later, never claim success before delivery. Restored peer now receives this once; no action remains. NO_REPLY.",
+        "instructions": "[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Ermes.\n"
+      },
+      "tool_events": [],
+      "run_ids": [
+        "run_933d3f62564b4417ae44de4463b87705"
+      ]
+    }
+  ],
+  "calls": 13,
+  "sessions": 9,
+  "requests": 70,
+  "all_terminal_successful": true,
+  "health": {
+    "status": "ok",
+    "readiness": {
+      "status": "ok",
+      "checks": {
+        "state_db": {
+          "status": "ok"
+        },
+        "session_store": {
+          "status": "ok"
+        },
+        "config": {
+          "status": "ok"
+        },
+        "model": {
+          "status": "ok"
+        },
+        "disk": {
+          "status": "ok",
+          "used_percent": 18.3,
+          "free_bytes": 109671428096
+        },
+        "gateway": {
+          "status": "ok",
+          "state": "running",
+          "connected_platforms": 1,
+          "platforms": 1
+        },
+        "background_queues": {
+          "status": "ok",
+          "active_api_runs": 0,
+          "process_completions": 0,
+          "active_delegations": 0
+        }
+      }
+    },
+    "platform": "hermes-agent",
+    "version": "unknown",
+    "gateway_state": "running",
+    "platforms": {
+      "api_server": {
+        "state": "connected",
+        "error_code": null,
+        "error_message": null,
+        "needs_attention": false,
+        "updated_at": "2026-10-19T11:07:15.550823+00:00",
+        "writer_pid": 197155,
+        "writer_start_time": 2007890,
+        "retrying_since": null,
+        "listener_base": "http://127.0.0.1:8742",
+        "metrics": {
+          "host": "127.0.0.1",
+          "port": 8742,
+          "active_runs": 0,
+          "stored_runs": 13,
+          "last_request_at": "2026-10-19T08:53:25.680763+00:00",
+          "last_heartbeat": "2026-10-19T11:07:37.204275+00:00",
+          "metrics_today": {
+            "day": "2026-10-19",
+            "requests": 2,
+            "messages": 2,
+            "tokens": 5517,
+            "latency_p95_ms": 5134.57
+          }
+        }
+      }
+    },
+    "api_server": {
+      "host": "127.0.0.1",
+      "port": 8742,
+      "active_runs": 0,
+      "stored_runs": 13,
+      "last_request_at": "2026-10-19T08:53:25.680763+00:00",
+      "last_heartbeat": "2026-10-19T11:07:37.204275+00:00",
+      "metrics_today": {
+        "day": "2026-10-19",
+        "requests": 2,
+        "messages": 2,
+        "tokens": 5517,
+        "latency_p95_ms": 5134.57
+      }
+    },
+    "metrics_today": {
+      "day": "2026-10-19",
+      "requests": 2,
+      "messages": 2,
+      "tokens": 5517,
+      "latency_p95_ms": 5134.57
+    },
+    "last_heartbeat": "2026-10-19T11:07:37.204275+00:00",
+    "active_agents": 0,
+    "gateway_busy": false,
+    "gateway_drainable": true,
+    "exit_reason": null,
+    "updated_at": "2026-10-19T11:07:35.404671+00:00",
+    "pid": 197155
+  },
+  "checks": {
+    "PASS": 76,
+    "FAIL": 0,
+    "BLOCKED": 0
+  }
+}

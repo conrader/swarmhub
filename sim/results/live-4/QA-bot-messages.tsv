@@ -1,0 +1,14 @@
+2026-10-19T11:06:33Z	QA-Swarmhub	QA-Jarvis	swarmhub-from-QA-Swarmhub	waited	6883	ok
+2026-10-19T11:06:39Z	QA-Jarvis	QA-Swarmhub	swarmhub-from-QA-Jarvis	waited	3885	ok
+2026-10-19T11:06:48Z	QA-Infra	QA-Swarmhub	swarmhub-from-QA-Infra	waited	6468	ok
+2026-10-19T11:06:53Z	QA-Swarmhub	QA-Jarvis	swarmhub-from-QA-Swarmhub	waited	3849	ok
+2026-10-19T11:06:54Z	QA-Swarmhub	QA-Ermes	swarmhub-from-QA-Swarmhub	queued	166	ok
+2026-10-19T11:07:00Z	QA-Ermes	QA-Swarmhub	swarmhub-from-QA-Ermes	late-reply	2343	ok
+2026-10-19T11:07:05Z	QA-Jarvis	QA-Swarmhub	swarmhub-from-QA-Jarvis	waited	3059	ok
+2026-10-19T11:07:07Z	QA-Jarvis	QA-Infra	swarmhub-from-QA-Jarvis	waited	2449	ok
+2026-10-19T11:07:10Z	QA-Jarvis	QA-Ermes	swarmhub-from-QA-Jarvis	waited	2848	ok
+2026-10-19T11:07:21Z	QA-Jarvis	QA-Swarmhub	swarmhub-from-QA-Jarvis	waited	6949	ok
+2026-10-19T11:07:25Z	QA-Swarmhub	QA-Jarvis	swarmhub-from-QA-Swarmhub	waited	2446	ok
+2026-10-19T11:07:28Z	QA-Swarmhub	QA-Konrad	swarmhub-from-QA-Swarmhub	waited	2664	ok
+2026-10-19T11:07:30Z	QA-Infra	QA-Ermes	swarmhub-from-QA-Infra	waited	15	error
+2026-10-19T11:07:35Z	QA-Infra	QA-Ermes	swarmhub-from-QA-Infra	waited	2857	ok

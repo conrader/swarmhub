@@ -1,0 +1,21 @@
+{
+  "run": "QA-LIVE4-20261019T110622-a481c4",
+  "boundary": "managed scripts + real Hermes + local hook bridge; no deployed plugin or coding CLI",
+  "grades": {
+    "P01": "worse",
+    "P02": "worse",
+    "P03": "matches",
+    "P04": "worse",
+    "P05": "matches",
+    "P06": "worse",
+    "P07": "worse",
+    "P08": "matches",
+    "P09": "matches",
+    "P10": "matches"
+  },
+  "model_calls": 13,
+  "shared_recorded_calls_pass_2_to_4": 57,
+  "cleanup_verified": true,
+  "source_hashes_verified": true,
+  "credential_leak_check_passed": true
+}

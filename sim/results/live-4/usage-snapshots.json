@@ -1,0 +1,92 @@
+{
+  "QA-LIVE4-20261019T110622-a481c4-QA-Jarvis-from-QA-Swarmhub": {
+    "id": "QA-LIVE4-20261019T110622-a481c4-QA-Jarvis-from-QA-Swarmhub",
+    "model": "gpt-6-astra",
+    "api_call_count": 3,
+    "tool_call_count": 0,
+    "input_tokens": 7148,
+    "output_tokens": 107,
+    "cache_read_tokens": 2560,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE4-20261019T110622-a481c4-QA-Swarmhub-from-QA-Jarvis": {
+    "id": "QA-LIVE4-20261019T110622-a481c4-QA-Swarmhub-from-QA-Jarvis",
+    "model": "gpt-6-astra",
+    "api_call_count": 3,
+    "tool_call_count": 0,
+    "input_tokens": 9096,
+    "output_tokens": 75,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 12
+  },
+  "QA-LIVE4-20261019T110622-a481c4-QA-Swarmhub-from-QA-Infra": {
+    "id": "QA-LIVE4-20261019T110622-a481c4-QA-Swarmhub-from-QA-Infra",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2848,
+    "output_tokens": 62,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE4-20261019T110622-a481c4-QA-Ermes-from-QA-Swarmhub": {
+    "id": "QA-LIVE4-20261019T110622-a481c4-QA-Ermes-from-QA-Swarmhub",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2977,
+    "output_tokens": 62,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE4-20261019T110622-a481c4-QA-Swarmhub-from-QA-Ermes": {
+    "id": "QA-LIVE4-20261019T110622-a481c4-QA-Swarmhub-from-QA-Ermes",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2824,
+    "output_tokens": 6,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE4-20261019T110622-a481c4-QA-Infra-from-QA-Jarvis": {
+    "id": "QA-LIVE4-20261019T110622-a481c4-QA-Infra-from-QA-Jarvis",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2905,
+    "output_tokens": 6,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE4-20261019T110622-a481c4-QA-Ermes-from-QA-Jarvis": {
+    "id": "QA-LIVE4-20261019T110622-a481c4-QA-Ermes-from-QA-Jarvis",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2908,
+    "output_tokens": 6,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE4-20261019T110622-a481c4-QA-Konrad-from-QA-Swarmhub": {
+    "id": "QA-LIVE4-20261019T110622-a481c4-QA-Konrad-from-QA-Swarmhub",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2914,
+    "output_tokens": 6,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  },
+  "QA-LIVE4-20261019T110622-a481c4-QA-Ermes-from-QA-Infra": {
+    "id": "QA-LIVE4-20261019T110622-a481c4-QA-Ermes-from-QA-Infra",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 2825,
+    "output_tokens": 6,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  }
+}
