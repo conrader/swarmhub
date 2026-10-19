@@ -11,9 +11,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import tomllib
 import unittest
 from unittest.mock import Mock, patch
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    tomllib = None  # Xcode's Python 3.9 has no TOML parser; no third-party dependencies.
 
 from live_cli import cli_env, writable_cli_state
 from live_managed import ManagedSuite
@@ -263,12 +267,21 @@ class HarnessIsolationTests(unittest.TestCase):
             (source / 'config.toml').write_text(unsafe)
             (source / 'auth.json').write_text('{"token":"synthetic-auth"}')
             private = writable_cli_state({'codex_home': str(source), 'bin': '/qa/bin'}, root / 'private')
-            effective = tomllib.loads((Path(private['codex_home']) / 'config.toml').read_text())
-            self.assertEqual(effective['mcp_servers'], {})
-            self.assertFalse(effective['features']['apps'])
-            self.assertFalse(effective['sandbox_workspace_write']['network_access'])
-            self.assertEqual(effective['sandbox_workspace_write']['writable_roots'], [])
-            self.assertNotIn('production', repr(effective))
+            config = (Path(private['codex_home']) / 'config.toml').read_text()
+            # Pin the entire known-valid TOML document on every Python version.
+            # In particular, 3.9 must reject extra tables/keys, not approximate TOML
+            # parsing with regexes or skip the capability-removal assertions.
+            self.assertEqual(config, 'sandbox_mode = "workspace-write"\napproval_policy = "never"\n'
+                             '[sandbox_workspace_write]\nnetwork_access = false\nwritable_roots = []\n'
+                             '[features]\napps = false\nweb_search_request = false\n'
+                             '[mcp_servers]\n')
+            if tomllib is not None:
+                effective = tomllib.loads(config)
+                self.assertEqual(effective['mcp_servers'], {})
+                self.assertFalse(effective['features']['apps'])
+                self.assertFalse(effective['sandbox_workspace_write']['network_access'])
+                self.assertEqual(effective['sandbox_workspace_write']['writable_roots'], [])
+                self.assertNotIn('production', repr(effective))
             env = cli_env({'HOME': '/qa', 'PATH': '/production/bin', 'OPENAI_API_KEY': 'synthetic',
                            'HTTP_PROXY': 'http://production', 'BASH_ENV': '/production/hooks',
                            'CODEX_HOME': str(source), 'MCP_TOKEN': 'synthetic'}, private)

@@ -8,9 +8,12 @@ escape probes only try to create marker files under the test's own temporary dir
 The sandbox tests are Linux-only (the limited mode does not exist on macOS); the job-result test runs everywhere.
 """
 import importlib.util
+import json
 import os
 from pathlib import Path
+import select
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -143,11 +146,62 @@ class LimitedModeSuitesTests(LimitedBase):
         self.assertFalse(self.marker.exists())
 
     def test_processes_left_behind_do_not_outlive_the_verification(self):
-        result = self.run_verify('sleep 37.91 >/dev/null 2>&1 & setsid sleep 37.92 >/dev/null 2>&1 & printf started')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        listing = subprocess.run(['ps', '-A', '-o', 'args='], capture_output=True, text=True).stdout
-        self.assertNotIn('sleep 37.91', listing.replace('<defunct>', ''))
-        self.assertNotIn('sleep 37.92', listing.replace('<defunct>', ''))
+        # A global ps search for fixed sleep durations also sees concurrent runs.
+        # These children acknowledge startup and live indefinitely; pin their
+        # identities before letting the verifier exit, including a setsid child.
+        probe = self.repo / 'sub/leftovers.py'
+        probe.write_text(textwrap.dedent('''
+            import json, os, signal, subprocess, sys
+            if len(sys.argv) > 1:
+                print(json.dumps([os.getpid(), os.getpgrp(), os.getsid(0)]), flush=True)
+                while True:
+                    signal.pause()
+            children = [subprocess.Popen([sys.executable, '-B', __file__, 'child'],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                        text=True, start_new_session=detached) for detached in (False, True)]
+            ready = [json.loads(child.stdout.readline()) for child in children]
+            print(json.dumps([os.getpid(), os.getpgrp(), os.getsid(0), ready]), flush=True)
+            assert sys.stdin.read(1) == '\\n', 'missing test release'
+        '''))
+        env = dict(os.environ, SWARMHUB_VERIFY_NAMESPACES='0')
+        descriptors = []
+        with tempfile.TemporaryFile(mode='w+') as errors:
+            launcher = subprocess.Popen([sys.executable, '-B', str(SANDBOX), str(self.repo),
+                                         'exec /usr/bin/python3 sub/leftovers.py'],
+                                        env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                        stderr=errors, text=True)
+            try:
+                self.assertTrue(select.select([launcher.stdout], [], [], 30)[0], 'children never became ready')
+                line = launcher.stdout.readline()
+                self.assertTrue(line, 'verifier exited before both children acknowledged startup')
+                root, group, session, children = json.loads(line)
+                self.assertEqual(len(children), 2)
+                for pid, _, _ in children:
+                    descriptors.append(os.pidfd_open(pid))
+                self.assertEqual(len({root, *(child[0] for child in children)}), 3)
+                self.assertEqual(children[0][1:], [group, session], 'ordinary child left the verifier group')
+                self.assertEqual(children[1], [children[1][0]] * 3, 'detached child did not call setsid')
+                self.assertNotEqual(children[1][2], session)
+                self.assertEqual(select.select(descriptors, [], [], 0)[0], [], 'child died before release')
+                launcher.communicate('\n', timeout=30)
+                errors.seek(0)
+                self.assertEqual(launcher.returncode, 0, errors.read())
+                # No grace period: both pinned processes must have exited when
+                # verification returns. pidfds distinguish exit from PID reuse
+                # and do not confuse unreaped zombies with running children.
+                self.assertEqual(set(select.select(descriptors, [], [], 0)[0]), set(descriptors),
+                                 'verifier left a running child behind')
+            finally:
+                for fd in descriptors:
+                    try:
+                        signal.pidfd_send_signal(fd, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    finally:
+                        os.close(fd)
+                if launcher.poll() is None:
+                    launcher.terminate()
+                launcher.communicate(timeout=10)
 
     def test_mode_is_recorded_by_the_launcher_for_the_job_result(self):
         mode = self.root / 'mode'
