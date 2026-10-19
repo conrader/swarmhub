@@ -4,7 +4,7 @@ import Testing
 
 // MARK: Steer
 
-/// Session ids are unique per test: Hermes run ids are tracked per session id process-wide.
+/// Run IDs are scoped to the gateway/profile and session ID.
 @Test func steerPostsInputToTheRunningRun() async throws {
     let (host, backend) = ChatParityServer.serve(features: ["session_chat_streaming": true, "run_steer": true]) { request, _ in
         switch request.url!.path {

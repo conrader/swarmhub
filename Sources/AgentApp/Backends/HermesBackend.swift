@@ -1,13 +1,18 @@
 import Foundation
 
+/// Session IDs are local to a gateway/profile; different connections can reuse the same ID.
 private actor HermesRunRegistry {
     static let shared = HermesRunRegistry()
-    private var runs: [String: (token: UUID, runID: String)] = [:]
-    func set(_ runID: String, for sessionID: String, token: UUID) { runs[sessionID] = (token, runID) }
-    func get(_ sessionID: String) -> String? { runs[sessionID]?.runID }
-    func clear(_ sessionID: String, token: UUID) {
-        guard runs[sessionID]?.token == token else { return }
-        runs.removeValue(forKey: sessionID)
+    private struct Key: Hashable { let scope: String; let sessionID: String }
+    private var runs: [Key: (token: UUID, runID: String)] = [:]
+    func set(_ runID: String, for sessionID: String, scope: String, token: UUID) {
+        runs[Key(scope: scope, sessionID: sessionID)] = (token, runID)
+    }
+    func get(_ sessionID: String, scope: String) -> String? { runs[Key(scope: scope, sessionID: sessionID)]?.runID }
+    func clear(_ sessionID: String, scope: String, token: UUID) {
+        let key = Key(scope: scope, sessionID: sessionID)
+        guard runs[key]?.token == token else { return }
+        runs.removeValue(forKey: key)
     }
 }
 
@@ -112,7 +117,7 @@ struct HermesBackend: AgentBackend {
     /// `POST /v1/runs/{run_id}/steer` with `{"input": text}`; Hermes answers 409 when the run no longer takes input.
     func steer(sessionID: String, text: String) async throws {
         guard try await features().contains("run_steer") else { throw BackendError.unavailable("This Hermes server cannot steer a running turn.") }
-        guard let runID = await HermesRunRegistry.shared.get(sessionID) else { throw BackendError.unavailable("Hermes has not reported a run for this turn yet.") }
+        guard let runID = await HermesRunRegistry.shared.get(sessionID, scope: capabilityScope) else { throw BackendError.unavailable("Hermes has not reported a run for this turn yet.") }
         let json = try await jsonRequest(path: "v1/runs/\(runID)/steer", method: "POST", body: ["input": text], timeout: timeouts.control)
         if (json["accepted"] as? Bool) == false { throw BackendError.unavailable("Hermes did not accept the steer message.") }
     }
@@ -128,7 +133,7 @@ struct HermesBackend: AgentBackend {
     }
 
     func sessionTransport() async throws -> HermesTransport? { try await transport() }
-    func currentRunID(sessionID: String) async -> String? { await HermesRunRegistry.shared.get(sessionID) }
+    func currentRunID(sessionID: String) async -> String? { await HermesRunRegistry.shared.get(sessionID, scope: capabilityScope) }
 
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         if try await transport() == .nativeSessions { return try await sendSession(request) }
@@ -184,7 +189,7 @@ struct HermesBackend: AgentBackend {
 
     func stopTarget(sessionID: String) async throws -> StopTarget {
         guard try await transport() == .nativeSessions else { return .disconnectedLegacy }
-        guard let runID = await HermesRunRegistry.shared.get(sessionID) else { return .noActiveRun }
+        guard let runID = await HermesRunRegistry.shared.get(sessionID, scope: capabilityScope) else { return .noActiveRun }
         return .serverRun(runID)
     }
 
@@ -359,12 +364,12 @@ struct HermesBackend: AgentBackend {
                         if try await group.next() == false { _ = try await group.next() }
                         group.cancelAll()
                     }
-                    await HermesRunRegistry.shared.clear(sessionID, token: streamToken); continuation.finish()
-                } catch is CancellationError { await HermesRunRegistry.shared.clear(sessionID, token: streamToken); continuation.finish() }
+                    await HermesRunRegistry.shared.clear(sessionID, scope: capabilityScope, token: streamToken); continuation.finish()
+                } catch is CancellationError { await HermesRunRegistry.shared.clear(sessionID, scope: capabilityScope, token: streamToken); continuation.finish() }
                 catch {
                     // URLSession commonly reports task cancellation as URLError.cancelled rather
                     // than CancellationError. Any terminal stream error must release the run ID.
-                    await HermesRunRegistry.shared.clear(sessionID, token: streamToken)
+                    await HermesRunRegistry.shared.clear(sessionID, scope: capabilityScope, token: streamToken)
                     if let urlError = error as? URLError, urlError.code == .cancelled, Task.isCancelled { continuation.finish() }
                     else if Task.isCancelled { continuation.finish() }
                     else { continuation.finish(throwing: error) }
@@ -385,7 +390,7 @@ struct HermesBackend: AgentBackend {
                 let text = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
                 if text == "[DONE]" { if !sink.sawTerminal { sink.yield(.completed) }; return }
                 guard let data = text.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-                if let runID = json["run_id"] as? String { await HermesRunRegistry.shared.set(runID, for: sessionID, token: token) }
+                if let runID = json["run_id"] as? String { await HermesRunRegistry.shared.set(runID, for: sessionID, scope: capabilityScope, token: token) }
                 HermesStreamTap.shared.record(legacy ? "legacy:\(eventName)" : eventName, json)
                 if !legacy, HermesRuntime.events.contains(eventName), let runtime = HermesRuntime.parse(json["runtime"]) {
                     await HermesRuntimeLog.shared.record(runtime, for: sessionID)

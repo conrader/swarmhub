@@ -1,7 +1,7 @@
 # Observed patterns: managed runtime implementation
 
 Implemented the remaining gaps on top of `PEER-REPORT.md`. Both affected bundled
-skills and the peer plugin are version **1.3.0**. No commit, deployment, live
+skills and the peer plugin are version **1.3.1**. No commit, deployment, live
 provider call, real provisioning, outbound send or credential change was made.
 
 All **P01–P10 grade `matches` in the offline managed-runtime replay**. These are
@@ -152,3 +152,13 @@ disconnect/stop behavior and cannot undo completed external effects. Live Hermes
 plugin activation, genuine cloud provisioning, human notification delivery and
 native macOS behavior still need integration validation before claiming all ten
 patterns match universally in a deployed product.
+
+## Codex cross-review (2026-10-19)
+
+Cross-review of `07fd5d4`: [REVIEW-FIX-CODEX.md](REVIEW-FIX-CODEX.md). Closed the
+remaining first-message/legacy-policy spill paths and the direct `code-job`
+FAKE admission bypass, including direct peer sends bound to FAKE task IDs. Corrected Swift priority-call expectations and scoped
+app-side run tracking by connection and session. Both affected skills and the
+peer plugin are now **1.3.1**. The report test's permission check uses Python's
+portable mode bits. See the cross-review for current test counts and sandbox
+limits; Swift remains unavailable here. No Hermes changes or commit were made.

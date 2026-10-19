@@ -23,7 +23,7 @@ def check_job(ident, bot, directory, model, effort, report, task, order):
     launched = json.loads(row["launched"]) if row.get("launched") else {}
     expected_model = launched.get("model", coding_model(spec.get("model", "")))
     expected_order = launched.get("order") or coding_plan(spec.get("order", "codex"), spec.get("speculative", False))
-    if (row["status"] not in ("queued", "running") or not active(ident) or spec.get("kind") != "coding" or
+    if (row["status"] not in ("queued", "running") or not active(ident) or spec.get("kind") != "coding" or spec.get("fake") or
         (bot, str(Path(directory).resolve()), model, effort, str(Path(report).resolve()), task, order) !=
         (spec["bot"], str(Path(spec["directory"]).resolve()), expected_model, spec["effort"],
          str(expected_report.resolve()), spec["task"], expected_order)):
@@ -110,12 +110,14 @@ def run_action(ident):
             break
         time.sleep(.01)
         row = action(ident)
-    if row["status"] != "running" or not active(ident):
+    if row["status"] != "running":
         return
     spec = json.loads(row["spec"])
     if spec.get("fake"):
         with database() as db:
             fake_done(db, ident, spec["kind"])  # Defense in depth: never spawn a dry run's argv.
+        return
+    if not active(ident):
         return
     # Only the immutable argv in the approved record reaches the process.
     try:

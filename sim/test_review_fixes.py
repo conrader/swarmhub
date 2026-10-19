@@ -3,6 +3,7 @@
 Same synthetic boundary as test_peer_runtime: stub curl, stub CLIs, no sockets, no model calls.
 """
 import os
+import json
 from pathlib import Path
 import shutil
 import signal
@@ -112,6 +113,37 @@ class ReviewFixTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(self.requests, [])
 
+    def test_legacy_oversized_held_message_is_not_claimed_or_acknowledged(self):
+        ident = peer.hold("sender", "recipient", "placeholder")
+        with peer.database() as db:
+            db.execute("UPDATE inbox SET text=? WHERE id=?", ("x" * 32000, ident))
+        peer.hold("sender", "recipient", "small message")
+        context = peer.before_turn("recipient", "s", "t")["context"]
+        self.assertLessEqual(len(context), peer.BATCH_MAX)
+        self.assertIn("small message", context)
+        self.assertNotIn("x" * 100, context)
+        peer.after_turn("recipient", "s", "t", "ok")
+        with peer.database() as db:
+            self.assertEqual(db.execute("SELECT claim,delivered FROM inbox WHERE id=?", (ident,)).fetchone(), (None, None))
+        self.assertIsNone(peer.before_turn("recipient", "s", "next"))
+        self.assertIn("Oversized held message retained pending", (peer.state() / "job-wake.error").read_text())
+
+    def test_legacy_oversized_policy_is_not_spilled_or_acknowledged(self):
+        control.register("recipient")
+        control.publish({"route": "codex"})
+        with control.database() as db:
+            row = db.execute("SELECT body FROM settings WHERE id=1").fetchone()
+            body = json.loads(row[0])
+            body["codex_model"] = "m" * 12000
+            db.execute("UPDATE settings SET body=? WHERE id=1", (json.dumps(body),))
+        peer.hold("sender", "recipient", "small message")
+        context = peer.before_turn("recipient", "s", "t")["context"]
+        self.assertLessEqual(len(context), peer.BATCH_MAX)
+        self.assertIn("small message", context)
+        self.assertNotIn("Global SwarmHub policy", context)
+        peer.after_turn("recipient", "s", "t", "ok")
+        self.assertIsNotNone(control.subscription("recipient"))
+
     # 3. fake: true is a dry run for every side-effecting kind.
     def test_fake_is_a_dry_run_for_every_side_effecting_kind(self):
         control.publish({"owner": "sender", "coordinator": "coordinator"})
@@ -140,12 +172,25 @@ class ReviewFixTests(unittest.TestCase):
 
     def test_fake_coding_and_peer_actions_launch_nothing(self):
         coding = self.coding("dry coding", fake=True)
+        with self.assertRaises(ValueError):  # Direct code-job must not bypass the scheduler's FAKE branch.
+            control.check_job(coding, "worker", str(self.home), "synthetic-model", "high",
+                              str(self.home / "dry coding.txt"), "dry coding", "claude")
         peer_action = control.submit({"bot": "worker", "intent": "dry peer", "kind": "peer", "fake": True,
                                       "to": "recipient", "text": "never queued"})
+        self.assertFalse(control.active(peer_action))
+        with self.assertRaises(ValueError):
+            peer.hold("worker", "recipient", "never held", peer_action)
+        with self.assertRaises(ValueError):
+            control.enqueue("worker", "recipient", "never enqueued", peer_action)
+        self.assertEqual(control.deliver("worker", "recipient", "never sent", "delivery.fake", peer_action), 125)
+        result = self.msg("--priority", "--task-id", peer_action, "--", "never sent")
+        self.assertEqual(result.returncode, 125)
+        self.assertEqual(self.requests, [])
         control.tick()
         for ident in (coding, peer_action):
             self.assertEqual(control.action(ident)["status"], "done")
             self.assertIn("FAKE", control.action(ident)["error"])
+            self.assertFalse(control.active(ident), "Completed FAKE work must not authorize a later send")
         self.assertFalse((peer.state() / "job-completions").exists())
         with control.database() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM deliveries").fetchone()[0], 0)

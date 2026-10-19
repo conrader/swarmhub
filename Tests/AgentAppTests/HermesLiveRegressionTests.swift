@@ -103,6 +103,29 @@ private func hasCompletion(_ events: [AgentEvent]) -> Bool {
     #expect(AvatarReactions.shared.completions[bot.id] == nil)
 }
 
+@Test func legacyFailureCannotSeeAnotherGatewaysRunForTheSameSession() async throws {
+    let (_, native) = ChatParityServer.serve(features: ["session_chat_streaming": true]) { _, _ in
+        .sse([("assistant.delta", ["run_id": "native-run", "delta": "working"])], holdOpen: waitCeiling)
+    }
+    defer { native.session.invalidateAndCancel() }
+    let stream = try await native.send(.init(sessionID: "QA-live-regression", systemPrompt: "QA", messages: [(role: "user", content: "QA")]))
+    var iterator = stream.makeAsyncIterator()
+    guard case .token("working")? = try await iterator.next() else { Issue.record("Expected a running native stream"); return }
+    #expect(await native.currentRunID(sessionID: "QA-live-regression") == "native-run")
+    var otherProfile = native
+    otherProfile.profile = "other-profile"
+    #expect(await otherProfile.currentRunID(sessionID: "QA-live-regression") == nil)
+
+    let (_, legacy) = ChatParityServer.serve(features: ["session_chat_streaming": false]) { _, _ in
+        .init(body: Data(LiveFailureFixtures.legacy.utf8))
+    }
+    #expect(await legacy.currentRunID(sessionID: "QA-live-regression") == nil)
+    let events = try await liveFailureEvents(legacy)
+    #expect(!hasCompletion(events) && !failureReasons(events).isEmpty)
+    #expect(await legacy.currentRunID(sessionID: "QA-live-regression") == nil)
+    #expect(await native.currentRunID(sessionID: "QA-live-regression") == "native-run", "Another connection's cleanup must preserve the active run")
+}
+
 @Test(arguments: [false, true]) @MainActor func explicitFailureWinsInEitherEventOrder(failureFirst: Bool) async throws {
     let backend = EndingBackend(.complete)
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())

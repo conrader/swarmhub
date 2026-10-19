@@ -19,7 +19,7 @@ private let script = "~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-me
 ] as [(String, String, String?, String, Bool)])
 func botMsgCommandsParse(_ command: String, _ to: String, _ from: String?, _ text: String, _ noWait: Bool) throws {
     let call = try #require(BotMessageCall.parse(command: command))
-    #expect(call == BotMessageCall(to: to, from: from, text: text, noWait: noWait, priority: true))
+    #expect(call == BotMessageCall(to: to, from: from, text: text, noWait: noWait, priority: true, durable: false))
 }
 
 @Test func otherCommandsAreNotBotMessages() {
@@ -53,7 +53,7 @@ func botMsgCommandsParse(_ command: String, _ to: String, _ from: String?, _ tex
     activity.apply(started, at: now)
     activity.apply(ToolEvent(phase: .started, name: "read_file", preview: "notes.md", callID: "c2"), at: now)
     activity.apply(done, at: now.addingTimeInterval(3))
-    #expect(activity.steps[0].botMessage == BotMessageCall(to: "grok-infra", from: "grok-jarvis", text: "Disk?", reply: "62%", priority: true))
+    #expect(activity.steps[0].botMessage == BotMessageCall(to: "grok-infra", from: "grok-jarvis", text: "Disk?", reply: "62%", priority: true, durable: false))
     #expect(activity.steps[1].botMessage == nil)
     // An old store without the field still loads.
     let old = try? JSONDecoder().decode(ToolStep.self, from: Data(#"{"name":"terminal","startedAt":0,"failed":false}"#.utf8))

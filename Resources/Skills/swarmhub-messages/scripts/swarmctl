@@ -59,7 +59,7 @@ def main(args):
         return None
     if command == "active":
         if not control.active(args[0]):
-            raise ValueError("task is stopped, denied or awaiting approval")
+            raise ValueError("task is stopped, denied, awaiting approval or FAKE")
         return None
     if command == "terminate":
         control.terminate(int(args[0]))

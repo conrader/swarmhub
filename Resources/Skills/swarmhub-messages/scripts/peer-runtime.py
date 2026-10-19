@@ -99,10 +99,15 @@ def before_turn(profile, session_id, turn_id, user_message=None):
     """
     control.receipt_bind(profile, session_id, turn_id, user_message)
     update = control.subscription(profile)
-    if update:
-        control.bind_policy(profile, session_id, turn_id, update["revision"])
     prefix = ("Global SwarmHub policy (enforced by managed execution): " +
               json.dumps(update, sort_keys=True) + "\n\n" if update else "")
+    if len(prefix) > BATCH_MAX:
+        # Old policy records predate the bounded model name. Do not acknowledge
+        # policy that the model would only see as a spilled preview.
+        note(state(), "Oversized policy retained pending; publish a shorter policy")
+        update, prefix = None, ""
+    if update:
+        control.bind_policy(profile, session_id, turn_id, update["revision"])
     claim = json.dumps([session_id, turn_id])
     now = time.time()
     with database() as db:
@@ -119,8 +124,13 @@ def before_turn(profile, session_id, turn_id, user_message=None):
                 if expiry > now and json.loads(owner)[0] != session_id:
                     continue
             piece = render(ident, sender, text)
-            if size + len(piece) + 2 > BATCH_MAX and batch:
-                break
+            if size + len(piece) + 2 > BATCH_MAX:
+                if batch:
+                    break
+                # Pre-1.3.1 inboxes can contain 32,000-character messages. Keep
+                # them intact and unacknowledged; allow later, fitting rows through.
+                note(state(), "Oversized held message retained pending; resend with --priority or --durable")
+                continue
             batch.append(piece)
             size += len(piece) + 2
             db.execute("UPDATE inbox SET claim=?,expires=? WHERE id=?", (claim, now + LEASE, ident))
@@ -347,7 +357,7 @@ def install(profile):
     folder = home / "plugins/swarmhub-peer"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "plugin.yaml").write_text(
-        "name: swarmhub-peer\nversion: 1.3.0\ndescription: SwarmHub held peer inbox and coding completion recovery\n"
+        "name: swarmhub-peer\nversion: 1.3.1\ndescription: SwarmHub held peer inbox and coding completion recovery\n"
         "provides_hooks:\n  - pre_llm_call\n  - post_llm_call\n")
     (folder / "__init__.py").write_text(
         "import runpy, sys\n" +

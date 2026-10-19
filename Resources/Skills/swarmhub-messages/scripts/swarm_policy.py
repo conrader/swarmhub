@@ -290,4 +290,6 @@ def replace(ident, spec):
 def active(ident):
     if not ident:
         return True
-    return action(ident)["status"] in ("queued", "running", "done") and not (state() / "cancelled" / ident).exists()
+    row = action(ident)
+    return (row["status"] in ("queued", "running", "done") and not json.loads(row["spec"]).get("fake")
+            and not (state() / "cancelled" / ident).exists())

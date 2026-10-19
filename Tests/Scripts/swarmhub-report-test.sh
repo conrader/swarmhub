@@ -45,7 +45,7 @@ rfile() { echo "$R/$(rid).json"; }
 pyget() { python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); print(eval(sys.argv[2]))' "$1" "$2" 2>/dev/null; }
 pytrue() { [ "$(pyget "$1" "$2")" = True ]; }
 nfiles() { ls "$R" 2>/dev/null | grep -c '\.json$'; }
-mode_of() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1" 2>/dev/null; }
+mode_of() { python3 -I -c 'import os, stat, sys; print(format(stat.S_IMODE(os.stat(sys.argv[1]).st_mode), "o"))' "$1"; }
 done_case() {
   if [ -z "$PROBLEMS" ]; then echo "PASS: $NAME"; PASSED=$((PASSED + 1)); else echo "FAIL: $NAME:${PROBLEMS#;}"; FAILED=$((FAILED + 1)); fi
 }

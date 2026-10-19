@@ -1,7 +1,7 @@
 ---
 name: swarmhub-messages
 description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.0
+version: 1.3.1
 author: SwarmHub
 metadata:
   swarmhub:
@@ -56,9 +56,11 @@ worker without a model call; plugin startup and code-job exit also start it. Con
 `COORDINATOR=<profile>` in `~/.hermes/swarmhub/coding.conf` (preserve `SLOTS`), or `SWARMHUB_COORDINATOR` in the worker's
 environment. Credentials are resolved from the target profile at delivery time. Never copy keys into these settings.
 
-A held message holds at most 8,000 characters, and one turn receives at most about 9,000 characters of held
-context (below the Hermes hook output spill limit); later messages stay queued for later turns and are marked
-delivered only once their own turn answers. Use `--priority` or `--durable` for longer texts.
+A held message holds at most 8,000 characters, and one turn receives at most 9,000 characters including policy
+and held-message headers (below Hermes' default 10,000-character hook spill limit). Later messages stay queued
+and are marked delivered only once their own turn answers. Previously queued messages that cannot fit remain
+intact and unacknowledged, with a diagnostic in `~/.hermes/swarmhub/job-wake.error`; resend those using
+`--priority` or `--durable`. An oversized legacy policy also remains unacknowledged until a shorter one is published.
 
 Durable priority delivery: add `--durable` for a journalled action message. It returns `pending:delivery.<id>`, meaning
 admitted, not delivered. The persistent worker retries until a terminal acknowledgement, including after restart.
@@ -91,7 +93,8 @@ and optionally `parent`; external actions use an immutable `argv` array. Money/p
 require the owner; real outbound text requires the coordinator. Only absolute system `pwd`, `ls`, `stat` commands
 are automatically allowed reads; other commands ask the owner. Any action with `fake: true` is a dry run: it keeps
 its gate, then records `FAKE: no <kind> operation executed` and never executes its argv, launches a coding CLI or
-admits a delivery. Stop/replace act on IDs; do not resubmit denied work with another ID or label.
+admits a delivery. A FAKE task ID cannot authorize direct execution or peer sends, even after completion.
+Stop/replace act on IDs; do not resubmit denied work with another ID or label.
 
 `scripts/swarmctl decide <task-id> <deciding-profile> approve|deny` is the local administrative decision interface.
 Only the configured role is accepted, and only from its own gateway: `swarmctl` reads the deciding profile from
