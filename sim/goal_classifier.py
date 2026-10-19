@@ -9,7 +9,7 @@ import re
 
 SWIFT = Path(__file__).resolve().parents[1] / 'Sources/AgentApp/Models/ChatAutomation.swift'
 LISTS = ('explainVerbs', 'changeVerbs', 'codingOnlyVerbs', 'codeNouns', 'codePhrases', 'clauseWords', 'leadIns',
-         'askingVerbs', 'questionStarters', 'pronouns')
+         'askingVerbs', 'questionStarters', 'pronouns', 'subordinateMarkers')
 
 
 def swift_lists(source=None):
@@ -34,6 +34,7 @@ LEAD_INS = set(_LISTS['leadIns'])
 ASKING_VERBS = set(_LISTS['askingVerbs'])
 QUESTION_STARTERS = set(_LISTS['questionStarters'])
 PRONOUNS = set(_LISTS['pronouns'])
+SUBORDINATE_MARKERS = set(_LISTS['subordinateMarkers'])
 
 
 def word_char(character):
@@ -77,19 +78,30 @@ def requests_code_in_a_clause(text):
     mentions_code = names_code(topic)
     for words in parts:
         question = words[0] in QUESTION_STARTERS
-        clause_start, index, explains, embedded = True, 0, False, False
+        # embedded: None, 'infinitive' ("how to build and test") or 'clause' ("why the parser crashes").
+        clause_start, index, explains, embedded, coordinated, objected = True, 0, False, None, False, False
         while index < len(words):
             word = words[index]
             index += 1
-            if explains and word in QUESTION_STARTERS:
-                embedded = True
-            if explains and not embedded and word in ('and', 'then'):
-                clause_start = True
+            if explains and word in QUESTION_STARTERS and embedded != 'infinitive':
+                embedded = 'infinitive' if index < len(words) and words[index] == 'to' else 'clause'
+                objected = False
+            elif embedded == 'infinitive' and word not in ('to', 'and', 'then', ',') and word not in CHANGE_VERBS \
+                    and word not in CODING_ONLY_VERBS:
+                objected = True
+            if embedded == 'clause' and index >= 2 and words[index - 2] in SUBORDINATE_MARKERS and (
+                    word in CHANGE_VERBS or word in CODING_ONLY_VERBS):
+                coordinated = True
+            reopens = embedded is None or (embedded == 'clause' and (word == 'then' or not coordinated)) or (
+                embedded == 'infinitive' and objected and word in (',', 'then'))
+            if explains and reopens and word in ('and', 'then'):
+                clause_start, embedded, coordinated = True, None, False
                 continue
             if clause_start and word in EXPLAIN_VERBS and (not question or words[0] in ASKING_VERBS):
                 explains = True
             if word == ',' or word in CLAUSE_WORDS:
-                clause_start = clause_start or (not question and not embedded)
+                if not question and reopens:
+                    clause_start, embedded, coordinated = True, None, False
                 continue
             if clause_start and word in LEAD_INS:
                 continue

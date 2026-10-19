@@ -2,6 +2,8 @@
 import json
 import os
 from pathlib import Path
+import signal
+import subprocess
 
 # Mach services a shell, Python, git and build tools need. Not the pasteboard, LaunchServices (`open`),
 # AppleEvents (`osascript`), SecurityServer/keychain or preferences: those reach outside the sandbox.
@@ -87,3 +89,17 @@ def darwin_profile(workspace, temporary, git_paths=()):
         profile += '(deny file-write* (subpath ' + quote(str(path)) + '))'
         profile += '(deny file-write* (literal ' + quote(str(path)) + '))'
     return profile
+
+
+def run_grouped(argv, env, cwd):
+    """Run the verifier as the leader of its own process group, then SIGKILL the group: background processes it left
+    behind would otherwise keep changing the workspace after the result is recorded. A descendant that calls setsid()
+    or setpgid() itself leaves the group and is not reached (Seatbelt has no pidfd/subreaper equivalent)."""
+    process = subprocess.Popen(argv, env=env, cwd=cwd, start_new_session=True)
+    try:
+        return process.wait()
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass  # The group is already empty.

@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import re
+import sys
 import time
 from urllib.parse import urlsplit
 import uuid
@@ -170,13 +171,14 @@ class ControlService:
                            (request["nonce"], digest, request["expires"]))
         # Decision + receipt commit together. Lost response/restart can never re-execute a decision.
         if verb == "decide" and request["approved"]:
-            self.wake()  # Idempotent worker startup; an ACK lost here is reconciled by get.
+            try:
+                self.wake()  # Idempotent worker startup; an ACK lost here is reconciled by get.
+            except Exception:  # The decision is committed: the client still gets its receipt, never a 403.
+                print("swarm_remote: worker wake failed after a recorded decision", file=sys.stderr)
         return self.response(key, digest, request, record=record)
 
 
-def serve(origin, port, wake):
-    service = ControlService(origin, wake)
-
+def handler(service):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass  # No request bodies, credentials or operation content in HTTP logs.
@@ -197,7 +199,7 @@ def serve(origin, port, wake):
                                         self.headers.get("X-SwarmHub-Signature", ""), raw)
                 data = canonical(result).encode()
                 self.send_response(200)
-            except (ValueError, OSError, KeyError, TypeError):
+            except Exception:  # Any failure (sqlite lock, deep JSON recursion) is a deterministic refusal.
                 data = b'{"error":"control request refused"}'
                 self.send_response(403)
             self.send_header("Content-Type", "application/json")
@@ -206,6 +208,11 @@ def serve(origin, port, wake):
             self.end_headers()
             self.wfile.write(data)
 
+    return Handler
+
+
+def serve(origin, port, wake):
+    Handler = handler(ControlService(origin, wake))
     # Never expose the plaintext hop or trust X-Forwarded-* as authentication.
     with ThreadingHTTPServer(("127.0.0.1", port), Handler) as server:
         server.serve_forever()

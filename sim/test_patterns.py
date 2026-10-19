@@ -206,7 +206,8 @@ exit 0
 
     def test_P07_final_denial_bound_outbound_scope_relaunch_and_peer_stop(self):
         self.cli()
-        control.publish({"owner": "sender", "coordinator": "coordinator"})
+        # fixes12: the outbound command comes from the owner's sender policy, never from the caller.
+        control.publish({"owner": "sender", "coordinator": "coordinator", "outbound": ["/bin/true"]})
         for risk in ("money", "prod", "secrets"):
             ident = self.submit("risk-" + risk, risks=[risk])
             self.assertEqual(control.action(ident)["status"], "awaiting-owner")
@@ -216,7 +217,7 @@ exit 0
             with self.assertRaises(ValueError):
                 self.submit("risk-" + risk, task="same intent with changed words", risks=[risk])
         outbound = control.submit({"bot": "recipient", "intent": "send approved text", "kind": "outbound",
-                                   "argv": ["/bin/true"], "to": "customer", "text": "approved draft"})
+                                   "to": "customer", "text": "approved draft"})
         with self.assertRaises(ValueError):
             self.decide(outbound, "sender", True)
         self.decide(outbound, "coordinator", True)
@@ -254,8 +255,12 @@ exit 0
         read = control.submit({"bot": "worker", "kind": "read", "intent": "inspect cwd", "argv": ["/bin/pwd"]})
         self.assertEqual(control.action(read)["gate"], "auto")
         marker = self.home / "must-not-send"
-        fake = control.submit({"bot": "recipient", "kind": "outbound", "intent": "draft only", "fake": True,
-                               "argv": ["/usr/bin/touch", str(marker)], "to": "QA", "text": "FAKE"})
+        draft = {"bot": "recipient", "kind": "outbound", "intent": "draft only", "fake": True, "to": "QA", "text": "FAKE"}
+        # fixes12: a caller-supplied command is refused outright; the configured sender would create the marker.
+        with self.assertRaisesRegex(ValueError, "outbound argv must match"):
+            control.submit(dict(draft, argv=["/usr/bin/touch", str(marker)]))
+        control.publish({"outbound": ["/bin/sh", "-c", 'touch "$0"', str(marker)]})
+        fake = control.submit(draft)
         control.tick()
         self.eventually(lambda: control.action(read)["status"] == "done")
         self.assertEqual(control.action(fake)["status"], "done")
@@ -320,8 +325,9 @@ class RuntimeEdgeTests(unittest.TestCase):
         self.eventually(lambda: len(self.turns()) == 1)
 
     def test_denial_cannot_be_rewrapped_under_a_new_id_or_label(self):
-        control.publish({"owner": "sender", "coordinator": "coordinator"})
-        spec = {"bot": "worker", "intent": "first draft", "kind": "outbound", "argv": ["/bin/true"],
+        # fixes12: outbound argv is composed from the owner's sender, never caller input.
+        control.publish({"owner": "sender", "coordinator": "coordinator", "outbound": ["/bin/true"]})
+        spec = {"bot": "worker", "intent": "first draft", "kind": "outbound",
                 "to": "customer", "text": "do not send this"}
         ident = control.submit(spec)
         self.decide(ident, "coordinator", False)

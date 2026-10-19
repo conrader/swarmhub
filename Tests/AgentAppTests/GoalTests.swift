@@ -284,7 +284,18 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
                   "Describe the parser and then refactor it",
                   "Could you describe the failure and add a test?",
                   "Explain the bug then patch it",
-                  "Summarize the test results and then debug the failure"]
+                  "Summarize the test results and then debug the failure",
+                  // Claude xrev2 finding 1: a why/what/where clause ends before "and"/"then" opens the imperative.
+                  "Explain why the parser crashes and then fix it",
+                  "Explain what went wrong and fix the bug",
+                  "Explain why the tests fail, then fix them",
+                  "Tell me why the build fails and fix it",
+                  "Explain where the crash happens and fix it",
+                  "Explain how the parser works and then add a test for it",
+                  "Explain what this does and then refactor it",
+                  "Explain why we add tests and then fix the bug",
+                  "Explain how to build and test the parser, and fix the crash",
+                  "Explain how to build the parser, then fix the bug"]
     let general = ["Explain the result", "write the changelog", "summarize the meeting", "Explain this function",
                    "Describe how the users API works", "Summarize the test results", "What does this script do?",
                    "Write a blog post about Python", "Build a presentation for the board", "Draft the release notes",
@@ -294,7 +305,12 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
                    "The meeting notes are messy; clean them up",
                    "Explain how to build and test the parser",
                    "Describe how to add and remove a Python package",
-                   "Can you explain how to build and then test the parser?"]
+                   "Can you explain how to build and then test the parser?",
+                   // Claude xrev2 finding 1: "how to V1 and V2" and the explained clause's own coordinated verbs stay
+                   // inside the explanation.
+                   "Explain why we add tests and remove Python packages",
+                   "Explain what we should add and remove in the package",
+                   "Explain how to install the package and configure the database"]
     for phrase in coding {
         #expect(GoalProtocol.looksLikeCoding(phrase), "expected coding: \(phrase)")
     }

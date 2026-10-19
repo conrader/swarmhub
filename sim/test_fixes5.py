@@ -103,7 +103,7 @@ class VerificationTests(unittest.TestCase):
 
         with patch.object(sys, 'argv', [str(SANDBOX), str(self.repo), 'true']), \
              patch.object(sys, 'platform', 'darwin'), \
-             patch.object(subprocess, 'call', side_effect=launch) as call:
+             patch.object(module['verify_darwin'], 'run_grouped', side_effect=launch) as call:  # fixes12: group teardown
             self.assertEqual(module['main'](), 0)
             call.assert_called_once()
 

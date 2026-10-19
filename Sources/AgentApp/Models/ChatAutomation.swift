@@ -158,10 +158,21 @@ enum GoalProtocol {
     static let questionStarters: Set<String> = ["how", "what", "why", "which", "who", "when", "where", "is", "are", "does",
                                                 "do", "can", "could", "should"]
     static let pronouns: Set<String> = ["it", "them", "this", "that", "these", "those"]
+    /// Xrev2 finding 1: inside an explained "why/what/where …" clause, "and"/"then" reopens an imperative ("Explain why
+    /// the parser crashes and then fix it"). Only "how to V1 and V2 X" shares the infinitive to the end of the clause.
+    /// A change verb after one of these words is the explained clause's own verb ("why we add tests and remove
+    /// packages"), so a bare "and" then coordinates with it instead of opening an imperative; "then" still does. Once
+    /// "how to V" has its object, a comma or "then" ends the infinitive ("how to build the parser, and fix the crash").
+    static let subordinateMarkers: Set<String> = ["i", "we", "you", "they", "he", "she", "it", "people", "to", "should",
+                                                  "must", "would", "could", "can", "do", "does", "did", "might", "may",
+                                                  "will", "shall"]
 
     static func looksLikeCoding(_ text: String) -> Bool {
         requestsCodeInAClause(text) || firstVerbRequestsCode(text)
     }
+
+    /// Where an explanation's scope reaches: "how to build and test" (infinitive) or "why the parser crashes" (clause).
+    enum Embedding { case unscoped, infinitive, clause }
 
     static func requestsCodeInAClause(_ text: String) -> Bool {
         let parts = sentenceWords(text)
@@ -174,23 +185,41 @@ enum GoalProtocol {
             let question = questionStarters.contains(words[0])
             var clauseStart = true
             var explains = false
-            var embedded = false
+            var embedded = Embedding.unscoped
+            var coordinated = false
+            var objected = false
             var index = 0
             while index < words.count {
                 let word = words[index]
                 index += 1
-                // "Explain how to build and test" keeps both verbs inside the
-                // explanation. A new sentence still starts a fresh imperative.
-                if explains && questionStarters.contains(word) { embedded = true }
-                if explains && !embedded && (word == "and" || word == "then") {
+                if explains && questionStarters.contains(word) && embedded != .infinitive {
+                    embedded = index < words.count && words[index] == "to" ? .infinitive : .clause
+                    objected = false
+                } else if embedded == .infinitive && !["to", "and", "then", ","].contains(word) && !changeVerbs.contains(word)
+                    && !codingOnlyVerbs.contains(word) {
+                    objected = true
+                }
+                if embedded == .clause && index >= 2 && subordinateMarkers.contains(words[index - 2])
+                    && (changeVerbs.contains(word) || codingOnlyVerbs.contains(word)) {
+                    coordinated = true
+                }
+                let reopens = embedded == .unscoped || (embedded == .clause && (word == "then" || !coordinated))
+                    || (embedded == .infinitive && objected && (word == "," || word == "then"))
+                if explains && reopens && (word == "and" || word == "then") {
                     clauseStart = true
+                    embedded = .unscoped
+                    coordinated = false
                     continue
                 }
                 if clauseStart && explainVerbs.contains(word) && (!question || askingVerbs.contains(words[0])) {
                     explains = true
                 }
                 if word == "," || clauseWords.contains(word) {
-                    clauseStart = clauseStart || (!question && !embedded)
+                    if !question && reopens {
+                        clauseStart = true
+                        embedded = .unscoped
+                        coordinated = false
+                    }
                     continue
                 }
                 if clauseStart && leadIns.contains(word) { continue }

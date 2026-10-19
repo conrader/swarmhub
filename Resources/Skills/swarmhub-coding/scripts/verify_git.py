@@ -25,6 +25,7 @@ def layout(workspace):
 
     HEAD/config/objects may change with legitimate commits. Pointer bytes and their
     inode identities may not. No arbitrary separate-git-dir layouts are admitted.
+    The common directory is a non-bare `.git` or a bare `<name>.git` repository.
     """
     workspace = Path(workspace).resolve(strict=True)
     dot = workspace / '.git'
@@ -65,28 +66,42 @@ def layout(workspace):
     # Git registers linked worktrees ONLY as <common>/worktrees/<name>, with a
     # reciprocal gitdir file pointing at this workspace's .git file.
     pin(common / 'worktrees', True)
-    if target.parent != common / 'worktrees' or common.name != '.git':
+    if target.parent != common / 'worktrees' or not common.name.endswith('.git'):
         raise OSError('untrusted Git linked-worktree roots')
     backlink = pin(target / 'gitdir').strip()
-    # macOS commonly spells the same directory as /var and /private/var.
-    if not Path(backlink).is_absolute() or Path(backlink).resolve(strict=True) != dot:
+    # Git >= 2.48 worktree.useRelativePaths writes the backlink relative to <target>.
+    # Compare file identity: macOS spells one directory as /var and /private/var, and
+    # case-insensitive APFS accepts ~/Work for ~/work, which path equality would refuse.
+    linked = os.stat(str(target / backlink)) if backlink else None
+    if linked is None or [linked.st_dev, linked.st_ino] != identity(dot):
         raise OSError('untrusted Git worktree backlink')
     identity(target / 'HEAD')
     state['paths'] = [str(target), str(common)]
     return state
 
 
-def capture(workspace, destination):
+def capture(workspace, destination, record_unsupported=False):
+    """Write the pre-tool snapshot. With record_unsupported (code-job), a layout this
+    module does not admit (submodule, separate-git-dir, forged pointer) is recorded as
+    {"unsupported": reason}: the job still runs and verification refuses with it."""
     workspace = Path(workspace).resolve(strict=True)
     destination = Path(destination).absolute()
     if workspace == destination.resolve() or workspace in destination.resolve().parents:
         raise OSError('Git trust snapshot must be outside the workspace')
-    state = layout(workspace)
+    try:
+        state = layout(workspace)
+    except (OSError, ValueError) as exc:  # ValueError: e.g. a NUL byte in a pointer path.
+        if not record_unsupported:
+            raise
+        state = {'workspace': str(workspace), 'unsupported': str(exc)}
     with destination.open('x') as stream:
         json.dump(state, stream)
+    return state
 
 
 def validated_paths(workspace, snapshot=None):
+    if snapshot is not None and 'unsupported' in snapshot:
+        raise OSError('Git layout not supported for verification (pre-tool capture): ' + str(snapshot['unsupported']))
     current = layout(workspace)
     if snapshot is None:
         if current['paths']:

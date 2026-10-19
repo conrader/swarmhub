@@ -93,8 +93,20 @@ VTIMEOUT=${CODE_JOB_VERIFY_TIMEOUT:-600}
 case $VTIMEOUT in ''|*[!0-9]*|0) VTIMEOUT=600 ;; esac
 printf '%s\n' "$VERIFY" > "$JOB/verify-command"
 POLL=${CODE_JOB_POLL:-5}
-# Keep launcher evidence outside a workspace-controlled TMPDIR (including HOME workspaces).
-T=$(mktemp -d "/tmp/code-job.XXXXXX") || exit 1
+# Launcher evidence (git-trust.json, verify-mode) lives where the coding CLI cannot write: under $S, outside --dir,
+# /tmp and $TMPDIR, which codex's workspace-write sandbox allows. Only when --dir, /tmp or $TMPDIR contains $S (a HOME
+# workspace) does it fall back to /tmp, and codex is then denied /tmp and $TMPDIR (NOTMP).
+under() { case $1 in /) return 0 ;; esac; case $2/ in "$1"/*) return 0 ;; esac; return 1; }
+mkdir -p "$S/scratch" || exit 1
+T=$(mktemp -d "$S/scratch/code-job.XXXXXX") && T=$(cd "$T" && pwd -P) || exit 1
+NOTMP=false
+for d in /tmp "${TMPDIR:-/tmp}"; do
+  d=$(cd "$d" 2>/dev/null && pwd -P) && under "$d" "$T" && NOTMP=true
+done
+if under "$DIR" "$T" || [ "$NOTMP" = true ]; then
+  rm -rf "$T"; NOTMP=true
+  T=$(mktemp -d "/tmp/code-job.XXXXXX") || exit 1
+fi
 
 SLOT= APID= MPID= VPID= O1= O2= AGENT=none SKIPPED= WAITED=0 RAN=0 PEAK=0 LOGGED=
 HEAD_BEFORE= HEAD_AFTER=- COMMIT=not-checked VEXIT=- VMODE=- TESTS=not-run EVIDENCE=none
@@ -230,9 +242,12 @@ trap 'interrupted 130' INT
 trap 'interrupted 143' TERM
 trap 'interrupted 129' HUP
 
-# Capture authority before any coding CLI can edit .git pointers. Failure cannot
-# be repaired by accepting a post-tool layout. $T is outside workspace authority.
-python3 "$(dirname "$0")/verify-sandbox.py" --capture-git "$DIR" "$T/git-trust.json" || finish 77 failed
+# Capture authority before any coding CLI can edit .git pointers; only a verification run uses it. A layout the
+# verifier does not admit (submodule, separate-git-dir) is recorded as unsupported, so the job still runs and its
+# verification refuses with that reason. A post-tool layout is never accepted instead. $T is outside the CLI's reach.
+if [ -n "$VERIFY" ]; then
+  python3 "$(dirname "$0")/verify-sandbox.py" --capture-git "$DIR" "$T/git-trust.json" || finish 77 failed
+fi
 
 # One of SLOTS slots: `mkdir slots/<i>.lock` is atomic. A lock whose pid is dead is stale; it is removed under a short
 # reclaim guard so two waiters cannot both remove it (and so one cannot remove the other's fresh lock).
@@ -288,7 +303,10 @@ run_agent() {
         exec claude -p "$TASK" --permission-mode acceptEdits --allowedTools "Read,Edit,Write,Bash,Glob,Grep" \
           --model "$MODEL" --effort "$EFFORT" --max-turns "$MAXTURNS" --output-format text ;;
       # Config overrides instead of --full-auto: Codex CLI 0.159 dropped that flag (seen 2026-10-19); these keys exist in both.
-      codex) exec codex exec --skip-git-repo-check -c 'sandbox_mode="workspace-write"' -c 'approval_policy="never"' \
+      # With $T in /tmp (NOTMP), codex may not write /tmp or $TMPDIR, so it cannot rewrite the launcher evidence.
+      codex) set --
+        [ "$NOTMP" = true ] && set -- -c sandbox_workspace_write.exclude_slash_tmp=true -c sandbox_workspace_write.exclude_tmpdir_env_var=true
+        exec codex exec --skip-git-repo-check -c 'sandbox_mode="workspace-write"' -c 'approval_policy="never"' "$@" \
           --model "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" "$TASK" ;;
     esac
   ) < /dev/null > "$T/o" 2> "$T/e" &

@@ -135,13 +135,16 @@ class RemoteApprovalTests(unittest.TestCase):
 
     def test_timeout_after_commit_retries_query_first_and_never_redecides(self):
         self.wake.side_effect = TimeoutError('synthetic lost ACK')
-        with self.assertRaises(TimeoutError):
-            self.send(self.request('decide'))
+        # fixes12: the decision committed, so the client gets its receipt, not an error (xrev2 finding 4).
+        decided = self.send(self.request('decide'))
+        self.assertTrue(decided['remoteReceipt']['approved'])
+        self.wake.assert_called_once()
         self.wake.reset_mock()
         # App restarts; get reads the committed receipt without calling the worker.
         restarted = remote.ControlService(self.service.origin, self.wake)
         receipt = self.send(self.request(), service=restarted)
         self.assertTrue(receipt['remoteReceipt']['approved'])
+        self.assertEqual(receipt, decided)
         self.wake.assert_not_called()
 
     def test_expired_future_and_expiry_during_database_wait_fail_closed(self):

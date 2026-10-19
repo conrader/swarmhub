@@ -160,6 +160,9 @@ class ReviewFixTests(unittest.TestCase):
             spec = {"bot": "worker", "intent": "dry " + kind, "kind": kind, "fake": True,
                     "argv": ["/usr/bin/touch", str(marker)]}
             if kind == "outbound":
+                # fixes12: outbound argv is the owner's sender, never caller input; that sender would touch the marker.
+                control.publish({"outbound": ["/bin/sh", "-c", 'touch "$0"', str(marker)]})
+                del spec["argv"]
                 spec.update(to="QA", text="draft")
             ident = control.submit(spec)
             if control.action(ident)["status"] == "awaiting-owner":

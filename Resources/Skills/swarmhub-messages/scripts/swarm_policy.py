@@ -143,9 +143,24 @@ def coding_model(model):
     return rule.get("codex_model", model) if rule["route"] == "codex" else model
 
 
+# Swift decodes a JSON integer past Int64 as a Double, so an approval card could show a rounded value that differs
+# from what executes. Integers stay within the range both sides represent exactly.
+JSON_SAFE_INTEGER = 2 ** 53
+
+
+def exact_integers(value):
+    if isinstance(value, dict):
+        return all(exact_integers(item) for item in value.values())
+    if isinstance(value, list):
+        return all(exact_integers(item) for item in value)
+    return not isinstance(value, int) or isinstance(value, bool) or -JSON_SAFE_INTEGER <= value <= JSON_SAFE_INTEGER
+
+
 def validate_spec(spec):
     if not isinstance(spec, dict):
         raise ValueError("action must be an object")
+    if not exact_integers(spec):
+        raise ValueError("integers must be within +/-2^53")
     allowed = {"bot", "origin", "intent", "parent", "kind", "risks", "task", "directory", "order",
                "model", "effort", "report", "speculative", "argv", "fake", "to", "text", "verify", "request"}
     if set(spec) - allowed:
@@ -194,8 +209,12 @@ def validate_spec(spec):
             if "argv" in spec and spec["argv"] != composed:
                 raise ValueError("provision argv must match the configured hook and request")
             spec["argv"] = composed  # Idempotent validation; replace validates before cancelling the old scope.
-        if kind == "outbound" and "argv" not in spec and isinstance(spec.get("to"), str) and isinstance(spec.get("text"), str):
-            spec["argv"] = outbound_argv(spec["to"], spec["text"], bool(spec.get("fake")))
+        if kind == "outbound" and isinstance(spec.get("to"), str) and isinstance(spec.get("text"), str):
+            # Outbound is coordinator-gated (remotely approvable), so its command is never caller input.
+            composed = outbound_argv(spec["to"], spec["text"], bool(spec.get("fake")))
+            if "argv" in spec and spec["argv"] != composed:
+                raise ValueError("outbound argv must match the configured sender, recipient and text")
+            spec["argv"] = composed
         argv = spec.get("argv")
         if not isinstance(argv, list) or not argv or not all(isinstance(a, str) and a for a in argv):
             raise ValueError("action requires nonempty argv")

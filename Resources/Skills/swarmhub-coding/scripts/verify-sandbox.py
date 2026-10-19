@@ -426,7 +426,9 @@ def darwin_profile(workspace, temporary):
 def main():
     global GIT_SNAPSHOT
     if len(sys.argv) == 4 and sys.argv[1] == '--capture-git':
-        verify_git.capture(Path(sys.argv[2]), Path(sys.argv[3]))
+        state = verify_git.capture(Path(sys.argv[2]), Path(sys.argv[3]), record_unsupported=True)
+        if 'unsupported' in state:
+            print('code-job: verification will refuse: Git layout not supported: ' + state['unsupported'], file=sys.stderr)
         return 0
     workspace = Path(sys.argv[1]).resolve(strict=True)
     command = sys.argv[2]
@@ -444,8 +446,8 @@ def main():
             env['PATH'] = '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin'
             profile = darwin_profile(workspace, temporary)
             record_mode(mode_file, MODE_SEATBELT)
-            return subprocess.call(['/usr/bin/sandbox-exec', '-p', profile, *verify_darwin.guarded_command(command)],
-                                   env=env, cwd=workspace)
+            return verify_darwin.run_grouped(['/usr/bin/sandbox-exec', '-p', profile, *verify_darwin.guarded_command(command)],
+                                             env=env, cwd=workspace)
         elif sys.platform == 'linux':
             # The standalone launcher is single-threaded; only its children receive irreversible restrictions.
             return linux(workspace, temporary, command, env, mode_file)
