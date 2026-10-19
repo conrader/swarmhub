@@ -19,7 +19,8 @@ import SwarmHubCoordination
     /// `secretFolder` (tests) or `SecretFileWriter.defaultFolder`.
     /// Test injection for the structured host-local SwarmHub interface (no model turns).
     var managedDecisionsInFlight: Set<UUID> = []
-    var managedControl: ((Bot, String, String, Data?) async throws -> ManagedRecord)?
+    // Keep the mutable Bot and injected control state on the store's actor across suspension points.
+    var managedControl: (@MainActor (Bot, String, String, Data?) async throws -> ManagedRecord)?
     @Published var secretRequest: SecretRequestPrompt?; var secretFolder: URL?
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
