@@ -215,6 +215,10 @@ def workspace_rules(workspace, namespaced):
         return [(str(workspace), ALL_ACCESS)]
     rules = [(str(workspace), READ_ONLY)]
     for entry in sorted(workspace.iterdir()):
+        # A rule is attached to the opened inode: granting a symlink would grant its target (a link to
+        # .git/config would make the config writable). Links get no rule; access resolves against the target's path.
+        if entry.is_symlink():
+            continue
         rules.append((str(entry), READ_FILE | READ_DIR if entry.name == '.git' else ALL_ACCESS))
     return rules
 

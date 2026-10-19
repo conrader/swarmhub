@@ -116,6 +116,21 @@ class GitMetadataEscapeTests(SandboxBase):
         # Reading the linked repository still works for ordinary verifiers.
         self.assertEqual(self.run_verify('git status --short').returncode, 0)
 
+    def test_symlinks_to_git_metadata_cannot_be_written_through(self):
+        # Links that exist before the run (planted by the coding agent) and links the verifier creates itself.
+        (self.repo / 'planted-relative').symlink_to('.git/config')
+        (self.repo / 'planted-absolute').symlink_to(self.repo / '.git/config')
+        (self.repo / 'planted-dir').symlink_to('.git')
+        before = (self.repo / '.git/config').read_bytes()
+        attempts = ['printf x >> planted-relative', 'printf x >> planted-absolute', 'printf x > planted-dir/hooks/pre-commit',
+                    'ln -s .git/config fresh && printf x >> fresh', 'ln -s .git fresh-dir && printf x > fresh-dir/hooks/pre-commit',
+                    'ln -s %s sub/deep && printf x >> sub/deep' % shlex.quote(str(self.repo / '.git/config'))]
+        for command in attempts:
+            with self.subTest(command=command):
+                self.assert_refused_not_unavailable(self.run_verify(command))
+        self.assertEqual((self.repo / '.git/config').read_bytes(), before)
+        self.assertFalse((self.repo / '.git/hooks/pre-commit').exists())
+
     def test_workspace_remains_writable_and_outside_stays_closed(self):
         positive = self.run_verify('printf local > sub/local.txt && mkdir -p build && printf built > build/out')
         self.assertEqual(positive.returncode, 0, positive.stderr)
@@ -221,6 +236,15 @@ class LandlockFallbackTests(SandboxBase):
         self.assertFalse((self.repo / 'build').exists() or (self.repo / 'top.txt').exists() or self.marker.exists())
         self.assertEqual(git(self.repo, 'status', '--short').returncode, 0)
         self.assertFalse(self.marker.exists())
+
+    def test_fallback_denies_writes_through_planted_symlinks(self):
+        (self.repo / 'planted').symlink_to('.git/config')
+        (self.repo / 'sub/planted').symlink_to(self.repo / '.git/config')
+        before = (self.repo / '.git/config').read_bytes()
+        for command in ['printf x >> planted', 'printf x >> sub/planted', 'ln -s .git/config sub/fresh && printf x >> sub/fresh']:
+            with self.subTest(command=command):
+                self.assert_refused_not_unavailable(self.run_verify(command))
+        self.assertEqual((self.repo / '.git/config').read_bytes(), before)
 
     def test_fallback_still_runs_ordinary_verifiers_inside_existing_entries(self):
         result = self.run_verify('printf x > sub/new.txt && echo a | cat > /dev/null && git status --short > /dev/null && printf ok')
