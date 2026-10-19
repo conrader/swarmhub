@@ -169,13 +169,29 @@ enum GoalProtocol {
     /// Fixes14: a comma right after the explanation's own verb that opens a series of two or more verbs ("why we
     /// install, configure and run the server", "build, test, and then deploy") keeps the series inside the
     /// explanation; the series ends at the verb after its first conjunction. A comma after an object still ends it.
+    /// Fixes15: only a predicate can head that series; noun objects cannot. The comma after a completed series
+    /// opens a new clause, including after an objectless infinitive series.
     static let subordinateMarkers: Set<String> = ["i", "we", "you", "they", "he", "she", "it", "people", "to", "should",
                                                   "must", "would", "could", "can", "do", "does", "did", "might", "may",
                                                   "will", "shall"]
 
     static let seriesConnectors: Set<String> = [",", "and", "or", "then", "plus", "also"]
+    static let nounDeterminers: Set<String> = ["a", "an", "the", "this", "that", "these", "those", "my", "your",
+                                              "our", "their", "his", "her", "its", "some", "any", "each", "every"]
 
     static func isVerb(_ word: String) -> Bool { changeVerbs.contains(word) || codingOnlyVerbs.contains(word) }
+
+    /// A series needs a predicate, not just a word that can be a verb ("the build", "run the unit test").
+    /// Accept a subject/modal/infinitive marker, or an uncoordinated finite noun-subject clause
+    /// ("why the developers build"). A marker-led finite predicate rules out the object fallback.
+    static func isSeriesHead(_ words: [String], at index: Int, embedded: Embedding, coordinated: Bool) -> Bool {
+        guard index > 0, isVerb(words[index]) else { return false }
+        let previous = words[index - 1]
+        if subordinateMarkers.contains(previous)
+            || (previous == "also" && index > 1 && subordinateMarkers.contains(words[index - 2])) { return true }
+        let compoundNoun = codePhrases.contains { $0 == previous + " " + words[index] }
+        return embedded == .clause && !coordinated && !nounDeterminers.contains(previous) && !compoundNoun
+    }
 
     /// Index of the last verb when `words[start...]` begins "V2, V3", "V2 and V3" or "V2, and then V3", else nil.
     static func verbSeriesEnd(_ words: [String], from start: Int) -> Int? {
@@ -217,17 +233,25 @@ enum GoalProtocol {
             var coordinated = false
             var objected = false
             var innerVerb = false
+            var seriesEnded = false
             var index = 0
             while index < words.count {
                 let word = words[index]
                 index += 1
-                if explains && word == "," && innerVerb && index >= 2 && isVerb(words[index - 2]),
+                let followsSeries = seriesEnded
+                seriesEnded = false
+                if explains && word == "," && innerVerb,
                    let seriesEnd = verbSeriesEnd(words, from: index) {
                     index = seriesEnd + 1
                     clauseStart = false
+                    // A completed series cannot be reused to swallow the next comma's commands.
+                    innerVerb = false
+                    seriesEnded = true
                     if embedded == .clause { coordinated = true }
                     continue
                 }
+                let seriesHead = !clauseStart && isSeriesHead(words, at: index - 1, embedded: embedded, coordinated: coordinated)
+                innerVerb = false
                 if explains && questionStarters.contains(word) && embedded != .infinitive {
                     embedded = index < words.count && words[index] == "to" ? .infinitive : .clause
                     coordinated = false
@@ -241,7 +265,8 @@ enum GoalProtocol {
                     && (changeVerbs.contains(word) || codingOnlyVerbs.contains(word)) {
                     coordinated = true
                 }
-                let reopens = embedded == .unscoped || (embedded == .clause && (word == "," || word == "then" || !coordinated))
+                let reopens = (followsSeries && word == ",") || embedded == .unscoped
+                    || (embedded == .clause && (word == "," || word == "then" || !coordinated))
                     || (embedded == .infinitive && objected && (word == "," || word == "then"))
                 if explains && reopens && (word == "and" || word == "then" || word == "plus") {
                     clauseStart = true
@@ -271,7 +296,7 @@ enum GoalProtocol {
                     if namesCode(objects) { return true }
                     if let first = objects.first, pronouns.contains(first), mentionsCode { return true }
                 }
-                innerVerb = !clauseStart && isVerb(word)
+                innerVerb = seriesHead
                 clauseStart = false
             }
         }

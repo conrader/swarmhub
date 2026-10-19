@@ -9,7 +9,7 @@ import re
 
 SWIFT = Path(__file__).resolve().parents[1] / 'Sources/AgentApp/Models/ChatAutomation.swift'
 LISTS = ('explainVerbs', 'changeVerbs', 'codingOnlyVerbs', 'codeNouns', 'codePhrases', 'clauseWords', 'leadIns',
-         'askingVerbs', 'questionStarters', 'pronouns', 'subordinateMarkers', 'seriesConnectors')
+         'askingVerbs', 'questionStarters', 'pronouns', 'subordinateMarkers', 'seriesConnectors', 'nounDeterminers')
 
 
 def swift_lists(source=None):
@@ -36,6 +36,7 @@ QUESTION_STARTERS = set(_LISTS['questionStarters'])
 PRONOUNS = set(_LISTS['pronouns'])
 SUBORDINATE_MARKERS = set(_LISTS['subordinateMarkers'])
 SERIES_CONNECTORS = set(_LISTS['seriesConnectors'])
+NOUN_DETERMINERS = set(_LISTS['nounDeterminers'])
 
 
 def word_char(character):
@@ -73,6 +74,19 @@ def is_verb(word):
     return word in CHANGE_VERBS or word in CODING_ONLY_VERBS
 
 
+def is_series_head(words, index, embedded, coordinated):
+    """Require a predicate marker or an uncoordinated finite noun-subject clause, not a noun object.
+    This mirrors isSeriesHead in Swift, including the determiner and compound-noun guards."""
+    if index <= 0 or not is_verb(words[index]):
+        return False
+    previous = words[index - 1]
+    if previous in SUBORDINATE_MARKERS or (
+            previous == 'also' and index > 1 and words[index - 2] in SUBORDINATE_MARKERS):
+        return True
+    compound_noun = previous + ' ' + words[index] in CODE_PHRASES
+    return embedded == 'clause' and not coordinated and previous not in NOUN_DETERMINERS and not compound_noun
+
+
 def verb_series_end(words, start):
     """Index of the last verb when words[start:] begins "V2, V3", "V2 and V3" or "V2, and then V3" (two or more verbs
     joined by connectors), else None. The series ends at the verb after its first conjunction ("A, B and C")."""
@@ -102,15 +116,21 @@ def requests_code_in_a_clause(text):
         # embedded: None, 'infinitive' ("how to build and test") or 'clause' ("why the parser crashes").
         clause_start, index, explains, embedded, coordinated, objected = True, 0, False, None, False, False
         inner_verb = False
+        series_ended = False
         while index < len(words):
             word = words[index]
             index += 1
-            series_end = verb_series_end(words, index) if explains and word == ',' and inner_verb and index >= 2 \
-                and is_verb(words[index - 2]) else None
+            follows_series, series_ended = series_ended, False
+            series_end = verb_series_end(words, index) if explains and word == ',' and inner_verb else None
             if series_end is not None:
                 index, clause_start = series_end + 1, False
+                # A completed series cannot be reused to swallow the next comma's commands.
+                inner_verb = False
+                series_ended = True
                 coordinated = coordinated or embedded == 'clause'
                 continue
+            series_head = not clause_start and is_series_head(words, index - 1, embedded, coordinated)
+            inner_verb = False
             if explains and word in QUESTION_STARTERS and embedded != 'infinitive':
                 embedded = 'infinitive' if index < len(words) and words[index] == 'to' else 'clause'
                 coordinated = False
@@ -122,7 +142,8 @@ def requests_code_in_a_clause(text):
                     index >= 3 and words[index - 2] == 'also' and words[index - 3] in SUBORDINATE_MARKERS)) and (
                     word in CHANGE_VERBS or word in CODING_ONLY_VERBS):
                 coordinated = True
-            reopens = embedded is None or (embedded == 'clause' and (word in (',', 'then') or not coordinated)) or (
+            reopens = (follows_series and word == ',') or embedded is None or (
+                embedded == 'clause' and (word in (',', 'then') or not coordinated)) or (
                 embedded == 'infinitive' and objected and word in (',', 'then'))
             if explains and reopens and word in ('and', 'then', 'plus'):
                 clause_start, embedded, coordinated = True, None, False
@@ -150,7 +171,7 @@ def requests_code_in_a_clause(text):
                     return True
                 if objects and objects[0] in PRONOUNS and mentions_code:
                     return True
-            inner_verb = not clause_start and is_verb(word)
+            inner_verb = series_head
             clause_start = False
     return False
 
