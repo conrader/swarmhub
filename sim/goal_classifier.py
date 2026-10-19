@@ -9,7 +9,7 @@ import re
 
 SWIFT = Path(__file__).resolve().parents[1] / 'Sources/AgentApp/Models/ChatAutomation.swift'
 LISTS = ('explainVerbs', 'changeVerbs', 'codingOnlyVerbs', 'codeNouns', 'codePhrases', 'clauseWords', 'leadIns',
-         'askingVerbs', 'questionStarters', 'pronouns', 'subordinateMarkers')
+         'askingVerbs', 'questionStarters', 'pronouns', 'subordinateMarkers', 'seriesConnectors')
 
 
 def swift_lists(source=None):
@@ -35,6 +35,7 @@ ASKING_VERBS = set(_LISTS['askingVerbs'])
 QUESTION_STARTERS = set(_LISTS['questionStarters'])
 PRONOUNS = set(_LISTS['pronouns'])
 SUBORDINATE_MARKERS = set(_LISTS['subordinateMarkers'])
+SERIES_CONNECTORS = set(_LISTS['seriesConnectors'])
 
 
 def word_char(character):
@@ -68,6 +69,26 @@ def sentence_words(text):
     return [part for part in parts if part]
 
 
+def is_verb(word):
+    return word in CHANGE_VERBS or word in CODING_ONLY_VERBS
+
+
+def verb_series_end(words, start):
+    """Index of the last verb when words[start:] begins "V2, V3", "V2 and V3" or "V2, and then V3" (two or more verbs
+    joined by connectors), else None. The series ends at the verb after its first conjunction ("A, B and C")."""
+    index, last, count, closing = start, None, 0, False
+    while index < len(words) and is_verb(words[index]):
+        last, count = index, count + 1
+        following = index + 1
+        while following < len(words) and words[following] in SERIES_CONNECTORS:
+            following += 1
+        if closing or following == index + 1:
+            break
+        closing = any(word not in (',', 'also') for word in words[index + 1:following])
+        index = following
+    return last if count >= 2 else None
+
+
 def requests_code_in_a_clause(text):
     parts = sentence_words(text)
     topic = [word for part in parts for word in part if word != ',']
@@ -80,9 +101,16 @@ def requests_code_in_a_clause(text):
         question = words[0] in QUESTION_STARTERS
         # embedded: None, 'infinitive' ("how to build and test") or 'clause' ("why the parser crashes").
         clause_start, index, explains, embedded, coordinated, objected = True, 0, False, None, False, False
+        inner_verb = False
         while index < len(words):
             word = words[index]
             index += 1
+            series_end = verb_series_end(words, index) if explains and word == ',' and inner_verb and index >= 2 \
+                and is_verb(words[index - 2]) else None
+            if series_end is not None:
+                index, clause_start = series_end + 1, False
+                coordinated = coordinated or embedded == 'clause'
+                continue
             if explains and word in QUESTION_STARTERS and embedded != 'infinitive':
                 embedded = 'infinitive' if index < len(words) and words[index] == 'to' else 'clause'
                 coordinated = False
@@ -122,6 +150,7 @@ def requests_code_in_a_clause(text):
                     return True
                 if objects and objects[0] in PRONOUNS and mentions_code:
                     return True
+            inner_verb = not clause_start and is_verb(word)
             clause_start = False
     return False
 

@@ -166,9 +166,34 @@ enum GoalProtocol {
     /// A comma also ends a finite explanatory clause, even with coordinated verbs. "plus" follows the same rule as
     /// "and"; "also" can lead a command after a boundary but alone does not end an explanatory clause.
     /// "we also add" still supplies the clause's own verb; neither "also" nor "plus" is an infinitive's object.
+    /// Fixes14: a comma right after the explanation's own verb that opens a series of two or more verbs ("why we
+    /// install, configure and run the server", "build, test, and then deploy") keeps the series inside the
+    /// explanation; the series ends at the verb after its first conjunction. A comma after an object still ends it.
     static let subordinateMarkers: Set<String> = ["i", "we", "you", "they", "he", "she", "it", "people", "to", "should",
                                                   "must", "would", "could", "can", "do", "does", "did", "might", "may",
                                                   "will", "shall"]
+
+    static let seriesConnectors: Set<String> = [",", "and", "or", "then", "plus", "also"]
+
+    static func isVerb(_ word: String) -> Bool { changeVerbs.contains(word) || codingOnlyVerbs.contains(word) }
+
+    /// Index of the last verb when `words[start...]` begins "V2, V3", "V2 and V3" or "V2, and then V3", else nil.
+    static func verbSeriesEnd(_ words: [String], from start: Int) -> Int? {
+        var index = start
+        var last: Int?
+        var count = 0
+        var closing = false
+        while index < words.count && isVerb(words[index]) {
+            last = index
+            count += 1
+            var following = index + 1
+            while following < words.count && seriesConnectors.contains(words[following]) { following += 1 }
+            if closing || following == index + 1 { break }
+            closing = words[(index + 1)..<following].contains { $0 != "," && $0 != "also" }
+            index = following
+        }
+        return count >= 2 ? last : nil
+    }
 
     static func looksLikeCoding(_ text: String) -> Bool {
         requestsCodeInAClause(text) || firstVerbRequestsCode(text)
@@ -191,10 +216,18 @@ enum GoalProtocol {
             var embedded = Embedding.unscoped
             var coordinated = false
             var objected = false
+            var innerVerb = false
             var index = 0
             while index < words.count {
                 let word = words[index]
                 index += 1
+                if explains && word == "," && innerVerb && index >= 2 && isVerb(words[index - 2]),
+                   let seriesEnd = verbSeriesEnd(words, from: index) {
+                    index = seriesEnd + 1
+                    clauseStart = false
+                    if embedded == .clause { coordinated = true }
+                    continue
+                }
                 if explains && questionStarters.contains(word) && embedded != .infinitive {
                     embedded = index < words.count && words[index] == "to" ? .infinitive : .clause
                     coordinated = false
@@ -238,6 +271,7 @@ enum GoalProtocol {
                     if namesCode(objects) { return true }
                     if let first = objects.first, pronouns.contains(first), mentionsCode { return true }
                 }
+                innerVerb = !clauseStart && isVerb(word)
                 clauseStart = false
             }
         }
