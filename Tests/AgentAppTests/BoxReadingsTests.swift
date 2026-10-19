@@ -231,6 +231,5 @@ private func job(daysAgo: Double, waited: Int, peak: Int) -> BoxCapacityReport.J
                          recipes.appending(path: "recipes/capacity.md").path, recipes.appending(path: "manager-hermes.md").path]
     process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "BOX_SH": shell]
     let (status, output) = try await runToEnd(process)
-    if shellSuiteSkipped(status, output) { return }
     #expect(status == 0 && output.contains("box-readings tests under \(shell): 12 passed, 0 failed") && !output.contains("FAIL"), "\(output)")
 }

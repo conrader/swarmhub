@@ -138,9 +138,13 @@ func runToEnd(_ process: Process) async throws -> (status: Int32, output: String
 }
 
 /// A shell suite that cannot run on this box prints one `SKIP:` line and exits 77 (the automake/meson skip code)
-/// instead of running cases; its wrapper then passes without asserting counts, as it does when the shell is absent.
+/// instead of running cases. Mixed diagnostics or partial test results are failures, never a skip.
 func shellSuiteSkipped(_ status: Int32, _ output: String) -> Bool {
-    status == 77 && output.contains("SKIP:")
+    let lines = output.split(whereSeparator: \.isNewline)
+    guard status == 77, lines.count == 1, lines[0].hasPrefix("SKIP: "),
+          !lines[0].dropFirst(6).allSatisfy(\.isWhitespace), !output.contains("FAIL:") else { return false }
+    print(output.trimmingCharacters(in: .whitespacesAndNewlines))
+    return true
 }
 
 /// Hang ceiling for every test wait. Waits end on the awaited state or event, never on a timer; this only

@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import time
@@ -28,21 +29,34 @@ def children_by_home(home):
     """Pids of every other process whose environment HOME is ``home``.
 
     Linux reads ``/proc/<pid>/environ``. macOS has no /proc: one ``ps -E``
-    listing carries the environment of the caller's own processes after each
-    command. Elsewhere nothing is reported; a late supervisor still stops on
-    its own once the state folder is gone.
+    listing carries the environment after each command. The BSD ``e`` spelling
+    is a fallback for ps variants that reject -E or omit the environment.
+    Discovery failures must not masquerade as successful cleanup.
     """
     marker = "HOME=" + str(home)
     if Path("/proc/self/environ").exists():
         return _pids_by_home_proc(marker.encode(), os.getpid())
-    if sys.platform != "darwin":
-        return []
-    try:
-        listing = subprocess.run(["/bin/ps", "-axEww", "-o", "pid=,command="], capture_output=True,
-                                 text=True, timeout=10, check=False).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
-    return _pids_by_home_ps(listing, marker, os.getpid())
+    return _children_by_home_ps(marker, os.getpid())
+
+
+def _children_by_home_ps(marker, me):
+    readable = False
+    for flags in ("-axEww", "axeww"):
+        try:
+            result = subprocess.run(["/bin/ps", flags, "-o", "pid=,command="], capture_output=True,
+                                    text=True, timeout=10, check=False)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode != 0 or not result.stdout.strip():
+            continue
+        readable = True
+        found = _pids_by_home_ps(result.stdout, marker, me)
+        if found:
+            return found
+    if not readable:
+        # Never include ps output: it contains other processes' environments.
+        raise RuntimeError("process discovery failed: neither ps -E nor its BSD e fallback returned a listing")
+    return []
 
 
 def _pids_by_home_proc(marker, me):
@@ -59,11 +73,12 @@ def _pids_by_home_proc(marker, me):
 
 
 def _pids_by_home_ps(listing, marker, me):
-    """``ps -E -o pid=,command=`` rows: pid, argv, then KEY=VALUE environment words."""
+    """``ps -E -o pid=,command=`` rows, preserving spaces in HOME values."""
     found = []
+    home = re.compile(r"(?<!\S)" + re.escape(marker) + r"(?=\s+[A-Za-z_][A-Za-z0-9_]*=|\s*$)")
     for line in listing.splitlines():
-        fields = line.split()
-        if len(fields) > 1 and fields[0].isdigit() and int(fields[0]) != me and marker in fields[1:]:
+        fields = line.split(None, 1)
+        if len(fields) > 1 and fields[0].isdigit() and int(fields[0]) != me and home.search(fields[1]):
             found.append(int(fields[0]))
     return found
 

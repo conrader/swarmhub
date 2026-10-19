@@ -200,7 +200,6 @@ private func runShellTest(_ script: String, _ args: [String], shell: String, env
     guard FileManager.default.isExecutableFile(atPath: shell) else { return }
     let (status, output) = try await runShellTest("Tests/Scripts/claude-login-test.sh", [repoRoot.appending(path: "Resources/Skills/swarmhub-coding/scripts/swarmhub-claude-login").path],
                                             shell: shell, env: ["LOGIN_SH": shell])
-    if shellSuiteSkipped(status, output) { return }
     #expect(status == 0 && output.contains("claude-login tests under \(shell): 5 passed, 0 failed") && !output.contains("FAIL"), "\(output)")
 }
 

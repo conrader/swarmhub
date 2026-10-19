@@ -21,11 +21,20 @@ KEY_DEFAULT=sk-default-0c9e8d7f6a5b4c3d
 KEY_JARVIS=sk-jarvis-1a2b3c4d5e6f7a8b
 
 # Preflight (not a case): skip, don't fail, when no loopback socket can be opened here (see the header).
-if ! PREFLIGHT=$(python3 -I -c 'import socket
-s = socket.socket(); s.bind(("127.0.0.1", 0)); s.close()' 2>&1); then
-  echo "SKIP: bot-msg tests under $SH: no loopback socket in this environment ($(printf '%s\n' "$PREFLIGHT" | tail -n 1))"
-  exit 77
-fi
+PREFLIGHT=$(python3 -I -c 'import errno, socket, sys
+try:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+except OSError as e:
+    sys.exit(77 if e.errno in (errno.EPERM, errno.EACCES) else 1)
+print("ok")' 2>&1)
+PREFLIGHT_STATUS=$?
+case "$PREFLIGHT_STATUS" in
+  77) echo "SKIP: bot-msg tests under $SH: permission denied opening a loopback socket"; exit 77 ;;
+  0) [ "$PREFLIGHT" = ok ] || { echo "FAIL: bot-msg preflight returned no valid socket result"; exit 1; } ;;
+  *) echo "FAIL: bot-msg preflight failed (exit $PREFLIGHT_STATUS)"; exit 1 ;;
+esac
 
 # One stub gateway for every case; each case resets its state.
 mkdir -p "$ROOT/gw"

@@ -6,7 +6,7 @@
 #
 #   sh Tests/Scripts/accounts-recipes-test.sh <path/to/recipes/accounts.md> <dir with node>     BOX_SH (default /bin/sh)
 #
-# Exit 77 = skipped (one "SKIP:" line, no cases run): no node in that folder, or node cannot run a child process the
+# Exit 77 = skipped (one "SKIP:" line, no cases run): no node in that folder, or permissions block a child process the
 # way the status recipe does. Its execSync passes stdio ["ignore","pipe","pipe"] (since 2026-10-19): with a stdin
 # pipe (a socketpair) execSync closes it with shutdown(2), and a sandbox that denies that syscall made every version
 # read null even though the child ran, so the recipes misreported installed tools as absent (seccomp'd review
@@ -25,10 +25,21 @@ NODE_DIR=$ROOT/node
 # Preflight (not a case): skip, don't fail, when node is missing or cannot run a child here (see the header).
 skip() { echo "SKIP: accounts recipe tests under $SH: $1"; exit 77; }
 [ -x "$NODE_DIR/node" ] || skip "no executable node in $2"
-if ! PREFLIGHT=$(env HOME="$ROOT" PATH="/usr/bin:/bin:$NODE_DIR" node -e \
-    'require("child_process").execSync("/bin/echo ok", {timeout: 20000, stdio: ["ignore", "pipe", "pipe"]})' 2>&1); then
-  skip "node cannot run a child process in this environment ($(printf '%s\n' "$PREFLIGHT" | grep -m1 -E 'Error|EPERM|not permitted' || echo "node -e failed"))"
-fi
+PREFLIGHT=$(env HOME="$ROOT" PATH="$NODE_DIR:/usr/bin:/bin" node -e '
+try {
+  const out = require("child_process").execSync("/bin/echo ok", {timeout: 20000, stdio: ["ignore", "pipe", "pipe"]});
+  if (out.toString() !== "ok\n") throw new Error("unexpected child output");
+  console.log("ok");
+} catch (e) {
+  if (e.code === "EPERM" || e.code === "EACCES") process.exit(77);
+  process.exit(1);
+}' 2>&1)
+PREFLIGHT_STATUS=$?
+case "$PREFLIGHT_STATUS" in
+  77) skip "permission denied running a node child process" ;;
+  0) [ "$PREFLIGHT" = ok ] || { echo "FAIL: accounts preflight returned no valid child output"; exit 1; } ;;
+  *) echo "FAIL: accounts preflight failed (exit $PREFLIGHT_STATUS)"; exit 1 ;;
+esac
 
 recipe() {
   awk -v marker="$1" 'found == 0 && index($0, marker) { found = 1; next }
@@ -71,7 +82,7 @@ fast() { sed -e 's/\[ \$i -lt 40 \]; do sleep 1;/[ $i -lt 400 ]; do sleep 0.1;/'
 # Runs recipe $1 with <tool> = $2 and <code> = $3; output in $C/out.
 run() {
   printf '%s\n' "$1" | sed -e "s|<tool>|$2|g" -e "s|<code>|$3|g" | fast > "$C/recipe.sh"
-  env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin:$NODE_DIR" "$SH" "$C/recipe.sh" > "$C/out" 2> "$C/err"
+  env HOME="$C/home" PATH="$C/bin:$NODE_DIR:/usr/bin:/bin" "$SH" "$C/recipe.sh" > "$C/out" 2> "$C/err"
 }
 expect() { what=$1; shift; "$@" || PROBLEMS="$PROBLEMS; $what"; }
 has() { grep -Fq -- "$1" "$C/out"; }
@@ -99,7 +110,7 @@ expect "claude" has '"claude":{"installed":true,"version":"2.1.3","logged_in":tr
 expect "codex" has '"codex":{"installed":true,"version":"0.50.1","logged_in":true}'
 expect "pool in priority order, email hidden" has '"chatgpt":{"count":2,"labels":["account 1","backup"],"benched_until":["'
 expect "second entry not benched" has '",null]}}'
-expect "no token, no email" lacks SECRET && lacks sk-ant && lacks '@' && lacks R-B
+for private_text in SECRET sk-ant '@' R-B; do expect "no token, no email" lacks "$private_text"; done
 done_case
 
 new_case "status: nothing installed, no pool"
@@ -109,7 +120,7 @@ done_case
 
 new_case "codex: device flag from --help, link and code, then done" codex
 printf '%s\n' "$START" | sed "s|<tool>|codex|g" > "$C/start.sh"
-env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin:$NODE_DIR" "$SH" "$C/start.sh" & BG=$!
+env HOME="$C/home" PATH="$C/bin:$NODE_DIR:/usr/bin:/bin" "$SH" "$C/start.sh" & BG=$!
 run "$LINK" codex
 expect "login_link (got: $(cat "$C/out"))" has '{"op":"login_link","tool":"codex","url":"https://auth.openai.com/codex/device","code":"ABCD-1234"}'
 : > "$C/home/release"

@@ -209,7 +209,6 @@ private let codeJobShards = ["1 2 3 4 5 6", "7", "8 9", "10 11 12 13 14 15 16"]
     // Only what the test needs: no inherited agent keys or the developer's PATH (no real claude/codex).
     process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "CODE_JOB_SH": shell, "CODE_JOB_CASES": cases]
     let (status, output) = try await runToEnd(process)
-    if shellSuiteSkipped(status, output) { return }
     #expect(status == 0, "\(shell):\n\(output)")
     let count = cases.split(separator: " ").count
     #expect(output.contains("code-job tests under \(shell): \(count) passed, 0 failed"), "\(output)")
