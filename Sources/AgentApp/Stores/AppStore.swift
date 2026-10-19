@@ -21,6 +21,8 @@ import SwarmHubCoordination
     var managedDecisionsInFlight: Set<UUID> = []
     // Keep the mutable Bot and injected control state on the store's actor across suspension points.
     var managedControl: (@MainActor (Bot, String, String, Data?) async throws -> ManagedRecord)?
+    /// The account home the real control subprocess runs against (tests point it at a temporary runtime layout).
+    var managedHome: URL? = nil
     @Published var secretRequest: SecretRequestPrompt?; var secretFolder: URL?
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false

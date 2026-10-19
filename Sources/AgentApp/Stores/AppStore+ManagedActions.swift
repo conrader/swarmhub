@@ -33,7 +33,8 @@ extension AppStore {
         if let managedControl { return try await managedControl(bot, verb, task, input) }
         return try await ManagedLocalControl.request(
             address: bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL,
-            profile: bot.hermesProfile ?? "default", verb: verb, task: task, input: input)
+            profile: bot.hermesProfile ?? "default", verb: verb, task: task, input: input,
+            home: managedHome ?? FileManager.default.homeDirectoryForCurrentUser)
     }
 
     /// Keep the persisted pending card until an authoritative runtime receipt confirms the decision.

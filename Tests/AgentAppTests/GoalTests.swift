@@ -265,3 +265,42 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
     #expect(!goal.accepts(GoalEvidence(deliverable: "Explanation"), reply: "Some prose"))
     #expect(goal.accepts(GoalEvidence(testsPassed: true, report: "/workspace/report.md"), reply: ""))
 }
+
+// Cross-review finding 8: a plain /goal whose text changes code is held to the coding evidence contract; --general opts out.
+@Test func codingLikeGoalsRequireEvidenceUnlessMarkedGeneral() {
+    #expect(GoalProtocol.looksLikeCoding("fix the failing build") && GoalProtocol.looksLikeCoding("Refactor the parser") && GoalProtocol.looksLikeCoding("open a pull request for it"))
+    #expect(!GoalProtocol.looksLikeCoding("Explain the result") && !GoalProtocol.looksLikeCoding("write the changelog") && !GoalProtocol.looksLikeCoding("summarize the meeting"))
+    var goal = GoalRun(text: "fix the failing build", maxRounds: 2, startedAt: Date(), maxDuration: 60)
+    #expect(goal.codingEvidence == nil && goal.requiresCodingEvidence)
+    #expect(!goal.accepts(GoalEvidence(deliverable: "done in chat"), reply: "Fixed it."))
+    #expect(goal.accepts(GoalEvidence(testsPassed: true, report: "/r"), reply: ""))
+    #expect(GoalProtocol.firstTurn(goal).contains("\"commit\"") && GoalProtocol.evidenceRequest(goal, evidence: GoalEvidence()).hasPrefix("Your done block"))
+    goal.codingEvidence = false
+    #expect(!goal.requiresCodingEvidence && goal.accepts(GoalEvidence(), reply: "Fixed it."))
+    #expect(goal.doneDetail(GoalEvidence()).hasPrefix("Unverified (general goal): "))
+    let general = GoalRun(text: "write the changelog", maxRounds: 2, startedAt: Date(), maxDuration: 60)
+    #expect(!general.requiresCodingEvidence && !general.doneDetail(GoalEvidence()).hasPrefix("Unverified"))
+}
+
+@MainActor @Test func aPlainCodingLikeGoalIsSentBackWithoutEvidenceAndGeneralOptsOut() async throws {
+    let backend = ScriptedTurnBackend(); let (store, bot) = goalStore(backend)
+    #expect(store.submitComposer(text: "/goal fix the failing build"))
+    try await waitUntil { await backend.streamCount == 1 }
+    #expect(store.goal(in: bot)?.codingEvidence == nil && store.goal(in: bot)?.requiresCodingEvidence == true)
+    #expect(bot.messages.first { $0.role == .user }?.content.contains("\"commit\"") == true, "the coding protocol is sent")
+    await finish(backend, bareDoneReply)
+    try await waitUntil { await backend.streamCount == 2 }
+    let card = try #require(bot.messages.last { $0.presentation == .automation })
+    #expect(card.content == "Done claimed without evidence" && card.metadata[AutomationKey.card] == "goalUnverified")
+    await finish(backend, doneReply)
+    try await waitUntil { store.goal(in: bot)?.state == .done }
+    #expect(bot.messages.last?.metadata[AutomationKey.detail]?.contains("not verified by SwarmHub: commit abc1234") == true)
+
+    let (general, generalBot) = goalStore(backend)
+    #expect(general.submitComposer(text: "/goal --general fix the failing build"))
+    try await waitUntil { await backend.streamCount == 3 }
+    #expect(general.goal(in: generalBot)?.text == "fix the failing build" && general.goal(in: generalBot)?.codingEvidence == false)
+    await finish(backend, bareDoneReply)
+    try await waitUntil { general.goal(in: generalBot)?.state == .done }
+    #expect(generalBot.messages.last?.metadata[AutomationKey.detail]?.contains("Unverified (general goal)") == true)
+}

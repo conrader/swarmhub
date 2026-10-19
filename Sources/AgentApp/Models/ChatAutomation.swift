@@ -36,12 +36,22 @@ struct GoalRun: Codable, Equatable, Sendable {
     var lastSummary: String?; var need: String?; var endReason: String?
     /// Rounds spent asking for evidence after a `done` block that had none (optional: goals saved before it existed).
     var evidenceRounds: Int?
-    /// Explicit /goal --coding opts into commit/test + report evidence. Older/general goals accept chat deliverables.
+    /// `/goal --coding` (true) opts into commit/test + report evidence; `/goal --general` (false) opts out. A plain
+    /// `/goal` (nil) is held to that evidence when its text asks for code changes (cross-review finding 8).
     var codingEvidence: Bool?
+    var requiresCodingEvidence: Bool { codingEvidence ?? GoalProtocol.looksLikeCoding(text) }
 
     func accepts(_ evidence: GoalEvidence, reply: String) -> Bool {
-        if codingEvidence == true { return evidence.isSufficient }
+        if requiresCodingEvidence { return evidence.isSufficient }
         return evidence.deliverable != nil || !SwarmhubBlock.visibleText(reply).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The done card's second line: the claimed coding evidence, or the general wording, marked unverified when the
+    /// text looked like coding work but the goal was started `--general`.
+    func doneDetail(_ evidence: GoalEvidence) -> String {
+        if requiresCodingEvidence { return evidence.summary }
+        let general = "Deliverable provided in chat or at the supplied reference; claimed complete by the bot."
+        return GoalProtocol.looksLikeCoding(text) ? "Unverified (general goal): " + general : general
     }
 
     var isActive: Bool { state == .running || state == .paused }
@@ -59,7 +69,7 @@ enum GoalProtocol {
     static let roundsKey = "goalMaxRounds", hoursKey = "goalMaxHours"
 
     static func firstTurn(_ goal: GoalRun) -> String {
-        if goal.codingEvidence != true {
+        if !goal.requiresCodingEvidence {
             return """
             [SwarmHub goal] Work toward this goal across turns until it is fully achieved: \(goal.text)\(criteria(goal))
             Deliver the requested result in chat or name the actual deliverable in evidence.deliverable. Respect all acceptance criteria and constraints.
@@ -101,9 +111,21 @@ enum GoalProtocol {
     /// How many times a `done` without evidence is sent back before the goal is blocked for you.
     static let maxEvidenceRounds = 2
 
+    /// Words that mean the goal changes code; such a goal is held to the coding evidence contract unless started
+    /// `--general`. Deliberately narrow: "write the changelog" or "explain the result" stay general.
+    static let codingWords: Set<String> = ["fix", "bug", "bugs", "implement", "refactor", "rewrite", "code", "repo", "repository",
+                                           "commit", "merge", "branch", "pr", "test", "tests", "build", "compile", "ci", "lint",
+                                           "migration", "migrate", "script", "function", "endpoint", "patch", "debug", "typecheck"]
+
+    static func looksLikeCoding(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        let words = lowered.split { !($0.isLetter || $0.isNumber) }.map(String.init)
+        return words.contains { codingWords.contains($0) } || lowered.contains("pull request")
+    }
+
     /// The round that answers a `done` block without accepted evidence.
     static func evidenceRequest(_ goal: GoalRun, evidence: GoalEvidence) -> String {
-        if goal.codingEvidence != true {
+        if !goal.requiresCodingEvidence {
             return "Deliver the requested result for \(goal.text) in chat, or identify its actual reference in evidence.deliverable, then send the done block. If blocked, report blocked."
         }
         return "Your done block for the goal \"\(goal.text)\" has no accepted evidence (missing: \(evidence.missing.joined(separator: "; "))). " +

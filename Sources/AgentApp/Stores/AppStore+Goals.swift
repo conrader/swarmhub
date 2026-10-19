@@ -57,9 +57,12 @@ extension AppStore {
             commandLine("This chat already has a goal: \(existing.text). Type /goal clear first.", in: conversation); return
         }
         let budget = goalBudget
-        let coding = text.hasPrefix("--coding ")
-        let goalText = coding ? String(text.dropFirst(9)) : text
-        automations[conversation.id, default: .init()].goal = GoalRun(text: goalText, maxRounds: budget.rounds, startedAt: now(), maxDuration: budget.hours * 3600, codingEvidence: coding)
+        // `--coding` requires commit/test evidence, `--general` accepts the chat deliverable; a plain goal is judged by
+        // its text (`GoalRun.requiresCodingEvidence`).
+        let coding = text.hasPrefix("--coding "), general = text.hasPrefix("--general ")
+        let goalText = coding ? String(text.dropFirst(9)) : general ? String(text.dropFirst(10)) : text
+        let evidence: Bool? = coding ? true : general ? false : nil
+        automations[conversation.id, default: .init()].goal = GoalRun(text: goalText, maxRounds: budget.rounds, startedAt: now(), maxDuration: budget.hours * 3600, codingEvidence: evidence)
         save(); startAutomationTicker()
         advanceGoal(in: conversation, bot: bot)
     }
@@ -112,7 +115,7 @@ extension AppStore {
         case .done(let summary, let evidence):
             guard goal.accepts(evidence, reply: reply.finalText) else { requestGoalEvidence(in: conversation, bot: bot, goal: goal, summary: summary, evidence: evidence); return }
             updateGoal(in: conversation) { $0.lastSummary = summary }
-            endGoal(in: conversation, state: .done, card: "goalDone", title: "Goal reached", detail: (summary.isEmpty ? goal.text : summary) + "\n" + (goal.codingEvidence == true ? evidence.summary : "Deliverable provided in chat or at the supplied reference; claimed complete by the bot."))
+            endGoal(in: conversation, state: .done, card: "goalDone", title: "Goal reached", detail: (summary.isEmpty ? goal.text : summary) + "\n" + goal.doneDetail(evidence))
         case .blocked(let need):
             updateGoal(in: conversation) { $0.state = .blocked; $0.need = need }
             addGoalCard(in: conversation, card: "goalBlocked", title: "Goal blocked", detail: need.isEmpty ? "The bot needs something from you." : need)
@@ -129,15 +132,15 @@ extension AppStore {
     func requestGoalEvidence(in conversation: any Conversation, bot: Bot, goal: GoalRun, summary: String, evidence: GoalEvidence) {
         let spent = (goal.evidenceRounds ?? 0) + 1
         updateGoal(in: conversation) { $0.evidenceRounds = spent; if !summary.isEmpty { $0.lastSummary = summary } }
-        addGoalCard(in: conversation, card: "goalUnverified", title: "Done claimed without evidence", detail: goal.codingEvidence == true ? evidence.summary : "The requested deliverable is missing.")
+        addGoalCard(in: conversation, card: "goalUnverified", title: "Done claimed without evidence", detail: goal.requiresCodingEvidence ? evidence.summary : "The requested deliverable is missing.")
         guard goal.state == .running else { return } // Pause still wins when the last reply claims done.
         guard !goal.budgetSpent(at: now()) else {
-            endGoal(in: conversation, card: "goalEnded", title: "Goal stopped: evidence missing at the budget limit", detail: goal.codingEvidence == true ? evidence.summary : "The requested deliverable is missing.")
+            endGoal(in: conversation, card: "goalEnded", title: "Goal stopped: evidence missing at the budget limit", detail: goal.requiresCodingEvidence ? evidence.summary : "The requested deliverable is missing.")
             return
         }
         if turns.pathDown { updateGoal(in: conversation) { $0.state = .paused; $0.pausedOffline = true }; return }
         guard spent <= GoalProtocol.maxEvidenceRounds else {
-            updateGoal(in: conversation) { $0.state = .blocked; $0.need = goal.codingEvidence == true ? "evidence for done: a commit id or a test pass, plus the fresh report path" : "the requested deliverable" }
+            updateGoal(in: conversation) { $0.state = .blocked; $0.need = goal.requiresCodingEvidence ? "evidence for done: a commit id or a test pass, plus the fresh report path" : "the requested deliverable" }
             addGoalCard(in: conversation, card: "goalBlocked", title: "Goal blocked",
                         detail: "The bot said done \(spent) times without evidence. Check its work yourself, or resume to ask again.")
             return
