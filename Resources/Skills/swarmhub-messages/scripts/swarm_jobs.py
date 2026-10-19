@@ -29,6 +29,10 @@ def check_job(ident, bot, directory, model, effort, report, task, order, verify=
         (spec["bot"], str(Path(spec["directory"]).resolve()), expected_model, spec["effort"],
          str(expected_report.resolve()), spec["task"], expected_order, spec.get("verify", ""))):
         raise ValueError("job parameters do not match the approved task")
+    # Claude Code gets the operator's host shell: only a record the owner decided may reach it, whatever the
+    # gate was when an older record was admitted.
+    if "claude" in order.split(",") and (row["gate"] != "owner" or not row.get("decided_by")):
+        raise ValueError("claude requires an owner-approved task")
 
 
 def fake_done(db, ident, kind):

@@ -103,7 +103,10 @@ printf '%s\n' '{"coordinator":"jarvis","owner":"konrad","route":"codex","allow_s
 ```
 Use actual local profile names. Settings persist independently of sessions. Subscribers receive each revision on
 their next turn; managed admission and CLI dispatch read the current settings regardless of prompt text. `route`
-controls coding CLI selection; it does not reconfigure the chat provider. Set `codex_model` to an explicit supported
+controls coding CLI selection; it does not reconfigure the chat provider. `coding_gate` is `owner` by default:
+every managed coding task waits for the owner's decision. The owner may publish `"coding_gate":"auto"` to let
+Codex-only orders (workspace-write sandbox plus the verification sandbox) run without a card; an order that
+includes claude waits for the owner regardless, because Claude Code runs on the host with the operator's shell. Set `codex_model` to an explicit supported
 Codex model ID when rerouting jobs originally pinned to another provider's model. Never start speculative work while the
 policy forbids it. `scripts/swarmctl report <sender-profile> "<result>"` journals delivery to the coordinator at all
 hours and to the owner during the configured reporting window (08:00 inclusive to 23:00 exclusive by default).

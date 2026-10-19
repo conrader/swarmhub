@@ -98,10 +98,14 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/code-job.XXXXXX") || exit 1
 SLOT= APID= MPID= VPID= O1= O2= AGENT=none SKIPPED= WAITED=0 RAN=0 PEAK=0 LOGGED=
 HEAD_BEFORE= HEAD_AFTER=- COMMIT=not-checked VEXIT=- TESTS=not-run EVIDENCE=none
 
+# Host git for evidence only, with the repository's executable settings overridden: even if an agent with a host
+# shell planted core.fsmonitor or a hooks path in .git/config, code-job's own git never runs it.
+HOSTGIT='git -c core.fsmonitor=false -c core.hooksPath=/dev/null'
+
 # HEAD of --dir: a commit id, `none` (a repository without commits) or `not-a-repo`.
 head_of() {
-  if git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "$DIR" rev-parse --verify HEAD 2>/dev/null || echo none
+  if $HOSTGIT -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    $HOSTGIT -C "$DIR" rev-parse --verify HEAD 2>/dev/null || echo none
   else
     echo not-a-repo
   fi
@@ -117,7 +121,7 @@ collect_evidence() {
     none) ;;
     *) if [ "$HEAD_AFTER" != "$HEAD_BEFORE" ]; then
          case $HEAD_BEFORE in none|not-a-repo) COMMIT=true ;;
-           *) git -C "$DIR" merge-base --is-ancestor "$HEAD_BEFORE" "$HEAD_AFTER" 2>/dev/null && COMMIT=true ;;
+           *) $HOSTGIT -C "$DIR" merge-base --is-ancestor "$HEAD_BEFORE" "$HEAD_AFTER" 2>/dev/null && COMMIT=true ;;
          esac
        fi ;;
   esac
@@ -319,6 +323,10 @@ for a in $(echo "$ORDER" | tr ',' ' '); do
     echo CODE_JOB_USE_DELEGATE
     finish 75 delegate
   fi
+  # Claude Code runs on the host with the operator's shell (acceptEdits + Bash), not in a workspace sandbox. It is
+  # therefore only ever started for a managed task whose owner-approved record check-job verified above; a direct
+  # code-job skips it like a missing CLI so the order falls through to codex/hermes.
+  if [ "$a" = claude ] && { [ -z "$TASKID" ] || [ ! -f "$CTL" ]; }; then SKIPPED="$SKIPPED, claude: approval"; continue; fi
   if ! command -v "$a" >/dev/null 2>&1; then SKIPPED="$SKIPPED, $a: missing"; continue; fi
   take_slot
   if [ -f "$CTL" ] && [ -z "$TASKID" ]; then

@@ -117,6 +117,9 @@ class PeerTests(unittest.TestCase):
                         SWARMHUB_GATEWAY="http://127.0.0.1:1")
         os.environ.update(self.env)
         self.sync()
+        # Cross-review finding 4: coding jobs are owner-gated by default. These suites exercise the owner's explicit
+        # automatic Codex route; claude orders stay owner-gated regardless (sim/test_fixes6_policy.py).
+        peer.control.publish({"coding_gate": "auto"})
 
     def stop_background(self):
         # ready precedes code-job's final wake-start/logging. Let launchers exit

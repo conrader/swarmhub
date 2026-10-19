@@ -16,6 +16,21 @@ cp "$JOB" "$ROOT/skills/swarmhub-coding/scripts/code-job" || exit 1
 cp "$(dirname "$JOB")/completion-contract.py" "$ROOT/skills/swarmhub-coding/scripts/completion-contract.py" || exit 1
 cp "$(dirname "$JOB")/verify-sandbox.py" "$ROOT/skills/swarmhub-coding/scripts/verify-sandbox.py" || exit 1
 JOB=$ROOT/skills/swarmhub-coding/scripts/code-job
+# Claude Code only runs for a managed task (--task-id) that the control interface's check-job accepted. The real
+# check-job (owner gate for claude orders) is covered by sim/test_fixes6_policy.py; this stand-in accepts the fixture
+# task so the CLI-level behaviour of a managed claude run stays testable here. Cases opt in with `with_control`.
+CTL_DIR=$ROOT/skills/swarmhub-messages/scripts
+cat > "$ROOT/swarmctl-stub" <<'CTL'
+#!/usr/bin/env python3
+import sys
+command, *args = sys.argv[1:]
+if command in ("plan", "model"):
+    print(args[0])
+elif command != "check-job":
+    sys.exit(64)
+CTL
+TASKID=task.0123456789abcdef0123456789abcdef
+with_control() { mkdir -p "$CTL_DIR" && cp "$ROOT/swarmctl-stub" "$CTL_DIR/swarmctl"; }
 PASSED=0 FAILED=0
 TASK='Fix the failing test in calc.py'
 # Synthetic identities must reach both setup git and the CLI subprocess, even on
@@ -57,6 +72,7 @@ new_case() {
   C=$ROOT/$(echo "$NAME" | tr -c 'A-Za-z0-9\n' '_')
   mkdir -p "$C/home" "$C/bin" "$C/state" "$C/work"
   for n in "$@"; do cp "$ROOT/stub" "$C/bin/$n"; chmod 755 "$C/bin/$n"; done
+  rm -f "$CTL_DIR/swarmctl"
   LOG=$C/home/.hermes/swarmhub/coding-jobs.log
   PROBLEMS=
 }
@@ -66,6 +82,9 @@ mode() { echo "$2" > "$C/state/$1.mode"; }
 # Cases 1-16 supply trivial evidence; cases 17-22 set CASE_VERIFY to test evidence and cleanup.
 # (No `VAR=x job` prefixes: bash's POSIX mode keeps them after a function call.)
 job() { job_to "$C/out" "$C/err" "$@"; }
+# A managed run: the fixture task id (accepted by the stub control interface) and an explicit trivial verifier,
+# since a managed job never consults CODE_JOB_VERIFY.
+managed() { job --task-id "$TASKID" --verify true "$@"; }
 job_to() {
   out=$1 err=$2; shift 2
   env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin" STUB_STATE="$C/state" CODE_JOB_MODEL=synthetic-model CODE_JOB_REPORT="$C/work/REPORT.txt" CODE_JOB_POLL=0.2 CODE_JOB_TICK=0.25 CODE_JOB_VERIFY="${CASE_VERIFY-true}" ${CALLER_ENV:-} "$SH" "$JOB" "$@" > "$out" 2> "$err"
@@ -83,9 +102,23 @@ done_case() {
 
 # 1
 case_1() {
-new_case "claude ok" claude codex; mode claude ok; mode codex ok
+new_case "claude: direct run skipped for approval, managed owner-approved run ok" claude codex; mode claude ok; mode codex ok
 job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
-expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
+expect "direct: exit 0 via codex (got $RC)" [ "$RC" -eq 0 ]
+expect "direct: claude never started" [ ! -f "$C/state/claude.calls" ]
+expect "direct: codex ran" has "$C/out" "codex did the work"
+line_matches '^code-job: codex ok · waited 0s · ran [0-9]+s · peak [0-9]+ MB · skipped claude: approval$' "direct summary line"
+expect "direct: log skipped claude: approval" [ "$(field 3)|$(field 7)|$(field 8)" = "codex|0|claude: approval" ]
+job --bot jarvis --order claude --dir "$C/work" -- "$TASK"; RC=$?
+expect "direct, claude only: exit 69 (got $RC)" [ "$RC" -eq 69 ]
+expect "direct, claude only: never started" [ ! -f "$C/state/claude.calls" ]
+# A task id without the control interface that checks it is not an approval either.
+managed --bot jarvis --order claude --dir "$C/work" -- "$TASK"; RC=$?
+expect "managed without control: exit 69 (got $RC)" [ "$RC" -eq 69 ]
+expect "managed without control: never started" [ ! -f "$C/state/claude.calls" ]
+with_control; rm -f "$LOG" "$C/state/codex.calls"
+managed --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+expect "managed: exit 0 (got $RC)" [ "$RC" -eq 0 ]
 expect "stdout streamed" has "$C/out" "claude did the work"
 expect "stderr streamed" has "$C/err" "claude note on stderr"
 line_matches '^code-job: claude ok · waited 0s · ran [0-9]+s · peak [0-9]+ MB$' "summary line"
@@ -105,8 +138,8 @@ done_case
 
 # 2
 case_2() {
-new_case "claude limit -> codex ok" claude codex; mode claude limit; mode codex ok
-job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+new_case "claude limit -> codex ok" claude codex; mode claude limit; mode codex ok; with_control
+managed --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
 expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
 expect "codex ran" has "$C/out" "codex did the work"
 expect "codex flags" has "$C/state/codex.args" "$(printf 'exec\n--skip-git-repo-check\n-c\nsandbox_mode="workspace-write"\n-c\napproval_policy="never"\n--model\nsynthetic-model\n-c\nmodel_reasoning_effort="high"\n%s' "$TASK")"
@@ -118,8 +151,8 @@ done_case
 
 # 3
 case_3() {
-new_case "claude missing -> codex" codex; mode codex ok
-job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+new_case "claude missing -> codex" codex; mode codex ok; with_control
+managed --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
 expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
 line_matches '^code-job: codex ok · .* · skipped claude: missing$' "summary line"
 expect "log" [ "$(field 3)|$(field 8)" = "codex|claude: missing" ]
@@ -128,8 +161,8 @@ done_case
 
 # 4
 case_4() {
-new_case "both limited -> exit 75 CODE_JOB_USE_DELEGATE" claude codex; mode claude limit; mode codex limit
-job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+new_case "both limited -> exit 75 CODE_JOB_USE_DELEGATE" claude codex; mode claude limit; mode codex limit; with_control
+managed --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
 expect "exit 75 (got $RC)" [ "$RC" -eq 75 ]
 expect "delegate word is the last stdout line" [ "$(tail -n 1 "$C/out")" = "CODE_JOB_USE_DELEGATE" ]
 line_matches '^code-job: hermes delegate · .* · skipped claude: limit, codex: limit$' "summary line"
@@ -139,12 +172,12 @@ done_case
 
 # 5
 case_5() {
-new_case "not logged in -> skipped" claude codex; mode claude login; mode codex ok
-job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+new_case "not logged in -> skipped" claude codex; mode claude login; mode codex ok; with_control
+managed --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
 expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
 line_matches '· skipped claude: login$' "claude login skipped"
 mode codex login; mode claude ok; rm -f "$LOG"
-job --bot jarvis --order codex,claude --dir "$C/work" -- "$TASK"; RC=$?
+managed --bot jarvis --order codex,claude --dir "$C/work" -- "$TASK"; RC=$?
 expect "codex login → claude, exit 0 (got $RC)" [ "$RC" -eq 0 ]
 line_matches '^code-job: claude ok · .* · skipped codex: login$' "codex login skipped"
 done_case
@@ -152,8 +185,8 @@ done_case
 
 # 6
 case_6() {
-new_case "plain failure returned without fallback" claude codex; mode claude fail; mode codex ok
-job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+new_case "plain failure returned without fallback" claude codex; mode claude fail; mode codex ok; with_control
+managed --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
 expect "exit 3 as the agent's (got $RC)" [ "$RC" -eq 3 ]
 expect "agent's error streamed" has "$C/err" "SyntaxError in calc.py"
 expect "codex not run" [ ! -f "$C/state/codex.calls" ]
@@ -165,9 +198,9 @@ done_case
 
 # 7
 case_7() {
-new_case "timeout kills the tree (exit 124)" claude codex; mode claude tree; mode codex ok
+new_case "timeout kills the tree (exit 124)" claude codex; mode claude tree; mode codex ok; with_control
 t0=$(date +%s)
-job --bot jarvis --order claude,codex --timeout 1 --dir "$C/work" -- "$TASK"; RC=$?
+managed --bot jarvis --order claude,codex --timeout 1 --dir "$C/work" -- "$TASK"; RC=$?
 took=$(( $(date +%s) - t0 ))
 expect "exit 124 (got $RC)" [ "$RC" -eq 124 ]
 expect "stopped soon after 1 s (took ${took}s)" [ "$took" -lt 10 ]
@@ -181,13 +214,13 @@ done_case
 
 # 8
 case_8() {
-new_case "SLOTS=1: second job waits, both finish" claude; mode claude slow
+new_case "SLOTS=1: second job waits, both finish" claude; mode claude slow; with_control
 mkdir -p "$C/home/.hermes/swarmhub"; echo "SLOTS=1" > "$C/home/.hermes/swarmhub/coding.conf"
-job_to "$C/out1" "$C/err1" --bot first --order claude --dir "$C/work" -- "$TASK" & P1=$!
+job_to "$C/out1" "$C/err1" --task-id "$TASKID" --verify true --bot first --order claude --dir "$C/work" -- "$TASK" & P1=$!
 # The first holds the slot until the second has waited over a second (released here, not on a timer, so a loaded
 # machine cannot let the first finish before the second asks); the second's own run is instant. The loops only bound a hang.
 n=0; while [ ! -f "$C/state/claude.slow" ] && [ $n -lt 600 ]; do sleep 0.05; n=$((n + 1)); done; mode claude ok
-job_to "$C/out2" "$C/err2" --bot second --order claude --dir "$C/work" -- "$TASK" & P2=$!
+job_to "$C/out2" "$C/err2" --task-id "$TASKID" --verify true --bot second --order claude --dir "$C/work" -- "$TASK" & P2=$!
 n=0; while ! grep -q 'Waiting for a free coding slot' "$C/err2" 2>/dev/null && [ $n -lt 600 ]; do sleep 0.05; n=$((n + 1)); done
 sleep 1.2; : > "$C/state/release"
 wait $P1; RC1=$?; wait $P2; RC2=$?
@@ -205,11 +238,11 @@ done_case
 
 # 9
 case_9() {
-new_case "stale lock is reclaimed" claude; mode claude ok
+new_case "stale lock is reclaimed" claude; mode claude ok; with_control
 sh -c 'exit 0' & dead=$!; wait $dead
 mkdir -p "$C/home/.hermes/swarmhub/slots/1.lock"; echo "$dead" > "$C/home/.hermes/swarmhub/slots/1.lock/pid"
 # Bounded: a lock that is never reclaimed would make the job wait forever.
-job --bot jarvis --order claude --dir "$C/work" -- "$TASK" & P=$!
+managed --bot jarvis --order claude --dir "$C/work" -- "$TASK" & P=$!
 n=0; while kill -0 $P 2>/dev/null && [ $n -lt 300 ]; do sleep 0.1; n=$((n + 1)); done
 if kill -0 $P 2>/dev/null; then pkill -P $P 2>/dev/null; kill $P 2>/dev/null; RC=timeout; else wait $P; RC=$?; fi
 expect "exit 0 (got $RC)" [ "$RC" = 0 ]
@@ -221,9 +254,9 @@ done_case
 
 # 10
 case_10() {
-new_case "claude.token passed as CLAUDE_CODE_OAUTH_TOKEN, never logged" claude; mode claude ok
+new_case "claude.token passed as CLAUDE_CODE_OAUTH_TOKEN, never logged" claude; mode claude ok; with_control
 mkdir -p "$C/home/.hermes/swarmhub"; printf 'sk-ant-oat01-P31-STUB-TOKEN' > "$C/home/.hermes/swarmhub/claude.token"; chmod 600 "$C/home/.hermes/swarmhub/claude.token"
-job --bot jarvis --order claude --dir "$C/work" -- "$TASK"; RC=$?
+managed --bot jarvis --order claude --dir "$C/work" -- "$TASK"; RC=$?
 expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
 expect "stub saw the token" has "$C/state/claude.env" "TOKEN=sk-ant-oat01-P31-STUB-TOKEN"
 expect "not in the log" lacks "$LOG" "P31-STUB-TOKEN"
@@ -231,16 +264,16 @@ expect "not in stdout" lacks "$C/out" "P31-STUB-TOKEN"
 expect "not in stderr" lacks "$C/err" "P31-STUB-TOKEN"
 expect "token file still 0600" [ "$(ls -l "$C/home/.hermes/swarmhub/claude.token" | cut -c1-10)" = "-rw-------" ]
 rm "$C/home/.hermes/swarmhub/claude.token"
-job --bot jarvis --order claude --dir "$C/work" -- "$TASK"
+managed --bot jarvis --order claude --dir "$C/work" -- "$TASK"
 expect "no file, no variable" has "$C/state/claude.env" "TOKEN=unset"
 done_case
 }
 
 # 11
 case_11() {
-new_case "ANTHROPIC_API_KEY from the caller is not visible to claude" claude; mode claude ok
+new_case "ANTHROPIC_API_KEY from the caller is not visible to claude" claude; mode claude ok; with_control
 CALLER_ENV=ANTHROPIC_API_KEY=fake-caller-value-for-this-test
-job --bot jarvis --order claude --dir "$C/work" -- "$TASK"; RC=$?
+managed --bot jarvis --order claude --dir "$C/work" -- "$TASK"; RC=$?
 CALLER_ENV=
 expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
 expect "stub saw it unset" has "$C/state/claude.env" "ANTHROPIC_API_KEY=unset"
@@ -249,8 +282,8 @@ done_case
 
 # 12
 case_12() {
-new_case "only agent skipped -> exit 69; hermes alone -> 75; bad usage -> 64" claude; mode claude limit
-job --bot jarvis --order claude --dir "$C/work" -- "$TASK"; RC=$?
+new_case "only agent skipped -> exit 69; hermes alone -> 75; bad usage -> 64" claude; mode claude limit; with_control
+managed --bot jarvis --order claude --dir "$C/work" -- "$TASK"; RC=$?
 expect "exit 69 (got $RC)" [ "$RC" -eq 69 ]
 line_matches '^code-job: none failed · .* · skipped claude: limit$' "summary line"
 job --bot jarvis --order hermes -- "$TASK"; RC=$?
@@ -264,8 +297,8 @@ done_case
 
 # 13
 case_13() {
-new_case "task output with authentication/429 is returned as is" claude codex; mode claude taskwords; mode codex taskwords
-job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+new_case "task output with authentication/429 is returned as is" claude codex; mode claude taskwords; mode codex taskwords; with_control
+managed --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
 expect "exit 2 (got $RC)" [ "$RC" -eq 2 ]
 expect "codex not run" [ ! -f "$C/state/codex.calls" ]
 line_matches '^code-job: claude failed · ' "claude failed"
@@ -275,12 +308,12 @@ done_case
 
 # 14
 case_14() {
-new_case "limit phrase before the last 20 lines, or on exit 0, is not a limit" claude codex; mode claude early; mode codex early
-job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+new_case "limit phrase before the last 20 lines, or on exit 0, is not a limit" claude codex; mode claude early; mode codex early; with_control
+managed --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
 expect "claude early: exit 4 (got $RC)" [ "$RC" -eq 4 ]
 expect "codex not run" [ ! -f "$C/state/codex.calls" ]
 mode claude limitok
-job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+managed --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
 expect "limit words on exit 0: ok (got $RC)" [ "$RC" -eq 0 ]
 line_matches '^code-job: claude ok · ' "claude ok"
 rm -f "$C/bin/claude"; mode codex early
@@ -304,8 +337,8 @@ done_case
 
 # 16
 case_16() {
-new_case "stderr-only output on exit 0 is empty work (65), even with a fresh report" claude codex; mode claude quiet; mode codex ok
-job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+new_case "stderr-only output on exit 0 is empty work (65), even with a fresh report" claude codex; mode claude quiet; mode codex ok; with_control
+managed --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
 expect "exit 65 (got $RC)" [ "$RC" -eq 65 ]
 expect "report was written" [ -s "$C/work/REPORT.txt" ]
 expect "empty job reported" has "$C/err" "empty job or missing/empty/unchanged report"
@@ -409,17 +442,19 @@ done_case
 # 22
 case_22() {
 new_case "interrupting verification kills its child process" codex; mode codex ok
-CASE_VERIFY='sleep 60 & echo $! > verify.child; wait'; job --bot jarvis --order codex --dir "$C/work" -- "$TASK" &
+# The verifier runs in its own PID namespace on Linux, so its `$!` means nothing to the host: find the child by
+# a unique argument. Zombies print as <defunct> and do not match.
+sleepers() { ps -A -o args= 2>/dev/null | grep -c '^sleep 59\.37$'; }
+CASE_VERIFY='sleep 59.37 & wait'; job --bot jarvis --order codex --dir "$C/work" -- "$TASK" &
 runner=$!
-i=0; while [ ! -s "$C/work/verify.child" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
-expect "verification started" [ -s "$C/work/verify.child" ]
+i=0; while [ "$(sleepers)" -eq 0 ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+expect "verification started" [ "$(sleepers)" -gt 0 ]
 pid=$(cat "$C/home/.hermes/swarmhub/job-completions/"job.*/pid 2>/dev/null)
 [ -n "$pid" ] && kill -TERM "$pid"
 wait "$runner"; RC=$?; unset CASE_VERIFY
 expect "exit 143 (got $RC)" [ "$RC" -eq 143 ]
-child=$(cat "$C/work/verify.child" 2>/dev/null)
-state=$(ps -p "${child:-0}" -o stat= 2>/dev/null | tr -d ' ')
-case $state in ''|Z*) ;; *) PROBLEMS="$PROBLEMS; verification child survived"; kill "$child" 2>/dev/null ;; esac
+i=0; while [ "$(sleepers)" -gt 0 ] && [ "$i" -lt 40 ]; do sleep 0.05; i=$((i + 1)); done
+expect "verification child gone" [ "$(sleepers)" -eq 0 ]
 expect "job interrupted" [ "$(rec status)" = interrupted ]
 done_case
 }

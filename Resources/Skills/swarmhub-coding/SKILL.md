@@ -29,6 +29,12 @@ Exit codes: 0 done; 124 the job ran out of time; 69 no coding agent could run (s
 other code is the agent's own failure, report its output. On exit 75 with `CODE_JOB_USE_DELEGATE` on stdout, do the
 task with your own delegate_task (a sub-agent) instead.
 
+Claude Code is never started by a direct code-job: it runs on this box with the operator's shell (acceptEdits plus
+Bash), outside any workspace sandbox, so it needs the owner's approval of the exact task. A direct run skips it
+(`skipped claude: approval`) and continues with the next agent in the order. To use Claude Code, submit a managed
+coding task (`swarmctl submit`, below) and wait for the owner's decision; code-job then checks the approved record
+(`--task-id`) before launching it.
+
 Never print, read or copy `~/.hermes/swarmhub/claude.token`, and never set ANTHROPIC_API_KEY. Logins are SwarmHub's
 Accounts sheet's job (`scripts/swarmhub-claude-login`, run by the manager bot): never run it or a login yourself.
 
@@ -73,9 +79,17 @@ Direct code-job remains available for an already-authorized local task. It enfor
 speculation rule (`--speculative`) and completion contract. Managed `--task-id` jobs must match their approved record.
 
 Verification authority: `verify-sandbox.py` executes the command and all imported test/build code with only the
-recorded workspace and a private temporary directory writable, a scrubbed environment, and no network. Linux
-requires Landlock ABI 3+ and libseccomp; macOS uses sandbox-exec. Unsupported isolation fails the verification;
-there is no host-shell fallback. Additional host/network authority is not supported by this verifier and must not
+recorded workspace and a private temporary directory writable, a scrubbed environment, and no network. The
+repository metadata (`.git`, a worktree's gitdir) is read-only for the verifier, so it cannot plant `core.fsmonitor`,
+`core.hooksPath`, hooks or filters that a later host `git status` would execute. Linux requires Landlock ABI 3+ and
+libseccomp; with unprivileged user namespaces the verifier also gets a private mount/PID namespace (read-only `.git`
+bind, private /proc and /dev/shm, signals confined to the sandbox, AF_UNIX socketpairs allowed), so ordinary test
+commands work: `>/dev/null`, `git status`, node child processes, Python asyncio/multiprocessing/subprocess timeouts.
+Without user namespaces the workspace is granted entry by entry (new top-level entries and signals to other
+processes are denied). macOS uses sandbox-exec with a named Mach service allowlist (no pasteboard, LaunchServices,
+AppleEvents or keychain) and `.git` denied. Unsupported isolation fails the verification; there is no host-shell
+fallback. Managed coding tasks wait for the owner's decision unless the owner published `coding_gate: auto` (the
+sandboxed Codex route); an order that includes claude waits for the owner regardless. Additional host/network authority is not supported by this verifier and must not
 be obtained by changing the command. Use a separately owner-gated managed operation when extra authority is needed.
 Managed admission freezes the effective VERIFY default into the immutable spec before fingerprinting; `"verify":""`
 explicitly disables verification. Managed execution never re-reads environment/config defaults.

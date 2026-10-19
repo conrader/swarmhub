@@ -50,9 +50,17 @@ class ReviewFixTests(unittest.TestCase):
         os.environ.update(self.env)
 
     def coding(self, intent, **changes):
-        return control.submit(dict({"bot": "worker", "origin": "sender", "intent": intent, "kind": "coding",
-                                    "task": intent, "directory": str(self.home), "order": "claude",
-                                    "model": "synthetic-model", "effort": "high", "report": intent + ".txt"}, **changes))
+        ident = control.submit(dict({"bot": "worker", "origin": "sender", "intent": intent, "kind": "coding",
+                                     "task": intent, "directory": str(self.home), "order": "claude",
+                                     "model": "synthetic-model", "effort": "high", "report": intent + ".txt"}, **changes))
+        # Since the cross-review every claude order waits for the owner; these tests cover the launched job, so the
+        # fixture owner decides first (bound to the record's fingerprint and gate).
+        row = control.action(ident)
+        if row["status"] == "awaiting-owner":
+            control.publish({"owner": "coordinator"})
+            with patch.dict(os.environ, HERMES_HOME=str(self.home / ".hermes/profiles/coordinator")):
+                control.decide(ident, "coordinator", True, row["fingerprint"], row["gate"])
+        return ident
 
     # 1. Receipts bind by delivery id carried in the turn's message, never by session alone.
     def test_receipt_binds_only_to_the_turn_that_carries_its_delivery_id(self):

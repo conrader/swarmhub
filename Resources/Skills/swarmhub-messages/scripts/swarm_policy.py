@@ -24,7 +24,7 @@ def policy(db=None):
             return policy(db)
     row = db.execute("SELECT revision,body FROM settings WHERE id=1").fetchone()
     return ({"revision": row[0], **json.loads(row[1])} if row else
-            {"revision": 0, "route": "auto", "allow_speculative": True,
+            {"revision": 0, "route": "auto", "allow_speculative": True, "coding_gate": "owner",
              "timezone": "Europe/Warsaw", "start": 480, "end": 1380})
 
 
@@ -45,7 +45,7 @@ def register(profile, coordinator=False):
 
 
 def publish(change):
-    keys = {"route", "codex_model", "allow_speculative", "coordinator", "owner", "timezone", "start", "end",
+    keys = {"route", "codex_model", "allow_speculative", "coding_gate", "coordinator", "owner", "timezone", "start", "end",
             "provisioner", "outbound", "webhook_base"}
     if not isinstance(change, dict) or not change or set(change) - keys:
         raise ValueError("unknown policy setting")
@@ -55,6 +55,8 @@ def publish(change):
         current.update(change)
         if current["route"] not in ("auto", "codex") or type(current["allow_speculative"]) is not bool:
             raise ValueError("invalid coding policy")
+        if current.get("coding_gate", "owner") not in ("owner", "auto"):
+            raise ValueError("coding_gate must be owner or auto")
         for hook in ("provisioner", "outbound"):
             argv = current.get(hook)
             if argv is not None and (not isinstance(argv, list) or not argv or not all(isinstance(a, str) and a for a in argv)
@@ -207,6 +209,12 @@ def validate_spec(spec):
         Path(prefix, tool).resolve() for prefix in ("/bin", "/usr/bin") for tool in ("pwd", "stat", "ls")}
     if risks or kind in ("money", "prod", "secrets", "provision") or kind == "read" and not safe_read:
         return "owner"
+    if kind == "coding":
+        # Coding jobs wait for the owner unless the owner published `coding_gate: auto` for the sandboxed
+        # Codex route. An order that reaches claude always waits: Claude Code runs on the host with the
+        # operator's shell (acceptEdits + Bash), outside any workspace sandbox.
+        agents = set(spec.get("order", "codex").split(","))
+        return "owner" if "claude" in agents or policy().get("coding_gate", "owner") != "auto" else "auto"
     return "coordinator" if kind == "outbound" and not spec.get("fake") else "auto"
 
 
