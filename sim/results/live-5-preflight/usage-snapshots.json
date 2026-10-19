@@ -1,0 +1,12 @@
+{
+  "QA-LIVE5-20261019T120917-1980b7-QA-Jarvis-from-QA-Swarmhub": {
+    "id": "QA-LIVE5-20261019T120917-1980b7-QA-Jarvis-from-QA-Swarmhub",
+    "model": "gpt-6-astra",
+    "api_call_count": 1,
+    "tool_call_count": 0,
+    "input_tokens": 3075,
+    "output_tokens": 57,
+    "cache_read_tokens": 0,
+    "reasoning_tokens": 0
+  }
+}

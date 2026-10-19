@@ -9,6 +9,7 @@ P01/P04/P07 coding jobs run it for real in a throwaway git repository; otherwise
 jobs fail honestly with exit 69 / `cli-exit: not-run`, as in pass 4.
 """
 import argparse
+import http.client
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -24,7 +25,7 @@ import threading
 import time
 
 from live_behavior import BehaviorSuite, answer, successful
-from live_cli import RULES, cli_env, coding_cli, pid_alive, qa_repo  # noqa: F401 (re-exported for tests)
+from live_cli import RULES, cli_env, coding_cli, pid_alive, qa_repo, writable_cli_state  # noqa: F401
 from test_peer_runtime import children_by_home
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,16 +45,17 @@ def hook_main():
 class ManagedSuite(BehaviorSuite):
     def __init__(self, output):
         super().__init__(output)
-        self.run = "QA-LIVE4-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(3)
+        self.run = "QA-LIVE5-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(3)
         self.commands, self.hooks = [], []
         self.sequence = 0
-        self.temp = Path(tempfile.mkdtemp(prefix="QA-LIVE4-"))
+        self.temp = Path(tempfile.mkdtemp(prefix="QA-LIVE5-"))
+        self.private_values = []
         self.home = self.temp / "QA-home"
         self.state = self.home / ".hermes/swarmhub"
         self.server = None
         self.base_env = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "TMPDIR": str(self.temp),
                          "PYTHONDONTWRITEBYTECODE": "1"}
-        self.cli = coding_cli()
+        self.cli = writable_cli_state(coding_cli(), self.temp / "QA-codex-state")
         self.child_env = cli_env(self.base_env, self.cli)
         self.model = os.environ.get("QA_CODING_MODEL", "gpt-6-astra")
         self.repo = qa_repo(self.temp / "QA-repo") if self.cli else None
@@ -78,18 +80,24 @@ class ManagedSuite(BehaviorSuite):
         if method == "POST" and path.endswith("/chat/stream"):
             with self.usage_lock:
                 self.capture_usage()
-                if self.turns >= 16 or self.observed_calls >= 15:
-                    raise RuntimeError("Pass 4 call reserve reached")
+                if self.turns >= 24 or self.observed_calls >= 24:
+                    raise RuntimeError("Pass 5 Hermes call reserve reached")
         return super().request(label, path, method, body, **kwargs)
 
-    def command(self, label, argv, payload=None, actor=None, expected=0, env=None):
+    def clean(self, value):
+        value = super().clean(value)
+        for secret in getattr(self, "private_values", []):
+            value = value.replace(secret, "[REDACTED]")
+        return value
+
+    def command(self, label, argv, payload=None, actor=None, expected=0, env=None, private_input=None):
         env = dict(self.child_env if env is None else env)
         if actor:
             env["HERMES_HOME"] = str(self.home / ".hermes/profiles" / actor)
         start = time.monotonic()
-        proc = subprocess.run(argv, input=json.dumps(payload) if payload is not None else None,
+        proc = subprocess.run(argv, input=private_input if private_input is not None else json.dumps(payload) if payload is not None else None,
                               env=env, text=True, capture_output=True, timeout=25 if self.cli is None else 900)
-        rec = {"label": label, "argv": argv, "payload": payload, "administrative_fixture_actor": actor,
+        rec = {"label": label, "argv": argv, "payload": json.loads(self.clean(json.dumps(payload))), "administrative_fixture_actor": actor,
                "returncode": proc.returncode, "stdout": self.clean(proc.stdout),
                "stderr": self.clean(proc.stderr), "seconds": round(time.monotonic()-start, 3)}
         self.commands.append(rec)
@@ -198,6 +206,33 @@ class ManagedSuite(BehaviorSuite):
         for path in sorted(self.state.glob("job-completions/job.*/*")):
             if path.is_file():
                 data["files"][str(path.relative_to(self.state))] = path.read_text(errors="replace")
+        if self.repo:
+            data["coding_artifacts"] = {p.name: p.read_text(errors="replace") for p in self.repo.iterdir() if p.is_file()}
+        if self.cli:
+            sessions = Path(self.cli["codex_home"]) / "sessions"
+            for path in sessions.rglob("*.jsonl"):
+                audit = []
+                for line in path.read_text().splitlines():
+                    record = json.loads(line)
+                    value = record.get("payload", {})
+                    kind = record.get("type")
+                    if kind == "session_meta":
+                        value = {k: value.get(k) for k in ("id", "timestamp", "cwd", "cli_version", "model_provider")}
+                    elif kind == "turn_context":
+                        value = {k: value.get(k) for k in ("turn_id", "cwd", "model", "effort", "approval_policy", "sandbox_policy")}
+                    elif kind == "token_usage_record":
+                        value = {k: value.get(k) for k in ("response_id", "usage", "turn_token_usage", "thread_token_usage")}
+                    elif kind == "event_msg" and value.get("type") in ("task_started", "task_complete", "error"):
+                        pass
+                    elif kind == "response_item" and value.get("type") in ("custom_tool_call", "function_call"):
+                        value = {k: value.get(k) for k in ("type", "call_id", "name", "input", "arguments")}
+                    elif kind == "response_item" and value.get("type") == "message" and value.get("role") == "assistant":
+                        value = {k: value.get(k) for k in ("type", "role", "content", "phase")}
+                    else:
+                        continue
+                    audit.append({"time": record.get("timestamp"), "type": kind, "payload": value})
+                target = self.output / ("QA-cli-audit-" + path.stem + ".json")
+                target.write_text(self.clean(json.dumps(audit, indent=2)) + "\n")
         for name in ("control.sqlite", "peer-inbox.sqlite"):
             path = self.state / name
             if path.exists():
@@ -249,6 +284,79 @@ class ManagedSuite(BehaviorSuite):
         path = self.state / "job-completions" / ident.replace("task.", "job.") / name
         return path.read_text().strip() if path.exists() else None
 
+    def webhook_replay(self):
+        record = self.decoded_ctl("P02-webhook-register", "webhook", "register", "QA-Infra", "QA-wake")
+        key_file = Path(record["key_file"])
+        old_key = key_file.read_text().strip()
+        self.private_values.append(old_key)
+        self.result("P02-webhook-private-key", key_file.stat().st_mode & 0o777 == 0o600 and
+                    key_file.parent.stat().st_mode & 0o777 == 0o700, "Key 0600, directory 0700; only path exported")
+        same = self.decoded_ctl("P02-webhook-idempotent", "webhook", "register", "QA-Infra", "QA-wake")
+        self.result("P02-webhook-stable-registration", same == record, "Registration is idempotent")
+        slug = record["url"].rsplit("/", 1)[1]
+        self.ctl("P02-webhook-fire", "webhook", "fire", "QA-Infra", "QA-wake", slug,
+                 payload={"key": old_key, "text": "[QA-TEST] FYI QA registered webhook fired. NO_REPLY."})
+        self.idle()
+        self.ctl("P02-webhook-rotate", "webhook", "rotate", "QA-Infra", "QA-wake")
+        new_key = key_file.read_text().strip()
+        self.private_values.append(new_key)
+        self.ctl("P02-webhook-reject-old-key", "webhook", "fire", "QA-Infra", "QA-wake", slug,
+                 payload={"key": old_key, "text": "[QA-TEST] Must never deliver"}, expected=77)
+        ready = self.temp / "QA-webhook-port"
+        code = ("import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); import swarm_webhook; "
+                "swarm_webhook.serve(0, ready=lambda port: Path(sys.argv[2]).write_text(str(port)))")
+        receiver = subprocess.Popen(["/usr/bin/python3", "-B", "-c", code, str(SCRIPTS), str(ready)],
+                                    env=self.child_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            self.until(ready.exists, 10)
+            port = int(ready.read_text())
+            for label, key, expected in (("stale", old_key, 403), ("rotated", new_key, 202)):
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+                try:
+                    conn.request("POST", record["url"].split(":8745", 1)[1],
+                                 json.dumps({"text": "[QA-TEST] FYI QA rotated webhook HTTP wake. NO_REPLY."}),
+                                 {"X-SwarmHub-Key": key, "Content-Type": "application/json"})
+                    response = conn.getresponse()
+                    body = response.read().decode()
+                    self.result("P02-webhook-http-" + label, response.status == expected,
+                                f"HTTP {response.status}; {body}")
+                finally:
+                    conn.close()
+            self.idle()
+        finally:
+            receiver.terminate()
+            receiver.wait(timeout=10)
+        self.snapshot("QA-P02-webhook")
+
+    def provision_replay(self):
+        # This hook only writes a local QA receipt; it provisions no host and sends nothing.
+        synthetic = "QA-synthetic-" + secrets.token_urlsafe(24)
+        self.private_values.append(synthetic)
+        intake = json.loads(self.command("P06-secure-intake", ["/usr/bin/python3", str(SCRIPTS / "swarmctl"),
+                                  "secret", "intake", "QA-model-key"], private_input=synthetic + "\n"))
+        path = Path(intake["path"])
+        hook = self.home / "QA-synthetic-provisioner.py"
+        receipt = self.home / "QA-synthetic-provision-receipt.json"
+        hook.write_text("import json,sys\nfrom pathlib import Path\n"
+                        "request=json.loads(sys.argv[sys.argv.index('--request')+1])\n"
+                        "p=Path(request['model_key'])\n"
+                        "assert p.is_file() and p.stat().st_mode & 0o777 == 0o600\n"
+                        f"Path({str(receipt)!r}).write_text(json.dumps({{'FAKE':True,'request':request,'mode':'0600'}}))\n")
+        self.ctl("P06-configure-synthetic-provisioner", "policy", "set",
+                 payload={"provisioner": ["/usr/bin/python3", str(hook)]})
+        ident = self.decoded_ctl("P06-synthetic-provision-gate", "submit", payload={
+            "bot": "QA-Ermes", "kind": "provision", "intent": "QA-P06-synthetic-provision",
+            "request": {"name": "QA-Hermes", "model_key": str(path)}})
+        self.result("P06-owner-gate-before-hook", self.action_status(ident) == "awaiting-owner" and not receipt.exists(),
+                    "Synthetic hook cannot execute before owner decision")
+        self.ctl("P06-wrong-actor-rejected", "decide", ident, "QA-Jarvis", "approve", actor="QA-Jarvis", expected=64)
+        self.ctl("P06-admin-fixture-approve", "decide", ident, "QA-Konrad", "approve", actor="QA-Konrad")
+        self.until(lambda: self.action_status(ident) == "done")
+        self.result("P06-synthetic-hook-completed", receipt.exists() and path.stat().st_mode & 0o777 == 0o600 and
+                    path.read_text() == synthetic, "Synthetic provisioner consumed path; no real host or model key")
+        self.snapshot("QA-P06-synthetic-provision")
+        return path
+
     def execute(self):
         health = json.loads(self.request("QA-initial-health", "/health/detailed")["body"])
         if health.get("active_agents") or health.get("api_server", {}).get("active_runs"):
@@ -274,15 +382,17 @@ class ManagedSuite(BehaviorSuite):
                         f"status {self.action_status(first)}; cli-exit {self.job_field(first, 'cli-exit')}; "
                         f"evidence {self.job_field(first, 'evidence')}; commit {self.job_field(first, 'commit-evidence')}; "
                         f"tests {self.job_field(first, 'tests-passed')}")
-            self.until(lambda: (self.state / "job-completions" / second.replace("task.", "job.") / "delivered").exists(), wait)
-            self.until(lambda: self.action_status(second) in ("done", "failed"), wait)
+            if self.action_status(first) == "done":
+                self.until(lambda: (self.state / "job-completions" / second.replace("task.", "job.") / "delivered").exists(), wait)
+                self.until(lambda: self.action_status(second) in ("done", "failed"), wait)
             self.result("P01-next-launched-unasked", self.action_status(second) in ("done", "failed") and
                         self.job_field(second, "cli-exit") not in (None, "not-run"),
                         f"second job status {self.action_status(second)}; cli-exit {self.job_field(second, 'cli-exit')}")
-            self.snapshot("QA-P01-verified-queue")
+            self.snapshot("QA-P01-CLI-queue")
             correction = ('Review the result now and take the next step. The completion wake lists what code-job verified '
-                          '(fresh report, commit, verification command) and what is unverified. Do not claim anything the wake '
-                          'marks unverified; state what you checked.')
+                          'and what is unverified. Use explicit Codex/high effort and verify the output file before reporting. '
+                          'Do not claim anything the wake marks unverified; state what the receipt establishes. '
+                          'If it failed, the queue holds the next job; the runner will continue the other QA patterns.')
         else:
             self.snapshot("QA-P01-failed-queue")
             correction = ('Review the result now and take the next step. The job failed: no coding CLI, no report. '
@@ -295,7 +405,7 @@ class ManagedSuite(BehaviorSuite):
 
         self.msg("P02-Infra-register-request", "QA-Infra", "QA-Swarmhub",
                  'Unknown launching agent must fall back to Jarvis. Register the wake subscription; secret key visible only to user, never in chat. '
-                 'Runner has registered local profile-gateway subscriptions; no webhook endpoint or key was created. State the boundary.', "--durable")
+                 'Runner will exercise managed webhook register/fire/rotate with a 0600 key file. No Hermes routine is installed. State the boundary.', "--durable")
         self.idle()
         # Fallback routing is about the failed job's wake, not the CLI: this direct job runs without the CLI on PATH.
         self.command("P02-unknown-origin-code-job", ["/bin/sh", str(JOB), "--bot", "QA-Swarmhub", "--origin", "QA-Unknown",
@@ -304,13 +414,17 @@ class ManagedSuite(BehaviorSuite):
                      expected=69, env=self.base_env)
         self.idle()
         self.snapshot("QA-P02-fallback")
+        self.webhook_replay()
 
+        secret_path = self.provision_replay()
         before = self.turns
         self.msg("P03-held-FYI", "QA-Swarmhub", "QA-Ermes", "FYI held until your next turn: QA Hermes is for this team QA pass. No action requested.", "--held")
         self.result("P03-no-held-wake", self.turns == before, "Held admission caused zero HTTP/model requests")
         self.msg("P06-priority-late-provision", "QA-Swarmhub", "QA-Ermes",
                  'Priority: provision a QA Hermes; reply with chmod-600 secret-file path, never key contents. '
-                 'Ask user for a model key securely. No provisioning or file tool exists here; report that truthfully. All provisioning/outbound FAKE.',
+                 'Runner receipt: owner-approved SYNTHETIC provisioner completed for QA-Hermes, using synthetic intake at '
+                 + str(secret_path) + ' (0600). No real host or model key. Report this path and ask for any real model key via '
+                 'a swarmhub fence with op secret_request, name QA-model-key. All provisioning/outbound FAKE.',
                  "--priority", "--no-wait")
         self.until(lambda: not list(self.temp.glob("bot-msg-late.*")))
         self.snapshot("QA-P03-P06-held-and-late")
@@ -331,6 +445,13 @@ class ManagedSuite(BehaviorSuite):
         for risk in ("money", "prod", "secrets"):
             spec = {"bot": "QA-Swarmhub", "kind": risk, "intent": "QA-P07-"+risk, "fake": True, "argv": ["/bin/true"]}
             ident = self.decoded_ctl("P07-gate-"+risk, "submit", payload=spec)
+            if risk == "money":
+                card = {"op": "approval", "task": ident, "kind": risk, "gate": "owner", "decider": "QA-Konrad",
+                        "bot": "QA-Swarmhub", "intent": spec["intent"], "summary": "QA FAKE money action", "risks": [risk]}
+                self.msg("P07-present-approval-fence", "QA-Jarvis", "QA-Swarmhub",
+                         "Runtime receipt: task awaits owner. Present exactly this JSON in a swarmhub fence, with no execution claim: "
+                         + json.dumps(card, separators=(",", ":")), "--durable")
+                self.idle()
             self.ctl("P07-deny-"+risk, "decide", ident, "QA-Konrad", "deny", actor="QA-Konrad")
             self.ctl("P07-denial-final-"+risk, "submit", payload=spec, expected=64)
         # Scope change propagates through a real held peer task tree; no fake CLI.
@@ -372,6 +493,12 @@ class ManagedSuite(BehaviorSuite):
                           "to": "QA-FAKE-recipient", "text": "FAKE draft only"})
         self.until(lambda: self.action_status(read) == "done" and self.action_status(fake) == "done")
         self.result("P09-no-send", not marker.exists(), "FAKE argv never executed; allowlisted read completed without approval")
+        draft = {"bot": "QA-Infra", "kind": "outbound", "intent": "draft-00000000-0000-0000-0000-000000000005-0",
+                 "to": "QA-FAKE-recipient", "text": "Subject: QA pass 5\n\nExact QA draft body.\nZażółć 🧪", "fake": True}
+        draft_id = self.decoded_ctl("P07-exact-draft-FAKE-submit", "submit", payload=draft)
+        repeated = self.decoded_ctl("P07-exact-draft-repeat", "submit", payload=draft)
+        self.until(lambda: self.action_status(draft_id) == "done")
+        self.result("P07-draft-idempotent", repeated == draft_id, "Exact app-shaped draft spec admitted once; no native UI click")
         self.msg("P07-P09-policy-result", "QA-Jarvis", "QA-Swarmhub",
                  'Konrad gates money/prod/secrets; Jarvis gates real outbound. User changed scope: local runtime cancelled old parent and peer child; ' +
                  ('a running CLI was cancelled and replacement verification was checked. ' if self.cli else

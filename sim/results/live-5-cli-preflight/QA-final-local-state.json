@@ -1,0 +1,121 @@
+{
+  "time": "2026-10-19T12:12:35.097218+00:00",
+  "files": {
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/agent": "codex\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/attempts": "1",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/bot": "QA-Swarmhub\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/cli-exit": "0\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/cli-pid": "98\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/commit-evidence": "not-checked\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/delivered": "1792411934.1634216",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/directory": "/tmp/QA-LIVE5-eh5f_h1i/QA-repo\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/effort": "high\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/evidence": "none\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/exit": "65\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/head-after": "-\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/head-before": "059e27c7668ecf4f7960bbc37d43083b0434f35d\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/model": "gpt-6-astra\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/next-attempt": "1792411914.1346204",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/origin": "QA-Jarvis\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/pid": "65\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/ran": "28\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/ready": "",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/report": "/tmp/QA-LIVE5-eh5f_h1i/QA-repo/QA-P01-first.txt\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/report-before": "missing-or-empty",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/report-exists": "false\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/report-sha256": "missing-or-empty",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/report-valid": "false",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/status": "failed\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/task-id": "task.1dc63aa5e08548f68034333c980870b1\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/tests-passed": "not-run\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/verify-command": "grep -Fxq 'QA-P01-first done' NOTES.md\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/verify-exit": "-\n",
+    "job-completions/job.1dc63aa5e08548f68034333c980870b1/waited": "0\n"
+  },
+  "coding_artifacts": {
+    "README.md": "QA repository for a SwarmHub live pass. Throwaway.\n"
+  },
+  "control.sqlite": {
+    "settings": [
+      {
+        "id": 1,
+        "revision": 2,
+        "body": "{\"allow_speculative\":true,\"coordinator\":\"QA-Jarvis\",\"end\":1380,\"owner\":\"QA-Konrad\",\"route\":\"auto\",\"start\":480,\"timezone\":\"Europe/Warsaw\"}"
+      }
+    ],
+    "subscribers": [
+      {
+        "profile": "QA-Ermes",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Infra",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Jarvis",
+        "revision": 2
+      },
+      {
+        "profile": "QA-Konrad",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Swarmhub",
+        "revision": -1
+      }
+    ],
+    "policy_turns": [],
+    "actions": [
+      {
+        "id": "task.1dc63aa5e08548f68034333c980870b1",
+        "fingerprint": "becad1c34d80b675674caa94c44d45bd7e39d7c9ac9c673add16709ae06e092f",
+        "intent": "QA-P01-first",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE5-eh5f_h1i/QA-repo\",\"effort\":\"high\",\"intent\":\"QA-P01-first\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE5-eh5f_h1i/QA-repo/QA-P01-first.txt\",\"task\":\"QA replay QA-P01-first: in this repository append the line 'QA-P01-first done' to NOTES.md (create it if missing). Commit it with the message 'QA: QA-P01-first' if the repository allows a commit; if not, say so in the report. Change nothing else, use no network, send nothing anywhere.\",\"verify\":\"grep -Fxq 'QA-P01-first done' NOTES.md\"}",
+        "gate": "auto",
+        "status": "failed",
+        "pid": 65,
+        "error": null,
+        "created": 1792411880.3978527,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": "Mon Oct 19 14:11:21 2026",
+        "launched": "{\"model\":\"gpt-6-astra\",\"order\":\"codex\"}"
+      },
+      {
+        "id": "task.18c29e638f7d4347aade5443aff18aee",
+        "fingerprint": "ce10337124578d66292988462472cd8d20c1294ef5f74fc120e1e6dfe364b1a0",
+        "intent": "QA-P01-next",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE5-eh5f_h1i/QA-repo\",\"effort\":\"high\",\"intent\":\"QA-P01-next\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE5-eh5f_h1i/QA-repo/QA-P01-next.txt\",\"task\":\"QA replay QA-P01-next: in this repository append the line 'QA-P01-next done' to NOTES.md (create it if missing). Commit it with the message 'QA: QA-P01-next' if the repository allows a commit; if not, say so in the report. Change nothing else, use no network, send nothing anywhere.\",\"verify\":\"grep -Fxq 'QA-P01-next done' NOTES.md\"}",
+        "gate": "auto",
+        "status": "queued",
+        "pid": null,
+        "error": null,
+        "created": 1792411880.4722657,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": null,
+        "launched": null
+      }
+    ],
+    "denials": [],
+    "deliveries": [],
+    "receipts": [
+      {
+        "target": "QA-Jarvis",
+        "id": "job.1dc63aa5e08548f68034333c980870b1",
+        "status": "received",
+        "token": "34af924bafdd4d66872b86778b64cfed",
+        "expires": 1792415612.136602,
+        "session": "swarmhub-from-QA-Swarmhub",
+        "turn": "QA-bridge-002"
+      }
+    ],
+    "webhooks": []
+  },
+  "peer-inbox.sqlite": {
+    "inbox": []
+  }
+}

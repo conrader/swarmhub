@@ -1,0 +1,9 @@
+QA-P02-register-QA-Ermes PASS
+QA-P02-register-QA-Infra PASS
+QA-P02-register-QA-Jarvis PASS
+QA-P02-register-QA-Konrad PASS
+QA-P02-register-QA-Swarmhub PASS
+QA-P07-P08-policy PASS
+QA-P01-submit-first PASS
+QA-P01-submit-next PASS
+QA-P01-first-verified FAIL

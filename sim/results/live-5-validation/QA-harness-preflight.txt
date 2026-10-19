@@ -1,0 +1,7 @@
+test_bridge_supplies_rules_and_fallback_environment (test_live_managed.ManagedHarnessTests.test_bridge_supplies_rules_and_fallback_environment) ... ok
+test_real_jobs_keep_reports_in_the_cli_workspace_and_require_exact_evidence (test_live_managed.ManagedHarnessTests.test_real_jobs_keep_reports_in_the_cli_workspace_and_require_exact_evidence) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.014s
+
+OK

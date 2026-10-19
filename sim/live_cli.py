@@ -37,6 +37,23 @@ def cli_env(base, cli):
     return env
 
 
+def writable_cli_state(cli, folder):
+    """Use existing auth read-only, with transient logs/state in the owned QA directory.
+
+    The installed auth home can be read-only under the outer QA sandbox. Login status
+    alone does not detect that exec needs writable state. Never alter the source home.
+    """
+    if not cli:
+        return None
+    source = Path(cli["codex_home"])
+    folder.mkdir(mode=0o700)
+    for name in ("auth.json", "config.toml"):
+        path = source / name
+        if path.is_file():
+            (folder / name).symlink_to(path)
+    return dict(cli, source_auth_home=str(source), codex_home=str(folder))
+
+
 def qa_repo(folder):
     """A throwaway git repository with one commit: the working directory of real QA coding jobs."""
     folder.mkdir(parents=True, exist_ok=True)

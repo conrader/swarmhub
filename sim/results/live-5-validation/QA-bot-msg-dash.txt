@@ -1,0 +1,15 @@
+pass: wait: reply printed, thread From jarvis created, header line first
+pass: thread reuse: the second message goes to the same From jarvis session
+pass: no-wait: session id at once, the message still arrives
+pass: timeout: no reply within --wait exits 124
+pass: unknown bot and missing key exit 2 without a request
+pass: the key is never in argv, output or log
+pass: log line: time, from, to, session, waited|queued, ms, ok|error; never the text
+pass: gateway errors exit 3: failed run, HTTP 500, nothing listening, wrong key
+pass: default profile: ~/.hermes/.env (export, CRLF) and no /p/ prefix
+pass: sender from the install path; API_SERVER_PORT reaches the profile directly
+pass: quotes, backslashes, tabs and newlines arrive intact
+pass: late reply: no reply within --wait, the follow-up delivers it once to the sender
+pass: late reply: --no-wait delivers the reply once
+pass: a delivered reply never gets a follow-up
+bot-msg tests under /bin/dash: 14 passed, 0 failed

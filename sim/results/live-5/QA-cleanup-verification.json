@@ -1,0 +1,330 @@
+{
+  "time": "2026-10-19T12:16:43.993283+00:00",
+  "checks": [
+    {
+      "path": "/v1/runs/run_016bba1a6149403597dda0898c34a781",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_0375a623ec354b1c80bb69e8e0900799",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_0d3c3152930b488ba71546f8dd0ec074",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_0dbf02a4b4f140bda7fdb899ae6331bf",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_18ab4d0fb9784af7a8c940588615cc9b",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_1a8e402ed67d4f1aa29294f17d4df9ca",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_467f629f090643fbaa5ddae03ee0c2be",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_5b79310e941f492289962bf92f9b1833",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_605239c384814eddab0fc475075d0253",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_65e99152d74a4102b2c12fcb1e4a4e10",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_7dd3ff3ffbcd4d0f926cd31cfd12bafa",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_b0a3e03a7f6f40a0b883957408c94e32",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_b836380cf3ed4e41a17e2f2a6ca8e1a6",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_c42e66174c524c998635a69c31f92061",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_c9e43d2f4c2048728eeb0f10f2e079ca",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_d02b38fda2a54e93b79d567b141d5185",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_d361592620c54dfe8549f22add5c1ac1",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_ddfc6e6559c84eb7acc0e5e360cf7a02",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_e13299db86824477b2b6546fab8112fd",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/v1/runs/run_e8a859d24ad2421fbc4c9abb71764d52",
+      "status": 200,
+      "body": {
+        "status": "completed"
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T120917-1980b7-QA-Jarvis-from-QA-Swarmhub",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T121259-6e1eae-QA-Ermes-from-QA-Infra",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T121259-6e1eae-QA-Ermes-from-QA-Jarvis",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T121259-6e1eae-QA-Ermes-from-QA-Swarmhub",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T121259-6e1eae-QA-Infra-from-QA-Infra",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T121259-6e1eae-QA-Infra-from-QA-Jarvis",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T121259-6e1eae-QA-Jarvis-from-QA-Swarmhub",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T121259-6e1eae-QA-Konrad-from-QA-Swarmhub",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T121259-6e1eae-QA-Swarmhub-from-QA-Ermes",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T121259-6e1eae-QA-Swarmhub-from-QA-Infra",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/api/sessions/QA-LIVE5-20261019T121259-6e1eae-QA-Swarmhub-from-QA-Jarvis",
+      "status": 404,
+      "body": {
+        "status": null
+      }
+    },
+    {
+      "path": "/health/detailed",
+      "status": 200,
+      "body": {
+        "status": "ok",
+        "readiness": {
+          "status": "ok",
+          "checks": {
+            "state_db": {
+              "status": "ok"
+            },
+            "session_store": {
+              "status": "ok"
+            },
+            "config": {
+              "status": "ok"
+            },
+            "model": {
+              "status": "ok"
+            },
+            "disk": {
+              "status": "ok",
+              "used_percent": 18.3,
+              "free_bytes": 109625847808
+            },
+            "gateway": {
+              "status": "ok",
+              "state": "running",
+              "connected_platforms": 1,
+              "platforms": 1
+            },
+            "background_queues": {
+              "status": "ok",
+              "active_api_runs": 0,
+              "process_completions": 0,
+              "active_delegations": 0
+            }
+          }
+        },
+        "platform": "hermes-agent",
+        "version": "unknown",
+        "gateway_state": "running",
+        "platforms": {
+          "api_server": {
+            "state": "connected",
+            "error_code": null,
+            "error_message": null,
+            "needs_attention": false,
+            "updated_at": "2026-10-19T12:16:20.184108+00:00",
+            "writer_pid": 197155,
+            "writer_start_time": 2007890,
+            "retrying_since": null,
+            "listener_base": "http://127.0.0.1:8742",
+            "metrics": {
+              "host": "127.0.0.1",
+              "port": 8742,
+              "active_runs": 0,
+              "stored_runs": 20,
+              "last_request_at": "2026-10-19T08:53:25.680763+00:00",
+              "last_heartbeat": "2026-10-19T12:16:43.990907+00:00",
+              "metrics_today": {
+                "day": "2026-10-19",
+                "requests": 2,
+                "messages": 2,
+                "tokens": 5517,
+                "latency_p95_ms": 5134.57
+              }
+            }
+          }
+        },
+        "api_server": {
+          "host": "127.0.0.1",
+          "port": 8742,
+          "active_runs": 0,
+          "stored_runs": 20,
+          "last_request_at": "2026-10-19T08:53:25.680763+00:00",
+          "last_heartbeat": "2026-10-19T12:16:43.990907+00:00",
+          "metrics_today": {
+            "day": "2026-10-19",
+            "requests": 2,
+            "messages": 2,
+            "tokens": 5517,
+            "latency_p95_ms": 5134.57
+          }
+        },
+        "metrics_today": {
+          "day": "2026-10-19",
+          "requests": 2,
+          "messages": 2,
+          "tokens": 5517,
+          "latency_p95_ms": 5134.57
+        },
+        "last_heartbeat": "2026-10-19T12:16:43.990907+00:00",
+        "active_agents": 0,
+        "gateway_busy": false,
+        "gateway_drainable": true,
+        "exit_reason": null,
+        "updated_at": "2026-10-19T12:16:20.472943+00:00",
+        "pid": 197155
+      }
+    }
+  ]
+}

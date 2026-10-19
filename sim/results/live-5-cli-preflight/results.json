@@ -1,0 +1,467 @@
+{
+  "run": "QA-LIVE5-20261019T121119-4c9723",
+  "time": "2026-10-19T12:12:35.643706+00:00",
+  "endpoint": "http://127.0.0.1:8742",
+  "model": "hermes-qa-swarmhub",
+  "scope": "real Hermes + unmodified managed scripts; external hook bridge; no installed plugin; coding CLI: /home/box/.npm-global/bin/codex (authenticated, real jobs in a throwaway repo)",
+  "results": [
+    {
+      "name": "QA-P02-register-QA-Ermes",
+      "status": "PASS",
+      "detail": "entrypoint exit=0",
+      "evidence": "P02-register-QA-Ermes"
+    },
+    {
+      "name": "QA-P02-register-QA-Infra",
+      "status": "PASS",
+      "detail": "entrypoint exit=0",
+      "evidence": "P02-register-QA-Infra"
+    },
+    {
+      "name": "QA-P02-register-QA-Jarvis",
+      "status": "PASS",
+      "detail": "entrypoint exit=0",
+      "evidence": "P02-register-QA-Jarvis"
+    },
+    {
+      "name": "QA-P02-register-QA-Konrad",
+      "status": "PASS",
+      "detail": "entrypoint exit=0",
+      "evidence": "P02-register-QA-Konrad"
+    },
+    {
+      "name": "QA-P02-register-QA-Swarmhub",
+      "status": "PASS",
+      "detail": "entrypoint exit=0",
+      "evidence": "P02-register-QA-Swarmhub"
+    },
+    {
+      "name": "QA-P07-P08-policy",
+      "status": "PASS",
+      "detail": "entrypoint exit=0",
+      "evidence": "P07-P08-policy"
+    },
+    {
+      "name": "QA-P01-submit-first",
+      "status": "PASS",
+      "detail": "entrypoint exit=0",
+      "evidence": "P01-submit-first"
+    },
+    {
+      "name": "QA-P01-submit-next",
+      "status": "PASS",
+      "detail": "entrypoint exit=0",
+      "evidence": "P01-submit-next"
+    },
+    {
+      "name": "QA-P01-first-verified",
+      "status": "FAIL",
+      "detail": "status failed; cli-exit 0; evidence none; commit not-checked; tests not-run",
+      "evidence": null
+    },
+    {
+      "name": "QA-preflight-tool-sandbox-blocked",
+      "status": "FAIL",
+      "detail": "Real authenticated CLI called model, but all file/terminal tools failed: app-server socket directory must be a user-owned directory with mode 0700. No report produced; second job held. Exact cleanup resumed from evidence.",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-session-QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub",
+      "status": "PASS",
+      "detail": "Exact owned session deleted and independently absent",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-local-processes",
+      "status": "PASS",
+      "detail": "No isolated runtime processes remain",
+      "evidence": null
+    },
+    {
+      "name": "QA-cleanup-private-files",
+      "status": "PASS",
+      "detail": "Temporary QA credentials/state removed after evidence export",
+      "evidence": null
+    }
+  ],
+  "traces": [
+    {
+      "name": "QA-initial-health",
+      "method": "GET",
+      "path": "/health/detailed",
+      "auth": "valid",
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "1764",
+        "Date": "Mon, 19 Oct 2026 12:11:19 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0039,
+      "body": "{\"status\": \"ok\", \"readiness\": {\"status\": \"ok\", \"checks\": {\"state_db\": {\"status\": \"ok\"}, \"session_store\": {\"status\": \"ok\"}, \"config\": {\"status\": \"ok\"}, \"model\": {\"status\": \"ok\"}, \"disk\": {\"status\": \"ok\", \"used_percent\": 18.3, \"free_bytes\": 109645688832}, \"gateway\": {\"status\": \"ok\", \"state\": \"running\", \"connected_platforms\": 1, \"platforms\": 1}, \"background_queues\": {\"status\": \"ok\", \"active_api_runs\": 0, \"process_completions\": 0, \"active_delegations\": 0}}}, \"platform\": \"hermes-agent\", \"version\": \"unknown\", \"gateway_state\": \"running\", \"platforms\": {\"api_server\": {\"state\": \"connected\", \"error_code\": null, \"error_message\": null, \"needs_attention\": false, \"updated_at\": \"2026-10-19T12:11:19.924575+00:00\", \"writer_pid\": 197155, \"writer_start_time\": 2007890, \"retrying_since\": null, \"listener_base\": \"http://127.0.0.1:8742\", \"metrics\": {\"host\": \"127.0.0.1\", \"port\": 8742, \"active_runs\": 0, \"stored_runs\": 1, \"last_request_at\": \"2026-10-19T08:53:25.680763+00:00\", \"last_heartbeat\": \"2026-10-19T12:11:19.933873+00:00\", \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 2, \"messages\": 2, \"tokens\": 5517, \"latency_p95_ms\": 5134.57}}}}, \"api_server\": {\"host\": \"127.0.0.1\", \"port\": 8742, \"active_runs\": 0, \"stored_runs\": 1, \"last_request_at\": \"2026-10-19T08:53:25.680763+00:00\", \"last_heartbeat\": \"2026-10-19T12:11:19.933873+00:00\", \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 2, \"messages\": 2, \"tokens\": 5517, \"latency_p95_ms\": 5134.57}}, \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 2, \"messages\": 2, \"tokens\": 5517, \"latency_p95_ms\": 5134.57}, \"last_heartbeat\": \"2026-10-19T12:11:19.933873+00:00\", \"active_agents\": 0, \"gateway_busy\": false, \"gateway_drainable\": true, \"exit_reason\": null, \"updated_at\": \"2026-10-19T12:11:19.924530+00:00\", \"pid\": 197155}",
+      "seconds": 0.0039
+    },
+    {
+      "name": "QA-toolsets",
+      "method": "GET",
+      "path": "/v1/toolsets",
+      "auth": "valid",
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "6800",
+        "Date": "Mon, 19 Oct 2026 12:11:19 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0171,
+      "body": "{\"object\": \"list\", \"platform\": \"api_server\", \"data\": [{\"name\": \"web\", \"label\": \"\\ud83d\\udd0d Web Search & Scraping\", \"description\": \"web_search, web_extract\", \"enabled\": false, \"configured\": true, \"tools\": [\"web_extract\", \"web_search\"]}, {\"name\": \"browser\", \"label\": \"\\ud83c\\udf10 Browser Automation\", \"description\": \"navigate, click, type, scroll\", \"enabled\": false, \"configured\": true, \"tools\": [\"browser_back\", \"browser_cdp\", \"browser_click\", \"browser_console\", \"browser_dialog\", \"browser_exec\", \"browser_get_images\", \"browser_navigate\", \"browser_press\", \"browser_scroll\", \"browser_snapshot\", \"browser_type\", \"browser_vault\", \"browser_vision\"]}, {\"name\": \"terminal\", \"label\": \"\\ud83d\\udcbb Terminal & Processes\", \"description\": \"terminal, process\", \"enabled\": false, \"configured\": true, \"tools\": [\"process_manage\", \"terminal\"]}, {\"name\": \"file\", \"label\": \"\\ud83d\\udcc1 File Operations\", \"description\": \"read, write, patch, search\", \"enabled\": false, \"configured\": true, \"tools\": [\"patch\", \"read_file\", \"search_files\", \"write_file\"]}, {\"name\": \"code_execution\", \"label\": \"\\u26a1 Code Execution\", \"description\": \"execute_code\", \"enabled\": false, \"configured\": true, \"tools\": [\"execute_code\"]}, {\"name\": \"vision\", \"label\": \"\\ud83d\\udc41\\ufe0f  Vision / Image Analysis\", \"description\": \"vision_analyze\", \"enabled\": false, \"configured\": false, \"tools\": [\"vision_analyze\"]}, {\"name\": \"video\", \"label\": \"\\ud83c\\udfac Video Analysis\", \"description\": \"video_analyze (requires video-capable model)\", \"enabled\": false, \"configured\": true, \"tools\": [\"video_analyze\"]}, {\"name\": \"image_gen\", \"label\": \"\\ud83c\\udfa8 Image Generation\", \"description\": \"image_generate\", \"enabled\": false, \"configured\": true, \"tools\": [\"image_generate\"]}, {\"name\": \"video_gen\", \"label\": \"\\ud83c\\udfac Video Generation\", \"description\": \"video_generate (text/image/reference)\", \"enabled\": false, \"configured\": true, \"tools\": [\"video_generate\", \"xai_video_edit\", \"xai_video_extend\"]}, {\"name\": \"x_search\", \"label\": \"\\ud83d\\udc26 X (Twitter) Search\", \"description\": \"x_search (requires xAI OAuth or XAI_API_KEY)\", \"enabled\": false, \"configured\": true, \"tools\": [\"x_search\"]}, {\"name\": \"tts\", \"label\": \"\\ud83d\\udd0a Text-to-Speech\", \"description\": \"text_to_speech\", \"enabled\": false, \"configured\": true, \"tools\": [\"text_to_speech\"]}, {\"name\": \"stt\", \"label\": \"\\ud83c\\udf99\\ufe0f Speech-to-Text\", \"description\": \"voice transcription (gateway voice messages + voice mode)\", \"enabled\": false, \"configured\": true, \"tools\": []}, {\"name\": \"skills\", \"label\": \"\\ud83d\\udcda Skills\", \"description\": \"list, view, manage\", \"enabled\": false, \"configured\": true, \"tools\": [\"skill_manage\", \"skill_view\", \"skills_list\"]}, {\"name\": \"todo\", \"label\": \"\\ud83d\\udccb Task Planning\", \"description\": \"todo_list\", \"enabled\": true, \"configured\": true, \"tools\": [\"todo_list\"]}, {\"name\": \"kanban\", \"label\": \"\\ud83d\\udccc Kanban\", \"description\": \"opt-in task board tools for this platform\", \"enabled\": false, \"configured\": true, \"tools\": [\"kanban_attach\", \"kanban_attach_url\", \"kanban_attachments\", \"kanban_block\", \"kanban_comment\", \"kanban_complete\", \"kanban_create\", \"kanban_heartbeat\", \"kanban_link\", \"kanban_list\", \"kanban_request_changes\", \"kanban_request_review\", \"kanban_schedule\", \"kanban_show\", \"kanban_unblock\"]}, {\"name\": \"memory\", \"label\": \"\\ud83d\\udcbe Memory\", \"description\": \"persistent memory across sessions\", \"enabled\": false, \"configured\": true, \"tools\": [\"memory\"]}, {\"name\": \"context_engine\", \"label\": \"\\ud83e\\udde9 Context Engine\", \"description\": \"runtime tools from the active context engine\", \"enabled\": false, \"configured\": true, \"tools\": []}, {\"name\": \"session_search\", \"label\": \"\\ud83d\\udd0e Session Search\", \"description\": \"search past conversations\", \"enabled\": false, \"configured\": true, \"tools\": [\"session_search\"]}, {\"name\": \"connections\", \"label\": \"\\ud83d\\udd0c Connections\", \"description\": \"remote connector tools and account authorization\", \"enabled\": false, \"configured\": true, \"tools\": [\"manage_connections\"]}, {\"name\": \"clarify\", \"label\": \"\\u2753 Clarifying Questions\", \"description\": \"clarify\", \"enabled\": true, \"configured\": true, \"tools\": [\"clarify\"]}, {\"name\": \"delegation\", \"label\": \"\\ud83d\\udc65 Task Delegation\", \"description\": \"delegate_task\", \"enabled\": false, \"configured\": true, \"tools\": [\"delegate_task\"]}, {\"name\": \"cronjob\", \"label\": \"\\u23f0 Cron Jobs\", \"description\": \"create/list/update/pause/resume/run, with optional attached skills\", \"enabled\": false, \"configured\": true, \"tools\": [\"cronjob_manage\"]}, {\"name\": \"discord\", \"label\": \"\\ud83d\\udcac Discord (read/participate)\", \"description\": \"fetch messages, search members, create thread\", \"enabled\": false, \"configured\": true, \"tools\": [\"discord\"]}, {\"name\": \"discord_admin\", \"label\": \"\\ud83d\\udee1\\ufe0f  Discord Server Admin\", \"description\": \"list channels/roles, pin, assign roles\", \"enabled\": false, \"configured\": true, \"tools\": [\"discord_admin\"]}, {\"name\": \"yuanbao\", \"label\": \"\\ud83e\\udd16 Yuanbao\", \"description\": \"group info, member queries, DM\", \"enabled\": false, \"configured\": true, \"tools\": [\"yb_query_group_info\", \"yb_query_group_members\", \"yb_search_sticker\", \"yb_send_dm\", \"yb_send_sticker\"]}, {\"name\": \"computer_use\", \"label\": \"\\ud83d\\uddb1\\ufe0f  Computer Use (macOS/Windows/Linux)\", \"description\": \"background desktop control via cua-driver\", \"enabled\": false, \"configured\": true, \"tools\": [\"computer_use\"]}, {\"name\": \"a2a\", \"label\": \"\\ud83d\\udd0c A2A\", \"description\": \"A2A (Agent-to-Agent) protocol v1.0 support for Hermes Agent \\u2014 both directions of the open Linux Foundation standard for inter-agent communication.\\nOUTBOUND (client tools): a2a_discover, a2a_call, a2a_list, a2a_history, and a2a_orchestrate let the agent fetch another agent's Agent Card and send it tasks over JSON-RPC \\u2014 works with any A2A-compliant peer (Hermes, LangChain, CrewAI, Google ADK, OpenClaw, ...).\\nINBOUND (platform adapter): exposes Hermes as an A2A-discoverable agent. An Agent Card is served at /.well-known/agent-card.json (v1.0 canonical path; legacy agent.json also answers) and incoming tasks are routed into the agent's live gateway session like any other platform \\u2014 so the agent that replies is the same one talking to its user, with full memory and context, not a throwaway clone.\\nSecurity is on by default: no bearer token configured => localhost-only bind. Inbound task text passes through prompt-injection filters; outbound text is scrubbed of credential-shaped strings; every exchange is audit-logged and persisted to disk outside the context-compaction pipeline so conversations survive compaction and restarts.\\nPure stdlib transport (http.server + urllib) \\u2014 no a2a-sdk dependency required.\\n\", \"enabled\": false, \"configured\": true, \"tools\": [\"a2a_call\", \"a2a_discover\", \"a2a_history\", \"a2a_list\", \"a2a_orchestrate\"]}]}",
+      "seconds": 0.0172
+    },
+    {
+      "name": "QA-capabilities",
+      "method": "GET",
+      "path": "/v1/capabilities",
+      "auth": "valid",
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "4257",
+        "Date": "Mon, 19 Oct 2026 12:11:19 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0009,
+      "body": "{\"object\": \"hermes.api_server.capabilities\", \"platform\": \"hermes-agent\", \"model\": \"hermes-qa-swarmhub\", \"auth\": {\"type\": \"bearer\", \"required\": true}, \"runtime\": {\"mode\": \"server_agent\", \"tool_execution\": \"server\", \"split_runtime\": false, \"description\": \"The API server creates a server-side Hermes AIAgent; tools execute on the API-server host unless a future explicit split-runtime mode is enabled.\"}, \"features\": {\"chat_completions\": true, \"chat_completions_streaming\": true, \"responses_api\": true, \"responses_streaming\": true, \"run_submission\": true, \"runs_idempotency\": {\"supported\": true, \"durable\": true, \"retention_seconds\": 86400}, \"run_status\": true, \"run_events_sse\": true, \"run_stop\": true, \"run_steer\": true, \"run_approval_response\": true, \"tool_progress_events\": true, \"approval_events\": true, \"session_resources\": true, \"model_options\": true, \"session_chat\": true, \"session_chat_streaming\": true, \"session_fork\": true, \"session_model_lock\": true, \"reasoning_streaming\": true, \"admin_config_rw\": false, \"jobs_admin\": false, \"memory_write_api\": false, \"skills_api\": true, \"audio_api\": false, \"realtime_voice\": false, \"session_continuity_header\": \"X-Hermes-Session-Id\", \"session_key_header\": \"X-Hermes-Session-Key\", \"run_unknown_resolution\": true, \"cors\": false, \"browser_extension_control\": {\"enabled\": false, \"protocol_version\": 1, \"capabilities\": [\"browser_back\", \"browser_click\", \"browser_navigate\", \"browser_press\", \"browser_screenshot\", \"browser_scroll\", \"browser_snapshot\", \"browser_tab_activate\", \"browser_tabs\", \"browser_type\", \"controller.noop\"], \"artifact_capabilities\": [\"browser_artifact_download\", \"browser_artifact_upload\"], \"developer_capabilities\": [\"browser_cdp\", \"browser_evaluate\"], \"developer_mode\": false, \"artifact_transport\": {\"upload\": {\"method\": \"POST\", \"path\": \"/v1/artifacts/upload\"}, \"download\": {\"method\": \"GET\", \"path\": \"/v1/artifacts/download/{artifact_id}\"}, \"max_bytes\": 10485760, \"ttl_seconds\": 300.0, \"allowed_mime_types\": [\"application/json\", \"application/pdf\", \"image/gif\", \"image/jpeg\", \"image/png\", \"image/webp\", \"text/plain\"]}, \"real_browser_actions\": true, \"transports\": {\"local_vps\": \"websocket-subprotocol-ticket\", \"cloud\": \"authenticated-gateway-rpc\"}}}, \"endpoints\": {\"health\": {\"method\": \"GET\", \"path\": \"/health\"}, \"health_detailed\": {\"method\": \"GET\", \"path\": \"/health/detailed\"}, \"models\": {\"method\": \"GET\", \"path\": \"/v1/models\"}, \"model_options\": {\"method\": \"GET\", \"path\": \"/api/model/options\"}, \"chat_completions\": {\"method\": \"POST\", \"path\": \"/v1/chat/completions\"}, \"responses\": {\"method\": \"POST\", \"path\": \"/v1/responses\"}, \"runs\": {\"method\": \"POST\", \"path\": \"/v1/runs\"}, \"run_status\": {\"method\": \"GET\", \"path\": \"/v1/runs/{run_id}\"}, \"run_events\": {\"method\": \"GET\", \"path\": \"/v1/runs/{run_id}/events\"}, \"run_approval\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/approval\"}, \"run_steer\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/steer\"}, \"run_unknown_resolution\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/resolve-unknown\"}, \"run_stop\": {\"method\": \"POST\", \"path\": \"/v1/runs/{run_id}/stop\"}, \"skills\": {\"method\": \"GET\", \"path\": \"/v1/skills\"}, \"toolsets\": {\"method\": \"GET\", \"path\": \"/v1/toolsets\"}, \"sessions\": {\"method\": \"GET\", \"path\": \"/api/sessions\"}, \"session_create\": {\"method\": \"POST\", \"path\": \"/api/sessions\"}, \"session\": {\"method\": \"GET\", \"path\": \"/api/sessions/{session_id}\"}, \"session_update\": {\"method\": \"PATCH\", \"path\": \"/api/sessions/{session_id}\"}, \"session_delete\": {\"method\": \"DELETE\", \"path\": \"/api/sessions/{session_id}\"}, \"session_messages\": {\"method\": \"GET\", \"path\": \"/api/sessions/{session_id}/messages\"}, \"session_fork\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/fork\"}, \"session_chat\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/chat\"}, \"session_chat_stream\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/chat/stream\"}, \"session_model_lock\": {\"method\": \"POST\", \"path\": \"/api/sessions/{session_id}/model\"}, \"browser_control_register\": {\"method\": \"POST\", \"path\": \"/v1/browser-control/register\"}, \"browser_control_ws\": {\"method\": \"GET\", \"path\": \"/v1/browser-control/ws\"}, \"artifact_upload\": {\"method\": \"POST\", \"path\": \"/v1/artifacts/upload\"}, \"artifact_download\": {\"method\": \"GET\", \"path\": \"/v1/artifacts/download/{artifact_id}\"}}}",
+      "seconds": 0.0009
+    },
+    {
+      "name": "QA-bridge-001",
+      "method": "POST",
+      "path": "/api/sessions",
+      "auth": "valid",
+      "request_body": "{\"id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"title\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"source\": \"api_server\"}",
+      "status": 201,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "698",
+        "Date": "Mon, 19 Oct 2026 12:11:52 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0041,
+      "body": "{\"object\": \"hermes.session\", \"session\": {\"id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"source\": \"api_server\", \"user_id\": null, \"model\": null, \"title\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"started_at\": 1792411912.1641574, \"ended_at\": null, \"end_reason\": null, \"message_count\": 0, \"tool_call_count\": 0, \"input_tokens\": 0, \"output_tokens\": 0, \"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"reasoning_tokens\": 0, \"estimated_cost_usd\": null, \"actual_cost_usd\": null, \"api_call_count\": 0, \"parent_session_id\": null, \"pinned\": false, \"archived\": false, \"hidden\": false, \"has_system_prompt\": false, \"has_model_config\": false, \"is_internal_child\": false}}",
+      "seconds": 0.0042
+    },
+    {
+      "name": "QA-bridge-002",
+      "method": "POST",
+      "path": "/api/sessions/QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub/chat/stream",
+      "auth": "valid",
+      "request_body": "{\"input\": \"[Message from QA-Swarmhub via SwarmHub]\\n[SwarmHub delivery id=job.1dc63aa5e08548f68034333c980870b1]\\n[Coding job completion job.1dc63aa5e08548f68034333c980870b1 via SwarmHub]\\nWorker: QA-Swarmhub; agent: codex; exit: 65; status: failed.\\nDurable record: /tmp/QA-LIVE5-eh5f_h1i/QA-home/.hermes/swarmhub/job-completions/job.1dc63aa5e08548f68034333c980870b1\\nModel: gpt-6-astra; effort: high; report: /tmp/QA-LIVE5-eh5f_h1i/QA-repo/QA-P01-first.txt; report exists: false.\\nVerified by code-job: nothing.\\nUnverified: fresh report (missing, empty or unchanged); commit (not checked); tests (no verification command configured); correctness of the report and of the work itself.\\nReview the result now and take the next step. This job ID may be redelivered; do not repeat an action already taken for it. Reply NO_REPLY if no action remains.\", \"instructions\": \"[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, webhook or model change happened unless the incoming runtime receipt proves it. Keep answers under 70 words. All outbound is FAKE. Never expose secrets. Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. For coding completion receipts, acknowledge failures truthfully, under 40 words. Do not claim next work started; only the queue can establish that. Your role is QA-Jarvis.\\nGlobal SwarmHub policy (enforced by managed execution): {\\\"allow_speculative\\\": true, \\\"coordinator\\\": \\\"QA-Jarvis\\\", \\\"end\\\": 1380, \\\"owner\\\": \\\"QA-Konrad\\\", \\\"revision\\\": 2, \\\"route\\\": \\\"auto\\\", \\\"start\\\": 480, \\\"timezone\\\": \\\"Europe/Warsaw\\\"}\"}",
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "X-Hermes-Session-Id": "QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub",
+        "Transfer-Encoding": "chunked",
+        "Date": "Mon, 19 Oct 2026 12:11:52 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0031,
+      "body": "event: run.started\ndata: {\"user_message\": {\"role\": \"user\", \"content\": \"[Message from QA-Swarmhub via SwarmHub]\\n[SwarmHub delivery id=job.1dc63aa5e08548f68034333c980870b1]\\n[Coding job completion job.1dc63aa5e08548f68034333c980870b1 via SwarmHub]\\nWorker: QA-Swarmhub; agent: codex; exit: 65; status: failed.\\nDurable record: /tmp/QA-LIVE5-eh5f_h1i/QA-home/.hermes/swarmhub/job-completions/job.1dc63aa5e08548f68034333c980870b1\\nModel: gpt-6-astra; effort: high; report: /tmp/QA-LIVE5-eh5f_h1i/QA-repo/QA-P01-first.txt; report exists: false.\\nVerified by code-job: nothing.\\nUnverified: fresh report (missing, empty or unchanged); commit (not checked); tests (no verification command configured); correctness of the report and of the work itself.\\nReview the result now and take the next step. This job ID may be redelivered; do not repeat an action already taken for it. Reply NO_REPLY if no action remains.\"}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 1, \"ts\": 1792411912.343717}\n\nevent: message.started\ndata: {\"message\": {\"id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"role\": \"assistant\"}, \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 2, \"ts\": 1792411912.3437386}\n\n: keepalive\n\n: keepalive\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"Job\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 3, \"ts\": 1792411932.609338}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" job\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 4, \"ts\": 1792411932.6247916}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \".\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 5, \"ts\": 1792411932.6454048}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"1\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 6, \"ts\": 1792411932.6515963}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"dc\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 7, \"ts\": 1792411932.6615186}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"63\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 8, \"ts\": 1792411932.6906328}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"aa\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 9, \"ts\": 1792411932.7051902}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"5\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 10, \"ts\": 1792411932.7190483}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"e\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 11, \"ts\": 1792411932.727685}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"085\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 12, \"ts\": 1792411932.7292361}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"48\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 13, \"ts\": 1792411932.7318041}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"f\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 14, \"ts\": 1792411932.7329624}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"680\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 15, \"ts\": 1792411932.733567}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"343\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 16, \"ts\": 1792411932.7515185}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"33\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 17, \"ts\": 1792411932.7520778}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"c\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 18, \"ts\": 1792411932.8712225}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"980\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 19, \"ts\": 1792411932.872177}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"870\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 20, \"ts\": 1792411932.872652}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"b\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 21, \"ts\": 1792411932.8733385}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"1\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 22, \"ts\": 1792411932.8811946}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" failed\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 23, \"ts\": 1792411932.8817146}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" with\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 24, \"ts\": 1792411932.8819816}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" exit\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 25, \"ts\": 1792411932.8822498}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" \", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 26, \"ts\": 1792411933.0066028}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"65\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 27, \"ts\": 1792411933.0077586}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \".\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 28, \"ts\": 1792411933.0125906}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" The\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 29, \"ts\": 1792411933.0133517}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" report\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 30, \"ts\": 1792411933.0141184}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" is\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 31, \"ts\": 1792411933.014582}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" missing\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 32, \"ts\": 1792411933.0150175}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \";\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 33, \"ts\": 1792411933.015825}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" no\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 34, \"ts\": 1792411933.1422741}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" work\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 35, \"ts\": 1792411933.2825437}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" was\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 36, \"ts\": 1792411933.2832456}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" verified\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 37, \"ts\": 1792411933.283502}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \".\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 38, \"ts\": 1792411933.2837381}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" Commit\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 39, \"ts\": 1792411933.2839513}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" and\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 40, \"ts\": 1792411933.2843282}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" tests\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 41, \"ts\": 1792411933.4142585}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" remain\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 42, \"ts\": 1792411933.415265}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" un\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 43, \"ts\": 1792411933.4161696}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \"verified\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 44, \"ts\": 1792411933.416835}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \".\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 45, \"ts\": 1792411933.4173267}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" No\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 46, \"ts\": 1792411933.417959}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" next\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 47, \"ts\": 1792411933.419012}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" job\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 48, \"ts\": 1792411933.5580928}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" is\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 49, \"ts\": 1792411933.55885}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" established\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 50, \"ts\": 1792411933.5595715}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" by\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 51, \"ts\": 1792411933.5625296}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" this\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 52, \"ts\": 1792411933.5680878}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \" receipt\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 53, \"ts\": 1792411933.5685015}\n\nevent: assistant.delta\ndata: {\"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"delta\": \".\", \"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 54, \"ts\": 1792411933.5690172}\n\nevent: assistant.completed\ndata: {\"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"content\": \"Job job.1dc63aa5e08548f68034333c980870b1 failed with exit 65. The report is missing; no work was verified. Commit and tests remain unverified. No next job is established by this receipt.\", \"completed\": true, \"partial\": false, \"interrupted\": false, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 55, \"ts\": 1792411933.780812}\n\nevent: run.completed\ndata: {\"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"message_id\": \"msg_e4dd420098ee4a06a36cdf89b89147f2\", \"completed\": true, \"partial\": false, \"interrupted\": false, \"messages\": [{\"role\": \"assistant\", \"content\": \"Job job.1dc63aa5e08548f68034333c980870b1 failed with exit 65. The report is missing; no work was verified. Commit and tests remain unverified. No next job is established by this receipt.\", \"timestamp\": 1792411933.723064, \"finish_reason\": \"stop\", \"reasoning\": null}], \"usage\": {\"input_tokens\": 3088, \"output_tokens\": 56, \"total_tokens\": 3144}, \"runtime\": {\"provider\": \"\", \"model\": \"\", \"route_source\": \"global\", \"requested\": {\"provider\": \"\", \"model\": \"\"}}, \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 56, \"ts\": 1792411933.7808223}\n\nevent: done\ndata: {\"session_id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"run_id\": \"run_e8a859d24ad2421fbc4c9abb71764d52\", \"seq\": 57, \"ts\": 1792411933.7808743}\n\n",
+      "seconds": 21.4416
+    },
+    {
+      "name": "QA-cleanup-delete-QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub",
+      "method": "DELETE",
+      "path": "/api/sessions/QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub",
+      "auth": "valid",
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "121",
+        "Date": "Mon, 19 Oct 2026 12:12:35 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0158,
+      "body": "{\"object\": \"hermes.session.deleted\", \"id\": \"QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"deleted\": true}",
+      "seconds": 0.0159
+    },
+    {
+      "name": "QA-cleanup-verify-QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub",
+      "method": "GET",
+      "path": "/api/sessions/QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub",
+      "auth": "valid",
+      "request_body": null,
+      "status": 404,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "180",
+        "Date": "Mon, 19 Oct 2026 12:12:35 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0012,
+      "body": "{\"error\": {\"message\": \"Session not found: QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": \"session_not_found\"}}",
+      "seconds": 0.0013
+    },
+    {
+      "name": "QA-final-health",
+      "method": "GET",
+      "path": "/health/detailed",
+      "auth": "valid",
+      "request_body": null,
+      "status": 200,
+      "response_headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "no-referrer",
+        "Content-Length": "1764",
+        "Date": "Mon, 19 Oct 2026 12:12:35 GMT",
+        "Server": "Python/3.14 aiohttp/3.14.5"
+      },
+      "header_seconds": 0.0029,
+      "body": "{\"status\": \"ok\", \"readiness\": {\"status\": \"ok\", \"checks\": {\"state_db\": {\"status\": \"ok\"}, \"session_store\": {\"status\": \"ok\"}, \"config\": {\"status\": \"ok\"}, \"model\": {\"status\": \"ok\"}, \"disk\": {\"status\": \"ok\", \"used_percent\": 18.3, \"free_bytes\": 109638275072}, \"gateway\": {\"status\": \"ok\", \"state\": \"running\", \"connected_platforms\": 1, \"platforms\": 1}, \"background_queues\": {\"status\": \"ok\", \"active_api_runs\": 0, \"process_completions\": 0, \"active_delegations\": 0}}}, \"platform\": \"hermes-agent\", \"version\": \"unknown\", \"gateway_state\": \"running\", \"platforms\": {\"api_server\": {\"state\": \"connected\", \"error_code\": null, \"error_message\": null, \"needs_attention\": false, \"updated_at\": \"2026-10-19T12:12:19.928448+00:00\", \"writer_pid\": 197155, \"writer_start_time\": 2007890, \"retrying_since\": null, \"listener_base\": \"http://127.0.0.1:8742\", \"metrics\": {\"host\": \"127.0.0.1\", \"port\": 8742, \"active_runs\": 0, \"stored_runs\": 2, \"last_request_at\": \"2026-10-19T08:53:25.680763+00:00\", \"last_heartbeat\": \"2026-10-19T12:12:35.628702+00:00\", \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 2, \"messages\": 2, \"tokens\": 5517, \"latency_p95_ms\": 5134.57}}}}, \"api_server\": {\"host\": \"127.0.0.1\", \"port\": 8742, \"active_runs\": 0, \"stored_runs\": 2, \"last_request_at\": \"2026-10-19T08:53:25.680763+00:00\", \"last_heartbeat\": \"2026-10-19T12:12:35.628702+00:00\", \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 2, \"messages\": 2, \"tokens\": 5517, \"latency_p95_ms\": 5134.57}}, \"metrics_today\": {\"day\": \"2026-10-19\", \"requests\": 2, \"messages\": 2, \"tokens\": 5517, \"latency_p95_ms\": 5134.57}, \"last_heartbeat\": \"2026-10-19T12:12:35.628702+00:00\", \"active_agents\": 0, \"gateway_busy\": false, \"gateway_drainable\": true, \"exit_reason\": null, \"updated_at\": \"2026-10-19T12:12:19.928414+00:00\", \"pid\": 197155}",
+      "seconds": 0.003
+    }
+  ],
+  "submitted_turns": 1,
+  "requests": 8,
+  "owned_sessions": [
+    "QA-LIVE5-20261019T121119-4c9723-QA-Jarvis-from-QA-Swarmhub"
+  ],
+  "observed_run_ids": [],
+  "note": "No Swift projection used. API turn count differs from provider call count; inspect receipts/owned session telemetry.",
+  "commands": [
+    {
+      "label": "P02-register-QA-Ermes",
+      "argv": [
+        "/usr/bin/python3",
+        "/home/box/work/swarmhub/wt-peer/Resources/Skills/swarmhub-messages/scripts/swarmctl",
+        "register",
+        "QA-Ermes"
+      ],
+      "payload": null,
+      "administrative_fixture_actor": null,
+      "returncode": 0,
+      "stdout": "{\"credentials\": \"profile .env at delivery\", \"profile\": \"QA-Ermes\", \"wake\": \"profile-gateway\"}\n",
+      "stderr": "",
+      "seconds": 0.064
+    },
+    {
+      "label": "P02-register-QA-Infra",
+      "argv": [
+        "/usr/bin/python3",
+        "/home/box/work/swarmhub/wt-peer/Resources/Skills/swarmhub-messages/scripts/swarmctl",
+        "register",
+        "QA-Infra"
+      ],
+      "payload": null,
+      "administrative_fixture_actor": null,
+      "returncode": 0,
+      "stdout": "{\"credentials\": \"profile .env at delivery\", \"profile\": \"QA-Infra\", \"wake\": \"profile-gateway\"}\n",
+      "stderr": "",
+      "seconds": 0.062
+    },
+    {
+      "label": "P02-register-QA-Jarvis",
+      "argv": [
+        "/usr/bin/python3",
+        "/home/box/work/swarmhub/wt-peer/Resources/Skills/swarmhub-messages/scripts/swarmctl",
+        "register",
+        "QA-Jarvis",
+        "--coordinator"
+      ],
+      "payload": null,
+      "administrative_fixture_actor": null,
+      "returncode": 0,
+      "stdout": "{\"credentials\": \"profile .env at delivery\", \"profile\": \"QA-Jarvis\", \"wake\": \"profile-gateway\"}\n",
+      "stderr": "",
+      "seconds": 0.062
+    },
+    {
+      "label": "P02-register-QA-Konrad",
+      "argv": [
+        "/usr/bin/python3",
+        "/home/box/work/swarmhub/wt-peer/Resources/Skills/swarmhub-messages/scripts/swarmctl",
+        "register",
+        "QA-Konrad"
+      ],
+      "payload": null,
+      "administrative_fixture_actor": null,
+      "returncode": 0,
+      "stdout": "{\"credentials\": \"profile .env at delivery\", \"profile\": \"QA-Konrad\", \"wake\": \"profile-gateway\"}\n",
+      "stderr": "",
+      "seconds": 0.075
+    },
+    {
+      "label": "P02-register-QA-Swarmhub",
+      "argv": [
+        "/usr/bin/python3",
+        "/home/box/work/swarmhub/wt-peer/Resources/Skills/swarmhub-messages/scripts/swarmctl",
+        "register",
+        "QA-Swarmhub"
+      ],
+      "payload": null,
+      "administrative_fixture_actor": null,
+      "returncode": 0,
+      "stdout": "{\"credentials\": \"profile .env at delivery\", \"profile\": \"QA-Swarmhub\", \"wake\": \"profile-gateway\"}\n",
+      "stderr": "",
+      "seconds": 0.061
+    },
+    {
+      "label": "P07-P08-policy",
+      "argv": [
+        "/usr/bin/python3",
+        "/home/box/work/swarmhub/wt-peer/Resources/Skills/swarmhub-messages/scripts/swarmctl",
+        "policy",
+        "set"
+      ],
+      "payload": {
+        "coordinator": "QA-Jarvis",
+        "owner": "QA-Konrad",
+        "timezone": "Europe/Warsaw",
+        "start": 480,
+        "end": 1380
+      },
+      "administrative_fixture_actor": null,
+      "returncode": 0,
+      "stdout": "{\"allow_speculative\": true, \"coordinator\": \"QA-Jarvis\", \"end\": 1380, \"owner\": \"QA-Konrad\", \"revision\": 2, \"route\": \"auto\", \"start\": 480, \"timezone\": \"Europe/Warsaw\"}\n",
+      "stderr": "",
+      "seconds": 0.061
+    },
+    {
+      "label": "P01-submit-first",
+      "argv": [
+        "/usr/bin/python3",
+        "/home/box/work/swarmhub/wt-peer/Resources/Skills/swarmhub-messages/scripts/swarmctl",
+        "submit"
+      ],
+      "payload": {
+        "bot": "QA-Swarmhub",
+        "origin": "QA-Jarvis",
+        "kind": "coding",
+        "intent": "QA-P01-first",
+        "task": "QA replay QA-P01-first: in this repository append the line 'QA-P01-first done' to NOTES.md (create it if missing). Commit it with the message 'QA: QA-P01-first' if the repository allows a commit; if not, say so in the report. Change nothing else, use no network, send nothing anywhere.",
+        "directory": "/tmp/QA-LIVE5-eh5f_h1i/QA-repo",
+        "order": "codex",
+        "model": "gpt-6-astra",
+        "effort": "high",
+        "report": "/tmp/QA-LIVE5-eh5f_h1i/QA-repo/QA-P01-first.txt",
+        "verify": "grep -Fxq 'QA-P01-first done' NOTES.md"
+      },
+      "administrative_fixture_actor": null,
+      "returncode": 0,
+      "stdout": "task.1dc63aa5e08548f68034333c980870b1\n",
+      "stderr": "",
+      "seconds": 0.062
+    },
+    {
+      "label": "P01-submit-next",
+      "argv": [
+        "/usr/bin/python3",
+        "/home/box/work/swarmhub/wt-peer/Resources/Skills/swarmhub-messages/scripts/swarmctl",
+        "submit"
+      ],
+      "payload": {
+        "bot": "QA-Swarmhub",
+        "origin": "QA-Jarvis",
+        "kind": "coding",
+        "intent": "QA-P01-next",
+        "task": "QA replay QA-P01-next: in this repository append the line 'QA-P01-next done' to NOTES.md (create it if missing). Commit it with the message 'QA: QA-P01-next' if the repository allows a commit; if not, say so in the report. Change nothing else, use no network, send nothing anywhere.",
+        "directory": "/tmp/QA-LIVE5-eh5f_h1i/QA-repo",
+        "order": "codex",
+        "model": "gpt-6-astra",
+        "effort": "high",
+        "report": "/tmp/QA-LIVE5-eh5f_h1i/QA-repo/QA-P01-next.txt",
+        "verify": "grep -Fxq 'QA-P01-next done' NOTES.md"
+      },
+      "administrative_fixture_actor": null,
+      "returncode": 0,
+      "stdout": "task.18c29e638f7d4347aade5443aff18aee\n",
+      "stderr": "",
+      "seconds": 0.074
+    }
+  ],
+  "hooks": [
+    {
+      "op": "before_turn",
+      "args": [
+        "QA-Jarvis",
+        "swarmhub-from-QA-Swarmhub",
+        "QA-bridge-002",
+        "[Message from QA-Swarmhub via SwarmHub]\n[SwarmHub delivery id=job.1dc63aa5e08548f68034333c980870b1]\n[Coding job completion job.1dc63aa5e08548f68034333c980870b1 via SwarmHub]\nWorker: QA-Swarmhub; agent: codex; exit: 65; status: failed.\nDurable record: /tmp/QA-LIVE5-eh5f_h1i/QA-home/.hermes/swarmhub/job-completions/job.1dc63aa5e08548f68034333c980870b1\nModel: gpt-6-astra; effort: high; report: /tmp/QA-LIVE5-eh5f_h1i/QA-repo/QA-P01-first.txt; report exists: false.\nVerified by code-job: nothing.\nUnverified: fresh report (missing, empty or unchanged); commit (not checked); tests (no verification command configured); correctness of the report and of the work itself.\nReview the result now and take the next step. This job ID may be redelivered; do not repeat an action already taken for it. Reply NO_REPLY if no action remains."
+      ],
+      "result": {
+        "context": "Global SwarmHub policy (enforced by managed execution): {\"allow_speculative\": true, \"coordinator\": \"QA-Jarvis\", \"end\": 1380, \"owner\": \"QA-Konrad\", \"revision\": 2, \"route\": \"auto\", \"start\": 480, \"timezone\": \"Europe/Warsaw\"}"
+      }
+    },
+    {
+      "op": "after_turn",
+      "args": [
+        "QA-Jarvis",
+        "swarmhub-from-QA-Swarmhub",
+        "QA-bridge-002",
+        "Job job.1dc63aa5e08548f68034333c980870b1 failed with exit 65. The report is missing; no work was verified. Commit and tests remain unverified. No next job is established by this receipt."
+      ],
+      "result": null
+    }
+  ],
+  "baseline": "grokbot-observed.md P01-P10",
+  "coding_cli": {
+    "agent": "codex",
+    "path": "/home/box/.npm-global/bin/codex",
+    "bin": "/home/box/.npm-global/bin",
+    "codex_home": "/tmp/QA-LIVE5-eh5f_h1i/QA-codex-state",
+    "source_auth_home": "/home/box/.codex"
+  }
+}
