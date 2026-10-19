@@ -1,0 +1,39 @@
+{
+  "execution_path": "plain-box-shell",
+  "cli_path": "/home/box/.npm-global/bin/codex",
+  "model": "gpt-6-astra",
+  "effort": "high",
+  "source_auth_config_unchanged": true,
+  "exit": 0,
+  "fields": {
+    "agent": "codex",
+    "status": "ok",
+    "exit": "0",
+    "cli-exit": "0",
+    "report-valid": "true",
+    "verify-command": "grep -Fxq 'QA-live6 CLI tools work' NOTES.md && grep -Fxq 'QA-command ran' COMMAND.txt",
+    "verify-exit": "0",
+    "tests-passed": "true",
+    "evidence": "tests",
+    "commit-evidence": "false"
+  },
+  "runner_unchanged": true,
+  "cli_version": "codex-cli 0.163.0",
+  "private_files": {
+    "auth.json": {
+      "symlink": false,
+      "mode": "0o600"
+    },
+    "config.toml": {
+      "symlink": false,
+      "mode": "0o600"
+    }
+  },
+  "artifacts": {
+    "NOTES.md": "QA-live6 CLI tools work\n",
+    "COMMAND.txt": "QA-command ran\n",
+    "REPORT.md": "# Completion report\n\nCreated NOTES.md containing exactly `QA-live6 CLI tools work` followed by one newline (24 bytes).\n\nRan this shell command to create COMMAND.txt and verify NOTES.md:\n\n```sh\nprintf '%s\\n' 'QA-command ran' > COMMAND.txt && grep -Fx 'QA-live6 CLI tools work' NOTES.md && test \"$(wc -c < NOTES.md)\" -eq 24 && test \"$(wc -c < COMMAND.txt)\" -eq 15\n```\n\nThe command passed with exit code 0. Grep printed `QA-live6 CLI tools work`. COMMAND.txt contains `QA-command ran` followed by one newline (15 bytes).\n\nNo commit was made. No network, external connectors, or other agents were used, and no files outside this repository were read. This report was freshly written for this task.\n"
+  },
+  "no_messaging_sibling": true,
+  "recorded_provider_responses": 5
+}

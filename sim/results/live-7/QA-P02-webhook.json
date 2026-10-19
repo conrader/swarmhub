@@ -1,0 +1,309 @@
+{
+  "time": "2026-10-19T12:56:45.482861+00:00",
+  "files": {
+    "job-completions/job.258bac6356d44183a425649e51585ccc/agent": "codex\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/attempts": "1",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/bot": "QA-Swarmhub\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/cli-exit": "0\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/cli-pid": "488159\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/commit-evidence": "false\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/delivered": "1792414528.8918173",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/directory": "/tmp/QA-LIVE6-1e592erz/QA-repo\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/effort": "high\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/evidence": "tests\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/exit": "0\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/head-after": "346e8803ebaa71777c59a740dc1a067522c30274\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/head-before": "346e8803ebaa71777c59a740dc1a067522c30274\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/model": "gpt-6-astra\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/next-attempt": "1792414525.7623065",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/origin": "QA-Jarvis\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/pid": "488120\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/ran": "54\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/ready": "",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/report": "/tmp/QA-LIVE6-1e592erz/QA-repo/QA-P01-first.txt\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/report-before": "missing-or-empty",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/report-exists": "true\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/report-sha256": "ccf920b2ba7fa1ba96cbd9ac7f47c39767ab2ecaf9fa4c7b7ef8ef3956f27b76",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/report-valid": "true",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/status": "ok\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/task-id": "task.258bac6356d44183a425649e51585ccc\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/tests-passed": "true\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/verify-command": "grep -Fxq 'QA-P01-first done' NOTES.md\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/verify-exit": "0\n",
+    "job-completions/job.258bac6356d44183a425649e51585ccc/waited": "0\n",
+    "job-completions/job.YSOnxar7/agent": "none\n",
+    "job-completions/job.YSOnxar7/attempts": "1",
+    "job-completions/job.YSOnxar7/bot": "QA-Swarmhub\n",
+    "job-completions/job.YSOnxar7/cli-exit": "not-run\n",
+    "job-completions/job.YSOnxar7/commit-evidence": "not-checked\n",
+    "job-completions/job.YSOnxar7/delivered": "1792414586.290859",
+    "job-completions/job.YSOnxar7/directory": "/tmp/QA-LIVE6-1e592erz/QA-home\n",
+    "job-completions/job.YSOnxar7/effort": "high\n",
+    "job-completions/job.YSOnxar7/evidence": "none\n",
+    "job-completions/job.YSOnxar7/exit": "69\n",
+    "job-completions/job.YSOnxar7/head-after": "-\n",
+    "job-completions/job.YSOnxar7/head-before": "-\n",
+    "job-completions/job.YSOnxar7/model": "gpt-6-astra\n",
+    "job-completions/job.YSOnxar7/next-attempt": "1792414585.2163343",
+    "job-completions/job.YSOnxar7/origin": "QA-Unknown\n",
+    "job-completions/job.YSOnxar7/pid": "490886\n",
+    "job-completions/job.YSOnxar7/ran": "0\n",
+    "job-completions/job.YSOnxar7/ready": "",
+    "job-completions/job.YSOnxar7/report": "/tmp/QA-LIVE6-1e592erz/QA-home/QA-P02-report.txt\n",
+    "job-completions/job.YSOnxar7/report-exists": "false\n",
+    "job-completions/job.YSOnxar7/status": "failed\n",
+    "job-completions/job.YSOnxar7/task-id": "\n",
+    "job-completions/job.YSOnxar7/tests-passed": "not-run\n",
+    "job-completions/job.YSOnxar7/verify-command": "test -s QA-P02-report.txt\n",
+    "job-completions/job.YSOnxar7/verify-exit": "-\n",
+    "job-completions/job.YSOnxar7/waited": "0\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/agent": "codex\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/attempts": "1",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/bot": "QA-Swarmhub\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/cli-exit": "0\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/cli-pid": "489291\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/commit-evidence": "false\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/delivered": "1792414567.85162",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/directory": "/tmp/QA-LIVE6-1e592erz/QA-repo\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/effort": "high\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/evidence": "tests\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/exit": "0\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/head-after": "346e8803ebaa71777c59a740dc1a067522c30274\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/head-before": "346e8803ebaa71777c59a740dc1a067522c30274\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/model": "gpt-6-astra\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/next-attempt": "1792414560.9091945",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/origin": "QA-Jarvis\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/pid": "489257\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/ran": "32\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/ready": "",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/report": "/tmp/QA-LIVE6-1e592erz/QA-repo/QA-P01-next.txt\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/report-before": "missing-or-empty",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/report-exists": "true\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/report-sha256": "cc734ee6890ccfd359b5fa04d25c730c5ba6ba786115213f555e832286efa931",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/report-valid": "true",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/status": "ok\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/task-id": "task.bbee869d577f46fcaa9c55ace6b2c51c\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/tests-passed": "true\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/verify-command": "grep -Fxq 'QA-P01-next done' NOTES.md\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/verify-exit": "0\n",
+    "job-completions/job.bbee869d577f46fcaa9c55ace6b2c51c/waited": "0\n"
+  },
+  "coding_artifacts": {
+    "README.md": "QA repository for a SwarmHub live pass. Throwaway.\n",
+    "NOTES.md": "QA-P01-first done\nQA-P01-next done\n",
+    "QA-P01-first.txt": "QA-P01-first completion report\n\nCreated NOTES.md containing exactly:\nQA-P01-first done\n\nCreated this fresh completion report. No other working-tree files were changed.\nNo network was used and nothing was sent anywhere.\n\nCommit attempted with message: QA: QA-P01-first\nBoth git add and git commit failed because .git is read-only:\nfatal: Unable to create '/tmp/QA-LIVE6-1e592erz/QA-repo/.git/index.lock': Read-only file system\nNo new commit was created. HEAD remains 346e880 (QA baseline).\n\nChecks:\n- Exact contents verified successfully using:\n  printf '%s\\n' 'QA-P01-first done' | cmp - NOTES.md\n- git diff --exit-code and git diff --cached --exit-code passed.\n- git status showed NOTES.md untracked before this report was written.\n- An initial Python content check could not run because python is unavailable;\n  the exact-content cmp check above subsequently passed.\n- No configured verification command was found in this repository.\n\nThe requested file change is done, but the required completion evidence is\nnot satisfied: no authorized new commit could be created and no configured\nverification command was available. The manual checks are not represented\nas configured verification.\n",
+    "QA-P01-next.txt": "QA-P01-next completion report\n\nAppended exactly one line to NOTES.md:\nQA-P01-next done\nPreserved the existing QA-P01-first done line.\nCreated this fresh, nonempty report at:\n/tmp/QA-LIVE6-1e592erz/QA-repo/QA-P01-next.txt\nNo other files were changed. No network was used and nothing was sent anywhere.\n\nNo commit was attempted or created: the workspace permission profile grants\nread-only access to .git. The requested commit message was QA: QA-P01-next.\nHEAD remains the existing QA baseline commit, 346e880.\n\nChecks passed:\n- Exact NOTES.md contents checked with:\n  printf '%s\\n' 'QA-P01-first done' 'QA-P01-next done' | cmp - NOTES.md\n- git diff --exit-code\n- git diff --cached --exit-code\nThe diff checks cover tracked files; NOTES.md remains untracked.\n\nNo configured verification command was found in the repository.\nThe requested file change and report are complete, but the required completion\nevidence is NOT satisfied: there is neither an authorized new commit nor a\npassing configured verification command. The manual checks above do not\nconstitute configured verification.\n"
+  },
+  "control.sqlite": {
+    "settings": [
+      {
+        "id": 1,
+        "revision": 2,
+        "body": "{\"allow_speculative\":true,\"coordinator\":\"QA-Jarvis\",\"end\":1380,\"owner\":\"QA-Konrad\",\"route\":\"auto\",\"start\":480,\"timezone\":\"Europe/Warsaw\"}"
+      }
+    ],
+    "subscribers": [
+      {
+        "profile": "QA-Ermes",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Infra",
+        "revision": 2
+      },
+      {
+        "profile": "QA-Jarvis",
+        "revision": 2
+      },
+      {
+        "profile": "QA-Konrad",
+        "revision": -1
+      },
+      {
+        "profile": "QA-Swarmhub",
+        "revision": 2
+      }
+    ],
+    "policy_turns": [],
+    "actions": [
+      {
+        "id": "task.258bac6356d44183a425649e51585ccc",
+        "fingerprint": "cc9c2116bc5abd4bfdc53006df74e9a2d2553363a7370933ad2736b61765e094",
+        "intent": "QA-P01-first",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE6-1e592erz/QA-repo\",\"effort\":\"high\",\"intent\":\"QA-P01-first\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE6-1e592erz/QA-repo/QA-P01-first.txt\",\"task\":\"QA replay QA-P01-first: in this repository append the line 'QA-P01-first done' to NOTES.md (create it if missing). Commit it with the message 'QA: QA-P01-first' if the repository allows a commit; if not, say so in the report. Change nothing else, use no network, send nothing anywhere.\",\"verify\":\"grep -Fxq 'QA-P01-first done' NOTES.md\"}",
+        "gate": "auto",
+        "status": "done",
+        "pid": 488120,
+        "error": null,
+        "created": 1792414466.0259838,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": "Mon Oct 19 14:54:27 2026",
+        "launched": "{\"model\":\"gpt-6-astra\",\"order\":\"codex\"}"
+      },
+      {
+        "id": "task.bbee869d577f46fcaa9c55ace6b2c51c",
+        "fingerprint": "54e4c8e3a64a842b5e4dd0efb20fc8262aec05acbc822d1f9223a1d1108fed07",
+        "intent": "QA-P01-next",
+        "spec": "{\"bot\":\"QA-Swarmhub\",\"directory\":\"/tmp/QA-LIVE6-1e592erz/QA-repo\",\"effort\":\"high\",\"intent\":\"QA-P01-next\",\"kind\":\"coding\",\"model\":\"gpt-6-astra\",\"order\":\"codex\",\"origin\":\"QA-Jarvis\",\"report\":\"/tmp/QA-LIVE6-1e592erz/QA-repo/QA-P01-next.txt\",\"task\":\"QA replay QA-P01-next: in this repository append the line 'QA-P01-next done' to NOTES.md (create it if missing). Commit it with the message 'QA: QA-P01-next' if the repository allows a commit; if not, say so in the report. Change nothing else, use no network, send nothing anywhere.\",\"verify\":\"grep -Fxq 'QA-P01-next done' NOTES.md\"}",
+        "gate": "auto",
+        "status": "done",
+        "pid": 489257,
+        "error": null,
+        "created": 1792414466.0938976,
+        "decided_by": null,
+        "decided_pid": null,
+        "decided_at": null,
+        "pid_start": "Mon Oct 19 14:55:24 2026",
+        "launched": "{\"model\":\"gpt-6-astra\",\"order\":\"codex\"}"
+      }
+    ],
+    "denials": [],
+    "deliveries": [
+      {
+        "id": "delivery.a01b3989445e4318b940919f260f571b",
+        "sender": "QA-Jarvis",
+        "target": "QA-Swarmhub",
+        "text": "[QA-TEST] Review the result now and take the next step. The completion wake lists what code-job verified and what is unverified. Use explicit Codex/high effort and verify the output file before reporting. Do not claim anything the wake marks unverified; state what the receipt establishes. If it failed, the queue holds the next job; the runner will continue the other QA patterns.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792414576.5332355,
+        "error": null
+      },
+      {
+        "id": "delivery.3f42cc0d1b294577a818300748e32eb9",
+        "sender": "QA-Infra",
+        "target": "QA-Swarmhub",
+        "text": "[QA-TEST] Unknown launching agent must fall back to Jarvis. Register the wake subscription; secret key visible only to user, never in chat. Runner will exercise managed webhook register/fire/rotate with a 0600 key file. No Hermes routine is installed. State the boundary.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792414583.2140121,
+        "error": null
+      },
+      {
+        "id": "delivery.e6b07c06e1504abf99faa8c66606e012",
+        "sender": "QA-Jarvis",
+        "target": "QA-Swarmhub",
+        "text": "[QA-TEST] Coordinator correction: the preceding unknown-origin job failed 69 with no CLI and no report. Its verification was configured but not run. Demand explicit Codex model gpt-6-astra with high effort, a fresh nonempty report and passing verification before reporting success. You cannot run tools here; state the corrective requirement without claiming a relaunch.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792414598.6481774,
+        "error": null
+      },
+      {
+        "id": "delivery.499a4649f1f04fa8bdac72b8cd62866f",
+        "sender": "QA-Infra",
+        "target": "QA-Infra",
+        "text": "[Webhook routine QA-wake for QA-Infra]\n[QA-TEST] FYI QA registered webhook fired. NO_REPLY.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792414602.923764,
+        "error": null
+      },
+      {
+        "id": "delivery.5435185d91b14a2a95dd66cd8edd5777",
+        "sender": "QA-Infra",
+        "target": "QA-Infra",
+        "text": "[Webhook routine QA-wake for QA-Infra]\n[QA-TEST] FYI QA rotated webhook HTTP wake. NO_REPLY.",
+        "task": "",
+        "status": "delivered",
+        "attempts": 1,
+        "due": 1792414607.3990865,
+        "error": null
+      }
+    ],
+    "receipts": [
+      {
+        "target": "QA-Jarvis",
+        "id": "job.258bac6356d44183a425649e51585ccc",
+        "status": "received",
+        "token": "fc4b008667934b93b00c524e59625c58",
+        "expires": 1792418223.763322,
+        "session": "swarmhub-from-QA-Swarmhub",
+        "turn": "QA-bridge-002"
+      },
+      {
+        "target": "QA-Jarvis",
+        "id": "job.bbee869d577f46fcaa9c55ace6b2c51c",
+        "status": "received",
+        "token": "4053c54cd960463cb56d75cd44d10a3b",
+        "expires": 1792418258.91004,
+        "session": "swarmhub-from-QA-Swarmhub",
+        "turn": "QA-bridge-004"
+      },
+      {
+        "target": "QA-Swarmhub",
+        "id": "delivery.a01b3989445e4318b940919f260f571b",
+        "status": "received",
+        "token": "6bc3e6dacbf84c58961cb4fa2ca22ddd",
+        "expires": 1792418269.8536768,
+        "session": "swarmhub-from-QA-Jarvis",
+        "turn": "QA-bridge-006"
+      },
+      {
+        "target": "QA-Swarmhub",
+        "id": "delivery.3f42cc0d1b294577a818300748e32eb9",
+        "status": "received",
+        "token": "52f5a3332597484c8c27a2629ff6569c",
+        "expires": 1792418276.5353003,
+        "session": "swarmhub-from-QA-Infra",
+        "turn": "QA-bridge-008"
+      },
+      {
+        "target": "QA-Jarvis",
+        "id": "job.YSOnxar7",
+        "status": "received",
+        "token": "df011101f7504cd3ba910c152bfc2022",
+        "expires": 1792418283.2172766,
+        "session": "swarmhub-from-QA-Swarmhub",
+        "turn": "QA-bridge-010"
+      },
+      {
+        "target": "QA-Swarmhub",
+        "id": "delivery.e6b07c06e1504abf99faa8c66606e012",
+        "status": "received",
+        "token": "88aa04ce4e184fe4a0de60241531fba1",
+        "expires": 1792418288.292802,
+        "session": "swarmhub-from-QA-Jarvis",
+        "turn": "QA-bridge-012"
+      },
+      {
+        "target": "QA-Infra",
+        "id": "delivery.499a4649f1f04fa8bdac72b8cd62866f",
+        "status": "received",
+        "token": "f65c2e709d164ddf80b4b8183096940c",
+        "expires": 1792418298.6515405,
+        "session": "swarmhub-from-QA-Infra",
+        "turn": "QA-bridge-014"
+      },
+      {
+        "target": "QA-Infra",
+        "id": "delivery.5435185d91b14a2a95dd66cd8edd5777",
+        "status": "received",
+        "token": "ed6948aa142b42a296bf08d311f841e6",
+        "expires": 1792418302.9264865,
+        "session": "swarmhub-from-QA-Infra",
+        "turn": "QA-bridge-016"
+      }
+    ],
+    "webhooks": [
+      {
+        "profile": "QA-Infra",
+        "routine": "QA-wake",
+        "slug": "kovxdNCyh66NUnyn5clYovHj",
+        "key_file": "/tmp/QA-LIVE6-1e592erz/QA-home/.hermes/swarmhub/webhooks/kovxdNCyh66NUnyn5clYovHj.key",
+        "created": 1792414596.8388417,
+        "rotated": 1792414601.0766833,
+        "fired": 2
+      }
+    ]
+  },
+  "peer-inbox.sqlite": {
+    "inbox": []
+  }
+}
