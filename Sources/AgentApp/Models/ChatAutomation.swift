@@ -153,7 +153,7 @@ enum GoalProtocol {
     /// "and"/"then" opens another imperative, including polite "can you explain…" requests. How/why questions keep
     /// their existing interpretation. Otherwise the fixes7 rule decides.
     static let clauseWords: Set<String> = ["so", "please"]
-    static let leadIns: Set<String> = ["then", "now", "just", "also", "and"]
+    static let leadIns: Set<String> = ["then", "now", "just", "also", "and", "plus"]
     static let askingVerbs: Set<String> = ["can", "could", "would", "will"]
     static let questionStarters: Set<String> = ["how", "what", "why", "which", "who", "when", "where", "is", "are", "does",
                                                 "do", "can", "could", "should"]
@@ -163,6 +163,9 @@ enum GoalProtocol {
     /// A change verb after one of these words is the explained clause's own verb ("why we add tests and remove
     /// packages"), so a bare "and" then coordinates with it instead of opening an imperative; "then" still does. Once
     /// "how to V" has its object, a comma or "then" ends the infinitive ("how to build the parser, and fix the crash").
+    /// A comma also ends a finite explanatory clause, even with coordinated verbs. "plus" follows the same rule as
+    /// "and"; "also" can lead a command after a boundary but alone does not end an explanatory clause.
+    /// "we also add" still supplies the clause's own verb; neither "also" nor "plus" is an infinitive's object.
     static let subordinateMarkers: Set<String> = ["i", "we", "you", "they", "he", "she", "it", "people", "to", "should",
                                                   "must", "would", "could", "can", "do", "does", "did", "might", "may",
                                                   "will", "shall"]
@@ -194,18 +197,20 @@ enum GoalProtocol {
                 index += 1
                 if explains && questionStarters.contains(word) && embedded != .infinitive {
                     embedded = index < words.count && words[index] == "to" ? .infinitive : .clause
+                    coordinated = false
                     objected = false
-                } else if embedded == .infinitive && !["to", "and", "then", ","].contains(word) && !changeVerbs.contains(word)
+                } else if embedded == .infinitive && !["to", "and", "then", "also", "plus", ","].contains(word) && !changeVerbs.contains(word)
                     && !codingOnlyVerbs.contains(word) {
                     objected = true
                 }
-                if embedded == .clause && index >= 2 && subordinateMarkers.contains(words[index - 2])
+                if embedded == .clause && index >= 2 && (subordinateMarkers.contains(words[index - 2])
+                    || (index >= 3 && words[index - 2] == "also" && subordinateMarkers.contains(words[index - 3])))
                     && (changeVerbs.contains(word) || codingOnlyVerbs.contains(word)) {
                     coordinated = true
                 }
-                let reopens = embedded == .unscoped || (embedded == .clause && (word == "then" || !coordinated))
+                let reopens = embedded == .unscoped || (embedded == .clause && (word == "," || word == "then" || !coordinated))
                     || (embedded == .infinitive && objected && (word == "," || word == "then"))
-                if explains && reopens && (word == "and" || word == "then") {
+                if explains && reopens && (word == "and" || word == "then" || word == "plus") {
                     clauseStart = true
                     embedded = .unscoped
                     coordinated = false
@@ -215,7 +220,7 @@ enum GoalProtocol {
                     explains = true
                 }
                 if word == "," || clauseWords.contains(word) {
-                    if !question && reopens {
+                    if (!question || explains) && reopens {
                         clauseStart = true
                         embedded = .unscoped
                         coordinated = false

@@ -85,22 +85,24 @@ def requests_code_in_a_clause(text):
             index += 1
             if explains and word in QUESTION_STARTERS and embedded != 'infinitive':
                 embedded = 'infinitive' if index < len(words) and words[index] == 'to' else 'clause'
+                coordinated = False
                 objected = False
-            elif embedded == 'infinitive' and word not in ('to', 'and', 'then', ',') and word not in CHANGE_VERBS \
+            elif embedded == 'infinitive' and word not in ('to', 'and', 'then', 'also', 'plus', ',') and word not in CHANGE_VERBS \
                     and word not in CODING_ONLY_VERBS:
                 objected = True
-            if embedded == 'clause' and index >= 2 and words[index - 2] in SUBORDINATE_MARKERS and (
+            if embedded == 'clause' and index >= 2 and (words[index - 2] in SUBORDINATE_MARKERS or (
+                    index >= 3 and words[index - 2] == 'also' and words[index - 3] in SUBORDINATE_MARKERS)) and (
                     word in CHANGE_VERBS or word in CODING_ONLY_VERBS):
                 coordinated = True
-            reopens = embedded is None or (embedded == 'clause' and (word == 'then' or not coordinated)) or (
+            reopens = embedded is None or (embedded == 'clause' and (word in (',', 'then') or not coordinated)) or (
                 embedded == 'infinitive' and objected and word in (',', 'then'))
-            if explains and reopens and word in ('and', 'then'):
+            if explains and reopens and word in ('and', 'then', 'plus'):
                 clause_start, embedded, coordinated = True, None, False
                 continue
             if clause_start and word in EXPLAIN_VERBS and (not question or words[0] in ASKING_VERBS):
                 explains = True
             if word == ',' or word in CLAUSE_WORDS:
-                if not question and reopens:
+                if (not question or explains) and reopens:
                     clause_start, embedded, coordinated = True, None, False
                 continue
             if clause_start and word in LEAD_INS:

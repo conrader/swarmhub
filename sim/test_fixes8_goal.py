@@ -4,6 +4,7 @@ No Swift toolchain runs here, so the Swift test table (Tests/AgentAppTests/GoalT
 plainGoalsAreClassifiedByTheRequestedAction) is read from the source and run through the Python port
 (sim/goal_classifier.py), whose word lists are read from ChatAutomation.swift itself. Pure text, no processes.
 """
+import json
 from pathlib import Path
 import re
 import unittest
@@ -32,7 +33,8 @@ def swift_table(name):
     source = GOAL_TESTS.read_text()
     body = source[source.index('func plainGoalsAreClassifiedByTheRequestedAction'):]
     block = re.search(r'let %s = \[(.*?)\]\n' % name, body, re.S).group(1)
-    return re.findall(r'"([^"]*)"', re.sub(r'//[^\n]*', '', block))
+    # These table literals use JSON-compatible escapes (including the newline boundary probe).
+    return [json.loads(value) for value in re.findall(r'"(?:\\.|[^"\\])*"', re.sub(r'//[^\n]*', '', block))]
 
 
 class GoalClassifierPortTests(unittest.TestCase):
@@ -43,7 +45,7 @@ class GoalClassifierPortTests(unittest.TestCase):
 
     def test_the_swift_table_is_classified_as_expected(self):
         coding, general = swift_table('coding'), swift_table('general')
-        self.assertEqual((len(coding), len(general)), (38, 23))
+        self.assertEqual((len(coding), len(general)), (75, 58))
         for phrase in coding:
             with self.subTest(coding=phrase):
                 self.assertTrue(goal_classifier.looks_like_coding(phrase))
