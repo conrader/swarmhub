@@ -37,7 +37,7 @@ def main(args):
         return control.action(args[0])
     if command == "status":
         with control.database() as db:
-            return {"actions": [dict(r) for r in db.execute("SELECT id,gate,status,error FROM actions")],
+            return {"actions": [dict(r) for r in db.execute("SELECT id,gate,status,error,decided_by,decided_at FROM actions")],
                     "deliveries": [dict(r) for r in db.execute("SELECT id,target,status,attempts,error FROM deliveries")]}
     if command == "report":
         sender, text = args

@@ -88,9 +88,63 @@ replayed after an uncertain process loss.
   socket-based gateway test remains subject to the sandbox boundary documented
   in `PEER-REPORT.md`; all new tests use file-based synthetic transport.
 
+## Review fixes (2026-10-19)
+
+Fixes for `REVIEW-PATTERNS.md` findings 1–10, left uncommitted in the working tree.
+Hermes itself is unchanged; only skill scripts, tests and these notes moved.
+
+- **1 (HIGH) receipts bind by delivery id.** `deliver()` prefixes every durable
+  text with `[SwarmHub delivery id=<id>]`; the `pre_llm_call` hook passes the turn's
+  `user_message` and `receipt_bind` binds only receipts whose id appears in it, in
+  the receipt's own session. An interleaved ordinary priority send no longer
+  acknowledges a pending delivery (`sim/test_review_fixes.py`).
+- **2 (HIGH) held batches fit under the Hermes spill limit.** A turn's held context,
+  policy prefix and header included, is capped at 9,000 characters (Hermes
+  `hooks.output_spill.max_chars` defaults to 10,000); one held message is capped at
+  8,000 and `codex_model` at 200 characters so a batch always fits. Overflow stays
+  unclaimed and is marked delivered only by the turn that carries it.
+- **3 (MEDIUM) `fake: true` is a dry run for every kind.** `tick` records
+  `FAKE: no <kind> operation executed` for read/outbound/provision/money/prod/
+  secrets/coding/peer without spawning, enqueueing or launching anything;
+  `run_action` repeats the check. Gates are unchanged.
+- **4 (MEDIUM) supervised recovery.** `peer-runtime.py start` now spawns a
+  supervisor that restarts the worker after any exit with backoff (2 s doubling to
+  60 s; a lock-busy exit is not a crash). Inside the worker each sweep is guarded:
+  any exception is written to `job-wake.error`, backed off and the loop continues.
+  A removed state folder is no longer recreated by a late worker.
+- **5 (MEDIUM) decision actor verified.** `decide` derives the caller from the
+  invoking gateway's `HERMES_HOME` (`swarm_store.invoking_profile`) and refuses an
+  unset value, a mismatch with the named actor, or an actor that is not the gate's
+  configured role; actor, pid and time are recorded on the action and shown by
+  `swarmctl status`. Profiles still share one Unix account, so this is gateway
+  identity plus audit, not isolation against a hostile shell.
+- **6 (LOW)** liveness compares `ps -o lstart=` recorded at spawn (`pid_start`).
+  **7 (LOW)** a policy-only turn no longer claims held messages were delivered.
+  **8 (LOW)** `tick` records the resolved order/model (`launched`); `check_job`
+  compares against it and `code-job` skips policy re-resolution for a managed task.
+  **9 (LOW)** `code-job` judges empty work on stdout alone (`$T/stdout`).
+  **10 (LOW)** `swarm_control.py` is a 17-line facade over `swarm_store`,
+  `swarm_policy`, `swarm_delivery` and `swarm_jobs` (all under 300 lines).
+  **11 (INFO)** the leftover temp dir came from a late worker recreating its state
+  folder (fixed with 4); test cleanup now also stops late children by HOME.
+
+Validation on this box: `python3 -B -m unittest discover -s sim -p 'test_*.py'`:
+**101 passed** (87 before plus 14 regressions in `sim/test_review_fixes.py`).
+`Tests/Scripts/code-job-test.sh`: **16 passed under /bin/sh and 16 under /bin/dash**
+(new case 16: stderr-only output on exit 0 is empty work). `bot-msg-test.sh`:
+**14/14 under both shells**. `accounts-recipes-test.sh` 6/6, `box-adopt-test.sh`
+11/11, `box-readings-test.sh` 12/12, `claude-login-test.sh` 5/5,
+`swarmhub-report-test.sh` 21/22: its one failure (`stat` output format in the
+"folder 700" case) reproduces unchanged with the committed `swarmhub-report`, so it
+predates and is unrelated to these fixes. `git diff --check` clean. Swift is not
+installed here: `BotMessageSkillTests.swift` was updated for the new module list
+but not compiled. Skill versions were not bumped; bump both skills before a
+reinstall so the app's version record triggers the update.
+
 Approval decisions are a **trusted local administrative interface**: profiles
-share one Unix account, and a caller-supplied deciding profile is not independent
-authentication against malicious unrestricted shell access. Managed gates,
+share one Unix account, and a deciding profile verified against the invoking
+gateway's `HERMES_HOME` is still not independent authentication against malicious
+unrestricted shell access. Managed gates,
 declared risks, subscriptions and reporting apply to these entrypoints; they do
 not intercept arbitrary terminal commands, every connected-app tool or all app
 goal-completion paths. Remote stream cancellation relies on the gateway's

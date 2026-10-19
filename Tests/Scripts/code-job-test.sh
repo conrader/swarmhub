@@ -31,6 +31,7 @@ case $(cat "$d/$me.mode" 2>/dev/null) in
   early) if [ "$me" = claude ]; then echo "Claude AI usage limit reached"; else echo "You've hit your usage limit"; fi
     i=0; while [ $i -lt 25 ]; do echo "build line $i"; i=$((i + 1)); done; exit 4 ;;
   limitok) echo "note: rate_limit_error and usage_limit_reached are handled in retry.py"; exit 0 ;;
+  quiet) echo "$me: warning on stderr only" >&2; exit 0 ;;
   slow) : > "$d/$me.slow"; while [ ! -f "$d/release" ]; do sleep 0.05; done; echo "$me slow done"; exit 0 ;;
   tree) sleep 60 & echo $! > "$d/$me.child"; sleep 60; exit 0 ;;
   *) echo "stub $me: no mode" >&2; exit 99 ;;
@@ -286,6 +287,17 @@ expect "skipped codex: login" [ "$(field 8 2)" = "codex: login" ]
 done_case
 }
 
-for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15}; do "case_$n"; done
+# 16
+case_16() {
+new_case "stderr-only output on exit 0 is empty work (65), even with a fresh report" claude codex; mode claude quiet; mode codex ok
+job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
+expect "exit 65 (got $RC)" [ "$RC" -eq 65 ]
+expect "report was written" [ -s "$C/work/REPORT.txt" ]
+expect "empty job reported" has "$C/err" "empty job or missing/empty/unchanged report"
+expect "codex not run" [ ! -f "$C/state/codex.calls" ]
+done_case
+}
+
+for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16}; do "case_$n"; done
 echo "code-job tests under $SH: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

@@ -24,6 +24,21 @@ peer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(peer)
 
 
+def children_by_home(home):
+    """Pids of every other process whose environment HOME is ``home`` (Linux /proc)."""
+    marker = b"HOME=" + str(home).encode()
+    found = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            if marker in (entry / "environ").read_bytes().split(b"\0"):
+                found.append(int(entry.name))
+        except OSError:
+            continue
+    return found
+
+
 class PeerTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -66,14 +81,25 @@ class PeerTests(unittest.TestCase):
                 time.sleep(.01)
             if peer.control.process_alive(pid):
                 peer.control.terminate(pid)
-        pidfile = self.home / ".hermes/swarmhub/job-wake.pid"
-        if pidfile.exists():
+        # The supervisor goes first so it cannot restart the worker being stopped.
+        for name in ("job-wake.supervisor.pid", "job-wake.pid"):
+            pidfile = self.home / ".hermes/swarmhub" / name
+            if not pidfile.exists():
+                continue
             pid = int(pidfile.read_text())
             if peer.control.process_alive(pid):
                 peer.control.terminate(pid)
                 deadline = time.monotonic() + 3
                 while peer.control.process_alive(pid) and time.monotonic() < deadline:
                     time.sleep(.01)
+
+        # A supervisor spawned by the test's last subprocess may start after the pid files were read;
+        # it reveals itself only by its HOME. Stop every such child before the temp HOME goes.
+        for _ in range(2):
+            for pid in children_by_home(self.home):
+                if peer.control.process_alive(pid):
+                    peer.control.terminate(pid)
+            time.sleep(.2)
 
     def sync(self):
         (self.curl_state / "config").write_text(json.dumps({

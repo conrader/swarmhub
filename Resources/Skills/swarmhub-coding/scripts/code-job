@@ -44,11 +44,14 @@ case $JOBID in '') ;; job.*) case $JOBID in *[!A-Za-z0-9_.-]*) usage ;; esac ;; 
 DIR=$(cd "$DIR" && pwd -P) || exit 64
 case $REPORT in '') ;; /*) ;; *) REPORT=$DIR/$REPORT ;; esac
 CTL=$(dirname "$0")/../../swarmhub-messages/scripts/swarmctl
+# A managed task (--task-id) runs with the order/model its launcher resolved and recorded; policy is not
+# re-applied mid-flight, so a policy change after launch cannot fail the job as a parameter mismatch.
 if [ -f "$CTL" ]; then
-  ORDER=$(python3 "$CTL" plan "$ORDER" "$SPECULATIVE") || exit 77
-  MODEL=$(python3 "$CTL" model "$MODEL") || exit 77
   if [ -n "$TASKID" ]; then
     python3 "$CTL" check-job "$TASKID" "$BOT" "$DIR" "$MODEL" "$EFFORT" "$REPORT" "$TASK" "$ORDER" || exit 125
+  else
+    ORDER=$(python3 "$CTL" plan "$ORDER" "$SPECULATIVE") || exit 77
+    MODEL=$(python3 "$CTL" model "$MODEL") || exit 77
   fi
 fi
 TASK=$(printf '%s\n\nWrite a fresh nonempty completion report to %s before finishing.' "$TASK" "$REPORT")
@@ -194,8 +197,9 @@ take_slot() {
 run_agent() {
   rm -f "$T/o" "$T/e" "$T/timedout" "$T/peak"
   mkfifo "$T/o" "$T/e" || { RC=1; return; }
-  : > "$T/out"
-  tee -a "$T/out" < "$T/o" & O1=$!
+  : > "$T/out"; : > "$T/stdout"
+  # $T/out is the combined transcript for diagnostics; $T/stdout alone decides whether the CLI produced work.
+  tee -a "$T/out" "$T/stdout" < "$T/o" & O1=$!
   tee -a "$T/out" < "$T/e" >&2 & O2=$!
   (
     [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ] && exit 125
@@ -240,7 +244,7 @@ matches() { tail -n 20 "$T/out" | grep -Eiq "$1"; }
 
 for a in $(echo "$ORDER" | tr ',' ' '); do
   [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ] && finish 125 cancelled
-  if [ -f "$CTL" ]; then
+  if [ -f "$CTL" ] && [ -z "$TASKID" ]; then
     allowed=$(python3 "$CTL" plan "$ORDER" "$SPECULATIVE") || finish 77 failed
     MODEL=$(python3 "$CTL" model "$MODEL") || finish 77 failed
     printf '%s\n' "$MODEL" > "$JOB/model"
@@ -253,7 +257,7 @@ for a in $(echo "$ORDER" | tr ',' ' '); do
   fi
   if ! command -v "$a" >/dev/null 2>&1; then SKIPPED="$SKIPPED, $a: missing"; continue; fi
   take_slot
-  if [ -f "$CTL" ]; then
+  if [ -f "$CTL" ] && [ -z "$TASKID" ]; then
     allowed=$(python3 "$CTL" plan "$ORDER" "$SPECULATIVE") || finish 77 failed
     MODEL=$(python3 "$CTL" model "$MODEL") || finish 77 failed
     printf '%s\n' "$MODEL" > "$JOB/model"
@@ -270,7 +274,7 @@ for a in $(echo "$ORDER" | tr ',' ' '); do
   run_agent "$a"
   printf '%s\n' "$RC" > "$JOB/cli-exit"
   if [ "$RC" -eq 0 ]; then
-    if python3 "$(dirname "$0")/completion-contract.py" verify "$REPORT" "$JOB" && [ -s "$T/out" ]; then finish 0 ok; fi
+    if python3 "$(dirname "$0")/completion-contract.py" verify "$REPORT" "$JOB" && [ -s "$T/stdout" ]; then finish 0 ok; fi
     echo "code-job: empty job or missing/empty/unchanged report" >&2
     finish 65 failed
   fi

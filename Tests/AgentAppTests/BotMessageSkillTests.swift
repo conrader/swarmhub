@@ -17,7 +17,7 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
     #expect(description.hasPrefix("Use for any message to another bot") && description.contains("supersedes `hermes -p … chat` and peer commands")
             && description.hasSuffix("Installed by SwarmHub, v{{VERSION}}."))
     let script = try #require(skill.files.first { $0.path == "scripts/bot-msg" })
-    #expect(skill.files.map(\.path) == ["scripts/bot-msg", "scripts/peer-runtime.py", "scripts/swarm_control.py", "scripts/swarmctl"] && script.isExecutable && script.content.hasPrefix("#!/bin/sh\n"))
+    #expect(skill.files.map(\.path) == ["scripts/bot-msg", "scripts/peer-runtime.py", "scripts/swarm_control.py", "scripts/swarm_delivery.py", "scripts/swarm_jobs.py", "scripts/swarm_policy.py", "scripts/swarm_store.py", "scripts/swarmctl"] && script.isExecutable && script.content.hasPrefix("#!/bin/sh\n"))
     #expect(script.content.range(of: #"(?m)(^|[;&|(]|then|do)\s*(timeout|flock|setsid|local|jq)\s"#, options: .regularExpression) == nil)
     // (awk's own `function` lines are fine; a shell `function name` at the start of a line is not.)
     #expect(script.content.range(of: #"(?m)^function "#, options: .regularExpression) == nil)

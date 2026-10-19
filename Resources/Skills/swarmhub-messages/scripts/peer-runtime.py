@@ -23,6 +23,14 @@ import swarm_control as control
 
 NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\Z", re.ASCII)
 LEASE = 3600
+# Hermes spills pre_llm_call context above hooks.output_spill.max_chars (default
+# 10,000) to a file and injects only a 500-char head/tail preview. A batch must
+# stay below that, prefix included, or "delivered" messages are mostly unseen.
+BATCH_MAX = 9000
+HELD_MAX = 8000  # One held message always fits a batch together with its prefix.
+HEADER = ("Held peer messages delivered with this turn. Do not acknowledge FYIs. "
+          "Use NO_REPLY only when the whole turn needs no answer.\n\n")
+WORKER_BUSY = 75  # Another worker already holds the recovery lock.
 
 
 def state():
@@ -63,8 +71,8 @@ def valid(name):
 def hold(sender, recipient, text, task=""):
     if not valid(sender) or not valid(recipient):
         raise ValueError("invalid profile")
-    if not text or len(text) > 32000:
-        raise ValueError("held message must have 1–32000 characters")
+    if not text or len(text) > HELD_MAX:
+        raise ValueError(f"held message must have 1–{HELD_MAX} characters; use --priority or --durable for more")
     if task and not control.active(task):
         raise ValueError("task is not approved/active")
     home = Path.home() / ".hermes"
@@ -77,23 +85,31 @@ def hold(sender, recipient, text, task=""):
     return ident
 
 
-def before_turn(profile, session_id, turn_id):
-    """Claim a bounded batch for one turn. Failure/crash leaves it recoverable after the lease.
+def render(ident, sender, text):
+    return f"[Message from {sender} via SwarmHub]\n[Held message id={ident}]\n{text}"
+
+
+def before_turn(profile, session_id, turn_id, user_message=None):
+    """Claim a batch that fits one turn's context. Failure/crash leaves it recoverable after the lease.
 
     A new turn in the same session reclaims its previous batch immediately. Other
     simultaneous sessions cannot claim it while the first turn owns the lease.
+    Messages beyond BATCH_MAX stay unclaimed for a later turn; only the claimed
+    ones are marked delivered after the turn answers.
     """
-    control.receipt_bind(profile, session_id, turn_id)
+    control.receipt_bind(profile, session_id, turn_id, user_message)
     update = control.subscription(profile)
     if update:
         control.bind_policy(profile, session_id, turn_id, update["revision"])
+    prefix = ("Global SwarmHub policy (enforced by managed execution): " +
+              json.dumps(update, sort_keys=True) + "\n\n" if update else "")
     claim = json.dumps([session_id, turn_id])
     now = time.time()
     with database() as db:
         db.execute("BEGIN IMMEDIATE")
         rows = db.execute("""SELECT id,sender,text,claim,task FROM inbox
             WHERE recipient=? AND delivered IS NULL ORDER BY created,id""", (profile,)).fetchall()
-        batch, size = [], 0
+        batch, size = [], len(prefix) + len(HEADER)
         for ident, sender, text, owner, task in rows:
             if task and not control.active(task):
                 db.execute("UPDATE inbox SET delivered=? WHERE id=?", (now, ident))
@@ -102,22 +118,19 @@ def before_turn(profile, session_id, turn_id):
                 expiry = db.execute("SELECT expires FROM inbox WHERE id=?", (ident,)).fetchone()[0]
                 if expiry > now and json.loads(owner)[0] != session_id:
                     continue
-            if size + len(text) > 32000 and batch:
+            piece = render(ident, sender, text)
+            if size + len(piece) + 2 > BATCH_MAX and batch:
                 break
-            batch.append((ident, sender, text))
-            size += len(text)
+            batch.append(piece)
+            size += len(piece) + 2
+            db.execute("UPDATE inbox SET claim=?,expires=? WHERE id=?", (claim, now + LEASE, ident))
             if len(batch) == 50:
                 break
-        for ident, _, _ in batch:
-            db.execute("UPDATE inbox SET claim=?,expires=? WHERE id=?", (claim, now + LEASE, ident))
     if not batch and not update:
         return None
-    return {"context": ("Global SwarmHub policy (enforced by managed execution): " +
-            json.dumps(update, sort_keys=True) + "\n\n" if update else "") +
-            "Held peer messages delivered with this turn. Do not acknowledge FYIs. "
-            "Use NO_REPLY only when the whole turn needs no answer.\n\n" +
-            "\n\n".join(f"[Message from {sender} via SwarmHub]\n[Held message id={ident}]\n{text}"
-                          for ident, sender, text in batch)}
+    if not batch:
+        return {"context": prefix.rstrip()}
+    return {"context": prefix + HEADER + "\n\n".join(batch)}
 
 
 def after_turn(profile, session_id, turn_id, assistant_response):
@@ -153,7 +166,10 @@ def retry_once():
     NO_REPLY. An uncertain disconnect can redeliver the same job ID.
     """
     pending = False
-    for job in sorted((state() / "job-completions").glob("job.*")):
+    folder = existing_state()
+    if folder is None:
+        return False  # A removed state folder is never recreated by a sweep.
+    for job in sorted((folder / "job-completions").glob("job.*")):
         if not (job / "ready").is_file() or (job / "delivered").exists():
             continue
         pending = True
@@ -188,43 +204,125 @@ def retry_once():
                 (job / "last-error").unlink(missing_ok=True)
             else:
                 (job / "last-error").write_text(f"bot-msg exited {rc}; delivery pending")
-        except (OSError, ValueError, subprocess.TimeoutExpired):
-            (job / "last-error").write_text("Delivery failed; record retained for retry")
+        except Exception as exc:  # One malformed record must not block the other jobs.
+            try:
+                (job / "last-error").write_text(f"Delivery failed ({type(exc).__name__}); record retained for retry")
+            except OSError:
+                pass
     return pending
 
 
+def note(folder, text):
+    """Record the last recovery error without recreating a removed state folder."""
+    if folder.exists():
+        try:
+            (folder / "job-wake.error").write_text(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {text}\n")
+        except OSError:
+            pass
+
+
+def backoff(failures):
+    return min(60, 2 ** min(failures, 6))
+
+
+def sweep():
+    if existing_state() is None:
+        return
+    retry_once()
+    control.retry_deliveries()
+
+
+def guarded(fn, folder, failures, sleep=time.sleep):
+    """Run one sweep. Any exception is recorded and backed off, never fatal; returns the failure count."""
+    try:
+        fn()
+        return 0
+    except Exception as exc:
+        failures += 1
+        delay = backoff(failures)
+        note(folder, f"{type(exc).__name__}: {exc}; next sweep in {delay}s")
+        sleep(delay)
+        return failures
+
+
+def existing_state():
+    """The state folder only if it exists: a late-starting worker must not recreate a removed one."""
+    folder = Path.home() / ".hermes/swarmhub"
+    return folder if folder.is_dir() else None
+
+
 def worker(once=False):
-    # flock is released by the OS even if the worker is killed. No stale PID lock.
-    with (state() / "job-wake.lock").open("a") as lock:
+    """Recovery loop. Returns WORKER_BUSY when another worker holds the lock, else 0.
+
+    flock is released by the OS even if the worker is killed; no stale PID lock.
+    In once mode (``swarmctl tick``) an error propagates to the caller instead.
+    """
+    folder = state() if once else existing_state()
+    if folder is None:
+        return 0
+    with (folder / "job-wake.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return WORKER_BUSY
+        (folder / "job-wake.pid").write_text(str(os.getpid()))
+        # Stay alive to notice jobs published just after an otherwise empty sweep.
+        def schedule():
+            failures = 0
+            while existing_state() is not None:
+                failures = guarded(control.tick, folder, failures)  # Durable actions recover next sweep.
+                time.sleep(2)
+        if once:
+            control.tick()
+            sweep()
+            return 0
+        # A slow gateway acknowledgement must not hold the standing queue.
+        threading.Thread(target=schedule, daemon=True).start()
+        failures = 0
+        while folder.exists():
+            failures = guarded(sweep, folder, failures)
+            time.sleep(2)
+    return 0
+
+
+def run_worker():
+    return subprocess.call([sys.executable, str(Path(__file__).resolve()), "worker"], stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+
+
+def supervise(run=run_worker, sleep=time.sleep):
+    """Keep one recovery worker alive: restart it after any exit, with backoff.
+
+    A worker that ran for a minute resets the backoff. A worker that found the
+    lock busy is not a crash; the supervisor just checks again later. Stops
+    when the state folder goes away.
+    """
+    folder = existing_state()
+    if folder is None:
+        return
+    with (folder / "job-wake.supervisor.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
-        (state() / "job-wake.pid").write_text(str(os.getpid()))
-        # Stay alive to notice jobs published just after an otherwise empty sweep.
-        folder = state()
-        def schedule():
-            while folder.exists():
-                try:
-                    control.tick()
-                except (OSError, ValueError, sqlite3.Error):
-                    pass  # Durable actions remain visible and recover on the next sweep.
-                time.sleep(2)
-        if not once:
-            # A slow gateway acknowledgement must not hold the standing queue.
-            threading.Thread(target=schedule, daemon=True).start()
+        (folder / "job-wake.supervisor.pid").write_text(str(os.getpid()))
+        failures = 0
         while folder.exists():
-            if once:
-                control.tick()
-            retry_once()
-            control.retry_deliveries()
-            if once:
+            started = time.monotonic()
+            rc = run()
+            if not folder.exists():
                 return
-            time.sleep(2)
+            if rc == WORKER_BUSY:
+                failures, delay = 0, 5
+            else:
+                failures = 0 if time.monotonic() - started >= 60 else failures + 1
+                delay = backoff(failures)
+                note(folder, f"worker exited {rc}; restart in {delay}s")
+            sleep(delay)
 
 
 def start_worker():
-    control.spawn([sys.executable, str(Path(__file__).resolve()), "worker"])
+    control.spawn([sys.executable, str(Path(__file__).resolve()), "supervise"])
 
 
 def register(ctx):
@@ -233,8 +331,8 @@ def register(ctx):
     from hermes_constants import get_hermes_home
     home = get_hermes_home()
     profile = home.name if home.parent.name == "profiles" else "default"
-    ctx.register_hook("pre_llm_call", lambda session_id, turn_id, **kw:
-                      before_turn(profile, session_id, turn_id))
+    ctx.register_hook("pre_llm_call", lambda session_id, turn_id, user_message=None, **kw:
+                      before_turn(profile, session_id, turn_id, user_message))
     ctx.register_hook("post_llm_call", lambda session_id, turn_id, assistant_response, **kw:
                       after_turn(profile, session_id, turn_id, assistant_response))
     start_worker()  # Also recovers pending completions after a gateway restart.
@@ -266,7 +364,9 @@ if __name__ == "__main__":
         if command == "hold":
             print("held:" + hold(*sys.argv[2:]))
         elif command == "worker":
-            worker()
+            sys.exit(worker())
+        elif command == "supervise":
+            supervise()
         elif command == "start":
             start_worker()
         elif command == "retry-once":

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import unittest
+from unittest.mock import patch
 
 import test_peer_runtime as boundary
 
@@ -22,6 +23,11 @@ class ObservedPatternTests(unittest.TestCase):
     completion = boundary.PeerTests.completion
     retry = boundary.PeerTests.retry
     stop_background = boundary.PeerTests.stop_background
+
+    def decide(self, ident, actor, approved):
+        # Decisions are verified against the invoking gateway (HERMES_HOME), never argv alone.
+        with patch.dict(os.environ, {"HERMES_HOME": str(self.home / ".hermes/profiles" / actor)}):
+            control.decide(ident, actor, approved)
 
     def cli(self):
         folder = self.home / "cli"
@@ -78,6 +84,8 @@ exit 0
         self.assertEqual(control.action(first)["status"], "done")
         self.assertEqual(control.action(second)["status"], "done")
         self.eventually(lambda: (self.job(first) / "delivered").exists())
+        # The second wake must have finished too, or its running receipt makes the session busy below.
+        self.eventually(lambda: (self.job(second) / "delivered").exists())
         message = next(t[1]["input"] for t in self.turns() if self.job(first).name in t[1]["input"])
         self.assertIn("take the next step", message)
         self.assertIn("report exists: true", message)
@@ -89,7 +97,7 @@ exit 0
         token = control.receipt_claim("sender", "job.lost-ack", "worker")
         self.assertNotIn(token, ("busy", "received"))
         self.assertEqual(control.receipt_claim("sender", "job.lost-ack", "worker"), "busy")
-        peer.before_turn("sender", "swarmhub-from-worker", "result-turn")
+        peer.before_turn("sender", "swarmhub-from-worker", "result-turn", control.tagged("job.lost-ack", "same result"))
         peer.after_turn("sender", "swarmhub-from-worker", "result-turn", "NO_REPLY")
         self.assertEqual(control.deliver("worker", "sender", "same result", "job.lost-ack"), 0)
         self.assertEqual(len(self.turns()), count)
@@ -180,8 +188,8 @@ exit 0
         control.tick()
         self.assertFalse(secret_file.exists())
         with self.assertRaises(ValueError):
-            control.decide(ident, "coordinator", True)
-        control.decide(ident, "sender", True)
+            self.decide(ident, "coordinator", True)
+        self.decide(ident, "sender", True)
         control.tick()
         self.eventually(secret_file.exists)
         self.eventually(lambda: control.action(ident)["status"] == "done")
@@ -194,16 +202,16 @@ exit 0
         for risk in ("money", "prod", "secrets"):
             ident = self.submit("risk-" + risk, risks=[risk])
             self.assertEqual(control.action(ident)["status"], "awaiting-owner")
-            control.decide(ident, "sender", False)
+            self.decide(ident, "sender", False)
             with self.assertRaises(ValueError):
-                control.decide(ident, "sender", True)
+                self.decide(ident, "sender", True)
             with self.assertRaises(ValueError):
                 self.submit("risk-" + risk, task="same intent with changed words", risks=[risk])
         outbound = control.submit({"bot": "recipient", "intent": "send approved text", "kind": "outbound",
                                    "argv": ["/bin/true"], "to": "customer", "text": "approved draft"})
         with self.assertRaises(ValueError):
-            control.decide(outbound, "sender", True)
-        control.decide(outbound, "coordinator", True)
+            self.decide(outbound, "sender", True)
+        self.decide(outbound, "coordinator", True)
         old = self.submit("slow old scope")
         child = control.submit({"bot": "recipient", "intent": "peer child", "kind": "peer", "parent": old,
                                 "to": "coordinator", "text": "follow-up"})
@@ -283,6 +291,7 @@ class RuntimeEdgeTests(unittest.TestCase):
     spec = ObservedPatternTests.spec
     submit = ObservedPatternTests.submit
     job = ObservedPatternTests.job
+    decide = ObservedPatternTests.decide
 
     def test_ordinary_unreachable_priority_send_retains_exit_three_and_queues_retry(self):
         self.sync()
@@ -307,7 +316,7 @@ class RuntimeEdgeTests(unittest.TestCase):
         spec = {"bot": "worker", "intent": "first draft", "kind": "outbound", "argv": ["/bin/true"],
                 "to": "customer", "text": "do not send this"}
         ident = control.submit(spec)
-        control.decide(ident, "coordinator", False)
+        self.decide(ident, "coordinator", False)
         with self.assertRaises(ValueError):
             control.submit(dict(spec, intent="same denied action with a new label", origin="recipient"))
 
@@ -339,7 +348,7 @@ class RuntimeEdgeTests(unittest.TestCase):
         self.cli()
         ident = self.submit("approved", risks=["prod"])
         control.publish({"owner": "sender"})
-        control.decide(ident, "sender", True)
+        self.decide(ident, "sender", True)
         with self.assertRaises(ValueError):
             control.check_job(ident, "worker", str(self.home), "different-model", "high",
                               str(self.home / "approved.txt"), "approved", "codex")
