@@ -272,11 +272,19 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
     let coding = ["fix the failing build", "Refactor the parser", "open a pull request for it",
                   "Add pagination to the users API", "Upgrade React to 19", "Write a Python scraper",
                   "Can you fix the typo in the README", "Bump the Node version in CI", "Make the tests pass",
-                  "Port the CLI to TypeScript", "the login bug", "Add retry logic to the scraper and explain the approach"]
+                  "Port the CLI to TypeScript", "the login bug", "Add retry logic to the scraper and explain the approach",
+                  // Codex review of fixes7: an imperative after a status clause wins over the earlier "are"/"is"/"why".
+                  "The tests are failing; fix the bug", "The build is broken. Please fix it", "Tests are red so fix the parser",
+                  "Why does the login page crash? Debug it", "The CI is failing, please update the dependencies",
+                  "What changed in the API? Add a test for it.", "The README is outdated; rewrite it",
+                  "Summarize the failure, then fix the failing tests", "The scraper times out, can you fix it?"]
     let general = ["Explain the result", "write the changelog", "summarize the meeting", "Explain this function",
                    "Describe how the users API works", "Summarize the test results", "What does this script do?",
                    "Write a blog post about Python", "Build a presentation for the board", "Draft the release notes",
-                   "Review the pull request and list concerns", "How do I fix the build?"]
+                   "Review the pull request and list concerns", "How do I fix the build?",
+                   "How do I add tests, then fix the build?", "The tests are failing; explain why",
+                   "The build is broken. Please write a summary for the team", "What does the parser do? Describe it",
+                   "The meeting notes are messy; clean them up"]
     for phrase in coding {
         #expect(GoalProtocol.looksLikeCoding(phrase), "expected coding: \(phrase)")
     }

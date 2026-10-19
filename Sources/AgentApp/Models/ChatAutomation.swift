@@ -144,7 +144,60 @@ enum GoalProtocol {
                                          "eslint", "mypy", "ruff"]
     static let codePhrases = ["pull request", "stack trace", "unit test", "merge conflict", "type error", "compile error"]
 
+    /// Codex review of fixes7: a clear coding request anywhere in the text wins over earlier descriptive verbs ("The
+    /// tests are failing; fix the bug"). An imperative is a change or coding-only verb at the start of a clause: the
+    /// start of the text, after ";", "!", "?", a newline or a sentence-ending ".", or after ",", "so" or "please"
+    /// outside a question ("How do I add tests, then fix the build?" stays a question). "then", "now", "just", "also",
+    /// "and" and "can/could/would/will you" may stand before it. A change verb is coding when a code noun follows it in
+    /// its clause, or when its object is a pronoun ("fix it") and the text names code. Otherwise the fixes7 rule decides.
+    static let clauseWords: Set<String> = ["so", "please"]
+    static let leadIns: Set<String> = ["then", "now", "just", "also", "and"]
+    static let askingVerbs: Set<String> = ["can", "could", "would", "will"]
+    static let questionStarters: Set<String> = ["how", "what", "why", "which", "who", "when", "where", "is", "are", "does",
+                                                "do", "can", "could", "should"]
+    static let pronouns: Set<String> = ["it", "them", "this", "that", "these", "those"]
+
     static func looksLikeCoding(_ text: String) -> Bool {
+        requestsCodeInAClause(text) || firstVerbRequestsCode(text)
+    }
+
+    static func requestsCodeInAClause(_ text: String) -> Bool {
+        let parts = sentenceWords(text)
+        var topic = parts.flatMap { $0 }.filter { $0 != "," }
+        if let about = topic.firstIndex(where: { $0 == "about" || $0 == "regarding" }) {
+            topic = Array(topic[..<about])
+        }
+        let mentionsCode = namesCode(topic)
+        for words in parts {
+            let question = questionStarters.contains(words[0])
+            var clauseStart = true
+            var index = 0
+            while index < words.count {
+                let word = words[index]
+                index += 1
+                if word == "," || clauseWords.contains(word) {
+                    clauseStart = clauseStart || !question
+                    continue
+                }
+                if clauseStart && leadIns.contains(word) { continue }
+                if clauseStart && askingVerbs.contains(word) && index < words.count && words[index] == "you" {
+                    index += 1
+                    continue
+                }
+                if clauseStart && codingOnlyVerbs.contains(word) { return true }
+                if clauseStart && changeVerbs.contains(word) {
+                    let objects = Array(words[index...].prefix(while: { $0 != "," && !clauseWords.contains($0) && $0 != "about" && $0 != "regarding" }))
+                    if namesCode(objects) { return true }
+                    if let first = objects.first, pronouns.contains(first), mentionsCode { return true }
+                }
+                clauseStart = false
+            }
+        }
+        return false
+    }
+
+    /// Fixes7 rule: the first recognised verb decides; without one a code noun decides.
+    static func firstVerbRequestsCode(_ text: String) -> Bool {
         var words = text.lowercased().split { !($0.isLetter || $0.isNumber) }.map(String.init)
         if let topic = words.firstIndex(where: { $0 == "about" || $0 == "regarding" }) {
             words = Array(words[..<topic])
@@ -156,8 +209,39 @@ enum GoalProtocol {
             if codingOnlyVerbs.contains(verb) { return true }
             objects = words[(action + 1)...]
         }
-        let scope = objects.joined(separator: " ")
-        return objects.contains { codeNouns.contains($0) } || codePhrases.contains { scope.contains($0) }
+        return namesCode(Array(objects))
+    }
+
+    static func namesCode(_ words: [String]) -> Bool {
+        let scope = words.joined(separator: " ")
+        return words.contains { codeNouns.contains($0) } || codePhrases.contains { scope.contains($0) }
+    }
+
+    /// Lowercased words per sentence (split at ";", "!", "?", a newline, or a "." followed by a space or the end);
+    /// a comma stays in as the token ",".
+    static func sentenceWords(_ text: String) -> [[String]] {
+        let characters = Array(text.lowercased())
+        var parts: [[String]] = [[]]
+        var word = ""
+        for (offset, character) in characters.enumerated() {
+            if character.isLetter || character.isNumber {
+                word.append(character)
+                continue
+            }
+            if !word.isEmpty {
+                parts[parts.count - 1].append(word)
+                word = ""
+            }
+            let endsSentence = character == ";" || character == "!" || character == "?" || character.isNewline
+                || (character == "." && (offset + 1 == characters.count || characters[offset + 1].isWhitespace))
+            if endsSentence {
+                if !parts[parts.count - 1].isEmpty { parts.append([]) }
+            } else if character == "," {
+                parts[parts.count - 1].append(",")
+            }
+        }
+        if !word.isEmpty { parts[parts.count - 1].append(word) }
+        return parts.filter { !$0.isEmpty }
     }
 
     /// The round that answers a `done` block without accepted evidence.
