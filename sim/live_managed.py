@@ -92,7 +92,7 @@ class ManagedSuite(ChainMixin, BehaviorSuite):
                     coding_cli=self.cli, cli_execution_path=os.environ.get("QA_CLI_EXECUTION_PATH", "unspecified caller; unchanged code-job workspace-write"),
                     qa_git_layout={"work_tree": str(self.repo), "git_dir": str(self.repo / "QA-git-store"),
                                    "dot_git_entry": False} if self.repo else None,
-                    app_contract_source="Resources/Skills/swarmhub-messages/SKILL.md 1.3.4")
+                    app_contract_source="Resources/Skills/swarmhub-messages/SKILL.md 1.3.5")
         path.write_text(self.clean(json.dumps(data, indent=2)) + "\n")
 
     def request(self, label, path, method="GET", body=None, **kwargs):

@@ -10,7 +10,7 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
 
 @Test func messagesSkillShipsWithItsScript() throws {
     let skill = try messagesSkill()
-    #expect(skill.version == SkillVersion("1.3.4")!)
+    #expect(skill.version == SkillVersion("1.3.5")!)
     let fields = SkillLibrary.frontmatter(skill.template)
     #expect(fields["author"] == "SwarmHub" && skill.template.contains("metadata:\n  swarmhub:\n    source: swarmhub"))
     let description = try #require(fields["description"])
@@ -38,7 +38,7 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
     #expect(rendered.contains("--no-wait") && rendered.contains("Report what the other bot said"))
     // P42 9: a late reply arrives as a new message; it is never answered back or sent on.
     #expect(rendered.contains("[Reply from <bot> via SwarmHub]") && rendered.contains("Do not answer\nit back to that bot"))
-    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.3.4")
+    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.3.5")
     let main = try #require(SkillLibrary.render(skill, forProfile: "default", managerTemplate: nil, codingOrder: .standard))
     #expect(main.contains("~/.hermes/skills/swarmhub/swarmhub-messages/scripts/bot-msg --from default --to"))
 }
