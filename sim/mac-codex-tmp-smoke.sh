@@ -3,7 +3,7 @@
 # "Mac real-Codex /tmp exclusion smoke test"; REVIEW-CLAUDE-XREV3 finding 3). POSIX sh, python3 >= 3.9.
 #
 #   sh sim/mac-codex-tmp-smoke.sh [--model <id>] [--effort low|medium|high|xhigh] [--timeout <s>] [--outside-dir <dir>]
-#                                 [--code-job <path>] [--stub [enforce|leaky|timeout|leaky-timeout|incomplete]]
+#                                 [--code-job <path>] [--stub <mode>] (modes listed in usage)
 #
 # Harmless: every file it creates, and every file the probe attacks, is in a disposable directory under /tmp or
 # $TMPDIR, except one macsmoke1.XXXXXX directory in --outside-dir (default $HOME) for the non-fallback launcher run.
@@ -22,7 +22,7 @@ if [ -z "${SMOKE_TEED:-}" ] && [ "${SMOKE_LOG:-}" != - ]; then
   rc=$(cat "$rcf"); rm -f "$rcf"; exit "${rc:-1}"
 fi
 
-usage() { echo "usage: sh $0 [--model <id>] [--effort low|medium|high|xhigh] [--timeout <s>] [--outside-dir <dir>] [--code-job <path>] [--stub [enforce|leaky|timeout|leaky-timeout|incomplete]]" >&2; exit 64; }
+usage() { echo "usage: sh $0 [--model <id>] [--effort low|medium|high|xhigh] [--timeout <s>] [--outside-dir <dir>] [--code-job <path>] [--stub [enforce|leaky|timeout|leaky-timeout|incomplete|stderr-only|missing-report|unchanged-report|cj-fail|cj-timeout]]" >&2; exit 64; }
 HERE=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 MODEL= EFFORT=high TIMEOUT=300 OUTSIDE= STUB= CODEJOB=$HERE/../Resources/Skills/swarmhub-coding/scripts/code-job
 while [ $# -gt 0 ]; do
@@ -31,7 +31,7 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || usage
       case $1 in --model) MODEL=$2 ;; --effort) EFFORT=$2 ;; --timeout) TIMEOUT=$2 ;; --outside-dir) OUTSIDE=$2 ;; --code-job) CODEJOB=$2 ;; esac
       shift 2 ;;
-    --stub) STUB=enforce; case ${2:-} in enforce|leaky|timeout|leaky-timeout|incomplete) STUB=$2; shift ;; esac; shift ;;
+    --stub) STUB=enforce; case ${2:-} in enforce|leaky|timeout|leaky-timeout|incomplete|stderr-only|missing-report|unchanged-report|cj-fail|cj-timeout) STUB=$2; shift ;; esac; shift ;;
     *) usage ;;
   esac
 done
@@ -296,6 +296,8 @@ cj_run() {  # name home dir fallback(yes|no) with-sentinels(yes|no)
   { echo "nonce $NONCE"; echo "report $(phys "$D")/REPORT.txt"; } > "$D/smoke-targets"
   if [ "$ab" = yes ]; then make_locations; { target_lines tmp "$A" "$LK/a"; target_lines tmpdir "$B" "$LK/b"; } >> "$D/smoke-targets"; fi
   write_probe "$D"
+  # Negative fixture only: the stub restores these exact bytes after running the probe.
+  [ "$STUB" = unchanged-report ] && printf 'stale smoke report\n' > "$D/REPORT.txt"
   ls -d /tmp/code-job.* > "$BASE/pre-$run" 2>/dev/null
   say ""; say "== run $run: code-job, HOME=$H, --dir $D (expect fallback=$fb) =="
   set -- /bin/sh "$BASE/skill/swarmhub-coding/scripts/code-job" --bot macsmoke1 --order codex --dir "$D" \
@@ -313,9 +315,22 @@ cj_run() {  # name home dir fallback(yes|no) with-sentinels(yes|no)
   show "code-job + codex transcript (stdout+stderr)" "$BASE/out-$run"
   show "probe log (tool side)" "$D/smoke-probe.log"
   show "host shim record" "$BASE/shim-$run"
+  # Preserve the launcher's actual contract results before cleanup. The old merged transcript hid which
+  # half of exit 65 failed (report freshness or stdout); never infer it from the model's prose.
+  for job in "$H"/.hermes/swarmhub/job-completions/job.*; do
+    [ -d "$job" ] || continue
+    say "  --- launcher completion record ---"
+    for field in report report-before report-sha256 report-valid report-exists cli-exit exit verify-exit; do
+      say "  | $field=$(cat "$job/$field" 2>/dev/null || echo unavailable)"
+    done
+  done
   ok=yes rec=$BASE/shim-$run u0=$UNEXPECTED
   [ "$ab" = yes ] && { judge "$run" tmp "$A" "$HA" "$A_TMP" "$A_TD" yes yes; judge "$run" tmpdir "$B" "$HB" "$B_TMP" "$B_TD" yes yes; }
-  if [ ! -f "$rec" ]; then say "  codex was not started by code-job"; add INCONC "$run:codex-not-started"; return 1; fi
+  if [ ! -f "$rec" ]; then
+    say "  host shim record missing (the launcher may have killed the shim)"
+    completed "$rc" "$D" code-job "$BASE/out-$run"
+    add INCONC "$run:${WHY:-codex-not-recorded}"; return 1
+  fi
   snap=$(sed -n 's/^snapshot=//p' "$rec") sp=$(sed -n 's/^phys=//p' "$rec")
   keys=$(grep -cE '^arg=sandbox_workspace_write\.exclude_(slash_tmp|tmpdir_env_var)=true$' "$rec")
   if [ "$fb" = yes ] && [ "$keys" -ne 2 ]; then say "  !! fallback run but $keys of 2 exclusion keys reached codex"; add NOTES "$run:keys=$keys"; ok=no; fi
@@ -364,11 +379,18 @@ for a do
   [ "$a" = --model ] && { held=1; continue; }
   set -- "$@" "$a"
 done
-"$SMOKE_REAL_CODEX" "$@"; rc=$?
+# Keep the CLI's stdout separate from its stderr transcript for diagnosis. The launcher requires stdout as
+# well as a fresh report; a cooperative probe must not depend on the model choosing to print final prose there.
+"$SMOKE_REAL_CODEX" "$@" > "$SMOKE_SHIM_RECORD.stdout"; rc=$?
+cat "$SMOKE_SHIM_RECORD.stdout"
+stdout_bytes=$(wc -c < "$SMOKE_SHIM_RECORD.stdout" | tr -d ' ')
 post=$(h "$snap/git-trust.json")
 markers=$(ls -A "$snap" 2>/dev/null | grep -E '^smoke-|\.renamed-' | tr '\n' ' ')
 rm -f "$SMOKE_SHIM_RECORD"
-printf 'snapshot=%s\nphys=%s\npre=%s\npost=%s\nmarkers=%s\ncodex-exit=%s\n%s\n' "${snap:-none}" "$sp" "$pre" "$post" "$markers" "$rc" "$args" > "$SMOKE_SHIM_RECORD"
+printf 'snapshot=%s\nphys=%s\npre=%s\npost=%s\nmarkers=%s\ncodex-exit=%s\ncodex-stdout-bytes=%s\n%s\n' "${snap:-none}" "$sp" "$pre" "$post" "$markers" "$rc" "$stdout_bytes" "$args" > "$SMOKE_SHIM_RECORD"
+# Harness output, not completion evidence: code-job still checks the report, and the host still requires
+# both nonce files, both exit statuses, the exclusion argv and every unchanged protected target.
+printf 'smoke shim: codex exited %s\n' "$rc"
 exit "$rc"
 EOF
 chmod 755 "$BASE/bin/codex"

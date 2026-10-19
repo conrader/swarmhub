@@ -1,6 +1,6 @@
-# MACSMOKE1: Mac real-Codex `/tmp` exclusion smoke test (script only, not yet run on the Mac)
+# MACSMOKE1: Mac real-Codex `/tmp` exclusion smoke test
 
-Branch `swarmhub/peer-delivery` @ 11f1f2d. Implements steps 1-6 of FIXES18-REPORT.md, section "Mac real-Codex `/tmp` exclusion smoke test" (REVIEW-CLAUDE-XREV3 finding 3). Nothing here was run against the real Codex: all results below come from Linux stub runs.
+Originally written on `swarmhub/peer-delivery` @ 11f1f2d. Implements steps 1-6 of FIXES18-REPORT.md, section "Mac real-Codex `/tmp` exclusion smoke test" (REVIEW-CLAUDE-XREV3 finding 3). The original results below are Linux stub runs. The macsmoke3 section discusses the subsequently supplied Mac log for c044cbd; no real Codex was invoked during this revision.
 
 New files:
 
@@ -186,3 +186,26 @@ New stub modes (`--stub <mode>`, Linux plumbing only): `timeout` (full probe, th
   Afterwards no `code-job.*`/`macsmoke1*` entries were left in `/tmp`, `/dev/shm` or `~`.
 
 Not run: the real Codex (no provider calls), anything on macOS (`/private/tmp` aliases, bash 3.2 `/bin/sh`, BSD tools, Python 3.9), and the `cleanup: REFUSED` path. No test feeds cleanup a path outside the allowed roots, because every registered path comes from this run's own `mktemp`; that branch was only reviewed by reading it.
+
+## macsmoke3 (c044cbd)
+
+**Diagnosis and its limit.** Read `/home/ubuntu/work/swarmhub/mac-smoke2-c044cbd.log` (Codex 0.162.1). Both fallback probes wrote their report and completion nonce, all isolation writes were denied, and code-job returned 65. The probe does **not** pre-write the baseline: `completion-contract.py baseline` runs before the shim/Codex/probe. It compares SHA-256 contents, not timestamps. `--dir` and the probe's absolute report path both use `pwd -P`. An unchanged probe report is therefore fresh for this new workspace; rewriting it is unnecessary. The unchanged launcher and original stub pass all seven cases locally without a model rewrite, under dash and bash POSIX. A new symlinked-TMPDIR regression also passes.
+
+Exit 65 additionally covers **empty CLI stdout**, even with a fresh valid report. This is intentional launcher behavior (shell-suite case 16). The old stub printed its argv and all tool output on stdout, hiding that branch. A stderr-only stub reproduces exit 65 in all three launcher layouts with `report-before=missing-or-empty`, `report-valid=true`, both nonce files and CLI exit 0. **This verifies a mechanism, not the historical Mac cause:** the supplied log merges stdout/stderr and omits the completion journal. Its two `DONE` lines do not establish the captured stdout file's size. It cannot conclusively distinguish empty stdout from a report-check I/O failure. No production code-job bug has been demonstrated, and code-job is unchanged. A verified diagnosis of that Mac failure remains outstanding.
+
+**Harness change.** The host shim now captures/replays raw Codex stdout, records its byte count, and prints a deterministic shim status line after Codex exits. Smoke completion no longer depends on final prose reaching stdout. It does not write or repair the report. The log includes the launcher's report baseline/hash/validity and exit records before cleanup, so another failure is diagnosable. Missing shim records after a killed CLI retain the timeout/nonzero reason. All sentinel hashes, directory/alias checks, launcher snapshot checks, nonce checks and both exit-status requirements remain; unexpected writes still win as FAIL. Missing/unchanged reports still return 65. Stub fixtures now use separate HOME/TMPDIR siblings outside system `/tmp`, avoiding the `/dev/shm` requirement that skipped all five tests on the Mac.
+
+**Validation (Linux).** No commits, Hermes changes, outbound messages or real Codex/provider calls were made.
+
+- Smoke script and both embedded scripts: shellcheck clean with the existing `SC1007,SC2010,SC2012,SC2015,SC2154` exclusions; dash/bash/bash-POSIX syntax and Python syntax pass. Unchanged code-job/shell-suite shellcheck additionally reports existing SC2086, SC2317 and SC2009 diagnostics. `git diff --check` passes.
+- `test_macsmoke2`: **9/9 pass** in final full discovery, including the status-line mutation that reproduces 65, genuine missing/unchanged-report rejection, symlinked TMPDIR, leaks, incomplete probes, nonzero exits and timeouts. The first focused run exposed the misleading missing-shim timeout label, fixed before final discovery.
+- Code-job shell suite: **22/22 each** under `/bin/sh`, `/bin/dash`, `/bin/bash`.
+- `PYTHONPATH=sim python3 -B -m unittest discover -s sim -v`: **369 tests, 8 failure records, 8 skips** (201.7 s). Failure names match the documented FIXES18 baseline: fallback directory writes, Node subprocess EPERM, namespace-mode expectation, SIGIO socket EPERM, and four namespaced-signal variants. No smoke regression failed.
+- `python3 -B -m unittest discover -s scripts -p 'test_*.py'`: **56 tests, 5 errors**: four sandbox-denied loopback fixtures and unavailable macOS CommonCrypto. Neither full suite is green here.
+- Cleanup assertions pass after every smoke run; final checks found no disposable smoke/launcher directories in the checkout, `/tmp` or `/dev/shm`. Temporary diagnostic logs were removed after recording these results.
+
+**Still needs the Mac.** Rerun the real sandbox cases and inspect the new stdout/contract diagnostics if any launcher is still inconclusive. Linux stubs cannot validate Seatbelt, `/private/tmp`, `/private/var`, or bash 3.2. The one-command invocation remains:
+
+```sh
+cd /tmp/qm6 && sh sim/mac-codex-tmp-smoke.sh
+```

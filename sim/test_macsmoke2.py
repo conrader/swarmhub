@@ -1,7 +1,9 @@
-"""macsmoke2 regressions for sim/mac-codex-tmp-smoke.sh, stub mode only (no Codex, no provider, no network).
+"""macsmoke2/3 regressions for sim/mac-codex-tmp-smoke.sh (no Codex, no provider, no network).
 
 Covers the macsmoke1 review: cleanup with a space in $TMPDIR, a timed-out run whose probe files exist, an
 unexpected write on a first run that also timed out, and the non-fallback code-job run in the default command.
+macsmoke3 adds the fresh-report/empty-stdout exit-65 reproduction, deterministic completion, fail-closed report
+checks, launcher timeout/nonzero checks, and a symlinked TMPDIR. Fixtures work on Linux and macOS.
 """
 import os
 from pathlib import Path
@@ -13,7 +15,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "sim/mac-codex-tmp-smoke.sh"
-SHM = Path("/dev/shm")
+# Separate HOME and TMPDIR siblings outside system /tmp. Works on a Mac checkout in /tmp/qm6 too;
+# /dev/shm is Linux-only, and a checkout outside /tmp also works in a workspace-write sandbox.
+FIXTURE_BASE = ROOT if Path('/tmp').resolve() not in ROOT.parents else Path.home()
 
 
 def temp_entries():
@@ -21,20 +25,20 @@ def temp_entries():
 
 
 @unittest.skipIf(os.geteuid() == 0, "the stub denies writes with permission bits, which root ignores")
-@unittest.skipUnless(SHM.is_dir() and shutil.which("python3"), "needs /dev/shm for a $TMPDIR outside /tmp")
+@unittest.skipUnless(shutil.which("python3"), "needs python3")
 class SmokeStubTests(unittest.TestCase):
     def setUp(self):
-        self.shm = Path(tempfile.mkdtemp(prefix="msk2.", dir=SHM))
-        self.home = Path(tempfile.mkdtemp(prefix="msk2-home.", dir=Path.home()))
+        self.shm = Path(tempfile.mkdtemp(prefix="msk2.", dir=FIXTURE_BASE))
         self.addCleanup(shutil.rmtree, self.shm, True)
+        self.home = Path(tempfile.mkdtemp(prefix="msk2-home.", dir=FIXTURE_BASE))
         self.addCleanup(shutil.rmtree, self.home, True)
         self.before = temp_entries()
 
-    def run_smoke(self, tmpdir, *args, log="-"):
+    def run_smoke(self, tmpdir, *args, log="-", script=SCRIPT):
         tmpdir.mkdir(parents=True, exist_ok=True)
         env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "SMOKE_TEED")}
         env.update(TMPDIR=str(tmpdir), HOME=str(self.home), SMOKE_LOG=str(log))
-        proc = subprocess.run(["sh", str(SCRIPT), "--timeout", "3", *args], cwd=self.shm, env=env,
+        proc = subprocess.run(["sh", str(script), "--timeout", "3", *args], cwd=self.shm, env=env,
                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
         out = proc.stdout + proc.stderr
         last = [line for line in out.splitlines() if line.startswith("smoke: ")]
@@ -86,6 +90,62 @@ class SmokeStubTests(unittest.TestCase):
         self.assertTrue(last.startswith("smoke: result=FAIL "), last)
         for loc in ("on:tmp", "on:tmpdir", "cj-home:snapshot", "cj-sibling:snapshot"):
             self.assertIn(loc, last)
+
+    def test_stderr_only_probe_reproduces_exit_65_without_shim_status(self):
+        # A real fresh report and completed probe can still hit 65: code-job also requires stdout.
+        # Revert only the harness status line, leaving all production launcher checks intact.
+        with tempfile.NamedTemporaryFile(mode='w', prefix='macsmoke3-', suffix='.sh',
+                                         dir=SCRIPT.parent) as old:
+            status = "printf 'smoke shim: codex exited %s\\n' \"$rc\"\n"
+            source = SCRIPT.read_text()
+            self.assertEqual(source.count(status), 1)
+            old.write(source.replace(status, ''))
+            old.flush()
+            rc, last, out = self.run_smoke(self.shm / 'td', '--stub', 'stderr-only', script=old.name)
+        self.assertEqual(rc, 0, out[-3000:])
+        self.assertTrue(last.startswith('smoke: result=INCONCLUSIVE '), last)
+        for run in ('cj-home', 'cj-sibling', 'cj-outside'):
+            self.assertIn(f'{run}:code-job-exit-65', last)
+        self.assertEqual(out.count('  | report-before=missing-or-empty\n'), 3)
+        self.assertEqual(out.count('  | report-valid=true\n'), 3)
+        self.assertEqual(out.count('  | codex-stdout-bytes=0\n'), 3)
+        self.assertEqual(out.count('completion marker: written; exit: 65'), 3)
+
+    def test_stderr_only_completed_probe_passes_without_model_report_rewrite(self):
+        # Also exercise physical-vs-given TMPDIR spellings; the report is written only by the probe.
+        real = self.shm / 'td real'
+        real.mkdir()
+        alias = self.shm / 'td alias'
+        alias.symlink_to(real, target_is_directory=True)
+        rc, last, out = self.run_smoke(alias, '--stub', 'stderr-only')
+        self.assertEqual(rc, 0, out[-3000:])
+        self.assertTrue(last.startswith('smoke: result=PASS '), last)
+        for run in ('cj-home', 'cj-sibling', 'cj-outside'):
+            self.assertIn(run, last.split(' enforced=')[1].split(' ')[0])
+        self.assertEqual(out.count('  | codex-stdout-bytes=0\n'), 3)
+        self.assertEqual(out.count('  | report-before=missing-or-empty\n'), 3)
+        self.assertEqual(out.count('  | report-valid=true\n'), 3)
+
+    def test_missing_and_unchanged_reports_still_exit_65(self):
+        for mode in ('missing-report', 'unchanged-report'):
+            with self.subTest(mode=mode):
+                rc, last, out = self.run_smoke(self.shm / 'td', '--stub', mode)
+                self.assertEqual(rc, 0, out[-3000:])
+                self.assertTrue(last.startswith('smoke: result=INCONCLUSIVE '), last)
+                for run in ('cj-home', 'cj-sibling', 'cj-outside'):
+                    self.assertIn(f'{run}:code-job-exit-65', last)
+                self.assertEqual(out.count('  | report-valid=false\n'), 3)
+                self.assertEqual(out.count('completion marker: written; exit: 65'), 3)
+
+    def test_completed_launcher_probe_with_nonzero_or_timeout_never_passes(self):
+        for mode, reason, code in (('cj-fail', 'code-job-exit-7', 7), ('cj-timeout', 'timeout', 124)):
+            with self.subTest(mode=mode):
+                rc, last, out = self.run_smoke(self.shm / 'td', '--stub', mode)
+                self.assertEqual(rc, 0, out[-3000:])
+                self.assertTrue(last.startswith('smoke: result=INCONCLUSIVE '), last)
+                for run in ('cj-home', 'cj-sibling', 'cj-outside'):
+                    self.assertIn(f'{run}:{reason}', last)
+                self.assertEqual(out.count(f'completion marker: written; exit: {code}'), 3)
 
 
 if __name__ == "__main__":
