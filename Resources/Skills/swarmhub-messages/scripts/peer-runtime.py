@@ -190,7 +190,8 @@ def evidence_lines(job):
     elif tests == "false":
         unverified.append(f"verification command exit {field('verify-exit')} ({command})")
     else:
-        unverified.append("tests (no verification command configured)")
+        unverified.append(f"tests (verification configured but not run: {command})" if command
+                          else "tests (no verification command configured)")
     if field("cli-exit") == "not-run":
         unverified.append("any CLI work (no coding CLI ran)")
     unverified.append("correctness of the report and of the work itself")
@@ -387,7 +388,7 @@ def install(profile):
     folder = home / "plugins/swarmhub-peer"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "plugin.yaml").write_text(
-        "name: swarmhub-peer\nversion: 1.3.2\ndescription: SwarmHub held peer inbox and coding completion recovery\n"
+        "name: swarmhub-peer\nversion: 1.3.3\ndescription: SwarmHub held peer inbox and coding completion recovery\n"
         "provides_hooks:\n  - pre_llm_call\n  - post_llm_call\n")
     (folder / "__init__.py").write_text(
         "import runpy, sys\n" +

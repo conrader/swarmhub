@@ -3,8 +3,26 @@ import Darwin
 
 /// Gap closures after live pass 4 (P02/P06/P07): what the app knows about the host-local managed control plane
 /// (`swarmctl` in the swarmhub-messages skill). The app never runs `swarmctl` itself: a bot presents a managed action
-/// in a ```` ```swarmhub ```` fence, the app shows a real approval card, and the decision goes back as the deciding
+/// in a ```` ```swarmhub ```` fence (or one bare JSON object), the app shows a real approval card, and the decision goes back as the deciding
 /// bot's own turn, because `swarmctl decide` accepts a decision only from the deciding profile's gateway.
+
+/// Prefer protocol fences. The compatibility fallback consumes only a whole-reply JSON object,
+/// never prose containing JSON, another fence language, or an unfenced array.
+private enum ManagedActionObjects {
+    static func parse(in text: String) -> [[String: Any]] {
+        let fences = SwarmhubBlock.fences(in: text)
+        if fences.isEmpty {
+            guard let data = text.data(using: .utf8),
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [] }
+            return [object]
+        }
+        return fences.flatMap { fence -> [[String: Any]] in
+            guard let data = fence.body.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) else { return [] }
+            return (json as? [[String: Any]]) ?? [(json as? [String: Any])].compactMap { $0 }
+        }
+    }
+}
 
 /// A managed action awaiting a decision, as the bot presents it: `{"op":"approval","task":"task.…","kind":"outbound",
 /// "gate":"coordinator","decider":"jarvis","bot":"infra","intent":"…","summary":"…","risks":[],"draft":"…"}`.
@@ -68,18 +86,14 @@ struct ManagedApproval: Equatable, Sendable {
     /// Every approval block in a reply, in order; blocks with an invalid task, kind or gate are ignored.
     static func parse(in text: String) -> [ManagedApproval] {
         var found: [ManagedApproval] = []
-        for fence in SwarmhubBlock.fences(in: text) {
-            guard let data = fence.body.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) else { continue }
-            let objects = (json as? [[String: Any]]) ?? [(json as? [String: Any])].compactMap { $0 }
-            for object in objects where object["op"] as? String == "approval" {
-                guard let task = validTask(object["task"]), let kind = object["kind"] as? String, kinds.contains(kind),
-                      let gate = object["gate"] as? String, ["owner", "coordinator"].contains(gate) else { continue }
-                let risks = ((object["risks"] as? [String]) ?? []).filter { ["money", "prod", "secrets"].contains($0) }
-                let draft = Self.text(object["draft"], limit: 32000)
-                found.append(ManagedApproval(task: task, kind: kind, gate: gate, decider: profileName(object["decider"]), bot: profileName(object["bot"]),
-                                             intent: Self.text(object["intent"], limit: 200), summary: Self.text(object["summary"], limit: 500),
-                                             risks: risks, draft: draft.isEmpty ? nil : draft))
-            }
+        for object in ManagedActionObjects.parse(in: text) where object["op"] as? String == "approval" {
+            guard let task = validTask(object["task"]), let kind = object["kind"] as? String, kinds.contains(kind),
+                  let gate = object["gate"] as? String, ["owner", "coordinator"].contains(gate) else { continue }
+            let risks = ((object["risks"] as? [String]) ?? []).filter { ["money", "prod", "secrets"].contains($0) }
+            let draft = Self.text(object["draft"], limit: 32000)
+            found.append(ManagedApproval(task: task, kind: kind, gate: gate, decider: profileName(object["decider"]), bot: profileName(object["bot"]),
+                                         intent: Self.text(object["intent"], limit: 200), summary: Self.text(object["summary"], limit: 500),
+                                         risks: risks, draft: draft.isEmpty ? nil : draft))
         }
         return found
     }
@@ -133,13 +147,9 @@ struct SecretRequest: Equatable, Sendable, Identifiable {
 
     static func parse(in text: String) -> [SecretRequest] {
         var found: [SecretRequest] = []
-        for fence in SwarmhubBlock.fences(in: text) {
-            guard let data = fence.body.data(using: .utf8), let json = try? JSONSerialization.jsonObject(with: data) else { continue }
-            let objects = (json as? [[String: Any]]) ?? [(json as? [String: Any])].compactMap { $0 }
-            for object in objects where object["op"] as? String == "secret_request" {
-                guard let name = (object["name"] as? String).flatMap(validName) else { continue }
-                found.append(SecretRequest(name: name, reason: String((object["reason"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(500))))
-            }
+        for object in ManagedActionObjects.parse(in: text) where object["op"] as? String == "secret_request" {
+            guard let name = (object["name"] as? String).flatMap(validName) else { continue }
+            found.append(SecretRequest(name: name, reason: String((object["reason"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(500))))
         }
         return found
     }

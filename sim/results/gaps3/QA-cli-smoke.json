@@ -1,0 +1,29 @@
+{
+  "cli_path": "/home/box/.npm-global/bin/codex",
+  "cli_version": "codex-cli 0.163.0",
+  "model": "gpt-6-astra",
+  "effort": "high",
+  "runner_unchanged": true,
+  "exit": 65,
+  "fields": {
+    "agent": "codex",
+    "status": "failed",
+    "exit": "65",
+    "cli-exit": "0",
+    "report-valid": "false",
+    "verify-command": "grep -Fxq 'gaps3 CLI tools work' NOTES.md && grep -Fxq 'command ran' COMMAND.txt",
+    "verify-exit": "-",
+    "tests-passed": "not-run",
+    "evidence": "none",
+    "commit-evidence": "not-checked"
+  },
+  "runtime_modes": {
+    "codex_home": "0o700",
+    "runtime_dir": "0o700",
+    "tmp_dir": "0o700"
+  },
+  "artifacts": {},
+  "command_output": null,
+  "source_auth_config_unchanged": true,
+  "no_messaging_sibling": true
+}

@@ -1,7 +1,7 @@
 ---
 name: swarmhub-messages
 description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.2
+version: 1.3.3
 author: SwarmHub
 metadata:
   swarmhub:
@@ -125,16 +125,23 @@ Only the configured role is accepted, and only from its own gateway: `swarmctl` 
 the action. The stored action is immutable and denial is final by intent and operation. Bots must present awaiting
 approvals to that role, never impersonate it to decide. Present one by ending the reply with a `swarmhub` fence that
 SwarmHub turns into an approval card in the deciding role's chat (the card runs `swarmctl decide` from that role's
-own gateway when the user chooses):
+own gateway when the user chooses). The opening line must be exactly three backticks followed by `swarmhub`,
+then JSON on the next line, then three backticks alone on the closing line. Bare JSON, a `json` fence, or saying
+"swarmhub fence" in prose does not follow this output contract. Example (replace these example values with the
+actual awaiting record; never invent a task):
 ```swarmhub
-{"op":"approval","task":"<task id>","kind":"outbound","gate":"coordinator","decider":"<deciding profile>","bot":"<submitting profile>","intent":"<intent>","summary":"<one line>","risks":[],"draft":"<exact outbound text, outbound only>"}
+{"op":"approval","task":"task.0123456789abcdef0123456789abcdef","kind":"outbound","gate":"coordinator","decider":"jarvis","bot":"infra","intent":"release-note","summary":"Email Ada the release note","risks":[],"draft":"Hello Ada"}
 ```
 Only present a card for an actually awaiting record. App Draft Send always submits `fake: true`, with the exact text,
 recipient and stable card intent. It reports the returned task's actual status; an automatic FAKE record needs no
 approval. Never turn that record into a real send. A card click sends a decision request to the configured profile
 on the same box; only a successful `swarmctl decide` result proves the runtime accepted it.
-To obtain a user secret, end the reply with `{"op":"secret_request","name":"<file name>","reason":"<why>"}` in a
-`swarmhub` fence; SwarmHub opens its secret-entry sheet and replies with the 0600 file path only. All these scripts run under the
+To obtain a user secret, end the reply with this exact fence format, replacing the name and reason as needed.
+Never put the secret value in JSON or chat:
+```swarmhub
+{"op":"secret_request","name":"openai-key","reason":"To provision QA Hermes"}
+```
+SwarmHub opens its secret-entry sheet and replies with the 0600 file path only. All these scripts run under the
 owner's Unix account: this interface is a trusted local control plane, not identity isolation against a malicious
 bot with unrestricted shell/file access. Gates cover managed entrypoints; unrelated tools and external connectors
 still require their own permission boundaries. Use `--task-id <id>` on associated messages so Stop propagates to

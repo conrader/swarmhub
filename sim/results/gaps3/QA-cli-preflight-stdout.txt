@@ -1,0 +1,3 @@
+Blocked by the environment: shell execution failed with `app-server socket directory must be a user-owned directory with mode 0700`. File writes also failed, including `REPORT.md`.
+
+No files were successfully changed, verification did not run, and no commit was made. No network, external connectors, or other agents were used.

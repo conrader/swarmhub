@@ -34,6 +34,9 @@ def cli_env(base, cli):
     if cli:
         env["PATH"] = cli["bin"] + ":" + env.get("PATH", "/usr/bin:/bin")
         env["CODEX_HOME"] = cli["codex_home"]
+        if "runtime_dir" in cli:
+            env["XDG_RUNTIME_DIR"] = cli["runtime_dir"]
+            env["TMPDIR"] = cli["tmp_dir"]
     return env
 
 
@@ -47,11 +50,20 @@ def writable_cli_state(cli, folder):
         return None
     source = Path(cli["codex_home"])
     folder.mkdir(mode=0o700)
+    folder.chmod(0o700)
+    # Nested CLI tools need owner-only socket parents. Never inherit the outer
+    # app-server's shared /tmp runtime or write socket/state files in its auth home.
+    runtime = folder / "runtime"
+    temporary = folder / "tmp"
+    for private in (runtime, temporary):
+        private.mkdir(mode=0o700)
+        private.chmod(0o700)
     for name in ("auth.json", "config.toml"):
         path = source / name
         if path.is_file():
             (folder / name).symlink_to(path)
-    return dict(cli, source_auth_home=str(source), codex_home=str(folder))
+    return dict(cli, source_auth_home=str(source), codex_home=str(folder),
+                runtime_dir=str(runtime), tmp_dir=str(temporary))
 
 
 def qa_repo(folder):

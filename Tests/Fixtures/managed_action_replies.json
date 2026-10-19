@@ -1,0 +1,278 @@
+[
+  {
+    "name": "bare approval",
+    "text": "{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}",
+    "tasks": [
+      "task.a"
+    ],
+    "names": []
+  },
+  {
+    "name": "bare secret with surrounding whitespace",
+    "text": " \n{\"op\": \"secret_request\", \"name\": \"openai-key\", \"reason\": \"QA\"}\n ",
+    "tasks": [],
+    "names": [
+      "openai-key"
+    ]
+  },
+  {
+    "name": "fenced approval with prose",
+    "text": "Awaiting owner.\n```swarmhub\n{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}\n```",
+    "tasks": [
+      "task.a"
+    ],
+    "names": []
+  },
+  {
+    "name": "fenced secret",
+    "text": "```swarmhub\n{\"op\": \"secret_request\", \"name\": \"openai-key\", \"reason\": \"QA\"}\n```",
+    "tasks": [],
+    "names": [
+      "openai-key"
+    ]
+  },
+  {
+    "name": "fenced array",
+    "text": "```swarmhub\n[{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}, {\"op\": \"secret_request\", \"name\": \"openai-key\", \"reason\": \"QA\"}]\n```",
+    "tasks": [
+      "task.a"
+    ],
+    "names": [
+      "openai-key"
+    ]
+  },
+  {
+    "name": "multiple fences",
+    "text": "```swarmhub\n{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}\n```\n```swarmhub\n{\"op\": \"secret_request\", \"name\": \"openai-key\", \"reason\": \"QA\"}\n```",
+    "tasks": [
+      "task.a"
+    ],
+    "names": [
+      "openai-key"
+    ]
+  },
+  {
+    "name": "bare array",
+    "text": "[{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}, {\"op\": \"secret_request\", \"name\": \"openai-key\", \"reason\": \"QA\"}]",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "prefixed prose",
+    "text": "Please approve {\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "trailing prose",
+    "text": "{\"op\": \"secret_request\", \"name\": \"openai-key\", \"reason\": \"QA\"} Please enter it.",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "json fence",
+    "text": "```json\n{\"op\": \"secret_request\", \"name\": \"openai-key\", \"reason\": \"QA\"}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "concatenated objects",
+    "text": "{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}{\"op\": \"secret_request\", \"name\": \"openai-key\", \"reason\": \"QA\"}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "malformed object",
+    "text": "{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "scalar",
+    "text": "true",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "unrelated operation",
+    "text": "{\"op\":\"goal\",\"status\":\"done\"}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid fence cannot fallback",
+    "text": "```swarmhub\ninvalid\n```\n{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid task task.a\n False",
+    "text": "{\"op\": \"approval\", \"task\": \"task.a\\n\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid task task.a\n True",
+    "text": "```swarmhub\n{\"op\": \"approval\", \"task\": \"task.a\\n\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid task rm -rf False",
+    "text": "{\"op\": \"approval\", \"task\": \"rm -rf\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid task rm -rf True",
+    "text": "```swarmhub\n{\"op\": \"approval\", \"task\": \"rm -rf\", \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid task 7 False",
+    "text": "{\"op\": \"approval\", \"task\": 7, \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid task 7 True",
+    "text": "```swarmhub\n{\"op\": \"approval\", \"task\": 7, \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid task None False",
+    "text": "{\"op\": \"approval\", \"task\": null, \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid task None True",
+    "text": "```swarmhub\n{\"op\": \"approval\", \"task\": null, \"kind\": \"money\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid kind shell False",
+    "text": "{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"shell\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid kind shell True",
+    "text": "```swarmhub\n{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"shell\", \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid kind [] False",
+    "text": "{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": [], \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid kind [] True",
+    "text": "```swarmhub\n{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": [], \"gate\": \"owner\", \"decider\": \"konrad\", \"risks\": [\"money\"]}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid gate anyone False",
+    "text": "{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": \"anyone\", \"decider\": \"konrad\", \"risks\": [\"money\"]}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid gate anyone True",
+    "text": "```swarmhub\n{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": \"anyone\", \"decider\": \"konrad\", \"risks\": [\"money\"]}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid gate {} False",
+    "text": "{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": {}, \"decider\": \"konrad\", \"risks\": [\"money\"]}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid gate {} True",
+    "text": "```swarmhub\n{\"op\": \"approval\", \"task\": \"task.a\", \"kind\": \"money\", \"gate\": {}, \"decider\": \"konrad\", \"risks\": [\"money\"]}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid name ../etc/passwd False",
+    "text": "{\"op\": \"secret_request\", \"name\": \"../etc/passwd\", \"reason\": \"QA\"}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid name ../etc/passwd True",
+    "text": "```swarmhub\n{\"op\": \"secret_request\", \"name\": \"../etc/passwd\", \"reason\": \"QA\"}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid name key\n False",
+    "text": "{\"op\": \"secret_request\", \"name\": \"key\\n\", \"reason\": \"QA\"}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid name key\n True",
+    "text": "```swarmhub\n{\"op\": \"secret_request\", \"name\": \"key\\n\", \"reason\": \"QA\"}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid name  False",
+    "text": "{\"op\": \"secret_request\", \"name\": \"\", \"reason\": \"QA\"}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid name  True",
+    "text": "```swarmhub\n{\"op\": \"secret_request\", \"name\": \"\", \"reason\": \"QA\"}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid name 7 False",
+    "text": "{\"op\": \"secret_request\", \"name\": 7, \"reason\": \"QA\"}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid name 7 True",
+    "text": "```swarmhub\n{\"op\": \"secret_request\", \"name\": 7, \"reason\": \"QA\"}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid name aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa False",
+    "text": "{\"op\": \"secret_request\", \"name\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"reason\": \"QA\"}",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "invalid name aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa True",
+    "text": "```swarmhub\n{\"op\": \"secret_request\", \"name\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"reason\": \"QA\"}\n```",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "live pass5 P06 embedded prose requires corrected prompt",
+    "text": "Synthetic runner receipt reports QA-Hermes provisioning completed using /tmp/QA-LIVE5-zyqz81oq/QA-home/.hermes/swarmhub/secrets/QA-model-key (0600). No real host or model key was provisioned.\n\nFAKE secret request, not sent: {\"op\":\"secret_request\",\"name\":\"QA-model-key\"}\n\nProvide any real model key only through secure secret intake, never in chat.",
+    "tasks": [],
+    "names": []
+  },
+  {
+    "name": "live pass5 P07 bare approval",
+    "text": "{\"op\":\"approval\",\"task\":\"task.8dbe110c886341f7b1464f179c4f167d\",\"kind\":\"money\",\"gate\":\"owner\",\"decider\":\"QA-Konrad\",\"bot\":\"QA-Swarmhub\",\"intent\":\"QA-P07-money\",\"summary\":\"QA FAKE money action\",\"risks\":[\"money\"]}",
+    "tasks": [
+      "task.8dbe110c886341f7b1464f179c4f167d"
+    ],
+    "names": []
+  }
+]

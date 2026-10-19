@@ -1,0 +1,20 @@
+{
+  "command": [
+    "/home/box/.npm-global/bin/codex",
+    "sandbox",
+    "-c",
+    "sandbox_mode=\"workspace-write\"",
+    "--",
+    "/bin/true"
+  ],
+  "exit": 1,
+  "stderr": "error building bubblewrap command: app-server socket directory must be a user-owned directory with mode 0700\n",
+  "provider_calls": 0,
+  "default_socket_directory": "/tmp/codex-daemon-1000",
+  "default_socket_mode": "0o0",
+  "private_modes": {
+    "home": "0o700",
+    "runtime": "0o700",
+    "tmp": "0o700"
+  }
+}

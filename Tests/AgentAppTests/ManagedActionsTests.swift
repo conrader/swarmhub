@@ -14,6 +14,22 @@ private let secretReply = "I need the key.\n```swarmhub\n{\"op\":\"secret_reques
     await backend.emit(.token(text), .completed); await backend.end()
 }
 
+// Shared with the Linux Python mirror. These assertions still require macOS/Swift to execute.
+@Test func managedActionRepliesAcceptOnlyFencesOrOneWholeJSONObject() throws {
+    struct Fixture: Decodable { let name: String; let text: String; let tasks: [String]; let names: [String] }
+    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .appending(path: "Fixtures/managed_action_replies.json")
+    let fixtures = try JSONDecoder().decode([Fixture].self, from: Data(contentsOf: url))
+    for fixture in fixtures {
+        #expect(ManagedApproval.parse(in: fixture.text).map(\.task) == fixture.tasks, "\(fixture.name)")
+        #expect(SecretRequest.parse(in: fixture.text).map(\.name) == fixture.names, "\(fixture.name)")
+    }
+    let bare = try #require(SwarmhubBlock.fences(in: approvalReply).first?.body)
+    #expect(ManagedApproval.parse(in: bare) == ManagedApproval.parse(in: approvalReply))
+    let bareSecret = try #require(SwarmhubBlock.fences(in: secretReply).first?.body)
+    #expect(SecretRequest.parse(in: bareSecret) == SecretRequest.parse(in: secretReply))
+}
+
 @Test func approvalBlocksBecomeManagedApprovals() throws {
     let found = ManagedApproval.parse(in: approvalReply)
     let item = try #require(found.first)

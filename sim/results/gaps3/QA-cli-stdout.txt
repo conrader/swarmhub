@@ -1,0 +1,3 @@
+Blocked by local tool failures: the shell could not start because the app-server socket directory requires user ownership and mode `0700`. File edits also failed, including writing `REPORT.md`.
+
+No changes or passing verification were confirmed. No commit, network, external connectors, or other agents were used.
