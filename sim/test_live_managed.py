@@ -55,10 +55,13 @@ class ManagedHarnessTests(unittest.TestCase):
             suite.cli, suite.model = {"agent": "codex"}, "test-model"
             suite.repo = qa_repo(Path(temporary) / "repo")
             suite.home = Path(temporary) / "home"
+            suite.temp = Path(temporary)
+            suite.init_chain_verifier()
             spec = suite.coding("QA-P01-first")
             self.assertEqual(spec["directory"], str(suite.repo))
             self.assertEqual(Path(spec["report"]).parent, suite.repo)
-            self.assertEqual(spec["verify"], "grep -Fxq 'QA-P01-first done' NOTES.md")
+            self.assertEqual(spec["verify"], suite.verify_command("QA-P01-first"))
+            self.assertIn("A new commit is required", spec["task"])
             self.assertEqual(spec["order"], "codex")
             self.assertNotIn("fake", spec)
             suite.cli = None

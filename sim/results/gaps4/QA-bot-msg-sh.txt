@@ -1,0 +1,1 @@
+SKIP: bot-msg tests under /bin/sh: permission denied opening a loopback socket

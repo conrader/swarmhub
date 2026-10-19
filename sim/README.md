@@ -8,9 +8,19 @@ runs without sockets; the separate loopback test explicitly skips when the sandb
 PATH using `codex login status` against disposable auth/config copies. Jobs use another private `CODEX_HOME`
 with regular 0600 copies, 0700 runtime/temp directories, an isolated QA HOME and throwaway repository.
 Source auth/config contents and metadata must stay unchanged. Reports stay inside the CLI workspace.
-With a CLI, P01/P04 run two evidence-gated jobs;
-P07 cancels a running CLI and runs its corrected replacement (up to four additional coding CLI invocations beyond
-the Hermes turn budget). Without one, the missing-CLI result remains explicit. The runner never installs or
+Pass 8 uses `QA-git-store` inside that workspace, addressed by `GIT_DIR`/`GIT_WORK_TREE`, with no `.git` entry.
+This avoids depending on writes to Codex's protected `.git` path; workspace-write and approval-never stay enabled.
+P01's first job deliberately leaves its tested changes for the ordering bot to review and commit. After the
+actual commit/build receipt, a separate receiving turn chooses multiply or subtract and launches that real CLI job,
+which must itself commit. P04 requests a real exit-zero empty job, requires a Jarvis correction and a receiving
+bot's explicit-model/high-effort replacement, then independently hashes the fresh report and compiles/tests the code
+before the success-report turn. A negative control that writes a valid report fails the scenario honestly.
+Both chains use a bounded reply-to-action bridge in the harness, not installed Hermes tools: only armed receiving
+turns may request the fixed local operations. `NO_REPLY`, mismatched evidence or failed checks cannot advance a chain.
+`QA-action-chains.json`, command traces and build receipts retain each step. One failed chain is recorded and
+stopped without preventing the other from being exercised. P01/P04 use four real CLI calls;
+P07 adds a cancellation and replacement (six CLI invocations beyond the unchanged 24-turn Hermes cap).
+Without an authenticated CLI the chains fail as untested. The runner never installs or
 replaces a CLI. All outbound remains FAKE. See [GAPS-REPORT.md](../GAPS-REPORT.md) for verification boundaries.
 
 `live_cli_probe.py --output <fresh evidence directory> --execution-path <description>` repeats the gaps3

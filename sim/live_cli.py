@@ -95,12 +95,29 @@ def source_auth_snapshot(cli):
     return result
 
 
-def qa_repo(folder):
+def qa_git_env(folder, base=None):
+    """Explicit metadata for the pass-8 repo; no .git path for Codex to protect.
+
+    Both directories are inside the disposable workspace. This does not grant
+    access to the checkout's .git or relax the CLI's workspace-write sandbox.
+    """
+    return dict(os.environ if base is None else base, GIT_DIR=str(folder / "QA-git-store"),
+                GIT_WORK_TREE=str(folder), GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
+
+
+def qa_repo(folder, writable_git=False):
     """A throwaway git repository with one commit: the working directory of real QA coding jobs."""
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "README.md").write_text("QA repository for a SwarmHub live pass. Throwaway.\n")
     env = {"HOME": str(folder.parent), "PATH": "/usr/bin:/bin", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
-    for argv in (["git", "init", "-q"], ["git", "add", "README.md"],
+    init = ["git", "init", "-q"]
+    if writable_git:
+        env = qa_git_env(folder, env)
+        init += [str(folder)]
+        (folder / ".gitignore").write_text("QA-git-store/\n.qa-build/\n*.txt\n__pycache__/\n")
+        (folder / "qa_work.py").write_text("def add(a, b):\n    return a - b\n")
+    for argv in (init, ["git", "config", "user.name", "QA"],
+                 ["git", "config", "user.email", "qa@example.invalid"], ["git", "add", "."],
                  ["git", "-c", "user.name=QA", "-c", "user.email=qa@example.invalid", "commit", "-qm", "QA baseline"]):
         subprocess.run(argv, cwd=folder, env=env, check=True, capture_output=True, timeout=30)
     return folder

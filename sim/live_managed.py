@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Pass 4: shipped managed entrypoints, real QA Hermes, no server installation.
+"""Pass 8: shipped managed entrypoints, real QA Hermes, no server installation.
 
 The loopback bridge namespaces five QA roles and explicitly invokes the shipped
 pre/post hook functions in isolated child processes. It is not plugin activation.
 No fake CLI, curl, model answer, report artifact or successful job is supplied.
-When a real, authenticated Codex CLI is on PATH (`codex login status` succeeds), the
-P01/P04/P07 coding jobs run it for real in a throwaway git repository; otherwise those
-jobs fail honestly with exit 69 / `cli-exit: not-run`, as in pass 4.
+When an authenticated Codex CLI is available, P01/P04 use model-selected bounded
+local actions and real jobs in an environment-addressed throwaway git repository.
+Missing authentication marks those chains failed/untested, never successful.
 """
 import argparse
 import http.client
@@ -25,8 +25,9 @@ import threading
 import time
 
 from live_behavior import BehaviorSuite, answer, successful
-from live_cli import RULES, cli_env, coding_cli, pid_alive, qa_repo, writable_cli_state, source_auth_snapshot  # noqa: F401
+from live_cli import RULES, cli_env, coding_cli, pid_alive, qa_repo, qa_git_env, writable_cli_state, source_auth_snapshot  # noqa: F401
 from test_peer_runtime import children_by_home
+from live_chains import ChainMixin
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "Resources/Skills/swarmhub-messages/scripts"
@@ -44,13 +45,13 @@ def hook_main():
     print(json.dumps(peer[op](*args)))
 
 
-class ManagedSuite(BehaviorSuite):
+class ManagedSuite(ChainMixin, BehaviorSuite):
     def __init__(self, output):
         super().__init__(output)
-        self.run = "QA-LIVE6-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(3)
+        self.run = "QA-LIVE8-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(3)
         self.commands, self.hooks = [], []
         self.sequence = 0
-        self.temp = Path(tempfile.mkdtemp(prefix="QA-LIVE6-"))
+        self.temp = Path(tempfile.mkdtemp(prefix="QA-LIVE8-"))
         self.private_values = []
         self.home = self.temp / "QA-home"
         self.state = self.home / ".hermes/swarmhub"
@@ -61,7 +62,10 @@ class ManagedSuite(BehaviorSuite):
         self.source_auth_before = source_auth_snapshot(self.cli) if self.cli else None
         self.child_env = cli_env(self.base_env, self.cli)
         self.model = os.environ.get("QA_CODING_MODEL", "gpt-6-astra")
-        self.repo = qa_repo(self.temp / "QA-repo") if self.cli else None
+        self.repo = qa_repo(self.temp / "QA-repo", writable_git=True) if self.cli else None
+        if self.repo:
+            self.child_env = qa_git_env(self.repo, self.child_env)
+            self.init_chain_verifier()
         for role in ROLES:
             folder = self.home / ".hermes/profiles" / role
             folder.mkdir(parents=True, mode=0o700)
@@ -74,9 +78,11 @@ class ManagedSuite(BehaviorSuite):
         path = self.output / "results.json"
         data = json.loads(path.read_text())
         data.update(commands=self.commands, hooks=self.hooks, baseline="grokbot-observed.md P01-P10",
-                    scope="real Hermes + unmodified managed scripts; external hook bridge; no installed plugin; coding CLI: "
+                    scope="real Hermes + unmodified managed scripts; external hook and bounded reply-action bridges; no installed plugin; coding CLI: "
                           + (self.cli["path"] + " (authenticated, real jobs in a throwaway repo)" if self.cli else "none (jobs fail 69)"),
-                    coding_cli=self.cli, cli_execution_path=os.environ.get("QA_CLI_EXECUTION_PATH", "sandboxed exec_command; unchanged code-job workspace-write"),
+                    coding_cli=self.cli, cli_execution_path=os.environ.get("QA_CLI_EXECUTION_PATH", "unspecified caller; unchanged code-job workspace-write"),
+                    qa_git_layout={"work_tree": str(self.repo), "git_dir": str(self.repo / "QA-git-store"),
+                                   "dot_git_entry": False} if self.repo else None,
                     app_contract_source="Resources/Skills/swarmhub-messages/SKILL.md 1.3.3")
         path.write_text(self.clean(json.dumps(data, indent=2)) + "\n")
 
@@ -85,7 +91,7 @@ class ManagedSuite(BehaviorSuite):
             with self.usage_lock:
                 self.capture_usage()
                 if self.turns >= 24 or self.observed_calls >= 24:
-                    raise RuntimeError("Pass 6 Hermes call reserve reached")
+                    raise RuntimeError("Pass 8 Hermes call reserve reached")
         return super().request(label, path, method, body, **kwargs)
 
     def clean(self, value):
@@ -168,7 +174,8 @@ class ManagedSuite(BehaviorSuite):
                     path = "/api/sessions" if create else f"/api/sessions/{sid}/chat/stream"
                     context = None if create else suite.hook("before_turn", target, session, label, raw["input"])
                     body = {"id": sid, "title": sid, "source": "api_server"} if create else {
-                        "input": raw["input"], "instructions": RULES + " Your role is " + target + ".\n" + APP_CONTRACT + "\n" +
+                        "input": raw["input"], "instructions": (suite.chain_rules(target, raw["input"]) or RULES) +
+                        " Your role is " + target + ".\n" + APP_CONTRACT + "\n" +
                         ((context or {}).get("context", ""))}
                     def relay(event, obj, trace):
                         nonlocal sent
@@ -268,17 +275,23 @@ class ManagedSuite(BehaviorSuite):
             return all((p.parent / "delivered").exists() for p in jobs)
         self.until(settled)
 
-    def coding(self, intent, origin="QA-Jarvis"):
+    def coding(self, intent, origin="QA-Jarvis", mode="add", commit=True):
         if self.cli:
-            # A real job: the CLI must change the repository and commit; code-job records HEAD and runs `verify` itself.
+            work = ("Fix qa_work.add(a,b) to return a+b, preserving any existing correct functions."
+                    if mode == "add" else
+                    f"Add qa_work.{mode}(a,b) returning " + ("a*b." if mode == "multiply" else "a-b.") +
+                    " Preserve all existing functions.")
             return {"bot": "QA-Swarmhub", "origin": origin, "kind": "coding", "intent": intent,
-                    # Codex's workspace-write sandbox mounts .git read-only (seen 2026-10-19), so the commit is attempted,
-                    # never required: the verification command is the evidence path a sandboxed CLI can satisfy.
-                    "task": f"QA replay {intent}: in this repository append the line '{intent} done' to NOTES.md (create it if "
-                            f"missing). Commit it with the message 'QA: {intent}' if the repository allows a commit; if not, "
-                            "say so in the report. Change nothing else, use no network, send nothing anywhere.",
+                    "task": f"QA replay {intent}: {work} Append the line '{intent} done' to NOTES.md. "
+                            "This is an authorized throwaway repository with writable git metadata in QA-git-store "
+                            "(GIT_DIR/GIT_WORK_TREE are set). For tool shells, use explicit "
+                            f"git --git-dir={self.repo}/QA-git-store --work-tree={self.repo} commands if needed. "
+                            + (f"Commit qa_work.py and NOTES.md with message 'QA: {intent}'. A new commit is required. "
+                               if commit else "Do not commit: the ordering bot must review and commit these actual changes after completion. ") +
+                            "Do not change QA-git-store directly, .gitignore, the verifier, or QA-REVIEW.md. "
+                            "Use no network, send nothing anywhere. Run the configured verification: " + self.verify_command(intent, mode),
                     "directory": str(self.repo), "order": "codex", "model": self.model, "effort": "high",
-                    "report": str(self.repo / (intent + ".txt")), "verify": f"grep -Fxq '{intent} done' NOTES.md"}
+                    "report": str(self.repo / (intent + ".txt")), "verify": self.verify_command(intent, mode)}
         return {"bot": "QA-Swarmhub", "origin": origin, "kind": "coding", "intent": intent,
                 "task": "QA replay: review result, verify report, rebuild and take the next authorized step. No outbound.",
                 "directory": str(self.home), "order": "codex", "model": self.model, "effort": "high",
@@ -374,38 +387,12 @@ class ManagedSuite(BehaviorSuite):
         self.ctl("P07-P08-policy", "policy", "set", payload={"coordinator": "QA-Jarvis", "owner": "QA-Konrad",
                  "timezone": "Europe/Warsaw", "start": 480, "end": 1380})
 
-        first = self.decoded_ctl("P01-submit-first", "submit", payload=self.coding("QA-P01-first"))
-        second = self.decoded_ctl("P01-submit-next", "submit", payload=self.coding("QA-P01-next"))
-        wait = 900 if self.cli else 45
-        self.until(lambda: (self.state / "job-completions" / first.replace("task.", "job.") / "delivered").exists(), wait)
         if self.cli:
-            # Real CLI: the first job must be done with evidence, and the next one launches without any model reply.
-            self.until(lambda: self.action_status(first) in ("done", "failed"), wait)
-            self.result("P01-first-verified", self.action_status(first) == "done" and
-                        self.job_field(first, "evidence") in ("commit", "commit+tests", "tests"),
-                        f"status {self.action_status(first)}; cli-exit {self.job_field(first, 'cli-exit')}; "
-                        f"evidence {self.job_field(first, 'evidence')}; commit {self.job_field(first, 'commit-evidence')}; "
-                        f"tests {self.job_field(first, 'tests-passed')}")
-            if self.action_status(first) == "done":
-                self.until(lambda: (self.state / "job-completions" / second.replace("task.", "job.") / "delivered").exists(), wait)
-                self.until(lambda: self.action_status(second) in ("done", "failed"), wait)
-            self.result("P01-next-launched-unasked", self.action_status(second) in ("done", "failed") and
-                        self.job_field(second, "cli-exit") not in (None, "not-run"),
-                        f"second job status {self.action_status(second)}; cli-exit {self.job_field(second, 'cli-exit')}")
-            self.snapshot("QA-P01-CLI-queue")
-            correction = ('Review the result now and take the next step. The completion wake lists what code-job verified '
-                          'and what is unverified. Use explicit Codex/high effort and verify the output file before reporting. '
-                          'Do not claim anything the wake marks unverified; state what the receipt establishes. '
-                          'If it failed, the queue holds the next job; the runner will continue the other QA patterns.')
+            self.run_chain("P01-full-chain", self.p01_chain)
+            self.run_chain("P04-full-chain", self.p04_chain)
         else:
-            self.snapshot("QA-P01-failed-queue")
-            correction = ('Review the result now and take the next step. The job failed: no coding CLI, no report. '
-                          'The observed correction is explicit Codex model + high effort, verify output file before reporting. '
-                          'Do not claim a commit, rebuild, or queued-job success. Explain the blocker.')
-        self.msg("P01-P04-coordinator-correction", "QA-Jarvis", "QA-Swarmhub", correction, "--durable")
-        self.idle()
-        self.ctl("P01-stop-blocked-next", "stop", second)
-        self.ctl("P01-stop-failed-first", "stop", first)
+            self.result("P01-real-chain", False, "No authenticated coding CLI; commit/rebuild chain untested")
+            self.result("P04-real-correction-chain", False, "No authenticated coding CLI; real empty-job correction untested")
 
         self.msg("P02-Infra-register-request", "QA-Infra", "QA-Swarmhub",
                  'Unknown launching agent must fall back to Jarvis. Register the wake subscription; secret key visible only to user, never in chat. '
@@ -419,12 +406,6 @@ class ManagedSuite(BehaviorSuite):
                      expected=69, env=self.base_env)
         self.idle()
         self.snapshot("QA-P02-fallback")
-        self.msg("P04-correct-failed-report", "QA-Jarvis", "QA-Swarmhub",
-                 "Coordinator correction: the preceding unknown-origin job failed 69 with no CLI and no report. "
-                 "Its verification was configured but not run. Demand explicit Codex model " + self.model +
-                 " with high effort, a fresh nonempty report and passing verification before reporting success. "
-                 "You cannot run tools here; state the corrective requirement without claiming a relaunch.", "--durable")
-        self.idle()
         self.webhook_replay()
 
         secret_path = self.provision_replay()
@@ -607,7 +588,8 @@ def main():
     finally:
         suite.finish()
     print(suite.run, "turns", suite.turns, "provider calls", suite.observed_calls)
+    return int(any(row["status"] != "PASS" for row in suite.results))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
