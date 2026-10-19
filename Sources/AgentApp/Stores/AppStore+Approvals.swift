@@ -9,6 +9,7 @@ fileprivate actor ReviewerStopTargetBox {
 
 extension AppStore {
     func decide(_ approval: ApprovalRequest, approved: Bool) {
+        if approval.isManaged { decideManagedAction(approval, approved: approved); return }
         guard !approved || approval.hasKnownCommand else {
             let server = approval.botID.flatMap { id in bots.first { $0.id == id } }?.backend.shortName ?? BackendKind.hermes.shortName
             errorMessage = "Cannot approve \(server == "OpenClaw" ? "an" : "a") \(server) request without command text."

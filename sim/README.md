@@ -1,5 +1,16 @@
 # Swarm Hub real-app QA harness
 
+`python3 -B -m unittest discover -s sim -p 'test_*.py'` runs the offline suite. The gap regressions cover completion
+evidence, managed webhooks, private key intake, provisioner approval and CLI detection. HTTP handler validation also
+runs without sockets; the separate loopback test explicitly skips when the sandbox denies sockets.
+
+`live_managed.py --usage-db <QA state.db> --output <fresh QA evidence directory>` detects an authenticated `codex` on
+PATH using `codex login status`. It preserves the real auth home in `CODEX_HOME`, uses an isolated QA HOME and
+throwaway repository, and puts reports inside the CLI workspace. With a CLI, P01/P04 run two evidence-gated jobs;
+P07 cancels a running CLI and runs its corrected replacement (up to four additional coding CLI invocations beyond
+the Hermes turn budget). Without one, the missing-CLI result remains explicit. The runner never installs or
+replaces a CLI. All outbound remains FAKE. See [GAPS-REPORT.md](../GAPS-REPORT.md) for verification boundaries.
+
 Peer delivery regressions run without sockets or providers:
 `python3 -B -m unittest discover -s sim -p 'test_peer_runtime.py' -v`.
 These execute the bundled shell scripts with a local curl stub and exercise the

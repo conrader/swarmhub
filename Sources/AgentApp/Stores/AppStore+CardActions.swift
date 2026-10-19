@@ -35,6 +35,8 @@ extension AppStore {
     /// A pick on a choices card, or Send on a draft card, of message `sourceID` in `target`. Refused when the card is
     /// not a finished reply, has changed since it was shown (`expected`), was already answered, or (in a group) was
     /// written by another member. A group answer goes to the card's author only, as a reply to the card.
+    /// P07 gap: Send binds the exact draft to a managed outbound record (`ManagedOutbound`) instead of posting
+    /// "Send it"; the card's metadata keeps the record's intent. Outbound stays FAKE.
     @discardableResult func performCardAction(target: ConversationActionTarget, sourceID: UUID, index: Int, expected: ChatBlock, choice: String? = nil) -> Bool {
         guard let (bot, conversation) = actionConversation(target),
               let source = conversation.messages.first(where: { $0.id == sourceID }),
@@ -49,8 +51,13 @@ extension AppStore {
         case .choices(_, let options):
             guard let choice, options.contains(choice) else { return false }
             key = "picked.\(index)"; text = choice; value = choice
-        case .draft:
-            key = "draftSent.\(index)"; text = "Send it"; value = "1"
+        case .draft(let draft):
+            guard bot.backend == .hermes else {
+                errorMessage = "Managed draft submission requires a Hermes profile with swarmhub-messages installed."; return false
+            }
+            let intent = ManagedOutbound.intent(sourceID: sourceID, index: index)
+            key = "draftSent.\(index)"; value = intent
+            text = ManagedOutbound.instruction(draft: draft, bot: bot.hermesProfile ?? "default", intent: intent)
         default: return false
         }
         guard source.metadata[key] == nil else { return false }

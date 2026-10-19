@@ -51,7 +51,8 @@ exit 0
             path = folder / name
             path.write_text(script)
             path.chmod(0o755)
-        self.env.update(PATH=str(folder) + ":" + self.env["PATH"], CODE_JOB_TICK="0.05")
+        # Trivial evidence for the other contract rules; the evidence gate itself is covered by test_gaps.py.
+        self.env.update(PATH=str(folder) + ":" + self.env["PATH"], CODE_JOB_TICK="0.05", CODE_JOB_VERIFY="/bin/true")
         os.environ.update(self.env)
 
     def spec(self, intent, **changes):

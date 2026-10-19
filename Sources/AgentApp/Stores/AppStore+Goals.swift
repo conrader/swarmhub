@@ -64,7 +64,7 @@ extension AppStore {
 
     func resumeGoal(bot: Bot, conversation: any Conversation) {
         guard let goal = goal(in: conversation), goal.state == .paused || goal.state == .blocked else { commandLine("No paused or blocked goal to resume.", in: conversation); return }
-        updateGoal(in: conversation) { $0.state = .running; $0.pausedOffline = false; $0.need = nil }
+        updateGoal(in: conversation) { $0.state = .running; $0.pausedOffline = false; $0.need = nil; $0.evidenceRounds = 0 }
         advanceGoal(in: conversation, bot: bot)
     }
 
@@ -107,9 +107,10 @@ extension AppStore {
         case .finished: break
         }
         switch GoalProtocol.report(in: reply.finalText) {
-        case .done(let summary):
+        case .done(let summary, let evidence):
+            guard evidence.isSufficient else { requestGoalEvidence(in: conversation, bot: bot, goal: goal, summary: summary, evidence: evidence); return }
             updateGoal(in: conversation) { $0.lastSummary = summary }
-            endGoal(in: conversation, state: .done, card: "goalDone", title: "Goal reached", detail: summary.isEmpty ? goal.text : summary)
+            endGoal(in: conversation, state: .done, card: "goalDone", title: "Goal reached", detail: (summary.isEmpty ? goal.text : summary) + "\n" + evidence.summary)
         case .blocked(let need):
             updateGoal(in: conversation) { $0.state = .blocked; $0.need = need }
             addGoalCard(in: conversation, card: "goalBlocked", title: "Goal blocked", detail: need.isEmpty ? "The bot needs something from you." : need)
@@ -118,6 +119,32 @@ extension AppStore {
             if !visible.isEmpty { updateGoal(in: conversation) { $0.lastSummary = String(visible.prefix(200)) } }
             advanceGoal(in: conversation, bot: bot)
         }
+    }
+
+    /// P01/P04 gap: a `done` without a commit or test pass plus a fresh report is not accepted. The card says what the
+    /// bot claimed and what is missing; the bot gets `GoalProtocol.maxEvidenceRounds` rounds to supply evidence (or
+    /// report blocked), then the goal is blocked for you. SwarmHub verifies nothing itself and says so.
+    func requestGoalEvidence(in conversation: any Conversation, bot: Bot, goal: GoalRun, summary: String, evidence: GoalEvidence) {
+        let spent = (goal.evidenceRounds ?? 0) + 1
+        updateGoal(in: conversation) { $0.evidenceRounds = spent; if !summary.isEmpty { $0.lastSummary = summary } }
+        addGoalCard(in: conversation, card: "goalUnverified", title: "Done claimed without evidence", detail: evidence.summary)
+        guard goal.state == .running else { return } // Pause still wins when the last reply claims done.
+        guard !goal.budgetSpent(at: now()) else {
+            endGoal(in: conversation, card: "goalEnded", title: "Goal stopped: evidence missing at the budget limit", detail: evidence.summary)
+            return
+        }
+        if turns.pathDown { updateGoal(in: conversation) { $0.state = .paused; $0.pausedOffline = true }; return }
+        guard spent <= GoalProtocol.maxEvidenceRounds else {
+            updateGoal(in: conversation) { $0.state = .blocked; $0.need = "evidence for done: a commit id or a test pass, plus the fresh report path" }
+            addGoalCard(in: conversation, card: "goalBlocked", title: "Goal blocked",
+                        detail: "The bot said done \(spent) times without evidence. Check its work yourself, or resume to ask again.")
+            return
+        }
+        let metadata = [AutomationKey.display: "Evidence for done", AutomationKey.woken: AutomationKind.goal.rawValue]
+        guard send(text: GoalProtocol.evidenceRequest(goal, evidence: evidence), bot: bot, conversation: conversation, replyToID: nil, waitWhenFull: true, metadata: metadata) else {
+            endGoal(in: conversation, card: "goalEnded", title: "Goal stopped: the evidence request could not be sent", detail: errorMessage); return
+        }
+        updateGoal(in: conversation) { $0.round += 1; $0.awaitingReply = true }
     }
 
     func endGoal(in conversation: any Conversation, state: GoalRun.State = .ended, card: String, title: String, detail: String?) {

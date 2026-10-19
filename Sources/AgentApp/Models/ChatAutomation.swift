@@ -34,6 +34,8 @@ struct GoalRun: Codable, Equatable, Sendable {
     /// Paused because the connection went offline (resumes by itself when it is back).
     var pausedOffline = false
     var lastSummary: String?; var need: String?; var endReason: String?
+    /// Rounds spent asking for evidence after a `done` block that had none (optional: goals saved before it existed).
+    var evidenceRounds: Int?
 
     var isActive: Bool { state == .running || state == .paused }
     var deadline: Date { startedAt.addingTimeInterval(maxDuration) }
@@ -56,8 +58,11 @@ enum GoalProtocol {
         SwarmHub sends "Continue toward the goal" after each of your replies until you end it. When the goal is fully \
         achieved, end your reply with:
         ```swarmhub
-        {"op":"goal","status":"done","summary":"<one or two sentences>"}
+        {"op":"goal","status":"done","summary":"<one or two sentences>","evidence":{"commit":"<commit id you made>","tests":"passed","report":"<path of the fresh report you wrote>"}}
         ```
+        Done is accepted only with evidence you actually produced: a commit id or "tests":"passed" (a test run you made), \
+        plus the fresh report path. Leave out what you did not do; never invent any of them. SwarmHub records them as \
+        claimed by you, not verified. Without evidence, report blocked instead.
         If you are blocked and need something from Konrad, end your reply with:
         ```swarmhub
         {"op":"goal","status":"blocked","need":"<what you need>"}
@@ -73,7 +78,18 @@ enum GoalProtocol {
         goal.subgoals.isEmpty ? "" : "\nAlso required:\n" + goal.subgoals.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
     }
 
-    enum Report: Equatable { case done(summary: String), blocked(need: String) }
+    enum Report: Equatable { case done(summary: String, evidence: GoalEvidence), blocked(need: String) }
+
+    /// How many times a `done` without evidence is sent back before the goal is blocked for you.
+    static let maxEvidenceRounds = 2
+
+    /// The round that answers a `done` block without accepted evidence.
+    static func evidenceRequest(_ goal: GoalRun, evidence: GoalEvidence) -> String {
+        "Your done block for the goal \"\(goal.text)\" has no accepted evidence (missing: \(evidence.missing.joined(separator: "; "))). " +
+        "Either end your reply with the done block again, adding \"evidence\": {\"tests\": \"passed\", " +
+        "\"report\": \"<fresh report path>\"} for work you actually did (or replace tests with a commit id), or report blocked with what is missing. " +
+        "Never invent a commit, a test run or a report."
+    }
 
     /// The last goal block in a reply (fenced ```swarmhub, `op` "goal"); nil when there is none.
     static func report(in text: String) -> Report? {
@@ -82,12 +98,58 @@ enum GoalProtocol {
             let objects = (json as? [[String: Any]]) ?? [(json as? [String: Any])].compactMap { $0 }
             for object in objects.reversed() where object["op"] as? String == "goal" {
                 switch object["status"] as? String {
-                case "done": return .done(summary: (object["summary"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+                case "done": return .done(summary: (object["summary"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                                          evidence: GoalEvidence.parse(object["evidence"]))
                 case "blocked": return .blocked(need: (object["need"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
                 default: continue
                 }
             }
         }
         return nil
+    }
+}
+
+/// What a `done` goal block claims as evidence (P01/P04 gap). SwarmHub cannot read the bot's box, so it records these as
+/// claimed by the bot, not verified, and refuses a `done` with neither a commit nor a test pass or without a report path.
+struct GoalEvidence: Equatable, Codable, Sendable {
+    var commit: String?; var testsPassed = false; var report: String?
+
+    var isSufficient: Bool { (commit != nil || testsPassed) && report != nil }
+    var claimed: [String] {
+        var items: [String] = []
+        if let commit { items.append("commit \(commit)") }
+        if testsPassed { items.append("tests passed") }
+        if let report { items.append("report \(report)") }
+        return items
+    }
+    var missing: [String] {
+        var items: [String] = []
+        if commit == nil && !testsPassed { items.append("a commit id or a test pass") }
+        if report == nil { items.append("the fresh report path") }
+        return items
+    }
+    /// "Claimed by the bot, not verified by SwarmHub: commit abc1234; report /x.\nMissing: …" (shown on the goal card).
+    var summary: String {
+        var lines = ["Claimed by the bot, not verified by SwarmHub: " + (claimed.isEmpty ? "nothing" : claimed.joined(separator: "; ")) + "."]
+        if !missing.isEmpty { lines.append("Missing: " + missing.joined(separator: "; ") + ".") }
+        return lines.joined(separator: "\n")
+    }
+
+    /// The `evidence` object of a goal block. A commit must look like one (7–64 hex digits), so the protocol's
+    /// placeholders never count; `tests` is "passed" or `true`; `report` is any nonempty path.
+    static func parse(_ value: Any?) -> GoalEvidence {
+        guard let object = value as? [String: Any] else { return GoalEvidence() }
+        func text(_ key: String) -> String? {
+            let value = (object[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+        let commit = text("commit").flatMap { $0.range(of: "^[0-9a-fA-F]{7,64}$", options: .regularExpression) == nil ? nil : $0 }
+        let tests = (object["tests"] as? String)?.lowercased() == "passed" || (object["tests"] as? Bool) == true
+        let report = text("report").flatMap { value -> String? in
+            guard !value.contains("<"), !value.contains(">"), !value.contains("\n"),
+                  !["none", "unknown", "n/a", "pending"].contains(value.lowercased()) else { return nil }
+            return value
+        }
+        return GoalEvidence(commit: commit, testsPassed: tests, report: report)
     }
 }

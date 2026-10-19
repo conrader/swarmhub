@@ -9,6 +9,12 @@ JOB=${1:?usage: code-job-test.sh <path/to/code-job>}
 SH=${CODE_JOB_SH:-/bin/sh}
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/code-job-test.XXXXXX") || exit 1
 trap 'rm -rf "$ROOT"' EXIT
+# Exercise the shipped coding scripts in an isolated layout. Managed wake/worker integration is covered by sim/;
+# starting persistent recovery workers for these standalone CLI cases races the temporary HOME cleanup.
+mkdir -p "$ROOT/skills/swarmhub-coding/scripts" || exit 1
+cp "$JOB" "$ROOT/skills/swarmhub-coding/scripts/code-job" || exit 1
+cp "$(dirname "$JOB")/completion-contract.py" "$ROOT/skills/swarmhub-coding/scripts/completion-contract.py" || exit 1
+JOB=$ROOT/skills/swarmhub-coding/scripts/code-job
 PASSED=0 FAILED=0
 TASK='Fix the failing test in calc.py'
 
@@ -34,6 +40,7 @@ case $(cat "$d/$me.mode" 2>/dev/null) in
   quiet) echo "$me: warning on stderr only" >&2; exit 0 ;;
   slow) : > "$d/$me.slow"; while [ ! -f "$d/release" ]; do sleep 0.05; done; echo "$me slow done"; exit 0 ;;
   tree) sleep 60 & echo $! > "$d/$me.child"; sleep 60; exit 0 ;;
+  commit) git add -A >/dev/null 2>&1 && git -c user.name=stub -c user.email=stub@example.invalid commit -qm "stub work" >/dev/null 2>&1; echo "$me committed"; exit 0 ;;
   *) echo "stub $me: no mode" >&2; exit 99 ;;
 esac
 STUB
@@ -49,11 +56,12 @@ new_case() {
 }
 mode() { echo "$2" > "$C/state/$1.mode"; }
 # code-job with the case's HOME and PATH (stubs first, nothing from /usr/local or ~/.local); output in $C/out, $C/err.
+# Cases 1-16 supply trivial evidence; cases 17-22 set CASE_VERIFY to test evidence and cleanup.
 # (No `VAR=x job` prefixes: bash's POSIX mode keeps them after a function call.)
 job() { job_to "$C/out" "$C/err" "$@"; }
 job_to() {
   out=$1 err=$2; shift 2
-  env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin" STUB_STATE="$C/state" CODE_JOB_MODEL=synthetic-model CODE_JOB_REPORT="$C/work/REPORT.txt" CODE_JOB_POLL=0.2 CODE_JOB_TICK=0.25 ${CALLER_ENV:-} "$SH" "$JOB" "$@" > "$out" 2> "$err"
+  env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin" STUB_STATE="$C/state" CODE_JOB_MODEL=synthetic-model CODE_JOB_REPORT="$C/work/REPORT.txt" CODE_JOB_POLL=0.2 CODE_JOB_TICK=0.25 CODE_JOB_VERIFY="${CASE_VERIFY-/bin/true}" ${CALLER_ENV:-} "$SH" "$JOB" "$@" > "$out" 2> "$err"
 }
 expect() { what=$1; shift; "$@" || PROBLEMS="$PROBLEMS; $what"; }
 has() { grep -Fq -- "$2" "$1"; }
@@ -94,7 +102,7 @@ new_case "claude limit -> codex ok" claude codex; mode claude limit; mode codex 
 job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
 expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
 expect "codex ran" has "$C/out" "codex did the work"
-expect "codex flags" has "$C/state/codex.args" "$(printf 'exec\n--full-auto\n--model\nsynthetic-model\n-c\nmodel_reasoning_effort="high"\n%s' "$TASK")"
+expect "codex flags" has "$C/state/codex.args" "$(printf 'exec\n--skip-git-repo-check\n-c\nsandbox_mode="workspace-write"\n-c\napproval_policy="never"\n--model\nsynthetic-model\n-c\nmodel_reasoning_effort="high"\n%s' "$TASK")"
 expect "codex cwd" [ "$(cat "$C/state/codex.pwd")" = "$(cd "$C/work" && pwd -P)" ]
 line_matches '^code-job: codex ok · waited 0s · ran [0-9]+s · peak [0-9]+ MB · skipped claude: limit$' "summary line"
 expect "log agent codex, skipped claude: limit" [ "$(field 3)|$(field 7)|$(field 8)" = "codex|0|claude: limit" ]
@@ -298,6 +306,109 @@ expect "codex not run" [ ! -f "$C/state/codex.calls" ]
 done_case
 }
 
-for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16}; do "case_$n"; done
+# The newest job record's field $1.
+rec() { f=$(ls -td "$C"/home/.hermes/swarmhub/job-completions/job.* 2>/dev/null | head -n 1); cat "$f/$1" 2>/dev/null; }
+git_repo() { command -v git >/dev/null 2>&1 || return 1; git -C "$1" init -q && git -C "$1" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m init; }
+
+# 17
+case_17() {
+new_case "fresh report and output but no commit and no verification: unverified (66)" codex; mode codex ok
+CASE_VERIFY=; job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?; unset CASE_VERIFY
+expect "exit 66 (got $RC)" [ "$RC" -eq 66 ]
+expect "report was written" [ -s "$C/work/REPORT.txt" ]
+expect "unverified reason on stderr" has "$C/err" "code-job: unverified: fresh report but no new commit and no passing verification"
+expect "status unverified" [ "$(rec status)" = unverified ]
+expect "evidence none" [ "$(rec evidence)" = none ]
+expect "tests not-run" [ "$(rec tests-passed)" = not-run ]
+expect "not a repo" [ "$(rec commit-evidence)" = not-a-repo ]
+expect "report-valid true" [ "$(rec report-valid)" = true ]
+expect "cli-exit 0" [ "$(rec cli-exit)" = 0 ]
+expect "log exit 66" [ "$(field 7)" = 66 ]
+line_matches '^code-job: codex unverified · ' "summary line"
+done_case
+}
+
+# 18
+case_18() {
+new_case "a failing verification command is recorded and fails the job (66)" codex; mode codex ok
+CASE_VERIFY='exit 3'; job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?; unset CASE_VERIFY
+expect "exit 66 (got $RC)" [ "$RC" -eq 66 ]
+expect "verify exit 3" [ "$(rec verify-exit)" = 3 ]
+expect "tests false" [ "$(rec tests-passed)" = false ]
+expect "verify command recorded" [ "$(rec verify-command)" = 'exit 3' ]
+expect "evidence none" [ "$(rec evidence)" = none ]
+expect "verify exit on stderr" has "$C/err" "(verify exit 3)"
+done_case
+}
+
+# 19
+case_19() {
+new_case "a new commit in --dir is evidence (ok) and a failing verification outweighs it" codex; mode codex commit
+if git_repo "$C/work"; then
+  before=$(git -C "$C/work" rev-parse HEAD)
+  CASE_VERIFY=; job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?; unset CASE_VERIFY
+  expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
+  expect "evidence commit" [ "$(rec evidence)" = commit ]
+  expect "commit-evidence true" [ "$(rec commit-evidence)" = true ]
+  expect "head-before recorded" [ "$(rec head-before)" = "$before" ]
+  expect "head moved" [ "$(rec head-after)" = "$(git -C "$C/work" rev-parse HEAD)" ] && [ "$(rec head-after)" != "$before" ]
+  expect "tests not-run" [ "$(rec tests-passed)" = not-run ]
+  line_matches '^code-job: codex ok · ' "summary line"
+  CASE_VERIFY='exit 5'; job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?; unset CASE_VERIFY
+  expect "commit plus failing verification: 66 (got $RC)" [ "$RC" -eq 66 ]
+  expect "commit still recorded" [ "$(rec commit-evidence)" = true ]
+  expect "evidence none" [ "$(rec evidence)" = none ]
+else
+  echo "note: git missing, commit evidence not exercised" >&2
+fi
+done_case
+}
+
+# 20
+case_20() {
+new_case "a passing verification command run by code-job in --dir is evidence (ok)" codex; mode codex ok
+CASE_VERIFY='test -s REPORT.txt && pwd -P > verify.pwd'; job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?; unset CASE_VERIFY
+expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
+expect "evidence tests" [ "$(rec evidence)" = tests ]
+expect "tests true" [ "$(rec tests-passed)" = true ]
+expect "verify exit 0" [ "$(rec verify-exit)" = 0 ]
+expect "verify ran in --dir" [ "$(cat "$C/work/verify.pwd")" = "$(cd "$C/work" && pwd -P)" ]
+expect "no verify output kept" [ ! -f "$C/home/.hermes/swarmhub/job-completions/verify" ]
+mode codex quiet
+CASE_VERIFY='true'; job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?; unset CASE_VERIFY
+expect "empty work still 65 before any evidence (got $RC)" [ "$RC" -eq 65 ]
+expect "evidence not collected" [ "$(rec evidence)" = none ] && [ "$(rec tests-passed)" = not-run ]
+done_case
+}
+
+# 21
+case_21() {
+new_case "verification cannot remove the required report and still certify done" codex; mode codex ok
+CASE_VERIFY='rm REPORT.txt'; job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?; unset CASE_VERIFY
+expect "exit 65 (got $RC)" [ "$RC" -eq 65 ]
+expect "report invalid after verification" [ "$(rec report-valid)" = false ]
+expect "verification did run" [ "$(rec tests-passed)" = true ]
+done_case
+}
+
+# 22
+case_22() {
+new_case "interrupting verification kills its child process" codex; mode codex ok
+CASE_VERIFY='sleep 60 & echo $! > verify.child; wait'; job --bot jarvis --order codex --dir "$C/work" -- "$TASK" &
+runner=$!
+i=0; while [ ! -s "$C/work/verify.child" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+expect "verification started" [ -s "$C/work/verify.child" ]
+pid=$(cat "$C/home/.hermes/swarmhub/job-completions/"job.*/pid 2>/dev/null)
+[ -n "$pid" ] && kill -TERM "$pid"
+wait "$runner"; RC=$?; unset CASE_VERIFY
+expect "exit 143 (got $RC)" [ "$RC" -eq 143 ]
+child=$(cat "$C/work/verify.child" 2>/dev/null)
+state=$(ps -p "${child:-0}" -o stat= 2>/dev/null | tr -d ' ')
+case $state in ''|Z*) ;; *) PROBLEMS="$PROBLEMS; verification child survived"; kill "$child" 2>/dev/null ;; esac
+expect "job interrupted" [ "$(rec status)" = interrupted ]
+done_case
+}
+
+for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22}; do "case_$n"; done
 echo "code-job tests under $SH: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

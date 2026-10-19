@@ -169,6 +169,35 @@ def bot_msg():
     return Path(__file__).with_name("bot-msg")
 
 
+def evidence_lines(job):
+    """What code-job itself verified on disk versus what nobody has checked; never the report text."""
+    def field(key, default="-"):
+        return (job / key).read_text().strip() if (job / key).is_file() else default
+    if not (job / "evidence").is_file():
+        return ""
+    verified, unverified = [], []
+    (verified if field("report-valid") == "true" else unverified).append(
+        "fresh report at the recorded path" if field("report-valid") == "true" else "fresh report (missing, empty or unchanged)")
+    commit = field("commit-evidence")
+    if commit == "true":
+        verified.append(f"new commit {field('head-after')[:12]} (HEAD was {field('head-before')[:12]})")
+    else:
+        unverified.append({"not-a-repo": "commit (directory is not a git repository)", "false": "commit (HEAD unchanged)"}
+                          .get(commit, "commit (not checked)"))
+    tests, command = field("tests-passed"), field("verify-command", "")
+    if tests == "true":
+        verified.append(f"verification command exit 0 ({command})")
+    elif tests == "false":
+        unverified.append(f"verification command exit {field('verify-exit')} ({command})")
+    else:
+        unverified.append("tests (no verification command configured)")
+    if field("cli-exit") == "not-run":
+        unverified.append("any CLI work (no coding CLI ran)")
+    unverified.append("correctness of the report and of the work itself")
+    return ("Verified by code-job: " + ("; ".join(verified) or "nothing") + ".\n"
+            "Unverified: " + "; ".join(unverified) + ".\n")
+
+
 def retry_once():
     """At-least-once delivery: one private process lock, stable job IDs, no retry ceiling.
 
@@ -206,6 +235,7 @@ def retry_once():
                        (f"Model: {read('model')}; effort: {read('effort')}; "
                         f"report: {read('report')}; report exists: {read('report-exists')}.\n"
                         if (job / 'report-exists').exists() else "") +
+                       evidence_lines(job) +
                        "Review the result now and take the next step. This job ID may be redelivered; "
                        "do not repeat an action already taken for it. Reply NO_REPLY if no action remains.")
             rc = control.deliver(sender, target, message, job.name)
@@ -357,7 +387,7 @@ def install(profile):
     folder = home / "plugins/swarmhub-peer"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "plugin.yaml").write_text(
-        "name: swarmhub-peer\nversion: 1.3.1\ndescription: SwarmHub held peer inbox and coding completion recovery\n"
+        "name: swarmhub-peer\nversion: 1.3.2\ndescription: SwarmHub held peer inbox and coding completion recovery\n"
         "provides_hooks:\n  - pre_llm_call\n  - post_llm_call\n")
     (folder / "__init__.py").write_text(
         "import runpy, sys\n" +

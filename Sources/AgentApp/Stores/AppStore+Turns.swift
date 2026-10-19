@@ -168,7 +168,7 @@ extension AppStore {
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
         let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation, backend: activeBackend)
-        let abandoned = approvals.filter { $0.botID == bot.id && ($0.sessionID == nil || $0.sessionID == (conversation.hermesSessionID ?? sessionID)) }
+        let abandoned = approvals.filter { !$0.isManaged && $0.botID == bot.id && ($0.sessionID == nil || $0.sessionID == (conversation.hermesSessionID ?? sessionID)) }
         for approval in abandoned {
             appendAudit(to: bot, approval: approval, outcome: .denied, decidedBy: "system", reason: cancelled ? "Run stopped; pending approval was cancelled." : "Run ended; pending approval was cancelled.")
         }
@@ -191,6 +191,11 @@ extension AppStore {
         let corrected = turns.correcting.contains(token)
         resendReturnedSteers(steers, bot: bot)
         sendQueuedNextMessage()
+        if outcome.state == .finished {
+            // Gap closures after live pass 4: managed approvals become cards; a secret request opens the entry sheet.
+            routeManagedApprovals(in: assistant, bot: bot)
+            routeSecretRequests(in: assistant, bot: bot, conversation: conversation)
+        }
         automationTurnEnded(in: conversation, bot: bot, reply: assistant, outcome: outcome, corrected: corrected)
     }
 

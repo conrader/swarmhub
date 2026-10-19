@@ -1,7 +1,7 @@
 ---
 name: swarmhub-messages
 description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.1
+version: 1.3.2
 author: SwarmHub
 metadata:
   swarmhub:
@@ -74,6 +74,29 @@ fallback coordinator. Installation registers the receiving profile automatically
 profile gateway and its current `.env` reference; it creates no new public endpoint or webhook key and never prints
 or copies a credential. This provides the requested wake subscription through the existing authenticated gateway.
 
+Managed webhook routines: `scripts/swarmctl webhook register <profile> <routine>` creates a keyed URL that wakes the
+profile; `webhook show <profile> <routine>` prints the URL and the key file path; `webhook rotate <profile> <routine>`
+replaces the key (the old one is rejected at once); `webhook list` lists them. The key is generated into
+`~/.hermes/swarmhub/webhooks/<unique-slug>.key` (0600, owner-only) and is **never printed**: hand the user the
+file path, never its content, and never read it into a chat. A caller POSTs JSON `{"text": "..."}` to the URL with the
+`X-SwarmHub-Key` header; `scripts/swarmctl webhook serve [port]` is the loopback receiver (127.0.0.1 only; policy
+`webhook_base` sets the URL shown), and `webhook fire <profile> <routine> <slug>` with `{"key","text"}` on stdin is the
+same check without HTTP. An accepted call journals one durable self-delivery for the profile (`[Webhook routine …]`).
+
+Secure key intake: `scripts/swarmctl secret intake <name>` reads the value from **stdin** and writes
+`~/.hermes/swarmhub/secrets/<name>` with mode 0600; it prints the path, never the value. Pass that path, not the key,
+to provisioning. SwarmHub's secret-entry sheet writes the same kind of file on the user's Mac and hands the bot only
+the path. A Mac-local path is not a remote intake path: when provisioning another host, request intake on that host;
+do not claim the remote host can read the Mac's file. Never ask the user to paste a key into chat; ask for the sheet
+or the intake command. Both writers replace files atomically with owner-only permissions.
+
+Provisioning hook: the owner publishes `{"provisioner": ["/abs/path/to/provisioner", ...]}`; a `provision` action may
+then omit `argv` and send a flat `request` object instead (`{"kind":"provision","request":{"name":"qa-hermes",
+"model_key":"<intake path>"}}`). The record stores the composed argv (`<provisioner> --request <json>`) immutably;
+secret-like request fields (`*key*`, `*secret*`, `*token*`, `*password*`) must name an existing owner-owned 0600 intake
+file (not a symlink). Provisioning always
+waits for the owner's decision.
+
 The owner/coordinator can publish settings with JSON on stdin, for example:
 ```
 printf '%s\n' '{"coordinator":"jarvis","owner":"konrad","route":"codex","allow_speculative":false,"timezone":"Europe/Warsaw","start":480,"end":1380}' | <skill-dir>/scripts/swarmctl policy set
@@ -100,7 +123,18 @@ Stop/replace act on IDs; do not resubmit denied work with another ID or label.
 Only the configured role is accepted, and only from its own gateway: `swarmctl` reads the deciding profile from
 `HERMES_HOME` and refuses a decision when it is unset or names another profile; actor, pid and time are recorded on
 the action. The stored action is immutable and denial is final by intent and operation. Bots must present awaiting
-approvals to that role, never impersonate it to decide. All these scripts run under the
+approvals to that role, never impersonate it to decide. Present one by ending the reply with a `swarmhub` fence that
+SwarmHub turns into an approval card in the deciding role's chat (the card runs `swarmctl decide` from that role's
+own gateway when the user chooses):
+```swarmhub
+{"op":"approval","task":"<task id>","kind":"outbound","gate":"coordinator","decider":"<deciding profile>","bot":"<submitting profile>","intent":"<intent>","summary":"<one line>","risks":[],"draft":"<exact outbound text, outbound only>"}
+```
+Only present a card for an actually awaiting record. App Draft Send always submits `fake: true`, with the exact text,
+recipient and stable card intent. It reports the returned task's actual status; an automatic FAKE record needs no
+approval. Never turn that record into a real send. A card click sends a decision request to the configured profile
+on the same box; only a successful `swarmctl decide` result proves the runtime accepted it.
+To obtain a user secret, end the reply with `{"op":"secret_request","name":"<file name>","reason":"<why>"}` in a
+`swarmhub` fence; SwarmHub opens its secret-entry sheet and replies with the 0600 file path only. All these scripts run under the
 owner's Unix account: this interface is a trusted local control plane, not identity isolation against a malicious
 bot with unrestricted shell/file access. Gates cover managed entrypoints; unrelated tools and external connectors
 still require their own permission boundaries. Use `--task-id <id>` on associated messages so Stop propagates to

@@ -57,6 +57,44 @@ def main(args):
     if command == "check-job":
         control.check_job(*args)
         return None
+    if command == "webhook":
+        # register/show/rotate print the URL and the key file path; the key itself is never printed.
+        verb, *rest = args
+        if verb == "register":
+            result = control.webhook.register(rest[0], rest[1])
+            start()
+            return result
+        if verb == "show":
+            return control.webhook.show(rest[0], rest[1])
+        if verb == "rotate":
+            return control.webhook.rotate(rest[0], rest[1])
+        if verb == "list":
+            return control.webhook.listing()
+        if verb == "fire":
+            # Stdin JSON {"key": ..., "text": ...}: the key comes from the caller's copy, never from this box's file.
+            payload = json.load(sys.stdin)
+            if not isinstance(payload, dict):
+                raise ValueError("webhook payload must be an object")
+            try:
+                result = control.webhook.fire(rest[0], rest[1], rest[2], payload.get("key", ""), payload.get("text", ""))
+            except PermissionError:
+                print("swarmctl: webhook rejected", file=sys.stderr)
+                sys.exit(77)
+            start()
+            return result
+        if verb == "serve":
+            control.webhook.serve(int(rest[0]) if rest else control.webhook.DEFAULT_PORT)
+            return None
+        raise ValueError("webhook register|show|rotate|list|fire|serve")
+    if command == "secret":
+        verb, *rest = args
+        if verb == "intake":
+            return control.intake.intake(rest[0])  # Value on stdin; the printed record holds only the path.
+        if verb == "list":
+            return control.intake.listing()
+        if verb == "remove":
+            return control.intake.remove(rest[0])
+        raise ValueError("secret intake|list|remove")
     if command == "active":
         if not control.active(args[0]):
             raise ValueError("task is stopped, denied, awaiting approval or FAKE")

@@ -85,6 +85,8 @@ struct ChatView: View {
                 attach(files); return true
             }
             .sheet(isPresented: $showProjectContext) { ProjectContextView(projectID: thread?.id ?? bot.id, members: [bot] + store.mentionTargets(for: bot)) }
+            // P06 gap: a bot's secret request opens the entry sheet in its own chat; the bot gets the file path only.
+            .sheet(item: Binding(get: { store.secretRequest?.botID == bot.id ? store.secretRequest : nil }, set: { if $0 == nil { store.secretRequest = nil } })) { SecretEntrySheet(prompt: $0) }
             .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); draft = store.drafts.text(for: bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
             .onChange(of: draft) { _, value in store.drafts.set(value, for: bot.id) }
             .onChange(of: store.composerFill) { _, _ in takeComposerFill() }

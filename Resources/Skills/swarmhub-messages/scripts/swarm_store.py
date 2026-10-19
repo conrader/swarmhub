@@ -74,6 +74,8 @@ def database():
             due REAL DEFAULT 0, error TEXT);
           CREATE TABLE IF NOT EXISTS receipts(target TEXT, id TEXT, status TEXT, token TEXT,
             expires REAL, session TEXT, turn TEXT, PRIMARY KEY(target,id));
+          CREATE TABLE IF NOT EXISTS webhooks(profile TEXT, routine TEXT, slug TEXT, key_file TEXT,
+            created REAL, rotated REAL, fired INTEGER DEFAULT 0, PRIMARY KEY(profile,routine));
         """)
         present = {row[1] for row in db.execute("PRAGMA table_info(actions)")}
         for column, kind in ACTION_COLUMNS.items():

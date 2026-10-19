@@ -4,6 +4,9 @@
 The loopback bridge namespaces five QA roles and explicitly invokes the shipped
 pre/post hook functions in isolated child processes. It is not plugin activation.
 No fake CLI, curl, model answer, report artifact or successful job is supplied.
+When a real, authenticated Codex CLI is on PATH (`codex login status` succeeds), the
+P01/P04/P07 coding jobs run it for real in a throwaway git repository; otherwise those
+jobs fail honestly with exit 69 / `cli-exit: not-run`, as in pass 4.
 """
 import argparse
 from datetime import datetime, timezone
@@ -21,19 +24,13 @@ import threading
 import time
 
 from live_behavior import BehaviorSuite, answer, successful
+from live_cli import RULES, cli_env, coding_cli, pid_alive, qa_repo  # noqa: F401 (re-exported for tests)
 from test_peer_runtime import children_by_home
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "Resources/Skills/swarmhub-messages/scripts"
 JOB = ROOT / "Resources/Skills/swarmhub-coding/scripts/code-job"
 ROLES = {"QA-Jarvis", "QA-Swarmhub", "QA-Ermes", "QA-Infra", "QA-Konrad"}
-RULES = ("[QA-TEST] Replay only recorded Grok team patterns. Your tools are todo and clarify. "
-         "Do not use tools or ask clarify. Do not claim any file, job, send, provisioning, "
-         "webhook or model change happened unless the incoming runtime receipt proves it. "
-         "Keep answers under 70 words. All outbound is FAKE. Never expose secrets. "
-         "Delivered replies and policy/FYI broadcasts require exactly NO_REPLY. "
-         "For coding completion receipts, acknowledge failures truthfully, under 40 words. "
-         "Do not claim next work started; only the queue can establish that.")
 
 
 def hook_main():
@@ -54,8 +51,12 @@ class ManagedSuite(BehaviorSuite):
         self.home = self.temp / "QA-home"
         self.state = self.home / ".hermes/swarmhub"
         self.server = None
-        self.child_env = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "TMPDIR": str(self.temp),
-                          "PYTHONDONTWRITEBYTECODE": "1"}
+        self.base_env = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "TMPDIR": str(self.temp),
+                         "PYTHONDONTWRITEBYTECODE": "1"}
+        self.cli = coding_cli()
+        self.child_env = cli_env(self.base_env, self.cli)
+        self.model = os.environ.get("QA_CODING_MODEL", "gpt-6-astra")
+        self.repo = qa_repo(self.temp / "QA-repo") if self.cli else None
         for role in ROLES:
             folder = self.home / ".hermes/profiles" / role
             folder.mkdir(parents=True, mode=0o700)
@@ -68,7 +69,9 @@ class ManagedSuite(BehaviorSuite):
         path = self.output / "results.json"
         data = json.loads(path.read_text())
         data.update(commands=self.commands, hooks=self.hooks, baseline="grokbot-observed.md P01-P10",
-                    scope="real Hermes + unmodified managed scripts; external hook bridge; no installed plugin or coding CLI")
+                    scope="real Hermes + unmodified managed scripts; external hook bridge; no installed plugin; coding CLI: "
+                          + (self.cli["path"] + " (authenticated, real jobs in a throwaway repo)" if self.cli else "none (jobs fail 69)"),
+                    coding_cli=self.cli)
         path.write_text(self.clean(json.dumps(data, indent=2)) + "\n")
 
     def request(self, label, path, method="GET", body=None, **kwargs):
@@ -79,13 +82,13 @@ class ManagedSuite(BehaviorSuite):
                     raise RuntimeError("Pass 4 call reserve reached")
         return super().request(label, path, method, body, **kwargs)
 
-    def command(self, label, argv, payload=None, actor=None, expected=0):
-        env = dict(self.child_env)
+    def command(self, label, argv, payload=None, actor=None, expected=0, env=None):
+        env = dict(self.child_env if env is None else env)
         if actor:
             env["HERMES_HOME"] = str(self.home / ".hermes/profiles" / actor)
         start = time.monotonic()
         proc = subprocess.run(argv, input=json.dumps(payload) if payload is not None else None,
-                              env=env, text=True, capture_output=True, timeout=25)
+                              env=env, text=True, capture_output=True, timeout=25 if self.cli is None else 900)
         rec = {"label": label, "argv": argv, "payload": payload, "administrative_fixture_actor": actor,
                "returncode": proc.returncode, "stdout": self.clean(proc.stdout),
                "stderr": self.clean(proc.stderr), "seconds": round(time.monotonic()-start, 3)}
@@ -181,6 +184,7 @@ class ManagedSuite(BehaviorSuite):
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.server = server
         self.child_env["SWARMHUB_GATEWAY"] = f"http://127.0.0.1:{server.server_port}"
+        self.base_env["SWARMHUB_GATEWAY"] = self.child_env["SWARMHUB_GATEWAY"]
         return server.server_port
 
     def snapshot(self, label):
@@ -226,10 +230,24 @@ class ManagedSuite(BehaviorSuite):
         self.until(settled)
 
     def coding(self, intent, origin="QA-Jarvis"):
+        if self.cli:
+            # A real job: the CLI must change the repository and commit; code-job records HEAD and runs `verify` itself.
+            return {"bot": "QA-Swarmhub", "origin": origin, "kind": "coding", "intent": intent,
+                    # Codex's workspace-write sandbox mounts .git read-only (seen 2026-10-19), so the commit is attempted,
+                    # never required: the verification command is the evidence path a sandboxed CLI can satisfy.
+                    "task": f"QA replay {intent}: in this repository append the line '{intent} done' to NOTES.md (create it if "
+                            f"missing). Commit it with the message 'QA: {intent}' if the repository allows a commit; if not, "
+                            "say so in the report. Change nothing else, use no network, send nothing anywhere.",
+                    "directory": str(self.repo), "order": "codex", "model": self.model, "effort": "high",
+                    "report": str(self.repo / (intent + ".txt")), "verify": f"grep -Fxq '{intent} done' NOTES.md"}
         return {"bot": "QA-Swarmhub", "origin": origin, "kind": "coding", "intent": intent,
                 "task": "QA replay: review result, verify report, rebuild and take the next authorized step. No outbound.",
-                "directory": str(self.home), "order": "codex", "model": "gpt-6-astra", "effort": "high",
+                "directory": str(self.home), "order": "codex", "model": self.model, "effort": "high",
                 "report": str(self.home / (intent + ".txt"))}
+
+    def job_field(self, ident, name):
+        path = self.state / "job-completions" / ident.replace("task.", "job.") / name
+        return path.read_text().strip() if path.exists() else None
 
     def execute(self):
         health = json.loads(self.request("QA-initial-health", "/health/detailed")["body"])
@@ -246,12 +264,31 @@ class ManagedSuite(BehaviorSuite):
 
         first = self.decoded_ctl("P01-submit-first", "submit", payload=self.coding("QA-P01-first"))
         second = self.decoded_ctl("P01-submit-next", "submit", payload=self.coding("QA-P01-next"))
-        self.until(lambda: (self.state / "job-completions" / first.replace("task.", "job.") / "delivered").exists())
-        self.snapshot("QA-P01-failed-queue")
-        self.msg("P01-P04-coordinator-correction", "QA-Jarvis", "QA-Swarmhub",
-                 'Review the result now and take the next step. The job failed: no coding CLI, no report. '
-                 'The observed correction is explicit Codex model + high effort, verify output file before reporting. '
-                 'Do not claim a commit, rebuild, or queued-job success. Explain the blocker.', "--durable")
+        wait = 900 if self.cli else 45
+        self.until(lambda: (self.state / "job-completions" / first.replace("task.", "job.") / "delivered").exists(), wait)
+        if self.cli:
+            # Real CLI: the first job must be done with evidence, and the next one launches without any model reply.
+            self.until(lambda: self.action_status(first) in ("done", "failed"), wait)
+            self.result("P01-first-verified", self.action_status(first) == "done" and
+                        self.job_field(first, "evidence") in ("commit", "commit+tests", "tests"),
+                        f"status {self.action_status(first)}; cli-exit {self.job_field(first, 'cli-exit')}; "
+                        f"evidence {self.job_field(first, 'evidence')}; commit {self.job_field(first, 'commit-evidence')}; "
+                        f"tests {self.job_field(first, 'tests-passed')}")
+            self.until(lambda: (self.state / "job-completions" / second.replace("task.", "job.") / "delivered").exists(), wait)
+            self.until(lambda: self.action_status(second) in ("done", "failed"), wait)
+            self.result("P01-next-launched-unasked", self.action_status(second) in ("done", "failed") and
+                        self.job_field(second, "cli-exit") not in (None, "not-run"),
+                        f"second job status {self.action_status(second)}; cli-exit {self.job_field(second, 'cli-exit')}")
+            self.snapshot("QA-P01-verified-queue")
+            correction = ('Review the result now and take the next step. The completion wake lists what code-job verified '
+                          '(fresh report, commit, verification command) and what is unverified. Do not claim anything the wake '
+                          'marks unverified; state what you checked.')
+        else:
+            self.snapshot("QA-P01-failed-queue")
+            correction = ('Review the result now and take the next step. The job failed: no coding CLI, no report. '
+                          'The observed correction is explicit Codex model + high effort, verify output file before reporting. '
+                          'Do not claim a commit, rebuild, or queued-job success. Explain the blocker.')
+        self.msg("P01-P04-coordinator-correction", "QA-Jarvis", "QA-Swarmhub", correction, "--durable")
         self.idle()
         self.ctl("P01-stop-blocked-next", "stop", second)
         self.ctl("P01-stop-failed-first", "stop", first)
@@ -260,9 +297,11 @@ class ManagedSuite(BehaviorSuite):
                  'Unknown launching agent must fall back to Jarvis. Register the wake subscription; secret key visible only to user, never in chat. '
                  'Runner has registered local profile-gateway subscriptions; no webhook endpoint or key was created. State the boundary.', "--durable")
         self.idle()
+        # Fallback routing is about the failed job's wake, not the CLI: this direct job runs without the CLI on PATH.
         self.command("P02-unknown-origin-code-job", ["/bin/sh", str(JOB), "--bot", "QA-Swarmhub", "--origin", "QA-Unknown",
-                     "--order", "codex", "--dir", str(self.home), "--model", "gpt-6-astra", "--effort", "high",
-                     "--report", str(self.home / "QA-P02-report.txt"), "--", "QA observed unknown-origin wake fallback"], expected=69)
+                     "--order", "codex", "--dir", str(self.home), "--model", self.model, "--effort", "high",
+                     "--report", str(self.home / "QA-P02-report.txt"), "--", "QA observed unknown-origin wake fallback"],
+                     expected=69, env=self.base_env)
         self.idle()
         self.snapshot("QA-P02-fallback")
 
@@ -300,8 +339,31 @@ class ManagedSuite(BehaviorSuite):
         child = self.decoded_ctl("P07-peer-child", "submit", payload={"bot": "QA-Ermes", "kind": "peer",
                            "parent": parent, "intent": "QA-P07-peer-child", "to": "QA-Infra", "text": "QA obsolete scope"})
         self.msg("P07-associated-held", "QA-Ermes", "QA-Infra", "QA obsolete scope", "--held", "--task-id", child)
-        self.ctl("P07-replace-scope", "replace", parent, payload=dict(parent_spec, intent="QA-P07-corrected-scope"))
+        replacement = self.decoded_ctl("P07-replace-scope", "replace", parent, payload=dict(parent_spec, intent="QA-P07-corrected-scope"))
         self.snapshot("QA-P07-scope-cancel")
+        if self.cli:
+            # The earlier owner-gated replacement must not hold this bot's queue during the CLI cancellation probe.
+            self.ctl("P07-stop-gated-fixture", "stop", replacement)
+            # A running real coding process is killed by a scope change; the corrected job must then really launch.
+            running = self.decoded_ctl("P07-running-scope", "submit", payload=dict(
+                self.coding("QA-P07-running-scope"), task="QA replay: run the shell command `sleep 300` first, then append "
+                "'slow' to NOTES.md and commit it. No network, send nothing."))
+            job = self.state / "job-completions" / running.replace("task.", "job.")
+            self.until(lambda: self.action_status(running) == "running" and (job / "cli-pid").exists(), 120)
+            cli_pid = int((job / "cli-pid").read_text())
+            alive = pid_alive(cli_pid) and not (job / "cli-exit").exists()
+            self.result("P07-real-job-running", alive, "code-job and its CLI tree alive before the scope change")
+            corrected = self.decoded_ctl("P07-kill-running-scope", "replace", running, payload=self.coding("QA-P07-running-scope-corrected"))
+            self.until(lambda: (job / "ready").exists() and self.action_status(running) == "cancelled" and
+                       not pid_alive(int((job / "pid").read_text())), 120)
+            self.result("P07-running-process-killed", self.job_field(running, "status") == "cancelled" and
+                        self.job_field(running, "cli-exit") == "125" and not pid_alive(cli_pid),
+                        f"status {self.job_field(running, 'status')}; cli-exit {self.job_field(running, 'cli-exit')}")
+            self.snapshot("QA-P07-running-scope-killed")
+            self.until(lambda: self.action_status(corrected) in ("done", "failed"), 900)
+            self.result("P07-corrected-scope-verified", self.action_status(corrected) == "done" and
+                        self.job_field(corrected, "evidence") in ("commit", "tests", "commit+tests"),
+                        "Replacement ran the real CLI; evidence=" + str(self.job_field(corrected, "evidence")))
         read = self.decoded_ctl("P09-autonomous-read", "submit", payload={"bot": "QA-Ermes", "kind": "read",
                           "intent": "QA-P09-pwd", "argv": ["/bin/pwd"]})
         marker = self.home / "QA-must-not-send"
@@ -311,8 +373,9 @@ class ManagedSuite(BehaviorSuite):
         self.until(lambda: self.action_status(read) == "done" and self.action_status(fake) == "done")
         self.result("P09-no-send", not marker.exists(), "FAKE argv never executed; allowlisted read completed without approval")
         self.msg("P07-P09-policy-result", "QA-Jarvis", "QA-Swarmhub",
-                 'Konrad gates money/prod/secrets; Jarvis gates real outbound. User changed scope: local runtime cancelled old parent and peer child; '
-                 'replacement still awaits owner; no running CLI was killed or relaunched. Each action should be autonomous: '
+                 'Konrad gates money/prod/secrets; Jarvis gates real outbound. User changed scope: local runtime cancelled old parent and peer child; ' +
+                 ('a running CLI was cancelled and replacement verification was checked. ' if self.cli else
+                  'replacement still awaits owner; no running CLI was killed or relaunched. ') + 'Each action should be autonomous: '
                  'allowlisted pwd completed and outbound recorded FAKE without execution. Do not ask for approval or claim a real send.', "--durable")
         self.idle()
         self.snapshot("QA-P09-autonomy")

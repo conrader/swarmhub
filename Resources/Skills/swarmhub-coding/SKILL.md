@@ -1,7 +1,7 @@
 ---
 name: swarmhub-coding
 description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.1
+version: 1.3.2
 author: SwarmHub
 metadata:
   swarmhub:
@@ -18,7 +18,7 @@ How to run a job:
 2. Start it as a background process of your terminal tool (its background option), with your workspace or the
    repository folder as `--dir`:
    ```
-   {{SKILL_DIR}}/scripts/code-job --bot {{BOT}} --order {{CODING_ORDER}} --dir <workspace or repo folder> --model <explicit model ID> --effort high --report <report path> -- "<task>"
+   {{SKILL_DIR}}/scripts/code-job --bot {{BOT}} --order {{CODING_ORDER}} --dir <workspace or repo folder> --model <explicit model ID> --effort high --report <report path> --verify "<project test command>" -- "<task>"
    ```
 3. Wait for the process to finish. A job can take many minutes; when the box is busy it first waits for a free coding
    slot ("Waiting for a free coding slot…"). Do not start the same task twice.
@@ -48,15 +48,23 @@ transactional exactly-once guarantee for arbitrary tools inside a model turn.
 Completion contract: `--model` and `--report` are required (or `CODE_JOB_MODEL` / `CODE_JOB_REPORT`); effort defaults to
 explicit `high` and is passed to the CLI. Use a model ID supported by the chosen CLI; prefer a single-agent order
 when pinning a model. Codex receives `--model` and `model_reasoning_effort`; Claude receives `--model` and `--effort`.
-The CLI is told the report path. Exit zero requires nonempty CLI output and a fresh nonempty report whose hash differs
-from its pre-run contents. Missing model/report, empty work and unchanged reports fail with exit 65. Records include
-the CLI exit separately from the contract exit, model, effort, report path/existence and hash. Exit zero certifies
-these file checks, not the correctness of the work or a commit. Reports stay at their paths; their text is not copied
-to completion wakes.
+The CLI is told the report path. Exit zero requires nonempty CLI output, a fresh nonempty report whose hash differs
+from its pre-run contents, **and evidence code-job gathers itself**: a new commit in `--dir` (HEAD recorded before and
+after the run; resetting or switching to an unrelated history is not a new commit) or a passing verification command (`--verify "<command>"`, else `CODE_JOB_VERIFY`, else `VERIFY=` in
+`~/.hermes/swarmhub/coding.conf`), run by code-job in `--dir` after the CLI exits. A configured verification that
+fails is never outweighed by a commit. Missing model/report, empty work and unchanged reports fail with exit 65; a
+fresh report without evidence exits 66 with status `unverified`. Records include the CLI exit separately from the
+contract exit, model, effort, report path/existence and hash, `head-before`/`head-after`, `commit-evidence`,
+`verify-command`/`verify-exit`, `tests-passed` and the `evidence` summary (`commit`, `tests`, `commit+tests`, `none`).
+The completion wake lists what code-job verified and what remains unverified (report correctness, the work itself).
+Exit zero certifies these checks, not the correctness of the work. Reports stay at their paths; their text and the
+verification output are not copied to records or wakes. Managed jobs take the command from the `verify` spec field.
+The report is checked again after verification. Stop also cancels verification and its child processes.
 
 For a standing queue or any task with approval gates, use the messaging skill's `scripts/swarmctl submit` with JSON
 on stdin. Coding fields: `bot`, `origin`, stable `intent`, `kind: "coding"`, `task`, absolute `directory`, `order`,
-`model`, `effort`, `report`; add `risks: ["money", "prod", "secrets"]` as applicable and `parent` for peer work.
+`model`, `effort`, `report`, optional one-line `verify` (the evidence command, e.g. the test suite); add
+`risks: ["money", "prod", "secrets"]` as applicable and `parent` for peer work.
 An unchanged intent is admitted only once. Each bot runs queued jobs in order; verified completion launches the next
 automatically, even without a model reply to the wake. Failure holds later jobs until cancelled/replaced. Stop and
 scope replacement cancel the old task tree, including queued peer deliveries and running managed streams/CLI trees.

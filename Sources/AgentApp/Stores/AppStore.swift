@@ -15,6 +15,9 @@ import SwarmHubCoordination
     /// P39: the running turn of each conversation, keyed by its id (`AppStore+TurnSlots.swift`), and how many may run at once.
     @Published var runningTurns: [UUID: ConversationTurn] = [:]; var turnLimits = TurnLimits()
     @Published var approvals: [ApprovalRequest] = []
+    /// P06 gap: a bot's pending secret request; the chat shows the secret-entry sheet while it is set. Secret files go to
+    /// `secretFolder` (tests) or `SecretFileWriter.defaultFolder`.
+    @Published var secretRequest: SecretRequestPrompt?; var secretFolder: URL?
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
     @Published var showingHiddenBots = false; @Published var replyTo: ChatMessage?

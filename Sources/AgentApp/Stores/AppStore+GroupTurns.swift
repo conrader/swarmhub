@@ -83,7 +83,7 @@ extension AppStore {
         let outcome = finishTurn(end, assistant: reply, bot: bot, in: group, backend: activeBackend, alertPrefix: "\(bot.name): ", warn: !refused, alert: !refused)
         let cancelled = outcome.state == .stopped
         let session = group.session(for: bot.id) ?? wanted
-        let abandoned = approvals.filter { $0.botID == bot.id && $0.sessionID == session }
+        let abandoned = approvals.filter { !$0.isManaged && $0.botID == bot.id && $0.sessionID == session }
         for approval in abandoned {
             appendAudit(to: bot, approval: approval, outcome: .denied, decidedBy: "system", reason: cancelled ? "Run stopped; pending approval was cancelled." : "Run ended; pending approval was cancelled.")
         }
@@ -93,6 +93,7 @@ extension AppStore {
         let text = reply.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty && !reply.isSilent && (outcome.state == .finished || outcome.state == .incomplete) && selectedGroup?.id != group.id { group.unreadCount += 1 }
         if outcome.state == .finished && !text.isEmpty {
+            routeManagedApprovals(in: reply, bot: bot)
             startReviewIfNeeded(reply, from: bot, in: group)
             AvatarReactions.shared.completed(bot)
             notifyIfNeeded(group: group, bot: bot, message: reply.finalText.trimmingCharacters(in: .whitespacesAndNewlines))

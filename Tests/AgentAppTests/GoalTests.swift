@@ -5,7 +5,9 @@ import Testing
 // P45 2: /goal — SwarmHub keeps sending rounds until the bot's goal block, Stop, pause/clear, a failure or the budget.
 // Scripted backend, injected clock; no network.
 
-private let doneReply = "All shipped.\n```swarmhub\n{\"op\":\"goal\",\"status\":\"done\",\"summary\":\"Notes written and merged.\"}\n```"
+private let doneReply = "All shipped.\n```swarmhub\n{\"op\":\"goal\",\"status\":\"done\",\"summary\":\"Notes written and merged.\",\"evidence\":{\"commit\":\"abc1234\",\"report\":\"/tmp/notes-report.md\"}}\n```"
+/// P01/P04 gap: a done block without evidence (the pass-4 shape) is not accepted.
+private let bareDoneReply = "All shipped.\n```swarmhub\n{\"op\":\"goal\",\"status\":\"done\",\"summary\":\"Notes written and merged.\"}\n```"
 private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"status\":\"blocked\",\"need\":\"the deploy key\"}\n```"
 
 @MainActor private func finish(_ backend: ScriptedTurnBackend, _ text: String) async {
@@ -19,7 +21,8 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
 }
 
 @Test func theGoalBlockIsReadFromTheLastSwarmhubFence() {
-    #expect(GoalProtocol.report(in: doneReply) == .done(summary: "Notes written and merged."))
+    #expect(GoalProtocol.report(in: doneReply) == .done(summary: "Notes written and merged.", evidence: GoalEvidence(commit: "abc1234", report: "/tmp/notes-report.md")))
+    #expect(GoalProtocol.report(in: bareDoneReply) == .done(summary: "Notes written and merged.", evidence: GoalEvidence()))
     #expect(GoalProtocol.report(in: blockedReply) == .blocked(need: "the deploy key"))
     #expect(GoalProtocol.report(in: "```swarmhub\n{\"op\":\"avatar\"}\n```") == nil && GoalProtocol.report(in: "plain") == nil)
     #expect(SwarmhubBlock.visibleText(doneReply) == "All shipped.", "the block is not shown")
@@ -42,10 +45,65 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
     await finish(backend, doneReply)
     try await waitUntil { store.goal(in: bot)?.state == .done }
     let card = try #require(bot.messages.last)
-    #expect(card.presentation == .automation && card.content == "Goal reached" && card.metadata[AutomationKey.detail] == "Notes written and merged.")
+    #expect(card.presentation == .automation && card.content == "Goal reached")
+    #expect(card.metadata[AutomationKey.detail] == "Notes written and merged.\nClaimed by the bot, not verified by SwarmHub: commit abc1234; report /tmp/notes-report.md.")
     try await Task.sleep(for: .milliseconds(30))
     #expect(await backend.streamCount == 2, "nothing is sent after done")
     #expect(store.automationStatusLines(for: bot) == ["Goal: ship the release notes · done · round 2/20"])
+}
+
+@Test func goalEvidenceRequiresACommitOrATestPassPlusAReport() {
+    #expect(!GoalEvidence().isSufficient && GoalEvidence().missing == ["a commit id or a test pass", "the fresh report path"])
+    #expect(GoalEvidence(commit: "abc1234", report: "/r").isSufficient && GoalEvidence(testsPassed: true, report: "/r").isSufficient)
+    #expect(!GoalEvidence(commit: "abc1234").isSufficient && !GoalEvidence(report: "/r").isSufficient)
+    // Placeholders from the protocol text never count as a commit; tests accept "passed" or true.
+    #expect(GoalEvidence.parse(["commit": "<commit id you made>", "tests": "passed", "report": " /r "]) == GoalEvidence(testsPassed: true, report: "/r"))
+    #expect(GoalEvidence.parse(["commit": "0123456789abcdef", "tests": true]) == GoalEvidence(commit: "0123456789abcdef", testsPassed: true))
+    #expect(GoalEvidence.parse(["tests": "failed", "report": ""]) == GoalEvidence() && GoalEvidence.parse("text") == GoalEvidence())
+    #expect(!GoalEvidence.parse(["tests": "passed", "report": "<fresh report path>"]).isSufficient)
+    #expect(GoalEvidence(testsPassed: true).summary == "Claimed by the bot, not verified by SwarmHub: tests passed.\nMissing: the fresh report path.")
+}
+
+@MainActor @Test func evidenceRequestsRespectPauseAndTheRoundBudget() async throws {
+    for paused in [true, false] {
+        let backend = ScriptedTurnBackend(); let (store, bot) = goalStore(backend)
+        store.defaults.set(1, forKey: GoalProtocol.roundsKey)
+        #expect(store.submitComposer(text: "/goal finish within the budget"))
+        try await waitUntil { await backend.streamCount == 1 }
+        if paused { store.goalCommand("pause", bot: bot, conversation: bot) }
+        await finish(backend, bareDoneReply)
+        try await waitUntil { store.isIdle(bot) && store.goal(in: bot)?.awaitingReply == false }
+        #expect(store.goal(in: bot)?.state == (paused ? .paused : .ended))
+        #expect(await backend.streamCount == 1, "missing evidence cannot bypass pause or spend another round")
+    }
+}
+
+@MainActor @Test func aDoneWithoutEvidenceIsSentBackAndThenBlocks() async throws {
+    let backend = ScriptedTurnBackend(); let (store, bot) = goalStore(backend)
+    #expect(store.submitComposer(text: "/goal ship the release notes"))
+    try await waitUntil { await backend.streamCount == 1 }
+    await finish(backend, bareDoneReply)
+    try await waitUntil { await backend.streamCount == 2 }
+    let card = try #require(bot.messages.last { $0.presentation == .automation })
+    #expect(card.content == "Done claimed without evidence" && card.metadata[AutomationKey.card] == "goalUnverified")
+    #expect(card.metadata[AutomationKey.detail] == "Claimed by the bot, not verified by SwarmHub: nothing.\nMissing: a commit id or a test pass; the fresh report path.")
+    let request = try #require(bot.messages.last { $0.role == .user })
+    #expect(request.content.hasPrefix("Your done block for the goal \"ship the release notes\" has no accepted evidence") && request.metadata[AutomationKey.display] == "Evidence for done")
+    #expect(store.goal(in: bot)?.state == .running && store.goal(in: bot)?.evidenceRounds == 1 && store.goal(in: bot)?.round == 2)
+    await finish(backend, bareDoneReply)
+    try await waitUntil { await backend.streamCount == 3 }
+    #expect(store.goal(in: bot)?.evidenceRounds == 2)
+    await finish(backend, bareDoneReply)
+    try await waitUntil { store.goal(in: bot)?.state == .blocked }
+    #expect(bot.messages.last?.content == "Goal blocked" && store.goal(in: bot)?.need?.hasPrefix("evidence for done") == true)
+    try await Task.sleep(for: .milliseconds(30))
+    #expect(await backend.streamCount == 3, "nothing more is sent once blocked")
+    // Resume asks again; evidence ends it as reached, with the claim marked unverified.
+    store.resumeGoal(bot: bot, conversation: bot)
+    try await waitUntil { await backend.streamCount == 4 }
+    await finish(backend, doneReply)
+    try await waitUntil { store.goal(in: bot)?.state == .done }
+    #expect(bot.messages.last?.content == "Goal reached" && bot.messages.last?.metadata[AutomationKey.detail]?.contains("not verified by SwarmHub: commit abc1234") == true)
 }
 
 @MainActor @Test func aBlockedGoalWaitsForResume() async throws {

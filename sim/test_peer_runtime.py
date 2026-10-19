@@ -88,7 +88,7 @@ class PeerTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.home = Path(self.tmp.name)
-        self.env = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "TMPDIR": str(self.home)}
+        self.env = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "TMPDIR": str(self.home), "PYTHONDONTWRITEBYTECODE": "1"}
         self.patcher = patch.dict(os.environ, self.env, clear=True)
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
@@ -336,7 +336,7 @@ class PeerTests(unittest.TestCase):
     def test_install_writes_loadable_profile_plugin_without_keys(self):
         peer.install("recipient")
         folder = self.home / ".hermes/profiles/recipient/plugins/swarmhub-peer"
-        self.assertIn("version: 1.3.1\n", (folder / "plugin.yaml").read_text())
+        self.assertIn("version: 1.3.2\n", (folder / "plugin.yaml").read_text())
         namespace = {}
         exec((folder / "__init__.py").read_text(), namespace)
         hooks = {}

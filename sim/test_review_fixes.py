@@ -46,7 +46,7 @@ class ReviewFixTests(unittest.TestCase):
             path.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" > "$HOME/$(basename "$0").args"\n'
                             'printf ok > "$SWARMHUB_REPORT_FILE"\necho result\nexit 0\n')
             path.chmod(0o755)
-        self.env.update(PATH=str(folder) + ":" + self.env["PATH"], CODE_JOB_TICK="0.05")
+        self.env.update(PATH=str(folder) + ":" + self.env["PATH"], CODE_JOB_TICK="0.05", CODE_JOB_VERIFY="/bin/true")
         os.environ.update(self.env)
 
     def coding(self, intent, **changes):
@@ -327,10 +327,10 @@ class ReviewFixTests(unittest.TestCase):
 
     # 10. File-size rule and layering.
     def test_control_modules_stay_under_the_size_rule_without_cycles(self):
-        for name in ("swarm_control", "swarm_store", "swarm_policy", "swarm_delivery", "swarm_jobs", "peer-runtime"):
+        for name in ("swarm_control", "swarm_store", "swarm_policy", "swarm_delivery", "swarm_jobs", "swarm_webhook", "swarm_intake", "peer-runtime"):
             lines = (boundary.RUNTIME.with_name(name + ".py")).read_text().count("\n")
             self.assertLess(lines, 500, name)
-        result = subprocess.run(["/usr/bin/python3", "-c", "import swarm_store, swarm_policy, swarm_delivery, swarm_jobs"],
+        result = subprocess.run(["/usr/bin/python3", "-c", "import swarm_store, swarm_policy, swarm_delivery, swarm_jobs, swarm_webhook, swarm_intake"],
                                 cwd=boundary.RUNTIME.parent, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 

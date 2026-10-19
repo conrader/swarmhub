@@ -2,21 +2,22 @@
 # code-job: run one coding task with the first available coding agent, one of SLOTS jobs at a time on this box.
 # Installed by SwarmHub with the swarmhub-coding skill. POSIX sh (dash, macOS sh); no flock/timeout/setsid.
 #
-#   code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] --model <id> --effort <level> --report <file> [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- "<task>"
+#   code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] --model <id> --effort <level> --report <file> [--dir <workdir>] [--verify <command>] [--timeout <s>] [--max-turns <n>] -- "<task>"
 #
 # Exit: the agent's own code; 124 timeout; 75 + CODE_JOB_USE_DELEGATE on stdout when the order reaches hermes;
-# 69 when every agent in the order was skipped; 64 usage. Box-wide state lives in ~/.hermes/swarmhub/.
+# 69 when every agent in the order was skipped; 65 empty work or no fresh report; 66 fresh report but no evidence
+# (no new commit and no passing --verify command); 64 usage. Box-wide state lives in ~/.hermes/swarmhub/.
 
-usage() { echo "usage: code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] --model <id> --effort <level> --report <file> [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- \"<task>\"" >&2; exit 64; }
+usage() { echo "usage: code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] --model <id> --effort <level> --report <file> [--dir <workdir>] [--verify <command>] [--timeout <s>] [--max-turns <n>] -- \"<task>\"" >&2; exit 64; }
 
 BOT= ORDER= DIR=. TIMEOUT=1800 MAXTURNS=40 ORIGIN=${SWARMHUB_ORDERING_BOT:-}
 MODEL=${CODE_JOB_MODEL:-} EFFORT=${CODE_JOB_EFFORT:-high} REPORT=${CODE_JOB_REPORT:-} TASKID= JOBID= SPECULATIVE=0
-ORIGIN_GIVEN=
+ORIGIN_GIVEN= VERIFY_ARG=
 while [ $# -gt 0 ]; do
   case $1 in
-    --bot|--order|--dir|--timeout|--max-turns|--origin|--model|--effort|--report|--task-id|--job-id)
+    --bot|--order|--dir|--timeout|--max-turns|--origin|--model|--effort|--report|--task-id|--job-id|--verify)
       [ $# -ge 2 ] || usage
-      case $1 in --bot) BOT=$2 ;; --order) ORDER=$2 ;; --dir) DIR=$2 ;; --timeout) TIMEOUT=$2 ;; --max-turns) MAXTURNS=$2 ;; --origin) ORIGIN=$2; ORIGIN_GIVEN=1 ;; --model) MODEL=$2 ;; --effort) EFFORT=$2 ;; --report) REPORT=$2 ;; --task-id) TASKID=$2 ;; --job-id) JOBID=$2 ;; esac
+      case $1 in --bot) BOT=$2 ;; --order) ORDER=$2 ;; --dir) DIR=$2 ;; --timeout) TIMEOUT=$2 ;; --max-turns) MAXTURNS=$2 ;; --origin) ORIGIN=$2; ORIGIN_GIVEN=1 ;; --model) MODEL=$2 ;; --effort) EFFORT=$2 ;; --report) REPORT=$2 ;; --task-id) TASKID=$2 ;; --job-id) JOBID=$2 ;; --verify) VERIFY_ARG=$2 ;; esac
       shift 2 ;;
     --speculative) SPECULATIVE=1; shift ;;
     --) shift; break ;;
@@ -48,13 +49,13 @@ CTL=$(dirname "$0")/../../swarmhub-messages/scripts/swarmctl
 # re-applied mid-flight, so a policy change after launch cannot fail the job as a parameter mismatch.
 if [ -f "$CTL" ]; then
   if [ -n "$TASKID" ]; then
-    python3 "$CTL" check-job "$TASKID" "$BOT" "$DIR" "$MODEL" "$EFFORT" "$REPORT" "$TASK" "$ORDER" || exit 125
+    python3 "$CTL" check-job "$TASKID" "$BOT" "$DIR" "$MODEL" "$EFFORT" "$REPORT" "$TASK" "$ORDER" "$VERIFY_ARG" || exit 125
   else
     ORDER=$(python3 "$CTL" plan "$ORDER" "$SPECULATIVE") || exit 77
     MODEL=$(python3 "$CTL" model "$MODEL") || exit 77
   fi
 fi
-TASK=$(printf '%s\n\nWrite a fresh nonempty completion report to %s before finishing.' "$TASK" "$REPORT")
+TASK=$(printf '%s\n\nWrite a fresh nonempty completion report to %s before finishing. Respect the task constraints, including any no-commit instruction. Completion requires an authorized new commit or a passing configured verification command; SwarmHub checks that evidence independently. Report accurately what you changed and checked.' "$TASK" "$REPORT")
 
 # npm installs the CLIs into ~/.local (no root).
 case :$PATH: in *":$HOME/.local/bin:"*) ;; *) PATH=$HOME/.local/bin:$PATH; export PATH ;; esac
@@ -81,10 +82,61 @@ printf '%s\n' "$$" > "$JOB/pid"
 MSG=$(dirname "$0")/../../swarmhub-messages/scripts/bot-msg
 SLOTS=$(sed -n 's/^SLOTS=\([0-9][0-9]*\)[[:space:]]*$/\1/p' "$S/coding.conf" 2>/dev/null | tail -n 1)
 case $SLOTS in ''|0) SLOTS=1 ;; esac
+# Verification command: --verify, else CODE_JOB_VERIFY, else VERIFY= in coding.conf (the box default). Run by code-job
+# itself in --dir after the CLI exits 0; its exit code is evidence the model cannot write.
+VERIFY=${VERIFY_ARG:-${CODE_JOB_VERIFY:-}}
+[ -n "$VERIFY" ] || VERIFY=$(sed -n 's/^VERIFY=//p' "$S/coding.conf" 2>/dev/null | tail -n 1)
+VTIMEOUT=${CODE_JOB_VERIFY_TIMEOUT:-600}
+case $VTIMEOUT in ''|*[!0-9]*|0) VTIMEOUT=600 ;; esac
+printf '%s\n' "$VERIFY" > "$JOB/verify-command"
 POLL=${CODE_JOB_POLL:-5}
 T=$(mktemp -d "${TMPDIR:-/tmp}/code-job.XXXXXX") || exit 1
 
-SLOT= APID= MPID= O1= O2= AGENT=none SKIPPED= WAITED=0 RAN=0 PEAK=0 LOGGED=
+SLOT= APID= MPID= VPID= O1= O2= AGENT=none SKIPPED= WAITED=0 RAN=0 PEAK=0 LOGGED=
+HEAD_BEFORE= HEAD_AFTER=- COMMIT=not-checked VEXIT=- TESTS=not-run EVIDENCE=none
+
+# HEAD of --dir: a commit id, `none` (a repository without commits) or `not-a-repo`.
+head_of() {
+  if git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$DIR" rev-parse --verify HEAD 2>/dev/null || echo none
+  else
+    echo not-a-repo
+  fi
+}
+
+# Evidence the CLI cannot write itself: a new HEAD since the baseline, and the configured verification command's exit.
+# A configured command that fails is never outweighed by a commit. Only its exit is recorded, never its output.
+collect_evidence() {
+  HEAD_AFTER=$(head_of)
+  COMMIT=false
+  case $HEAD_AFTER in
+    not-a-repo) COMMIT=not-a-repo ;;
+    none) ;;
+    *) if [ "$HEAD_AFTER" != "$HEAD_BEFORE" ]; then
+         case $HEAD_BEFORE in none|not-a-repo) COMMIT=true ;;
+           *) git -C "$DIR" merge-base --is-ancestor "$HEAD_BEFORE" "$HEAD_AFTER" 2>/dev/null && COMMIT=true ;;
+         esac
+       fi ;;
+  esac
+  if [ -n "$VERIFY" ]; then
+    ( cd "$DIR" && exec /bin/sh -c "$VERIFY" ) < /dev/null > "$T/verify" 2>&1 &
+    VPID=$!
+    t0=$(date +%s); VEXIT=
+    while kill -0 "$VPID" 2>/dev/null; do
+      if [ -z "$VEXIT" ] && [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ]; then VEXIT=125; kill_tree "$VPID"; fi
+      if [ -z "$VEXIT" ] && [ $(( $(date +%s) - t0 )) -gt "$VTIMEOUT" ]; then VEXIT=124; kill_tree "$VPID"; fi
+      sleep "${CODE_JOB_TICK:-1}"
+    done
+    wait "$VPID"; rc=$?
+    VPID=
+    [ -n "$VEXIT" ] || VEXIT=$rc
+    TESTS=false; [ "$VEXIT" -eq 0 ] && TESTS=true
+  fi
+  if [ "$TESTS" = true ] && [ "$COMMIT" = true ]; then EVIDENCE=commit+tests
+  elif [ "$TESTS" = true ]; then EVIDENCE=tests
+  elif [ "$COMMIT" = true ] && [ "$TESTS" = not-run ]; then EVIDENCE=commit
+  else EVIDENCE=none; fi
+}
 
 # Every pid in the process tree under $1 (itself included), from one ps listing.
 tree() {
@@ -127,6 +179,12 @@ finish() {
   printf '%s\n' "$RAN" > "$JOB/ran"
   exists=false; [ -n "$REPORT" ] && [ -f "$REPORT" ] && exists=true
   printf '%s\n' "$exists" > "$JOB/report-exists"
+  printf '%s\n' "${HEAD_BEFORE:--}" > "$JOB/head-before"
+  printf '%s\n' "$HEAD_AFTER" > "$JOB/head-after"
+  printf '%s\n' "$COMMIT" > "$JOB/commit-evidence"
+  printf '%s\n' "$VEXIT" > "$JOB/verify-exit"
+  printf '%s\n' "$TESTS" > "$JOB/tests-passed"
+  printf '%s\n' "$EVIDENCE" > "$JOB/evidence"
   : > "$JOB/ready"
   if [ -f "$MSG" ]; then
     /bin/sh "$MSG" --retry >/dev/null 2>&1 || echo "code-job: wake pending in $JOB" >&2
@@ -149,7 +207,7 @@ finish() {
 
 interrupted() {
   trap '' INT TERM
-  kill_tree "$MPID"; kill_tree "$APID"
+  kill_tree "$MPID"; kill_tree "$APID"; kill_tree "$VPID"
   [ -n "$O1" ] && kill "$O1" 2>/dev/null; [ -n "$O2" ] && kill "$O2" 2>/dev/null
   finish "$1" interrupted
 }
@@ -211,10 +269,13 @@ run_agent() {
         if [ -f "$S/claude.token" ]; then CLAUDE_CODE_OAUTH_TOKEN=$(cat "$S/claude.token"); export CLAUDE_CODE_OAUTH_TOKEN; fi
         exec claude -p "$TASK" --permission-mode acceptEdits --allowedTools "Read,Edit,Write,Bash,Glob,Grep" \
           --model "$MODEL" --effort "$EFFORT" --max-turns "$MAXTURNS" --output-format text ;;
-      codex) exec codex exec --full-auto --model "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" "$TASK" ;;
+      # Config overrides instead of --full-auto: Codex CLI 0.159 dropped that flag (seen 2026-10-19); these keys exist in both.
+      codex) exec codex exec --skip-git-repo-check -c 'sandbox_mode="workspace-write"' -c 'approval_policy="never"' \
+          --model "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" "$TASK" ;;
     esac
   ) < /dev/null > "$T/o" 2> "$T/e" &
   APID=$!
+  printf '%s\n' "$APID" > "$JOB/cli-pid"
   # Watchdog and sampler: every tick (1 s; CODE_JOB_TICK for tests) check the deadline (more than TIMEOUT whole seconds
   # on the clock), every 2 ticks add up the tree's RSS.
   (
@@ -271,10 +332,18 @@ for a in $(echo "$ORDER" | tr ',' ' '); do
   # A pre-existing report cannot certify this run. Preserve it but require the CLI
   # to replace/change it; completion-contract.py hashes the baseline privately.
   python3 "$(dirname "$0")/completion-contract.py" baseline "$REPORT" "$JOB" || finish 65 failed
+  HEAD_BEFORE=$(head_of)
   run_agent "$a"
   printf '%s\n' "$RC" > "$JOB/cli-exit"
   if [ "$RC" -eq 0 ]; then
-    if python3 "$(dirname "$0")/completion-contract.py" verify "$REPORT" "$JOB" && [ -s "$T/stdout" ]; then finish 0 ok; fi
+    if python3 "$(dirname "$0")/completion-contract.py" verify "$REPORT" "$JOB" && [ -s "$T/stdout" ]; then
+      collect_evidence
+      [ "$VEXIT" = 125 ] && finish 125 cancelled
+      python3 "$(dirname "$0")/completion-contract.py" verify "$REPORT" "$JOB" || finish 65 failed
+      [ "$EVIDENCE" != none ] && finish 0 ok
+      echo "code-job: unverified: fresh report but no new commit and no passing verification (verify exit $VEXIT)" >&2
+      finish 66 unverified
+    fi
     echo "code-job: empty job or missing/empty/unchanged report" >&2
     finish 65 failed
   fi

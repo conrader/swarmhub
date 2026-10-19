@@ -45,7 +45,8 @@ def register(profile, coordinator=False):
 
 
 def publish(change):
-    keys = {"route", "codex_model", "allow_speculative", "coordinator", "owner", "timezone", "start", "end"}
+    keys = {"route", "codex_model", "allow_speculative", "coordinator", "owner", "timezone", "start", "end",
+            "provisioner", "outbound", "webhook_base"}
     if not isinstance(change, dict) or not change or set(change) - keys:
         raise ValueError("unknown policy setting")
     with database() as db:
@@ -54,6 +55,14 @@ def publish(change):
         current.update(change)
         if current["route"] not in ("auto", "codex") or type(current["allow_speculative"]) is not bool:
             raise ValueError("invalid coding policy")
+        for hook in ("provisioner", "outbound"):
+            argv = current.get(hook)
+            if argv is not None and (not isinstance(argv, list) or not argv or not all(isinstance(a, str) and a for a in argv)
+                                     or not Path(argv[0]).is_absolute()):
+                raise ValueError(hook + " must be a nonempty argv list starting with an absolute path")
+        base = current.get("webhook_base")
+        if base is not None and (not isinstance(base, str) or not re.fullmatch(r"https?://[A-Za-z0-9_.:\[\]-]+(/[A-Za-z0-9_./-]*)?", base)):
+            raise ValueError("invalid webhook base URL")
         if "codex_model" in current and (not isinstance(current["codex_model"], str) or
             not re.fullmatch(r"[A-Za-z0-9_./:-]{1,200}", current["codex_model"])):
             raise ValueError("invalid Codex model")  # Bounded: the policy prefix must fit a held batch.
@@ -136,7 +145,7 @@ def validate_spec(spec):
     if not isinstance(spec, dict):
         raise ValueError("action must be an object")
     allowed = {"bot", "origin", "intent", "parent", "kind", "risks", "task", "directory", "order",
-               "model", "effort", "report", "speculative", "argv", "fake", "to", "text"}
+               "model", "effort", "report", "speculative", "argv", "fake", "to", "text", "verify", "request"}
     if set(spec) - allowed:
         raise ValueError("unknown action field")
     if (not isinstance(spec.get("bot"), str) or not profile_exists(spec["bot"]) or
@@ -164,11 +173,20 @@ def validate_spec(spec):
             raise ValueError("coding directory must be an existing absolute path")
         if set(spec.get("order", "codex").split(",")) - {"claude", "codex", "hermes"}:
             raise ValueError("unknown coding agent")
+        if "verify" in spec and (not isinstance(spec["verify"], str) or not spec["verify"].strip() or "\n" in spec["verify"]):
+            raise ValueError("verify must be a one-line command")
         coding_plan(spec.get("order", "codex"), spec.get("speculative", False))
     elif kind == "peer":
         if not profile_exists(spec.get("to", "")) or not spec.get("text"):
             raise ValueError("peer requires target and text")
     elif kind in SIDE_EFFECT_KINDS:
+        if kind == "provision" and ("request" in spec or "argv" not in spec):
+            composed = provisioner_argv(spec.get("request"))
+            if "argv" in spec and spec["argv"] != composed:
+                raise ValueError("provision argv must match the configured hook and request")
+            spec["argv"] = composed  # Idempotent validation; replace validates before cancelling the old scope.
+        if kind == "outbound" and "argv" not in spec and isinstance(spec.get("to"), str) and isinstance(spec.get("text"), str):
+            spec["argv"] = outbound_argv(spec["to"], spec["text"], bool(spec.get("fake")))
         argv = spec.get("argv")
         if not isinstance(argv, list) or not argv or not all(isinstance(a, str) and a for a in argv):
             raise ValueError("action requires nonempty argv")
@@ -183,6 +201,44 @@ def validate_spec(spec):
     if risks or kind in ("money", "prod", "secrets", "provision") or kind == "read" and not safe_read:
         return "owner"
     return "coordinator" if kind == "outbound" and not spec.get("fake") else "auto"
+
+
+SECRET_FIELD = re.compile(r"key|secret|token|password|passwd|credential", re.IGNORECASE)
+
+
+def provisioner_argv(request):
+    """The owner-configured provisioning hook plus the request as one JSON argument.
+
+    The hook is policy, not caller input; the request is passed verbatim as a single
+    argument, so nothing in it is shell-interpreted. Secret-like fields must name a
+    `swarmctl secret intake` file, never carry a value.
+    """
+    hook = policy().get("provisioner")
+    if not hook:
+        raise ValueError("no provisioner configured: the owner publishes policy provisioner first")
+    if not isinstance(request, dict) or not request or not all(isinstance(k, str) for k in request):
+        raise ValueError("provision requires a request object or an explicit argv")
+    if not all(isinstance(v, (str, int, bool)) for v in request.values()) or len(canonical(request)) > 16000:
+        raise ValueError("provision request must be flat and under 16000 bytes")
+    from swarm_intake import is_intake_path
+    for key, value in request.items():
+        if SECRET_FIELD.search(key) and not is_intake_path(value):
+            raise ValueError("secret-like request fields must reference a swarmctl secret intake path")
+    return list(hook) + ["--request", canonical(request)]
+
+
+def outbound_argv(to, text, fake):
+    """The owner-configured outbound sender with the exact recipient and text (a draft card's Send).
+
+    A FAKE record without a configured sender gets `/bin/true`, which a dry run never
+    executes anyway; a real record requires the owner's `outbound` policy.
+    """
+    hook = policy().get("outbound")
+    if hook:
+        return list(hook) + ["--to", to, "--text", text]
+    if fake:
+        return ["/bin/true"]
+    raise ValueError("no outbound command configured: the owner publishes policy outbound first")
 
 
 def submit(spec):

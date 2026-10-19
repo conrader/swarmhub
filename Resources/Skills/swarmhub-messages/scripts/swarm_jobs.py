@@ -9,11 +9,12 @@ from swarm_policy import action, active, coding_model, coding_plan
 from swarm_store import canonical, database, process_alive, spawn_recorded, state, terminate
 
 
-def check_job(ident, bot, directory, model, effort, report, task, order):
+def check_job(ident, bot, directory, model, effort, report, task, order, verify=""):
     """A launched job must match its approved record and the parameters resolved at launch.
 
     The launcher records the resolved order/model; a policy change after launch
-    must not fail the running job with a false parameter mismatch.
+    must not fail the running job with a false parameter mismatch. The approved
+    verification command (if any) must reach code-job unchanged.
     """
     row = action(ident)
     spec = json.loads(row["spec"])
@@ -24,9 +25,9 @@ def check_job(ident, bot, directory, model, effort, report, task, order):
     expected_model = launched.get("model", coding_model(spec.get("model", "")))
     expected_order = launched.get("order") or coding_plan(spec.get("order", "codex"), spec.get("speculative", False))
     if (row["status"] not in ("queued", "running") or not active(ident) or spec.get("kind") != "coding" or spec.get("fake") or
-        (bot, str(Path(directory).resolve()), model, effort, str(Path(report).resolve()), task, order) !=
+        (bot, str(Path(directory).resolve()), model, effort, str(Path(report).resolve()), task, order, verify) !=
         (spec["bot"], str(Path(spec["directory"]).resolve()), expected_model, spec["effort"],
-         str(expected_report.resolve()), spec["task"], expected_order)):
+         str(expected_report.resolve()), spec["task"], expected_order, spec.get("verify", ""))):
         raise ValueError("job parameters do not match the approved task")
 
 
@@ -81,7 +82,10 @@ def tick():
                     command = ["/bin/sh", str(code), "--bot", bot, "--order", order,
                                "--origin", spec.get("origin", ""), "--dir", spec["directory"],
                                "--model", model, "--effort", spec["effort"], "--report", spec["report"],
-                               "--task-id", row["id"], "--job-id", job.name, "--", spec["task"]]
+                               "--task-id", row["id"], "--job-id", job.name]
+                    if spec.get("verify"):
+                        command += ["--verify", spec["verify"]]
+                    command += ["--", spec["task"]]
                     pid, started = spawn_recorded(command)
                     db.execute("UPDATE actions SET status='running',pid=?,pid_start=?,launched=? WHERE id=?",
                                (pid, started, canonical({"order": order, "model": model}), row["id"]))
