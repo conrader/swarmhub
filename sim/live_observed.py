@@ -292,11 +292,43 @@ class ObservedSuite(BehaviorSuite):
             self.history("P-final-" + sid, sid)
 
 
+def offline_replay(output, patterns=None):
+    """Replay the same P01–P10 contracts against installed script code and fake I/O.
+
+    Kept separate from historical live captures: this certifies the managed local
+    runtime boundary, not Hermes activation, cloud provisioning or macOS UI.
+    """
+    import unittest
+    from test_patterns import ObservedPatternTests
+    wanted = set(patterns or [f"P{i:02}" for i in range(1, 11)])
+    results = []
+    for name in unittest.defaultTestLoader.getTestCaseNames(ObservedPatternTests):
+        pattern = name.split("_")[1]
+        if pattern not in wanted:
+            continue
+        result = unittest.TextTestRunner(verbosity=1).run(ObservedPatternTests(name))
+        results.append({"pattern": pattern, "grade": "matches" if result.wasSuccessful() else "worse",
+                        "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
+                        "test": name, "errors": [detail for _, detail in result.errors + result.failures]})
+    output.mkdir(parents=True, exist_ok=True)
+    report = {"mode": "offline", "patterns": results, "model_calls": 0,
+              "limitations": "No live Hermes, Swift, provisioning provider or external outbound certification"}
+    (output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps({r["pattern"]: r["grade"] for r in results}, sort_keys=True))
+    return 0 if len(results) == len(wanted) and all(r["grade"] == "matches" for r in results) else 1
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--usage-db", type=Path, required=True)
+    parser.add_argument("--usage-db", type=Path)
+    parser.add_argument("--offline", action="store_true", help="No sockets or provider calls; replay shipped managed runtime")
+    parser.add_argument("--pattern", action="append", choices=[f"P{i:02}" for i in range(1, 11)])
     args = parser.parse_args()
+    if args.offline:
+        return offline_replay(args.output, args.pattern)
+    if args.usage_db is None:
+        parser.error("live replay requires --usage-db")
     suite = ObservedSuite(args.output)
     suite.usage_db = args.usage_db
     suite.temp = Path(tempfile.mkdtemp(prefix="QA-LIVE3-"))

@@ -20,6 +20,8 @@ printf '%s\n' "$@" > "$d/$me.args"
 pwd -P > "$d/$me.pwd"
 { echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY-unset}"; echo "TOKEN=${CLAUDE_CODE_OAUTH_TOKEN-unset}"; } > "$d/$me.env"
 echo x >> "$d/$me.calls"
+# The stub writes a fresh report for each invocation, like a real contracted CLI.
+if [ -n "${SWARMHUB_REPORT_FILE:-}" ]; then printf '%s\n' "$$" > "$SWARMHUB_REPORT_FILE"; fi
 case $(cat "$d/$me.mode" 2>/dev/null) in
   ok) echo "$me did the work"; echo "$me note on stderr" >&2; exit 0 ;;
   limit) if [ "$me" = claude ]; then echo "Claude AI usage limit reached|1760000000" >&2; else echo "ERROR: usage_limit_reached" >&2; fi; exit 1 ;;
@@ -50,7 +52,7 @@ mode() { echo "$2" > "$C/state/$1.mode"; }
 job() { job_to "$C/out" "$C/err" "$@"; }
 job_to() {
   out=$1 err=$2; shift 2
-  env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin" STUB_STATE="$C/state" CODE_JOB_POLL=0.2 CODE_JOB_TICK=0.25 ${CALLER_ENV:-} "$SH" "$JOB" "$@" > "$out" 2> "$err"
+  env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin" STUB_STATE="$C/state" CODE_JOB_MODEL=synthetic-model CODE_JOB_REPORT="$C/work/REPORT.txt" CODE_JOB_POLL=0.2 CODE_JOB_TICK=0.25 ${CALLER_ENV:-} "$SH" "$JOB" "$@" > "$out" 2> "$err"
 }
 expect() { what=$1; shift; "$@" || PROBLEMS="$PROBLEMS; $what"; }
 has() { grep -Fq -- "$2" "$1"; }
@@ -71,7 +73,8 @@ expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
 expect "stdout streamed" has "$C/out" "claude did the work"
 expect "stderr streamed" has "$C/err" "claude note on stderr"
 line_matches '^code-job: claude ok · waited 0s · ran [0-9]+s · peak [0-9]+ MB$' "summary line"
-expect "claude flags" has "$C/state/claude.args" "$(printf -- '-p\n%s\n--permission-mode\nacceptEdits\n--allowedTools\nRead,Edit,Write,Bash,Glob,Grep\n--max-turns\n40\n--output-format\ntext' "$TASK")"
+expect "claude task" has "$C/state/claude.args" "$TASK"
+expect "claude flags" has "$C/state/claude.args" "$(printf -- '--permission-mode\nacceptEdits\n--allowedTools\nRead,Edit,Write,Bash,Glob,Grep\n--model\nsynthetic-model\n--effort\nhigh\n--max-turns\n40\n--output-format\ntext')"
 expect "cwd is --dir" [ "$(cat "$C/state/claude.pwd")" = "$(cd "$C/work" && pwd -P)" ]
 expect "codex not run" [ ! -f "$C/state/codex.calls" ]
 expect "one log line" [ "$(wc -l < "$LOG" | tr -d ' ')" -eq 1 ]
@@ -90,7 +93,7 @@ new_case "claude limit -> codex ok" claude codex; mode claude limit; mode codex 
 job --bot jarvis --order claude,codex,hermes --dir "$C/work" -- "$TASK"; RC=$?
 expect "exit 0 (got $RC)" [ "$RC" -eq 0 ]
 expect "codex ran" has "$C/out" "codex did the work"
-expect "codex flags" [ "$(cat "$C/state/codex.args")" = "$(printf 'exec\n--full-auto\n%s' "$TASK")" ]
+expect "codex flags" has "$C/state/codex.args" "$(printf 'exec\n--full-auto\n--model\nsynthetic-model\n-c\nmodel_reasoning_effort="high"\n%s' "$TASK")"
 expect "codex cwd" [ "$(cat "$C/state/codex.pwd")" = "$(cd "$C/work" && pwd -P)" ]
 line_matches '^code-job: codex ok · waited 0s · ran [0-9]+s · peak [0-9]+ MB · skipped claude: limit$' "summary line"
 expect "log agent codex, skipped claude: limit" [ "$(field 3)|$(field 7)|$(field 8)" = "codex|0|claude: limit" ]

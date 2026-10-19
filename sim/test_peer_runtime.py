@@ -11,11 +11,13 @@ import subprocess
 import tempfile
 import time
 import unittest
+import sys
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 MSG = ROOT / "Resources/Skills/swarmhub-messages/scripts/bot-msg"
 RUNTIME = MSG.with_name("peer-runtime.py")
+sys.path.insert(0, str(RUNTIME.parent))
 JOB = ROOT / "Resources/Skills/swarmhub-coding/scripts/code-job"
 spec = importlib.util.spec_from_file_location("peer_runtime", RUNTIME)
 peer = importlib.util.module_from_spec(spec)
@@ -31,6 +33,7 @@ class PeerTests(unittest.TestCase):
         self.patcher = patch.dict(os.environ, self.env, clear=True)
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
+        self.addCleanup(self.stop_background)
         self.keys = {"sender": "synthetic-sender", "worker": "synthetic-worker",
                      "recipient": "synthetic-recipient", "coordinator": "synthetic-coordinator"}
         for name, key in self.keys.items():
@@ -52,6 +55,25 @@ class PeerTests(unittest.TestCase):
                         SWARMHUB_GATEWAY="http://127.0.0.1:1")
         os.environ.update(self.env)
         self.sync()
+
+    def stop_background(self):
+        # ready precedes code-job's final wake-start/logging. Let launchers exit
+        # before stopping recovery so no late child can recreate the temp HOME.
+        for pidfile in (self.home / ".hermes/swarmhub/job-completions").glob("job.*/pid"):
+            pid = int(pidfile.read_text())
+            deadline = time.monotonic() + 3
+            while peer.control.process_alive(pid) and time.monotonic() < deadline:
+                time.sleep(.01)
+            if peer.control.process_alive(pid):
+                peer.control.terminate(pid)
+        pidfile = self.home / ".hermes/swarmhub/job-wake.pid"
+        if pidfile.exists():
+            pid = int(pidfile.read_text())
+            if peer.control.process_alive(pid):
+                peer.control.terminate(pid)
+                deadline = time.monotonic() + 3
+                while peer.control.process_alive(pid) and time.monotonic() < deadline:
+                    time.sleep(.01)
 
     def sync(self):
         (self.curl_state / "config").write_text(json.dumps({
@@ -225,7 +247,8 @@ class PeerTests(unittest.TestCase):
         env = dict(self.env, PATH=str(bin_dir) + ":" + self.env["PATH"], CODE_JOB_TICK="0.05",
                    HERMES_SESSION_ID="swarmhub-from-sender")
         result = subprocess.run(["/bin/sh", str(JOB), "--bot", "worker",
-                                 "--order", "codex", "--dir", str(self.home), "--", "private task text"],
+                                 "--order", "codex", "--model", "synthetic-model", "--report", "report.txt",
+                                 "--dir", str(self.home), "--", "private task text"],
                                 env=env, capture_output=True, text=True, timeout=12)
         self.assertEqual(result.returncode, 7, result.stderr)
         jobs = list((peer.state() / "job-completions").glob("job.*"))

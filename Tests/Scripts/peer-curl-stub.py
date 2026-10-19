@@ -19,7 +19,11 @@ auth = keyline.removeprefix('header = "').removesuffix('"')
 with (state / "requests").open("a") as f:
     fcntl.flock(f, fcntl.LOCK_EX)
     f.write(json.dumps([path, body, auth.removeprefix("Authorization: ")]) + "\n")
-if auth != "Authorization: Bearer " + config["keys"][profile]:
+if config.get("gateway_offline"):
+    Path(args[args.index("-o") + 1]).write_text("")
+    print("000", end="")
+    sys.exit(7)
+elif auth != "Authorization: Bearer " + config["keys"][profile]:
     status, output = 401, "{}"
 elif path.endswith("/api/sessions"):
     status, output = 201, "{}"

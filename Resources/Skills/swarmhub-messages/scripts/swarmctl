@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""SwarmHub local control. JSON payloads are read from stdin, never shell-evaluated."""
+import json
+import os
+import sys
+sys.dont_write_bytecode = True
+import swarm_control as control
+
+
+def main(args):
+    command, *args = args
+    if command == "register":
+        result = control.register(args[0], coordinator="--coordinator" in args[1:])
+        start()
+        return result
+    if command == "policy":
+        if args == ["set"]:
+            result = control.publish(json.load(sys.stdin))
+            start()
+            return result
+        return control.policy()
+    if command == "submit":
+        result = control.submit(json.load(sys.stdin))
+        start()
+        return result
+    if command == "replace":
+        result = control.replace(args[0], json.load(sys.stdin))
+        start()
+        return result
+    if command == "stop":
+        return control.stop(args[0])
+    if command == "decide":
+        if args[2] not in ("approve", "deny"):
+            raise ValueError("choose approve or deny")
+        control.decide(args[0], args[1], args[2] == "approve")
+        start()
+        return control.action(args[0])
+    if command == "status":
+        with control.database() as db:
+            return {"actions": [dict(r) for r in db.execute("SELECT id,gate,status,error FROM actions")],
+                    "deliveries": [dict(r) for r in db.execute("SELECT id,target,status,attempts,error FROM deliveries")]}
+    if command == "report":
+        sender, text = args
+        targets = control.reporting_targets()
+        ids = [control.enqueue(sender, target, text) for target in targets]
+        start()
+        return {"pending": ids, "targets": targets}
+    if command == "enqueue":
+        sender, target, task, text = args
+        ident = control.enqueue(sender, target, text, task)
+        start()
+        return "pending:" + ident
+    if command == "plan":
+        return control.coding_plan(args[0], args[1] == "1")
+    if command == "model":
+        return control.coding_model(args[0])
+    if command == "check-job":
+        control.check_job(*args)
+        return None
+    if command == "active":
+        if not control.active(args[0]):
+            raise ValueError("task is stopped, denied or awaiting approval")
+        return None
+    if command == "terminate":
+        control.terminate(int(args[0]))
+        return None
+    if command == "run-action":
+        control.run_action(args[0])
+        return None
+    if command == "tick":
+        import runpy
+        from pathlib import Path
+        runpy.run_path(str(Path(__file__).with_name("peer-runtime.py")))["worker"](once=True)
+        return None
+    raise ValueError("unknown command")
+
+
+def start():
+    import runpy
+    from pathlib import Path
+    runpy.run_path(str(Path(__file__).with_name("peer-runtime.py")))["start_worker"]()
+
+
+if __name__ == "__main__":
+    os.umask(0o077)
+    try:
+        result = main(sys.argv[1:])
+        if result is not None:
+            print(result if isinstance(result, str) else json.dumps(result, sort_keys=True))
+    except (ValueError, OSError, IndexError) as exc:
+        print("swarmctl: " + str(exc), file=sys.stderr)
+        sys.exit(64)

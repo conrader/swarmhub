@@ -1,7 +1,7 @@
 ---
 name: swarmhub-messages
 description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v{{VERSION}}."
-version: 1.2.0
+version: 1.3.0
 author: SwarmHub
 metadata:
   swarmhub:
@@ -55,3 +55,44 @@ Coding completion wakes use `bot-msg --priority --no-reply` internally. `bot-msg
 worker without a model call; plugin startup and code-job exit also start it. Configure unknown-origin fallback with
 `COORDINATOR=<profile>` in `~/.hermes/swarmhub/coding.conf` (preserve `SLOTS`), or `SWARMHUB_COORDINATOR` in the worker's
 environment. Credentials are resolved from the target profile at delivery time. Never copy keys into these settings.
+
+Durable priority delivery: add `--durable` for a journalled action message. It returns `pending:delivery.<id>`, meaning
+admitted, not delivered. The persistent worker retries until a terminal acknowledgement, including after restart.
+`scripts/swarmctl status` shows pending/delivered/cancelled, attempt count and the last error. Ordinary priority sends
+that cannot reach the gateway before submitting a chat also queue a retry, retain exit 3 and print a pending receipt
+on stderr. Use `--durable` when delivery must survive a crash at any point. A completed receiver turn acknowledges
+its stable delivery ID in the receiver journal; a lost sender ACK does not repeat acknowledged work.
+
+Register for wakes and global policy with `scripts/swarmctl register <profile>`. Add `--coordinator` to register the
+fallback coordinator. Installation registers the receiving profile automatically. Registration uses the existing
+profile gateway and its current `.env` reference; it creates no new public endpoint or webhook key and never prints
+or copies a credential. This provides the requested wake subscription through the existing authenticated gateway.
+
+The owner/coordinator can publish settings with JSON on stdin, for example:
+```
+printf '%s\n' '{"coordinator":"jarvis","owner":"konrad","route":"codex","allow_speculative":false,"timezone":"Europe/Warsaw","start":480,"end":1380}' | <skill-dir>/scripts/swarmctl policy set
+```
+Use actual local profile names. Settings persist independently of sessions. Subscribers receive each revision on
+their next turn; managed admission and CLI dispatch read the current settings regardless of prompt text. `route`
+controls coding CLI selection; it does not reconfigure the chat provider. Set `codex_model` to an explicit supported
+Codex model ID when rerouting jobs originally pinned to another provider's model. Never start speculative work while the
+policy forbids it. `scripts/swarmctl report <sender-profile> "<result>"` journals delivery to the coordinator at all
+hours and to the owner during the configured reporting window (08:00 inclusive to 23:00 exclusive by default).
+This uses the IANA timezone with daylight saving changes. The owner is a configured receiving profile, not an OS
+notification. Reports are routed when admitted and retain those recipients during retries.
+
+Managed actions use `scripts/swarmctl submit` with JSON on stdin. Supported kinds: `coding`, `peer`, `read`, `outbound`,
+`provision`, `money`, `prod`, `secrets`. Every action has `bot` and a stable `intent`. Peer actions include `to`, `text`
+and optionally `parent`; external actions use an immutable `argv` array. Money/prod/secrets risks and provisioning
+require the owner; real outbound text requires the coordinator. Only absolute system `pwd`, `ls`, `stat` commands
+are automatically allowed reads; other commands ask the owner. An outbound action with `fake: true` records FAKE
+without executing its argv. Stop/replace act on IDs; do not resubmit denied work with another ID or label.
+
+`scripts/swarmctl decide <task-id> <deciding-profile> approve|deny` is the local administrative decision interface.
+Only the configured role is accepted; the stored action is immutable and denial is final by intent and operation.
+Bots must present awaiting approvals to that role, never impersonate it to decide. All these scripts run under the
+owner's Unix account: this interface is a trusted local control plane, not identity isolation against a malicious
+bot with unrestricted shell/file access. Gates cover managed entrypoints; unrelated tools and external connectors
+still require their own permission boundaries. Use `--task-id <id>` on associated messages so Stop propagates to
+held messages and running streams. Gateways must cancel model runs when their client stream disconnects, as Hermes
+does; remote tool side effects already accepted cannot be undone by Stop.

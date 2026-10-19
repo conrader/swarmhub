@@ -1,0 +1,77 @@
+{
+  "mode": "offline",
+  "patterns": [
+    {
+      "pattern": "P01",
+      "grade": "matches",
+      "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
+      "test": "test_P01_result_next_step_standing_queue_and_receiver_dedupe",
+      "errors": []
+    },
+    {
+      "pattern": "P02",
+      "grade": "matches",
+      "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
+      "test": "test_P02_bot_registration_and_unknown_origin_fallback",
+      "errors": []
+    },
+    {
+      "pattern": "P03",
+      "grade": "matches",
+      "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
+      "test": "test_P03_held_fyi_priority_action_and_quiet_reply",
+      "errors": []
+    },
+    {
+      "pattern": "P04",
+      "grade": "matches",
+      "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
+      "test": "test_P04_explicit_execution_contract_rejects_empty_missing_and_stale_reports",
+      "errors": []
+    },
+    {
+      "pattern": "P05",
+      "grade": "matches",
+      "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
+      "test": "test_P05_global_quota_subscriptions_and_job_admission",
+      "errors": []
+    },
+    {
+      "pattern": "P06",
+      "grade": "matches",
+      "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
+      "test": "test_P06_priority_provisioning_owner_gate_and_secret_file_reference",
+      "errors": []
+    },
+    {
+      "pattern": "P07",
+      "grade": "matches",
+      "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
+      "test": "test_P07_final_denial_bound_outbound_scope_relaunch_and_peer_stop",
+      "errors": []
+    },
+    {
+      "pattern": "P08",
+      "grade": "matches",
+      "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
+      "test": "test_P08_timezone_reporting_boundaries_and_dst",
+      "errors": []
+    },
+    {
+      "pattern": "P09",
+      "grade": "matches",
+      "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
+      "test": "test_P09_reversible_allowlist_is_autonomous_and_outbound_fake_never_executes",
+      "errors": []
+    },
+    {
+      "pattern": "P10",
+      "grade": "matches",
+      "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
+      "test": "test_P10_unreachable_target_persistent_retry_and_truthful_pending_receipt",
+      "errors": []
+    }
+  ],
+  "model_calls": 0,
+  "limitations": "No live Hermes, Swift, provisioning provider or external outbound certification"
+}

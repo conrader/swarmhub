@@ -3,7 +3,7 @@ import Foundation
 /// P41: what a bot-msg step shows on the sender's side: asking, the recipient's reply, or sent (queued, failed, or no
 /// reply known).
 enum BotMessageChipState: Equatable {
-    case sent, held, asking, replied(String)
+    case sent, held, pending, asking, replied(String)
 }
 
 /// P41: bot-to-bot messages while they happen. The recipient works while a sender's bot-msg step runs (its sidebar row
@@ -15,7 +15,7 @@ extension AppStore {
         let me = profile(of: recipient)
         for turn in runningTurns.values where !turn.stopping {
             guard let assistant = turn.assistant, assistant.isStreaming, let senderID = turn.botID, senderID != recipient.id,
-                  let step = assistant.activity?.steps.last(where: { $0.isRunning && $0.botMessage?.to == me && $0.botMessage?.isHeld == false }), let call = step.botMessage
+                  let step = assistant.activity?.steps.last(where: { $0.isRunning && $0.botMessage?.to == me && $0.botMessage?.isDeferred == false }), let call = step.botMessage
             else { continue }
             return (call.from ?? bots.first { $0.id == senderID }.map(profile(of:)) ?? "", step)
         }
@@ -31,6 +31,7 @@ extension AppStore {
     /// the recipient's thread (its first line after the step started).
     func chipState(for step: ToolStep, key: BotThreadKey, streaming: Bool) -> BotMessageChipState {
         guard let call = step.botMessage else { return .sent }
+        if call.durable == true { return step.failed ? .sent : .pending }
         if call.isHeld { return step.failed ? .sent : .held }
         if ActivityCopy.isRunning(step, streaming: streaming) { return .asking }
         guard !call.noWait, !step.failed else { return .sent }

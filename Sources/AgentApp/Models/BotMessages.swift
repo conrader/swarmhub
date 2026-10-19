@@ -9,7 +9,10 @@ struct BotMessageCall: Codable, Equatable, Sendable {
     var oneshot: Bool?; var session: String?
     /// Absent in saved calls from older builds, which always woke immediately.
     var priority: Bool? = nil
-    var isHeld: Bool { priority == false }
+    var durable: Bool? = nil
+    var taskID: String? = nil
+    var isHeld: Bool { priority == false && durable != true }
+    var isDeferred: Bool { isHeld || durable == true }
 
     static let textLimit = 4000
 
@@ -30,7 +33,7 @@ struct BotMessageCall: Codable, Equatable, Sendable {
         guard command.contains("bot-msg") else { return nil }
         let words = ShellWords.split(command)
         guard let start = words.firstIndex(where: { isScript($0.word, quoted: $0.quoted) }) else { return nil }
-        var to: String?, from: String?, noWait = false, priority = false, text: [String] = []
+        var to: String?, from: String?, taskID: String?, noWait = false, priority = false, durable = false, text: [String] = []
         var index = start + 1, afterDashes = false
         while index < words.count {
             let (word, quoted) = words[index]
@@ -41,6 +44,8 @@ struct BotMessageCall: Codable, Equatable, Sendable {
                 case "--to": to = words[safe: index + 1]?.word; index += 1
                 case "--from": from = words[safe: index + 1]?.word; index += 1
                 case "--wait": index += 1
+                case "--task-id": taskID = words[safe: index + 1]?.word; index += 1
+                case "--durable": durable = true; priority = true
                 case "--no-wait": noWait = true
                 case "--priority": priority = true
                 case "--held": priority = false
@@ -53,6 +58,8 @@ struct BotMessageCall: Codable, Equatable, Sendable {
         guard let to, !to.isEmpty, to.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0)) }) else { return nil }
         var call = BotMessageCall(to: to, from: from, text: String(text.joined(separator: " ").prefix(textLimit)), noWait: noWait)
         call.priority = priority
+        call.durable = durable
+        call.taskID = taskID
         return call
     }
 
@@ -162,6 +169,7 @@ enum BotMessageCopy {
         switch state {
         case .sent: chip(name)
         case .held: "Held for \(name)’s next turn"
+        case .pending: "Delivery to \(name) pending"
         case .asking: asking(name)
         case .replied: replied(name)
         }

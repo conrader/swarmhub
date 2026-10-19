@@ -22,21 +22,23 @@
 
 usage() { echo "usage: bot-msg --to <bot> [--from <bot>] [--held | --priority [--wait <seconds> | --no-wait]] -- \"<text>\"" >&2; exit 64; }
 
-TO= FROM= WAIT=300 NOWAIT= PRIORITY= NOREPLY=
+TO= FROM= WAIT=300 NOWAIT= PRIORITY= NOREPLY= DURABLE= TASKID= STREAM_PID= RETRY_ATTEMPT=
 RUNTIME=$(dirname "$0")/peer-runtime.py
 if [ "${1:-}" = --retry ]; then
   exec python3 "$RUNTIME" start
 fi
 while [ $# -gt 0 ]; do
   case $1 in
-    --to|--from|--wait)
+    --to|--from|--wait|--task-id)
       [ $# -ge 2 ] || usage
-      case $1 in --to) TO=$2 ;; --from) FROM=$2 ;; --wait) WAIT=$2 ;; esac
+      case $1 in --to) TO=$2 ;; --from) FROM=$2 ;; --wait) WAIT=$2 ;; --task-id) TASKID=$2 ;; esac
       shift 2 ;;
     --no-wait) NOWAIT=1; shift ;;
     --priority) PRIORITY=1; shift ;;
     --held) PRIORITY=; shift ;;
     --no-reply) NOREPLY=1; shift ;;
+    --durable) DURABLE=1; PRIORITY=1; shift ;;
+    --retry-attempt) RETRY_ATTEMPT=1; shift ;;
     --) shift; break ;;
     *) usage ;;
   esac
@@ -54,11 +56,16 @@ fi
 case $TO in ''|*[!A-Za-z0-9_.-]*|.*) echo "bot-msg: --to must be a bot name" >&2; exit 64 ;; esac
 case $FROM in ''|*[!A-Za-z0-9_.-]*|.*) echo "bot-msg: --from must be a bot name (could not tell who is sending)" >&2; exit 64 ;; esac
 case $WAIT in ''|*[!0-9]*|0) echo "bot-msg: --wait must be a number of seconds" >&2; exit 64 ;; esac
+case $TASKID in *[!A-Za-z0-9_.-]*|.*) usage ;; esac
+if [ -n "$TASKID" ]; then python3 "$(dirname "$0")/swarmctl" active "$TASKID" || exit 125; fi
+if [ -n "$DURABLE" ]; then
+  exec python3 "$(dirname "$0")/swarmctl" enqueue "$FROM" "$TO" "$TASKID" "$TEXT"
+fi
 
 # Held is the default. No HTTP request, session creation or model turn until the recipient's next turn.
 if [ -z "$PRIORITY" ]; then
   if [ "$TO" != default ] && [ ! -d "$HOME/.hermes/profiles/$TO" ]; then echo "bot-msg: no bot named $TO on this box" >&2; exit 2; fi
-  exec python3 "$RUNTIME" hold "$FROM" "$TO" "$TEXT"
+  exec python3 "$RUNTIME" hold "$FROM" "$TO" "$TEXT" "$TASKID"
 fi
 
 H=$HOME/.hermes
@@ -106,7 +113,7 @@ finish() {
   rm -rf "$T"
   exit "$rc"
 }
-trap 'finish 130' INT TERM
+trap '[ -n "$STREAM_PID" ] && python3 "$(dirname "$0")/swarmctl" terminate "$STREAM_PID"; finish 130' INT TERM
 
 # JSON string of stdin (LC_ALL=C: bytes pass through; quotes, backslashes, tabs, newlines escaped; other controls dropped).
 json_string() {
@@ -124,12 +131,21 @@ api() {
 }
 
 # The thread: create it; 409 means it is already there.
+queue_unreachable() {
+  # No chat was submitted yet, so admission to the retry queue cannot repeat an
+  # already-running model action. --durable journals before *any* network I/O.
+  if [ -z "$RETRY_ATTEMPT" ]; then
+    receipt=$(python3 "$(dirname "$0")/swarmctl" enqueue "$FROM" "$TO" "$TASKID" "$TEXT") &&
+      echo "bot-msg: unreachable; $receipt (not delivered)" >&2
+  fi
+}
 TITLE=$(printf 'From %s' "$FROM" | json_string)
 printf '{"id":"%s","title":%s,"source":"api_server"}' "$SID" "$TITLE" > "$T/create.json"
 code=$(api "$T/create.out" --max-time 20 -X POST --data-binary @"$T/create.json" "$URL/api/sessions")
 case $code in
   200|201|409) ;;
-  000) echo "bot-msg: the gateway for $TO did not answer: $(head -n 1 "$T/curl.err")" >&2; finish 3 ;;
+  000) echo "bot-msg: the gateway for $TO did not answer: $(head -n 1 "$T/curl.err")" >&2; queue_unreachable; finish 3 ;;
+  502|503|504) echo "bot-msg: the gateway for $TO answered HTTP $code" >&2; queue_unreachable; finish 3 ;;
   401|403) echo "bot-msg: the gateway for $TO refused its key (HTTP $code)" >&2; finish 3 ;;
   *) echo "bot-msg: the gateway for $TO answered HTTP $code" >&2; finish 3 ;;
 esac
@@ -229,7 +245,7 @@ deliver_late() {
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TO" "$FROM" "swarmhub-from-$TO" late-reply $(( $(now_ms) - START )) "$word" >> "$S/bot-messages.log"
 }
 
-if [ -n "$NOWAIT" ] && [ -z "$FOLLOW" ]; then
+if [ -n "$NOWAIT" ] && [ -z "$FOLLOW" ] && [ -z "$TASKID" ]; then
   # The run goes on in the background; its reply lands in the thread.
   KEYLINE=$(printf 'header = "Authorization: Bearer %s"' "$KEY")
   ( printf '%s\n' "$KEYLINE" | curl -sS -K - -o /dev/null --max-time 3600 -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
@@ -247,13 +263,23 @@ chmod 700 "$F"; cp "$T/chat.json" "$F/chat.json"
 KEYLINE=$(printf 'header = "Authorization: Bearer %s"' "$KEY")
 (
   printf '%s\n' "$KEYLINE" | curl -sS -K - -o "$F/stream" -w '%{http_code}' --max-time 1800 -N -H 'Content-Type: application/json' \
-    -H 'Accept: text/event-stream' -X POST --data-binary @"$F/chat.json" "$URL/api/sessions/$SID/chat/stream" > "$F/code" 2> "$F/curl.err"
-  echo $? > "$F/rc"
+    -H 'Accept: text/event-stream' -X POST --data-binary @"$F/chat.json" "$URL/api/sessions/$SID/chat/stream" > "$F/code" 2> "$F/curl.err" &
+  curl_pid=$!
+  if [ -n "$TASKID" ]; then
+    ( while kill -0 "$curl_pid" 2>/dev/null; do
+        if [ -f "$S/cancelled/$TASKID" ]; then kill -TERM "$curl_pid" 2>/dev/null; break; fi
+        sleep 0.2
+      done ) < /dev/null > /dev/null 2>&1 &
+    cancel_pid=$!
+  fi
+  wait "$curl_pid"; echo $? > "$F/rc"
+  [ -n "${cancel_pid:-}" ] && kill "$cancel_pid" 2>/dev/null
   if ! mkdir "$F/decided" 2>/dev/null; then
     [ -n "$FOLLOW" ] && deliver_late
     rm -rf "$F"
   fi
 ) < /dev/null > /dev/null 2>&1 &
+STREAM_PID=$!
 
 if [ -n "$NOWAIT" ]; then
   mkdir "$F/decided"

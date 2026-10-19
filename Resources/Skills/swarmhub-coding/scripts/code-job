@@ -2,27 +2,30 @@
 # code-job: run one coding task with the first available coding agent, one of SLOTS jobs at a time on this box.
 # Installed by SwarmHub with the swarmhub-coding skill. POSIX sh (dash, macOS sh); no flock/timeout/setsid.
 #
-#   code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- "<task>"
+#   code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] --model <id> --effort <level> --report <file> [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- "<task>"
 #
 # Exit: the agent's own code; 124 timeout; 75 + CODE_JOB_USE_DELEGATE on stdout when the order reaches hermes;
 # 69 when every agent in the order was skipped; 64 usage. Box-wide state lives in ~/.hermes/swarmhub/.
 
-usage() { echo "usage: code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- \"<task>\"" >&2; exit 64; }
+usage() { echo "usage: code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] --model <id> --effort <level> --report <file> [--dir <workdir>] [--timeout <s>] [--max-turns <n>] -- \"<task>\"" >&2; exit 64; }
 
 BOT= ORDER= DIR=. TIMEOUT=1800 MAXTURNS=40 ORIGIN=${SWARMHUB_ORDERING_BOT:-}
+MODEL=${CODE_JOB_MODEL:-} EFFORT=${CODE_JOB_EFFORT:-high} REPORT=${CODE_JOB_REPORT:-} TASKID= JOBID= SPECULATIVE=0
+ORIGIN_GIVEN=
 while [ $# -gt 0 ]; do
   case $1 in
-    --bot|--order|--dir|--timeout|--max-turns|--origin)
+    --bot|--order|--dir|--timeout|--max-turns|--origin|--model|--effort|--report|--task-id|--job-id)
       [ $# -ge 2 ] || usage
-      case $1 in --bot) BOT=$2 ;; --order) ORDER=$2 ;; --dir) DIR=$2 ;; --timeout) TIMEOUT=$2 ;; --max-turns) MAXTURNS=$2 ;; --origin) ORIGIN=$2 ;; esac
+      case $1 in --bot) BOT=$2 ;; --order) ORDER=$2 ;; --dir) DIR=$2 ;; --timeout) TIMEOUT=$2 ;; --max-turns) MAXTURNS=$2 ;; --origin) ORIGIN=$2; ORIGIN_GIVEN=1 ;; --model) MODEL=$2 ;; --effort) EFFORT=$2 ;; --report) REPORT=$2 ;; --task-id) TASKID=$2 ;; --job-id) JOBID=$2 ;; esac
       shift 2 ;;
+    --speculative) SPECULATIVE=1; shift ;;
     --) shift; break ;;
     *) usage ;;
   esac
 done
 [ $# -eq 1 ] && [ -n "$1" ] || usage
 TASK=$1
-if [ -z "$ORIGIN" ]; then
+if [ -z "$ORIGIN" ] && [ -z "$ORIGIN_GIVEN" ]; then
   case ${HERMES_SESSION_ID:-} in swarmhub-from-*) ORIGIN=${HERMES_SESSION_ID#swarmhub-from-} ;; esac
 fi
 case $BOT in ''|*[!A-Za-z0-9_.-]*) echo "code-job: --bot must be a bot name" >&2; exit 64 ;; esac
@@ -34,6 +37,21 @@ for a in $(echo "$ORDER" | tr ',' ' '); do
   case $a in claude|codex|hermes) ;; *) echo "code-job: unknown agent in --order: $a" >&2; exit 64 ;; esac
 done
 [ -d "$DIR" ] || { echo "code-job: no such directory: $DIR" >&2; exit 64; }
+case $EFFORT in low|medium|high|xhigh) ;; *) usage ;; esac
+case $MODEL in *[!A-Za-z0-9_./:-]*) usage ;; esac
+case $TASKID in *[!A-Za-z0-9_.-]*|.*) usage ;; esac
+case $JOBID in '') ;; job.*) case $JOBID in *[!A-Za-z0-9_.-]*) usage ;; esac ;; *) usage ;; esac
+DIR=$(cd "$DIR" && pwd -P) || exit 64
+case $REPORT in '') ;; /*) ;; *) REPORT=$DIR/$REPORT ;; esac
+CTL=$(dirname "$0")/../../swarmhub-messages/scripts/swarmctl
+if [ -f "$CTL" ]; then
+  ORDER=$(python3 "$CTL" plan "$ORDER" "$SPECULATIVE") || exit 77
+  MODEL=$(python3 "$CTL" model "$MODEL") || exit 77
+  if [ -n "$TASKID" ]; then
+    python3 "$CTL" check-job "$TASKID" "$BOT" "$DIR" "$MODEL" "$EFFORT" "$REPORT" "$TASK" "$ORDER" || exit 125
+  fi
+fi
+TASK=$(printf '%s\n\nWrite a fresh nonempty completion report to %s before finishing.' "$TASK" "$REPORT")
 
 # npm installs the CLIs into ~/.local (no root).
 case :$PATH: in *":$HOME/.local/bin:"*) ;; *) PATH=$HOME/.local/bin:$PATH; export PATH ;; esac
@@ -43,10 +61,20 @@ umask 077
 mkdir -p "$S/slots" && chmod 700 "$S" || exit 1
 # Publish metadata before starting the CLI; finish publishes ready only after all fields exist.
 mkdir -p "$S/job-completions" || exit 1
-JOB=$(mktemp -d "$S/job-completions/job.XXXXXXXX") || exit 1
+if [ -n "$JOBID" ]; then
+  JOB=$S/job-completions/$JOBID
+  mkdir "$JOB" || { echo "code-job: job already admitted: $JOBID" >&2; exit 73; }
+else
+  JOB=$(mktemp -d "$S/job-completions/job.XXXXXXXX") || exit 1
+fi
 printf '%s\n' "$BOT" > "$JOB/bot"
 printf '%s\n' "$ORIGIN" > "$JOB/origin"
 printf '%s\n' "$DIR" > "$JOB/directory"
+printf '%s\n' "$MODEL" > "$JOB/model"
+printf '%s\n' "$EFFORT" > "$JOB/effort"
+printf '%s\n' "$REPORT" > "$JOB/report"
+printf '%s\n' "$TASKID" > "$JOB/task-id"
+printf '%s\n' "$$" > "$JOB/pid"
 MSG=$(dirname "$0")/../../swarmhub-messages/scripts/bot-msg
 SLOTS=$(sed -n 's/^SLOTS=\([0-9][0-9]*\)[[:space:]]*$/\1/p' "$S/coding.conf" 2>/dev/null | tail -n 1)
 case $SLOTS in ''|0) SLOTS=1 ;; esac
@@ -90,9 +118,12 @@ finish() {
   release
   printf '%s\n' "$AGENT" > "$JOB/agent"
   printf '%s\n' "$rc" > "$JOB/exit"
+  [ -f "$JOB/cli-exit" ] || printf '%s\n' not-run > "$JOB/cli-exit"
   printf '%s\n' "$word" > "$JOB/status"
   printf '%s\n' "$WAITED" > "$JOB/waited"
   printf '%s\n' "$RAN" > "$JOB/ran"
+  exists=false; [ -n "$REPORT" ] && [ -f "$REPORT" ] && exists=true
+  printf '%s\n' "$exists" > "$JOB/report-exists"
   : > "$JOB/ready"
   if [ -f "$MSG" ]; then
     /bin/sh "$MSG" --retry >/dev/null 2>&1 || echo "code-job: wake pending in $JOB" >&2
@@ -146,6 +177,7 @@ take_slot() {
   [ -n "$SLOT" ] && return 0
   start=$(date +%s) said=
   until try_slot; do
+    [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ] && finish 125 cancelled
     if [ -z "$said" ]; then
       used=$(ls -d "$S"/slots/*.lock 2>/dev/null | wc -l | tr -d ' ')
       echo "Waiting for a free coding slot ($used in use)…" >&2; said=1
@@ -166,14 +198,16 @@ run_agent() {
   tee -a "$T/out" < "$T/o" & O1=$!
   tee -a "$T/out" < "$T/e" >&2 & O2=$!
   (
+    [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ] && exit 125
     cd "$DIR" || exit 1
     unset ANTHROPIC_API_KEY
+    SWARMHUB_REPORT_FILE=$REPORT; export SWARMHUB_REPORT_FILE
     case $1 in
       claude)
         if [ -f "$S/claude.token" ]; then CLAUDE_CODE_OAUTH_TOKEN=$(cat "$S/claude.token"); export CLAUDE_CODE_OAUTH_TOKEN; fi
         exec claude -p "$TASK" --permission-mode acceptEdits --allowedTools "Read,Edit,Write,Bash,Glob,Grep" \
-          --max-turns "$MAXTURNS" --output-format text ;;
-      codex) exec codex exec --full-auto "$TASK" ;;
+          --model "$MODEL" --effort "$EFFORT" --max-turns "$MAXTURNS" --output-format text ;;
+      codex) exec codex exec --full-auto --model "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" "$TASK" ;;
     esac
   ) < /dev/null > "$T/o" 2> "$T/e" &
   APID=$!
@@ -182,6 +216,7 @@ run_agent() {
   (
     t=0 peak=0 t0=$(date +%s)
     while kill -0 "$APID" 2>/dev/null; do
+      if [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ]; then : > "$T/cancelled"; kill_tree "$APID"; break; fi
       if [ $((t % 2)) -eq 0 ]; then
         r=$(tree_rss "$APID"); [ "${r:-0}" -gt "$peak" ] && { peak=$r; echo "$peak" > "$T/peak"; }
       fi
@@ -197,12 +232,20 @@ run_agent() {
   APID= MPID= O1= O2=
   p=$(cat "$T/peak" 2>/dev/null); [ "${p:-0}" -gt "$PEAK" ] && PEAK=$p
   [ -f "$T/timedout" ] && RC=124
+  [ -f "$T/cancelled" ] && RC=125
 }
 
 # Only the CLI's own error output: the last 20 lines of a failed run (task output may mention limits or logins).
 matches() { tail -n 20 "$T/out" | grep -Eiq "$1"; }
 
 for a in $(echo "$ORDER" | tr ',' ' '); do
+  [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ] && finish 125 cancelled
+  if [ -f "$CTL" ]; then
+    allowed=$(python3 "$CTL" plan "$ORDER" "$SPECULATIVE") || finish 77 failed
+    MODEL=$(python3 "$CTL" model "$MODEL") || finish 77 failed
+    printf '%s\n' "$MODEL" > "$JOB/model"
+    if [ "$allowed" = codex ] && [ "$a" != codex ]; then SKIPPED="$SKIPPED, $a: policy"; a=codex; fi
+  fi
   if [ "$a" = hermes ]; then
     AGENT=hermes
     echo CODE_JOB_USE_DELEGATE
@@ -210,9 +253,28 @@ for a in $(echo "$ORDER" | tr ',' ' '); do
   fi
   if ! command -v "$a" >/dev/null 2>&1; then SKIPPED="$SKIPPED, $a: missing"; continue; fi
   take_slot
+  if [ -f "$CTL" ]; then
+    allowed=$(python3 "$CTL" plan "$ORDER" "$SPECULATIVE") || finish 77 failed
+    MODEL=$(python3 "$CTL" model "$MODEL") || finish 77 failed
+    printf '%s\n' "$MODEL" > "$JOB/model"
+    if [ "$allowed" = codex ] && [ "$a" != codex ]; then
+      SKIPPED="$SKIPPED, $a: policy"; a=codex
+      command -v codex >/dev/null 2>&1 || finish 69 failed
+    fi
+  fi
   AGENT=$a
+  [ -n "$MODEL" ] && [ -n "$REPORT" ] || { echo "code-job: explicit --model and --report are required" >&2; finish 65 failed; }
+  # A pre-existing report cannot certify this run. Preserve it but require the CLI
+  # to replace/change it; completion-contract.py hashes the baseline privately.
+  python3 "$(dirname "$0")/completion-contract.py" baseline "$REPORT" "$JOB" || finish 65 failed
   run_agent "$a"
-  [ "$RC" -eq 0 ] && finish 0 ok
+  printf '%s\n' "$RC" > "$JOB/cli-exit"
+  if [ "$RC" -eq 0 ]; then
+    if python3 "$(dirname "$0")/completion-contract.py" verify "$REPORT" "$JOB" && [ -s "$T/out" ]; then finish 0 ok; fi
+    echo "code-job: empty job or missing/empty/unchanged report" >&2
+    finish 65 failed
+  fi
+  [ "$RC" -eq 125 ] && finish 125 cancelled
   [ "$RC" -eq 124 ] && finish 124 timeout
   if [ "$a" = claude ]; then
     login='Invalid API key|Please run /login|not logged in'

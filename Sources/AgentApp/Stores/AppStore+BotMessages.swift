@@ -60,7 +60,7 @@ extension AppStore {
         guard let sender = bot(forProfile: key.from) else { return [] }
         return botMessageSteps(of: sender).filter { $0.call.to == key.to }.enumerated().flatMap { index, item -> [BotThreadLine] in
             var lines = [BotThreadLine(id: "s\(index)", author: key.from, text: item.call.text, date: item.step.startedAt)]
-            if let reply = item.call.reply, !item.call.noWait, !item.call.isHeld, !SilentReply.isSilent(reply) { lines.append(BotThreadLine(id: "r\(index)", author: key.to, text: reply, date: item.step.finishedAt)) }
+            if let reply = item.call.reply, !item.call.noWait, !item.call.isDeferred, !SilentReply.isSilent(reply) { lines.append(BotThreadLine(id: "r\(index)", author: key.to, text: reply, date: item.step.finishedAt)) }
             return lines
         }
     }
@@ -114,7 +114,7 @@ extension AppStore {
         for sender in bots where sender.backend == .hermes {
             for item in botMessageSteps(of: sender) {
                 let key = BotThreadKey(from: profile(of: sender), to: item.call.to)
-                let reply = item.call.isHeld ? nil : item.call.reply.flatMap { SilentReply.isSilent($0) ? nil : $0 }
+                let reply = item.call.isDeferred ? nil : item.call.reply.flatMap { SilentReply.isSilent($0) ? nil : $0 }
                 add(key, line: reply ?? item.call.text, date: item.step.finishedAt ?? item.step.startedAt)
             }
         }
@@ -215,7 +215,7 @@ extension AppStore {
         let wasRunning = Set((before?.steps ?? []).filter { $0.isRunning && $0.botMessage != nil }.map(\.startedAt))
         guard !wasRunning.isEmpty else { return }
         for step in after.steps where !step.isRunning && wasRunning.contains(step.startedAt) {
-            guard let call = step.botMessage, !call.isHeld, let recipient = bot(forProfile: call.to), !needsKey(recipient) else { continue }
+            guard let call = step.botMessage, !call.isDeferred, let recipient = bot(forProfile: call.to), !needsKey(recipient) else { continue }
             let from = profile(of: sender)
             Task { await checkBotMessages(for: recipient, expecting: from) }
         }
