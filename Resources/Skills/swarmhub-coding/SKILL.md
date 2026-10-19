@@ -87,9 +87,10 @@ bind, private /proc and /dev/shm, signals confined to the sandbox, AF_UNIX socke
 commands work: `>/dev/null`, `git status`, node child processes, Python asyncio/multiprocessing/subprocess timeouts.
 Without a usable user namespace (unshare refused, or unshare granted but mount denied as under Ubuntu's AppArmor
 `apparmor_restrict_unprivileged_userns`) the same commands work in the **limited mode**: the workspace is granted entry
-by entry (no new top-level entries), `kill`/`tkill`/`tgkill` are answered by the unconfined launcher and reach only
-the verifier's own process tree and groups (`verify_signals.py`; `kill -1`, the launcher and every host process get
-EPERM), and shared memory is the host's /dev/shm opened by name (no listing, no directories; not private). The launcher
+by entry (no new top-level entries), `kill`/`tkill`/`tgkill`/`rt_sigqueueinfo`/`rt_tgsigqueueinfo` are answered by
+the unconfined launcher and reach only the verifier's own process tree and groups (`verify_signals.py`; `kill -1`, the
+launcher and every host process get EPERM; pidfd calls, ptrace, process_vm_*, kcmp and SIGIO owners are denied), and
+shared memory is the host's /dev/shm opened by name (no listing, no directories; not private). The launcher
 records the mode (`verify-mode`: `namespaced`, `fallback`, `seatbelt`) in the job record and the completion wake names
 the limited mode. If the limited mode cannot confine either, the verification is refused (exit 77). macOS uses sandbox-exec with a named Mach service allowlist (no pasteboard, LaunchServices,
 AppleEvents or keychain) and `.git` denied. Unsupported isolation fails the verification; there is no host-shell

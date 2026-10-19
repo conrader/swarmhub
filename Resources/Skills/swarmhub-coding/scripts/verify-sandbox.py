@@ -55,8 +55,15 @@ DENIED_SYSCALLS = ('socket', 'connect', 'bind', 'listen', 'accept', 'accept4', '
                    'process_vm_readv', 'mount', 'umount2', 'mount_setattr', 'open_tree', 'move_mount', 'fsopen',
                    'fsconfig', 'fsmount', 'fspick', 'pivot_root', 'unshare', 'setns', 'io_uring_setup', 'bpf',
                    'perf_event_open', 'keyctl', 'add_key', 'request_key', 'pidfd_getfd')
-# Limited mode: the first three are answered by the launcher (verify_signals.py); pidfd signalling stays denied.
-SIGNAL_SYSCALLS = ('kill', 'tkill', 'tgkill', 'pidfd_open', 'pidfd_send_signal')
+# Limited mode: every pid-addressed signal call is answered by the launcher (verify_signals.SUPERVISED_SYSCALLS);
+# pidfd signalling and kcmp (compares another process's files and memory) are denied. ptrace, process_vm_* and
+# pidfd_getfd are denied in every mode (DENIED_SYSCALLS).
+SIGNAL_SYSCALLS = ('kill', 'tkill', 'tgkill', 'rt_sigqueueinfo', 'rt_tgsigqueueinfo', 'pidfd_open',
+                   'pidfd_send_signal', 'kcmp')
+# A SIGIO/SIGURG owner is a pid or group the kernel signals later (fcntl F_SETOWN/F_SETOWN_EX, socket ioctls).
+F_SETOWN, F_SETOWN_EX, FIOSETOWN, SIOCSPGRP = 8, 15, 0x8901, 0x8902
+SIGNAL_OWNER_CALLS = (('fcntl', F_SETOWN), ('fcntl', F_SETOWN_EX), ('ioctl', FIOSETOWN), ('ioctl', SIOCSPGRP))
+CMD_MASK = 0xffffffff  # fcntl/ioctl take an unsigned int command: the upper register half must not dodge the rule.
 MODE_NAMESPACED, MODE_LIMITED, MODE_SEATBELT = 'namespaced', 'fallback', 'seatbelt'
 LIMITED_NOTE = ('no user namespace; .git is read-only entry by entry, new top-level workspace entries are denied, '
                 'signals reach only the verifier\'s own processes, shared memory is the host\'s /dev/shm by name')
@@ -219,6 +226,9 @@ def seccomp(signals_confined):
             # (verify_signals.py); pidfd signalling stays denied outright.
             for name in SIGNAL_SYSCALLS:
                 deny(name, SCMP_ACT_NOTIFY if name in verify_signals.SUPERVISED_SYSCALLS else eperm)
+            # Without a PID namespace an owner pid names a host process; owning one's own fds needs no owner call.
+            for name, command in SIGNAL_OWNER_CALLS:
+                deny(name, eperm, ArgCmp(1, SCMP_CMP_MASKED_EQ, CMD_MASK, command))
         # AF_UNIX pairs (stdio pipes of node, asyncio's self-pipe) are not network; nothing else is created.
         deny('socketpair', eperm, ArgCmp(0, SCMP_CMP_NE, AF_UNIX, 0))
         namespace_flags = CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWNET
@@ -267,10 +277,11 @@ def install_with_listener(sec, ctx):
 
 
 def supervised_syscalls():
-    """Syscall number -> name for the signal calls the launcher answers, resolved for this architecture."""
+    """Syscall number -> name for the signal calls the launcher answers and those it makes on their behalf,
+    resolved for this architecture."""
     sec = ctypes.CDLL('libseccomp.so.2')
     numbers = {}
-    for name in verify_signals.SUPERVISED_SYSCALLS:
+    for name in verify_signals.SUPERVISED_SYSCALLS + verify_signals.HELPER_SYSCALLS:
         number = sec.seccomp_syscall_resolve_name(name.encode())
         if number >= 0:
             numbers[number] = name

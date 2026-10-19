@@ -1,11 +1,14 @@
 """Signal supervisor for the verification sandbox's no-user-namespace fallback (Linux).
 
 Without a PID namespace, a seccomp filter alone cannot say "signal only your own processes": BPF sees pid
-numbers, not the process tree. The fallback therefore routes kill/tkill/tgkill through seccomp user
-notification to the unconfined launcher, which performs the signal itself (never SECCOMP_USER_NOTIF_FLAG_CONTINUE)
-after pinning the target with a pidfd and walking its parent chain to the sandbox root. The launcher is a child
-subreaper, so orphaned verifier processes stay in that tree. The verifier itself keeps pidfd_open and
-pidfd_send_signal denied (/proc/<pid> directory fds would also be accepted there).
+numbers, not the process tree. The fallback therefore routes every pid-addressed signal call (kill, tkill, tgkill,
+rt_sigqueueinfo, rt_tgsigqueueinfo) through seccomp user notification to the unconfined launcher, which performs
+the signal itself after pinning the target with a pidfd and walking its parent chain to the sandbox root. The only
+SECCOMP_USER_NOTIF_FLAG_CONTINUE is a sigqueue aimed at the caller's own thread group, which the kernel then
+handles with its own self-signal rules. The launcher is a child subreaper, so orphaned verifier processes stay in
+that tree. The verifier itself keeps pidfd_open, pidfd_send_signal, pidfd_getfd, ptrace and process_vm_* denied
+(/proc/<pid> directory fds would also be accepted by pidfd_send_signal), and cannot name a SIGIO owner
+(F_SETOWN, FIOSETOWN), so no other syscall delivers a signal to a pid it chooses.
 
 What is allowed: the caller itself, any descendant of the sandbox root, and process groups whose every member is
 such a descendant. Denied with EPERM: kill(-1), the launcher, its parents, and everything else on the host.
@@ -24,7 +27,12 @@ NOTIF_FORMAT, NOTIF_SIZE = 'QIIiIQ6Q', 80
 RESP_FORMAT, RESP_SIZE = 'QqiI', 24
 SECCOMP_IOCTL_NOTIF_RECV = 0xC0000000 | (NOTIF_SIZE << 16) | (ord('!') << 8) | 0
 SECCOMP_IOCTL_NOTIF_SEND = 0xC0000000 | (RESP_SIZE << 16) | (ord('!') << 8) | 1
-SUPERVISED_SYSCALLS = ('kill', 'tkill', 'tgkill')
+SECCOMP_IOCTL_NOTIF_ID_VALID = 0x40000000 | (8 << 16) | (ord('!') << 8) | 2
+SECCOMP_USER_NOTIF_FLAG_CONTINUE = 1
+SUPERVISED_SYSCALLS = ('kill', 'tkill', 'tgkill', 'rt_sigqueueinfo', 'rt_tgsigqueueinfo')
+HELPER_SYSCALLS = ('pidfd_send_signal',)  # Made by the launcher itself; denied to the verifier.
+SIGINFO_SIZE = 128  # sizeof(siginfo_t) on every Linux architecture.
+CONTINUE = -1  # decide(): let the kernel run the caller's own call (a sigqueue to its own thread group).
 PROC = Path('/proc')
 
 
@@ -56,8 +64,8 @@ class Supervisor:
     def __init__(self, listener, root, syscall_names):
         self.listener, self.root, self.launcher = listener, root, os.getpid()
         self.names = syscall_names  # syscall number -> name, resolved by the caller through libseccomp
+        self.numbers = {name: number for number, name in syscall_names.items()}
         self.libc = ctypes.CDLL(None, use_errno=True)
-        self.tgkill_number = next((n for n, name in syscall_names.items() if name == 'tgkill'), None)
 
     def descendant(self, pid):
         """pid is the sandbox root or below it. A pid reused by a host process can only make this walk fail
@@ -80,11 +88,51 @@ class Supervisor:
             raise PermissionError(errno.EPERM, 'outside the sandbox')
         return os.pidfd_open(pid)
 
-    def signal_process(self, pid, sig):
+    def call(self, name, *args):
+        """A raw syscall made by the launcher; 0 or the errno it failed with."""
+        number = self.numbers.get(name)
+        if number is None:
+            return errno.EPERM
+        if self.libc.syscall(number, *args) != 0:
+            return ctypes.get_errno() or errno.EPERM
+        return 0
+
+    def siginfo(self, notif_id, caller, address, sig):
+        """The caller's siginfo_t, copied once from its memory before anything is sent; only the copy is used.
+
+        The open of /proc/<tid>/mem is checked against the still-pending request (the tid could have been reused
+        if the caller was killed meanwhile). si_signo is set to `sig`, as rt_sigqueueinfo itself does."""
+        try:
+            fd = os.open('/proc/%d/mem' % caller, os.O_RDONLY | os.O_CLOEXEC)
+        except FileNotFoundError:
+            raise ProcessLookupError(errno.ESRCH, 'caller gone')
+        except OSError:
+            raise PermissionError(errno.EPERM, 'caller memory unreadable')
+        try:
+            try:
+                fcntl.ioctl(self.listener, SECCOMP_IOCTL_NOTIF_ID_VALID, struct.pack('Q', notif_id))
+            except OSError:
+                raise ProcessLookupError(errno.ESRCH, 'request no longer pending')
+            try:
+                data = os.pread(fd, SIGINFO_SIZE, address)
+            except (OSError, OverflowError):
+                data = b''
+        finally:
+            os.close(fd)
+        if len(data) != SIGINFO_SIZE:
+            raise OSError(errno.EFAULT, 'siginfo not readable')
+        info = bytearray(data)
+        struct.pack_into('i', info, 0, sig)
+        return (ctypes.c_char * SIGINFO_SIZE).from_buffer(info)
+
+    def signal_process(self, pid, sig, send=None):
+        """kill/rt_sigqueueinfo to one process: `send(pidfd)` returns 0 or an errno (default: a plain signal)."""
         fd = self.pinned(pid)
         try:
             if not self.descendant(pid):
                 return errno.EPERM
+            if send is not None:
+                return send(fd)
             signal.pidfd_send_signal(fd, sig)
         finally:
             os.close(fd)
@@ -114,22 +162,23 @@ class Supervisor:
                 os.close(fd)
         return 0
 
-    def signal_thread(self, tgid, tid, sig):
-        """tgkill: the thread group is pinned and checked; the kernel checks that tid belongs to it."""
-        if self.tgkill_number is None:
-            return errno.EPERM
+    def signal_thread(self, tgid, tid, sig, send=None):
+        """tgkill/rt_tgsigqueueinfo: the thread group is pinned and checked; the kernel checks that tid belongs to it.
+        `send()` returns 0 or an errno (default: tgkill)."""
         fd = self.pinned(tgid)
         try:
             if not self.descendant(tgid) or not (PROC / str(tgid) / 'task' / str(tid)).exists():
                 return errno.EPERM
-            if self.libc.syscall(self.tgkill_number, tgid, tid, sig) != 0:
-                return ctypes.get_errno() or errno.EPERM
+            return send() if send is not None else self.call('tgkill', tgid, tid, sig)
         finally:
             os.close(fd)
-        return 0
 
-    def decide(self, name, caller, args):
-        """Returns the errno for the response; 0 means the signal was sent."""
+    def decide(self, name, caller, args, notif_id=0):
+        """Returns the errno for the response; 0 means the signal was sent, CONTINUE that the kernel runs the call.
+
+        The sigqueue calls carry a caller-built siginfo. Aimed at the caller's own thread group they continue in the
+        kernel (which allows any si_code to oneself); aimed elsewhere the launcher sends the copied siginfo, and the
+        kernel then requires a negative si_code (SI_QUEUE), exactly as it would for the caller."""
         try:
             if name == 'kill':
                 pid, sig = int32(args[0]), int32(args[1])
@@ -145,6 +194,22 @@ class Supervisor:
                 tid, sig = int32(args[0]), int32(args[1])
                 tgid = status_field(tid, 'Tgid')
                 return errno.ESRCH if tgid is None else self.signal_thread(tgid, tid, sig)
+            if name == 'rt_sigqueueinfo':
+                pid, sig, address = int32(args[0]), int32(args[1]), args[2]
+                if pid == status_field(caller, 'Tgid'):
+                    return CONTINUE
+                if pid <= 0:
+                    return errno.ESRCH  # The kernel looks the pid up; there are no groups or broadcast here.
+                return self.signal_process(pid, sig, lambda fd: self.call(
+                    'pidfd_send_signal', fd, sig, self.siginfo(notif_id, caller, address, sig), 0))
+            if name == 'rt_tgsigqueueinfo':
+                tgid, tid, sig, address = int32(args[0]), int32(args[1]), int32(args[2]), args[3]
+                if tgid <= 0 or tid <= 0:
+                    return errno.EINVAL
+                if tgid == status_field(caller, 'Tgid'):
+                    return CONTINUE
+                return self.signal_thread(tgid, tid, sig, lambda: self.call(
+                    'rt_tgsigqueueinfo', tgid, tid, sig, self.siginfo(notif_id, caller, address, sig)))
         except ProcessLookupError:
             return errno.ESRCH
         except OSError as exc:
@@ -161,8 +226,10 @@ class Supervisor:
                 return exc.errno == errno.EINTR
             raise
         notif_id, caller, _flags, number, _arch, _ip, *args = struct.unpack(NOTIF_FORMAT, bytes(request))
-        error = self.decide(self.names.get(number), caller, args)
-        response = struct.pack(RESP_FORMAT, notif_id, 0, -error, 0)
+        error, flags = self.decide(self.names.get(number), caller, args, notif_id), 0
+        if error == CONTINUE:
+            error, flags = 0, SECCOMP_USER_NOTIF_FLAG_CONTINUE
+        response = struct.pack(RESP_FORMAT, notif_id, 0, -error, flags)
         try:
             fcntl.ioctl(self.listener, SECCOMP_IOCTL_NOTIF_SEND, bytearray(response), True)
         except OSError as exc:
