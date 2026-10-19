@@ -31,6 +31,15 @@ SECCOMP_IOCTL_NOTIF_ID_VALID = 0x40000000 | (8 << 16) | (ord('!') << 8) | 2
 SECCOMP_USER_NOTIF_FLAG_CONTINUE = 1
 SUPERVISED_SYSCALLS = ('kill', 'tkill', 'tgkill', 'rt_sigqueueinfo', 'rt_tgsigqueueinfo')
 HELPER_SYSCALLS = ('pidfd_send_signal',)  # Made by the launcher itself; denied to the verifier.
+# Limited mode: every pid-addressed signal call is answered by the launcher (SUPERVISED_SYSCALLS);
+# pidfd signalling and kcmp (compares another process's files and memory) are denied. ptrace, process_vm_* and
+# pidfd_getfd are denied in every mode (verify-sandbox.py's DENIED_SYSCALLS).
+SIGNAL_SYSCALLS = ('kill', 'tkill', 'tgkill', 'rt_sigqueueinfo', 'rt_tgsigqueueinfo', 'pidfd_open',
+                   'pidfd_send_signal', 'kcmp')
+# A SIGIO/SIGURG owner is a pid or group the kernel signals later (fcntl F_SETOWN/F_SETOWN_EX, socket ioctls).
+F_SETOWN, F_SETOWN_EX, FIOSETOWN, SIOCSPGRP = 8, 15, 0x8901, 0x8902
+SIGNAL_OWNER_CALLS = (('fcntl', F_SETOWN), ('fcntl', F_SETOWN_EX), ('ioctl', FIOSETOWN), ('ioctl', SIOCSPGRP))
+CMD_MASK = 0xffffffff  # fcntl/ioctl take an unsigned int command: the upper register half must not dodge the rule.
 SIGINFO_SIZE = 128  # sizeof(siginfo_t) on every Linux architecture.
 CONTINUE = -1  # decide(): let the kernel run the caller's own call (a sigqueue to its own thread group).
 PROC = Path('/proc')
