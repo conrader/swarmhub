@@ -396,7 +396,23 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
                   "Explain how to build, test and deploy, fix the parser",
                   "Explain the build, fix and test the parser",
                   "Explain the deploy, configure and run the server",
-                  "Explain the build, fix the parser"]
+                  "Explain the build, fix the parser",
+                  // Fixes16: a determiner and modifiers before a homograph make a noun object.
+                  "Explain why the nightly build, refactor and test the parser",
+                  "Explain why our nightly build, refactor and test the parser",
+                  "Explain why the slow test, fix and deploy the server",
+                  "Explain why the previous build, refactor and test the parser",
+                  "Explain why a clean build, refactor and test the parser",
+                  "Explain why their latest deploy, fix and test the parser",
+                  "Explain why this quick fix, refactor and test the parser",
+                  "Explain why the slow unit test, refactor and deploy the server",
+                  "Explain why our nightly smoke run, fix and test the parser",
+                  "Explain why our team's nightly build, refactor and test the parser",
+                  "Explain what the nightly build, refactor and test the parser",
+                  "Explain how the slow test, fix and deploy the server",
+                  "Can you explain why the nightly build, refactor and test the parser?",
+                  "Explain why the nightly build, and refactor and test the parser",
+                  "Explain why the nightly build, then fix the parser"]
     let general = ["Explain the result", "write the changelog", "summarize the meeting", "Explain this function",
                    "Describe how the users API works", "Summarize the test results", "What does this script do?",
                    "Write a blog post about Python", "Build a presentation for the board", "Draft the release notes",
@@ -498,7 +514,21 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
                    "Explain the deploy",
                    "Explain the build, write and update the summary",
                    "Explain why we install, configure and run, write and update the summary",
-                   "Why do we install, configure and run, fix and test the parser?"]
+                   "Why do we install, configure and run, fix and test the parser?",
+                   // Fixes16: modified nouns without commands and plural noun subjects stay general.
+                   "Explain why the nightly build fails",
+                   "Explain why our nightly build fails",
+                   "Explain why the slow test times out",
+                   "Explain what the slow unit test does",
+                   "Explain how the nightly build works",
+                   "Explain how the nightly build, test and deploy steps work",
+                   "Explain why the nightly build, write and update the summary",
+                   "Why does the nightly build fail?",
+                   "Explain why the senior developers build, test and deploy the server",
+                   "Explain why our senior developers fix, test and deploy the server",
+                   "Explain why the team members build, test and deploy the server",
+                   "Explain why the developers often build, test and deploy the server",
+                   "Explain why the developers also build, test and deploy the server"]
     for phrase in coding {
         #expect(GoalProtocol.looksLikeCoding(phrase), "expected coding: \(phrase)")
     }

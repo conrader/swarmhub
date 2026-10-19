@@ -74,6 +74,24 @@ def is_verb(word):
     return word in CHANGE_VERBS or word in CODING_ONLY_VERBS
 
 
+def looks_plural(word):
+    """A bare verb after a noun subject needs a plural subject ("the developers build"); "-ss/-us/-is" are not plural."""
+    return len(word) > 3 and word.endswith('s') and not word.endswith(('ss', 'us', 'is'))
+
+
+def follows_determiner(words, index):
+    """True when words[index] ends a noun phrase: a determiner, then up to three non-plural modifiers ("the nightly
+    build", "our slow unit test"). A comma, connector, marker or question word before the determiner ends the scan."""
+    for back in range(index - 1, max(index - 5, -1), -1):
+        word = words[back]
+        if word in NOUN_DETERMINERS:
+            return True
+        if word in SERIES_CONNECTORS or word in SUBORDINATE_MARKERS or word in QUESTION_STARTERS \
+                or word in CLAUSE_WORDS or looks_plural(word):
+            return False
+    return False
+
+
 def is_series_head(words, index, embedded, coordinated):
     """Require a predicate marker or an uncoordinated finite noun-subject clause, not a noun object.
     This mirrors isSeriesHead in Swift, including the determiner and compound-noun guards."""
@@ -84,7 +102,7 @@ def is_series_head(words, index, embedded, coordinated):
             previous == 'also' and index > 1 and words[index - 2] in SUBORDINATE_MARKERS):
         return True
     compound_noun = previous + ' ' + words[index] in CODE_PHRASES
-    return embedded == 'clause' and not coordinated and previous not in NOUN_DETERMINERS and not compound_noun
+    return embedded == 'clause' and not coordinated and not follows_determiner(words, index) and not compound_noun
 
 
 def verb_series_end(words, start):

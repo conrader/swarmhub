@@ -190,7 +190,27 @@ enum GoalProtocol {
         if subordinateMarkers.contains(previous)
             || (previous == "also" && index > 1 && subordinateMarkers.contains(words[index - 2])) { return true }
         let compoundNoun = codePhrases.contains { $0 == previous + " " + words[index] }
-        return embedded == .clause && !coordinated && !nounDeterminers.contains(previous) && !compoundNoun
+        return embedded == .clause && !coordinated && !followsDeterminer(words, at: index) && !compoundNoun
+    }
+
+    /// A bare verb after a noun subject needs a plural subject ("the developers build"); "-ss/-us/-is" are not plural.
+    static func looksPlural(_ word: String) -> Bool {
+        word.count > 3 && word.hasSuffix("s") && !word.hasSuffix("ss") && !word.hasSuffix("us") && !word.hasSuffix("is")
+    }
+
+    /// Fixes16: true when `words[index]` ends a noun phrase: a determiner, then up to three non-plural modifiers ("the
+    /// nightly build", "our slow unit test"). A comma, connector, marker or question word before the determiner ends
+    /// the scan.
+    static func followsDeterminer(_ words: [String], at index: Int) -> Bool {
+        var back = index - 1
+        while back >= 0 && back >= index - 4 {
+            let word = words[back]
+            if nounDeterminers.contains(word) { return true }
+            if seriesConnectors.contains(word) || subordinateMarkers.contains(word) || questionStarters.contains(word)
+                || clauseWords.contains(word) || looksPlural(word) { return false }
+            back -= 1
+        }
+        return false
     }
 
     /// Index of the last verb when `words[start...]` begins "V2, V3", "V2 and V3" or "V2, and then V3", else nil.
