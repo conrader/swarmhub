@@ -1,0 +1,110 @@
+[
+  {
+    "time": "2026-10-19T14:03:23.512Z",
+    "type": "session_meta",
+    "payload": {
+      "id": "01a15479-5cfd-7243-86a4-84b191140659",
+      "timestamp": "2026-10-19T14:03:22.240Z",
+      "cwd": "/tmp/QA-LIVE9-et3x3wqq/QA-repo",
+      "cli_version": "0.163.0",
+      "model_provider": "openai"
+    }
+  },
+  {
+    "time": "2026-10-19T14:03:23.512Z",
+    "type": "event_msg",
+    "payload": {
+      "type": "task_started",
+      "turn_attribution": {
+        "turn_id": "01a15479-61f4-76f2-be72-2603ee6adff9",
+        "turn_trigger": "exec",
+        "parent_turn_id": null,
+        "initiating_agent_path": null,
+        "root_turn_id": "01a15479-61f4-76f2-be72-2603ee6adff9"
+      },
+      "turn_id": "01a15479-61f4-76f2-be72-2603ee6adff9",
+      "root_turn_id": "01a15479-61f4-76f2-be72-2603ee6adff9",
+      "started_at": 1792418603,
+      "model_context_window": 258400,
+      "collaboration_mode_kind": "default"
+    }
+  },
+  {
+    "time": "2026-10-19T14:03:26.784Z",
+    "type": "turn_context",
+    "payload": {
+      "turn_id": "01a15479-61f4-76f2-be72-2603ee6adff9",
+      "cwd": "/tmp/QA-LIVE9-et3x3wqq/QA-repo",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "approval_policy": "never",
+      "sandbox_policy": {
+        "type": "workspace-write",
+        "network_access": false,
+        "exclude_tmpdir_env_var": false,
+        "exclude_slash_tmp": false
+      }
+    }
+  },
+  {
+    "time": "2026-10-19T14:03:30.502Z",
+    "type": "response_item",
+    "payload": {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "",
+          "annotations": [],
+          "logprobs": []
+        }
+      ],
+      "phase": "final_answer"
+    }
+  },
+  {
+    "time": "2026-10-19T14:03:30.607Z",
+    "type": "token_usage_record",
+    "payload": {
+      "response_id": "resp_07b52c5d711864d6016ad6232f0ee48191b7f7d32dff219d32",
+      "usage": {
+        "input_tokens": 14064,
+        "cached_input_tokens": 12032,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 29,
+        "reasoning_output_tokens": 23,
+        "total_tokens": 14093
+      },
+      "turn_token_usage": {
+        "input_tokens": 14064,
+        "cached_input_tokens": 12032,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 29,
+        "reasoning_output_tokens": 23,
+        "total_tokens": 14093
+      },
+      "thread_token_usage": {
+        "input_tokens": 14064,
+        "cached_input_tokens": 12032,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 29,
+        "reasoning_output_tokens": 23,
+        "total_tokens": 14093
+      }
+    }
+  },
+  {
+    "time": "2026-10-19T14:03:30.612Z",
+    "type": "event_msg",
+    "payload": {
+      "type": "task_complete",
+      "root_turn_id": "01a15479-61f4-76f2-be72-2603ee6adff9",
+      "turn_id": "01a15479-61f4-76f2-be72-2603ee6adff9",
+      "last_agent_message": null,
+      "started_at": 1792418603,
+      "completed_at": 1792418610,
+      "duration_ms": 7101
+    }
+  }
+]

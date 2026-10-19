@@ -1,0 +1,8 @@
+{
+  "source_auth_config_unchanged": true,
+  "files": [
+    "auth.json",
+    "config.toml"
+  ],
+  "comparison": "contents, mode, inode, mtime; no source values exported"
+}

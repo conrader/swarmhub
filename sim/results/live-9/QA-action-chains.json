@@ -1,0 +1,213 @@
+[
+  {
+    "label": "P01-Jarvis-relay",
+    "time_ns": 1792418519229608351,
+    "receiving_turn": "QA-bridge-002",
+    "action": {
+      "op": "relay",
+      "job": "job.f56bd0e729ee4805866ff473c3bd0450",
+      "instruction": "Completion reports worker exit 0, a fresh report, and verification command exit 0. HEAD is unchanged; report and implementation correctness remain unverified. Check whether this job has already been handled before repeating any action. Review the durable record, report, verification output, and actual diff; fix any issues and verify correctness. Commit the reviewed changes, rebuild and verify the resulting build, then select the next work under current policy. Report actual review findings, commit ID, build results, and selected next work; do not claim success without evidence."
+    }
+  },
+  {
+    "label": "P01-first-output-and-build",
+    "time_ns": 1792418519351640185,
+    "job": "task.f56bd0e729ee4805866ff473c3bd0450",
+    "report_sha256": "b478a45643a31e2303731f58323d7e806c669e701520baac73debbe05db1a394",
+    "fields": {
+      "status": "ok",
+      "exit": "0",
+      "cli-exit": "0",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "report": "/tmp/QA-LIVE9-et3x3wqq/QA-repo/QA-P01-first.txt",
+      "report-valid": "true",
+      "report-sha256": "b478a45643a31e2303731f58323d7e806c669e701520baac73debbe05db1a394",
+      "head-before": "30a382d2d4ea07839a942d04525eab0244981415",
+      "head-after": "30a382d2d4ea07839a942d04525eab0244981415",
+      "commit-evidence": "false",
+      "verify-exit": "0",
+      "tests-passed": "true"
+    },
+    "verification": {
+      "time_ns": 1792418519331324137,
+      "source_sha256": "ba1a531f581d2e6094e978ed6f7aca7a8d92eeb62c6e7ad73ee692f7f18bc772",
+      "compiled": true,
+      "tests_run": 2,
+      "passed": true
+    },
+    "proof_sha256": "b122e38c841476e5cd2cf1462d5bda0b228b1c37514955dfaee84e9bca4f3e58"
+  },
+  {
+    "label": "P01-ordering-reviewed",
+    "time_ns": 1792418530073828651,
+    "receiving_turn": "QA-bridge-004",
+    "action": {
+      "op": "review_commit_rebuild",
+      "job": "task.f56bd0e729ee4805866ff473c3bd0450",
+      "report_sha256": "b478a45643a31e2303731f58323d7e806c669e701520baac73debbe05db1a394",
+      "head": "30a382d2d4ea07839a942d04525eab0244981415",
+      "review": "The supplied source diff corrects add(a, b) from subtraction to addition, matching the stated task, with no other function changes shown. Independent verification records successful compilation and two passing tests with verification exit 0; test inputs are not provided, so broader coverage cannot be assessed. The report claims a NOTES.md append and no changes to protected files, but those claims are not independently established by the supplied source-only diff. Completion evidence shows HEAD unchanged and commit-evidence false, so no commit or post-commit build success is claimed. No prior review-action receipt is supplied; check the durable action record for duplicate handling before committing. Commit the reviewed changes and review only if the bindings and pending state match, and return the actual commit and rebuild/test receipt. Next-work selection remains pending that receipt."
+    }
+  },
+  {
+    "label": "P01-ordering-commit-rebuilt",
+    "time_ns": 1792418530232938902,
+    "head_before": "30a382d2d4ea07839a942d04525eab0244981415",
+    "head_after": "0b0bd07098979b14efda73bf5290acad928f8eeb",
+    "verification": {
+      "time_ns": 1792418530211644469,
+      "source_sha256": "ba1a531f581d2e6094e978ed6f7aca7a8d92eeb62c6e7ad73ee692f7f18bc772",
+      "compiled": true,
+      "tests_run": 2,
+      "passed": true
+    }
+  },
+  {
+    "label": "P01-ordering-selected-next",
+    "time_ns": 1792418535119183100,
+    "receiving_turn": "QA-bridge-006",
+    "action": {
+      "op": "launch_next",
+      "head": "0b0bd07098979b14efda73bf5290acad928f8eeb",
+      "build_sha256": "b712534e979e0317a611041be493c78117db185e011cfbb8188d7f529fab1d42",
+      "next": "multiply"
+    }
+  },
+  {
+    "label": "P01-next-submitted-unasked",
+    "time_ns": 1792418535193439536,
+    "job": "task.6eca136d862446a6889228b4a67efe09",
+    "selected_by": "P01-ordering-selected-next",
+    "preloaded_queue": false
+  },
+  {
+    "label": "P01-next-verified",
+    "time_ns": 1792418600409631184,
+    "job": "task.6eca136d862446a6889228b4a67efe09",
+    "report_sha256": "00ff6816fece95c2a737b496cc7329dc9fa9ac157b148a938bcd9db12a732812",
+    "fields": {
+      "status": "ok",
+      "exit": "0",
+      "cli-exit": "0",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "report": "/tmp/QA-LIVE9-et3x3wqq/QA-repo/QA-P01-next-multiply.txt",
+      "report-valid": "true",
+      "report-sha256": "00ff6816fece95c2a737b496cc7329dc9fa9ac157b148a938bcd9db12a732812",
+      "head-before": "0b0bd07098979b14efda73bf5290acad928f8eeb",
+      "head-after": "02fdca30df00a9714d51ed3d029ca07dbeba0dd0",
+      "commit-evidence": "true",
+      "verify-exit": "0",
+      "tests-passed": "true"
+    },
+    "verification": {
+      "time_ns": 1792418600382295960,
+      "source_sha256": "e7f018d15cf4f7906638bfd1b52b2d18263b491ffd555320de3eb0b9cc970c3a",
+      "compiled": true,
+      "tests_run": 2,
+      "passed": true
+    },
+    "proof_sha256": "d2f8c12d48883d254c1a5dbff9c92fe8e0b284cb62ad629f39e948543b7d73a9"
+  },
+  {
+    "label": "P01-next-launched-unasked",
+    "time_ns": 1792418600413620408,
+    "job": "task.6eca136d862446a6889228b4a67efe09",
+    "cli_exit": "0",
+    "selected_by": "P01-ordering-selected-next",
+    "preloaded_queue": false
+  },
+  {
+    "label": "P04-real-empty-rejected",
+    "time_ns": 1792418622817277600,
+    "job": "task.5bd49699c669491c8230dfcc3818fe88",
+    "fields": {
+      "status": "failed",
+      "exit": "65",
+      "cli-exit": "0",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "report": "/tmp/QA-LIVE9-et3x3wqq/QA-repo/QA-P04-empty.txt",
+      "report-valid": "false",
+      "report-sha256": "missing-or-empty",
+      "head-before": "02fdca30df00a9714d51ed3d029ca07dbeba0dd0",
+      "head-after": "-",
+      "commit-evidence": "not-checked",
+      "verify-exit": "-",
+      "tests-passed": "not-run"
+    }
+  },
+  {
+    "label": "P04-Jarvis-corrected",
+    "time_ns": 1792418622829133235,
+    "receiving_turn": "QA-bridge-010",
+    "action": {
+      "op": "correct",
+      "job": "job.5bd49699c669491c8230dfcc3818fe88",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "instruction": "Relaunch the failed job to correct its output contract. The receipt reports exit 65, no report, and no verification run; nothing is verified. Produce a fresh, nonempty report at /tmp/QA-LIVE9-et3x3wqq/QA-repo/QA-P04-empty.txt. Independently check report freshness and contents against the actual work, review the implementation and commit state, and run /usr/bin/python3 /tmp/QA-LIVE9-et3x3wqq/QA-repo/QA-verify.py /tmp/QA-LIVE9-et3x3wqq/QA-repo add /tmp/QA-LIVE9-et3x3wqq/QA-repo/QA-P04-empty-verify.json. Inspect fresh verification output and actual test results before declaring success; report any remaining failures or blockers honestly. Do not repeat a correction already recorded for this job."
+    }
+  },
+  {
+    "label": "P04-receiver-requested-relaunch",
+    "time_ns": 1792418626118754063,
+    "receiving_turn": "QA-bridge-012",
+    "action": {
+      "op": "relaunch",
+      "failed_job": "task.5bd49699c669491c8230dfcc3818fe88",
+      "model": "gpt-6-astra",
+      "effort": "high"
+    }
+  },
+  {
+    "label": "P04-success-report-held-for-check",
+    "time_ns": 1792418685096492414,
+    "receiving_turn": "QA-bridge-014",
+    "action": {
+      "op": "await_independent_check",
+      "job": "job.476a47689cba4ce7acd2b976f6947e6d"
+    }
+  },
+  {
+    "label": "P04-fresh-output-independently-verified",
+    "time_ns": 1792418685225610642,
+    "job": "task.476a47689cba4ce7acd2b976f6947e6d",
+    "report_sha256": "022d4043ed7487c9892578c18f9ffa8a3d1b8128188fa784a1c48bf2b4d8dbc5",
+    "fields": {
+      "status": "ok",
+      "exit": "0",
+      "cli-exit": "0",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "report": "/tmp/QA-LIVE9-et3x3wqq/QA-repo/QA-P04-corrected.txt",
+      "report-valid": "true",
+      "report-sha256": "022d4043ed7487c9892578c18f9ffa8a3d1b8128188fa784a1c48bf2b4d8dbc5",
+      "head-before": "02fdca30df00a9714d51ed3d029ca07dbeba0dd0",
+      "head-after": "39588fea9604bb3ed5fd0fd908c912c14246957b",
+      "commit-evidence": "true",
+      "verify-exit": "0",
+      "tests-passed": "true"
+    },
+    "verification": {
+      "time_ns": 1792418685192764859,
+      "source_sha256": "e7f018d15cf4f7906638bfd1b52b2d18263b491ffd555320de3eb0b9cc970c3a",
+      "compiled": true,
+      "tests_run": 2,
+      "passed": true
+    },
+    "proof_sha256": "5f54af9ae2b184f2275204cbd8ef1381e529c88d92b78a613977b36684695e9f"
+  },
+  {
+    "label": "P04-success-after-independent-check",
+    "time_ns": 1792418692131100495,
+    "receiving_turn": "QA-bridge-016",
+    "action": {
+      "op": "report_success",
+      "job": "task.476a47689cba4ce7acd2b976f6947e6d",
+      "proof_sha256": "5f54af9ae2b184f2275204cbd8ef1381e529c88d92b78a613977b36684695e9f",
+      "summary": "Independent receipt confirms a fresh valid report at /tmp/QA-LIVE9-et3x3wqq/QA-repo/QA-P04-corrected.txt, worker and CLI exit 0, and commit evidence with HEAD 39588fea9604bb3ed5fd0fd908c912c14246957b. Source compilation succeeded; both tests passed and verification exited 0. This requests success reporting; bridge acceptance is not yet confirmed."
+    }
+  }
+]
