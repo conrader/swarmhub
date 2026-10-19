@@ -4,26 +4,29 @@
   "model": "gpt-6-astra",
   "effort": "high",
   "runner_unchanged": true,
-  "exit": 65,
+  "exit": 0,
   "fields": {
     "agent": "codex",
-    "status": "failed",
-    "exit": "65",
+    "status": "ok",
+    "exit": "0",
     "cli-exit": "0",
-    "report-valid": "false",
+    "report-valid": "true",
     "verify-command": "grep -Fxq 'gaps3 CLI tools work' NOTES.md && grep -Fxq 'command ran' COMMAND.txt",
-    "verify-exit": "-",
-    "tests-passed": "not-run",
-    "evidence": "none",
-    "commit-evidence": "not-checked"
+    "verify-exit": "0",
+    "tests-passed": "true",
+    "evidence": "tests",
+    "commit-evidence": "false"
   },
   "runtime_modes": {
     "codex_home": "0o700",
     "runtime_dir": "0o700",
     "tmp_dir": "0o700"
   },
-  "artifacts": {},
-  "command_output": null,
-  "source_auth_config_unchanged": true,
+  "artifacts": {
+    "NOTES.md": "gaps3 CLI tools work\n",
+    "REPORT.md": "# Completion report\n\nCreated NOTES.md containing exactly `gaps3 CLI tools work` followed by one newline.\n\nRan this shell command:\n\n```sh\nprintf 'command ran\\n' > COMMAND.txt && grep -Fx 'gaps3 CLI tools work' NOTES.md && printf 'gaps3 CLI tools work\\n' | cmp - NOTES.md && printf 'command ran\\n' | cmp - COMMAND.txt\n```\n\nThe command exited with status 0. It wrote `command ran` followed by one newline to COMMAND.txt. The grep check printed `gaps3 CLI tools work`, and both byte-for-byte comparisons passed, including the trailing newlines.\n\nNo repository-configured verification command was present; the requested grep verification and additional exact-content checks passed. No commit was made. No network, external connectors, or other agents were used.\n"
+  },
+  "command_output": "command ran\n",
+  "source_auth_config_unchanged": false,
   "no_messaging_sibling": true
 }
