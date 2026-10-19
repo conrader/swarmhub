@@ -178,6 +178,14 @@ enum GoalProtocol {
     static let seriesConnectors: Set<String> = [",", "and", "or", "then", "plus", "also"]
     static let nounDeterminers: Set<String> = ["a", "an", "the", "this", "that", "these", "those", "my", "your",
                                               "our", "their", "his", "her", "its", "some", "any", "each", "every"]
+    /// Lowercased platform/tool names whose final s is not a plural ending.
+    static let nonPluralModifiers: Set<String> = ["windows", "macos", "ios", "tvos", "watchos", "jenkins", "kubernetes"]
+    /// Quantity words can stand for a plural subject ("these two build", "the many build").
+    static let pluralQuantifiers: Set<String> = ["both", "all", "many", "several", "few", "two", "three", "four", "five",
+                                                "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen",
+                                                "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+                                                "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+                                                "hundred", "thousand", "million", "billion"]
 
     static func isVerb(_ word: String) -> Bool { changeVerbs.contains(word) || codingOnlyVerbs.contains(word) }
 
@@ -193,19 +201,24 @@ enum GoalProtocol {
         return embedded == .clause && !coordinated && !followsDeterminer(words, at: index) && !compoundNoun
     }
 
-    /// A bare verb after a noun subject needs a plural subject ("the developers build"); "-ss/-us/-is" are not plural.
+    /// A plural-subject hint: quantity words or an s suffix, excluding known names and -ss/-us/-is.
     static func looksPlural(_ word: String) -> Bool {
-        word.count > 3 && word.hasSuffix("s") && !word.hasSuffix("ss") && !word.hasSuffix("us") && !word.hasSuffix("is")
+        if nonPluralModifiers.contains(word) { return false }
+        return pluralQuantifiers.contains(word)
+            || (word.count > 3 && word.hasSuffix("s") && !word.hasSuffix("ss") && !word.hasSuffix("us") && !word.hasSuffix("is"))
     }
 
     /// Fixes16: true when `words[index]` ends a noun phrase: a determiner, then up to three non-plural modifiers ("the
     /// nightly build", "our slow unit test"). A comma, connector, marker or question word before the determiner ends
-    /// the scan.
+    /// the scan. Fixes17: quantity subjects also stop it; digits after a determiner count as quantities, while
+    /// version modifiers ("the Windows 11 build") can still reach their determiner.
     static func followsDeterminer(_ words: [String], at index: Int) -> Bool {
         var back = index - 1
         while back >= 0 && back >= index - 4 {
             let word = words[back]
             if nounDeterminers.contains(word) { return true }
+            if back > 0 && nounDeterminers.contains(words[back - 1])
+                && !word.isEmpty && word.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) { return false }
             if seriesConnectors.contains(word) || subordinateMarkers.contains(word) || questionStarters.contains(word)
                 || clauseWords.contains(word) || looksPlural(word) { return false }
             back -= 1

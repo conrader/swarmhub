@@ -9,7 +9,8 @@ import re
 
 SWIFT = Path(__file__).resolve().parents[1] / 'Sources/AgentApp/Models/ChatAutomation.swift'
 LISTS = ('explainVerbs', 'changeVerbs', 'codingOnlyVerbs', 'codeNouns', 'codePhrases', 'clauseWords', 'leadIns',
-         'askingVerbs', 'questionStarters', 'pronouns', 'subordinateMarkers', 'seriesConnectors', 'nounDeterminers')
+         'askingVerbs', 'questionStarters', 'pronouns', 'subordinateMarkers', 'seriesConnectors', 'nounDeterminers',
+         'nonPluralModifiers', 'pluralQuantifiers')
 
 
 def swift_lists(source=None):
@@ -37,6 +38,8 @@ PRONOUNS = set(_LISTS['pronouns'])
 SUBORDINATE_MARKERS = set(_LISTS['subordinateMarkers'])
 SERIES_CONNECTORS = set(_LISTS['seriesConnectors'])
 NOUN_DETERMINERS = set(_LISTS['nounDeterminers'])
+NON_PLURAL_MODIFIERS = set(_LISTS['nonPluralModifiers'])
+PLURAL_QUANTIFIERS = set(_LISTS['pluralQuantifiers'])
 
 
 def word_char(character):
@@ -75,17 +78,25 @@ def is_verb(word):
 
 
 def looks_plural(word):
-    """A bare verb after a noun subject needs a plural subject ("the developers build"); "-ss/-us/-is" are not plural."""
-    return len(word) > 3 and word.endswith('s') and not word.endswith(('ss', 'us', 'is'))
+    """A plural-subject hint: quantity words or an s suffix, excluding known names and -ss/-us/-is."""
+    if word in NON_PLURAL_MODIFIERS:
+        return False
+    return word in PLURAL_QUANTIFIERS or (
+        len(word) > 3 and word.endswith('s') and not word.endswith(('ss', 'us', 'is')))
 
 
 def follows_determiner(words, index):
     """True when words[index] ends a noun phrase: a determiner, then up to three non-plural modifiers ("the nightly
-    build", "our slow unit test"). A comma, connector, marker or question word before the determiner ends the scan."""
+    build", "our slow unit test"). A comma, connector, marker or question word before the determiner ends the scan.
+    Quantity subjects also stop it; digits after a determiner count as quantities, while version modifiers
+    ("the Windows 11 build") can still reach their determiner."""
     for back in range(index - 1, max(index - 5, -1), -1):
         word = words[back]
         if word in NOUN_DETERMINERS:
             return True
+        if back > 0 and words[back - 1] in NOUN_DETERMINERS \
+                and word and all('0' <= character <= '9' for character in word):
+            return False
         if word in SERIES_CONNECTORS or word in SUBORDINATE_MARKERS or word in QUESTION_STARTERS \
                 or word in CLAUSE_WORDS or looks_plural(word):
             return False
