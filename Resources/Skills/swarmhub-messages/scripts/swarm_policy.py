@@ -348,10 +348,8 @@ def stop_in_transaction(db, ident):
         ids = expanded
     if not any(r["id"] == ident for r in rows):
         raise ValueError("unknown task")
-    folder = state() / "cancelled"
-    folder.mkdir(exist_ok=True, mode=0o700)
     for task in ids:
-        (folder / task).touch(mode=0o600)
+        db.execute("INSERT OR IGNORE INTO cancellation_markers VALUES(?)", (task,))
         db.execute("UPDATE actions SET status='cancelled' WHERE id=? AND status NOT IN ('done','denied')", (task,))
         db.execute("UPDATE deliveries SET status='cancelled',error='Task stopped' WHERE task=? AND status!='delivered'", (task,))
     return sorted(ids)

@@ -35,10 +35,10 @@ extension AppStore {
         let address = bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL
         let profile = bot.hermesProfile ?? "default"
         if let host = URL(string: address)?.host, !["localhost", "127.0.0.1", "::1"].contains(host) {
-            guard !prefixIgnoredHermesProfiles.contains(profile) else { throw ManagedControlError.unavailable }
+            guard !prefixIgnoredHermesProfiles.contains(profile) else { throw ManagedControlError.unsent("This profile is unavailable.") }
             let account = Self.keyAccount(forProfile: profile)
             let key = keyStore.key(for: account)
-            if key.isEmpty, keyStore.needsReentry(account) { throw BackendError.unavailable(KeychainStore.reenterMessage) }
+            if key.isEmpty, keyStore.needsReentry(account) { throw ManagedControlError.unsent(KeychainStore.reenterMessage) }
             return try await ManagedRemoteControl.request(address: address, profile: profile, key: key,
                                                           verb: verb, task: task, input: input, session: hermesSession)
         }
@@ -61,24 +61,17 @@ extension AppStore {
             errorMessage = "The earlier decision is still awaiting a receipt. Retry that decision to reconcile it."
             return
         }
-        approvals[index].managedDecision = approved
+        let sendDecision = approvals[index].decisionPending != true
         managedDecisionsInFlight.insert(approval.id)
-        guard approvals[index].decisionPending != true else {
-            // A persisted uncertain decision can be reconciled by a fresh notification/status query.
-            Task { @MainActor in
-                defer { managedDecisionsInFlight.remove(approval.id) }
-                await reconcileManagedDecision(approval, bot: bot, approved: approved, original: original, sendDecision: false)
-            }
-            return
-        }
         approvals[index].decisionPending = true; save()
         Task { @MainActor in
             defer { managedDecisionsInFlight.remove(approval.id) }
-            await reconcileManagedDecision(approval, bot: bot, approved: approved, original: original, sendDecision: true)
+            await reconcileManagedDecision(approval, bot: bot, approved: approved, original: original, sendDecision: sendDecision)
         }
     }
 
     private func reconcileManagedDecision(_ approval: ApprovalRequest, bot: Bot, approved: Bool, original: ManagedRecord, sendDecision: Bool) async {
+        let earlierChoice = approvals.first(where: { $0.id == approval.id })?.managedDecision
         do {
             if let binding = original.remoteBinding {
                 let address = bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL
@@ -94,6 +87,9 @@ extension AppStore {
                         body["binding"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(binding))
                     }
                     let input = try JSONSerialization.data(withJSONObject: body)
+                    // Persist immediately before dispatch. A crash or lost reply from this point is uncertain.
+                    guard let index = approvals.firstIndex(where: { $0.id == approval.id }) else { return }
+                    approvals[index].managedDecision = approved; save()
                     receipt = try await managedRuntime(bot, verb: "decide", task: original.id, input: input)
                 }
             }
@@ -101,8 +97,23 @@ extension AppStore {
             approvals.removeAll { $0.id == approval.id }
             appendAudit(to: bot, approval: approval, outcome: approved ? .approved : .denied, decidedBy: "user",
                         reason: "Runtime confirmed bound decision.", rule: approval.rule)
+        } catch ManagedControlError.retired(let task, let origin, let runtime, let reason) {
+            if task == original.id, let binding = original.remoteBinding,
+               binding.origin == origin, binding.runtime == runtime {
+                approvals.removeAll { $0.id == approval.id }
+                appendAudit(to: bot, approval: approval, outcome: .asked, decidedBy: "system",
+                            reason: "Approval card retired: runtime reports \(reason). No decision was confirmed.", rule: approval.rule)
+            } else {
+                if let index = approvals.firstIndex(where: { $0.id == approval.id }) { approvals[index].decisionPending = false }
+                errorMessage = ManagedControlError.invalidRecord.localizedDescription
+            }
         } catch {
-            if let index = approvals.firstIndex(where: { $0.id == approval.id }) { approvals[index].decisionPending = false }
+            if let index = approvals.firstIndex(where: { $0.id == approval.id }) {
+                approvals[index].decisionPending = false
+                if let controlError = error as? ManagedControlError, case .unsent = controlError {
+                    approvals[index].managedDecision = earlierChoice
+                }
+            }
             errorMessage = error.localizedDescription
         }
         objectWillChange.send(); save()

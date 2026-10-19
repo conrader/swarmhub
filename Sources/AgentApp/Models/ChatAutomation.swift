@@ -149,7 +149,9 @@ enum GoalProtocol {
     /// start of the text, after ";", "!", "?", a newline or a sentence-ending ".", or after ",", "so" or "please"
     /// outside a question ("How do I add tests, then fix the build?" stays a question). "then", "now", "just", "also",
     /// "and" and "can/could/would/will you" may stand before it. A change verb is coding when a code noun follows it in
-    /// its clause, or when its object is a pronoun ("fix it") and the text names code. Otherwise the fixes7 rule decides.
+    /// its clause, or when its object is a pronoun ("fix it") and the text names code. After a descriptive request,
+    /// "and"/"then" opens another imperative, including polite "can you explain…" requests. How/why questions keep
+    /// their existing interpretation. Otherwise the fixes7 rule decides.
     static let clauseWords: Set<String> = ["so", "please"]
     static let leadIns: Set<String> = ["then", "now", "just", "also", "and"]
     static let askingVerbs: Set<String> = ["can", "could", "would", "will"]
@@ -171,10 +173,18 @@ enum GoalProtocol {
         for words in parts {
             let question = questionStarters.contains(words[0])
             var clauseStart = true
+            var explains = false
             var index = 0
             while index < words.count {
                 let word = words[index]
                 index += 1
+                if explains && (word == "and" || word == "then") {
+                    clauseStart = true
+                    continue
+                }
+                if clauseStart && explainVerbs.contains(word) && (!question || askingVerbs.contains(words[0])) {
+                    explains = true
+                }
                 if word == "," || clauseWords.contains(word) {
                     clauseStart = clauseStart || !question
                     continue

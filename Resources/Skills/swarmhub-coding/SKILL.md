@@ -1,7 +1,7 @@
 ---
 name: swarmhub-coding
 description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.4
+version: 1.3.5
 author: SwarmHub
 metadata:
   swarmhub:
@@ -89,11 +89,15 @@ Without a usable user namespace (unshare refused, or unshare granted but mount d
 `apparmor_restrict_unprivileged_userns`) the same commands work in the **limited mode**: the workspace is granted entry
 by entry (no new top-level entries), `kill`/`tkill`/`tgkill`/`rt_sigqueueinfo`/`rt_tgsigqueueinfo` are answered by
 the unconfined launcher and reach only the verifier's own process tree and groups (`verify_signals.py`; `kill -1`, the
-launcher and every host process get EPERM; pidfd calls, ptrace, process_vm_*, kcmp and SIGIO owners are denied), and
+launcher and every host process get EPERM; ptrace, process_vm_*, pidfd signalling and SIGIO owners are denied).
+Non-signal PID operations (limits, priority, scheduling, NUMA, robust-list reads and kcmp) are self-only;
+priority operations on groups/users are denied. pidfd_open is brokered for the own tree, process_madvise accepts self; inherited
+pidfds/sockets are discarded before confinement (`verify_processes.py`). All children inherit these restrictions, and
 shared memory is the host's /dev/shm opened by name (no listing, no directories; not private). The launcher
 records the mode (`verify-mode`: `namespaced`, `fallback`, `seatbelt`) in the job record and the completion wake names
 the limited mode. If the limited mode cannot confine either, the verification is refused (exit 77). macOS uses sandbox-exec with a named Mach service allowlist (no pasteboard, LaunchServices,
-AppleEvents or keychain) and `.git` denied. Unsupported isolation fails the verification; there is no host-shell
+AppleEvents or keychain) and `.git` write-denied, including linked worktree metadata. Exact Xcode license/selection
+files and the selected developer directory are readable so system toolchain shims can start (`verify_darwin.py`). Unsupported isolation fails the verification; there is no host-shell
 fallback. Managed coding tasks wait for the owner's decision unless the owner published `coding_gate: auto` (the
 sandboxed Codex route); an order that includes claude waits for the owner regardless. Additional host/network authority is not supported by this verifier and must not
 be obtained by changing the command. Use a separately owner-gated managed operation when extra authority is needed.

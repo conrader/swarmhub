@@ -77,10 +77,15 @@ def requests_code_in_a_clause(text):
     mentions_code = names_code(topic)
     for words in parts:
         question = words[0] in QUESTION_STARTERS
-        clause_start, index = True, 0
+        clause_start, index, explains = True, 0, False
         while index < len(words):
             word = words[index]
             index += 1
+            if explains and word in ('and', 'then'):
+                clause_start = True
+                continue
+            if clause_start and word in EXPLAIN_VERBS and (not question or words[0] in ASKING_VERBS):
+                explains = True
             if word == ',' or word in CLAUSE_WORDS:
                 clause_start = clause_start or not question
                 continue

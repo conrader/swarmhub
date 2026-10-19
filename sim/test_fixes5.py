@@ -142,23 +142,28 @@ class VerificationTests(unittest.TestCase):
     def test_B1_admitted_code_job_cannot_execute_host_verification(self):
         scripts = self.root / 'isolated/coding/scripts'; scripts.mkdir(parents=True)
         shipped = SANDBOX.parent
-        for name in ('code-job', 'completion-contract.py', 'verify-sandbox.py'):
+        for name in ('code-job', 'completion-contract.py', 'verify-sandbox.py', 'verify_signals.py', 'verify_processes.py', 'verify_darwin.py'):
             shutil.copyfile(shipped / name, scripts / name)
         fake_home = self.root / 'home'; fake_home.mkdir()
         stub_bin = self.root / 'bin'; stub_bin.mkdir()
         cli = stub_bin / 'codex'
         cli.write_text('#!/bin/sh\nprintf "%s" "$$" > "$SWARMHUB_REPORT_FILE"\necho synthetic-work\n')
         cli.chmod(0o755)
-        (self.repo / 'edited.py').write_text('from pathlib import Path\n' +
+        (self.repo / 'edited.py').write_text('from pathlib import Path\nPath("probe-reached").write_text("python")\n' +
                                            f'Path({str(self.outside)!r}).write_text("executed")\n')
-        commands = ['printf executed > ' + shlex.quote(str(self.outside)), '/usr/bin/python3 edited.py']
-        for command in commands:
+        commands = [('shell', 'printf shell > probe-reached; printf executed > ' + shlex.quote(str(self.outside))),
+                    ('python', '/usr/bin/python3 edited.py')]
+        for expected, command in commands:
+            (self.repo / 'probe-reached').write_text('')
             result = subprocess.run(['/bin/sh', str(scripts / 'code-job'), '--bot', 'QA', '--order', 'codex',
                                      '--model', 'synthetic-model', '--report', 'REPORT.txt', '--dir', str(self.repo),
                                      '--verify', command, '--', 'synthetic task'],
                                     env={'HOME': str(fake_home), 'PATH': str(stub_bin) + ':/usr/bin:/bin',
-                                         'CODE_JOB_TICK': '0.05'}, capture_output=True, text=True, timeout=10)
+                                         'CODE_JOB_TICK': '0.05', 'SWARMHUB_VERIFY_NAMESPACES': '0'}, capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 66, result.stderr)
+            self.assertEqual((self.repo / 'probe-reached').read_text(), expected)
+            self.assertNotIn('Xcode license', result.stdout + result.stderr)
+            self.assertNotIn('ModuleNotFoundError', result.stdout + result.stderr)
             self.assertFalse(self.outside.exists())
 
     def test_B1_missing_sandbox_fails_closed(self):

@@ -15,6 +15,8 @@ mkdir -p "$ROOT/skills/swarmhub-coding/scripts" || exit 1
 cp "$JOB" "$ROOT/skills/swarmhub-coding/scripts/code-job" || exit 1
 cp "$(dirname "$JOB")/completion-contract.py" "$ROOT/skills/swarmhub-coding/scripts/completion-contract.py" || exit 1
 cp "$(dirname "$JOB")/verify-sandbox.py" "$ROOT/skills/swarmhub-coding/scripts/verify-sandbox.py" || exit 1
+cp "$(dirname "$JOB")/verify_darwin.py" "$ROOT/skills/swarmhub-coding/scripts/verify_darwin.py" || exit 1
+cp "$(dirname "$JOB")/verify_processes.py" "$ROOT/skills/swarmhub-coding/scripts/verify_processes.py" || exit 1
 cp "$(dirname "$JOB")/verify_signals.py" "$ROOT/skills/swarmhub-coding/scripts/verify_signals.py" || exit 1
 JOB=$ROOT/skills/swarmhub-coding/scripts/code-job
 # Claude Code only runs for a managed task (--task-id) that the control interface's check-job accepted. The real

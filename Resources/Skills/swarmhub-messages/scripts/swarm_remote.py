@@ -76,6 +76,14 @@ class ControlService:
             db.execute("INSERT OR IGNORE INTO approval_runtime VALUES(1,?)", (str(uuid.uuid4()),))
             self.runtime = db.execute("SELECT identity FROM approval_runtime WHERE id=1").fetchone()[0]
 
+    def response(self, key, digest, request, **result):
+        payload = canonical({"request": digest, "expires": request["expires"], **result}).encode()
+        return {"payload": base64.b64encode(payload).decode(), "signature": mac(key, "response", payload)}
+
+    def retired(self, key, digest, request, reason):
+        return self.response(key, digest, request, retired={"task": request["task"], "origin": self.origin,
+                                                          "runtime": self.runtime, "reason": reason})
+
     def handle(self, path, authorization, signature, raw):
         """Pure HTTP boundary, also exercised without sockets by the offline tests."""
         if not path.startswith(PREFIX) or len(raw) > LIMIT:
@@ -107,29 +115,40 @@ class ControlService:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM actions WHERE id=?", (request["task"],)).fetchone()
             if not row:
+                if verb == "get":
+                    return self.retired(key, digest, request, "gone")
                 raise ValueError("unknown operation")
             record = dict(row)
             record["spec"] = load_json(record["spec"])
             if hashlib.sha256(canonical(record["spec"]).encode()).hexdigest() != record["fingerprint"]:
                 raise ValueError("corrupt operation")
-            record["decider"] = policy(db).get(record["gate"])
-            binding = {"origin": self.origin, "runtime": self.runtime, "profile": record["decider"]}
+            current_decider = policy(db).get(record["gate"])
+            record["decider"] = current_decider
+            binding = {"origin": self.origin, "runtime": self.runtime, "profile": current_decider}
             record["remoteBinding"] = binding
-            if profile not in (record["decider"], record["spec"].get("bot")):
-                raise ValueError("profile cannot read this operation")
             saved = db.execute("SELECT * FROM approval_receipts WHERE task=?", (record["id"],)).fetchone()
             if saved:
-                # Return the durable decision even if the worker has since completed/cancelled.
+                # Receipt ownership survives policy rotation. New decisions below still
+                # authenticate against the current policy, never this historical role.
                 receipt = load_json(saved["receipt"])
-                if (load_json(saved["binding"]) != binding or receipt["fingerprint"] != record["fingerprint"]
+                saved_binding = load_json(saved["binding"])
+                if (saved_binding != receipt.get("remoteBinding")
+                        or saved_binding != {"origin": self.origin, "runtime": self.runtime, "profile": receipt["decider"]}
+                        or receipt["fingerprint"] != record["fingerprint"]
                         or receipt["spec"] != record["spec"] or receipt["gate"] != record["gate"]):
                     raise ValueError("receipt scope changed")
                 record = receipt
+            if profile not in (record["decider"], record["spec"].get("bot")):
+                if verb == "get" and not saved:
+                    return self.retired(key, digest, request, "superseded")
+                raise ValueError("profile cannot read this operation")
+            if verb == "get" and not saved and record["status"] != "awaiting-" + record["gate"]:
+                return self.retired(key, digest, request, "superseded")
             if verb == "decide":
                 if time.time() >= request["expires"]:
                     raise ValueError("request expired while waiting for the runtime")
                 if (type(request["approved"]) is not bool or request["binding"] != binding
-                        or profile != record["decider"] or request["fingerprint"] != record["fingerprint"]
+                        or profile != current_decider or profile != record["decider"] or request["fingerprint"] != record["fingerprint"]
                         or request["gate"] != record["gate"]):
                     raise ValueError("decision binding mismatch")
                 old = db.execute("SELECT digest FROM approval_nonces WHERE nonce=?", (request["nonce"],)).fetchone()
@@ -152,8 +171,7 @@ class ControlService:
         # Decision + receipt commit together. Lost response/restart can never re-execute a decision.
         if verb == "decide" and request["approved"]:
             self.wake()  # Idempotent worker startup; an ACK lost here is reconciled by get.
-        payload = canonical({"request": digest, "expires": request["expires"], "record": record}).encode()
-        return {"payload": base64.b64encode(payload).decode(), "signature": mac(key, "response", payload)}
+        return self.response(key, digest, request, record=record)
 
 
 def serve(origin, port, wake):

@@ -43,7 +43,7 @@ class GoalClassifierPortTests(unittest.TestCase):
 
     def test_the_swift_table_is_classified_as_expected(self):
         coding, general = swift_table('coding'), swift_table('general')
-        self.assertEqual((len(coding), len(general)), (21, 17))
+        self.assertEqual((len(coding), len(general)), (27, 17))
         for phrase in coding:
             with self.subTest(coding=phrase):
                 self.assertTrue(goal_classifier.looks_like_coding(phrase))

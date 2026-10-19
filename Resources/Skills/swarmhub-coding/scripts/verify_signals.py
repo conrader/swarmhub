@@ -4,9 +4,10 @@ Without a PID namespace, a seccomp filter alone cannot say "signal only your own
 numbers, not the process tree. The fallback therefore routes every pid-addressed signal call (kill, tkill, tgkill,
 rt_sigqueueinfo, rt_tgsigqueueinfo) through seccomp user notification to the unconfined launcher, which performs
 the signal itself after pinning the target with a pidfd and walking its parent chain to the sandbox root. The only
-SECCOMP_USER_NOTIF_FLAG_CONTINUE is a sigqueue aimed at the caller's own thread group, which the kernel then
-handles with its own self-signal rules. The launcher is a child subreaper, so orphaned verifier processes stay in
-that tree. The verifier itself keeps pidfd_open, pidfd_send_signal, pidfd_getfd, ptrace and process_vm_* denied
+signal CONTINUE is a sigqueue aimed at the caller's own thread group, which the kernel then
+handles with its own self-signal rules. verify_processes.py additionally continues self-only non-signal calls.
+The launcher is a child subreaper, so orphaned verifier processes stay in
+that tree. The verifier itself keeps pidfd_send_signal, pidfd_getfd, ptrace and process_vm_* denied
 (/proc/<pid> directory fds would also be accepted by pidfd_send_signal), and cannot name a SIGIO owner
 (F_SETOWN, FIOSETOWN), so no other syscall delivers a signal to a pid it chooses.
 
@@ -22,20 +23,24 @@ import select
 import signal
 import struct
 
+import verify_processes
+
 # struct seccomp_notif {u64 id; u32 pid; u32 flags; struct seccomp_data {int nr; u32 arch; u64 ip; u64 args[6]}}
 NOTIF_FORMAT, NOTIF_SIZE = 'QIIiIQ6Q', 80
 RESP_FORMAT, RESP_SIZE = 'QqiI', 24
 SECCOMP_IOCTL_NOTIF_RECV = 0xC0000000 | (NOTIF_SIZE << 16) | (ord('!') << 8) | 0
 SECCOMP_IOCTL_NOTIF_SEND = 0xC0000000 | (RESP_SIZE << 16) | (ord('!') << 8) | 1
 SECCOMP_IOCTL_NOTIF_ID_VALID = 0x40000000 | (8 << 16) | (ord('!') << 8) | 2
+SECCOMP_IOCTL_NOTIF_ADDFD = 0x40000000 | (24 << 16) | (ord('!') << 8) | 3
+SECCOMP_ADDFD_FLAG_SEND = 2  # Atomically transfer the exact opened fd and answer the pending request.
+HANDLED = -2
 SECCOMP_USER_NOTIF_FLAG_CONTINUE = 1
 SUPERVISED_SYSCALLS = ('kill', 'tkill', 'tgkill', 'rt_sigqueueinfo', 'rt_tgsigqueueinfo')
 HELPER_SYSCALLS = ('pidfd_send_signal',)  # Made by the launcher itself; denied to the verifier.
 # Limited mode: every pid-addressed signal call is answered by the launcher (SUPERVISED_SYSCALLS);
-# pidfd signalling and kcmp (compares another process's files and memory) are denied. ptrace, process_vm_* and
+# pidfd signalling is denied; pidfd_open is brokered below, kcmp is self-only in verify_processes.py. ptrace, process_vm_* and
 # pidfd_getfd are denied in every mode (verify-sandbox.py's DENIED_SYSCALLS).
-SIGNAL_SYSCALLS = ('kill', 'tkill', 'tgkill', 'rt_sigqueueinfo', 'rt_tgsigqueueinfo', 'pidfd_open',
-                   'pidfd_send_signal', 'kcmp')
+SIGNAL_SYSCALLS = ('kill', 'tkill', 'tgkill', 'rt_sigqueueinfo', 'rt_tgsigqueueinfo', 'pidfd_send_signal')
 # A SIGIO/SIGURG owner is a pid or group the kernel signals later (fcntl F_SETOWN/F_SETOWN_EX, socket ioctls).
 F_SETOWN, F_SETOWN_EX, FIOSETOWN, SIOCSPGRP = 8, 15, 0x8901, 0x8902
 SIGNAL_OWNER_CALLS = (('fcntl', F_SETOWN), ('fcntl', F_SETOWN_EX), ('ioctl', FIOSETOWN), ('ioctl', SIOCSPGRP))
@@ -182,6 +187,24 @@ class Supervisor:
         finally:
             os.close(fd)
 
+    def open_pidfd(self, pid, flags, notif_id):
+        """Return only a pinned own-tree pidfd, never CONTINUE a checked foreign numeric PID.
+
+        ADDFD + SEND installs this exact descriptor and replies atomically; cancellation
+        cannot inject a descriptor into a later syscall. Needed by asyncio child watchers.
+        """
+        if pid <= 0 or pid == self.launcher:
+            return errno.EPERM
+        fd = os.pidfd_open(pid, flags)
+        try:
+            if not self.descendant(pid):
+                return errno.EPERM
+            addfd = bytearray(struct.pack('QIIII', notif_id, SECCOMP_ADDFD_FLAG_SEND, fd, 0, os.O_CLOEXEC))
+            fcntl.ioctl(self.listener, SECCOMP_IOCTL_NOTIF_ADDFD, addfd, True)
+            return HANDLED
+        finally:
+            os.close(fd)
+
     def decide(self, name, caller, args, notif_id=0):
         """Returns the errno for the response; 0 means the signal was sent, CONTINUE that the kernel runs the call.
 
@@ -189,6 +212,10 @@ class Supervisor:
         kernel (which allows any si_code to oneself); aimed elsewhere the launcher sends the copied siginfo, and the
         kernel then requires a negative si_code (SI_QUEUE), exactly as it would for the caller."""
         try:
+            if name == 'pidfd_open':
+                return self.open_pidfd(int32(args[0]), int32(args[1]), notif_id)
+            if name in verify_processes.SYSCALLS:
+                return verify_processes.decide(name, caller, args)
             if name == 'kill':
                 pid, sig = int32(args[0]), int32(args[1])
                 if pid == -1:
@@ -226,16 +253,22 @@ class Supervisor:
         return errno.EPERM
 
     def handle_one(self):
-        """One notification: False when the filter has no processes left (ENOENT)."""
+        """One notification. A vanished requesting thread does not end supervision."""
         request = bytearray(NOTIF_SIZE)
         try:
             fcntl.ioctl(self.listener, SECCOMP_IOCTL_NOTIF_RECV, request, True)
         except OSError as exc:
             if exc.errno in (errno.ENOENT, errno.EINTR):
-                return exc.errno == errno.EINTR
+                # A task may exit/be killed between poll and RECV (e.g. a child
+                # killed while its dynamic loader is asking for prlimit64).
+                # ENOENT is a cancelled notification, not the end of the tree;
+                # the root pidfd, not this race, decides when teardown is safe.
+                return True
             raise
         notif_id, caller, _flags, number, _arch, _ip, *args = struct.unpack(NOTIF_FORMAT, bytes(request))
         error, flags = self.decide(self.names.get(number), caller, args, notif_id), 0
+        if error == HANDLED:
+            return True
         if error == CONTINUE:
             error, flags = 0, SECCOMP_USER_NOTIF_FLAG_CONTINUE
         response = struct.pack(RESP_FORMAT, notif_id, 0, -error, flags)

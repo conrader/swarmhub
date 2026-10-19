@@ -70,8 +70,8 @@ SIGNAL_SUITE = textwrap.dedent('''
                 os.kill(-1, signal.SIGTERM)
             with self.assertRaises(PermissionError):
                 os.killpg(RUNNER_GROUP, 0)
-            with self.assertRaises(PermissionError):
-                os.pidfd_open(os.getpid())
+            # Fixes9: self pidfds are safe; signalling via pidfds stays denied.
+            os.close(os.pidfd_open(os.getpid()))
 
     if __name__ == "__main__":
         unittest.main(argv=[sys.argv[0]], verbosity=2)

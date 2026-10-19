@@ -22,60 +22,68 @@ enum ManagedRemoteControl {
 
     static func request(address: String, profile: String, key: String, verb: String, task: String, input: Data?,
                         session: URLSession? = nil, timeout: TimeInterval = 15) async throws -> ManagedRecord {
-        let origin = try origin(address: address)
-        guard !key.isEmpty, ManagedApproval.profileName(profile) != nil,
-              ManagedApproval.validTask(task) != nil, ["get", "decide"].contains(verb),
-              let url = URL(string: origin + "/swarmhub/control/v1/" + profile) else { throw ManagedControlError.unavailable }
-        let issued = Int(Date().timeIntervalSince1970)
-        var body: [String: Any] = ["version": 1, "origin": origin, "profile": profile, "verb": verb,
-                                  "task": task, "nonce": UUID().uuidString.lowercased(), "issued": issued, "expires": issued + 60]
-        if verb == "decide" {
-            guard let input, let decision = try JSONSerialization.jsonObject(with: input) as? [String: Any],
-                  Set(decision.keys) == ["approved", "fingerprint", "gate", "binding"] else { throw ManagedControlError.invalidRecord }
-            body.merge(decision) { _, value in value }
-        }
-        let raw = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"; request.httpBody = raw; request.timeoutInterval = timeout
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
-        request.setValue(signature(raw, key: key, purpose: "request"), forHTTPHeaderField: "X-SwarmHub-Signature")
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.httpShouldHandleCookies = false
-        #if DEBUG
-        if QAMode.enabled { request = try QAMode.boundary.native(request) }
-        #endif
-        let client: URLSession
-        if let session { client = session }
-        else {
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.httpCookieStorage = nil; configuration.urlCredentialStorage = nil
-            configuration.urlCache = nil; configuration.timeoutIntervalForResource = 20
-            client = URLSession(configuration: configuration)
-        }
-        defer { if session == nil { client.finishTasksAndInvalidate() } }
-        // Task delegate also applies to injected sessions; never leak credentials through a redirect.
-        let outbound = request
-        let (data, response) = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
-            defer { group.cancelAll() }
-            group.addTask { try await client.data(for: outbound, delegate: NoRedirect()) }
-            group.addTask {
-                try await Task.sleep(for: .seconds(timeout))
-                throw URLError(.timedOut)
+        var started = false
+        do {
+            let origin = try origin(address: address)
+            guard !key.isEmpty, ManagedApproval.profileName(profile) != nil,
+                  ManagedApproval.validTask(task) != nil, ["get", "decide"].contains(verb),
+                  let url = URL(string: origin + "/swarmhub/control/v1/" + profile) else { throw ManagedControlError.unavailable }
+            let issued = Int(Date().timeIntervalSince1970)
+            var body: [String: Any] = ["version": 1, "origin": origin, "profile": profile, "verb": verb,
+                                      "task": task, "nonce": UUID().uuidString.lowercased(), "issued": issued, "expires": issued + 60]
+            if verb == "decide" {
+                guard let input, let decision = try JSONSerialization.jsonObject(with: input) as? [String: Any],
+                      Set(decision.keys) == ["approved", "fingerprint", "gate", "binding"] else { throw ManagedControlError.invalidRecord }
+                body.merge(decision) { _, value in value }
             }
-            guard let result = try await group.next() else { throw ManagedControlError.unavailable }
-            return result
+            let raw = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"; request.httpBody = raw; request.timeoutInterval = timeout
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
+            request.setValue(signature(raw, key: key, purpose: "request"), forHTTPHeaderField: "X-SwarmHub-Signature")
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.httpShouldHandleCookies = false
+            #if DEBUG
+            if QAMode.enabled { request = try QAMode.boundary.native(request) }
+            #endif
+            let client: URLSession
+            if let session { client = session }
+            else {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.httpCookieStorage = nil; configuration.urlCredentialStorage = nil
+                configuration.urlCache = nil; configuration.timeoutIntervalForResource = 20
+                client = URLSession(configuration: configuration)
+            }
+            defer { if session == nil { client.finishTasksAndInvalidate() } }
+            // Task delegate also applies to injected sessions; never leak credentials through a redirect.
+            let outbound = request
+            started = true
+            let (data, response) = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
+                defer { group.cancelAll() }
+                group.addTask { try await client.data(for: outbound, delegate: NoRedirect()) }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(timeout))
+                    throw URLError(.timedOut)
+                }
+                guard let result = try await group.next() else { throw ManagedControlError.unavailable }
+                return result
+            }
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200, http.url == url,
+                  data.count <= 1_048_576 else { throw ManagedControlError.rejected }
+            return try verify(data, request: raw, key: key, origin: origin, task: task)
+        } catch {
+            if verb == "decide" && !started { throw ManagedControlError.unsent(error.localizedDescription) }
+            throw error
         }
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200, http.url == url,
-              data.count <= 1_048_576 else { throw ManagedControlError.rejected }
-        return try verify(data, request: raw, key: key, origin: origin, task: task)
     }
 
     static func verify(_ data: Data, request: Data, key: String, origin: String, task: String,
                        now: TimeInterval = Date().timeIntervalSince1970) throws -> ManagedRecord {
         struct Envelope: Decodable { let payload: String; let signature: String }
-        struct Response: Decodable { let request: String; let expires: Int; let record: ManagedRecord }
+        struct Retirement: Decodable { let task: String; let origin: String; let runtime: String; let reason: String }
+        struct Response: Decodable { let request: String; let expires: Int; let record: ManagedRecord?; let retired: Retirement? }
         let envelope = try JSONDecoder().decode(Envelope.self, from: data)
         guard let payload = Data(base64Encoded: envelope.payload), envelope.signature.count == 64 else { throw ManagedControlError.invalidRecord }
         // CryptoKit constant-time verification, with strict lowercase hexadecimal decoding.
@@ -92,11 +100,17 @@ enum ManagedRemoteControl {
         let digest = SHA256.hash(data: request).map { String(format: "%02x", $0) }.joined()
         let sent = try JSONSerialization.jsonObject(with: request) as? [String: Any]
         guard response.request == digest, Double(response.expires) > now,
-              response.expires == (sent?["expires"] as? Int),
-              response.record.id == task, let binding = response.record.remoteBinding,
+              response.expires == (sent?["expires"] as? Int) else { throw ManagedControlError.invalidRecord }
+        if let retired = response.retired {
+            guard response.record == nil, sent?["verb"] as? String == "get",
+                  retired.task == task, retired.origin == origin, UUID(uuidString: retired.runtime) != nil,
+                  ["gone", "superseded"].contains(retired.reason) else { throw ManagedControlError.invalidRecord }
+            throw ManagedControlError.retired(task: task, origin: origin, runtime: retired.runtime, reason: retired.reason)
+        }
+        guard let record = response.record, record.id == task, let binding = record.remoteBinding,
               binding.origin == origin, UUID(uuidString: binding.runtime) != nil,
-              binding.profile == response.record.decider else { throw ManagedControlError.invalidRecord }
-        return response.record
+              binding.profile == record.decider else { throw ManagedControlError.invalidRecord }
+        return record
     }
 
     private final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {

@@ -155,6 +155,121 @@ struct ManagedRemoteControlTests {
         }
     }
 
+    @Test @MainActor func offlineLookupDoesNotLockChoiceAcrossRestart() async throws {
+        let (store, bot) = steerStore(ScriptedTurnBackend())
+        bot.hermesProfile = "owner"; bot.hermesBaseURL = "https://box.example.invalid/v1"
+        let original = remoteRecord(origin: "https://box.example.invalid")
+        store.approvals = [try original.request(botID: bot.id)]
+        store.managedControl = { _, verb, _, _ in
+            #expect(verb == "get")
+            throw URLError(.notConnectedToInternet)
+        }
+        store.decideManagedAction(try #require(store.approvals.first), approved: true)
+        try await waitUntil { store.approvals.first?.decisionPending == false }
+        let saved = try StoreFile.decode(JSONEncoder().encode(store.storeFile))
+        store.approvals = try #require(saved.managedApprovals)
+        #expect(store.approvals.first?.managedDecision == nil)
+        var calls: [String] = []
+        store.managedControl = { _, verb, _, input in
+            calls.append(verb)
+            if verb == "get" { return original }
+            let data = try #require(input)
+            let body = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(body["approved"] as? Bool == false)
+            return remoteRecord(origin: "https://box.example.invalid", approved: false)
+        }
+        store.decideManagedAction(try #require(store.approvals.first), approved: false)
+        try await waitUntil { store.approvals.isEmpty }
+        #expect(calls == ["get", "decide"] && bot.approvalAudit.last?.outcome == .denied)
+    }
+
+    @Test @MainActor func provenUnsentDecisionUnlocksOnlyANewChoice() async throws {
+        for uncertain in [false, true] {
+            let (store, bot) = steerStore(ScriptedTurnBackend())
+            bot.hermesProfile = "owner"; bot.hermesBaseURL = "https://box.example.invalid/v1"
+            let original = remoteRecord(origin: "https://box.example.invalid")
+            var card = try original.request(botID: bot.id)
+            if uncertain { card.managedDecision = true }
+            store.approvals = [card]
+            store.managedControl = { _, verb, _, _ in
+                if verb == "get" { return original }
+                throw ManagedControlError.unsent("Synthetic preflight failure")
+            }
+            store.decideManagedAction(card, approved: true)
+            try await waitUntil { store.approvals.first?.decisionPending == false }
+            #expect(store.approvals.first?.managedDecision == (uncertain ? true : nil))
+            var decisions = 0
+            store.managedControl = { _, verb, _, _ in
+                if verb == "get" { return original }
+                decisions += 1
+                return remoteRecord(origin: "https://box.example.invalid", approved: false)
+            }
+            store.decideManagedAction(try #require(store.approvals.first), approved: false)
+            if uncertain {
+                #expect(store.approvals.count == 1 && decisions == 0)
+            } else {
+                try await waitUntil { store.approvals.isEmpty }
+                #expect(decisions == 1)
+            }
+        }
+    }
+
+    @Test func decisionPreflightFailureIsExplicitlyUnsent() async throws {
+        let (host, session) = MockHermesProtocol.serve { _ in
+            Issue.record("preflight failure must not dispatch"); return (500, [:])
+        }
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await ManagedRemoteControl.request(address: "https://\(host)", profile: "owner", key: "",
+                                                        verb: "decide", task: remoteTask, input: nil, session: session)
+            Issue.record("missing key should fail")
+        } catch ManagedControlError.unsent { } catch { Issue.record(error) }
+        #expect(MockHermesProtocol.recorded(host).isEmpty)
+    }
+
+    @Test @MainActor func signedRetirementRemovesOnlyTheBoundRuntimeCardAndAudits() async throws {
+        for reason in ["gone", "superseded"] {
+            for matchingRuntime in [true, false] {
+                let runtime = matchingRuntime ? runtimeID : UUID().uuidString
+                let (host, session) = MockHermesProtocol.serve { request in
+                    do {
+                        let raw = pickerRequestBody(request)
+                        let body = try #require(try JSONSerialization.jsonObject(with: raw) as? [String: Any])
+                        #expect(body["verb"] as? String == "get")
+                        let payload = try JSONSerialization.data(withJSONObject: [
+                            "request": SHA256.hash(data: raw).map { String(format: "%02x", $0) }.joined(),
+                            "expires": body["expires"]!,
+                            "retired": ["task": remoteTask, "origin": "https://" + request.url!.host!,
+                                        "runtime": runtime, "reason": reason]
+                        ])
+                        return (200, ["payload": payload.base64EncodedString(),
+                                      "signature": ManagedRemoteControl.signature(payload, key: remoteKey, purpose: "response")])
+                    } catch { Issue.record(error); return (500, [:]) }
+                }
+                defer { session.invalidateAndCancel() }
+                let defaults = isolatedDefaults(); defaults.set("https://\(host)/v1", forKey: "hermesBaseURL")
+                let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false,
+                                     keyStore: InMemoryKeyStore(["hermes.owner": remoteKey]), defaults: defaults, hermesSession: session)
+                let bot = Bot(name: "Owner", backend: .hermes, hermesProfile: "owner")
+                store.bots = [bot]
+                var card = try remoteRecord(origin: "https://" + host).request(botID: bot.id)
+                card.managedDecision = true // Even an uncertain card can be retired by its bound runtime.
+                store.approvals = [card]
+                store.decideManagedAction(card, approved: true)
+                try await waitUntil { !store.managedDecisionsInFlight.contains(card.id) }
+                if matchingRuntime {
+                    #expect(store.approvals.isEmpty)
+                    #expect(bot.approvalAudit.last?.reason.contains("retired: runtime reports " + reason) == true)
+                    #expect(bot.approvalAudit.last?.outcome == .asked)
+                } else {
+                    #expect(store.approvals.count == 1 && bot.approvalAudit.isEmpty)
+                    #expect(store.approvals.first?.managedDecision == true)
+                }
+                #expect(MockHermesProtocol.recorded(host).count == 1)
+            }
+        }
+    }
+
     @Test @MainActor func changedHostRuntimeOrDigestKeepsPendingCard() async throws {
         let backend = ScriptedTurnBackend(); let (store, bot) = steerStore(backend)
         bot.hermesProfile = "owner"; bot.hermesBaseURL = "https://box.example.invalid/v1"

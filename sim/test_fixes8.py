@@ -152,7 +152,7 @@ PROBE = textwrap.dedent('''
         refused("pidfd_open", HELPER, 0)
         refused("pidfd_open", LAUNCHER, 0)
         if MODE == "limited":  # Denied outright: a pidfd could name any host process later.
-            assert call("pidfd_open", os.getpid(), 0) == errno.EPERM
+            os.close(os.pidfd_open(os.getpid()))  # Fixes9 brokers self/own-tree pidfds.
         own_child_via_kill()
     elif NAME == "pidfd_send_signal":
         # No pidfd for a host process can be obtained (pidfd_open denied, /proc/<pid> outside the Landlock rules);

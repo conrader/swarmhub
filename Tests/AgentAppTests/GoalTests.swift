@@ -277,7 +277,13 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
                   "The tests are failing; fix the bug", "The build is broken. Please fix it", "Tests are red so fix the parser",
                   "Why does the login page crash? Debug it", "The CI is failing, please update the dependencies",
                   "What changed in the API? Add a test for it.", "The README is outdated; rewrite it",
-                  "Summarize the failure, then fix the failing tests", "The scraper times out, can you fix it?"]
+                  "Summarize the failure, then fix the failing tests", "The scraper times out, can you fix it?",
+                  "Can you explain the failure, then fix the bug?",
+                  "Explain this function and fix the bug",
+                  "Describe the parser and then refactor it",
+                  "Could you describe the failure and add a test?",
+                  "Explain the bug then patch it",
+                  "Summarize the test results and then debug the failure"]
     let general = ["Explain the result", "write the changelog", "summarize the meeting", "Explain this function",
                    "Describe how the users API works", "Summarize the test results", "What does this script do?",
                    "Write a blog post about Python", "Build a presentation for the board", "Draft the release notes",

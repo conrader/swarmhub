@@ -1,7 +1,7 @@
 ---
 name: swarmhub-messages
 description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.6
+version: 1.3.7
 author: SwarmHub
 metadata:
   swarmhub:
@@ -195,6 +195,11 @@ same origin; a restored/replaced runtime needs fresh cards. Clock skew, changed 
 service/key and ambiguous receipts fail closed. Keep clocks synchronized.
 
 Cards retain the reviewed binding and original decision across uncertain responses/restarts. Retries query first;
-only a matching authenticated receipt removes a card. Never turn a failed transport into a model turn or CLI
+only a matching authenticated receipt confirms the decision. Never turn a failed transport into a model turn or CLI
 impersonation. The existing peer worker executes committed approved operations; service startup is separate from
 Hermes, and setup requires no Hermes source modifications. No independent secret is generated or stored.
+
+Remote approval recovery: a choice is locked only once its decision request may have been dispatched; an offline
+status lookup or a provably unsent request allows another choice. Authenticated gone/superseded responses retire
+stale cards with an audit note. Saved receipts retain their original deciding profile after policy changes; new
+decisions require the current profile. Denial cancellation markers are emitted from a durable outbox after commit.

@@ -18,7 +18,6 @@ unsandboxed host execution from the next `git status` anyone runs there.
 """
 import ctypes
 import errno
-import json
 import os
 from pathlib import Path
 import socket
@@ -29,6 +28,8 @@ import tempfile
 sys.dont_write_bytecode = True  # The skill folder is installed file by file; no __pycache__ may appear in it.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import verify_signals  # noqa: E402
+import verify_processes
+import verify_darwin
 
 # Landlock access rights (ABI 3: through TRUNCATE).
 EXECUTE, WRITE_FILE, READ_FILE, READ_DIR = 1, 2, 4, 8
@@ -88,7 +89,7 @@ def git_dir(workspace):
             line = ''
         if line.startswith('gitdir:'):
             target = Path(line[7:].strip())
-            target = (workspace / target).resolve() if not target.is_absolute() else target
+            target = (workspace / target).resolve()
             paths.append(target)
             common = target / 'commondir'
             if common.is_file():
@@ -215,8 +216,8 @@ def seccomp(signals_confined):
         if not signals_confined:
             # Without a PID namespace the launcher decides kill/tkill/tgkill against the process tree
             # (verify_signals.py); pidfd signalling stays denied outright.
-            for name in verify_signals.SIGNAL_SYSCALLS:
-                deny(name, SCMP_ACT_NOTIFY if name in verify_signals.SUPERVISED_SYSCALLS else eperm)
+            for name in verify_signals.SIGNAL_SYSCALLS + verify_processes.SYSCALLS:
+                deny(name, SCMP_ACT_NOTIFY if name in verify_signals.SUPERVISED_SYSCALLS + verify_processes.SYSCALLS else eperm)
             # Without a PID namespace an owner pid names a host process; owning one's own fds needs no owner call.
             for name, command in verify_signals.SIGNAL_OWNER_CALLS:
                 deny(name, eperm, ArgCmp(1, SCMP_CMP_MASKED_EQ, verify_signals.CMD_MASK, command))
@@ -272,7 +273,7 @@ def supervised_syscalls():
     resolved for this architecture."""
     sec = ctypes.CDLL('libseccomp.so.2')
     numbers = {}
-    for name in verify_signals.SUPERVISED_SYSCALLS + verify_signals.HELPER_SYSCALLS:
+    for name in verify_signals.SUPERVISED_SYSCALLS + verify_signals.HELPER_SYSCALLS + verify_processes.SYSCALLS:
         number = sec.seccomp_syscall_resolve_name(name.encode())
         if number >= 0:
             numbers[number] = name
@@ -423,50 +424,15 @@ def record_mode(mode_file, mode):
         Path(mode_file).write_text(mode + '\n')
 
 
-# Mach services a shell, Python, git and build tools need. Not the pasteboard, LaunchServices (`open`),
-# AppleEvents (`osascript`), SecurityServer/keychain or preferences: those reach outside the sandbox.
-DARWIN_MACH_SERVICES = ('com.apple.system.opendirectoryd.libinfo', 'com.apple.system.DirectoryService.libinfo_v1',
-                        'com.apple.system.logger', 'com.apple.system.notification_center')
-DARWIN_RUNTIME = ('/usr', '/bin', '/sbin', '/System', '/Library/Developer', '/Library/Frameworks', '/Library/Apple',
-                  '/private/var/db/dyld', '/opt/homebrew', '/Applications/Xcode.app')
-
-
 def darwin_profile(workspace, temporary):
-    quote = json.dumps
-    profile = '(version 1)(deny default)(allow process*)(allow sysctl-read)(allow signal (target same-sandbox))'
-    profile += '(allow ipc-posix-sem)(allow ipc-posix-shm*)'
-    profile += '(allow mach-lookup' + ''.join(' (global-name ' + quote(s) + ')' for s in DARWIN_MACH_SERVICES) + ')'
-    # dyld also needs to read the root directory itself before the shell starts.
-    # A literal rule grants no access to files below it.
-    profile += '(allow file-read* (literal "/"))'
-    for path in ('/dev/null', '/dev/zero'):
-        profile += '(allow file-write* (literal ' + quote(path) + '))'
-    # Seatbelt treats executable mappings separately from file reads. Without
-    # this right dyld can abort before /bin/sh runs, even for the builtin true.
-    writable = (str(workspace), temporary, os.path.realpath(temporary))
-    for path in DARWIN_RUNTIME:
-        profile += '(allow file-read* file-map-executable (subpath ' + quote(path) + '))'
-    for path in ('/private/etc', '/dev', '/private/var/db/xcode_select_link', '/private/var/select'):
-        profile += '(allow file-read* (subpath ' + quote(path) + '))'
-    for path in writable:
-        profile += '(allow file-read* file-write* file-map-executable (subpath ' + quote(path) + '))'
-    # realpath/getcwd must be able to stat ancestors, including macOS /tmp and
-    # /var symlinks. Grant metadata on exact ancestors, not their other contents.
-    ancestors = {'/etc', '/tmp', '/var', '/Library', '/Applications', '/opt'}
-    for path in (*DARWIN_RUNTIME, '/private/etc', '/dev', *writable):
-        ancestors.update(str(parent) for parent in Path(path).parents)
-    for path in sorted(ancestors):
-        profile += '(allow file-read-metadata (literal ' + quote(path) + '))'
-    # Later rules win: the repository metadata stays immutable (config, hooks, worktree gitdir).
-    for path in (workspace / '.git', *git_dir(workspace)):
-        profile += '(deny file-write* (subpath ' + quote(str(path)) + '))'
-        profile += '(deny file-write* (literal ' + quote(str(path)) + '))'
-    return profile
+    return verify_darwin.darwin_profile(workspace, temporary, git_dir(workspace))
 
 
 def main():
     workspace = Path(sys.argv[1]).resolve(strict=True)
     command = sys.argv[2]
+    if sys.platform == 'linux':
+        verify_processes.close_inherited_descriptors()
     mode_file = sys.argv[3] if len(sys.argv) > 3 else None  # code-job records the mode in the job result.
     # Host HOME, tokens, proxies, plugin variables, shell startup and Python paths are never inherited.
     with tempfile.TemporaryDirectory(prefix='swarmhub-verify-') as temporary:

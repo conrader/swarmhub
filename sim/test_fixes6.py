@@ -55,7 +55,8 @@ class SandboxBase(unittest.TestCase):
     def assert_refused_not_unavailable(self, result):
         # A refusal to initialize a sandbox (77) must not masquerade as a negative security test.
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertNotEqual(result.returncode, 77, result.stderr)
+        self.assertNotIn(result.returncode, (69, 77), result.stderr)
+        self.assertNotIn('Xcode license', result.stdout + result.stderr)
 
 
 class GitMetadataEscapeTests(SandboxBase):
@@ -319,6 +320,7 @@ class DarwinNativeSandboxTests(SandboxBase):
             with self.subTest(service=service):
                 result = self.mach(service)
                 self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+                self.assertIn(service + ' ', result.stdout)
 
     def test_outside_write_secret_read_and_network_are_denied_natively(self):
         secret = self.root / 'outside-secret'

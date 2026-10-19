@@ -74,6 +74,7 @@ def database():
             due REAL DEFAULT 0, error TEXT);
           CREATE TABLE IF NOT EXISTS receipts(target TEXT, id TEXT, status TEXT, token TEXT,
             expires REAL, session TEXT, turn TEXT, PRIMARY KEY(target,id));
+          CREATE TABLE IF NOT EXISTS cancellation_markers(task TEXT PRIMARY KEY);
           CREATE TABLE IF NOT EXISTS approval_runtime(id INTEGER PRIMARY KEY CHECK(id=1), identity TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS approval_receipts(task TEXT PRIMARY KEY, binding TEXT NOT NULL,
             approved INTEGER NOT NULL, receipt TEXT NOT NULL);
@@ -91,6 +92,17 @@ def database():
                         raise
         with db:
             yield db
+        # Durable outbox: filesystem effects happen only after the transaction commits.
+        # A crash/write failure leaves rows to retry on the next database access;
+        # the committed action status already prevents further managed work.
+        pending = db.execute("SELECT task FROM cancellation_markers").fetchall()
+        if pending:
+            folder = state() / "cancelled"
+            folder.mkdir(exist_ok=True, mode=0o700)
+            for row in pending:
+                (folder / row[0]).touch(mode=0o600)
+            with db:
+                db.executemany("DELETE FROM cancellation_markers WHERE task=?", [(row[0],) for row in pending])
     finally:
         db.close()
 
