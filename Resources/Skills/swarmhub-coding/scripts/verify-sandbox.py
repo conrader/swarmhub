@@ -72,6 +72,29 @@ def linux(workspace, temporary):
         sec.seccomp_release(ctx)
 
 
+def darwin_profile(workspace, temporary):
+    quote = json.dumps
+    profile = '(version 1)(deny default)(allow process*)(allow sysctl-read)(allow mach-lookup)'
+    # Seatbelt treats executable mappings separately from file reads. Without
+    # this right dyld can abort before /bin/sh runs, even for the builtin true.
+    runtime = ('/usr', '/bin', '/sbin', '/System', '/Library', '/private/var/db/dyld')
+    writable = (str(workspace), temporary, os.path.realpath(temporary))
+    for path in runtime:
+        profile += '(allow file-read* file-map-executable (subpath ' + quote(path) + '))'
+    for path in ('/private/etc', '/dev'):
+        profile += '(allow file-read* (subpath ' + quote(path) + '))'
+    for path in writable:
+        profile += '(allow file-read* file-write* file-map-executable (subpath ' + quote(path) + '))'
+    # realpath/getcwd must be able to stat ancestors, including macOS /tmp and
+    # /var symlinks. Grant metadata on exact ancestors, not their other contents.
+    ancestors = {'/etc', '/tmp', '/var'}
+    for path in (*runtime, '/private/etc', '/dev', *writable):
+        ancestors.update(str(parent) for parent in Path(path).parents)
+    for path in sorted(ancestors):
+        profile += '(allow file-read-metadata (literal ' + quote(path) + '))'
+    return profile
+
+
 def main():
     workspace = Path(sys.argv[1]).resolve(strict=True)
     command = sys.argv[2]
@@ -81,12 +104,7 @@ def main():
                'LANG': 'C', 'PYTHONDONTWRITEBYTECODE': '1', 'GIT_CONFIG_GLOBAL': '/dev/null',
                'GIT_CONFIG_SYSTEM': '/dev/null'}
         if sys.platform == 'darwin':
-            quote = json.dumps
-            profile = '(version 1)(deny default)(allow process*)(allow sysctl-read)(allow mach-lookup)'
-            for path in ('/usr', '/bin', '/sbin', '/System', '/Library', '/private/etc', '/dev'):
-                profile += '(allow file-read* (subpath ' + quote(path) + '))'
-            for path in (str(workspace), temporary, os.path.realpath(temporary)):
-                profile += '(allow file-read* file-write* (subpath ' + quote(path) + '))'
+            profile = darwin_profile(workspace, temporary)
             return subprocess.call(['/usr/bin/sandbox-exec', '-p', profile, '/bin/sh', '-c', command], env=env, cwd=workspace)
         elif sys.platform == 'linux':
             # The standalone launcher is single-threaded; only its child receives irreversible restrictions.

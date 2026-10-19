@@ -346,7 +346,9 @@ expect "verify command recorded" [ "$(rec verify-command)" = 'exit 3' ]
 expect "evidence none" [ "$(rec evidence)" = none ]
 expect "verify exit on stderr" has "$C/err" "(verify exit 3)"
 # An unavailable verifier must still fail closed (the macOS /bin/true failure).
-CASE_VERIFY="$C/missing-verifier"; job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?; unset CASE_VERIFY
+# Keep the missing executable in the allowed workspace: this tests ENOENT (127),
+# not a sandbox refusal to inspect an executable outside it (126 on macOS sh).
+CASE_VERIFY='./missing-verifier'; job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?; unset CASE_VERIFY
 expect "missing verification: 66 (got $RC)" [ "$RC" -eq 66 ]
 expect "missing verify exit 127" [ "$(rec verify-exit)" = 127 ]
 expect "missing verify tests false" [ "$(rec tests-passed)" = false ]

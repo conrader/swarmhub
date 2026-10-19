@@ -4,6 +4,8 @@ import io
 import json
 import os
 from pathlib import Path
+import re
+import runpy
 import shlex
 import shutil
 import subprocess
@@ -35,6 +37,59 @@ class VerificationTests(unittest.TestCase):
         return subprocess.run([sys.executable, '-B', str(SANDBOX), str(self.repo), command],
                               env=dict(os.environ, QA_SECRET='synthetic-secret'),
                               capture_output=True, text=True, timeout=15)
+
+    def test_verifier_runs_builtins_and_workspace_executables_and_preserves_exit(self):
+        # Exercise dyld startup on macOS as well as exec and cwd after startup.
+        (self.repo / 'check').write_text('#!/bin/sh\nprintf checked > checked.txt\nexit 3\n')
+        (self.repo / 'check').chmod(0o755)
+        for command, expected in [('true', 0), ('exit 5', 5), ('./check', 3),
+                                  ('./missing-verifier', 127)]:
+            with self.subTest(command=command):
+                result = self.run_verify(command)
+                self.assertEqual(result.returncode, expected, result.stderr)
+        self.assertEqual((self.repo / 'checked.txt').read_text(), 'checked')
+
+    def test_darwin_launch_allows_executable_mappings_without_opening_host_files(self):
+        # Inspect the real Darwin launch on Linux too. This models the distinct
+        # Seatbelt read/map checks; it does not emulate the macOS kernel or dyld.
+        module = runpy.run_path(str(SANDBOX))
+        def launch(argv, *, env, cwd):
+            self.assertEqual(argv[:2], ['/usr/bin/sandbox-exec', '-p'])
+            self.assertEqual(argv[3:], ['/bin/sh', '-c', 'true'])
+            self.assertEqual(cwd, self.repo.resolve())
+            self.assertNotIn('QA_SECRET', env)
+            self.assertTrue(argv[2].startswith('(version 1)(deny default)'))
+            rules = re.findall(r'\(allow ([\w* -]+) \((subpath|literal) ("(?:[^"\\]|\\.)*")\)\)', argv[2])
+
+            def allowed(operation, path):
+                for operations, kind, quoted in rules:
+                    root = json.loads(quoted)
+                    if not any(operation == op or op.endswith('*') and operation.startswith(op[:-1])
+                               for op in operations.split()):
+                        continue
+                    if path == root or kind == 'subpath' and path.startswith(root.rstrip('/') + '/'):
+                        return True
+                return False
+
+            for path in ['/bin/sh', '/usr/lib/dyld', '/System/Library/dyld/dyld_shared_cache_arm64e',
+                         '/private/var/db/dyld/dyld_shared_cache_x86_64', str(cwd / 'check'),
+                         str(Path(env['TMPDIR']) / 'check')]:
+                self.assertTrue(allowed('file-read-data', path), path)
+                self.assertTrue(allowed('file-map-executable', path), path)
+            for parent in cwd.parents:
+                self.assertTrue(allowed('file-read-metadata', str(parent)), str(parent))
+            for path in [str(self.outside), '/Users/fixture/.ssh/id_rsa', '/private/tmp/unrelated']:
+                self.assertFalse(allowed('file-read-data', path), path)
+                self.assertFalse(allowed('file-write-data', path), path)
+            self.assertFalse(allowed('file-write-data', '/usr/lib/dyld'))
+            self.assertNotIn('(allow network', argv[2])
+            return 0
+
+        with patch.object(sys, 'argv', [str(SANDBOX), str(self.repo), 'true']), \
+             patch.object(sys, 'platform', 'darwin'), \
+             patch.object(subprocess, 'call', side_effect=launch) as call:
+            self.assertEqual(module['main'](), 0)
+            call.assert_called_once()
 
     def test_B1_outside_write_from_verify_command_is_denied(self):
         result = self.run_verify('printf executed > ' + shlex.quote(str(self.outside)))
@@ -97,7 +152,6 @@ class VerificationTests(unittest.TestCase):
             self.assertFalse(self.outside.exists())
 
     def test_B1_missing_sandbox_fails_closed(self):
-        import runpy
         module = runpy.run_path(str(SANDBOX))
         with patch.object(sys, 'argv', [str(SANDBOX), str(self.repo), 'touch marker']), \
              patch.object(sys, 'platform', 'unsupported'):
