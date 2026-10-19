@@ -1,0 +1,35 @@
+{
+  "execution_path": "sandboxed exec_command; direct subprocess reproduction style",
+  "cli_path": "/home/box/.npm-global/bin/codex",
+  "model": "gpt-6-astra",
+  "effort": "high",
+  "source_auth_config_unchanged": true,
+  "exit": 65,
+  "fields": {
+    "agent": "codex",
+    "status": "failed",
+    "exit": "65",
+    "cli-exit": "0",
+    "report-valid": "false",
+    "verify-command": "grep -Fxq 'QA-live6 CLI tools work' NOTES.md && grep -Fxq 'QA-command ran' COMMAND.txt",
+    "verify-exit": "-",
+    "tests-passed": "not-run",
+    "evidence": "none",
+    "commit-evidence": "not-checked"
+  },
+  "runner_unchanged": true,
+  "cli_version": "codex-cli 0.163.0",
+  "private_files": {
+    "auth.json": {
+      "symlink": false,
+      "mode": "0o600"
+    },
+    "config.toml": {
+      "symlink": false,
+      "mode": "0o600"
+    }
+  },
+  "artifacts": {},
+  "no_messaging_sibling": true,
+  "recorded_provider_responses": 5
+}

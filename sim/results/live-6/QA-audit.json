@@ -1,0 +1,255 @@
+{
+  "run": "QA-LIVE6-20261019T123723-3300b6",
+  "results": {
+    "PASS": 113,
+    "FAIL": 3
+  },
+  "turns": [
+    {
+      "label": "QA-bridge-002",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Jarvis-from-QA-Swarmhub/chat/stream",
+      "successful": true,
+      "answer": "Job failed with exit 65. The report is missing; nothing was verified. Tests did not run, and the commit was not checked. Completion cannot be accepted. No retry or next job is confirmed.",
+      "seconds": 6.055
+    },
+    {
+      "label": "QA-bridge-004",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Swarmhub-from-QA-Jarvis/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 5.1431
+    },
+    {
+      "label": "QA-bridge-006",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Swarmhub-from-QA-Infra/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 4.8888
+    },
+    {
+      "label": "QA-bridge-008",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Jarvis-from-QA-Swarmhub/chat/stream",
+      "successful": true,
+      "answer": "Job job.IxMS4XUO failed with exit 69; no coding CLI ran. The report is missing, tests did not run, and the commit was not checked. Nothing was verified. No retry or next job is confirmed.",
+      "seconds": 3.8717
+    },
+    {
+      "label": "QA-bridge-010",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Swarmhub-from-QA-Jarvis/chat/stream",
+      "successful": true,
+      "answer": "The coordinator reports the job failed with exit 69: no CLI, no report, and verification configured but not run. Success requires explicit Codex gpt-6-astra, high effort, a fresh nonempty report, and passing verification. No relaunch is established.",
+      "seconds": 4.7094
+    },
+    {
+      "label": "QA-bridge-012",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Infra-from-QA-Infra/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 2.063
+    },
+    {
+      "label": "QA-bridge-014",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Infra-from-QA-Infra/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 2.7092
+    },
+    {
+      "label": "QA-bridge-018",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Swarmhub-from-QA-Jarvis/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 2.6896
+    },
+    {
+      "label": "QA-bridge-016",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Ermes-from-QA-Swarmhub/chat/stream",
+      "successful": true,
+      "answer": "FAKE provisioning receipt: QA-Hermes completed using synthetic intake at /tmp/QA-LIVE6-to4wqcie/QA-home/.hermes/swarmhub/secrets/QA-model-key (0600). No real host or model key was provisioned.\n\n```swarmhub\n{\"op\":\"secret_request\",\"name\":\"QA-model-key\",\"reason\":\"Provide a real model key for QA-Hermes through the secret-entry sheet, never in chat.\"}\n```",
+      "seconds": 6.4269
+    },
+    {
+      "label": "QA-bridge-020",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Infra-from-QA-Jarvis/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 4.0501
+    },
+    {
+      "label": "QA-bridge-022",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Swarmhub-from-QA-Ermes/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 4.4564
+    },
+    {
+      "label": "QA-bridge-024",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Ermes-from-QA-Jarvis/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 2.6222
+    },
+    {
+      "label": "QA-bridge-026",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Swarmhub-from-QA-Jarvis/chat/stream",
+      "successful": true,
+      "answer": "```swarmhub\n{\"op\":\"approval\",\"task\":\"task.82ff572b1b22433080fc133c0b526151\",\"kind\":\"money\",\"gate\":\"owner\",\"decider\":\"QA-Konrad\",\"bot\":\"QA-Swarmhub\",\"intent\":\"QA-P07-money\",\"summary\":\"QA FAKE money action\",\"risks\":[\"money\"]}\n```",
+      "seconds": 3.4362
+    },
+    {
+      "label": "QA-bridge-028",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Jarvis-from-QA-Swarmhub/chat/stream",
+      "successful": true,
+      "answer": "Job was cancelled with exit 125. The report is missing, tests did not run, and the commit was not checked. Nothing was verified. No retry or next job is confirmed.",
+      "seconds": 2.8743
+    },
+    {
+      "label": "QA-bridge-030",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Jarvis-from-QA-Swarmhub/chat/stream",
+      "successful": true,
+      "answer": "Job failed with exit 65. The corrected report is missing, tests did not run, and the commit was not checked. Nothing was verified. No retry or next job is confirmed.",
+      "seconds": 5.6611
+    },
+    {
+      "label": "QA-bridge-032",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Swarmhub-from-QA-Jarvis/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 2.5738
+    },
+    {
+      "label": "QA-bridge-034",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Jarvis-from-QA-Swarmhub/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 3.7315
+    },
+    {
+      "label": "QA-bridge-036",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Konrad-from-QA-Swarmhub/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 2.3681
+    },
+    {
+      "label": "QA-bridge-038",
+      "path": "/api/sessions/QA-LIVE6-20261019T123723-3300b6-QA-Ermes-from-QA-Infra/chat/stream",
+      "successful": true,
+      "answer": "NO_REPLY",
+      "seconds": 3.888
+    }
+  ],
+  "app_actions": {
+    "QA-bridge-016": {
+      "source_derived_parser_projection": true,
+      "native_swift_executed": false,
+      "tasks": [],
+      "names": [
+        "QA-model-key"
+      ],
+      "matches_actual_request": true,
+      "has_exact_fence": true
+    },
+    "QA-bridge-026": {
+      "source_derived_parser_projection": true,
+      "native_swift_executed": false,
+      "tasks": [
+        "task.82ff572b1b22433080fc133c0b526151"
+      ],
+      "names": [],
+      "matches_actual_request": true,
+      "has_exact_fence": true
+    }
+  },
+  "jobs": {
+    "job.8ca4a67022774c0699c96c8ebfc6bbcf": {
+      "bot": "QA-Swarmhub",
+      "cli-exit": "0",
+      "commit-evidence": "not-checked",
+      "effort": "high",
+      "evidence": "none",
+      "exit": "65",
+      "model": "gpt-6-astra",
+      "origin": "QA-Jarvis",
+      "report-valid": "false",
+      "status": "failed",
+      "tests-passed": "not-run",
+      "verify-command": "grep -Fxq 'QA-P07-running-scope-corrected done' NOTES.md",
+      "verify-exit": "-"
+    },
+    "job.IxMS4XUO": {
+      "bot": "QA-Swarmhub",
+      "cli-exit": "not-run",
+      "commit-evidence": "not-checked",
+      "effort": "high",
+      "evidence": "none",
+      "exit": "69",
+      "model": "gpt-6-astra",
+      "origin": "QA-Unknown",
+      "status": "failed",
+      "tests-passed": "not-run",
+      "verify-command": "test -s QA-P02-report.txt",
+      "verify-exit": "-"
+    },
+    "job.ad8bfcc6207f4f258b5f82822effd93e": {
+      "bot": "QA-Swarmhub",
+      "cli-exit": "0",
+      "commit-evidence": "not-checked",
+      "effort": "high",
+      "evidence": "none",
+      "exit": "65",
+      "model": "gpt-6-astra",
+      "origin": "QA-Jarvis",
+      "report-valid": "false",
+      "status": "failed",
+      "tests-passed": "not-run",
+      "verify-command": "grep -Fxq 'QA-P01-first done' NOTES.md",
+      "verify-exit": "-"
+    },
+    "job.f4929333320c4b6ba2c474f5e6bbe9b5": {
+      "bot": "QA-Swarmhub",
+      "cli-exit": "125",
+      "commit-evidence": "not-checked",
+      "effort": "high",
+      "evidence": "none",
+      "exit": "125",
+      "model": "gpt-6-astra",
+      "origin": "QA-Jarvis",
+      "status": "cancelled",
+      "tests-passed": "not-run",
+      "verify-command": "grep -Fxq 'QA-P07-running-scope done' NOTES.md",
+      "verify-exit": "-"
+    }
+  },
+  "cli_audits": [
+    {
+      "file": "QA-cli-audit-rollout-2026-10-19T14-37-28-01a1542a-b1e5-78b2-8cd8-87549449d073.json",
+      "recorded_provider_responses": 4
+    },
+    {
+      "file": "QA-cli-audit-rollout-2026-10-19T14-39-12-01a1542c-50a4-7cd1-b7ed-c98d27565d24.json",
+      "recorded_provider_responses": 4
+    }
+  ],
+  "calls": {
+    "hermes_turns": 19,
+    "hermes_observed_provider_calls": 19,
+    "cli_recorded_provider_responses": 8,
+    "probe_recorded_provider_responses": 5,
+    "total_observed": 32,
+    "caveat": "Cancellation before a transcript may hide an in-flight provider request; observed count, not billing total."
+  },
+  "P03": {
+    "held_received_in_pre_hook": true,
+    "held_acknowledged": true,
+    "priority_admission_seconds": 0.036
+  },
+  "P08": {
+    "targets": [
+      "QA-Jarvis",
+      "QA-Konrad"
+    ],
+    "all_delivered": true
+  },
+  "cli_execution_path": "sandboxed exec_command; unchanged code-job workspace-write"
+}

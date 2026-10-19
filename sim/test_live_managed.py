@@ -45,6 +45,8 @@ class ManagedHarnessTests(unittest.TestCase):
         self.assertEqual(body["input"], "QA task")
         self.assertTrue(body["instructions"].startswith(RULES))
         self.assertIn("held context", body["instructions"])
+        self.assertIn('```swarmhub\n{"op":"secret_request"', body["instructions"])
+        self.assertIn('Bare JSON, a `json` fence', body["instructions"])
         self.assertEqual(suite.base_env["SWARMHUB_GATEWAY"], suite.child_env["SWARMHUB_GATEWAY"])
 
     def test_real_jobs_keep_reports_in_the_cli_workspace_and_require_exact_evidence(self):

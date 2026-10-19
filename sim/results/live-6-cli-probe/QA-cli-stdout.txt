@@ -1,0 +1,3 @@
+Blocked by local tool failures. The shell could not start because the sandbox socket directory requires user ownership and mode `0700`. File-editing attempts also failed for NOTES.md and REPORT.md.
+
+No successful changes or passing verification were confirmed. The requested command did not run, and REPORT.md could not be written. No commit, network access, external connectors, other agents, or reads outside the repo were used.

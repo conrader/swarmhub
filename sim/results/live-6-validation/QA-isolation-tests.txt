@@ -1,0 +1,10 @@
+test_login_status_mutates_only_disposable_auth_and_config (test_gaps3.Gaps3Tests.test_login_status_mutates_only_disposable_auth_and_config) ... ok
+test_managed_action_reply_fixtures (test_gaps3.Gaps3Tests.test_managed_action_reply_fixtures) ... ok
+test_private_cli_runtime_and_auth_copies (test_gaps3.Gaps3Tests.test_private_cli_runtime_and_auth_copies) ... ok
+test_receipt_distinguishes_configured_but_unrun_verification (test_gaps3.Gaps3Tests.test_receipt_distinguishes_configured_but_unrun_verification) ... ok
+test_skill_examples_are_valid_fences (test_gaps3.Gaps3Tests.test_skill_examples_are_valid_fences) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.005s
+
+OK

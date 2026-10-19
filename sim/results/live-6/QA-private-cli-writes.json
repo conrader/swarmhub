@@ -1,0 +1,6 @@
+{
+  "private_config_differs_from_source": true,
+  "qa_project_trust_in_private": true,
+  "qa_project_trust_in_source": false,
+  "credentials_or_config_values_exported": false
+}

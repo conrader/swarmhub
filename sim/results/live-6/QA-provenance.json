@@ -1,0 +1,34 @@
+{
+  "head": "2cb8260cfee517f200646b19bf3b0731087fa65c",
+  "source_sha256": {
+    "sim/live_cli.py": "a15a8f555b89fdcbd6e9967eccbe7e9f18593849d0fb843890cbaed570b4c5dc",
+    "sim/live_cli_probe.py": "c344f9d4b4514bd4ee61fbdc0aa3eb3465a50cb9ff94dcb1a05e1ca8c0ff50e5",
+    "sim/live_managed.py": "284a0288f36061b7a5f185e6eee6faddb6631137b8f6e447c60e67505480b5c3",
+    "sim/test_gaps3.py": "1ad3971f344711a6a1334ca3755659a9dbf8128328478b71bbb6dd70d247c9d6",
+    "sim/test_live_managed.py": "11784bc3e75302763eb18466a199bc924daa276631abe121de584b71da556c08",
+    "Resources/Skills/swarmhub-messages/scripts/swarmctl": "b34a218947a6f3769e72aefd5bf3483430f3b396b66a8452f3e4678512d51777",
+    "Resources/Skills/swarmhub-messages/scripts/peer-runtime.py": "9e916c5f0dd01637a7a5aa3a5929e8139cf94627286ea3325b2a977ce0afb666",
+    "Resources/Skills/swarmhub-messages/scripts/bot-msg": "f7c0f5cdfffbfe05d7856a952603b84315d4089eedfd8a9af7dcf6281a2ee77e",
+    "Resources/Skills/swarmhub-messages/SKILL.md": "8ec8bc1f17779647a46d59eaa86b23ce6d545ba57b65d869900414fecca70451",
+    "Resources/Skills/swarmhub-coding/scripts/code-job": "6df23e59e59de596657984fac99ea3e8acde664f539687e97b9dc221de3a95ba",
+    "Resources/Skills/swarmhub-coding/scripts/completion-contract.py": "d4db70b4d6dfb26eea6dba06284cd3e543a4b2216644dfba306b0adda3e40362",
+    "Sources/AgentApp/Models/ManagedActions.swift": "a46dd730cda5aa8e49ef5536d2f9b9c3c69f8a496544561f3ae77eca64d24e3a"
+  },
+  "no_commit": true,
+  "app_or_shipped_runtime_changes": false,
+  "final_source_sha256": {
+    "sim/live_cli.py": "c047370c1e533226b29554b8c549388583e70a55a6a206214a3548b4866cd2b7",
+    "sim/live_cli_probe.py": "c344f9d4b4514bd4ee61fbdc0aa3eb3465a50cb9ff94dcb1a05e1ca8c0ff50e5",
+    "sim/live_managed.py": "284a0288f36061b7a5f185e6eee6faddb6631137b8f6e447c60e67505480b5c3",
+    "sim/test_gaps3.py": "c0c3c5e678ef3c83131a9ba7d15f9f63c4a03ecb517101949e810687dd87570a",
+    "sim/test_live_managed.py": "11784bc3e75302763eb18466a199bc924daa276631abe121de584b71da556c08",
+    "Resources/Skills/swarmhub-messages/scripts/swarmctl": "b34a218947a6f3769e72aefd5bf3483430f3b396b66a8452f3e4678512d51777",
+    "Resources/Skills/swarmhub-messages/scripts/peer-runtime.py": "9e916c5f0dd01637a7a5aa3a5929e8139cf94627286ea3325b2a977ce0afb666",
+    "Resources/Skills/swarmhub-messages/scripts/bot-msg": "f7c0f5cdfffbfe05d7856a952603b84315d4089eedfd8a9af7dcf6281a2ee77e",
+    "Resources/Skills/swarmhub-messages/SKILL.md": "8ec8bc1f17779647a46d59eaa86b23ce6d545ba57b65d869900414fecca70451",
+    "Resources/Skills/swarmhub-coding/scripts/code-job": "6df23e59e59de596657984fac99ea3e8acde664f539687e97b9dc221de3a95ba",
+    "Resources/Skills/swarmhub-coding/scripts/completion-contract.py": "d4db70b4d6dfb26eea6dba06284cd3e543a4b2216644dfba306b0adda3e40362",
+    "Sources/AgentApp/Models/ManagedActions.swift": "a46dd730cda5aa8e49ef5536d2f9b9c3c69f8a496544561f3ae77eca64d24e3a"
+  },
+  "post_replay_change": "Discovery also gets a private 0700 HOME; source copies/guards and job environment unchanged. Verified with real login status (zero provider calls) and targeted isolation/detection tests."
+}

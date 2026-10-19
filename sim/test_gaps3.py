@@ -6,8 +6,10 @@ import re
 import stat
 import tempfile
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 
-from live_cli import cli_env, writable_cli_state
+from live_cli import cli_env, coding_cli, source_auth_snapshot, writable_cli_state
 from test_peer_runtime import peer
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -68,7 +70,32 @@ def parsed_ids(text):
 
 
 class Gaps3Tests(unittest.TestCase):
-    def test_private_cli_runtime_and_auth_references(self):
+    def test_login_status_mutates_only_disposable_auth_and_config(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / 'source'; source.mkdir()
+            for name in ('auth.json', 'config.toml'):
+                (source / name).write_text('QA source unchanged')
+            cli = {'codex_home': str(source)}
+            before = source_auth_snapshot(cli)
+            private_paths = []
+            def status(argv, **kwargs):
+                private = Path(kwargs['env']['CODEX_HOME'])
+                self.assertNotEqual(private, source)
+                self.assertNotEqual(kwargs['env']['HOME'], temp)
+                self.assertEqual(Path(kwargs['env']['HOME']).stat().st_mode & 0o777, 0o700)
+                private_paths.append(private)
+                for name in ('auth.json', 'config.toml'):
+                    self.assertFalse((private / name).is_symlink())
+                    (private / name).write_text('QA refresh or trust update')
+                return SimpleNamespace(returncode=0, stdout='Logged in using ChatGPT', stderr='')
+            with patch('live_cli.shutil.which', return_value='/installed/codex'), patch('live_cli.subprocess.run', side_effect=status):
+                found = coding_cli({'HOME': temp, 'CODEX_HOME': str(source), 'PATH': '/installed'})
+            self.assertEqual(found['codex_home'], str(source))
+            self.assertEqual(before, source_auth_snapshot(cli))
+            self.assertTrue(private_paths)
+            self.assertTrue(all(not p.exists() for p in private_paths))
+
+    def test_private_cli_runtime_and_auth_copies(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / 'source'; source.mkdir()
@@ -88,8 +115,13 @@ class Gaps3Tests(unittest.TestCase):
             self.assertEqual(env['HOME'], '/qa')
             self.assertEqual(base['TMPDIR'], '/shared')
             for name in before:
-                self.assertTrue((Path(cli['codex_home']) / name).is_symlink())
-                self.assertEqual((Path(cli['codex_home']) / name).resolve(), source / name)
+                copy = Path(cli['codex_home']) / name
+                self.assertFalse(copy.is_symlink())
+                self.assertNotEqual(copy.stat().st_ino, (source / name).stat().st_ino)
+                self.assertEqual(stat.S_IMODE(copy.stat().st_mode), 0o600)
+                self.assertEqual(copy.read_bytes(), before[name][0])
+                # Exercise the original trust leak and a credential refresh.
+                copy.write_text('QA private update: trusted project or refreshed auth')
             self.assertEqual(before, {p.name: (p.read_bytes(), p.stat().st_mode) for p in source.iterdir()})
             self.assertIsNone(writable_cli_state(None, root / 'unused'))
             self.assertFalse((root / 'unused').exists())

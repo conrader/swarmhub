@@ -1,0 +1,45 @@
+{
+  "exact_owned_runs": {
+    "run_01761b9d8c2d456ab77ab6d5b4df0481": "completed",
+    "run_072f577212c347568fb28be743c32d3a": "completed",
+    "run_19887c5db99148d5971eeb4f5c83ba30": "completed",
+    "run_1f03a19260ae4d6f863577ca0151534b": "completed",
+    "run_217db803f81a44788284b047cac48b79": "completed",
+    "run_2c590161aa1742da9cc4e937d8690212": "completed",
+    "run_4536abd065814e7ea23048fc55d86933": "completed",
+    "run_5effb1e28def4f96baa819a4364536bd": "completed",
+    "run_66848380b31344f0b046328177f89dd6": "completed",
+    "run_7e36db6353d24c2ea0443b5ecf39fc0f": "completed",
+    "run_8180a161b7f24f2e807297e83f0f7fa8": "completed",
+    "run_8b0269792530488ab7d5386f7c13aa0a": "completed",
+    "run_8b5776e93e724cc18ff69c7a26c19a39": "completed",
+    "run_96e7f9ebba1b40faa56ed5f32ca288ce": "completed",
+    "run_b08cc7f000fe4e8698286a47a2651eeb": "completed",
+    "run_c0b64d2e3844404e93462db66709bc62": "completed",
+    "run_cc73189b4ed7444e8adf93f10677c9e8": "completed",
+    "run_ea9eda1eec264b03a5b10d6bdbcf7025": "completed",
+    "run_f5f94ddee23e4ba49df34ed4251ebe1f": "completed"
+  },
+  "exact_owned_sessions": {
+    "QA-LIVE6-20261019T123723-3300b6-QA-Ermes-from-QA-Infra": 404,
+    "QA-LIVE6-20261019T123723-3300b6-QA-Ermes-from-QA-Jarvis": 404,
+    "QA-LIVE6-20261019T123723-3300b6-QA-Ermes-from-QA-Swarmhub": 404,
+    "QA-LIVE6-20261019T123723-3300b6-QA-Infra-from-QA-Infra": 404,
+    "QA-LIVE6-20261019T123723-3300b6-QA-Infra-from-QA-Jarvis": 404,
+    "QA-LIVE6-20261019T123723-3300b6-QA-Jarvis-from-QA-Swarmhub": 404,
+    "QA-LIVE6-20261019T123723-3300b6-QA-Konrad-from-QA-Swarmhub": 404,
+    "QA-LIVE6-20261019T123723-3300b6-QA-Swarmhub-from-QA-Ermes": 404,
+    "QA-LIVE6-20261019T123723-3300b6-QA-Swarmhub-from-QA-Infra": 404,
+    "QA-LIVE6-20261019T123723-3300b6-QA-Swarmhub-from-QA-Jarvis": 404
+  },
+  "all_runs_terminal": true,
+  "all_owned_sessions_absent": true,
+  "temporary_qa_state_absent": true,
+  "local_process_cleanup": "Verified by runner in its own process namespace; see results.json",
+  "health": {
+    "http": 200,
+    "active_runs": 0,
+    "active_agents": 0,
+    "gateway_busy": false
+  }
+}

@@ -25,13 +25,15 @@ import threading
 import time
 
 from live_behavior import BehaviorSuite, answer, successful
-from live_cli import RULES, cli_env, coding_cli, pid_alive, qa_repo, writable_cli_state  # noqa: F401
+from live_cli import RULES, cli_env, coding_cli, pid_alive, qa_repo, writable_cli_state, source_auth_snapshot  # noqa: F401
 from test_peer_runtime import children_by_home
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "Resources/Skills/swarmhub-messages/scripts"
 JOB = ROOT / "Resources/Skills/swarmhub-coding/scripts/code-job"
 ROLES = {"QA-Jarvis", "QA-Swarmhub", "QA-Ermes", "QA-Infra", "QA-Konrad"}
+APP_CONTRACT = "Only the configured role is accepted" + (SCRIPTS.parent / "SKILL.md").read_text().split(
+    "Only the configured role is accepted", 1)[1]
 
 
 def hook_main():
@@ -45,10 +47,10 @@ def hook_main():
 class ManagedSuite(BehaviorSuite):
     def __init__(self, output):
         super().__init__(output)
-        self.run = "QA-LIVE5-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(3)
+        self.run = "QA-LIVE6-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(3)
         self.commands, self.hooks = [], []
         self.sequence = 0
-        self.temp = Path(tempfile.mkdtemp(prefix="QA-LIVE5-"))
+        self.temp = Path(tempfile.mkdtemp(prefix="QA-LIVE6-"))
         self.private_values = []
         self.home = self.temp / "QA-home"
         self.state = self.home / ".hermes/swarmhub"
@@ -56,6 +58,7 @@ class ManagedSuite(BehaviorSuite):
         self.base_env = {"HOME": str(self.home), "PATH": "/usr/bin:/bin", "TMPDIR": str(self.temp),
                          "PYTHONDONTWRITEBYTECODE": "1"}
         self.cli = writable_cli_state(coding_cli(), self.temp / "QA-codex-state")
+        self.source_auth_before = source_auth_snapshot(self.cli) if self.cli else None
         self.child_env = cli_env(self.base_env, self.cli)
         self.model = os.environ.get("QA_CODING_MODEL", "gpt-6-astra")
         self.repo = qa_repo(self.temp / "QA-repo") if self.cli else None
@@ -73,7 +76,8 @@ class ManagedSuite(BehaviorSuite):
         data.update(commands=self.commands, hooks=self.hooks, baseline="grokbot-observed.md P01-P10",
                     scope="real Hermes + unmodified managed scripts; external hook bridge; no installed plugin; coding CLI: "
                           + (self.cli["path"] + " (authenticated, real jobs in a throwaway repo)" if self.cli else "none (jobs fail 69)"),
-                    coding_cli=self.cli)
+                    coding_cli=self.cli, cli_execution_path=os.environ.get("QA_CLI_EXECUTION_PATH", "sandboxed exec_command; unchanged code-job workspace-write"),
+                    app_contract_source="Resources/Skills/swarmhub-messages/SKILL.md 1.3.3")
         path.write_text(self.clean(json.dumps(data, indent=2)) + "\n")
 
     def request(self, label, path, method="GET", body=None, **kwargs):
@@ -81,7 +85,7 @@ class ManagedSuite(BehaviorSuite):
             with self.usage_lock:
                 self.capture_usage()
                 if self.turns >= 24 or self.observed_calls >= 24:
-                    raise RuntimeError("Pass 5 Hermes call reserve reached")
+                    raise RuntimeError("Pass 6 Hermes call reserve reached")
         return super().request(label, path, method, body, **kwargs)
 
     def clean(self, value):
@@ -164,7 +168,7 @@ class ManagedSuite(BehaviorSuite):
                     path = "/api/sessions" if create else f"/api/sessions/{sid}/chat/stream"
                     context = None if create else suite.hook("before_turn", target, session, label, raw["input"])
                     body = {"id": sid, "title": sid, "source": "api_server"} if create else {
-                        "input": raw["input"], "instructions": RULES + " Your role is " + target + ".\n" +
+                        "input": raw["input"], "instructions": RULES + " Your role is " + target + ".\n" + APP_CONTRACT + "\n" +
                         ((context or {}).get("context", ""))}
                     def relay(event, obj, trace):
                         nonlocal sent
@@ -410,10 +414,17 @@ class ManagedSuite(BehaviorSuite):
         # Fallback routing is about the failed job's wake, not the CLI: this direct job runs without the CLI on PATH.
         self.command("P02-unknown-origin-code-job", ["/bin/sh", str(JOB), "--bot", "QA-Swarmhub", "--origin", "QA-Unknown",
                      "--order", "codex", "--dir", str(self.home), "--model", self.model, "--effort", "high",
-                     "--report", str(self.home / "QA-P02-report.txt"), "--", "QA observed unknown-origin wake fallback"],
+                     "--report", str(self.home / "QA-P02-report.txt"), "--verify", "test -s QA-P02-report.txt",
+                     "--", "QA observed unknown-origin wake fallback"],
                      expected=69, env=self.base_env)
         self.idle()
         self.snapshot("QA-P02-fallback")
+        self.msg("P04-correct-failed-report", "QA-Jarvis", "QA-Swarmhub",
+                 "Coordinator correction: the preceding unknown-origin job failed 69 with no CLI and no report. "
+                 "Its verification was configured but not run. Demand explicit Codex model " + self.model +
+                 " with high effort, a fresh nonempty report and passing verification before reporting success. "
+                 "You cannot run tools here; state the corrective requirement without claiming a relaunch.", "--durable")
+        self.idle()
         self.webhook_replay()
 
         secret_path = self.provision_replay()
@@ -558,10 +569,20 @@ class ManagedSuite(BehaviorSuite):
             self.server.server_close()
         self.capture_usage()
         self.cleanup()
+        unchanged = self.cli is None or self.source_auth_before == source_auth_snapshot(self.cli)
+        isolation = {"source_auth_config_unchanged": unchanged, "files": ["auth.json", "config.toml"],
+                     "comparison": "contents, mode, inode, mtime; no source values exported",
+                     "private_files": {name: {"symlink": (Path(self.cli["codex_home"]) / name).is_symlink(),
+                                               "mode": oct((Path(self.cli["codex_home"]) / name).stat().st_mode & 0o777)}
+                                       for name in ("auth.json", "config.toml")
+                                       if self.cli and (Path(self.cli["codex_home"]) / name).exists()}}
+        (self.output / "QA-cli-isolation.json").write_text(json.dumps(isolation, indent=2) + "\n")
+        self.result("source-auth-config-unchanged", unchanged, "Source auth/config contents and metadata unchanged")
         self.result("cleanup-local-processes", not children_by_home(str(self.home)), "No isolated runtime processes remain")
         shutil.rmtree(self.temp)
         self.result("cleanup-private-files", not self.temp.exists(), "Temporary QA credentials/state removed after evidence export")
         self.save()
+        assert unchanged, "Source CLI auth/config changed; isolation evidence retained"
 
 
 def main():

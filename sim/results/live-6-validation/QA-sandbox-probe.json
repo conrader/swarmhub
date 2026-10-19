@@ -1,0 +1,7 @@
+{
+  "exit": 1,
+  "stderr": "error building bubblewrap command: app-server socket directory must be a user-owned directory with mode 0700\n",
+  "provider_calls": 0,
+  "source_auth_config_unchanged": true,
+  "private_files_regular": true
+}

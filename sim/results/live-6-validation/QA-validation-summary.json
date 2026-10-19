@@ -1,0 +1,12 @@
+{
+  "python_tests": 129,
+  "python_failures": 0,
+  "python_skipped": 0,
+  "shell_tests": {
+    "sh": 14,
+    "dash": 14
+  },
+  "native_swift_executed": false,
+  "git_diff_check": true,
+  "report_links_resolve": true
+}

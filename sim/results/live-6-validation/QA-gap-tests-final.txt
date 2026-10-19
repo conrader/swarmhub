@@ -1,0 +1,14 @@
+test_P01_P04_a_new_commit_in_the_directory_is_evidence (test_gaps.GapTests.test_P01_P04_a_new_commit_in_the_directory_is_evidence) ... ok
+test_P01_P04_done_requires_evidence_and_wake_states_verified_versus_unverified (test_gaps.GapTests.test_P01_P04_done_requires_evidence_and_wake_states_verified_versus_unverified) ... ok
+test_P02_http_handler_rejects_malformed_requests_without_sockets (test_gaps.GapTests.test_P02_http_handler_rejects_malformed_requests_without_sockets) ... ok
+test_P02_loopback_http_receiver (test_gaps.GapTests.test_P02_loopback_http_receiver) ... ok
+test_P02_webhook_routine_register_show_rotate_fire_never_prints_the_key (test_gaps.GapTests.test_P02_webhook_routine_register_show_rotate_fire_never_prints_the_key) ... ok
+test_P06_provisioner_hook_is_owner_gated_and_secret_intake_returns_only_a_path (test_gaps.GapTests.test_P06_provisioner_hook_is_owner_gated_and_secret_intake_returns_only_a_path) ... ok
+test_P07_outbound_without_argv_uses_the_configured_sender_or_stays_fake (test_gaps.GapTests.test_P07_outbound_without_argv_uses_the_configured_sender_or_stays_fake) ... ok
+test_live_harness_detects_a_real_authenticated_codex_only (test_gaps.GapTests.test_live_harness_detects_a_real_authenticated_codex_only) ... ok
+test_private_files_replace_links_and_webhook_names_do_not_collide (test_gaps.GapTests.test_private_files_replace_links_and_webhook_names_do_not_collide) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 13.935s
+
+OK

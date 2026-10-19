@@ -5,11 +5,18 @@ evidence, managed webhooks, private key intake, provisioner approval and CLI det
 runs without sockets; the separate loopback test explicitly skips when the sandbox denies sockets.
 
 `live_managed.py --usage-db <QA state.db> --output <fresh QA evidence directory>` detects an authenticated `codex` on
-PATH using `codex login status`. It preserves the real auth home in `CODEX_HOME`, uses an isolated QA HOME and
-throwaway repository, and puts reports inside the CLI workspace. With a CLI, P01/P04 run two evidence-gated jobs;
+PATH using `codex login status` against disposable auth/config copies. Jobs use another private `CODEX_HOME`
+with regular 0600 copies, 0700 runtime/temp directories, an isolated QA HOME and throwaway repository.
+Source auth/config contents and metadata must stay unchanged. Reports stay inside the CLI workspace.
+With a CLI, P01/P04 run two evidence-gated jobs;
 P07 cancels a running CLI and runs its corrected replacement (up to four additional coding CLI invocations beyond
 the Hermes turn budget). Without one, the missing-CLI result remains explicit. The runner never installs or
 replaces a CLI. All outbound remains FAKE. See [GAPS-REPORT.md](../GAPS-REPORT.md) for verification boundaries.
+
+`live_cli_probe.py --output <fresh evidence directory> --execution-path <description>` repeats the gaps3
+real-CLI acceptance probe with source auth/config assertions. Use an available plain box shell for coding
+acceptance when the nested sandbox has the known bubblewrap socket-directory error. The probe preserves
+the unchanged runner's workspace-write sandbox and records failure honestly when no plain shell is available.
 
 Peer delivery regressions run without sockets or providers:
 `python3 -B -m unittest discover -s sim -p 'test_peer_runtime.py' -v`.

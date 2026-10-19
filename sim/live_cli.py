@@ -4,9 +4,11 @@ Nothing here stubs a CLI: `coding_cli` only reports an installed, authenticated 
 and the harness falls back to the pass-4 behaviour (jobs fail 69) when it is absent.
 """
 import os
+import hashlib
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 
 
 def coding_cli(env=None):
@@ -16,12 +18,21 @@ def coding_cli(env=None):
     if not path:
         return None
     codex_home = source.get("CODEX_HOME") or str(Path(source.get("HOME", str(Path.home()))) / ".codex")
-    source["CODEX_HOME"] = codex_home
+    before = source_auth_snapshot({"codex_home": codex_home})
     try:
-        status = subprocess.run([path, "login", "status"], capture_output=True, text=True, timeout=20,
-                                env=source)
+        # Even discovery runs against a private copy: credential refresh or trust
+        # updates must never be able to follow a link into the real auth home.
+        with tempfile.TemporaryDirectory(prefix="QA-cli-discovery-") as temporary:
+            home = Path(temporary) / "QA-home"
+            home.mkdir(mode=0o700)
+            private = writable_cli_state({"codex_home": codex_home, "bin": str(Path(path).parent)},
+                                         Path(temporary) / "codex")
+            status = subprocess.run([path, "login", "status"], capture_output=True, text=True, timeout=20,
+                                    env=cli_env(dict(source, HOME=str(home)), private))
     except (OSError, subprocess.TimeoutExpired):
         return None
+    finally:
+        assert before == source_auth_snapshot({"codex_home": codex_home}), "CLI discovery changed source auth/config"
     words = (status.stdout + status.stderr).lower()
     if status.returncode != 0 or "logged in" not in words or "not logged in" in words:
         return None
@@ -41,10 +52,11 @@ def cli_env(base, cli):
 
 
 def writable_cli_state(cli, folder):
-    """Use existing auth read-only, with transient logs/state in the owned QA directory.
+    """Copy existing auth/config into private, disposable CLI state.
 
     The installed auth home can be read-only under the outer QA sandbox. Login status
-    alone does not detect that exec needs writable state. Never alter the source home.
+    alone does not detect that exec needs writable state. In particular config.toml
+    must not be a symlink: the CLI persists project trust there during startup.
     """
     if not cli:
         return None
@@ -61,9 +73,26 @@ def writable_cli_state(cli, folder):
     for name in ("auth.json", "config.toml"):
         path = source / name
         if path.is_file():
-            (folder / name).symlink_to(path)
+            with (folder / name).open("xb") as target:
+                (folder / name).chmod(0o600)
+                target.write(path.read_bytes())
     return dict(cli, source_auth_home=str(source), codex_home=str(folder),
                 runtime_dir=str(runtime), tmp_dir=str(temporary))
+
+
+def source_auth_snapshot(cli):
+    """Compare sensitive source files without exporting their contents or hashes."""
+    source = Path(cli.get("source_auth_home", cli["codex_home"]))
+    result = {}
+    for name in ("auth.json", "config.toml"):
+        path = source / name
+        if path.is_file():
+            metadata = path.stat()
+            result[name] = (hashlib.sha256(path.read_bytes()).hexdigest(), metadata.st_mode,
+                            metadata.st_ino, metadata.st_mtime_ns)
+        else:
+            result[name] = None
+    return result
 
 
 def qa_repo(folder):
