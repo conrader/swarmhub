@@ -5,6 +5,11 @@
 # AccountsRecipeTests under /bin/sh and /bin/dash.
 #
 #   sh Tests/Scripts/accounts-recipes-test.sh <path/to/recipes/accounts.md> <dir with node>     BOX_SH (default /bin/sh)
+#
+# Exit 77 = skipped (one "SKIP:" line, no cases run): no node in that folder, or node cannot run a child process the
+# way the status recipe does. Its execSync gives the child a stdin pipe (a socketpair) and closes it with shutdown(2);
+# a sandbox that denies that syscall makes every version read null even though the child ran, so the recipes misreport
+# installed tools as absent (seen in a seccomp'd review sandbox, 2026-10-19). That is the environment, not the recipe.
 
 TEXT=${1:?usage: accounts-recipes-test.sh <path/to/recipes/accounts.md> <node dir>}
 NODE_DIR=${2:?usage: accounts-recipes-test.sh <path/to/recipes/accounts.md> <node dir>}
@@ -15,6 +20,14 @@ PASSED=0 FAILED=0
 # Only node from that folder (it may hold a real claude or codex).
 mkdir "$ROOT/node" && ln -s "$NODE_DIR/node" "$ROOT/node/node" || exit 1
 NODE_DIR=$ROOT/node
+
+# Preflight (not a case): skip, don't fail, when node is missing or cannot run a child here (see the header).
+skip() { echo "SKIP: accounts recipe tests under $SH: $1"; exit 77; }
+[ -x "$NODE_DIR/node" ] || skip "no executable node in $2"
+if ! PREFLIGHT=$(env HOME="$ROOT" PATH="/usr/bin:/bin:$NODE_DIR" node -e \
+    'require("child_process").execSync("/bin/echo ok", {timeout: 20000})' 2>&1); then
+  skip "node cannot run a child process in this environment ($(printf '%s\n' "$PREFLIGHT" | grep -m1 -E 'Error|EPERM|not permitted' || echo "node -e failed"))"
+fi
 
 recipe() {
   awk -v marker="$1" 'found == 0 && index($0, marker) { found = 1; next }

@@ -4,6 +4,10 @@
 # under /bin/sh and /bin/dash.
 #
 #   sh Tests/Scripts/bot-msg-test.sh <path/to/bot-msg>     BOT_MSG_SH = the shell that runs bot-msg (default /bin/sh)
+#
+# Exit 77 = skipped (one "SKIP:" line, no cases run): python3 cannot open a loopback socket, so neither the stub
+# gateway nor bot-msg's curl could run (a sandbox that denies socket(2) with EPERM; seen in a review sandbox,
+# 2026-10-19). That is the environment, not bot-msg; any other gateway start failure is still a FAIL.
 
 MSG=${1:?usage: bot-msg-test.sh <path/to/bot-msg>}
 SH=${BOT_MSG_SH:-/bin/sh}
@@ -15,6 +19,13 @@ PASSED=0 FAILED=0
 KEY_INFRA=sk-infra-7f3a9c1e5b2d4086
 KEY_DEFAULT=sk-default-0c9e8d7f6a5b4c3d
 KEY_JARVIS=sk-jarvis-1a2b3c4d5e6f7a8b
+
+# Preflight (not a case): skip, don't fail, when no loopback socket can be opened here (see the header).
+if ! PREFLIGHT=$(python3 -I -c 'import socket
+s = socket.socket(); s.bind(("127.0.0.1", 0)); s.close()' 2>&1); then
+  echo "SKIP: bot-msg tests under $SH: no loopback socket in this environment ($(printf '%s\n' "$PREFLIGHT" | tail -n 1))"
+  exit 77
+fi
 
 # One stub gateway for every case; each case resets its state.
 mkdir -p "$ROOT/gw"
