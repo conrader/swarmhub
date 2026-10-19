@@ -57,7 +57,9 @@ class VerificationTests(unittest.TestCase):
         module = runpy.run_path(str(SANDBOX))
         def launch(argv, *, env, cwd):
             self.assertEqual(argv[:2], ['/usr/bin/sandbox-exec', '-p'])
-            self.assertEqual(argv[3:], ['/bin/sh', '-c', 'true'])
+            self.assertEqual(argv[3:7], ['/usr/bin/python3', '-I', '-B', '-c'])
+            self.assertEqual(argv[7], module['verify_darwin'].SOCKET_GUARD)
+            self.assertEqual(argv[8:], ['true'])
             self.assertEqual(cwd, self.repo.resolve())
             self.assertNotIn('QA_SECRET', env)
             self.assertTrue(argv[2].startswith('(version 1)(deny default)'))

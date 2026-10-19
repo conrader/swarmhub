@@ -443,7 +443,8 @@ def main():
             env['PATH'] = '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin'
             profile = darwin_profile(workspace, temporary)
             record_mode(mode_file, MODE_SEATBELT)
-            return subprocess.call(['/usr/bin/sandbox-exec', '-p', profile, '/bin/sh', '-c', command], env=env, cwd=workspace)
+            return subprocess.call(['/usr/bin/sandbox-exec', '-p', profile, *verify_darwin.guarded_command(command)],
+                                   env=env, cwd=workspace)
         elif sys.platform == 'linux':
             # The standalone launcher is single-threaded; only its children receive irreversible restrictions.
             return linux(workspace, temporary, command, env, mode_file)

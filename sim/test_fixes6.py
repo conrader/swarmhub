@@ -328,9 +328,12 @@ class DarwinNativeSandboxTests(SandboxBase):
         self.assertNotEqual(self.run_verify('printf executed > ' + shlex.quote(str(self.marker))).returncode, 0)
         self.assertFalse(self.marker.exists())
         self.assertNotEqual(self.run_verify('cat ' + shlex.quote(str(secret))).returncode, 0)
-        result = self.run_verify('/usr/bin/python3 -c ' + shlex.quote('import socket; socket.socket().connect(("127.0.0.1", 9))'))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('Error', result.stderr)
+        # Creation alone must fail; never contact an endpoint even if the policy regresses.
+        result = self.run_verify('/usr/bin/python3 -c ' + shlex.quote(
+            'import socket; print("socket-probe-reached", flush=True); socket.socket()'))
+        self.assert_refused_not_unavailable(result)
+        self.assertIn('socket-probe-reached', result.stdout)
+        self.assertIn('PermissionError', result.stderr)
 
 
 if __name__ == '__main__':
