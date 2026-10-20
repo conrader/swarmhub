@@ -13,7 +13,7 @@ SKILLS = ROOT / 'Resources/Skills'
 TESTS = ROOT / 'Tests/AgentAppTests'
 # skill -> (version installed before this change, bundled now, the Swift test that pins it)
 BUMPS = {'swarmhub-coding': ('1.3.11', '1.3.12', 'CodingSkillTests.swift'),  # darwinkill3
-         'swarmhub-messages': ('1.4.4', '1.4.5', 'BotMessageSkillTests.swift')}  # P5d Mac regressions + P2b update-status
+         'swarmhub-messages': ('1.4.5', '1.4.6', 'BotMessageSkillTests.swift')}  # coreInt2: merged P5d/P8a content collision
 
 
 def semver(text):

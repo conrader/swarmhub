@@ -19,3 +19,11 @@ If a file named `PROVISIONAL` is in this folder, these goldens were written by t
 After any change to `Resources/Skills/` or `Resources/BotManager/` the goldens must be rewritten on the Mac the same way; `--write-provisional` refuses to overwrite a Swift-final set.
 
 A skill folder holding a non-UTF-8 file (typically a `__pycache__` left by a test run) is skipped by `SkillLibrary.bundled()` and by the port alike, so both tests fail until it is deleted (`find Resources -name __pycache__ -prune -exec rm -rf {} +`).
+
+## Version-only refresh on Linux
+
+`PYTHONDONTWRITEBYTECODE=1 python3 Tests/Updater/test_render.py --refresh-versions` regenerates version metadata
+with the repository renderer. It requires the same complete Swift-final file set and accepts only a strictly
+increasing frontmatter version and its matching advertised version. Every other header byte, the entire body,
+and all references must still match Swift's goldens. It validates all files before writing any generated output;
+body changes still require the Mac command above. This keeps the existing Swift body provenance intact.

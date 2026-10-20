@@ -108,3 +108,69 @@ No `__pycache__` was left in the tree, and no containers were created.
 3. `PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_mac_device_approvals.py -v`, and the scripts suite once on macOS (it un-skips the libcommonCrypto vector).
 4. `sh Tests/Scripts/updater-bootstrap-preflight-test.sh` on macOS (the Darwin `xcrun` and library paths).
 5. Not run: `scripts/test-ios-core.sh`, `scripts/test-ios-sdui.sh` and any `xcodebuild` (iOS suspended). The regenerated iOS project and the iOS sources from P5d, P7c and sysprompt1 have not been compiled together.
+
+## coreInt2 fixes
+
+2026-10-20, on `swarmhub/core-integration`, starting at `0bb9686`. This section supersedes the narrower
+MobileStore check and unresolved 1.4.5 collision described above. Main and Hermes are untouched, nothing was
+pushed or deployed, signing uses TEST keys only, and no iOS builds or runtime tests were run.
+
+1. **Approval boundary restored.** `scripts/test_ios_approval_boundary.py` now compares the complete raw-byte diff
+   of `Apps/iOS/Sources/MobileStore.swift` against `b3a5617` with the frozen, enumerated diff in
+   `Tests/Fixtures/ios-mobile-store-allowed-diff.json`. The only exceptions to baseline identity are exactly:
+   - P2c (`a0fb6cb`): the `appContent` declaration.
+   - P6b (`5c64184`): the `appConfig` declaration/comment and `AppConfig.load()` in initialization.
+   - sysprompt1 (`7cd8a14`): prompt-sync state, `init(storageDirectory:)` and local loading, retry/dismiss,
+     client invalidation/context, explicit prompt edits and synchronization.
+
+   No other byte may change, inside or outside approval functions, including whitespace, line endings and EOF;
+   even the listed additions are pinned exactly. A missing baseline now fails instead of skipping the check.
+   The existing ApprovalsView assertions remain. Eight negative mutations cover unrelated state, credentials,
+   the decline notice, approval clearing, a listed addition, CRLF, appended text and a missing final newline.
+   MobileStore itself is unchanged from the initial HEAD.
+
+2. **Skill collision resolved.** `Resources/Skills/swarmhub-messages/SKILL.md` is now **1.4.6**. Updated version pins
+   in `BotMessageSkillTests.swift`, `CodingSkillTests.swift` and `sim/test_fixes8_skills.py`; installs at 1.4.5
+   explicitly remain outdated until updated to 1.4.6. Audited complete tracked skill trees against all 25 listed
+   source heads, including manager recipes/prompts: coding 1.3.12, feedback 1.0.0 and manager 1.2.0 each match all
+   25 source heads at their version. Messages matched neither P5d nor P8a at 1.4.5; no other skill needs a bump.
+
+   Added and used `Tests/Updater/test_render.py --refresh-versions` to regenerate the three messages goldens with
+   the repository renderer. It validates the entire Swift-final file set before writing and permits only an
+   increasing frontmatter version and matching advertised version. Every other byte, including bodies and
+   references, must stay identical. Negative tests reject body/header/reference/file-set changes, downgrades,
+   and provisional input, before any write. Documented the command in the render README. No generated golden
+   was hand-edited and no PROVISIONAL marker was added or removed. Ran all five vector generators normally and
+   with `--check`; generated pins and vectors remain byte-identical.
+
+3. **Actual Linux verification output.** Saved merged stdout/stderr, commands, timestamps and exit statuses in
+   [coreInt2-tests.log](coreInt2-tests.log), at `/home/ubuntu/work/swarmhub/wt-coreint1/coreInt2-tests.log`.
+   The requested `/home/ubuntu/work/swarmhub/coreInt2-tests.log` cannot be written: the sandbox returns
+   `OSError: [Errno 30] Read-only file system`. All Python runs used `PYTHONDONTWRITEBYTECODE=1`.
+
+| Command/suite | Observed result |
+| --- | --- |
+| `python3 -m unittest discover -s scripts -p 'test_*.py'` | **609 run**, 3 failures, 6 errors, 1 skipped |
+| `python3 -m unittest discover -s Tests/Updater -p 'test_*.py'` | **206 run**, 24 errors (includes both proxy subtests of one test) |
+| `python3 -m unittest discover -s sim -p 'test_*approvals*.py'` | **71 run**, 1 error |
+| Final focused boundary, complete render and skill-version suites, verbose | **36 run, OK** |
+| `sim.test_fixes8_skills` and `sim.test_prompt_sync` | **11 run, OK** |
+| `make_vectors.py`, `make_config_vectors.py`, `make_ui_vectors.py`, `make_ui_renders.py`, `device_approval_vectors.py`, each `--check` | **5/5 byte-identical**, exit 0 |
+| `updater-bootstrap-preflight-test.sh` under sh, dash, bash, zsh | **33 passed, 0 failed, 0 skipped each** |
+| `BOOTSTRAP_TEST_MODE=fallback sh Tests/Scripts/updater-bootstrap-test.sh` | Exit 1 **before any cases**: `mktemp` under `/home/ubuntu` is read-only |
+| `git diff --check`; added allowlist fixture whitespace check | Clean |
+| Source line limits vs core-plan | **318 changed source files checked, none over 500 lines** |
+
+All 31 unittest error records are socket creation refused by the sandbox (`PermissionError: [Errno 1]
+Operation not permitted`); the three scripts failures are drill assertions reporting that same refusal instead
+of their expected outcomes. These runs are **not all-green verification**. The local HTTP/TLS fixture tests and
+bootstrap fallback must be rerun where local sockets and the test home directory are writable; checks were not
+skipped or weakened to hide these restrictions. The final 36-test focused run verifies the JSON-encoded
+allowlist after its final formatting, all render goldens and the 1.4.5 → 1.4.6 expectation. The Mac checks above
+remain pending, with updated 1.4.6 Swift expectations; iOS remains suspended.
+
+`__pycache__` cleanup completed: none remain in the worktree. No generated pins, vectors or Hermes files changed.
+
+**Commit: uncommitted.** Attempting `git add -- scripts/test_ios_approval_boundary.py` returned:
+`fatal: Unable to create '/home/ubuntu/work/swarmhub/peer-review/.git/worktrees/wt-coreint1/index.lock': Read-only file system`.
+The sandbox blocks Git metadata writes, so changes are left unstaged on this branch; no push was attempted.

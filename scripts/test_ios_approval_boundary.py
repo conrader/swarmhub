@@ -4,6 +4,8 @@ Runs scripts/check-ios-approvals.py on this checkout and on temporary copies wit
 and checks statically that the Mac device-signed client moved into SwarmHubCore without a second copy.
 Swift cannot be built here; these checks read sources. No network, no Hermes, no keys.
 """
+import difflib
+import json
 import os
 from pathlib import Path
 import re
@@ -133,12 +135,6 @@ class BoundaryCheckTests(unittest.TestCase):
         self.assertEqual(text.count('ENABLE_USER_SCRIPT_SANDBOXING = "NO"'), 2)
 
 
-def member(source, signature):
-    """A four-space-indented Swift member from its signature line to its closing brace."""
-    start = source.index(signature)
-    return source[start:source.index('\n    }\n', start) + 6]
-
-
 class MoveTests(unittest.TestCase):
     def swift(self, folder):
         return {p: p.read_text() for p in folder.rglob('*.swift')}
@@ -238,23 +234,48 @@ class MoveTests(unittest.TestCase):
         removed = views.index('AvailabilityNote(text: "This operation is no longer pending on this phone.")')
         self.assertIn('if let notice = managed.notice', views[removed:], 'notice survives freeing the detail card')
 
+    def mobile_store_base(self):
+        # A missing historical baseline is a failure, never a silent skip of this boundary.
+        return subprocess.check_output(['git', '-C', str(ROOT), 'show',
+                                        'b3a5617:Apps/iOS/Sources/MobileStore.swift'])
+
+    def assert_mobile_store_changes_are_listed(self, base, current):
+        # The frozen diff enumerates ALL allowed changes: P2c appContent; P6b appConfig; sysprompt1's
+        # storageDirectory init, prompt-sync state/load/edit/sync and client context/invalidation.
+        # Compare raw bytes, including whitespace, line endings and EOF. Every unlisted change anywhere fails;
+        # there is no wildcard, approval-symbol filter, function extraction or regenerating the allowlist here.
+        actual = b''.join(difflib.diff_bytes(difflib.unified_diff,
+                         base.splitlines(keepends=True), current.splitlines(keepends=True),
+                         fromfile=b'b3a5617/MobileStore.swift', tofile=b'integrated/MobileStore.swift'))
+        lines = json.loads((ROOT / 'Tests/Fixtures/ios-mobile-store-allowed-diff.json').read_text())
+        allowed = ''.join(lines).encode('utf-8')
+        self.assertEqual(actual, allowed, 'MobileStore.swift has an unlisted change vs b3a5617')
+
+    def test_unlisted_mobile_store_edits_fail(self):
+        base = self.mobile_store_base()
+        current = (IOS / 'MobileStore.swift').read_bytes()
+        self.assert_mobile_store_changes_are_listed(base, current)
+        edits = [
+            (b'var booted = false', b'var booted = true'),  # outside the three approval functions
+            (b'private let credentials', b'private let changedCredentials'),
+            (b'The server accepted the decline.', b'The server rejected the decline.'),  # inside resolve
+            (b'approvals.removeAll { $0.id == item.id }', b'// approval clearing removed'),
+            (b'let appContent =', b'var appContent ='),  # even an allowed addition is pinned exactly
+            (b'\n', b'\r\n'),
+        ]
+        for old, new in edits:
+            with self.subTest(edit=old):
+                self.assertIn(old, current)
+                changed = current.replace(old, new, 1)
+                with self.assertRaisesRegex(AssertionError, 'unlisted change'):
+                    self.assert_mobile_store_changes_are_listed(base, changed)
+        for changed in (current + b'// unlisted trailing edit\n', current.rstrip(b'\n')):
+            with self.subTest(edit='EOF', changed=changed[-40:]):
+                with self.assertRaisesRegex(AssertionError, 'unlisted change'):
+                    self.assert_mobile_store_changes_are_listed(base, changed)
+
     def test_native_hermes_approval_path_is_unchanged(self):
-        base = subprocess.run(['git', '-C', str(ROOT), 'show', 'b3a5617:Apps/iOS/Sources/MobileStore.swift'],
-                              capture_output=True, text=True)
-        if base.returncode != 0:
-            self.skipTest('base commit b3a5617 not available')
-        # Core integration: P2c (app content), P6b (app config) and bot prompt sync also edit MobileStore, so the
-        # native approval path is pinned instead of the whole file: its functions byte for byte, and every base line
-        # mentioning approvals still present, in order.
-        current = (IOS / 'MobileStore.swift').read_text()
-        for signature in ('    func resolve(_ item: MobileApproval, approved: Bool)', '    func checkApproval(_ item: MobileApproval)',
-                          '    private func remember(_ approval: ApprovalItem, agentID: String)'):
-            with self.subTest(signature=signature):
-                self.assertEqual(member(current, signature), member(base.stdout, signature))
-        lines, at = current.split('\n'), 0
-        for line in (l for l in base.stdout.split('\n') if re.search('approv', l, re.I)):
-            self.assertIn(line, lines[at:], 'native approval line changed or reordered')
-            at = lines.index(line, at) + 1
+        self.assert_mobile_store_changes_are_listed(self.mobile_store_base(), (IOS / 'MobileStore.swift').read_bytes())
         old = subprocess.run(['git', '-C', str(ROOT), 'show', 'b3a5617:Apps/iOS/Sources/ApprovalsView.swift'],
                              capture_output=True, text=True, check=True).stdout
         new = (IOS / 'ApprovalsView.swift').read_text()

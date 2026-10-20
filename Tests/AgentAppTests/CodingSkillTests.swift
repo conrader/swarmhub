@@ -138,12 +138,12 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(SwarmHubSkillsSection.stateText(.changed(installed: "1.0.0"), bundled: bundled) == "v1.0.0 installed · coding agent changed, needs updating")
 }
 
-// Darwinkill3 changes coding; P5d Mac regressions and the P2b/P8a update-status merge update messages; previous installs need the Update banner.
+// Darwinkill3 changes coding; coreInt2 versions the merged messages skill beyond both P5d/P8a 1.4.5 installs.
 @Test @MainActor func installsAtThePreviousSkillVersionsAreOutdated() throws {
     let (store, _, coder, _) = codingStore()
     let coding = try codingSkill()
     let messages = try #require(SkillLibrary.bundled().first { $0.name == "swarmhub-messages" })
-    #expect(coding.version == SkillVersion("1.3.12")! && messages.version == SkillVersion("1.4.5")!)
+    #expect(coding.version == SkillVersion("1.3.12")! && messages.version == SkillVersion("1.4.6")!)
     let variant = store.codingOrder(for: coder).argument
     coder.installedSkills = ["swarmhub-coding": "1.3.11", "swarmhub-messages": "1.4.4"]
     coder.installedSkillVariants = ["swarmhub-coding": variant]
@@ -155,6 +155,9 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(store.skillState(coding, for: coder) == .current)
     #expect(store.skillBanner(for: coder)?.state == .outdated(installed: "1.4.4"), "then the messages skill")
     coder.installedSkills["swarmhub-messages"] = "1.4.5"
+    #expect(store.skillState(messages, for: coder) == .outdated(installed: "1.4.5"))
+    #expect(store.skillBanner(for: coder)?.state == .outdated(installed: "1.4.5"), "either source branch's 1.4.5 needs updating")
+    coder.installedSkills["swarmhub-messages"] = "1.4.6"
     #expect(store.skillState(messages, for: coder) == .current)
     #expect(store.skillBanner(for: coder) == nil)
 }
