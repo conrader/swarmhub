@@ -16,7 +16,7 @@ struct SetupView: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("Bring your agents.").font(.title2.bold())
+                    Text(store.appConfig.setupTitle).font(.title2.bold())
                     Text("Use the address, profile name and key from whoever set up your server.").foregroundStyle(.secondary)
                 }
                 Section {

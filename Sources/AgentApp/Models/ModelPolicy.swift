@@ -1,4 +1,5 @@
 import Foundation
+import SwarmHubCore
 
 /// P13 model roles. Pure and `Sendable` (no SwiftUI, no network): the backend-neutral seam that says which model a
 /// bot should use for each role. Only a provider slug and a model id are ever stored; never a name, URL or key.
@@ -85,6 +86,17 @@ struct ModelDefaults: Codable, Sendable, Equatable {
         conversation = try? c.decodeIfPresent(ModelChoice.self, forKey: .conversation)
         coding = try? c.decodeIfPresent(ModelChoice.self, forKey: .coding)
         codingAgent = CodingOrder.decode(c, .codingAgent)
+    }
+}
+
+extension ModelDefaults {
+    /// P6b: each role this install left unset takes the bundle's `policy.modelDefaults` pair (compiled: none), so
+    /// `ModelPolicy.resolve` reads one set of defaults. A pair `ModelChoice` refuses stays unset. `codingAgent` is
+    /// this install's own; its unset value already means the SwarmHub-wide order (`AppStore.configuredCodingOrder`).
+    func filled(from config: AppConfig) -> ModelDefaults {
+        ModelDefaults(conversation: conversation ?? config.conversationModel.flatMap { ModelChoice(provider: $0.provider, model: $0.model) },
+                      coding: coding ?? config.codingModel.flatMap { ModelChoice(provider: $0.provider, model: $0.model) },
+                      codingAgent: codingAgent)
     }
 }
 

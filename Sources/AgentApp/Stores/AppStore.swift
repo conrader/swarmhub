@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import AppKit
 import UserNotifications
+import SwarmHubCore
 import SwarmHubCoordination
 
 
@@ -93,6 +94,8 @@ import SwarmHubCoordination
     var discoveredConnections: Set<String> = []; var pendingAdoptions: [UUID: [String]] = [:]
     /// Tests: the manager text template instead of the bundled resource.
     var managerTemplateOverride: String?
+    /// P6b: bundle-configurable settings (`AppStore+Config.swift`); compiled values in tests, demo and preview stores.
+    var appConfig = AppConfig.compiled
     /// P27: tests' skill library instead of the bundled one; an Install waiting for its manager turn (per manager bot).
     var skillLibraryOverride: [BundledSkill]?; var pendingSkillInstalls: [UUID: SkillInstallTurn] = [:]
     /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
@@ -153,6 +156,8 @@ import SwarmHubCoordination
             } catch { UIAcceptanceMode.refuse(error.localizedDescription) }
         }
         #endif
+        // P6b: only the real install reads the installed bundle's settings, once per launch.
+        if storeURL == nil, !demoMode, !TestRunGuard.isTestRun { appConfig = Self.launchConfig }
         // P28: a test run never opens the real store.json or the standard defaults; either is reported and replaced.
         var storeURL = storeURL, defaults = defaults
         if storeURL == nil, TestRunGuard.refuses("AppStore without storeURL (the real store.json)") {

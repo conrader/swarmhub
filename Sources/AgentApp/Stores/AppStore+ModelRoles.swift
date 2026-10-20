@@ -17,7 +17,7 @@ extension AppStore {
     }
 
     func modelSettings(for bot: Bot) -> BotModelSettings? { bot.modelSettings }
-    var modelDefaultsForRoles: ModelDefaults? { modelDefaults }
+    var modelDefaultsForRoles: ModelDefaults? { effectiveModelDefaults }
 
     func modelRoles() -> ModelRolesModel { ModelRolesModel(modelRoleBots.map(modelRolesInput)) }
     func modelRolesRow(for bot: Bot) -> ModelRolesModel.Row { ModelRolesModel.row(modelRolesInput(for: bot)) }

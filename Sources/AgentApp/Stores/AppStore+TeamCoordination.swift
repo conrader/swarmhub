@@ -58,12 +58,13 @@ extension AppStore {
         guard Set(identities.map { $0.connection + "|" + $0.profile }).count == identities.count else {
             errorMessage = "Two team members use the same backend identity. Choose one of them."; return false
         }
-        let policy = TeamPolicy(originID: origin.id, decision: request, members: identities, ownerDeviceID: teamDeviceID)
+        var policy = TeamPolicy(originID: origin.id, decision: request, members: identities, ownerDeviceID: teamDeviceID)
+        policy.actions = configuredTeamActions
         var workflow = Workflow(id: UUID(), groupID: origin.id, coordinatorID: coordinator.id, request: request, createdAt: now(), state: .running,
             tasks: [.init(id: "work", botID: recipient.id, instructions: request, expectedOutput: "Answer the request with evidence and unresolved limitations. Ask a listed peer for help or review when useful.", dependencies: []),
                     .init(id: "synthesis", botID: coordinator.id, instructions: "Consolidate the findings for the user. Preserve disagreements and distinguish reported results from verified outcomes.", expectedOutput: "One consolidated answer", dependencies: ["work"])],
             budget: .init(id: UUID(), tokenLimit: Self.workflowDefaultBudget))
-        workflow.coordination = TeamCoordination(policy: policy, originMessageID: user.id)
+        workflow.coordination = TeamCoordination(policy: policy, limits: configuredTeamLimits, originMessageID: user.id)
         user.metadata["teamOrigin"] = workflow.id.uuidString
         do { try saveWorkflow(workflow) } catch { errorMessage = error.localizedDescription; return false }
         origin.messages.append(user); objectWillChange.send(); save(); dispatchWorkflows()
@@ -80,8 +81,8 @@ extension AppStore {
         guard roster.contains(where: { $0.id == workflow.coordinatorID }) else { return }
         let old = workflow.coordination
         var policy = TeamPolicy(originID: workflow.groupID, decision: workflow.request, members: roster.map(teamIdentity), ownerDeviceID: teamDeviceID)
-        policy.version = (old?.policy.version ?? 0) + 1
-        workflow.coordination = old ?? TeamCoordination(policy: policy, originMessageID: UUID())
+        policy.version = (old?.policy.version ?? 0) + 1; policy.actions = configuredTeamActions
+        workflow.coordination = old ?? TeamCoordination(policy: policy, limits: configuredTeamLimits, originMessageID: UUID())
         workflow.coordination?.policy = policy; workflow.deadline = nil
         commitWorkflow(workflow)
     }

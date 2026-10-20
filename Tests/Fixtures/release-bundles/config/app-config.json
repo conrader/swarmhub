@@ -1,0 +1,535 @@
+{
+  "cases": [
+    {
+      "components": [],
+      "description": "No bundle: every value is the compiled default (today's behaviour).",
+      "id": "no-bundle",
+      "reports": [],
+      "snapshot": {
+        "copy.capabilityFooter": "Server capability support does not imply every mobile control is implemented in this foundation build.",
+        "copy.codingOrderHelp": "Who does a bot’s coding tasks. The next one is used only when the previous isn’t installed, isn’t logged in, or hits its usage limit. A change asks to update that bot’s coding skill.",
+        "copy.setupTitle": "Bring your agents.",
+        "policy.botPrompt.coordinator": "automatic",
+        "policy.botPrompt.quietHoursEnd": 480,
+        "policy.botPrompt.quietHoursStart": 1320,
+        "policy.codingOrder": "claude,codex,hermes",
+        "policy.modelDefaults": {},
+        "policy.teamActions": [
+          "assign",
+          "reportResult",
+          "requestHelp",
+          "requestReview"
+        ],
+        "policy.teamLimits": {
+          "activeSeconds": 1800,
+          "handoffDepth": 3,
+          "operations": 48,
+          "parallelTasks": 1,
+          "reviewRounds": 2,
+          "tasks": 12
+        },
+        "prompts.botPrompt.language": "Match the user's current language; follow an explicit language preference.",
+        "prompts.botPrompt.owner": "the user",
+        "prompts.botPrompt.role": "Personal assistant"
+      }
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/app-release-policy--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "The policy component release tooling ships today changes no resolved value.",
+      "id": "release-policy",
+      "reports": [],
+      "snapshot": {
+        "copy.capabilityFooter": "Server capability support does not imply every mobile control is implemented in this foundation build.",
+        "copy.codingOrderHelp": "Who does a bot’s coding tasks. The next one is used only when the previous isn’t installed, isn’t logged in, or hits its usage limit. A change asks to update that bot’s coding skill.",
+        "copy.setupTitle": "Bring your agents.",
+        "policy.botPrompt.coordinator": "automatic",
+        "policy.botPrompt.quietHoursEnd": 480,
+        "policy.botPrompt.quietHoursStart": 1320,
+        "policy.codingOrder": "claude,codex,hermes",
+        "policy.modelDefaults": {},
+        "policy.teamActions": [
+          "assign",
+          "reportResult",
+          "requestHelp",
+          "requestReview"
+        ],
+        "policy.teamLimits": {
+          "activeSeconds": 1800,
+          "handoffDepth": 3,
+          "operations": 48,
+          "parallelTasks": 1,
+          "reviewRounds": 2,
+          "tasks": 12
+        },
+        "prompts.botPrompt.language": "Match the user's current language; follow an explicit language preference.",
+        "prompts.botPrompt.owner": "the user",
+        "prompts.botPrompt.role": "Personal assistant"
+      }
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/app-bundle--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "A bundle changes every value without an app build.",
+      "id": "bundle",
+      "reports": [],
+      "snapshot": {
+        "copy.capabilityFooter": "TEST capability footer",
+        "copy.codingOrderHelp": "TEST coding help",
+        "copy.setupTitle": "TEST setup title",
+        "policy.botPrompt.coordinator": "none",
+        "policy.botPrompt.quietHoursEnd": 420,
+        "policy.botPrompt.quietHoursStart": 1380,
+        "policy.codingOrder": "codex,claude,hermes",
+        "policy.modelDefaults": {
+          "codingModel": "TEST-coder-1",
+          "codingProvider": "TEST-provider",
+          "conversationModel": "TEST-chat-1",
+          "conversationProvider": "TEST-provider"
+        },
+        "policy.teamActions": [
+          "assign",
+          "requestReview"
+        ],
+        "policy.teamLimits": {
+          "activeSeconds": 1800,
+          "handoffDepth": 3,
+          "operations": 48,
+          "parallelTasks": 1,
+          "reviewRounds": 3,
+          "tasks": 20
+        },
+        "prompts.botPrompt.language": "TEST: English",
+        "prompts.botPrompt.owner": "TEST owner",
+        "prompts.botPrompt.role": "TEST role",
+        "prompts.managerRecipe.box": "TEST box recipe\n",
+        "prompts.managerTemplate": "TEST manager core for {{PROFILE}}\n",
+        "prompts.managerTemplate.openclaw": "TEST OpenClaw manager\n"
+      }
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/app-wrong-type--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Wrong types read as compiled defaults, each reported once.",
+      "id": "wrong-type",
+      "reports": [
+        {
+          "component": "app-config",
+          "domain": "prompts",
+          "key": "managerTemplate",
+          "reason": "wrong_type"
+        },
+        {
+          "component": "app-config",
+          "domain": "copy",
+          "key": "setupTitle",
+          "reason": "wrong_type"
+        },
+        {
+          "domain": "policy",
+          "key": "codingOrder",
+          "reason": "wrong_type"
+        },
+        {
+          "domain": "policy",
+          "key": "modelDefaults",
+          "reason": "wrong_type"
+        },
+        {
+          "domain": "policy",
+          "key": "teamActions",
+          "reason": "wrong_type"
+        },
+        {
+          "domain": "policy",
+          "key": "teamLimits",
+          "reason": "wrong_type"
+        },
+        {
+          "domain": "policy",
+          "key": "botPrompt.coordinator",
+          "reason": "wrong_type"
+        },
+        {
+          "domain": "policy",
+          "key": "botPrompt.quietHoursStart",
+          "reason": "wrong_type"
+        },
+        {
+          "domain": "policy",
+          "key": "botPrompt.quietHoursEnd",
+          "reason": "wrong_type"
+        }
+      ],
+      "snapshot": {
+        "copy.capabilityFooter": "Server capability support does not imply every mobile control is implemented in this foundation build.",
+        "copy.codingOrderHelp": "Who does a bot’s coding tasks. The next one is used only when the previous isn’t installed, isn’t logged in, or hits its usage limit. A change asks to update that bot’s coding skill.",
+        "copy.setupTitle": "Bring your agents.",
+        "policy.botPrompt.coordinator": "automatic",
+        "policy.botPrompt.quietHoursEnd": 480,
+        "policy.botPrompt.quietHoursStart": 1320,
+        "policy.codingOrder": "claude,codex,hermes",
+        "policy.modelDefaults": {},
+        "policy.teamActions": [
+          "assign",
+          "reportResult",
+          "requestHelp",
+          "requestReview"
+        ],
+        "policy.teamLimits": {
+          "activeSeconds": 1800,
+          "handoffDepth": 3,
+          "operations": 48,
+          "parallelTasks": 1,
+          "reviewRounds": 2,
+          "tasks": 12
+        },
+        "prompts.botPrompt.language": "Match the user's current language; follow an explicit language preference.",
+        "prompts.botPrompt.owner": "the user",
+        "prompts.botPrompt.role": "Personal assistant"
+      }
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/app-out-of-range--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Values outside their limits (including wider team actions) read as compiled defaults.",
+      "id": "out-of-range",
+      "reports": [
+        {
+          "domain": "policy",
+          "key": "codingOrder",
+          "reason": "out_of_range"
+        },
+        {
+          "domain": "policy",
+          "key": "modelDefaults",
+          "reason": "out_of_range"
+        },
+        {
+          "domain": "policy",
+          "key": "teamActions",
+          "reason": "out_of_range"
+        },
+        {
+          "domain": "policy",
+          "key": "teamLimits",
+          "reason": "out_of_range"
+        },
+        {
+          "domain": "policy",
+          "key": "botPrompt.coordinator",
+          "reason": "out_of_range"
+        },
+        {
+          "domain": "policy",
+          "key": "botPrompt.quietHoursStart",
+          "reason": "out_of_range"
+        },
+        {
+          "domain": "policy",
+          "key": "botPrompt.quietHoursEnd",
+          "reason": "out_of_range"
+        },
+        {
+          "domain": "prompts",
+          "key": "managerTemplate",
+          "reason": "out_of_range"
+        },
+        {
+          "domain": "prompts",
+          "key": "botPrompt.owner",
+          "reason": "out_of_range"
+        },
+        {
+          "domain": "copy",
+          "key": "setupTitle",
+          "reason": "out_of_range"
+        }
+      ],
+      "snapshot": {
+        "copy.capabilityFooter": "Server capability support does not imply every mobile control is implemented in this foundation build.",
+        "copy.codingOrderHelp": "Who does a bot’s coding tasks. The next one is used only when the previous isn’t installed, isn’t logged in, or hits its usage limit. A change asks to update that bot’s coding skill.",
+        "copy.setupTitle": "Bring your agents.",
+        "policy.botPrompt.coordinator": "automatic",
+        "policy.botPrompt.quietHoursEnd": 480,
+        "policy.botPrompt.quietHoursStart": 1320,
+        "policy.codingOrder": "claude,codex,hermes",
+        "policy.modelDefaults": {},
+        "policy.teamActions": [
+          "assign",
+          "reportResult",
+          "requestHelp",
+          "requestReview"
+        ],
+        "policy.teamLimits": {
+          "activeSeconds": 1800,
+          "handoffDepth": 3,
+          "operations": 48,
+          "parallelTasks": 1,
+          "reviewRounds": 2,
+          "tasks": 12
+        },
+        "prompts.botPrompt.language": "Match the user's current language; follow an explicit language preference.",
+        "prompts.botPrompt.owner": "the user",
+        "prompts.botPrompt.role": "Personal assistant"
+      }
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/app-kill-switch--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Kill flags select the compiled default for their key only.",
+      "id": "kill-switch",
+      "reports": [
+        {
+          "domain": "policy",
+          "key": "codingOrder",
+          "reason": "killed"
+        },
+        {
+          "domain": "policy",
+          "key": "teamLimits",
+          "reason": "killed"
+        },
+        {
+          "domain": "prompts",
+          "key": "managerTemplate",
+          "reason": "killed"
+        },
+        {
+          "domain": "copy",
+          "key": "setupTitle",
+          "reason": "killed"
+        }
+      ],
+      "snapshot": {
+        "copy.capabilityFooter": "TEST capability footer",
+        "copy.codingOrderHelp": "TEST coding help",
+        "copy.setupTitle": "Bring your agents.",
+        "policy.botPrompt.coordinator": "none",
+        "policy.botPrompt.quietHoursEnd": 420,
+        "policy.botPrompt.quietHoursStart": 1380,
+        "policy.codingOrder": "claude,codex,hermes",
+        "policy.modelDefaults": {
+          "codingModel": "TEST-coder-1",
+          "codingProvider": "TEST-provider",
+          "conversationModel": "TEST-chat-1",
+          "conversationProvider": "TEST-provider"
+        },
+        "policy.teamActions": [
+          "assign",
+          "requestReview"
+        ],
+        "policy.teamLimits": {
+          "activeSeconds": 1800,
+          "handoffDepth": 3,
+          "operations": 48,
+          "parallelTasks": 1,
+          "reviewRounds": 2,
+          "tasks": 12
+        },
+        "prompts.botPrompt.language": "TEST: English",
+        "prompts.botPrompt.owner": "TEST owner",
+        "prompts.botPrompt.role": "TEST role",
+        "prompts.managerRecipe.box": "TEST box recipe\n",
+        "prompts.managerTemplate.openclaw": "TEST OpenClaw manager\n"
+      }
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/app-denied--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Approval, approver, gate and endpoint names or values never reach a setting.",
+      "id": "denied",
+      "reports": [
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "approvalRules",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "approvers",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "codingGate",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "modelDefaults",
+          "reason": "denied_value"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "teamLimits",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "prompts",
+          "key": "botPrompt.approvalRules",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "prompts",
+          "key": "managerTemplate.webhookURL",
+          "reason": "denied_key"
+        }
+      ],
+      "snapshot": {
+        "copy.capabilityFooter": "Server capability support does not imply every mobile control is implemented in this foundation build.",
+        "copy.codingOrderHelp": "Who does a bot’s coding tasks. The next one is used only when the previous isn’t installed, isn’t logged in, or hits its usage limit. A change asks to update that bot’s coding skill.",
+        "copy.setupTitle": "Bring your agents.",
+        "policy.botPrompt.coordinator": "automatic",
+        "policy.botPrompt.quietHoursEnd": 480,
+        "policy.botPrompt.quietHoursStart": 1320,
+        "policy.codingOrder": "codex,claude,hermes",
+        "policy.modelDefaults": {},
+        "policy.teamActions": [
+          "assign"
+        ],
+        "policy.teamLimits": {
+          "activeSeconds": 1800,
+          "handoffDepth": 3,
+          "operations": 48,
+          "parallelTasks": 1,
+          "reviewRounds": 2,
+          "tasks": 12
+        },
+        "prompts.botPrompt.language": "Match the user's current language; follow an explicit language preference.",
+        "prompts.botPrompt.owner": "the user",
+        "prompts.botPrompt.role": "Personal assistant"
+      }
+    }
+  ],
+  "keys": [
+    {
+      "domain": "policy",
+      "key": "codingOrder",
+      "type": "string"
+    },
+    {
+      "domain": "policy",
+      "key": "modelDefaults",
+      "type": "string_map"
+    },
+    {
+      "domain": "policy",
+      "key": "teamActions",
+      "type": "string_list"
+    },
+    {
+      "domain": "policy",
+      "key": "teamLimits",
+      "type": "integer_map"
+    },
+    {
+      "domain": "policy",
+      "key": "botPrompt.coordinator",
+      "type": "string"
+    },
+    {
+      "domain": "policy",
+      "key": "botPrompt.quietHoursStart",
+      "type": "integer"
+    },
+    {
+      "domain": "policy",
+      "key": "botPrompt.quietHoursEnd",
+      "type": "integer"
+    },
+    {
+      "domain": "prompts",
+      "key": "managerTemplate",
+      "type": "string"
+    },
+    {
+      "domain": "prompts",
+      "key": "managerTemplate.openclaw",
+      "type": "string"
+    },
+    {
+      "domain": "prompts",
+      "key": "managerRecipe.accounts",
+      "type": "string"
+    },
+    {
+      "domain": "prompts",
+      "key": "managerRecipe.box",
+      "type": "string"
+    },
+    {
+      "domain": "prompts",
+      "key": "managerRecipe.capacity",
+      "type": "string"
+    },
+    {
+      "domain": "prompts",
+      "key": "managerRecipe.models",
+      "type": "string"
+    },
+    {
+      "domain": "prompts",
+      "key": "botPrompt.owner",
+      "type": "string"
+    },
+    {
+      "domain": "prompts",
+      "key": "botPrompt.role",
+      "type": "string"
+    },
+    {
+      "domain": "prompts",
+      "key": "botPrompt.language",
+      "type": "string"
+    },
+    {
+      "domain": "copy",
+      "key": "codingOrderHelp",
+      "type": "string"
+    },
+    {
+      "domain": "copy",
+      "key": "setupTitle",
+      "type": "string"
+    },
+    {
+      "domain": "copy",
+      "key": "capabilityFooter",
+      "type": "string"
+    }
+  ],
+  "note": "Generated by scripts/release/make_config_vectors.py (P6b). Resolved app settings per bundle; an unset optional text is absent. TEST data only.",
+  "schema": "swarmhub/app-config-vectors/1"
+}

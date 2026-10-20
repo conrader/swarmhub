@@ -56,7 +56,7 @@ struct AgentDetailsView: View {
                     feature("Stop a run", store.capabilities[agentID]?.stop)
                     feature("Guidance while running", store.capabilities[agentID]?.steer)
                     feature("Approval decisions", store.capabilities[agentID]?.approvals)
-                } header: { Text("This server supports") } footer: { Text("Server capability support does not imply every mobile control is implemented in this foundation build.") }
+                } header: { Text("This server supports") } footer: { Text(store.appConfig.capabilityFooter) }
                 Section("Next milestones") {
                     Text("Groups, routines, media, models, remote computers, connected apps, imports and manager-agent actions.").foregroundStyle(.secondary)
                 }

@@ -1,4 +1,5 @@
 import Foundation
+import SwarmHubCore
 
 /// P31: why an Install was refused before anything was sent.
 enum SkillInstallError: LocalizedError, Equatable {
@@ -32,7 +33,7 @@ extension AppStore {
 
     /// P31 D1: this bot's coding agent order (its own, else the SwarmHub-wide default, else Claude Code first).
     func codingOrder(for bot: Bot) -> CodingOrder {
-        CodingOrder.resolve(bot: bot.modelSettings?.codingAgent, appDefault: modelDefaults.codingAgent).order
+        CodingOrder.resolve(bot: bot.modelSettings?.codingAgent, appDefault: modelDefaults.codingAgent, fallback: configuredCodingOrder).order
     }
 
     func skillState(_ skill: BundledSkill, for bot: Bot) -> SkillInstallState {
@@ -123,10 +124,10 @@ extension AppStore {
         guard !skills.isEmpty, HermesKeyPaste.isValidProfileName(profile) else { return nil }
         var commands: [String] = []
         for skill in skills {
-            guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: managerTemplateOverride ?? Self.bundledManagerTemplate,
+            guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: managerCoreTemplate,
                                                     codingOrder: codingOrder) else { return nil }
             let folder = SkillLibrary.installPath(skill.name, profile: profile)
-            let files = [SkillFile(path: "SKILL.md", content: content)] + skill.files.map { SkillLibrary.render($0, forProfile: profile) }
+            let files = [SkillFile(path: "SKILL.md", content: content)] + skill.files.map { SkillLibrary.render(configuredFile($0), forProfile: profile) }
             if let clash = files.first(where: { $0.content.contains(Self.heredocEnd) }) { throw SkillInstallError.markerInFile(skill: skill.name, path: clash.path) }
             let folders = Set(files.map { ($0.path as NSString).deletingLastPathComponent }.filter { !$0.isEmpty })
             commands.append("mkdir -p " + ([folder] + folders.sorted().map { "\(folder)/\($0)" }).joined(separator: " "))
@@ -152,9 +153,19 @@ extension AppStore {
     /// The core manager text (the skill's SKILL.md body).
     static var bundledManagerTemplate: String? { BotManagerText.template() }
 
-    /// P31 C: what a quiet or pressed box/accounts turn cuts its recipe from: the override (tests), else that recipe file
-    /// only, never the whole manager text.
-    func managerRecipeTemplate(_ recipe: BotManagerText.Recipe) -> String? { managerTemplateOverride ?? BotManagerText.recipe(recipe) }
+    /// P31 C: what a quiet or pressed box/accounts turn cuts its recipe from: the override (tests), else (P6b) the bundle's
+    /// `prompts.managerRecipe.<name>`, else that recipe file only, never the whole manager text.
+    func managerRecipeTemplate(_ recipe: BotManagerText.Recipe) -> String? {
+        managerTemplateOverride ?? appConfig.managerRecipes[recipe.rawValue] ?? BotManagerText.recipe(recipe)
+    }
+
+    /// P6b: a skill's `references/<recipe>.md` with the bundle's recipe text when it has one, so an installed manager skill
+    /// carries the same recipes SwarmHub's own turns use; every other file as shipped.
+    private func configuredFile(_ file: SkillFile) -> SkillFile {
+        guard let recipe = BotManagerText.Recipe.allCases.first(where: { $0.referencePath == file.path }),
+              let text = appConfig.managerRecipes[recipe.rawValue] else { return file }
+        return SkillFile(path: file.path, content: text)
+    }
 
     /// Records a `skills_installed` op for the bot bound to `profile` on the manager's connection: only library skills,
     /// never newer than this build ships (the reply carries names and versions only; the content is never read from it).

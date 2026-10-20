@@ -5,7 +5,7 @@ extension AppStore {
     func modelRolesPlanInput(for bot: Bot) -> ModelRolesPlan.Input {
         .init(id: bot.id, name: bot.name, block: catalogBlock(for: bot)?.text, sessionID: bot.hermesSessionID, isStreaming: isStreamingIn(bot),
               lock: bot.hermesModelLock, current: currentModel(for: bot), catalog: modelCatalog(for: bot),
-              blocker: ModelRoleReason.blocker(botInfo.info(for: bot.id)), settings: bot.modelSettings, defaults: modelDefaults)
+              blocker: ModelRoleReason.blocker(botInfo.info(for: bot.id)), settings: bot.modelSettings, defaults: effectiveModelDefaults)
     }
 
     /// The preview; reads only what Load already put in the cache (no request).
@@ -45,7 +45,7 @@ extension AppStore {
     /// loaded, offers it) that differs from what the main chat runs; nil hides the button.
     func codingThreadChoice(for bot: Bot) -> ModelChoice? {
         guard bot.backend == .hermes else { return nil }
-        let effective = ModelPolicy.effective(role: .coding, settings: bot.modelSettings, defaults: modelDefaults, catalog: modelCatalog(for: bot).value)
+        let effective = ModelPolicy.effective(role: .coding, settings: bot.modelSettings, defaults: effectiveModelDefaults, catalog: modelCatalog(for: bot).value)
         guard let choice = effective.choice, effective.check != .notOffered else { return nil }
         if let current = currentModel(for: bot), ModelCatalog.sameModel(current.model, choice.model) { return nil }
         return choice

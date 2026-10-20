@@ -22,9 +22,13 @@ final class MobileStore {
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var draftTasks: [String: Task<Void, Never>] = [:]
     var storageReady: Bool { repository != nil }
+    /// P6b: bundle-configurable settings, resolved by SwarmHubCore exactly as on the Mac and read once per launch from the
+    /// installed bundle in `init` (never fetched); screenshot capture keeps the compiled values.
+    @ObservationIgnored private(set) var appConfig = AppConfig.compiled
 
     init() {
         if CaptureConfiguration.screen != nil { CaptureConfiguration.configure(self); return }
+        appConfig = AppConfig.load()
         do {
             let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("SwarmHub")
             repository = try SQLiteRepository(url: directory.appendingPathComponent("mobile.sqlite"))
