@@ -79,7 +79,7 @@ def write_source(folder, *, notes="Report drills plainly.", notes_version="1.0.0
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     (folder / "Skills/drill-notes").mkdir(parents=True)
     (folder / "Skills/drill-notes/SKILL.md").write_text(NOTES_MD.format(version=notes_version, text=notes))
-    policy = {"schema": "swarmhub/policy-defaults/1", "codingOrder": order}
+    policy = {"schema": "swarmhub/config-policy/1", "codingOrder": order}
     (folder / "policy.json").write_text(json.dumps(policy, indent=2, sort_keys=True) + "\n")
     layout = {"schema": "swarmhub/bundle-layout/1", "requires": {"updater": ">=1.0"}, "components": [
         {"kind": "skill", "name": "swarmhub-feedback", "targets": ["box"],

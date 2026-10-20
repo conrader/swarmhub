@@ -31,7 +31,7 @@ def run(*args, root=ROOT):
 class BoundaryCheckTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix='p5d-boundary.'))
-        for part in ['Apps/iOS/Sources', 'Apps/iOS/SwarmHub.xcodeproj', 'Packages/SwarmHubCore/Sources']:
+        for part in ['Apps/iOS/Sources', 'Apps/iOS/Tests', 'Apps/iOS/SwarmHub.xcodeproj', 'Packages/SwarmHubCore/Sources']:
             shutil.copytree(ROOT / part, self.tmp / part)
 
     def tearDown(self):
@@ -58,6 +58,8 @@ class BoundaryCheckTests(unittest.TestCase):
              'let header = "X-SwarmHub-Signature"', 'v1 signature header'),
             ('Apps/iOS/Sources/MobileStore.swift', 'func legacy() { _ = ManagedRemoteControl.self }', 'Mac v1 client'),
             ('Apps/iOS/Sources/MobileStore.swift', 'let s = "https://box" ; let x = HMAC<SHA256>.self', 'CryptoKit HMAC'),
+            ('Apps/iOS/Sources/SDUI/SDUIFormView.swift', 'let key = SymmetricKey(size: .bits256)', 'symmetric approval key'),
+            ('Apps/iOS/Tests/MobilePromptSyncTests.swift', 'let header = "X-SwarmHub-Signature"', 'v1 signature header'),
         ]
         for relative, text, label in cases:
             with self.subTest(label=label, file=relative):
@@ -81,17 +83,30 @@ class BoundaryCheckTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn('Hermes key store', result.stderr)
 
+    def test_nested_approval_code_cannot_read_the_hermes_key(self):
+        (self.tmp / 'Apps/iOS/Sources/SDUI/Leak.swift').write_text('struct Leak { let store: ManagedApprovalStore; let c = KeychainCredentials() }\n')
+        result = run(root=self.tmp)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('Apps/iOS/Sources/SDUI/Leak.swift', result.stderr)
+        self.assertIn('Hermes key store', result.stderr)
+
     def test_project_must_compile_only_ios_sources_and_core(self):
         project = self.tmp / 'Apps/iOS/SwarmHub.xcodeproj/project.pbxproj'
         text = project.read_text()
         project.write_text(text.replace('path = "Sources/ChatView.swift"', 'path = "../../Sources/AgentApp/Models/ManagedRemoteControl.swift"'))
         self.assertIn('outside Apps/iOS/Sources', run(root=self.tmp).stderr)
+        for path in ('Sources/../../../Sources/AgentApp/AppStore.swift', 'Tests/Nested/Deep.swift', 'Other/Loose.swift'):
+            project.write_text(text.replace('path = "Sources/ChatView.swift"', f'path = "{path}"'))
+            self.assertIn(f'compiles {path}, outside', run(root=self.tmp).stderr)
         project.write_text(text.replace('relativePath = ../../Packages/SwarmHubCore;', 'relativePath = ../..;'))
         self.assertIn('package references', run(root=self.tmp).stderr)
         project.write_text(text.replace('check-ios-approvals.py', 'nothing.py'))
         self.assertIn('missing the approval boundary build phase', run(root=self.tmp).stderr)
         project.write_text(text)
         (self.tmp / 'Apps/iOS/Sources/Stale.swift').write_text('struct Stale {}\n')
+        self.assertIn('run scripts/generate-ios-project.py', run(root=self.tmp).stderr)
+        (self.tmp / 'Apps/iOS/Sources/Stale.swift').unlink()
+        (self.tmp / 'Apps/iOS/Sources/SDUI/Stale.swift').write_text('struct Stale {}\n')
         self.assertIn('run scripts/generate-ios-project.py', run(root=self.tmp).stderr)
 
     def test_binary_mode(self):
@@ -116,6 +131,12 @@ class BoundaryCheckTests(unittest.TestCase):
         boundary = re.search(r'(\w+) = \{ isa = PBXShellScriptBuildPhase;[^\n]*check-ios-approvals\.py', text).group(1)
         self.assertEqual(phases[0], boundary, 'the boundary check runs before compiling')
         self.assertEqual(text.count('ENABLE_USER_SCRIPT_SANDBOXING = "NO"'), 2)
+
+
+def member(source, signature):
+    """A four-space-indented Swift member from its signature line to its closing brace."""
+    start = source.index(signature)
+    return source[start:source.index('\n    }\n', start) + 6]
 
 
 class MoveTests(unittest.TestCase):
@@ -222,7 +243,18 @@ class MoveTests(unittest.TestCase):
                               capture_output=True, text=True)
         if base.returncode != 0:
             self.skipTest('base commit b3a5617 not available')
-        self.assertEqual((IOS / 'MobileStore.swift').read_text(), base.stdout)
+        # Core integration: P2c (app content), P6b (app config) and bot prompt sync also edit MobileStore, so the
+        # native approval path is pinned instead of the whole file: its functions byte for byte, and every base line
+        # mentioning approvals still present, in order.
+        current = (IOS / 'MobileStore.swift').read_text()
+        for signature in ('    func resolve(_ item: MobileApproval, approved: Bool)', '    func checkApproval(_ item: MobileApproval)',
+                          '    private func remember(_ approval: ApprovalItem, agentID: String)'):
+            with self.subTest(signature=signature):
+                self.assertEqual(member(current, signature), member(base.stdout, signature))
+        lines, at = current.split('\n'), 0
+        for line in (l for l in base.stdout.split('\n') if re.search('approv', l, re.I)):
+            self.assertIn(line, lines[at:], 'native approval line changed or reordered')
+            at = lines.index(line, at) + 1
         old = subprocess.run(['git', '-C', str(ROOT), 'show', 'b3a5617:Apps/iOS/Sources/ApprovalsView.swift'],
                              capture_output=True, text=True, check=True).stdout
         new = (IOS / 'ApprovalsView.swift').read_text()

@@ -71,7 +71,7 @@ class AppContentTest(unittest.TestCase):
                 self.assertEqual(set(archives), {"policy", "manager-prompts"} if target == "mac" else {"policy"})
                 with tarfile.open(fileobj=io.BytesIO(archives["policy"])) as archive:
                     policy = json.load(archive.extractfile("policy.json"))
-                self.assertEqual(policy["schema"], "swarmhub/policy-defaults/1")
+                self.assertEqual(policy["schema"], "swarmhub/config-policy/1")
                 self.assertEqual(policy["codingOrder"], "claude,codex,hermes")
 
     def test_unreachable_host_changes_nothing(self):

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """P5d boundary check: no shared-key (v1 Bearer/HMAC) approval code reaches the iOS target.
 
-The iOS target is every Swift file the generated Xcode project compiles plus the SwarmHubCore package it links.
+The iOS target is every Swift file the generated Xcode project compiles (app sources at any depth under Sources/,
+plus the hosted test bundle's Tests/*.swift) plus the SwarmHubCore package it links.
 Source mode (default, also an Xcode build phase) strips comments and fails on shared-key symbols. `--binary PATH`
 scans a built executable for the same literals and for CryptoKit HMAC/SymmetricKey symbol references.
 Exit 0 = clean, 1 = violations (listed), 2 = usage or layout error. Stdlib only; reads files, never writes.
@@ -14,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT = Path('Apps/iOS/SwarmHub.xcodeproj/project.pbxproj')
 APP_SOURCES = Path('Apps/iOS/Sources')
+APP_TESTS = Path('Apps/iOS/Tests')
 CORE_SOURCES = Path('Packages/SwarmHubCore/Sources')
 CORE_PACKAGE = '../../Packages/SwarmHubCore'
 
@@ -83,15 +85,27 @@ def project_sources(root):
     return swift, [p.strip().strip('"') for p in packages]
 
 
+def ios_swift(root):
+    """The Swift files scripts/generate-ios-project.py compiles: Sources/ recursively, Tests/ top level only."""
+    return sorted((root / APP_SOURCES).rglob('*.swift')) + sorted((root / APP_TESTS).glob('*.swift'))
+
+
+def compiled_path_ok(path):
+    parts = path.split('/')
+    if '..' in parts or '' in parts:
+        return False
+    return (parts[0] == 'Sources' and len(parts) >= 2) or (parts[0] == 'Tests' and len(parts) == 2)
+
+
 def layout_problems(root):
     problems = []
     swift, packages = project_sources(root)
-    expected = sorted(p.relative_to(root / 'Apps/iOS').as_posix() for p in (root / APP_SOURCES).glob('*.swift'))
+    expected = sorted(p.relative_to(root / 'Apps/iOS').as_posix() for p in ios_swift(root))
     for path in swift:
-        if not path.startswith('Sources/') or '..' in path or '/' in path[len('Sources/'):]:
-            problems.append(f'{PROJECT}: compiles {path}, outside Apps/iOS/Sources')
+        if not compiled_path_ok(path):
+            problems.append(f'{PROJECT}: compiles {path}, outside Apps/iOS/Sources and Apps/iOS/Tests')
     if sorted(swift) != expected:
-        problems.append(f'{PROJECT}: compiled sources differ from Apps/iOS/Sources (run scripts/generate-ios-project.py)')
+        problems.append(f'{PROJECT}: compiled sources differ from Apps/iOS/Sources + Tests (run scripts/generate-ios-project.py)')
     if packages != [CORE_PACKAGE]:
         problems.append(f'{PROJECT}: package references {packages}, expected only {CORE_PACKAGE}')
     if 'check-ios-approvals.py' not in (root / PROJECT).read_text():
@@ -101,7 +115,7 @@ def layout_problems(root):
 
 def source_problems(root):
     problems = []
-    files = sorted((root / APP_SOURCES).glob('*.swift')) + sorted((root / CORE_SOURCES).rglob('*.swift'))
+    files = ios_swift(root) + sorted((root / CORE_SOURCES).rglob('*.swift'))
     for path in files:
         code = strip_comments(path.read_text())
         relative = path.relative_to(root).as_posix()
@@ -109,7 +123,7 @@ def source_problems(root):
             for label, pattern in BANNED:
                 if re.search(pattern, line):
                     problems.append(f'{relative}:{number}: {label}: {line.strip()[:120]}')
-        if path.parent == root / APP_SOURCES and APPROVAL_MARKERS.search(code):
+        if (root / APP_SOURCES) in path.parents and APPROVAL_MARKERS.search(code):
             for number, line in enumerate(code.split('\n'), 1):
                 if APPROVAL_FORBIDDEN.search(line):
                     problems.append(f'{relative}:{number}: approval code touches the Hermes key store: {line.strip()[:120]}')

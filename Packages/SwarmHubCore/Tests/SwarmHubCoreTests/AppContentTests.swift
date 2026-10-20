@@ -45,7 +45,7 @@ func firstLaunchWithoutFetchedStoreConsumesVerifiedBaseline(target: AppContent.T
     #expect(baseline.bundleVersion == 1 && baseline.label == "baseline")
     #expect(Set(content.archives.keys) == Set(baseline.components(for: target.rawValue).map(\.name)))
     let policy = try #require(content.archives["policy"])
-    #expect(policy.range(of: Data("swarmhub/policy-defaults/1".utf8)) != nil)
+    #expect(policy.range(of: Data("swarmhub/config-policy/1".utf8)) != nil)
     #expect(!content.archives.keys.contains("swarmhub-coding"))
     #expect(content.archives["manager-prompts"] != nil || target == .ios)
 }
