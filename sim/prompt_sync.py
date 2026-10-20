@@ -1,7 +1,7 @@
 """Python port of the bot prompt slot sync (Packages/SwarmHubCore/Sources/SwarmHubCore/Configuration/BotPromptSync.swift).
 
 No Swift toolchain runs on the Linux review host, so the merge rules are simulated here and checked against the
-same vectors the Swift tests read (Tests/Fixtures/prompt_sync_vectors.json). Field names and size limits are read
+same vectors the Swift tests read (Tests/Fixtures/prompt_sync/). Field names and size limits are read
 from the Swift source (sim/test_prompt_sync.py checks them), so only the control flow is kept in step by hand.
 
 A context is a dict with BotPromptContext's keys; coordinator is None or a string. A document is
@@ -13,6 +13,7 @@ import re
 
 SWIFT = Path(__file__).resolve().parents[1] / 'Packages/SwarmHubCore/Sources/SwarmHubCore/Configuration/BotPromptSync.swift'
 SCHEMA = 1
+MAX_TIMESTAMP = 2**63 - 1  # Swift Int64.max; writes saturate, then use the ordinary tie-break.
 
 
 def swift_constants(source=None):
@@ -54,7 +55,7 @@ def winner(field, a, b):
 
 
 def acceptable(field, stamp):
-    if stamp is None or stamp['at'] < 0:
+    if stamp is None or not 0 <= stamp['at'] <= MAX_TIMESTAMP:
         return None
     if field == 'approvalRules':
         ok = len(stamp['value']) <= MAX_RULES and all(len(rule) <= MAX_TEXT for rule in stamp['value'])
@@ -114,7 +115,7 @@ def write(document, new, old, key, origin, now):
             if current is None:
                 settings[field] = {'value': copy.deepcopy(value), 'at': 0, 'origin': origin}
         elif _context_value(old, field) != value:
-            at = max(now, (current['at'] if current else -1) + 1)
+            at = min(MAX_TIMESTAMP, max(now, min(current['at'] if current else -1, MAX_TIMESTAMP - 1) + 1))
             settings[field] = {'value': copy.deepcopy(value), 'at': at, 'origin': origin}
 
 

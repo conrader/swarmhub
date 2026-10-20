@@ -1,0 +1,329 @@
+[
+  {
+    "name": "owner: edits saturate safely at Int64.max and still converge",
+    "ops": [
+      {
+        "op": "receive",
+        "device": "mac",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "k": {
+              "owner": {
+                "at": 9223372036854775806,
+                "origin": "remote",
+                "value": "remote"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "edit",
+        "device": "mac",
+        "bot": "k",
+        "now": 1,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "owner": "local"
+        }
+      },
+      {
+        "op": "stamp",
+        "device": "mac",
+        "bot": "k",
+        "field": "owner",
+        "at": 9223372036854775807,
+        "origin": "mac",
+        "value": "local"
+      },
+      {
+        "op": "edit",
+        "device": "mac",
+        "bot": "k",
+        "now": 9223372036854775807,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "owner": "again"
+        }
+      },
+      {
+        "op": "stamp",
+        "device": "mac",
+        "bot": "k",
+        "field": "owner",
+        "at": 9223372036854775807,
+        "origin": "mac",
+        "value": "again"
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "sync",
+        "from": "ios",
+        "to": "mac"
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "k",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "ios",
+          "with": {
+            "owner": "again"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "approvalRules: edits saturate safely at Int64.max and still converge",
+    "ops": [
+      {
+        "op": "receive",
+        "device": "mac",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "k": {
+              "approvalRules": {
+                "at": 9223372036854775806,
+                "origin": "remote",
+                "value": [
+                  "remote"
+                ]
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "edit",
+        "device": "mac",
+        "bot": "k",
+        "now": 1,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "approvalRules": [
+            "local"
+          ]
+        }
+      },
+      {
+        "op": "stamp",
+        "device": "mac",
+        "bot": "k",
+        "field": "approvalRules",
+        "at": 9223372036854775807,
+        "origin": "mac",
+        "value": [
+          "local"
+        ]
+      },
+      {
+        "op": "edit",
+        "device": "mac",
+        "bot": "k",
+        "now": 9223372036854775807,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "approvalRules": [
+            "again"
+          ]
+        }
+      },
+      {
+        "op": "stamp",
+        "device": "mac",
+        "bot": "k",
+        "field": "approvalRules",
+        "at": 9223372036854775807,
+        "origin": "mac",
+        "value": [
+          "again"
+        ]
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "sync",
+        "from": "ios",
+        "to": "mac"
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "k",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "ios",
+          "with": {
+            "approvalRules": [
+              "again"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "received Int64.max does not overflow on a later edit",
+    "ops": [
+      {
+        "op": "receive",
+        "device": "mac",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "k": {
+              "owner": {
+                "at": 9223372036854775807,
+                "origin": "a",
+                "value": "remote"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "edit",
+        "device": "mac",
+        "bot": "k",
+        "now": 1,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "owner": "local"
+        }
+      },
+      {
+        "op": "stamp",
+        "device": "mac",
+        "bot": "k",
+        "field": "owner",
+        "at": 9223372036854775807,
+        "origin": "mac",
+        "value": "local"
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "k",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "ios",
+          "with": {
+            "owner": "local"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "saturated timestamps use the ordinary tie-break on delayed delivery",
+    "ops": [
+      {
+        "op": "receive",
+        "device": "mac",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "k": {
+              "owner": {
+                "value": "remote",
+                "at": 9223372036854775807,
+                "origin": "z"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "edit",
+        "device": "mac",
+        "bot": "k",
+        "now": 1,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "owner": "local"
+        }
+      },
+      {
+        "op": "sync",
+        "from": "ios",
+        "to": "mac"
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "expect",
+        "device": "mac",
+        "bot": "k",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "ios",
+          "with": {
+            "owner": "remote"
+          }
+        }
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "k",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "ios",
+          "with": {
+            "owner": "remote"
+          }
+        }
+      }
+    ]
+  }
+]

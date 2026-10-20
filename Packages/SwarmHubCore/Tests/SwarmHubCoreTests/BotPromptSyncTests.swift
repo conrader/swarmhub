@@ -6,11 +6,18 @@ import Testing
 private let vectorsURL = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     .deletingLastPathComponent().deletingLastPathComponent()
-    .appendingPathComponent("Tests/Fixtures/prompt_sync_vectors.json")
+    .appendingPathComponent("Tests/Fixtures/prompt_sync/index.json")
 
 private func vectors() throws -> [String: Any] {
     let object = try JSONSerialization.jsonObject(with: try Data(contentsOf: vectorsURL))
-    return try #require(object as? [String: Any])
+    var root = try #require(object as? [String: Any])
+    let files = try #require(root["scenarioFiles"] as? [String])
+    root["scenarios"] = try files.flatMap { name -> [[String: Any]] in
+        let url = vectorsURL.deletingLastPathComponent().appendingPathComponent(name)
+        let scenarios = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
+        return try #require(scenarios as? [[String: Any]])
+    }
+    return root
 }
 
 private func decode<T: Decodable>(_ type: T.Type, _ object: Any?) throws -> T {
@@ -89,6 +96,7 @@ private func run(_ scenario: [String: Any], root: [String: Any]) throws {
             } else {
                 #expect(got?.at == (op["at"] as? NSNumber)?.int64Value && got?.origin == op["origin"] as? String, "\(name)")
                 if let value = op["value"] as? String { #expect(got?.value as? String == value, "\(name)") }
+                if let value = op["value"] as? [String] { #expect(got?.value as? [String] == value, "\(name)") }
             }
         default:
             Issue.record("unknown op in \(name)")

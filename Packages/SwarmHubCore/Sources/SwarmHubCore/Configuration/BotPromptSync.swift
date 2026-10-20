@@ -1,7 +1,9 @@
 import Foundation
 
-/// One synced slot value. `at` is milliseconds since 1970 from a hybrid clock: a local write is never
-/// stamped at or below a value this device has already seen, so a later edit wins even with a slow clock.
+/// One synced slot value. `at` is milliseconds since 1970 from a hybrid clock: a local write is
+/// stamped above a value this device has already seen, until the clock saturates at Int64.max.
+/// At saturation, writes stay at Int64.max and the usual origin/value tie-break applies; a later edit
+/// is no longer guaranteed to win. This keeps even repeated edits after a hostile timestamp safe.
 /// `at == 0` is a baseline: a device's first reading of its own settings, which any real edit beats.
 public struct PromptStamp<Value: Codable & Equatable & Sendable>: Codable, Equatable, Sendable {
     public var value: Value
@@ -129,7 +131,8 @@ public struct BotPromptDocument: Codable, Equatable, Sendable {
         func stamp<V: Codable & Equatable & Sendable>(_ current: PromptStamp<V>?, _ value: V, changed: Bool) -> PromptStamp<V>? {
             if baseline { return current ?? PromptStamp(value: value, at: 0, origin: origin) }
             guard changed else { return current }
-            return PromptStamp(value: value, at: max(now, (current?.at ?? -1) + 1), origin: origin)
+            let next = min(current?.at ?? -1, Int64.max - 1) + 1
+            return PromptStamp(value: value, at: max(now, next), origin: origin)
         }
         for field in BotPromptSettings.textFields {
             let value = new[keyPath: field.context]

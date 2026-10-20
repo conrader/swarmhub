@@ -1,6 +1,6 @@
 """Bot prompt slot sync between the Mac and iOS apps: last write wins per field, personas untouched.
 
-No Swift toolchain runs here, so the shared vectors (Tests/Fixtures/prompt_sync_vectors.json, also read by
+No Swift toolchain runs here, so the shared vectors (Tests/Fixtures/prompt_sync/, also read by
 BotPromptSyncTests.swift) run through the Python port (sim/prompt_sync.py), and randomized delivery orders check
 that devices converge. Pure data, no processes or network.
 """
@@ -17,7 +17,10 @@ except ImportError:  # `python3 -m unittest discover` from inside sim/
     import prompt_sync
 
 ROOT = Path(__file__).resolve().parents[1]
-VECTORS = json.loads((ROOT / 'Tests/Fixtures/prompt_sync_vectors.json').read_text())
+FIXTURES = ROOT / 'Tests/Fixtures/prompt_sync'
+VECTORS = json.loads((FIXTURES / 'index.json').read_text())
+VECTORS['scenarios'] = [scenario for name in VECTORS['scenarioFiles']
+                        for scenario in json.loads((FIXTURES / name).read_text())]
 PROMPT_SWIFT = ROOT / 'Packages/SwarmHubCore/Sources/SwarmHubCore/Configuration/BotSystemPrompt.swift'
 
 
@@ -80,6 +83,15 @@ class SourceParityTests(unittest.TestCase):
 
     def test_limits_come_from_swift(self):
         self.assertEqual((prompt_sync.MAX_TEXT, prompt_sync.MAX_RULES), (2000, 50))
+
+    def test_fixture_files_stay_under_500_lines(self):
+        for name in ['index.json', *VECTORS['scenarioFiles']]:
+            self.assertLess(len((FIXTURES / name).read_text().splitlines()), 500, name)
+
+    def test_python_rejects_timestamps_swift_cannot_decode(self):
+        for field, value in [('owner', 'x'), ('approvalRules', ['x'])]:
+            self.assertIsNone(prompt_sync.acceptable(field, {
+                'value': value, 'at': 2**63, 'origin': 'remote'}))
 
 
 VALUES = {'approvalRules': [['a'], ['b', 'c'], [], ['a', 'b']]}

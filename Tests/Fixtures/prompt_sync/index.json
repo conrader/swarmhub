@@ -1,0 +1,49 @@
+{
+  "comment": "Shared by sim/test_prompt_sync.py and Packages/SwarmHubCore/Tests/SwarmHubCoreTests/BotPromptSyncTests.swift. A context reference is {base, with}: base is a named context, with overrides fields; coordinator \"\" means none. A stamp op with at/origin null asserts the field is absent.",
+  "contexts": {
+    "mac": {
+      "name": "Scout",
+      "role": "Research",
+      "owner": "Konrad",
+      "coordinator": "Jarvis (grok-jarvis)",
+      "timeZone": "Europe/Warsaw",
+      "language": "Polski",
+      "approvalRules": [
+        "Deny deletes"
+      ],
+      "quietHours": "23:00–07:00"
+    },
+    "ios": {
+      "name": "Scout",
+      "role": "Personal assistant",
+      "owner": "the user",
+      "coordinator": null,
+      "timeZone": "UTC",
+      "language": "Match the user's current language; follow an explicit language preference.",
+      "approvalRules": [
+        "Ask the owner when approval is required."
+      ],
+      "quietHours": "22:00–08:00"
+    }
+  },
+  "botKeys": [
+    {
+      "address": "https://Box.Example/v1/",
+      "profile": "scout",
+      "key": "https://box.example#scout"
+    },
+    {
+      "address": "https://box.example:8443/p/ops",
+      "profile": "ops",
+      "key": "https://box.example:8443#ops"
+    }
+  ],
+  "scenarioFiles": [
+    "scenarios-01.json",
+    "scenarios-02.json",
+    "scenarios-03.json",
+    "scenarios-04.json",
+    "scenarios-05.json",
+    "scenarios-06.json"
+  ]
+}

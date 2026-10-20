@@ -1,0 +1,177 @@
+[
+  {
+    "name": "an oversized rule inside an otherwise valid list drops the whole list",
+    "ops": [
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 1000,
+        "context": {
+          "base": "mac"
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "receive",
+        "device": "ios",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "https://box.example#scout": {
+              "approvalRules": {
+                "value": [
+                  "ok",
+                  "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+                ],
+                "at": 99999,
+                "origin": "zz"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "mac"
+        }
+      }
+    ]
+  },
+  {
+    "name": "a different schema is not merged",
+    "ops": [
+      {
+        "op": "receive",
+        "device": "ios",
+        "document": {
+          "schema": 2,
+          "bots": {
+            "https://box.example#scout": {
+              "owner": {
+                "value": "Z",
+                "at": 5,
+                "origin": "mac"
+              }
+            }
+          }
+        },
+        "merged": false
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "ios"
+        }
+      }
+    ]
+  },
+  {
+    "name": "approval rules merge as one list",
+    "ops": [
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 1000,
+        "context": {
+          "base": "mac"
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "edit",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "now": 2000,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "approvalRules": [
+            "Deny deletes",
+            "Ask before email"
+          ]
+        }
+      },
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 1500,
+        "context": {
+          "base": "mac",
+          "with": {
+            "approvalRules": [
+              "Allow reads"
+            ]
+          }
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "sync",
+        "from": "ios",
+        "to": "mac"
+      },
+      {
+        "op": "expect",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "mac"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "approvalRules": [
+              "Deny deletes",
+              "Ask before email"
+            ]
+          }
+        }
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "approvalRules": [
+              "Deny deletes",
+              "Ask before email"
+            ]
+          }
+        }
+      }
+    ]
+  }
+]
