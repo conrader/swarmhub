@@ -24,7 +24,12 @@ struct SDUIDocumentView: View {
     let actions: SDUIMacActions
     @State private var forms: [String: [String: SDUIFieldValue]] = [:]
     @State private var steps: [String: Int] = [:]
-    @State private var confirmation: SDUIConfirmation?
+    private struct PendingConfirmation {
+        let request: SDUIConfirmation
+        let flow: SDUIFlowPosition?
+    }
+
+    @State private var confirmation: PendingConfirmation?
     @State private var failure: String?
     @State private var busy = false
 
@@ -33,12 +38,12 @@ struct SDUIDocumentView: View {
             if let root = SDUIRenderer.tree(document, data: data, forms: forms) { SDUINodeView(node: root, context: context) }
             if let failure { Text(verbatim: failure).font(.caption).foregroundStyle(.red) }
         }
-        .confirmationDialog(Text(verbatim: confirmation?.title ?? ""), isPresented: confirming, titleVisibility: .visible,
+        .confirmationDialog(Text(verbatim: confirmation?.request.title ?? ""), isPresented: confirming, titleVisibility: .visible,
                             presenting: confirmation) { pending in
-            Button { run(pending.command) } label: { Text(verbatim: pending.button) }
-            Button(role: .cancel) {} label: { Text(verbatim: "Cancel") }
+            Button { resolve(pending, accepted: true) } label: { Text(verbatim: pending.request.button) }
+            Button(role: .cancel) { resolve(pending, accepted: false) } label: { Text(verbatim: "Cancel") }
         } message: { pending in
-            if !pending.message.isEmpty { Text(verbatim: pending.message) }
+            if !pending.request.message.isEmpty { Text(verbatim: pending.request.message) }
         }
     }
 
@@ -71,7 +76,11 @@ struct SDUIDocumentView: View {
         switch actions.router.route(action, label: "") {
         case .moveFlow: return flow != nil
         case .perform(let command): return actions.isAvailable(command)
-        case .confirm(let pending): return actions.isAvailable(pending.command)
+        case .confirm(let pending):
+            switch pending.action {
+            case .moveFlow: return flow != nil
+            case .perform(let command): return actions.isAvailable(command)
+            }
         case .refused: return false
         }
     }
@@ -83,9 +92,15 @@ struct SDUIDocumentView: View {
             guard let flow else { return }
             steps[flow.key] = min(max((steps[flow.key] ?? 0) + delta, 0), max(flow.count - 1, 0))
         case .perform(let command): run(command)
-        case .confirm(let pending): confirmation = pending
+        case .confirm(let pending):
+            confirmation = PendingConfirmation(request: pending, flow: flow)
         case .refused: break
         }
+    }
+
+    private func resolve(_ pending: PendingConfirmation, accepted: Bool) {
+        confirmation = nil
+        handle(pending.request.resolve(accepted: accepted), flow: pending.flow)
     }
 
     private func run(_ command: SDUIAppCommand) {

@@ -9,6 +9,7 @@ allowlist and a confirmation, no approval or secret destination, the four Mac wi
 expectations and source rules, not Swift execution: the Mac run (`swift test`) remains mandatory.
 """
 
+import copy
 import json
 from pathlib import Path
 import re
@@ -24,6 +25,7 @@ MAC = ROOT / "Sources/AgentApp/SDUI"
 sys.path.insert(0, str(ROOT / "scripts/release"))
 import jcs  # noqa: E402
 import make_ui_renders  # noqa: E402
+import ui_cases  # noqa: E402
 import ui_reference as ref  # noqa: E402
 import ui_render  # noqa: E402
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -81,6 +83,32 @@ class GoldenTests(unittest.TestCase):
         self.assertNotIn("TEST-never-rendered", "".join(p.read_text(encoding="utf-8")
                                                         for p in (ROOT / FIXTURE).rglob("*.txt")))
 
+    def test_flow_confirmation_matches_the_render_reference(self):
+        # The reference describes actions; it does not execute them. Absent/false stays immediate in Swift.
+        for command, step, child in (("flow_next", 0, 1), ("flow_back", 1, 2)):
+            for confirm in (None, False, True):
+                with self.subTest(command=command, confirm=confirm):
+                    doc = copy.deepcopy(ui_cases.CONNECT_FLOW)
+                    action = doc["root"]["steps"][step]["children"][child]["action"]
+                    self.assertEqual(action["command"], command)
+                    if confirm is not None:
+                        action["confirm"] = confirm
+                    self.assertEqual(ref.decode(jcs.canonical(doc), doc["view"]), {"verdict": "render"})
+                    line = next(line for line in ui_render.describe(doc, {}).splitlines() if "-> " + command in line)
+                    self.assertEqual(line.endswith(" confirm"), confirm is True)
+
+    def test_form_submit_confirmation_matches_the_render_reference(self):
+        for target in ("routine-create-form", "routine-edit-form"):
+            for confirm in (None, False, True):
+                with self.subTest(target=target, confirm=confirm):
+                    doc = copy.deepcopy(make_ui_renders.TARGETS[target])
+                    action = doc["root"]["children"][0]["submit"]["action"]
+                    if confirm is not None:
+                        action["confirm"] = confirm
+                    self.assertEqual(ref.decode(jcs.canonical(doc), doc["view"]), {"verdict": "render"})
+                    line = next(line for line in ui_render.describe(doc, {}).splitlines() if "submit " in line)
+                    self.assertEqual(line.endswith(" confirm"), confirm is True)
+
 
 class SwiftSourceTests(unittest.TestCase):
     def test_renderer_defaults_match_the_python_statement(self):
@@ -125,12 +153,38 @@ class SwiftSourceTests(unittest.TestCase):
         self.assertIn('guard let url = allowedURL(action.argument) else { return .refused("url_not_allowed") }', branch)
         self.assertIn("return .confirm(", branch)
         self.assertIn("guard urlHosts.contains(host)", router)
-        self.assertNotRegex(router, r"\.perform\(\.openURL")
+        self.assertNotRegex(router, r"return\s+\.perform\(\.openURL")
         hosts = MAC_SOURCES["RoutineSDUIHosts.swift"]
         self.assertEqual(len(re.findall(r"ExternalLink\.open\(", "".join(MAC_SOURCES.values()))), 1)
         self.assertIn("case .openURL(let url): ExternalLink.open(url)", hosts)
         self.assertIn("static let urlHosts: Set<String> = []", MAC_SOURCES["SDUIMacSource.swift"])
         self.assertIn("router: SDUIActionRouter(urlHosts: policy.urlHosts)", hosts)
+
+    def test_flow_and_submit_use_the_shared_confirmation_gate(self):
+        router = CORE_SOURCES["SDUIActionRouter.swift"]
+        for name, delta in (("flowNext", 1), ("flowBack", -1)):
+            self.assertIn(f"case .{name}: return confirmed(.moveFlow({delta}), action: action, label: label)", router)
+            self.assertNotIn(f"case .{name}: return .moveFlow", router)
+        for effect in (".perform(command)", ".perform(.routineCreate(draft))", ".perform(.routineSave(id, draft))"):
+            self.assertIn(f"return confirmed({effect}, action:", router)
+        self.assertIn("action.requiresConfirmation ? .confirm(confirmation) : confirmation.resolve(accepted: true)", router)
+        self.assertIn('guard accepted else { return .refused("confirmation_declined") }', router)
+        self.assertIn("case .moveFlow(let delta): return .moveFlow(delta)", router)
+        tests = (TESTS / "SDUIActionRouterTests.swift").read_text(encoding="utf-8")
+        for regression in ("flowMovesWaitForConfirmation", "everyLocalCommandHonorsConfirmation",
+                           "formSubmitsWaitForConfirmationAfterValidation"):
+            self.assertIn("@Test func " + regression, tests)
+
+    def test_confirmation_keeps_the_flow_context_until_accept_or_decline(self):
+        view = MAC_SOURCES["SDUIDocumentView.swift"]
+        self.assertIn("confirmation = PendingConfirmation(request: pending, flow: flow)", view)
+        self.assertIn("handle(pending.request.resolve(accepted: accepted), flow: pending.flow)", view)
+        self.assertIn("Button { resolve(pending, accepted: true) }", view)
+        self.assertIn("Button(role: .cancel) { resolve(pending, accepted: false) }", view)
+        available = re.search(r"private func available\(.*?\n    \}", view, re.S).group(0)
+        self.assertIn("switch pending.action", available)
+        self.assertEqual(available.count("case .moveFlow: return flow != nil"), 2)
+        self.assertIn("case .perform(let command): return actions.isAvailable(command)", available)
 
     def test_form_submit_availability_asks_the_routine_path_not_route(self):
         # route() refuses routine.create/routine.save outside a form; the submit button must not go through it.

@@ -29,10 +29,24 @@ public struct SDUIRoutineDraft: Equatable, Sendable {
 }
 
 public struct SDUIConfirmation: Equatable, Sendable {
+    /// A confirmation can defer renderer state as well as an app command.
+    public enum Action: Equatable, Sendable {
+        case moveFlow(Int)
+        case perform(SDUIAppCommand)
+    }
+
     public let title: String
     public let message: String
     public let button: String
-    public let command: SDUIAppCommand
+    public let action: Action
+
+    public func resolve(accepted: Bool) -> SDUIActionRouter.Step {
+        guard accepted else { return .refused("confirmation_declined") }
+        switch action {
+        case .moveFlow(let delta): return .moveFlow(delta)
+        case .perform(let command): return .perform(command)
+        }
+    }
 }
 
 /// Turns a resolved action into one step for the renderer. Platform-neutral; the app supplies only the sink that
@@ -42,7 +56,7 @@ public struct SDUIActionRouter: Sendable {
         /// Move the enclosing flow by this many steps (renderer state only).
         case moveFlow(Int)
         case perform(SDUIAppCommand)
-        /// Ask first; perform `confirmation.command` only if the user agrees.
+        /// Ask first; resolve the pending action only if the user agrees.
         case confirm(SDUIConfirmation)
         /// Nothing happens; the reason is for logs and tests.
         case refused(String)
@@ -57,8 +71,8 @@ public struct SDUIActionRouter: Sendable {
     public func route(_ action: SDUIResolvedAction, label: String) -> Step {
         let command: SDUIAppCommand
         switch action.command {
-        case .flowNext: return .moveFlow(1)
-        case .flowBack: return .moveFlow(-1)
+        case .flowNext: return confirmed(.moveFlow(1), action: action, label: label)
+        case .flowBack: return confirmed(.moveFlow(-1), action: action, label: label)
         case .routineCreate, .routineSave: return .refused("submit_outside_form")
         case .dismiss: command = .dismiss
         case .refresh: command = .refresh
@@ -66,7 +80,7 @@ public struct SDUIActionRouter: Sendable {
         case .openURL:
             guard let url = allowedURL(action.argument) else { return .refused("url_not_allowed") }
             return .confirm(SDUIConfirmation(title: "Open this link?", message: url.absoluteString, button: "Open",
-                                             command: .openURL(url)))
+                                             action: .perform(.openURL(url))))
         case .navigate:
             guard let screen = action.argument.flatMap(SDUIScreen.init(rawValue:)) else { return .refused("unknown_screen") }
             command = .navigate(screen)
@@ -79,7 +93,7 @@ public struct SDUIActionRouter: Sendable {
             default: command = .routineResume(id)
             }
         }
-        return confirmed(command, action: action, label: label)
+        return confirmed(.perform(command), action: action, label: label)
     }
 
     /// A form submit with the form's current values. Field rules first (required, max length), then the routine
@@ -91,10 +105,10 @@ public struct SDUIActionRouter: Sendable {
         guard let draft = SDUIRoutineTarget.draft(values) else { return .refused("invalid_form") }
         switch form.submit.command {
         case .routineCreate:
-            return confirmed(.routineCreate(draft), action: form.submit, label: form.submitLabel)
+            return confirmed(.perform(.routineCreate(draft)), action: form.submit, label: form.submitLabel)
         case .routineSave:
             guard let id = form.submit.argument, !id.isEmpty else { return .refused("routine_unavailable") }
-            return confirmed(.routineSave(id, draft), action: form.submit, label: form.submitLabel)
+            return confirmed(.perform(.routineSave(id, draft)), action: form.submit, label: form.submitLabel)
         default:
             return .refused("not_a_submit")
         }
@@ -120,8 +134,8 @@ public struct SDUIActionRouter: Sendable {
         return url
     }
 
-    private func confirmed(_ command: SDUIAppCommand, action: SDUIResolvedAction, label: String) -> Step {
-        guard action.requiresConfirmation else { return .perform(command) }
-        return .confirm(SDUIConfirmation(title: label + "?", message: "", button: label, command: command))
+    private func confirmed(_ pending: SDUIConfirmation.Action, action: SDUIResolvedAction, label: String) -> Step {
+        let confirmation = SDUIConfirmation(title: label + "?", message: "", button: label, action: pending)
+        return action.requiresConfirmation ? .confirm(confirmation) : confirmation.resolve(accepted: true)
     }
 }
