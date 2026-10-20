@@ -3,6 +3,7 @@ Swift is unavailable on Linux: app tests verify construction/selection and this 
 No servers, real boxes or update hosts; Hermes and everything outside skills/swarmhub + updater state stay intact.
 """
 import base64
+import fcntl
 import hashlib
 import json
 import os
@@ -72,7 +73,7 @@ class StagedTransport(CliCase):
         self.assertTrue(result.stdout, result.stderr)
         return result.returncode, json.loads(result.stdout)
 
-    def transport(self, folder, profiles=None, mutate=None, mutate_parts=None, profile="default"):
+    def transport(self, folder, profiles=None, mutate=None, mutate_parts=None, profile="default", expected_code=None):
         manifest = json.loads(next((folder / "bundles").iterdir()).read_bytes())["signed"]
         wanted = {c["sha256"] for c in manifest["components"] if "box" in c["targets"]}
         files = {p.relative_to(folder).as_posix(): p.read_bytes() for p in folder.rglob("*")
@@ -93,10 +94,20 @@ class StagedTransport(CliCase):
                 rel = item.relative_to(self.home).as_posix()
                 self.original[rel] = snapshot[rel]
         result = subprocess.run(["/bin/sh"], input=command, env=self.env, text=True, capture_output=True, timeout=90)
-        self.assertEqual(result.returncode, 1 if mutate or mutate_parts else 0, result.stderr)
+        self.last_transport = result
+        if expected_code is None:
+            expected_code = 65 if mutate else 1 if mutate_parts else 0
+        self.assertEqual(result.returncode, expected_code, result.stderr)
+        receipt = "SWARMHUB_TRANSFER_OK:agentapp_update_bytes_TEST_"
+        self.assertEqual(receipt in result.stdout.splitlines(), result.returncode == 0)
         self.assertEqual({p: p.read_bytes() for p in before_db}, before_db, "transport never writes Hermes DB")
         self.assertEqual(list(self.state.glob("mac-stage-*")), [])
         return self.real("status")[1]
+
+    def updater_result(self):
+        line = next(line for line in self.last_transport.stdout.splitlines()
+                    if line.startswith("SWARMHUB_UPDATER_RESULT:agentapp_update_bytes_TEST_"))
+        return json.loads(line.split("TEST_", 1)[1])
 
     def assert_confined(self):
         outside = [p for p in changed(self.original, box_snapshot(self.home))
@@ -157,6 +168,9 @@ class StagedTransport(CliCase):
             files[path] = bytes(data)
 
         status = self.transport(candidate, mutate=alter)
+        result = self.updater_result()
+        self.assertEqual(result["exit_code"], 65)
+        self.assertEqual(json.loads(result["output"])["last"]["reason"], "blob_hash_mismatch")
         self.assertEqual((status["last"]["verdict"], status["last"]["reason"]), ("reject", "blob_hash_mismatch"))
         self.assertEqual(status["applied_bundle_version"], 11)
         self.assertEqual({p: box_snapshot(self.category(p)) for p in before}, before)
@@ -215,6 +229,8 @@ class StagedTransport(CliCase):
                        lambda parts: parts.__setitem__(0, None)):
             with self.subTest(change=change):
                 self.transport(folder, mutate_parts=change)
+                self.assertIn("SWARMHUB_TRANSFER_FAILED:agentapp_update_bytes_TEST_", self.last_transport.stdout)
+                self.assertNotIn("SWARMHUB_UPDATER_RESULT:", self.last_transport.stdout)
                 self.assertEqual((self.state / "status.json").read_bytes(), status_before)
                 self.assertEqual({p: box_snapshot(self.category(p)) for p in before}, before)
         self.assert_confined()
@@ -246,6 +262,84 @@ class StagedTransport(CliCase):
             after = box_snapshot(self.hermes)
             self.assertEqual({k: after[k] for k in before}, before, "includes DB, WAL, SHM and Hermes fixture")
         self.assertEqual(self.real("status")[1]["state"], "pending_confirm")
+        self.assertEqual(list(self.state.glob("mac-stage-*")), [])
+
+    def test_busy_updater_returns_deferred_reason_without_success_receipt(self):
+        _, comps = self.release("v1")
+        self.transport(self.stage(11, comps))
+        self.real("--max-wait", "0", "apply", "--version", "11")
+        _, comps = self.release("v2", files={"swarmhub-feedback/notes.md": "data only\n"})
+        sleeper = self.start_sleeper()
+        slot = self.code_job_slot(sleeper.pid)
+        status = self.transport(self.stage(12, comps), expected_code=75)
+        result = self.updater_result()
+        self.assertEqual(result["exit_code"], 75)
+        self.assertEqual(json.loads(result["output"])["state"], "deferred")
+        self.assertEqual(json.loads(result["output"])["detail"], status["detail"])
+        self.assertFalse((self.live("swarmhub-feedback") / "notes.md").exists())
+        sleeper.kill()
+        sleeper.wait()
+        shutil.rmtree(slot.parent)
+        self.assert_confined()
+
+    def test_lock_deferral_returns_this_invocations_reason_despite_old_status(self):
+        _, comps = self.release("v1")
+        folder = self.stage(11, comps)
+        self.transport(folder)
+        before = (self.state / "status.json").read_bytes()
+        with (self.state / "cli.lock").open("rb") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self.transport(folder, expected_code=75)
+        result = self.updater_result()
+        self.assertEqual(result["exit_code"], 75)
+        self.assertEqual(json.loads(result["output"]), {
+            "state": "deferred", "detail": "another swarmhub-update run is active"})
+        self.assertEqual((self.state / "status.json").read_bytes(), before)
+        self.assert_confined()
+
+    def test_snapshot_is_deleted_before_updater_executes(self):
+        real = self.launcher.with_name("real-update")
+        self.launcher.rename(real)
+        self.launcher.write_text("#!/usr/bin/env python3\nimport os, pathlib\n"
+                                 "state = pathlib.Path(os.environ['XDG_STATE_HOME']) / 'swarmhub-update'\n"
+                                 "assert not list(state.rglob('carrier.db*'))\n"
+                                 "os.execv(%r, [%r] + __import__('sys').argv[1:])\n" % (str(real), str(real)))
+        self.launcher.chmod(0o755)
+        _, comps = self.release("v1")
+        self.transport(self.stage(11, comps))
+        self.assert_confined()
+
+    def test_snapshot_size_limit_and_invalid_sqlite_fail_closed_and_clean_up(self):
+        _, comps = self.release("v1")
+        folder = self.stage(11, comps)
+        files = {p.relative_to(folder).as_posix(): p.read_bytes() for p in folder.rglob("*")
+                 if p.is_file() and p.name != "profiles.json"}
+        for kind in ("database", "combined-wal", "invalid-sqlite"):
+            with self.subTest(kind=kind):
+                command = transport_command(files, PROFILES_DOC["profiles"], self.launcher, self.home)
+                database, wal = self.hermes / "state.db", self.hermes / "state.db-wal"
+                wal.unlink(missing_ok=True)
+                if kind == "database":
+                    with database.open("ab") as out:
+                        out.truncate(64 * 1024 * 1024 + 1)
+                elif kind == "combined-wal":
+                    with wal.open("wb") as out:
+                        out.truncate(64 * 1024 * 1024 - database.stat().st_size + 1)
+                else:
+                    database.write_bytes(b"not sqlite")
+                before = box_snapshot(self.hermes)
+                result = subprocess.run(["/bin/sh"], input=command, env=self.env, text=True, capture_output=True, timeout=90)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("SWARMHUB_TRANSFER_FAILED:", result.stdout)
+                if kind != "invalid-sqlite":
+                    self.assertIn("64 MiB snapshot limit", result.stdout)
+                self.assertNotIn("SWARMHUB_UPDATER_RESULT:", result.stdout)
+                self.assertFalse((self.state / "status.json").exists())
+                self.assertEqual(list(self.state.glob("mac-stage-*")), [])
+                self.assertEqual(box_snapshot(self.hermes), before)
+                database.unlink()
+                wal.unlink(missing_ok=True)
+        self.assert_no_pycache()
 
     def test_live_variants_use_skill_names_not_profile_names(self):
         from swarmhub_update import runner, stage

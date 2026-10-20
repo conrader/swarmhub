@@ -44,7 +44,7 @@ extension AppStore {
         let key = "updates.transport.floor." + target
         let saved = try defaults.data(forKey: key).map { try JSONDecoder().decode(StagedInstall.Floor.self, from: $0) } ?? .init()
         let package = try StagedInstall.prepare(box: box, saved: saved, profiles: profiles, now: ISO8601DateFormatter().string(from: now()))
-        let transfer = try StagedTransfer(package)
+        let transfer = try StagedTransfer(package, namespace: sessionNamespace)
         let profile = manager.hermesProfile ?? "default"
         let instructions = try StagedInstall.instructions(transfer, profile: profile)
         let command = try StagedInstall.command(transfer, profile: profile)
@@ -65,6 +65,13 @@ extension AppStore {
         } else if let id = attempt.stageCallID, tool.callID == id, tool.phase == .completed || tool.phase == .failed {
             attempt.stageCallID = nil
             attempt.staged = tool.phase == .completed && StagedTransfer.completed(tool.result, prefix: attempt.transfer.prefix)
+            if !attempt.staged {
+                let previous = boxInstallTransport.status[connection(of: manager)]
+                let status = StagedTransfer.failure(tool.result, prefix: attempt.transfer.prefix, previous: previous) ??
+                    .failure("Transfer failed; no matching completion receipt. Skill installation is unconfirmed.", previous: previous)
+                attempt.status = status
+                boxInstallTransport.status[connection(of: manager)] = status
+            }
         }
         if let status = attempt.call.consume(tool), attempt.staged {
             attempt.status = status
@@ -116,7 +123,7 @@ extension AppStore {
         defer { boxInstallTransport.refreshing.remove(target) }
         await cleanUpdaterSessions(on: target, backend: backend)
         guard (defaults.stringArray(forKey: "updates.transport.cleanup." + target) ?? []).isEmpty else { return }
-        let session = "agentapp_update_status_\(UUID().uuidString.lowercased())"
+        let session = "\(sessionNamespace)agentapp_update_status_\(UUID().uuidString.lowercased())"
         let key = "updates.transport.cleanup." + target
         defaults.set((defaults.stringArray(forKey: key) ?? []) + [session], forKey: key)
         do {

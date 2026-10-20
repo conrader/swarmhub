@@ -128,7 +128,7 @@ enum StagedInstall {
         let managerProfile = profile
         return """
         python3 -I -B <<'SWARMHUB_STAGE'
-        import base64, hashlib, json, os, pathlib, shutil, sqlite3, subprocess, tempfile
+        import base64, hashlib, json, os, pathlib, shutil, sqlite3, stat, subprocess, tempfile
         state = pathlib.Path(os.environ.get('XDG_STATE_HOME', str(pathlib.Path.home() / '.local/state'))) / 'swarmhub-update'
         state.mkdir(mode=0o700, parents=True, exist_ok=True)
         folder = pathlib.Path(tempfile.mkdtemp(prefix='mac-stage-', dir=state))
@@ -140,10 +140,27 @@ enum StagedInstall {
             # Snapshot raw DB/WAL bytes into updater state before opening SQLite, so even SQLite's
             # shared-memory bookkeeping cannot touch Hermes. Concurrent checkpoint races fail closed.
             snapshot = folder / 'carrier.db'
-            shutil.copyfile(home / 'state.db', snapshot)
-            wal = home / 'state.db-wal'
-            if wal.exists():
-                shutil.copyfile(wal, folder / 'carrier.db-wal')
+            budget = 64 * 1024 * 1024  # Combined DB/WAL limit, including concurrent growth.
+            for source, target in [(home / 'state.db', snapshot), (home / 'state.db-wal', folder / 'carrier.db-wal')]:
+                try:
+                    fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                except FileNotFoundError:
+                    if source.name.endswith('-wal'):
+                        continue
+                    raise
+                with os.fdopen(fd, 'rb') as src:
+                    info = os.fstat(src.fileno())
+                    if not stat.S_ISREG(info.st_mode) or info.st_size > budget:
+                        raise ValueError('carrier DB/WAL exceeds 64 MiB snapshot limit or is not a regular file')
+                    with target.open('xb') as dst:
+                        while True:
+                            chunk = src.read(min(65536, budget + 1))
+                            if not chunk:
+                                break
+                            budget -= len(chunk)
+                            if budget < 0:
+                                raise ValueError('carrier DB/WAL exceeds 64 MiB snapshot limit')
+                            dst.write(chunk)
             db = sqlite3.connect(snapshot.as_uri() + '?mode=ro', uri=True, timeout=5)
             try:
                 hashes = [\(hashes)]
@@ -158,6 +175,8 @@ enum StagedInstall {
                     parts.append(part)
             finally:
                 db.close()
+                for item in folder.glob('carrier.db*'):
+                    item.unlink()
             payload = b''.join(parts)
             if hashlib.sha256(payload).hexdigest() != '\(whole)':
                 raise ValueError('whole transfer hash mismatch')
@@ -179,8 +198,14 @@ enum StagedInstall {
                 rows[row['name']] = row
             doc['profiles'] = list(rows.values())
             (folder / 'profiles.json').write_text(json.dumps(doc))
-            subprocess.run(['\(updater)', '--max-wait', '0', 'apply', '--staged', str(folder)], check=True)
+            result = subprocess.run(['\(updater)', '--max-wait', '0', 'apply', '--staged', str(folder)], capture_output=True, text=True)
+            print('SWARMHUB_UPDATER_RESULT:\(prefix)' + json.dumps({'exit_code': result.returncode, 'output': result.stdout}))
+            if result.returncode != 0:
+                raise SystemExit(result.returncode)
             print('SWARMHUB_TRANSFER_OK:\(prefix)')
+        except Exception as error:
+            print('SWARMHUB_TRANSFER_FAILED:\(prefix)' + json.dumps(str(error)))
+            raise
         finally:
             shutil.rmtree(folder)
         SWARMHUB_STAGE

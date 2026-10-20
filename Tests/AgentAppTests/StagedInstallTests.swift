@@ -30,10 +30,13 @@ private func stagedPackage(_ source: URL, saved: StagedInstall.Floor = .init()) 
 }
 
 private func stagedStatus(_ package: StagedInstall.Package, state: String = "current", version: String = "1.2.0",
-                          verdict: String = "accept", profile: String = "default", protected: Bool = true) throws -> String {
-    let object: [String: Any] = ["schema": "swarmhub/update-status/1", "state": state, "detail": "test updater status",
+                          verdict: String = "accept", profile: String = "default", protected: Bool = true,
+                          reason: String? = nil, detail: String = "test updater status") throws -> String {
+    var last: [String: Any] = ["command": "apply --staged", "verdict": verdict, "bundle_version": package.floor.bundle]
+    if let reason { last["reason"] = reason }
+    let object: [String: Any] = ["schema": "swarmhub/update-status/1", "state": state, "detail": detail,
         "bundle": ["bundle_version": package.floor.bundle, "manifest_sha256": package.floor.manifest!],
-        "last": ["command": "apply --staged", "verdict": verdict, "bundle_version": package.floor.bundle],
+        "last": last,
         "profiles": [profile: ["status": "applied", "advertised": ["swarmhub-manager": version], "variants": [:]]],
         "reload_pending": false, "pins": ["path": "/usr/local/lib/swarmhub-update/pins.json", "protected": protected]]
     return String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
@@ -97,7 +100,10 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
 
 /// The native Hermes tool parser and real AppStore install/stream/reply path, all on URLProtocol stubs.
 @MainActor private func stagedStore(source: URL, status: String?, command: String = StagedInstall.statusCommand,
-                                   reply: String = "Installed.", down: Bool = false, stageOK: Bool = true, failUpload: Bool = false, holdStatus: Bool = false, cleanupDown: Bool = false) -> (AppStore, Bot, String) {
+                                   reply: String = "Installed.", down: Bool = false, stageOK: Bool = true,
+                                   failUpload: Bool = false, holdStatus: Bool = false, cleanupDown: Bool = false,
+                                   stageDiagnostic: String? = nil, stageExit: Int = 65,
+                                   transferFailure: String? = nil) -> (AppStore, Bot, String) {
     let (host, backend) = ChatParityServer.serve(features: ["session_chat_streaming": true]) { request, body in
         if request.url!.path.hasSuffix("/chat/stream") {
             if down { return .json(503, ["error": "synthetic box unreachable"]) }
@@ -105,9 +111,16 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
             let instructions = body?["instructions"] as? String ?? ""
             if let stage = instructions.components(separatedBy: "````sh\n").dropFirst().first?.components(separatedBy: "\n````").first,
                let prefix = stage.components(separatedBy: "print('SWARMHUB_TRANSFER_OK:").dropFirst().first?.components(separatedBy: "')").first {
+                var output = "SWARMHUB_TRANSFER_OK:" + prefix + "\n"
+                if let stageDiagnostic,
+                   let bytes = try? JSONSerialization.data(withJSONObject: ["exit_code": stageExit, "output": stageDiagnostic]) {
+                    output = "SWARMHUB_UPDATER_RESULT:" + prefix + String(decoding: bytes, as: UTF8.self) + "\n"
+                } else if let transferFailure, let bytes = try? JSONEncoder().encode(transferFailure) {
+                    output = "SWARMHUB_TRANSFER_FAILED:" + prefix + String(decoding: bytes, as: UTF8.self) + "\n"
+                }
                 events += [("tool.started", ["tool_name": "terminal", "tool_call_id": "stage", "args": ["command": stage]]),
                            (stageOK ? "tool.completed" : "tool.failed", ["tool_name": "terminal", "tool_call_id": "stage",
-                              "result": ["output": "SWARMHUB_TRANSFER_OK:" + prefix + "\n", "exit_code": stageOK ? 0 : 1]])]
+                              "result": ["output": output, "exit_code": stageOK ? 0 : stageExit]])]
             }
             if let status {
                 events += [("tool.started", ["tool_name": "terminal", "tool_call_id": "status", "args": ["command": command]]),
@@ -244,6 +257,74 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     try await waitUntil { !store.anyTurnRunning }
     #expect(bot.installedSkills.isEmpty)
     #expect(store.errorMessage?.contains("unconfirmed") == true)
+    #expect(store.boxInstallTransport.status[store.connection(of: bot)]?.state == "failed")
+}
+
+@Test @MainActor func updaterFailuresReachTheUserAndCacheWithoutAcceptingStaleSuccess() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let rejected = try stagedStatus(package, verdict: "reject", reason: "blob_hash_mismatch")
+    let deferred = try stagedStatus(package, state: "deferred", detail: "default deferred: code job running")
+    let lock = #"{"state":"deferred","detail":"another swarmhub-update run is active"}"#
+    for (diagnostic, code, state, reason) in [
+        (rejected, 65, "failed", "blob_hash_mismatch"),
+        (deferred, 75, "deferred", "code job running"),
+        (lock, 75, "deferred", "another swarmhub-update run is active")
+    ] {
+        let (store, bot, _) = stagedStore(source: source, status: try stagedStatus(package), stageOK: false,
+                                          stageDiagnostic: diagnostic, stageExit: code)
+        #expect(store.installSkills(for: bot))
+        try await waitUntil { !store.anyTurnRunning }
+        #expect(bot.installedSkills.isEmpty, "the later old successful status cannot confirm this turn")
+        #expect(store.errorMessage?.contains(reason) == true)
+        let cached = try #require(store.boxInstallTransport.status[store.connection(of: bot)])
+        #expect(cached.state == state && cached.detail.contains(reason))
+        #expect(!cached.accepted(package))
+    }
+}
+
+@Test @MainActor func transferFailureKeepsItsReasonAndLastKnownVersionsInTheCache() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let (store, bot, _) = stagedStore(source: source, status: try stagedStatus(package), stageOK: false,
+                                      transferFailure: "transfer part hash mismatch")
+    bot.installedSkills = ["swarmhub-manager": "1.0.0"]
+    store.boxInstallTransport.status[store.connection(of: bot)] = BoxUpdaterStatus.decode(try stagedStatus(package, version: "1.0.0"))
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(store.errorMessage?.contains("Transfer failed: transfer part hash mismatch") == true)
+    await store.refreshInstalledSkills(for: bot)
+    #expect(bot.installedSkills == ["swarmhub-manager": "1.0.0"])
+    #expect(store.boxInstallTransport.status[store.connection(of: bot)]?.state == "failed")
+}
+
+@Test func stagingDiagnosticsRequireThisTransfersPrefixAndNeverEstablishAcceptance() throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let bytes = try JSONSerialization.data(withJSONObject: ["exit_code": 65, "output": try stagedStatus(package)])
+    let output = "SWARMHUB_UPDATER_RESULT:other_" + String(decoding: bytes, as: UTF8.self)
+    #expect(StagedTransfer.failure(output, prefix: "this_", previous: nil) == nil)
+    #expect(!StagedTransfer.completed(output, prefix: "this_"))
+}
+
+@Test @MainActor func transferAndRefreshNamespaceEveryCreatedSessionAndCleanupFindsThem() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    for namespace in ["QA-", AppConstants.selfTestPrefix] {
+        let (store, bot, host) = stagedStore(source: source, status: try stagedStatus(stagedPackage(source)))
+        store.sessionNamespace = namespace
+        #expect(store.installSkills(for: bot))
+        try await waitUntil { !store.anyTurnRunning }
+        await store.refreshStagedSkills(for: bot, onDemand: true)
+        let requests = ChatParityServer.requests(host)
+        let created = requests.compactMap { $0.method == "POST" ? $0.body?["id"] as? String : nil }
+        #expect(!created.isEmpty && created.allSatisfy { $0.hasPrefix(namespace) })
+        let temporary = created.filter { $0.contains("agentapp_update_") }
+        #expect(temporary.contains { $0.contains("agentapp_update_bytes_") })
+        #expect(temporary.contains { $0.contains("agentapp_update_status_") })
+        for id in temporary { #expect(requests.contains { $0.method == "DELETE" && $0.path == "/api/sessions/" + id }) }
+        #expect((store.defaults.stringArray(forKey: "updates.transport.cleanup." + store.connection(of: bot)) ?? []).isEmpty)
+    }
+    #expect(throws: (any Error).self) { try StagedTransfer(stagedPackage(source), namespace: "bad'namespace") }
 }
 
 @Test @MainActor func skillsViewOpensSpendNoTurnsAndExplicitRefreshIsSingleFlightAndCleansUp() async throws {
@@ -291,13 +372,15 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
     let (store, bot, host) = stagedStore(source: source, status: nil)
     let key = "updates.transport.cleanup." + store.connection(of: bot)
-    let interrupted = "agentapp_update_bytes_interrupted_0"
-    store.defaults.set([interrupted], forKey: key)
+    let interrupted = "QA-agentapp_update_bytes_interrupted_0"
+    let oldStatus = AppConstants.selfTestPrefix + "agentapp_update_status_interrupted"
+    store.defaults.set([interrupted, oldStatus], forKey: key)
     await store.refreshStagedSkills(for: bot, onDemand: true)
     let requests = ChatParityServer.requests(host)
     let deleted = try #require(requests.firstIndex { $0.method == "DELETE" && $0.path == "/api/sessions/" + interrupted })
     let created = try #require(requests.firstIndex { $0.method == "POST" && $0.path == "/api/sessions" })
     #expect(deleted < created)
+    #expect(requests[..<created].contains { $0.method == "DELETE" && $0.path == "/api/sessions/" + oldStatus })
     #expect((store.defaults.stringArray(forKey: key) ?? []).isEmpty)
 }
 
@@ -305,7 +388,7 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
     let (store, bot, host) = stagedStore(source: source, status: nil, cleanupDown: true)
     let key = "updates.transport.cleanup." + store.connection(of: bot)
-    let interrupted = "agentapp_update_status_interrupted"
+    let interrupted = "QA-agentapp_update_status_interrupted"
     store.defaults.set([interrupted], forKey: key)
     await store.refreshStagedSkills(for: bot, onDemand: true)
     await store.refreshStagedSkills(for: bot, onDemand: true)

@@ -20,8 +20,33 @@ struct StagedTransfer: Sendable {
         return output.split(separator: "\n").last.map(String.init) == "SWARMHUB_TRANSFER_OK:" + prefix
     }
 
-    init(_ package: StagedInstall.Package) throws {
-        prefix = "agentapp_update_bytes_" + UUID().uuidString.lowercased() + "_"
+    /// Diagnostics are read only from the matched staging call, even when its terminal exit is nonzero.
+    static func failure(_ result: String?, prefix: String, previous: BoxUpdaterStatus?) -> BoxUpdaterStatus? {
+        guard let result, result.utf8.count <= 2_097_152 else { return nil }
+        var output = result
+        if let wrapper = (try? JSONSerialization.jsonObject(with: Data(result.utf8))) as? [String: Any],
+           let stdout = (wrapper["output"] ?? wrapper["stdout"]) as? String { output = stdout }
+        for line in output.split(separator: "\n").reversed().map(String.init) {
+            let updater = "SWARMHUB_UPDATER_RESULT:" + prefix
+            let transfer = "SWARMHUB_TRANSFER_FAILED:" + prefix
+            if line.hasPrefix(updater),
+               let object = (try? JSONSerialization.jsonObject(with: Data(line.dropFirst(updater.count).utf8))) as? [String: Any],
+               let code = object["exit_code"] as? Int, code != 0, let stdout = object["output"] as? String {
+                return BoxUpdaterStatus.failedResult(stdout, previous: previous)
+            }
+            if line.hasPrefix(transfer),
+               let detail = try? JSONDecoder().decode(String.self, from: Data(line.dropFirst(transfer.count).utf8)) {
+                return .failure("Transfer failed: " + detail, previous: previous)
+            }
+        }
+        return nil
+    }
+
+    init(_ package: StagedInstall.Package, namespace: String = "") throws {
+        guard namespace.range(of: #"\A[A-Za-z0-9_-]{0,128}\z"#, options: .regularExpression) != nil else {
+            throw StagedInstall.Failure.refused("session namespace")
+        }
+        prefix = namespace + "agentapp_update_bytes_" + UUID().uuidString.lowercased() + "_"
         var files = package.files
         files["profiles.json"] = try JSONEncoder().encode(package.profiles)
         let payload = try JSONEncoder().encode(files.mapValues { $0.base64EncodedString() })
@@ -61,7 +86,9 @@ extension AppStore {
     func cleanUpdaterSessions(on target: String, backend: HermesBackend) async {
         let key = "updates.transport.cleanup." + target
         let ids = defaults.stringArray(forKey: key) ?? []
-        for id in ids where id.hasPrefix("agentapp_update_bytes_") || id.hasPrefix("agentapp_update_status_") {
+        // Persisted IDs can belong to an earlier QA/E2E namespace. Match them independently of today's namespace.
+        for id in ids where id.range(of: #"\A[A-Za-z0-9_-]*agentapp_update_(bytes|status)_[A-Za-z0-9_-]+\z"#,
+                                    options: .regularExpression) != nil {
             if (try? await backend.deleteUpdaterSession(id)) != nil {
                 defaults.set((defaults.stringArray(forKey: key) ?? []).filter { $0 != id }, forKey: key)
             }

@@ -1,10 +1,13 @@
 import Foundation
 
-/// Only terminal output from a separately matched fixed-path `status` call is decoded here. Assistant text and
-/// skills_installed operations never enter this path. Status remains subject to the bot-account boundary (§3.5).
+/// Readings come from a matched fixed-path status call or a failed staging call's diagnostic receipt.
+/// Assistant text and skills_installed never enter this path. The bot-account boundary still applies (§3.5).
 struct BoxUpdaterStatus: Decodable, Sendable {
     struct Bundle: Decodable, Sendable { let bundle_version: Int64; let manifest_sha256: String }
-    struct Last: Decodable, Sendable { let command: String; let verdict: String; let bundle_version: Int64? }
+    struct Last: Decodable, Sendable {
+        let command: String; let verdict: String; let bundle_version: Int64?
+        let reason: String?; let detail: String?
+    }
     struct Profile: Decodable, Sendable {
         let status: String?
         let advertised: [String: String?]
@@ -19,6 +22,27 @@ struct BoxUpdaterStatus: Decodable, Sendable {
     let profiles: [String: Profile]
     let reload_pending: Bool
     let pins: Pins
+
+    /// App diagnostic overlay: preserve the last known live versions, but never reuse an acceptance verdict.
+    static func failure(_ detail: String, state: String = "failed", previous: Self?) -> Self {
+        Self(schema: "swarmhub/update-status/1", state: state, detail: detail, bundle: previous?.bundle,
+             last: nil, profiles: previous?.profiles ?? [:], reload_pending: previous?.reload_pending ?? false,
+             pins: previous?.pins ?? Pins(path: "/usr/local/lib/swarmhub-update/pins.json", protected: false))
+    }
+
+    static func failedResult(_ output: String, previous: Self?) -> Self {
+        let status = decode(output)
+        let object = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any] ?? [:]
+        let reason = status?.last?.reason ?? (object["reason"] as? String)
+        let detail = status?.last?.detail ?? (object["detail"] as? String) ?? reason ?? "Updater returned a nonzero exit."
+        let rejected = status?.last?.verdict == "reject" || (object["verdict"] as? String) == "reject"
+        let rejectionDetail = status?.last?.detail ?? (status == nil ? object["detail"] as? String : nil)
+        let message = rejected ? "Updater rejected: \(reason ?? detail)" +
+            (rejectionDetail.map { $0 == reason ? "" : ". " + $0 } ?? "") : detail
+        let state = status?.state ?? (object["state"] as? String) ?? "failed"
+        return failure(message, state: !rejected && ["deferred", "failed", "recovery_pending"].contains(state) ? state : "failed",
+                       previous: status ?? previous)
+    }
 
     static func decode(_ output: String) -> Self? {
         guard output.utf8.count <= 1_048_576 else { return nil }

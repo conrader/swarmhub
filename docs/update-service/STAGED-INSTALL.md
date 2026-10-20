@@ -9,7 +9,7 @@ Each temporary, empty carrier session stores at most 49,152 payload bytes as a b
 characters). **No model turn is started in a carrier session.** The management turn receives only a bounded script,
 random carrier IDs, expected chunk hashes and the whole payload hash. It never receives the archive payload.
 The script copies the raw profile DB and WAL into updater-owned temporary storage, opens that snapshot with SQLite
-`mode=ro`, checks every part and the complete envelope, then writes the
+`mode=ro`, checks every part and the complete envelope, deletes the snapshot, then writes the
 opaque files into a private temporary folder under the updater state directory and invokes exactly:
 
 ```
@@ -25,11 +25,23 @@ Streams without terminal results leave installation unconfirmed. Refused, deferr
 pending-code results cannot become an installed requested version. Pending status may record the data skills that
 actually landed. `reload_pending` is reported; nothing enables plugins or restarts Hermes.
 
+The staging call emits `SWARMHUB_UPDATER_RESULT:<carrier-prefix>` followed by JSON containing the updater's
+exit code and its exact stdout, including nonzero exits (65 rejected, 75 deferred). Only exit 0 prints the separate,
+exact `SWARMHUB_TRANSFER_OK:<carrier-prefix>` line. The app binds diagnostic receipts to the staging command,
+tool-call ID and transfer prefix. It shows the updater's rejection reason or deferral detail and caches a failed/deferred
+reading, preserving the last known live versions without recording an installation. This also handles lock deferral,
+whose stdout has a reason but does not rewrite `status.json`. A later stale successful status cannot replace this
+turn's failure. Transfer exceptions have their own `SWARMHUB_TRANSFER_FAILED:<carrier-prefix>` diagnostic and never
+invoke the updater. Assistant prose cannot supply either diagnostic. An app diagnostic overlay does not change the
+box's status file.
+
 Skills-view opens reuse the last updater reading (including persisted installed versions), with no model turn.
 “Refresh from updater” explicitly requests a fresh reading, single-flight per connection. Its temporary session is
 deleted afterward. Carrier sessions are also deleted after completion, upload failure or cancellation. Cleanup IDs
 are saved before upload; interrupted/unreachable cleanup is retried before the next updater action. New transfers
 and refresh turns wait for that cleanup, so repeated failures cannot accumulate sessions.
+Carrier and refresh IDs both include `sessionNamespace` (including QA/E2E). Cleanup uses the saved full IDs and
+recognizes namespaced IDs even if the app's current namespace has changed.
 
 ### Stock Hermes transport investigation
 
@@ -40,6 +52,14 @@ The prefix middleware scopes both endpoints to the selected profile. `hermes_sta
 that profile's Hermes home. The script queries only these newly created rows, never imports Hermes or opens its live DB through SQLite.
 Copying DB/WAL bytes first keeps SQLite shared-memory bookkeeping inside updater state too. A concurrent checkpoint
 that makes the copied snapshot inconsistent fails closed; retrying creates fresh carrier IDs.
+Stock `GET /api/sessions/<id>` deliberately omits `system_prompt`, so it cannot fetch just the carrier bytes.
+Opening the live DB read-only can still write SQLite shared-memory bookkeeping; immutable mode ignores the WAL.
+Neither is safe for this transport. The raw snapshot is therefore retained, with a **64 MiB combined DB + WAL cap**.
+Each source must be a regular file opened without following symlinks; both its initial size and the actual bytes
+copied (including growth) must fit the remaining budget. An oversized history fails closed with a transfer diagnostic;
+it never starts the updater. There is no truncation, live-DB query or automatic Hermes maintenance.
+The DB/WAL/SHM copy is deleted as soon as carrier reads finish, before updater execution. The outer `finally` removes
+the private staging folder on success, rejection, deferral and transfer exceptions, including partial snapshot failures.
 The server itself performs its normal session bookkeeping through its existing API. Hermes source, configuration,
 services and plugins are untouched. No terminal call writes outside the updater state and `skills/swarmhub/`.
 
@@ -102,11 +122,15 @@ with TEST-signed bytes and an isolated updater prefix, populates temporary SQLit
 session-create contract, then runs the real launcher. It also transfers a signed archive over 300 KB and checks
 altered/missing chunks stop before the updater, leaving status and live/previous trees intact. It builds today's resources
 with the release builder, verifies all four skills against the render goldens, checks altered archives leave live
-and previous trees intact, and checks profile/variant refresh and Hermes confinement. No external host is used.
+and previous trees intact, and checks profile/variant refresh and Hermes confinement. Rejection, busy-box and lock
+deferral tests assert the exact updater JSON/exit and absence of a success receipt. Snapshot tests cover uncheckpointed
+WAL, combined size refusal, invalid SQLite, deletion before updater execution and failure cleanup. No external host is used.
 `Tests/AgentAppTests/StagedInstallTests.swift` covers verification, opaque transport, exact terminal-result binding,
 the native Hermes event parser plus the app install path, model-only claims, pending code, source/box failure,
 legacy fallback, direct carrier upload and cleanup, stale-status refusal after a failed transfer, and explicit
-single-flight status refresh with cleanup on success/failure. Swift tests are authored but require the Mac run. The existing Swift golden test remains the renderer authority.
+single-flight status refresh with cleanup on success/failure, QA/E2E namespaces, and rejected/deferred/transfer-failure
+diagnostics reaching the user and cached reading without accepting stale success. Swift tests are authored but require
+the Mac run. The existing Swift golden test remains the renderer authority.
 
 On the MacBook run AgentApp `swift test` (including staged install, render and managed remote control tests),
 SwarmHubCore `swift test`, and `scripts/test-ios-core.sh`. Goldens still carry the existing PROVISIONAL marker:
