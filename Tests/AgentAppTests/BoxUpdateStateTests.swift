@@ -215,10 +215,19 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
     try await waitUntil { !store.anyTurnRunning }
     let direct = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }
     #expect(direct.count == 1)
-    #expect(!(direct.first?.body?["instructions"] as? String ?? "").contains("apply --version"))
+    let instructions = try #require(direct.first?.body?["instructions"] as? String)
+    #expect(!instructions.contains("apply --version"), "Direct chat instructions: \(instructions)")
     await store.refreshStagedSkills(for: bot, onDemand: true)
     #expect(store.boxCodeConfirmation(for: bot)?.version == 11)
     #expect(store.boxUpdateState(on: store.connection(of: bot)).highestBundleVersion == 11)
+    #expect(store.send(text: "Keep working with the installed skills."))
+    try await waitUntil { !store.anyTurnRunning }
+    let turns = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }
+    #expect(turns.count == 3)
+    for turn in turns {
+        let sent = try #require(turn.body?["instructions"] as? String)
+        #expect(!sent.contains("apply --version"), "Chat/status instructions: \(sent)")
+    }
 }
 
 @Test func nativeParserRetainsOnlyBoundedVersionConfirmCommands() throws {
