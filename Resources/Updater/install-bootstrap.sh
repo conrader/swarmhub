@@ -74,26 +74,27 @@ node_ok() {
   case $_p in *+) acl_ok "$1" || return 1 ;; *) [ "$OS" != Darwin ] || acl_ok "$1" || return 1 ;; esac
   return 0
 }
-chain_ok() {  # $1 and every ancestor, as named
-  _c=$1
-  while :; do
-    node_ok "$_c" || { BAD=$_c; return 1; }
-    [ "$_c" = / ] && return 0
-    _c=$(dirname "$_c")
+trusted() {  # $1 absolute, walked one name at a time from /: every folder entered, every link (each hop of each link,
+             # also links inside a link's target, at most 40 in all) and the last entry must pass node_ok. Refuses
+             # loops, too many hops, anything it cannot read and a non-folder in the middle; sets RESOLVED (physical)
+  case $1 in /*) ;; *) BAD="$1 (not an absolute path)"; return 1 ;; esac
+  node_ok / || { BAD=/; return 1; }
+  _kc= _kr=${1#/} _kn=0
+  while [ -n "$_kr" ]; do
+    case $_kr in */*) _kp=${_kr%%/*} _kr=${_kr#*/} ;; *) _kp=$_kr _kr= ;; esac
+    case $_kp in ''|.) continue ;; ..) _kc=${_kc%/*}; continue ;; esac
+    _kx=$_kc/$_kp
+    [ -e "$_kx" ] || [ -L "$_kx" ] || { BAD="$_kx (missing)"; return 1; }
+    node_ok "$_kx" || { BAD=$_kx; return 1; }
+    if [ -L "$_kx" ]; then
+      _kn=$((_kn + 1)); [ "$_kn" -le 40 ] || { BAD="$1 (a link loop, or more than 40 link hops)"; return 1; }
+      _kl=$(readlink "$_kx") && [ -n "$_kl" ] || { BAD="$_kx (its link cannot be read)"; return 1; }
+      case $_kl in /*) _kc= ;; esac
+      _kr=${_kl#/}${_kr:+/$_kr}
+    elif [ -d "$_kx" ] || [ -z "$_kr" ]; then _kc=$_kx
+    else BAD="$_kx (not a folder, but a path goes through it)"; return 1; fi
   done
-}
-trusted() {  # $1 absolute: every symlink hop, the named and the physical ancestors are trusted; sets RESOLVED
-  _t=$1 _n=0
-  while :; do
-    chain_ok "$_t" || return 1
-    _d=$(cd -P "$(dirname "$_t")" 2>/dev/null && pwd -P) || { BAD=$_t; return 1; }
-    chain_ok "$_d" || return 1
-    [ -L "$_t" ] || break
-    _n=$((_n + 1)); [ "$_n" -le 20 ] || { BAD=$1; return 1; }
-    _r=$(readlink "$_t") || { BAD=$_t; return 1; }
-    case $_r in /*) _t=$_r ;; *) _t=${_d%/}/$_r ;; esac
-  done
-  RESOLVED=${_d%/}/$(basename "$_t")
+  RESOLVED=${_kc:-/}
 }
 reachable() {  # other accounts can traverse every ancestor (root installs only)
   [ -n "$TEST_MODE" ] && return 0
@@ -105,20 +106,39 @@ reachable() {  # other accounts can traverse every ancestor (root installs only)
 }
 
 # ---- the interpreter: checked on disk BEFORE it runs at all, then run isolated (-I -S -B, empty env, cwd /) ---------
-# Python reads its library (encodings, ...) while starting, before any -c code. So first, for the bin folder as named
-# and as resolved: no pyvenv.cfg or bin/lib* (they move where the library is looked up), a trusted prefix, trusted
-# lib/lib64 folders, libpython and pythonNN.zip, whole trusted lib*/python3.N trees (links followed), and the binary's
-# own stdlib beside it: lib*/python3.N/os.py for the N in its name (python3.N), or the only one there when the name has
-# none. Otherwise Python would look further up or at its built-in prefix, which nothing here checked. Only then is it
-# run, and its -I -S sys.path checked again.
+# Python reads its library (encodings, ...) while starting, before any -c code, and -I -S do not stop the start-up
+# overrides in getpath (3.8-3.14). So first, for the bin folder as named and as resolved: none of pyvenv.cfg, a ._pth
+# file, pybuilddir.txt, Modules/ (a build tree) or bin/lib* (they move or replace where the library is looked up), in
+# the bin folder, the prefix or a framework's Resources/Python.app/Contents/MacOS (whose whole Resources tree must be
+# trusted: a framework's bin/python3.N only starts the binary there); a trusted prefix, trusted lib/lib64
+# folders, libpython and pythonNN.zip, whole trusted lib*/python3.N trees (links followed), and the binary's own stdlib
+# beside it: lib*/python3.N/os.py for the N in its name (python3.N), or the only one there when the name has none. A
+# libpython in lib*/ or lib*/*/ must be trusted, with no ._pth or lib* folder beside it (a libpython elsewhere is not
+# located: Linux reads one only from 3.14, for shared builds). No
+# folder above the prefix may hold lib*/python3NN.zip, nor lib*/python3.N/lib-dynload when the prefix has none (Python
+# searches upward for both). Otherwise Python would look elsewhere, which nothing here checked. Only then is it run,
+# and its -I -S sys.path checked again.
 prefix_ok() {  # $1 a bin folder Python may start from; $2 the resolved binary's name: its prefix must hold its stdlib
   _pb=$1 _pp=$(dirname "$1") _pf= _pn=0
   case ${2:-} in python3.[0-9]*) _pw=python${2#python} ;; *) _pw= ;; esac
-  for _pv in "$_pb/pyvenv.cfg" "$_pp/pyvenv.cfg" "$_pb/lib" "$_pb/lib64"; do
+  _pm=$_pp/Resources/Python.app/Contents/MacOS  # a framework's bin/python3.N execs the Python in this app bundle
+  for _pv in "$_pb/pyvenv.cfg" "$_pp/pyvenv.cfg" "$_pb/lib" "$_pb/lib64" "$_pb/pybuilddir.txt" "$_pb/Modules" \
+      "$_pp/pybuilddir.txt" "$_pp/Modules" "$_pm/pyvenv.cfg" "$_pm/pybuilddir.txt" "$_pm/Modules" "$_pm/lib" \
+      "$_pb"/*._pth "$_pb"/.*._pth "$_pp"/*._pth "$_pp"/.*._pth "$_pm"/*._pth "$_pm"/.*._pth; do
     [ ! -e "$_pv" ] && [ ! -L "$_pv" ] || { BAD="$_pv (it changes where Python loads its library from)"; return 1; }
   done
   trusted "$_pp" || return 1
-  for _pv in "$_pp/lib" "$_pp/lib64" "$_pp/Python" "$_pp/Python3" "$_pp"/lib/libpython3* "$_pp"/lib64/libpython3* \
+  if [ -e "$_pp/Resources" ] || [ -L "$_pp/Resources" ]; then  # the app bundle holds the binary that really runs
+    trusted "$_pp/Resources" && tree_ok "$RESOLVED" || { BAD="$BAD (in $_pp/Resources, where a framework Python runs from)"; return 1; }
+  fi
+  for _pv in "$_pp"/lib/libpython3* "$_pp"/lib64/libpython3* "$_pp"/lib/*/libpython3* "$_pp"/lib64/*/libpython3*; do
+    [ -e "$_pv" ] || [ -L "$_pv" ] || continue  # 3.14+ reads <libpython>._pth and searches upward from its folder
+    _pl=$(dirname "$_pv")
+    for _pq in "$_pl"/*._pth "$_pl"/.*._pth "$_pl/lib" "$_pl/lib64" "$_pp/lib/lib" "$_pp/lib/lib64" "$_pp/lib64/lib" "$_pp/lib64/lib64"; do
+      [ ! -e "$_pq" ] && [ ! -L "$_pq" ] || { BAD="$_pq (beside a libpython: it changes where Python loads its library from)"; return 1; }
+    done
+  done
+  for _pv in "$_pp/lib" "$_pp/lib64" "$_pp/Python" "$_pp/Python3" "$_pp"/lib/libpython3* "$_pp"/lib64/libpython3* "$_pp"/lib/*/libpython3* \
       "$_pp"/lib/python3[0-9]*.zip "$_pp"/lib64/python3[0-9]*.zip "$_pp"/lib/python3.[0-9]* "$_pp"/lib64/python3.[0-9]*; do
     [ -e "$_pv" ] || [ -L "$_pv" ] || continue
     trusted "$_pv" || return 1
@@ -130,11 +150,29 @@ prefix_ok() {  # $1 a bin folder Python may start from; $2 the resolved binary's
   [ -n "${2:-}" ] || return 0
   [ -n "$_pw" ] || [ "$_pn" != 1 ] || _pf=1
   [ -n "$_pf" ] || { BAD="$_pp holds no lib/${_pw:-python3.N}/os.py (or several): cannot tell where $PYC loads its library from"; return 1; }
+  _pd=
+  for _pv in "$_pp"/lib/${_pw:-python3.[0-9]*}/lib-dynload "$_pp"/lib64/${_pw:-python3.[0-9]*}/lib-dynload; do
+    [ -d "$_pv" ] && _pd=1
+  done
+  _pa=$_pp
+  while [ "$_pa" != / ]; do
+    _pa=$(dirname "$_pa")
+    for _pv in "${_pa%/}"/lib/python3[0-9]*.zip "${_pa%/}"/lib64/python3[0-9]*.zip; do
+      [ -e "$_pv" ] || [ -L "$_pv" ] || continue
+      BAD="$_pv (above $_pp: Python would take its library from there)"; return 1
+    done
+    [ -z "$_pd" ] || continue
+    for _pv in "${_pa%/}"/lib/python3.[0-9]*/lib-dynload "${_pa%/}"/lib64/python3.[0-9]*/lib-dynload; do
+      [ -e "$_pv" ] || [ -L "$_pv" ] || continue
+      BAD="$_pv (above $_pp, which has no lib-dynload: Python would load modules from there)"; return 1
+    done
+  done
 }
 python_ok() {
   case $1 in /*) ;; *) return 1 ;; esac
   case $1 in *[!A-Za-z0-9._/+-]*) return 1 ;; esac
-  [ -f "$1" ] && [ -x "$1" ] && trusted "$1" || return 1
+  trusted "$1" || return 1
+  [ -f "$RESOLVED" ] && [ -x "$RESOLVED" ] || { BAD="$1 (not an executable file)"; return 1; }
   PYC=$1 _real=$RESOLVED
   prefix_ok "$(dirname "$_real")" "$(basename "$_real")" || return 1
   _named=$(cd -P "$(dirname "$1")" && pwd -P) || { BAD=$1; return 1; }

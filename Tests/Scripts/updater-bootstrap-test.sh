@@ -33,6 +33,7 @@ skip() { echo "skip: $1 ($2)"; SKIPPED=$((SKIPPED + 1)); }
 has() { grep -q -- "$1" "$2"; }
 absent() { [ ! -e "$1" ] && [ ! -L "$1" ]; }
 fails() { ! "$@"; }
+. "$HERE/updater-bootstrap-interp.sh"  # fakepy, interpreter_refusals
 
 # ======================================== host: build the TEST packages, pick a mode ===============================
 host() {
@@ -236,56 +237,7 @@ refusals() {
   expect "left a prefix or ran the fake python" no_trace
   done_case
 
-  for v in writable link; do
-    begin "an interpreter whose library the bot could change ($v encodings/__init__.py) is refused before it runs"
-    fakepy "$v" || { PROBLEMS="; cannot build the fake interpreter"; done_case; continue; }
-    (cd / && env -i "$FP/bin/python3" -I -S -B -c pass) > /dev/null 2>&1
-    if ! has "fake-stdlib $v" "$MARK" 2> /dev/null; then
-      [ "$(uname -s)" = Darwin ] && { skip "fake interpreter ($v)" "a framework python loads its library from the framework"; continue; }
-      PROBLEMS="; control: the planted encodings/__init__.py did not run at start-up"
-    fi
-    rm -f "$MARK"
-    expect "accepted it" fails inst install --prefix "$PREFIX" --package "$PACKAGE" --sha256 "$GOOD" --python "$FP/bin/python3"
-    expect "no refusal message" has "no trusted python3" "$W/out"
-    expect "ran the interpreter before refusing it, or left a prefix" no_trace
-    done_case
-    rm -rf "$MARK" "$PREFIX"  # a failure here must not leak into the later cases
-  done
-
-  begin "an interpreter without its own stdlib beside it (only another version's) is refused before it runs"
-  if fakepy other; then
-    expect "accepted it" fails inst install --prefix "$PREFIX" --package "$PACKAGE" --sha256 "$GOOD" --python "$FP/bin/$PYNAME"
-    expect "no refusal message" has "cannot tell where" "$W/out"
-    expect "left a prefix" no_trace
-  else PROBLEMS="; cannot build the fake interpreter"; fi
-  done_case
-  rm -rf "$MARK" "$PREFIX" "$FP" "$SAFE/fpy-evil.py"
-}
-
-# a copy of this python in $SAFE/fpy with only the start-up part of its library (os.py, encodings/). Python imports
-# encodings while it starts, before any -c code, so a planted encodings/__init__.py runs as whoever runs the binary.
-fakepy() {  # $1 writable: the bot can write encodings/__init__.py; link: it links to a file the bot can write;
-            # other: bin/python3.N beside a clean lib/python3.(N-1) only (Python then takes the stdlib from elsewhere)
-  FP=$SAFE/fpy; rm -rf "$FP" "$SAFE/fpy-evil.py"
-  PYINFO=$(python3 -I -S -c 'import encodings, os, sys; print(os.path.realpath(sys.executable)); print(os.path.dirname(os.path.dirname(encodings.__file__)))') || return 1
-  REALPY=$(printf '%s\n' "$PYINFO" | sed -n 1p) PYLIB=$(printf '%s\n' "$PYINFO" | sed -n 2p)
-  L=$FP/lib/$(basename "$PYLIB")
-  [ -n "$REALPY" ] && [ -d "$PYLIB/encodings" ] || return 1
-  PYNAME=$(basename "$PYLIB")
-  if [ "$1" = other ]; then  # the binary keeps its versioned name; the only stdlib beside it is one version lower
-    L=$FP/lib/python3.$(( ${PYNAME#python3.} - 1 ))
-    mkdir -p "$FP/bin" "$L" && cp "$REALPY" "$FP/bin/$PYNAME" && cp "$PYLIB/os.py" "$L/" && cp -R "$PYLIB/encodings" "$L/" \
-      && find "$FP" -name __pycache__ -exec rm -rf {} + && chmod -R go-w "$FP"
-    return
-  fi
-  mkdir -p "$FP/bin" "$L/lib-dynload" && cp "$REALPY" "$FP/bin/python3" && cp "$PYLIB/os.py" "$L/" \
-    && cp -R "$PYLIB/encodings" "$L/" && find "$FP" -name __pycache__ -exec rm -rf {} + && chmod -R go-w "$FP" || return 1
-  { printf '%s\n' "import os as _o; _f = _o.open('$MARK', _o.O_WRONLY | _o.O_CREAT | _o.O_APPEND, 0o644)" \
-      "_o.write(_f, b'fake-stdlib $1\\n'); _o.close(_f); del _o, _f"  # builtins.open does not exist yet
-    cat "$PYLIB/encodings/__init__.py"; } > "$W/enc" || return 1
-  if [ "$1" = writable ]; then E=$L/encodings/__init__.py; cat "$W/enc" > "$E"
-  else E=$SAFE/fpy-evil.py; cat "$W/enc" > "$E" && rm "$L/encodings/__init__.py" && ln -s "$E" "$L/encodings/__init__.py"; fi
-  chmod 0666 "$E" && { [ -z "$PRIV" ] || chown bot "$E"; }
+  interpreter_refusals  # updater-bootstrap-interp.sh
 }
 
 install_checks() {

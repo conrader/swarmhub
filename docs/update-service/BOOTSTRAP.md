@@ -27,10 +27,20 @@ The launcher names a vetted interpreter by absolute path, so there is no `PATH` 
 `-I` (ignores `PYTHON*` variables, the script folder, the cwd and the user site), `-S` (no site-packages or `.pth`
 files) and `-B` (no bytecode). Python reads its library (for example `encodings`) while starting, before any code
 it is given, so the installer checks the interpreter on disk **before running it at all**: the binary, every folder
-above it, every link hop, its prefix, the `lib`/`lib64` folders, `libpython` and `pythonNN.zip`, and the whole
-`lib*/python3.N` library trees must be root-owned and not writable by group or others. Links inside those trees are
-followed and their targets checked the same way; a link to a folder outside the tree is refused. A `pyvenv.cfg` or a
-`lib` folder beside the binary is refused, and the binary's own standard library must sit beside the resolved binary
+above it, its prefix, the `lib`/`lib64` folders, `libpython` and `pythonNN.zip`, and the whole
+`lib*/python3.N` library trees must be root-owned and not writable by group or others. Every path is resolved one
+name at a time from `/`: each folder it enters and each link it passes (every hop of every link, also links met inside a
+link's target) must pass that check, so a protected link cannot lead through a link or folder the bot controls. A link
+loop, more than 40 hops or anything unreadable is refused. Links inside the library trees are followed and their
+targets checked the same way; a link to a folder outside the tree is refused. Start-up overrides that `-I -S` do not
+turn off are refused: a `pyvenv.cfg`, a `._pth` file, `pybuilddir.txt` or a `Modules` folder (build tree) in the bin
+folder, the prefix or a framework's `Resources/Python.app/Contents/MacOS` (where a framework's `bin/python3.N` really
+starts Python; that whole `Resources` tree must be trusted too), a `lib` folder beside the binary, and any
+`lib*/python3NN.zip` in a folder above the prefix (Python searches upward for it), or a `lib*/python3.N/lib-dynload`
+above the prefix when the prefix has none. Python 3.14+ built with a shared `libpython` also reads `<libpython>._pth`
+and looks around the `libpython` folder, so a `._pth` or a `lib`/`lib64` folder beside any `libpython` in the
+prefix's `lib*/` or `lib*/*/` is refused (a `libpython` outside the prefix is not located). The binary's own standard
+library must sit beside the resolved binary
 (`lib/python3.N/os.py` for the N in its name `python3.N`, or the only one there), else Python would look elsewhere. Only then is the interpreter run (empty environment, cwd `/`, `-I -S -B`), and every
 `sys.path` entry it reports is checked again. On macOS it also checks for ACLs that grant writing. It picks `/usr/bin/python3` or `/usr/local/bin/python3` on Linux. On macOS it picks the Command Line
 Tools python (`xcrun -f python3`), never the `/usr/bin/python3` shim, which `DEVELOPER_DIR` can redirect. Use
@@ -121,8 +131,11 @@ runs the suite as root without the marker and checks that it fell back, created 
   planted code does run when its own digest is given);
 - a disagreeing `.sha256` file, a non-root run, bot-writable prefixes and interpreters, and TEST roots are refused;
 - an interpreter whose `encodings/__init__.py` the bot can write, or which links to a file the bot can write, is
-  refused before it runs (a control shows the planted code runs when the binary is started directly), and so is a
-  `python3.N` binary with only another version's library beside it;
+  refused before it runs (a control shows the planted code runs when the binary is started directly), and so is one
+  that a protected `python3._pth`, `pybuilddir.txt` or a `python3NN.zip` above the prefix steers to encodings the bot
+  can write (each with the same control); also refused: a `python3.N` binary with only another version's library
+  beside it, one without `lib-dynload` that has one above its prefix, one with a `._pth` beside a `libpython` in its
+  prefix, one reached through a link hop the bot controls, and a link loop;
 - 15 write attempts by the bot against the updater, pins and links all fail;
 - with hostile `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, cwd modules, user-site `usercustomize`/`.pth` and a fake
   `python3`/`env` first on `PATH`, no planted code runs (controls show each plant fires without the protections);
@@ -141,4 +154,6 @@ then also skips the non-root refusal).
 macOS has not been run here. On the MacBook, run `sh Tests/Scripts/updater-bootstrap-test.sh` (fallback, without
 Docker). It exercises the Darwin paths: `xcrun` interpreter choice and the on-disk library check of a framework
 python (it must find `lib/python3.N/os.py` beside the resolved binary), `shasum`, BSD `tar`/`find`/`ls` and ACL
-parsing. The two fake-interpreter cases skip there if a copied framework binary does not load the copied library.
+parsing. The five fake-interpreter cases with a start-up control skip there if a copied framework binary does not
+load the copied library. The Command Line Tools python must still be picked (its layout is root-owned and not
+writable); a refusal of it names the file or folder that failed.
