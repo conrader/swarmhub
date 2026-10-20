@@ -92,8 +92,40 @@ class VectorTests(unittest.TestCase):
                 self.assertEqual(ref.model_default(bundled, role),
                                  dict(provider=models[role + "Provider"], model=models[role + "Model"]))
 
+    def test_reviews_without_reporting_wait_for_user_acceptance(self):
+        bundled = next(c["snapshot"] for c in VECTORS["cases"] if c["id"] == "bundle")
+        for actions in (bundled["policy.teamActions"], ["assign"], []):
+            with self.subTest(actions=actions):
+                policy = ref.review_policy(actions)
+                self.assertEqual(policy["completion"], "awaitingUserAcceptance")
+                self.assertIn("The result goes to the user for acceptance", policy["instructions"])
+                self.assertNotIn("verdict", policy["instructions"])
+
+    def test_reporting_still_requires_a_structured_verdict(self):
+        for actions in (None, ref.TEAM_ACTIONS, ["reportResult"]):
+            self.assertEqual(ref.review_policy(actions), dict(
+                instructions="reportResult with a verdict is required", completion="missingVerdict"))
+            self.assertEqual(ref.review_policy(actions, has_structured_verdict=True)["completion"], "reported")
+        self.assertEqual(ref.review_policy([], has_structured_verdict=True)["completion"], "reported")
+
 
 class SourceParityTests(unittest.TestCase):
+    def test_review_wording_and_routing_live_in_shared_coordination(self):
+        shared = (ROOT / "Packages/SwarmHubCoordination/Sources/SwarmHubCoordination/TeamReviewPolicy.swift").read_text()
+        for actions in (None, ["assign", "requestReview"]):
+            self.assertIn(ref.review_policy(actions)["instructions"], shared)
+        self.assertIn('actions?.contains("reportResult") ?? true', shared)
+        self.assertIn("allowsReporting ? .missingVerdict : .awaitingUserAcceptance", shared)
+        operations = (ROOT / "Sources/AgentApp/Stores/AppStore+WorkflowOperations.swift").read_text()
+        dispatch = (ROOT / "Sources/AgentApp/Stores/AppStore+TeamDispatch.swift").read_text()
+        self.assertIn("workflow.reviewPolicy.instructions", operations)
+        self.assertIn("workflow.reviewPolicy.instructions", dispatch)
+        self.assertNotIn("include your verdict in your reply", operations)
+        self.assertIn("workflow.reviewPolicy.completion(hasStructuredVerdict: false)", operations)
+        self.assertIn("workflow.tasks[index].state = .awaitingUserAcceptance", operations)
+        recovery = (ROOT / "Sources/AgentApp/Stores/AppStore+TeamRecovery.swift").read_text()
+        self.assertEqual(recovery.count("!workflow.awaitsUserAcceptance"), 2)
+
     def test_swift_compiled_defaults_match_the_reference(self):
         for name, key in (("codingOrder", ("policy", "codingOrder")), ("owner", ("prompts", "botPrompt.owner")),
                           ("role", ("prompts", "botPrompt.role")), ("language", ("prompts", "botPrompt.language")),

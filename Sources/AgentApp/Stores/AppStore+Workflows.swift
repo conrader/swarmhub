@@ -138,6 +138,7 @@ extension AppStore {
 
     func resumeWorkflow(_ id: UUID) {
         guard var workflow = workflows[id], workflow.state == .paused else { return }
+        guard !workflow.awaitsUserAcceptance else { return }
         do {
             try Workflow.validate(workflow.tasks, members: Set(workflowMembers(workflow).map(\.id)), maximum: workflow.taskLimit)
             if workflow.tasks.contains(where: { $0.state == .blocked && $0.reviewBlock != nil && $0.reviewAcceptedByUser != true }) {

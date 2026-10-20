@@ -9,6 +9,10 @@ extension AppStore {
             workflow.coordination?.activeSince = nil
             workflow.state = .paused
             workflow.error = "Waiting to check remote work before continuing."
+            if workflow.awaitsUserAcceptance && !workflow.tasks.contains(where: { $0.state == .running || $0.state == .blocked }) {
+                workflow.error = nil
+                workflow.coordination?.resumeAfterRecovery = false
+            }
             for index in workflow.tasks.indices where workflow.tasks[index].state == .running {
                 workflow.tasks[index].state = .blocked
                 workflow.tasks[index].delivery?.record(.uncertain, at: now())
@@ -42,14 +46,14 @@ extension AppStore {
         defer { teamRecovering = false; dispatchWorkflows() }
         for saved in workflows.values.filter({ $0.isTeam && !$0.isFinished }) {
             guard saved.coordination?.policy.ownerDeviceID == teamDeviceID else { continue }
-            for task in saved.tasks where task.delivery != nil && task.state != .completed && task.state != .cancelled {
+            for task in saved.tasks where task.delivery != nil && task.state != .completed && task.state != .cancelled && task.state != .awaitingUserAcceptance {
                 guard let thread = workflowThread(task.threadID, botID: task.botID), isIdle(thread) else { continue }
                 _ = await reconcile(thread, reason: .refresh)
 
             }
             settleWorkflows()
             guard var workflow = workflows[saved.id], workflow.coordination?.resumeAfterRecovery == true,
-                  !workflow.tasks.contains(where: { $0.state == .blocked }), teamPolicyProblem(workflow) == nil else { continue }
+                  !workflow.awaitsUserAcceptance, !workflow.tasks.contains(where: { $0.state == .blocked }), teamPolicyProblem(workflow) == nil else { continue }
             workflow.coordination?.resumeAfterRecovery = false
             workflow.state = .running; workflow.error = nil
             commitWorkflow(workflow)
@@ -68,7 +72,7 @@ extension AppStore {
         }
         settleWorkflows()
         guard !teamRecovering, var workflow = workflows[saved.id], workflow.coordination?.resumeAfterRecovery == true,
-              !workflow.tasks.contains(where: { $0.state == .blocked }), teamPolicyProblem(workflow) == nil else { return }
+              !workflow.awaitsUserAcceptance, !workflow.tasks.contains(where: { $0.state == .blocked }), teamPolicyProblem(workflow) == nil else { return }
         workflow.coordination?.resumeAfterRecovery = false; workflow.state = .running; workflow.error = nil
         commitWorkflow(workflow); dispatchWorkflows()
     }
@@ -92,7 +96,8 @@ extension AppStore {
 
     func confirmTeamEvidence(_ id: UUID, taskID: String) {
         guard var workflow = workflows[id], ownsTeamDispatcher(), let index = workflow.tasks.firstIndex(where: { $0.id == taskID }),
-              workflow.tasks[index].completionConfirmed == true, workflow.tasks[index].reviewBlock == nil else { return }
+              workflow.tasks[index].completionConfirmed == true, workflow.tasks[index].reviewBlock == nil,
+              workflow.tasks[index].state != .awaitingUserAcceptance else { return }
         workflow.tasks[index].verifiedByUser = true; workflow.tasks[index].state = .completed; workflow.tasks[index].error = nil
         commitWorkflow(workflow)
     }

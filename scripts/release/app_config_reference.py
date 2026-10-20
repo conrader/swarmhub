@@ -107,3 +107,14 @@ def model_default(snapshot, role, choice=None, agent_default=False):
     if role + "Provider" in models:
         return dict(provider=models[role + "Provider"], model=models[role + "Model"])
     return None
+
+
+def review_policy(actions=None, has_structured_verdict=False):
+    """TeamReviewPolicy: reply text is deliberately not an input to verdict routing."""
+    reporting = actions is None or "reportResult" in actions
+    instructions = ("reportResult with a verdict is required" if reporting else
+                    "Return your findings in a normal reply. The result goes to the user for acceptance; "
+                    "the workflow waits for that acceptance.")
+    completion = ("reported" if has_structured_verdict else
+                  "missingVerdict" if reporting else "awaitingUserAcceptance")
+    return dict(instructions=instructions, completion=completion)

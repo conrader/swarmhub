@@ -27,9 +27,11 @@ extension AppStore {
                 let evidence = (dependency.evidence ?? []).map { "Source: " + $0.source + " · Observation: " + $0.observation }.joined(separator: "\n")
                 return "Task \(dependency.id), agent \(dependency.botID), review \(dependency.reviewVerdict?.rawValue ?? "none"), verified by user: \(dependency.verifiedByUser == true)\n\(text)\nEvidence reported by that agent:\n\(evidence)"
             }.joined(separator: "\n\n")
+            let reviewNotice = task.reviewTargetID != nil && !workflow.reviewPolicy.allowsReporting
+                ? "\n" + workflow.reviewPolicy.instructions : ""
             let prompt = """
             Task: \(task.instructions)
-            Expected output: \(task.expectedOutput)
+            Expected output: \(task.expectedOutput)\(reviewNotice)
             Original user request: \(workflow.request)
             SwarmHub task \(task.id), conversation \(workflow.groupID), originating message \(team.originMessageID).
             Coordinate only through this turn's SwarmHub workflow operations. Do not use bot-msg, shell messaging, installed messaging skills, or change Hermes configuration/memory to coordinate.

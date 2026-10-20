@@ -47,7 +47,7 @@ extension AppStore {
             let reporting = actions.contains("reportResult")
             guard !actions.isEmpty else { return "No workflow operations are available. Finish with your findings in a normal reply." }
             let review = task.reviewTargetID.map {
-                "reviews task \($0) in round \(task.reviewRound ?? 1); " + (reporting ? "reportResult with a verdict is required" : "include your verdict in your reply")
+                "reviews task \($0) in round \(task.reviewRound ?? 1); " + workflow.reviewPolicy.instructions
             } ?? "is not a review; omit verdict"
             let example = reporting
                 ? #"{"operationID":"stable-id-for-this-operation","action":"reportResult","result":"Your complete findings"}"#
@@ -87,13 +87,19 @@ extension AppStore {
         })
     }
 
-    /// A finished reply completes its task with the reported result (else the reply). A review without a verdict, or one
-    /// that still needs changes after its last round, waits for the user (`acceptWorkflowReview`).
+    /// A finished reply records the reported result (else the reply). Without reporting permission a review waits for
+    /// user acceptance. Missing required verdicts and findings open after the last round retain their blocked state.
     func applyWorkflowCompletion(_ workflow: inout Workflow, index: Int, reply: ChatMessage) {
         workflow.tasks[index].completionConfirmed = true
         workflow.tasks[index].result = workflow.tasks[index].reportedResult ?? reply.content
         workflow.tasks[index].state = .completed; workflow.tasks[index].error = nil
         if workflow.tasks[index].reviewTargetID != nil, workflow.tasks[index].reviewVerdict == nil {
+            if workflow.reviewPolicy.completion(hasStructuredVerdict: false) == .awaitingUserAcceptance {
+                workflow.tasks[index].state = .awaitingUserAcceptance
+                if workflow.state != .cancelled { workflow.state = .paused; workflow.error = nil }
+                workflow.coordination?.resumeAfterRecovery = false
+                return
+            }
             workflow.tasks[index].reviewBlock = "The reviewer finished without a structured verdict. Read the findings, then accept the review with its noted limitations or cancel this workflow."
         }
         if let block = workflow.tasks[index].reviewBlock, workflow.tasks[index].reviewAcceptedByUser != true {
@@ -104,7 +110,8 @@ extension AppStore {
 
     /// Shown on a review that waits for the user.
     func canAcceptWorkflowReview(_ workflow: Workflow, task: WorkflowTask) -> Bool {
-        workflow.state == .paused && task.state == .blocked && task.reviewBlock != nil && task.completionConfirmed == true
+        workflow.state == .paused && task.completionConfirmed == true &&
+            (task.state == .awaitingUserAcceptance || (task.state == .blocked && task.reviewBlock != nil))
     }
 
     /// "Accept review with noted limitations": the review counts as done; its findings and this decision go to the
