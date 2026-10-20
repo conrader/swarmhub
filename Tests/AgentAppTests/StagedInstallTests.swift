@@ -59,9 +59,26 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     #expect(transfer.hashes.allSatisfy { command.contains($0) })
     #expect(command.contains("'\(StagedInstall.updater)', '--max-wait', '0', 'apply', '--staged'"))
     #expect(!command.contains("plugins enable") && !command.contains("restart"))
-    #expect(try stagedPackage(source, saved: package.floor).floor.manifest == package.floor.manifest, "same bytes may re-render")
+}
+
+@Test func stagedRetryReverifiesTheExactSavedBundleWithoutLoweringFloors() throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let retry = try stagedPackage(source, saved: package.floor)
+    #expect(retry.floor.manifest == package.floor.manifest && retry.floor.bundle == package.floor.bundle)
+    #expect(retry.files == package.files && retry.versions == package.versions, "same bytes may re-render")
     let wrongFloor = StagedInstall.Floor(keys: 2, index: 5, bundle: 11, manifest: String(repeating: "0", count: 64))
     #expect(throws: (any Error).self) { try stagedPackage(source, saved: wrongFloor) }
+    for saved in [StagedInstall.Floor(keys: 3, index: 5, bundle: 11, manifest: package.floor.manifest),
+                  StagedInstall.Floor(keys: 2, index: 6, bundle: 11, manifest: package.floor.manifest),
+                  StagedInstall.Floor(keys: 2, index: 5, bundle: 12, manifest: package.floor.manifest),
+                  StagedInstall.Floor(keys: 2, index: 5, bundle: 11)] {
+        #expect(throws: (any Error).self) { try stagedPackage(source, saved: saved) }
+    }
+    let blob = try #require(package.files.keys.first { $0.hasPrefix("blobs/") })
+    var altered = try #require(package.files[blob]); altered[600] ^= 1
+    try altered.write(to: source.appending(path: blob))
+    #expect(throws: (any Error).self) { try stagedPackage(source, saved: package.floor) }
 }
 
 @Test func alteredSourceAndExpiredMetadataNeverProduceInstallInstructions() throws {
@@ -201,7 +218,7 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     #expect(!store.installSkills(for: bot), "losing the bootstrap record cannot downgrade to raw installation")
     let (old, legacyBot, _) = stagedStore(source: source, status: nil)
     old.boxInstallTransport.boxes = [:]
-    let legacy = try #require(old.skillInstallInstructions([stagedManager], profile: "default", botName: legacyBot.name))
+    let legacy = try #require(try old.skillInstallInstructions([stagedManager], profile: "default", botName: legacyBot.name))
     #expect(legacy.contains("legacy template") && !legacy.contains("verified"))
     old.recordInstalled([.init(name: "swarmhub-manager", version: "1.0.0")], profile: "default", manager: legacyBot)
     #expect(legacyBot.installedSkills == ["swarmhub-manager": "1.0.0"])

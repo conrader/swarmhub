@@ -1,0 +1,95 @@
+"""P4c: execute the Mac's version-bound command against isolated TEST-key updater states.
+
+Swift tests cover the click/transport/UI and persisted regression record on the Mac. These Linux tests cover
+the actual updater gate behind that command. No sockets, external hosts, real boxes or Hermes changes.
+"""
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cli_fixtures import CliCase, CODING, FEEDBACK, ROOT, box_snapshot  # noqa: E402
+
+
+class MacCodeConfirm(CliCase):
+    def setUp(self):
+        super().setUp()
+        shutil.copytree(ROOT / "Resources/Updater/swarmhub_update", self.prefix / "swarmhub_update")
+        (self.prefix / "bin").mkdir()
+        self.launcher = self.prefix / "bin/swarmhub-update"
+        shutil.copyfile(ROOT / "Resources/Updater/bin/swarmhub-update", self.launcher)
+        self.launcher.chmod(0o755)
+        self.env = dict(os.environ, HOME=str(self.home), XDG_STATE_HOME=str(self.home / ".local/state"),
+                        HERMES_INSTALL_DIR=str(self.tmp / "no-hermes"), PYTHONDONTWRITEBYTECODE="1")
+        self.before = box_snapshot(self.hermes / "hermes-agent")
+
+    def command(self, version):
+        source = (ROOT / "Sources/AgentApp/Updates/BoxUpdateState.swift").read_text()
+        literal = re.search(r'var command: String \{ StagedInstall.updater \+ "([^"]+)" \}', source)[1]
+        # Substitute only the fixed path for this isolated fixture's admin-style prefix, plus the numeric version.
+        return str(self.launcher) + literal.replace(r"\(version)", str(version))
+
+    def confirm(self, version):
+        result = subprocess.run(["/bin/sh", "-c", self.command(version)], env=self.env,
+                                text=True, capture_output=True, timeout=90)
+        self.assertTrue(result.stdout, result.stderr)
+        return result.returncode, json.loads(result.stdout)
+
+    def pending_release(self, version=11, component_version="1.0.0", seq=5):
+        _, components = self.release("v%d" % version, version=component_version,
+                                     deps={FEEDBACK: [{"name": CODING, "min_version": component_version}]})
+        code, status = self.update("apply", "--staged", str(self.stage(version, components, seq=seq)))
+        self.assertEqual((code, status["state"]), (0, "pending_confirm"))
+        self.assertIn(CODING, [row["name"] for row in status["pending_confirm"]["code"]])
+        self.assertEqual(next(row["waits_for"] for row in status["pending_confirm"]["data"]
+                              if row["name"] == FEEDBACK), [CODING])
+        return status
+
+    def assert_hermes_unchanged(self):
+        self.assertEqual(box_snapshot(self.hermes / "hermes-agent"), self.before)
+
+    def test_status_verify_and_check_never_confirm_code(self):
+        self.pending_release()
+        for command in ("status", "verify", "check", "check"):
+            code, status = self.update(command)
+            self.assertEqual(code, 0)
+            if command != "verify":
+                self.assertEqual(status["state"], "pending_confirm")
+            self.assertFalse(self.live(CODING).exists())
+            self.assertFalse(self.live(FEEDBACK).exists(), "dependent data waits alongside code")
+        code, status = self.confirm(11)
+        self.assertEqual((code, status["state"], status["confirmed_version"]), (0, "current", 11))
+        self.assertEqual(self.live_version(CODING), "1.0.0")
+        self.assertEqual(self.live_version(FEEDBACK), "1.0.0")
+        self.assert_hermes_unchanged()
+
+    def test_one_box_confirmation_cannot_confirm_another_box(self):
+        self.pending_release()
+        other = CliCase()
+        other.setUp()
+        self.addCleanup(other.doCleanups)
+        _, components = other.release("other")
+        self.assertEqual(other.update("apply", "--staged", str(other.stage(11, components)))[0], 0)
+        other_before = box_snapshot(other.home)
+        self.assertEqual(self.confirm(11)[0], 0)
+        self.assertEqual(box_snapshot(other.home), other_before, "no write or confirmation on the other box")
+        self.assertEqual(other.update("status")[1]["state"], "pending_confirm")
+        self.assertFalse(other.live(CODING).exists())
+        self.assert_hermes_unchanged()
+
+    def test_click_for_n_refuses_n_plus_one_arriving_before_apply(self):
+        self.pending_release()
+        old_command = self.command(11)
+        self.pending_release(12, "1.1.0", seq=6)
+        code, status = self.confirm(11)
+        self.assertEqual(self.command(11), old_command)
+        self.assertEqual((code, status["last"]["reason"]), (65, "version_changed"))
+        self.assertFalse(self.live(CODING).exists())
+        self.assertNotEqual(status["confirmed_version"], 12)
+        self.assertEqual(self.confirm(12)[0], 0)
+        self.assertEqual(self.live_version(CODING), "1.1.0")
+        self.assert_hermes_unchanged()

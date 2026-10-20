@@ -95,7 +95,7 @@ import Testing
     let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppTests-uismoke-\(UUID().uuidString)")
     let url = directory.appending(path: "ui-smoke.json")
     try UISmoke.write(report, to: url)
-    let written = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    let written = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
     #expect(written["sidebar_rows"] != nil)
     #expect((try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int) == 0o600)
     try? FileManager.default.removeItem(at: directory)

@@ -67,9 +67,11 @@ enum StagedInstall {
                           bundle: max(box.checkpoint.bundle, saved.bundle), manifest: saved.manifest)
         // Re-rendering a profile may resend the same bundle. Only the exact previously verified manifest may
         // reuse that floor, never another signed manifest at the same version.
-        let repeatable = floor.bundle == saved.bundle && saved.manifest != nil
+        let repeatable = floor.bundle > 0 && floor.bundle == saved.bundle && saved.manifest != nil
+        // The core verifier treats equality as already_applied before fetching a manifest or any blobs.
+        // Permit verification of that version, then enforce the real floor and exact saved hash below.
         let verificationFloor = UpdateFloors(keysVersion: floor.keys, indexSequence: floor.index,
-                                             bundleVersion: floor.bundle)
+                                             bundleVersion: repeatable ? floor.bundle - 1 : floor.bundle)
         var files: [String: Data] = [:], versions: [String: String] = [:]
         func read(_ path: String, limit: Int) throws -> Data {
             let data = try readBytes(box.source.appendingPathComponent(path), limit: limit)

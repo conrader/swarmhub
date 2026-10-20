@@ -1,4 +1,4 @@
-# Mac staged skill installation (P4b)
+# Mac staged skill installation and code confirmation (P4b, P4c)
 
 The Mac verifies a **local service-layout snapshot** for the destination box using the core verifier, including
 box compatibility, rollout and floors. It forwards the signed metadata and only the compatible box-targeted blobs
@@ -113,7 +113,41 @@ Boxes with no bootstrap record retain the existing raw-file installer and its ex
 verification claim. The all-bots action follows the same selection per connection. The box-side staging script
 preserves other profiles and installed skill selections when adding the requested profiles. Re-sending previously
 applied archives can render a new profile or coding order without authorizing any new code. Code and its waiting
-dependencies still require the existing separate local confirmation; P4b never invokes that confirmation.
+dependencies require the separate per-box confirmation below; staged installation never invokes it.
+
+## Per-box code confirmation (P4c)
+
+The existing skills panel and bot editor show the updater state, code components, and waiting data components
+with their `waits_for` dependencies. For `pending_confirm`, the button reads **Apply code update N on <box>**.
+Opening either view, refreshing status, and installing skills (including all-bots install) never confirm code.
+The button captures the exact connection, bundle version and manifest hash shown. A stale button or another box's
+button cannot start a turn. The operator's bootstrap record must still exist; the update source need not be reachable.
+
+One click starts one native management turn on that connection and invokes exactly:
+
+```
+/usr/local/lib/swarmhub-update/bin/swarmhub-update --max-wait 0 apply --version N
+```
+
+The updater checks `--version` under its CLI lock, so N+1 arriving before execution refuses the old click. There is
+no automatic retry with a new version. Apply must finish in the matched terminal call and report `current`, the
+expected manifest/version, `confirmed_version` and `applied_bundle_version`. A separate matched fixed-path `status`
+call must then report the same result. Assistant text, `skills_installed`, an unrelated call, nonzero apply exit or
+an older successful status cannot establish success. Deferred/rejected/unconfirmed outcomes remain visible, and
+`reload_pending` is shown without restarting Hermes. Temporary sessions use the existing persisted cleanup path;
+confirmation, refresh and staged install are mutually exclusive per connection.
+
+`BoxUpdateState` persists the highest bundle version and most recently reported version per exact connection in
+the Mac's defaults (`updates.box-state.<connection>`). A lower report displays a regression warning, including after
+relaunch while the box is offline. A report reaching the recorded maximum clears the warning without lowering the
+maximum. This is detection only: it changes no updater floors, apply policy, installed files or direct routing.
+Only matched updater readings update the record; model prose and local diagnostic overlays do not.
+
+P4c adds `BoxUpdateStateTests.swift` for click/box/version binding, actual native event parsing, separate status
+read-back, stale success refusal, single flight/cleanup, persisted regression, offline source and box failures, and
+unchanged direct chat routing. `Tests/Updater/test_mac_code_confirm.py` executes the Mac command against two isolated
+TEST-key updater states, including N+1 racing a click and unchanged Hermes fixture bytes. No box-side code changed.
+Swift tests are authored and require the Mac run; P4c is not fully verified until that run passes.
 
 ## Validation
 

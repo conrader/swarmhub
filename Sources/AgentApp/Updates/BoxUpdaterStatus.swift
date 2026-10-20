@@ -14,6 +14,15 @@ struct BoxUpdaterStatus: Decodable, Sendable {
         let variants: [String: String]?
     }
     struct Pins: Decodable, Sendable { let path: String; let protected: Bool }
+    struct Pending: Decodable, Sendable {
+        struct Component: Decodable, Sendable {
+            let name: String; let version: String; let kind: String
+            let waits_for: [String]?
+        }
+        let bundle_version: Int64
+        let code: [Component]
+        let data: [Component]
+    }
     let schema: String
     let state: String
     let detail: String
@@ -22,6 +31,9 @@ struct BoxUpdaterStatus: Decodable, Sendable {
     let profiles: [String: Profile]
     let reload_pending: Bool
     let pins: Pins
+    var pending_confirm: Pending? = nil
+    var applied_bundle_version: Int64? = nil
+    var confirmed_version: Int64? = nil
 
     /// App diagnostic overlay: preserve the last known live versions, but never reuse an acceptance verdict.
     static func failure(_ detail: String, state: String = "failed", previous: Self?) -> Self {
@@ -31,6 +43,7 @@ struct BoxUpdaterStatus: Decodable, Sendable {
     }
 
     static func failedResult(_ output: String, previous: Self?) -> Self {
+        let output = commandOutput(output)
         let status = decode(output)
         let object = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any] ?? [:]
         let reason = status?.last?.reason ?? (object["reason"] as? String)
@@ -42,6 +55,14 @@ struct BoxUpdaterStatus: Decodable, Sendable {
         let state = status?.state ?? (object["state"] as? String) ?? "failed"
         return failure(message, state: !rejected && ["deferred", "failed", "recovery_pending"].contains(state) ? state : "failed",
                        previous: status ?? previous)
+    }
+
+    /// Diagnostic readings may report a newer bundle even when apply refuses an old click. Unwrapping a failed
+    /// command is safe for observation only; acceptance must still use decode on the original terminal result.
+    static func commandOutput(_ output: String) -> String {
+        if let wrapper = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any],
+           let stdout = (wrapper["output"] ?? wrapper["stdout"]) as? String { return stdout }
+        return output
     }
 
     static func decode(_ output: String) -> Self? {

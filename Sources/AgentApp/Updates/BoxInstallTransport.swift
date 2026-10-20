@@ -18,6 +18,7 @@ import Foundation
     var attempts: [UUID: Attempt] = [:]
     var status: [String: BoxUpdaterStatus] = [:]
     var refreshing: Set<String> = []
+    var confirming: Set<String> = []
 
     func box(on connection: String) throws -> StagedInstall.Box? {
         if let boxes { return boxes[connection] }
@@ -75,7 +76,7 @@ extension AppStore {
         }
         if let status = attempt.call.consume(tool), attempt.staged {
             attempt.status = status
-            boxInstallTransport.status[connection(of: manager)] = status
+            noteBoxUpdaterStatus(status, on: connection(of: manager))
             if status.accepted(attempt.package) { recordUpdaterSkills(status, manager: manager) }
         }
         boxInstallTransport.attempts[manager.id] = attempt
@@ -117,43 +118,6 @@ extension AppStore {
             if let status = boxInstallTransport.status[target] { recordUpdaterSkills(status, manager: manager) }
             return
         }
-        guard !boxInstallTransport.refreshing.contains(target), isIdle(manager),
-              let backend = try? backend(for: manager) as? HermesBackend else { return }
-        boxInstallTransport.refreshing.insert(target)
-        defer { boxInstallTransport.refreshing.remove(target) }
-        await cleanUpdaterSessions(on: target, backend: backend)
-        guard (defaults.stringArray(forKey: "updates.transport.cleanup." + target) ?? []).isEmpty else { return }
-        let session = "\(sessionNamespace)agentapp_update_status_\(UUID().uuidString.lowercased())"
-        let key = "updates.transport.cleanup." + target
-        defaults.set((defaults.stringArray(forKey: key) ?? []) + [session], forKey: key)
-        do {
-            guard try await backend.sessionTransport() == .nativeSessions else {
-                throw StagedInstall.Failure.refused("native Hermes sessions required")
-            }
-            _ = try await backend.createSession(title: "", systemPrompt: manager.persona, id: session)
-            let stream = try await backend.send(.init(sessionID: session, systemPrompt: manager.persona,
-                messages: [(role: "user", content: "Read the installed SwarmHub skill versions.")],
-                managementText: "Run exactly this in one terminal call: \(StagedInstall.statusCommand). Do not change anything."))
-            var call = UpdaterStatusCall()
-            for try await event in stream {
-                switch event {
-                case .tool(let tool):
-                    if let status = call.consume(tool) {
-                        boxInstallTransport.status[connection(of: manager)] = status
-                        recordUpdaterSkills(status, manager: manager)
-                    }
-                case .approval(let approval):
-                    try? await backend.resolveApproval(approval, approved: false)
-                    throw StagedInstall.Failure.refused("status requested approval")
-                case .failed: throw StagedInstall.Failure.refused("status turn failed")
-                default: break
-                }
-            }
-        } catch {
-            // Stop an interrupted status run before trying to delete its session; a 409 stays queued for retry.
-            _ = await Task { try? await backend.cancel(sessionID: session) }.value
-        }
-        if Task.isCancelled { _ = await Task { try? await backend.cancel(sessionID: session) }.value }
-        await Task { await self.cleanUpdaterSessions(on: target, backend: backend) }.value
+        await runBoxUpdaterTurn(manager: manager, target: target, confirmation: nil)
     }
 }
