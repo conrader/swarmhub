@@ -1,0 +1,1 @@
+{"roots":[{"ed25519_pub":"807f6bb1f2ddf5d198a8a1430dbae8b3019c6d229db14dc51dcb81ee3e059ee6","key_id":"TEST-root-1"},{"ed25519_pub":"18d0cd14e4bd58e6172780b8dcdcc1d1ab651c8985f8c980ebcf15c8d3a2226a","key_id":"TEST-root-2"}],"schema":"swarmhub/pins/1","threshold":2}
