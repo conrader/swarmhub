@@ -54,7 +54,7 @@ Ordering follows `CORE-PLAN.md` §8. P2 installs the whole protected updater wit
 - **Goal:** Pin down the wire contracts from §2.1 so Swift and Python implement the same thing.
 - **Touches:** new `docs/update-service/SCHEMAS.md`; `Tests/Fixtures/release-bundles/{keys,channels,bundles,blobs}/`, plus `vectors.json` listing each case and its expected verdict; `scripts/release/make_vectors.py` (fixed-seed TEST keys).
 - **Design constraint:** no floating-point numbers anywhere in signed objects (`rollout_percent` and versions are integers), so JCS reduces to sorted keys + UTF-8 + minimal escaping and needs no number-formatting code.
-- **Acceptance:** vectors cover valid, tampered byte, wrong key, unknown key, key past `not_after`, lower `keys.version`, lower `index.seq`, expired index, manifest hash mismatch, archive with `..`/absolute path/symlink/device/oversize/bad mode, and an incompatible `requires`. Regenerating from the seeds is byte-identical.
+- **Acceptance:** vectors cover valid, tampered byte, wrong key, unknown key, key past `not_after`, lower `keys.version`, lower `index.seq`, expired index, manifest hash mismatch, archive with `..`/absolute path/symlink/device/oversize/bad mode, a component labelled `data` whose archive holds code, and an incompatible `requires`. Regenerating from the seeds is byte-identical.
 - **Konrad:** none.
 
 ### P0b: Python verifier library (Now)
@@ -78,8 +78,8 @@ Ordering follows `CORE-PLAN.md` §8. P2 installs the whole protected updater wit
 
 ### P1a: Release tooling (Now)
 - **Goal:** `build-bundle`, `sign`, `publish` (to a local directory), `republish <old> as <new>`, and `sign-keys` with a pluggable signer (file key for tests, hardware token later).
-- **Touches:** new `scripts/release/{build_bundle,sign,publish,republish,keys}.py`; `scripts/test_release_*.py`. Bundle content is today's `Resources/Skills`, `Resources/BotManager` and policy defaults, split into data-only and code-bearing components (§2.3).
-- **Acceptance:** a bundle built from `Resources/` verifies with P0b; republish produces version N+1 with N−1's blobs, unchanged; the `code_bearing` flag is set exactly when a `tool` or skill script is present; publishing needs only the release key, not the roots; a signer that refuses `TEST-` keys can be enabled for production.
+- **Touches:** new `scripts/release/{build_bundle,sign,publish,republish,keys}.py`; `scripts/test_release_*.py`. Bundle content is today's `Resources/Skills`, `Resources/BotManager` and policy defaults, each component classed `data` or `code` (§2.3), with `requires_component` declared wherever new data needs new code.
+- **Acceptance:** a bundle built from `Resources/` verifies with P0b; republish produces version N+1 with N−1's blobs, unchanged; each `tool` and each skill with a script is classed `code`, everything else `data`, and the `code_bearing` flag is set exactly when a code component is present; publishing needs only the release key, not the roots; a signer that refuses `TEST-` keys can be enabled for production.
 - **Konrad:** none.
 
 ### P1b: Key ceremony (K)
@@ -107,9 +107,9 @@ Ordering follows `CORE-PLAN.md` §8. P2 installs the whole protected updater wit
 - **Konrad:** none.
 
 ### P2b: Updater CLI, state, floors, checkpoint, confirm gate (Now)
-- **Goal:** `swarmhub-update {status,verify,apply --staged <dir>,apply,pin,check}`; persisted floors; enforcement of max(checkpoint, state) and revoked key IDs from the admin-owned pin file (§3.2); the decision-2 gate: data-only components auto-apply, while code-bearing components stop at `pending_confirm` until `swarmhub-update apply` or the Mac confirm (P4c). The applied version goes into the advertised SKILL.md description and the status file.
+- **Goal:** `swarmhub-update {status,verify,apply --staged <dir>,apply,pin,check}`; persisted floors; enforcement of max(checkpoint, state) and revoked key IDs from the admin-owned pin file (§3.2); the decision-2 gate, per component: data components auto-apply, even in a bundle that also carries code; code components, and any data component that declares `requires_component` (directly or transitively) on a code component version not yet applied, stop at `pending_confirm` until `swarmhub-update apply` or the Mac confirm (P4c), then apply together. The applied version goes into the advertised SKILL.md description and the status file.
 - **Touches:** `Resources/Updater/swarmhub_update/{cli,state,pins}.py`, `Resources/Updater/bin/swarmhub-update`; `M/scripts/swarmctl` (read-only status print); `Tests/Updater/test_cli.py`, `test_floors.py`.
-- **Acceptance:** a lowered state floor stops at the checkpoint; a revoked key is refused even after the state is wiped; a code-bearing bundle never applies without confirm, while data in the same bundle does; `status` is readable by `swarmctl`; no network code in this phase.
+- **Acceptance:** a lowered state floor stops at the checkpoint; a revoked key is refused even after the state is wiped; a code component never applies without confirm, while an independent data component in the same bundle does; a data component that requires a pending code component stays pending and applies with it after the confirm; `status` is readable by `swarmctl`; no network code in this phase.
 - **Konrad:** none.
 
 ### P2c: Embedded baseline + bootstrap package (Now with test keys; K for real release)
@@ -133,7 +133,7 @@ Ordering follows `CORE-PLAN.md` §8. P2 installs the whole protected updater wit
 
 ### P3b: Enable pull on the canary group (K)
 - **Goal:** Turn the timer on for the canary boxes, one Linux box and one Mac box behind NAT, and check the open assumption that an atomic directory swap mid-turn does not disturb Hermes skill loading.
-- **Acceptance:** §8 step 3 on real boxes; outbound-only access confirmed; a data-only update arrives without an app release; a code-bearing update waits for confirm.
+- **Acceptance:** §8 step 3 on real boxes; outbound-only access confirmed; a data update arrives without an app release; in a bundle that carries both, the data components apply and the code components wait for confirm.
 - **Konrad:** **production deploy, and choosing which boxes form the canary group.**
 
 ### P4a: Swift fetch client + local store (Now, Mac run)
@@ -149,7 +149,7 @@ Ordering follows `CORE-PLAN.md` §8. P2 installs the whole protected updater wit
 - **Konrad:** none.
 
 ### P4c: Mac per-box code confirm + regression record (Now)
-- **Goal:** Decision 2 in the UI. When a box has `pending_confirm`, show "Apply code update N on <box>" with the component list. Confirming invokes `swarmhub-update apply` on that box. Also keep a per-box record of the highest version seen, which detects regressions (§3.2, detection only).
+- **Goal:** Decision 2 in the UI. When a box has `pending_confirm`, show "Apply code update N on <box>" with the code components and any data components waiting on them. Confirming invokes `swarmhub-update apply` on that box. Also keep a per-box record of the highest version seen, which detects regressions (§3.2, detection only).
 - **Touches:** new `Sources/AgentApp/Updates/BoxUpdateState.swift` + view; tests.
 - **Acceptance:** no code applies without the per-box click; a regression is flagged; each confirmation covers exactly one box and one version.
 - **Konrad:** none.
