@@ -171,7 +171,10 @@ the one that needs a second account. Run as root, it still uses only that privat
 then also skips the non-root refusal).
 
 The focused suite `sh Tests/Scripts/updater-bootstrap-preflight-test.sh` also tests control bytes in names, static
-linkage, constructor-free library discovery and synthetic macOS dependency tables. It exempts system/ancestor nodes
+linkage, constructor-free library discovery and synthetic macOS dependency tables. It reproduces Darwin's `readlink`
+delimiter behavior on Linux: Darwin adds no delimiter if the target already ends in a newline. Preflight uses
+`readlink -n` plus a sentinel to preserve every target byte, rather than trimming a possible target newline. The
+missing-binutils diagnostic case runs only on Linux, where `readelf` is required. The suite exempts system/ancestor nodes
 from ownership checks for restricted sandboxes; fixture nodes use the shipped checks. The full suite above retains
 all ownership checks.
 

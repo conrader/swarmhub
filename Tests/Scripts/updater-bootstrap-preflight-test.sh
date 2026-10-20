@@ -76,12 +76,35 @@ if [ "${1:-}" != --before ]; then
   done_case  # (a fully static ELF has no dynamic section: the linker drops its rpath and no loader runs)
   rm -rf "$FP/open"
 
-  begin "without readelf (binutils) the refusal says binutils is missing, before anything runs"
-  mkdir -p "$W/nobin"; rm -f "$MARK"
-  (PATH=$W/nobin; die() { printf '%s\n' "$*"; exit 1; }; python_ok "$FP/bin/python3") > "$W/out" 2>&1
-  expect "accepted without readelf" [ "$?" != 0 ]
-  expect "no plain binutils message" has "binutils is not installed" "$W/out"
-  expect "ran the interpreter" no_trace
+  if [ "$OS" = Linux ]; then  # Darwin uses otool, not readelf/binutils
+    begin "without readelf (binutils) the refusal says binutils is missing, before anything runs"
+    mkdir -p "$W/nobin"; rm -f "$MARK"
+    (PATH=$W/nobin; die() { printf '%s\n' "$*"; exit 1; }; python_ok "$FP/bin/python3") > "$W/out" 2>&1
+    expect "accepted without readelf" [ "$?" != 0 ]
+    expect "no plain binutils message" has "binutils is not installed" "$W/out"
+    expect "ran the interpreter" no_trace
+    done_case
+  fi
+
+  begin "Darwin readlink output never turns a newline target into its protected namesake"
+  mkdir -p "$W/readlink"; : > "$W/readlink/plain."; : > "$W/readlink/plain"
+  NL=$(printf '\n.'); NL=${NL%.}
+  ln -s plain. "$W/readlink/normal"; ln -s "plain$NL" "$W/readlink/newline"
+  (
+    # Apple stat/stat.c output(): append a delimiter only if the last byte is not already a newline.
+    # -n suppresses that delimiter on both Darwin and GNU readlink. Keep the real target bytes in this stand-in.
+    readlink() {
+      _rn=
+      [ "$1" != -n ] || { _rn=1; shift; }
+      _rt=$(command readlink -n "$1" && printf '.') || return 1
+      _rt=${_rt%.}; printf '%s' "$_rt"
+      if [ -z "$_rn" ]; then case $_rt in *"$NL") ;; *) printf '\n' ;; esac; fi
+    }
+    trusted "$W/readlink/normal" && [ "$RESOLVED" = "$W/readlink/plain." ] || exit 1
+    if trusted "$W/readlink/newline"; then echo "accepted newline as $RESOLVED"; exit 1; fi
+    case $BAD in *'control character'*) ;; *) printf '%s\n' "$BAD"; exit 1 ;; esac
+  ) > "$W/out" 2>&1
+  expect "Darwin-style link output was not checked byte-exactly" [ "$?" = 0 ]
   done_case
 fi
 

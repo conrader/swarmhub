@@ -1,10 +1,10 @@
 # Sourced by install-bootstrap.sh. No candidate Python code may execute until all on-disk checks pass.
 no_controls() { case $1 in *[[:cntrl:]]*) return 1 ;; esac; }
 
-link_target() {  # preserve every target byte, then remove only readlink's delimiter newline
-  LINK_TARGET=$(readlink "$1" && printf '.') || { BAD="$1 (its link cannot be read)"; return 1; }
-  LINK_TARGET=${LINK_TARGET%.}; LINK_TARGET=${LINK_TARGET%"
-"}
+link_target() {  # -n emits only target bytes on GNU/BSD; the sentinel protects trailing newlines from $(...)
+  # Darwin's default readlink adds no delimiter when the target already ends in a newline: never trim one here.
+  LINK_TARGET=$(readlink -n "$1" && printf '.') || { BAD="$1 (its link cannot be read)"; return 1; }
+  LINK_TARGET=${LINK_TARGET%.}
   [ -n "$LINK_TARGET" ] && no_controls "$LINK_TARGET" \
     || { BAD="$1 (control character in link target, or empty target)"; return 1; }
 }
