@@ -1,45 +1,24 @@
 import SwiftUI
 import SwarmHubCore
 
-/// What a rendered document may ask the app for: the platform-neutral router decides (flow moves, confirmations,
-/// refusals) and `perform` runs the resulting `SDUIAppCommand` (nil = done, else the failure to show).
-struct SDUIMacActions {
-    let router: SDUIActionRouter
-    let isAvailable: @MainActor (SDUIAppCommand) -> Bool
-    let perform: @MainActor (SDUIAppCommand) async -> String?
-}
-
-struct SDUIFlowPosition: Equatable {
-    let key: String
-    let count: Int
-}
-
 /// Renders one decoded view document natively (P7b). Everything comes from `SDUIRenderer.tree`; every string is drawn
 /// as plain text (`Text(verbatim:)`), or for `markdown` as inline styling with links removed
-/// (`SDUIRenderText.inline`), so nothing in a document or in bound data becomes a link. `open_url` runs only through
-/// the router's allowlist and the confirmation below.
+/// (`SDUIRenderText.inline`), so nothing in a document or in bound data becomes a link. Behaviour (flow moves,
+/// confirmations, refusals, form values, busy) is the shared `SDUIInteraction`, the same on iOS (P7c); `open_url`
+/// runs only through the router's allowlist and the confirmation below.
 struct SDUIDocumentView: View {
     let document: SDUIDocument
     let data: SDUIData
-    let actions: SDUIMacActions
-    @State private var forms: [String: [String: SDUIFieldValue]] = [:]
-    @State private var steps: [String: Int] = [:]
-    private struct PendingConfirmation {
-        let request: SDUIConfirmation
-        let flow: SDUIFlowPosition?
-    }
-
-    @State private var confirmation: PendingConfirmation?
-    @State private var failure: String?
-    @State private var busy = false
+    let actions: SDUIActions
+    @State private var interaction = SDUIInteraction()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let root = SDUIRenderer.tree(document, data: data, forms: forms) { SDUINodeView(node: root, context: context) }
-            if let failure { Text(verbatim: failure).font(.caption).foregroundStyle(.red) }
+            if let root = interaction.tree(document, data: data) { SDUINodeView(node: root, context: context) }
+            if let failure = interaction.failure { Text(verbatim: failure).font(.caption).foregroundStyle(.red) }
         }
-        .confirmationDialog(Text(verbatim: confirmation?.request.title ?? ""), isPresented: confirming, titleVisibility: .visible,
-                            presenting: confirmation) { pending in
+        .confirmationDialog(Text(verbatim: interaction.confirmation?.request.title ?? ""), isPresented: confirming,
+                            titleVisibility: .visible, presenting: interaction.confirmation) { pending in
             Button { resolve(pending, accepted: true) } label: { Text(verbatim: pending.request.button) }
             Button(role: .cancel) { resolve(pending, accepted: false) } label: { Text(verbatim: "Cancel") }
         } message: { pending in
@@ -48,68 +27,30 @@ struct SDUIDocumentView: View {
     }
 
     private var confirming: Binding<Bool> {
-        Binding(get: { confirmation != nil }, set: { if !$0 { confirmation = nil } })
+        Binding(get: { interaction.confirmation != nil }, set: { if !$0 { interaction.dismissConfirmation() } })
     }
 
     private var context: SDUINodeContext {
         SDUINodeContext(
-            busy: busy,
-            isAvailable: { action, flow in available(action, flow: flow) },
-            press: { action, label, flow in handle(actions.router.route(action, label: label), flow: flow) },
-            submit: { form in handle(actions.router.submit(form, values: forms[form.id] ?? [:]), flow: nil) },
-            value: { form, field in forms[form.id]?[field] ?? form.initial[field] ?? .text("") },
-            setValue: { form, field, value in forms[form.id, default: [:]][field] = value },
-            problems: { form in SDUIActionRouter.fieldProblems(form, values: forms[form.id] ?? [:]) },
-            step: { key in steps[key] ?? 0 })
+            busy: interaction.busy,
+            isAvailable: { action, flow in SDUIInteraction.isAvailable(action, flow: flow, actions: actions) },
+            press: { action, label, flow in run(interaction.press(action, label: label, flow: flow, router: actions.router)) },
+            submit: { form in run(interaction.submit(form, router: actions.router)) },
+            value: { form, field in interaction.value(form, field) },
+            setValue: { form, field, value in interaction.setValue(value, form: form, field: field) },
+            problems: { form in interaction.problems(form) },
+            step: { flow in interaction.step(flow) })
     }
 
-    /// Stands in for the form's values when asking whether a submit can run here; the router checks the real ones.
-    private static let probe = SDUIRoutineDraft(name: "", schedule: "", prompt: nil)
-
-    private func available(_ action: SDUIResolvedAction, flow: SDUIFlowPosition?) -> Bool {
-        // A form submit is not a button action (`route` refuses it); ask the sink about the routine path itself.
-        switch action.command {
-        case .routineCreate: return actions.isAvailable(.routineCreate(Self.probe))
-        case .routineSave: return actions.isAvailable(.routineSave(action.argument ?? "", Self.probe))
-        default: break
-        }
-        switch actions.router.route(action, label: "") {
-        case .moveFlow: return flow != nil
-        case .perform(let command): return actions.isAvailable(command)
-        case .confirm(let pending):
-            switch pending.action {
-            case .moveFlow: return flow != nil
-            case .perform(let command): return actions.isAvailable(command)
-            }
-        case .refused: return false
-        }
+    private func resolve(_ pending: SDUIInteraction.Pending, accepted: Bool) {
+        run(interaction.resolve(pending, accepted: accepted))
     }
 
-    private func handle(_ step: SDUIActionRouter.Step, flow: SDUIFlowPosition?) {
-        failure = nil
-        switch step {
-        case .moveFlow(let delta):
-            guard let flow else { return }
-            steps[flow.key] = min(max((steps[flow.key] ?? 0) + delta, 0), max(flow.count - 1, 0))
-        case .perform(let command): run(command)
-        case .confirm(let pending):
-            confirmation = PendingConfirmation(request: pending, flow: flow)
-        case .refused: break
-        }
-    }
-
-    private func resolve(_ pending: PendingConfirmation, accepted: Bool) {
-        confirmation = nil
-        handle(pending.request.resolve(accepted: accepted), flow: pending.flow)
-    }
-
-    private func run(_ command: SDUIAppCommand) {
-        confirmation = nil
-        guard actions.isAvailable(command), !busy else { return }
-        busy = true
+    private func run(_ command: SDUIAppCommand?) {
+        guard let command, interaction.start(command, actions: actions) else { return }
         Task {
-            failure = await actions.perform(command)
-            busy = false
+            let failure = await actions.perform(command)
+            interaction.finish(failure: failure)
         }
     }
 }
@@ -122,7 +63,7 @@ struct SDUINodeContext {
     let value: @MainActor (SDUIRenderForm, String) -> SDUIFieldValue
     let setValue: @MainActor (SDUIRenderForm, String, SDUIFieldValue) -> Void
     let problems: @MainActor (SDUIRenderForm) -> [String: String]
-    let step: @MainActor (String) -> Int
+    let step: @MainActor (SDUIFlowPosition) -> Int
 }
 
 struct SDUINodeView: View {
@@ -173,9 +114,9 @@ struct SDUINodeView: View {
                 context.press(action, label, flow)
             }
         case .flow(_, let steps):
-            let index = min(context.step(node.key), max(steps.count - 1, 0))
+            let position = SDUIFlowPosition(key: node.key, count: steps.count)
+            let index = context.step(position)
             if steps.indices.contains(index) {
-                let position = SDUIFlowPosition(key: node.key, count: steps.count)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(verbatim: steps[index].title).font(.headline)
                     ForEach(steps[index].children, id: \.key) { SDUINodeView(node: $0, context: context, flow: position) }

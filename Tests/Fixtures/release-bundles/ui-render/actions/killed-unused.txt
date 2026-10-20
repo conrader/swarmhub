@@ -1,0 +1,4 @@
+0.6.0 button "Run now" available=yes press: confirm title="Run now?" button="Run now" message="" accept: perform routine.run_now "job-42" decline: refused confirmation_declined
+0.6.1 button "Pause" available=yes press: perform routine.pause "job-42"
+0.6.2 button "Copy summary" available=yes press: perform copy_text "All **3** checks passed. See [docs](https://example.com) <https://example.com> \"q\" \u001b"
+0.6.3 button "Routine help" available=yes press: confirm title="Open this link?" button="Open" message="https://docs.swarmhub.test/routines?from=card" accept: perform open_url "https://docs.swarmhub.test/routines?from=card" decline: refused confirmation_declined

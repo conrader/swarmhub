@@ -176,20 +176,23 @@ class SwiftSourceTests(unittest.TestCase):
             self.assertIn("@Test func " + regression, tests)
 
     def test_confirmation_keeps_the_flow_context_until_accept_or_decline(self):
-        view = MAC_SOURCES["SDUIDocumentView.swift"]
-        self.assertIn("confirmation = PendingConfirmation(request: pending, flow: flow)", view)
-        self.assertIn("handle(pending.request.resolve(accepted: accepted), flow: pending.flow)", view)
-        self.assertIn("Button { resolve(pending, accepted: true) }", view)
-        self.assertIn("Button(role: .cancel) { resolve(pending, accepted: false) }", view)
-        available = re.search(r"private func available\(.*?\n    \}", view, re.S).group(0)
+        # P7c moved this from the Mac view into the shared SDUIInteraction; the Mac and iOS views only call it.
+        state = CORE_SOURCES["SDUIInteraction.swift"]
+        self.assertIn("confirmation = Pending(request: pending, flow: flow)", state)
+        self.assertIn("return handle(pending.request.resolve(accepted: accepted), flow: pending.flow)", state)
+        available = re.search(r"public static func isAvailable\(.*?\n    \}", state, re.S).group(0)
         self.assertIn("switch pending.action", available)
         self.assertEqual(available.count("case .moveFlow: return flow != nil"), 2)
         self.assertIn("case .perform(let command): return actions.isAvailable(command)", available)
+        view = MAC_SOURCES["SDUIDocumentView.swift"]
+        self.assertIn("Button { resolve(pending, accepted: true) }", view)
+        self.assertIn("Button(role: .cancel) { resolve(pending, accepted: false) }", view)
+        self.assertIn("run(interaction.resolve(pending, accepted: accepted))", view)
 
     def test_form_submit_availability_asks_the_routine_path_not_route(self):
         # route() refuses routine.create/routine.save outside a form; the submit button must not go through it.
-        view = MAC_SOURCES["SDUIDocumentView.swift"]
-        available = re.search(r"private func available\(.*?\n    \}", view, re.S).group(0)
+        state = CORE_SOURCES["SDUIInteraction.swift"]
+        available = re.search(r"public static func isAvailable\(.*?\n    \}", state, re.S).group(0)
         self.assertLess(available.index("case .routineCreate: return actions.isAvailable(.routineCreate("),
                         available.index("actions.router.route(action"))
         self.assertIn("case .routineSave: return actions.isAvailable(.routineSave(action.argument", available)
@@ -233,9 +236,11 @@ class SwiftSourceTests(unittest.TestCase):
 
     def test_sources_under_500_lines_and_schemas_note(self):
         files = list(RENDER.glob("*.swift")) + list(MAC.glob("*.swift"))
-        files += [TESTS / n for n in ("SDUIRenderTreeTests.swift", "SDUIActionRouterTests.swift", "SDUIViewSourceTests.swift")]
+        files += [TESTS / n for n in ("SDUIRenderTreeTests.swift", "SDUIActionRouterTests.swift", "SDUIViewSourceTests.swift",
+                                      "SDUIActionGoldenTests.swift", "SDUIInteractionTests.swift")]
         files += [ROOT / "Tests/AgentAppTests/RoutineSDUITests.swift", Path(__file__),
-                  ROOT / "scripts/release/ui_render.py", ROOT / "scripts/release/make_ui_renders.py"]
+                  ROOT / "scripts/release/ui_render.py", ROOT / "scripts/release/make_ui_renders.py",
+                  ROOT / "scripts/release/ui_actions.py"]
         for path in files:
             self.assertLessEqual(len(path.read_text(encoding="utf-8").splitlines()), 500, path.name)
         schemas = (ROOT / "docs/update-service/SCHEMAS.md").read_text(encoding="utf-8")

@@ -1,0 +1,2 @@
+0.5.0 button "Run now" available=yes press: confirm title="Run now?" button="Run now" message="" accept: perform routine.run_now "job-42" decline: refused confirmation_declined
+0.5.1 button "Copy summary" available=yes press: perform copy_text "All **3** checks passed. See [docs](https://example.com) <https://example.com> \"q\" \u001b"

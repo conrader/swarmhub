@@ -1,0 +1,10 @@
+0.0.0.0 button "Next" available=yes press: confirm title="Next?" button="Next" message="" accept: move_flow +1 decline: refused confirmation_declined
+0.0.1.0 button "Back" available=yes press: confirm title="Back?" button="Back" message="" accept: move_flow -1 decline: refused confirmation_declined
+0.0.1.1 button "Open" available=no press: refused routine_unavailable
+0.0.1.2 button "Settings" available=yes press: confirm title="Settings?" button="Settings" message="" accept: perform navigate settings decline: refused confirmation_declined
+0.1 submit form=edge_long "Save" available=yes initial: refused too_long
+0.1 submit form=edge_long "Save" blank: refused required
+0.2 submit form=edge_ok "Save" available=yes initial: confirm title="Save?" button="Save" message="" accept: perform routine.save "job-42" name="Morning report" schedule="0 9 * * 1-5" prompt=none decline: refused confirmation_declined
+0.2 submit form=edge_ok "Save" blank: refused invalid_form
+0.3 submit form=edge_unbound "Save" available=yes initial: refused routine_unavailable
+0.3 submit form=edge_unbound "Save" blank: refused invalid_form

@@ -6,8 +6,10 @@
 
 For every golden document under ui/ whose expected verdict is `render`, the render tree text (ui_render.py) against
 the shared local data in context.json. SDUIRenderTreeTests (SwarmHubCore, so macOS and iOS) must produce the same
-bytes. targets/ holds the P7b routine view documents (SDUIRoutineTarget) and their render text. The script owns
-only ui-render/; ui/ is make_ui_vectors.py's.
+bytes. targets/ holds the P7b routine view documents (SDUIRoutineTarget) and their render text. actions/ (P7c) holds,
+for the same documents and data, what every button and form submit does (ui_actions.py): confirmations, refusals and
+flow moves, which the Mac and iOS renderers share through SDUIActionRouter and SDUIInteraction and which
+SDUIActionGoldenTests asserts. The script owns only ui-render/; ui/ is make_ui_vectors.py's.
 """
 
 import argparse
@@ -22,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import jcs  # noqa: E402
+import ui_actions  # noqa: E402
 import ui_reference as ref  # noqa: E402
 import ui_render  # noqa: E402
 
@@ -86,6 +89,33 @@ TARGETS = {
 }
 
 
+# P7c: one document whose buttons and submits reach the refusals and confirmations the goldens above do not
+# (confirmed flow moves, an unbound routine id, too_long, invalid_form, a confirmed save). Written with its action
+# text under actions/cases/; it has no render golden of its own.
+_FLOW_BUTTON = lambda label, command, **extra: {"type": "button", "label": label, "action": {"command": command, **extra}}  # noqa: E731
+ACTION_CASES = {
+    "edges": {"schema": ref.SCHEMA, "view": "p7c_action_edges", "root": {"type": "card", "children": [
+        {"type": "flow", "id": "steps", "steps": [
+            {"id": "one", "title": "One", "children": [_FLOW_BUTTON("Next", "flow_next", confirm=True)]},
+            {"id": "two", "title": "Two", "children": [
+                _FLOW_BUTTON("Back", "flow_back", confirm=True),
+                _FLOW_BUTTON("Open", "routine.open", routine=_BIND("routine.missing")),
+                _FLOW_BUTTON("Settings", "navigate", screen="settings", confirm=True)]}]},
+        {"type": "form", "id": "edge_long", "fields": [
+            {"id": "name", "kind": "text", "label": "Name", "max_length": 5, "value": _BIND("routine.name")},
+            {"id": "schedule", "kind": "schedule", "label": "Schedule", "required": True, "value": _BIND("routine.schedule")}],
+         "submit": {"label": "Save", "action": {"command": "routine.save", "routine": _BIND("routine.id")}}},
+        {"type": "form", "id": "edge_ok", "fields": [
+            {"id": "name", "kind": "text", "label": "Name", "value": _BIND("routine.name")},
+            {"id": "schedule", "kind": "text", "label": "Schedule", "value": _BIND("routine.schedule")},
+            {"id": "notify", "kind": "toggle", "label": "Notify", "value": _BIND("routine.enabled")}],
+         "submit": {"label": "Save", "action": {"command": "routine.save", "routine": _BIND("routine.id"), "confirm": True}}},
+        {"type": "form", "id": "edge_unbound", "fields": [
+            {"id": "name", "kind": "text", "label": "Name", "value": _BIND("routine.name")},
+            {"id": "schedule", "kind": "text", "label": "Schedule", "value": _BIND("routine.schedule")}],
+         "submit": {"label": "Save", "action": {"command": "routine.save", "routine": _BIND("routine.missing")}}}]}},
+}
+
 def build():
     vectors = json.loads((UI / "vectors.json").read_text(encoding="utf-8"))
     files = {"context.json": (json.dumps(CONTEXT, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")}
@@ -98,6 +128,7 @@ def build():
         if verdict != {"verdict": "render"}:
             raise SystemExit(f"{case['id']}: reference verdict {verdict}, expected render")
         files[case["id"] + ".txt"] = ui_render.describe(jcs.loads(data), CONTEXT).encode("utf-8")
+        files[f"actions/{case['id']}.txt"] = ui_actions.describe(jcs.loads(data), CONTEXT, i["url_hosts"]).encode("utf-8")
     for name, document in TARGETS.items():
         data = (json.dumps(document, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
         verdict = ref.decode(data, document["view"])
@@ -105,6 +136,14 @@ def build():
             raise SystemExit(f"target {name}: reference verdict {verdict}, expected render")
         files[f"targets/{name}.json"] = data
         files[f"targets/{name}.txt"] = ui_render.describe(jcs.loads(data), CONTEXT).encode("utf-8")
+        files[f"actions/targets/{name}.txt"] = ui_actions.describe(jcs.loads(data), CONTEXT).encode("utf-8")
+    for name, document in ACTION_CASES.items():
+        data = (json.dumps(document, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+        verdict = ref.decode(data, document["view"])
+        if verdict != {"verdict": "render"}:
+            raise SystemExit(f"action case {name}: reference verdict {verdict}, expected render")
+        files[f"actions/cases/{name}.json"] = data
+        files[f"actions/cases/{name}.txt"] = ui_actions.describe(jcs.loads(data), CONTEXT).encode("utf-8")
     return files
 
 
