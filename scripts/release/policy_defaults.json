@@ -1,5 +1,5 @@
 {
-  "schema": "swarmhub/policy-defaults/1",
+  "schema": "swarmhub/config-policy/1",
   "note": "Today's compiled policy defaults as typed values (CORE-PLAN.md 1.2 config.policy). Sources: CodingOrder.standard (Sources/AgentApp/Models/CodingOrder.swift), ModelDefaults (Sources/AgentApp/Models/ModelPolicy.swift, all unset), TeamPolicy.actions and TeamLimits (Packages/SwarmHubCoordination/Sources/SwarmHubCoordination/TeamPolicy.swift). scripts/test_release_build.py checks these against the Swift sources.",
   "codingOrder": "claude,codex,hermes",
   "modelDefaults": {},

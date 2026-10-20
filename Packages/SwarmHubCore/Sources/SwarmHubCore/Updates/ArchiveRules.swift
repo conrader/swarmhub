@@ -11,6 +11,8 @@ public enum ArchiveRules {
         public let size: Int
         public var isDirectory: Bool { flag == 53 }
         fileprivate let flag: UInt8
+        /// Offset of the entry's body in the archive.
+        fileprivate let offset: Int
     }
     public struct Inspection: Sendable {
         public let entries: [Entry]
@@ -69,6 +71,18 @@ public enum ArchiveRules {
         return Inspection(entries: entries, needsCode: needsCode)
     }
 
+    /// Regular-file contents by path, after every rule of `check` has passed. Still in memory only: nothing is
+    /// written, and the caller decides which paths it interprets (P6a reads root-level config documents).
+    public static func files(_ data: Data, kind: String, limits: UpdateLimits = .init()) throws -> [String: Data] {
+        let inspection = try check(data, kind: kind, limits: limits)
+        var result: [String: Data] = [:]
+        for entry in inspection.entries where !entry.isDirectory {
+            let start = data.startIndex + entry.offset
+            result[entry.name] = Data(data[start..<start + entry.size])
+        }
+        return result
+    }
+
     private static func fileExtension(_ name: String) -> String {
         let base = name.split(separator: "/").last.map(String.init) ?? ""
         guard let dot = base.lastIndex(of: "."), dot != base.startIndex,
@@ -107,7 +121,7 @@ public enum ArchiveRules {
             offset += 512
             let body = (49...54).contains(flag) ? 0 : size
             try checkRule(body <= bytes.count - offset, "archive_malformed")
-            entries.append(Entry(name: path, mode: mode, size: size, flag: flag))
+            entries.append(Entry(name: path, mode: mode, size: size, flag: flag, offset: offset))
             offset += (body + 511) / 512 * 512
         }
     }

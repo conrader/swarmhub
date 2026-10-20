@@ -137,3 +137,34 @@ python3 scripts/test_release_vectors.py            # byte-identical regeneration
 ```
 
 The generator is stdlib-only (pure-Python Ed25519 in `scripts/release/ed25519_ref.py`, for TEST keys only, cross-checked against `cryptography` and RFC 8032 when that package is installed).
+
+## 12. App config documents (P6a)
+
+What a `config` component means to the apps (`config.policy`, `config.prompts`, `config.copy`, `config.flags`; plan §1.2, §3.3, §4). Implemented by `ConfigDecoder.swift` / `ConfigStore.swift` in SwarmHubCore; the Python statement is `scripts/release/config_reference.py`. The apps read only the `config` components of the current verified bundle (the store holds only data components targeted at the app). Every key an app reads has a compiled default, which is what the app does today; with no bundle, or a host that cannot be reached, every read is that default.
+
+**Documents.** In each component, only regular files at the archive root named `policy.json`, `prompts.json`, `copy.json` and `flags.json` are documents; every other file (box prompt sources, notes, `nested/policy.json`) is ignored by apps. When two components carry the same document, neither is used and that domain stays compiled (`duplicate_document`, one report per component). A component that fails the archive rules (§9) or whose content is not data is refused whole, with the §9 reason or `component_not_data`; a stored copy that no longer matches its record is `component_unreadable`.
+
+A document is at most 262144 bytes (`config_too_large`), parses under the §2 profile (no floats, no `null`, no duplicate names; else `config_invalid`), and is an object whose `schema` is exactly `swarmhub/config-<domain>/1` (else `schema_invalid`). `note` is ignored. Any of these failures makes every key of that domain compiled. The document schema is the format; which keys and types an app understands is the `config_schema` axis (§8), used in `requires` like the others.
+
+**Keys.** Every other member is a key. Each is checked on its own, in byte order of the names, and a refused key is reported and left compiled:
+
+| Rule | Reason |
+| --- | --- |
+| Name matches `[A-Za-z0-9._-]{1,128}` (nested `policy` member names too) | `invalid_key` |
+| Name not on the §4 denylist (below; nested `policy` member names too) | `denied_key` |
+| `flags` values are booleans; `prompts` and `copy` values are strings | `wrong_type` |
+| No `policy` string at any depth starts with `/`, contains `://`, or contains a denied fragment | `denied_value` |
+
+**Denylist (plan §4: approval keys, approver lists, gate weakening, approval/secret endpoints).** A name is denied when, lowercased (ASCII) with `.`, `_` and `-` removed, it contains one of: `allowlist apikey approv authent authoriz bearer blacklist blocklist confirm credential denylist endpoint enroll hmac keychain nonce operationreview passphrase password permission privatekey publickey secret signingkey webhook whitelist`; or when one of its words, split at `.`, `_`, `-` and before an uppercase letter that follows a lowercase letter or digit, lowercased, is one of: `auth device devices gate gated gates gateway gating host hostname hosts key keys origin origins pin pinned pins signature signatures signer signing token tokens trust trusted uri url urls`. So `codingGate`, `gatewayURL`, `apiKey` and `teamLimits.approvalTimeout` are refused, while `delegateLimit`, `aggregateWindow` and `keyboardLayout` are not. The rule errs towards refusing: a refused name only means the compiled default. `prompts` and `copy` are text shown or sent as written and are exempt from the value rule, not from the name rule.
+
+**Reading.** The app asks for a key with its compiled default and type: `string`, `bool`, `integer` (optional range), `string_list`, `string_map` or `integer_map` (optional range per value). Absent → the default, no report. Present with another type → the default and `wrong_type`; an integer outside the range → the default and `out_of_range` (a map with any non-integer is `wrong_type` first). Each reason is logged once per key.
+
+**Kill switch.** In `flags`, `kill.<scope>.<name>: true` makes `<name>` compiled: scope `policy`, `prompts`, `copy` or `flags` for one key (read reason `killed`, also when the key is absent), `view` for one view type (P7 renderers use the compiled fallback for it). `false` changes nothing. An unknown scope, an empty name or a name starting with `kill.` is `invalid_kill`. Kill flags are not readable as ordinary flags, and a kill flag can only ever select compiled behaviour.
+
+**Vectors.** `Tests/Fixtures/release-bundles/config/vectors.json` (`swarmhub/config-vectors/1`): 15 `cases`, each with `components` (archives under `config/archives/`, or `unreadable`), `reads` (`domain`, `key`, `type`, `default`, optional `min`/`max`, `expect`, optional read-time `report`), `views` and the exact decode `reports` in order (components in record order, then domains `policy`, `prompts`, `copy`, `flags`, keys in byte order). `bundle` is a signed bundle 12 (index seq 6, TEST-release-1 under the shared `keys/keys-2.json`) with one app config and one box-only config that apps must never read.
+
+```
+python3 scripts/release/make_config_vectors.py            # rewrite config/ only
+python3 scripts/release/make_config_vectors.py --check    # byte-identical regeneration
+python3 scripts/test_swift_config_vectors.py              # reference vs every case, P0b verify of bundle 12, Swift source parity
+```
