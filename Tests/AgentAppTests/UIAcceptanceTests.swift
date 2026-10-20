@@ -116,7 +116,7 @@ import Testing
                     try controller.backend.control(bot: bot, verb: "decide", task: original.id, input: bad)
                 }
                 controller.store.decide(card, approved: approved)
-                for _ in 0..<100 where controller.store.managedDecisionsInFlight.contains(card.id) { await Task.yield() }
+                try await waitUntil { !controller.store.managedDecisionsInFlight.contains(card.id) }
                 #expect(!controller.store.approvals.contains { $0.id == card.id })
                 let receipt = try #require(controller.backend.records[original.id])
                 #expect(receipt.confirms(approved, original: original))

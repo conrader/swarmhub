@@ -55,8 +55,11 @@ import SwiftUI
 @MainActor struct UIAcceptanceApp: App {
     @StateObject private var controller: UIAcceptanceController
     init() {
-        do { _controller = StateObject(wrappedValue: try UIAcceptanceController(directory: UIAcceptanceIsolation.activate())) }
+        // Throwing work stays outside StateObject's @autoclosure; a failure refuses the launch (exit 78).
+        let made: UIAcceptanceController
+        do { made = try UIAcceptanceController(directory: UIAcceptanceIsolation.activate()) }
         catch { UIAcceptanceMode.refuse(error.localizedDescription) }
+        _controller = StateObject(wrappedValue: made)
     }
     var body: some Scene {
         WindowGroup("Swarm Hub · UI acceptance") {

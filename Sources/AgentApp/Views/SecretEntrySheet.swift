@@ -12,9 +12,9 @@ struct SecretEntrySheet: View {
 
     private var acceptance: Bool {
         #if DEBUG
-        store.uiAcceptance != nil
+        return store.uiAcceptance != nil
         #else
-        false
+        return false
         #endif
     }
     private var botName: String { store.bots.first { $0.id == prompt.botID }?.name ?? "The bot" }
