@@ -69,7 +69,7 @@ extension AppStore {
     /// The sheet's "Ask <manager>": one visible turn carrying the P30 recipe for sub-agents. The manager asks Konrad
     /// first; when its log reads DONE the lines refresh (`refreshModelsAfterRecipe`).
     @discardableResult func requestSubAgentModel(_ change: SubAgentModelChange, manager: Bot) -> Bool {
-        guard let core = managerTemplateOverride ?? BotManagerText.template(),
+        guard let core = managerCoreTemplate,
               let instructions = BoxReadingsTurns.subAgentInstructions(change, core: core) else { return false }
         return startRecipeTurn(change.request, instructions: instructions, manager: manager)
     }

@@ -30,7 +30,7 @@ import Testing
     activity.apply(ToolEvent(phase: .completed, name: "terminal", callID: "durable", result: "pending:delivery.abc"), at: store.now())
     assistant.activity = activity
     #expect(store.chipState(for: activity.steps[0], key: key, streaming: false) == .pending)
-    #expect(store.knownThreadLines(key).map(\.text) == ["retry later"])
+    #expect(store.knownThreadLines(key).map(\.text) == (["retry later"] as [String]))
     #expect(store.allBotThreads().first?.lastLine == "retry later")
 }
 

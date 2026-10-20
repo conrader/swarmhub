@@ -22,22 +22,22 @@ private let loggedIn = #"{"op":"accounts","claude":{"installed":true,"version":"
     #expect(report.claude == .init(installed: true, version: "2.1.3", loggedIn: true))
     #expect(report.codex == .init(installed: false, version: nil, loggedIn: false), "not installed is never logged in")
     let pool = try #require(report.chatgpt)
-    #expect(pool.labels == ["account 1", "work", "account 3"], "emails and odd labels become plain names")
-    #expect(pool.benchedUntil == [try Date("2026-10-15T14:00:00Z", strategy: .iso8601), nil, nil] && pool.inUse == 1)
+    #expect(pool.labels == (["account 1", "work", "account 3"] as [String]), "emails and odd labels become plain names")
+    #expect(pool.benchedUntil == ([try Date("2026-10-15T14:00:00Z", strategy: .iso8601), nil, nil] as [Date?]) && pool.inUse == 1)
 }
 
 @Test func loginOpsAcceptOnlyTheToolsOwnHttpsHosts() {
     #expect(ops(#"{"op":"login_link","tool":"codex","url":"https://auth.openai.com/codex/device","code":"ABCD-1234"}"#)
-            == [.loginLink(tool: .codex, url: URL(string: "https://auth.openai.com/codex/device")!, code: "ABCD-1234")])
-    #expect(ops(#"{"op":"login_link","tool":"claude","url":"\#(claudeLink)"}"#) == [.loginLink(tool: .claude, url: URL(string: claudeLink)!, code: nil)])
+            == ([.loginLink(tool: .codex, url: URL(string: "https://auth.openai.com/codex/device")!, code: "ABCD-1234")] as [SwarmhubOp]))
+    #expect(ops(#"{"op":"login_link","tool":"claude","url":"\#(claudeLink)"}"#) == ([.loginLink(tool: .claude, url: URL(string: claudeLink)!, code: nil)] as [SwarmhubOp]))
     for bad in [#""tool":"codex","url":"http://auth.openai.com/x""#, #""tool":"codex","url":"https://evil.example/auth.openai.com""#,
                 #""tool":"claude","url":"https://auth.openai.com/x""#, #""tool":"codex","url":"https://auth.openai.com.evil.example/x""#,
                 #""tool":"codex","url":"https://me@auth.openai.com/x""#, #""tool":"gemini","url":"https://auth.openai.com/x""#] {
         #expect(ops(#"{"op":"login_link",\#(bad)}"#).isEmpty, "\(bad)")
     }
     if case .loginLink(_, _, let code)? = ops(#"{"op":"login_link","tool":"codex","url":"https://auth.openai.com/d","code":"AB; rm -rf"}"#).first { #expect(code == nil) }
-    #expect(ops(#"{"op":"login_done","tool":"claude","ok":true}"#) == [.loginDone(tool: .claude, ok: true, pending: false)])
-    #expect(ops(#"{"op":"login_done","tool":"codex","ok":false,"pending":true}"#) == [.loginDone(tool: .codex, ok: false, pending: true)])
+    #expect(ops(#"{"op":"login_done","tool":"claude","ok":true}"#) == ([.loginDone(tool: .claude, ok: true, pending: false)] as [SwarmhubOp]))
+    #expect(ops(#"{"op":"login_done","tool":"codex","ok":false,"pending":true}"#) == ([.loginDone(tool: .codex, ok: false, pending: true)] as [SwarmhubOp]))
 }
 
 // MARK: Recipes
@@ -90,7 +90,7 @@ private let loggedIn = #"{"op":"accounts","claude":{"installed":true,"version":"
     state.begin(.login(.codex)); state.finish(.login(.codex), ops: ops(#"{"op":"login_link","tool":"codex","url":"https://auth.openai.com/codex/device","code":"ABCD-1234"}"#), at: t0)
     #expect(state.links[.codex]?.code == "ABCD-1234" && !state.allows(.code), "the code field is Claude's only")
     state.begin(.check(.codex)); state.finish(.check(.codex), ops: ops(#"{"op":"login_done","tool":"codex","ok":false,"pending":true}"#), at: t0)
-    #expect(state.links[.codex] != nil && state.stillWaiting == [.codex] && state.problem == nil)
+    #expect(state.links[.codex] != nil && state.stillWaiting == ([.codex] as Set<CodingTool>) && state.problem == nil)
     state.begin(.check(.codex)); state.finish(.check(.codex), ops: ops(#"{"op":"login_done","tool":"codex","ok":true}"#), at: t0)
     #expect(state.phase(.codex) == .loggedIn && state.links[.codex] == nil && state.stillWaiting.isEmpty)
 }
@@ -143,7 +143,7 @@ private func turns(_ host: String) -> [(input: String, instructions: String)] {
     let (store, jarvis, chat) = accountsStore(url: url, replies: [block(missing), block(loggedOut), block(#"{"op":"login_link","tool":"claude","url":"\#(claudeLink)"}"#),
                                                          "Sent.\n```swarmhub\n{\"op\":\"login_done\",\"tool\":\"claude\",\"ok\":true}\n```", block(loggedIn)])
     let target = store.connection(of: jarvis)
-    #expect(store.hermesConnections.map(\.target) == [target])
+    #expect(store.hermesConnections.map(\.target) == ([target] as [String]))
     #expect(await store.runAccounts(.refresh, on: target) && store.accounts(on: target).phase(.claude) == .missing)
     #expect(await store.runAccounts(.install, on: target) && store.accounts(on: target).phase(.claude) == .loggedOut)
     #expect(await store.runAccounts(.login(.claude), on: target) && store.accounts(on: target).links[.claude] != nil)
@@ -183,7 +183,7 @@ private func turns(_ host: String) -> [(input: String, instructions: String)] {
     let target = store.connection(of: jarvis)
     await store.runAccounts(.refresh, on: target); await store.runAccounts(.login(.codex), on: target)
     let state = store.accounts(on: target)
-    #expect(state.links[.codex]?.code == "ABCD-1234" && state.stillWaiting == [.codex] && turns(chat).count == 3)
+    #expect(state.links[.codex]?.code == "ABCD-1234" && state.stillWaiting == ([.codex] as Set<CodingTool>) && turns(chat).count == 3)
     #expect(turns(chat)[2].instructions.contains("T=codex; F=~/.hermes/swarmhub/$T-login.out"))
 }
 

@@ -1,4 +1,5 @@
 import Foundation
+import SwarmHubCore
 
 /// P49: what the orientation turn tells a new bot, read from the store: its own card, its installed SwarmHub skills and
 /// connected apps (P48 names), the other bots, the coordinator and the quiet hours. Never a key, never the whole SOUL.
@@ -30,8 +31,15 @@ extension AppStore {
     }
 
     var orientationCoordinatorChoice: OrientationCoordinatorChoice {
-        get { OrientationCoordinatorChoice(stored: defaults.string(forKey: OrientationCoordinatorChoice.key)) }
-        set { defaults.set(newValue.stored, forKey: OrientationCoordinatorChoice.key); objectWillChange.send() }
+        get {
+            // P6b: nothing chosen here follows the bundle's `policy.botPrompt.coordinator` (compiled: the default rule).
+            guard let stored = defaults.string(forKey: OrientationCoordinatorChoice.key) else {
+                return appConfig.botPrompt.coordinator == "none" ? .none : .automatic
+            }
+            return OrientationCoordinatorChoice(stored: stored)
+        }
+        // A choice is always stored, so a later bundle default cannot override it ("automatic" reads as `.automatic`).
+        set { defaults.set(newValue.stored ?? "automatic", forKey: OrientationCoordinatorChoice.key); objectWillChange.send() }
     }
 
     /// Settings → Advanced → Orientation → Quiet hours (default 22:00–08:00, Mac time zone). No app-wide setting existed:
@@ -39,8 +47,9 @@ extension AppStore {
     var quietHours: QuietHours {
         get {
             let start = defaults.object(forKey: QuietHours.startKey) as? Int, end = defaults.object(forKey: QuietHours.endKey) as? Int
-            return QuietHours(start: start.flatMap { (0..<1_440).contains($0) ? $0 : nil } ?? QuietHours.defaultStart,
-                              end: end.flatMap { (0..<1_440).contains($0) ? $0 : nil } ?? QuietHours.defaultEnd)
+            // P6b: unset or broken reads the bundle's `policy.botPrompt.quietHours*` (compiled: 22:00–08:00).
+            return QuietHours(start: start.flatMap { (0..<1_440).contains($0) ? $0 : nil } ?? appConfig.botPrompt.quietHoursStart,
+                              end: end.flatMap { (0..<1_440).contains($0) ? $0 : nil } ?? appConfig.botPrompt.quietHoursEnd)
         }
         set { defaults.set(newValue.start, forKey: QuietHours.startKey); defaults.set(newValue.end, forKey: QuietHours.endKey); objectWillChange.send() }
     }

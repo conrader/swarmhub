@@ -34,13 +34,14 @@ extension AppStore {
     }
     func workflowSessionID(_ threadID: UUID) -> String { sessionNamespace + "agentapp_workflow_" + threadID.uuidString.lowercased() }
 
-    func teamPolicyProblem(_ workflow: Workflow, action: String = "requestHelp", botID: UUID? = nil) -> String? {
+    func teamPolicyProblem(_ workflow: Workflow, action: String? = nil, botID: UUID? = nil) -> String? {
         guard let team = workflow.coordination else { return nil }
         guard workflowDestination(workflow) != nil else { return "The originating conversation was removed. New work is paused." }
         guard ownsTeamDispatcher() else { return "Another SwarmHub window or process owns coordination. Reopen this instance after it closes." }
         guard team.policy.ownerDeviceID == teamDeviceID else { return "Waiting for the coordinating device. This device can inspect the saved results." }
         guard let identity = workflowMembers(workflow).first(where: { $0.id == (botID ?? workflow.coordinatorID) }).map(teamIdentity),
-              team.policy.allows(action, identity: identity, at: now()) else { return "The delegation permission expired, was revoked, or an agent connection changed. Review the team before continuing." }
+              team.policy.isValid(identity: identity, at: now()),
+              action.map({ team.policy.actions.contains($0) }) ?? true else { return "The delegation permission expired, was revoked, or an agent connection changed. Review the team before continuing." }
         guard team.limits.isValid else { return "Review the team's limits before continuing." }
         return nil
     }
@@ -58,12 +59,13 @@ extension AppStore {
         guard Set(identities.map { $0.connection + "|" + $0.profile }).count == identities.count else {
             errorMessage = "Two team members use the same backend identity. Choose one of them."; return false
         }
-        let policy = TeamPolicy(originID: origin.id, decision: request, members: identities, ownerDeviceID: teamDeviceID)
+        var policy = TeamPolicy(originID: origin.id, decision: request, members: identities, ownerDeviceID: teamDeviceID)
+        policy.actions = configuredTeamActions
         var workflow = Workflow(id: UUID(), groupID: origin.id, coordinatorID: coordinator.id, request: request, createdAt: now(), state: .running,
             tasks: [.init(id: "work", botID: recipient.id, instructions: request, expectedOutput: "Answer the request with evidence and unresolved limitations. Ask a listed peer for help or review when useful.", dependencies: []),
                     .init(id: "synthesis", botID: coordinator.id, instructions: "Consolidate the findings for the user. Preserve disagreements and distinguish reported results from verified outcomes.", expectedOutput: "One consolidated answer", dependencies: ["work"])],
             budget: .init(id: UUID(), tokenLimit: Self.workflowDefaultBudget))
-        workflow.coordination = TeamCoordination(policy: policy, originMessageID: user.id)
+        workflow.coordination = TeamCoordination(policy: policy, limits: configuredTeamLimits, originMessageID: user.id)
         user.metadata["teamOrigin"] = workflow.id.uuidString
         do { try saveWorkflow(workflow) } catch { errorMessage = error.localizedDescription; return false }
         origin.messages.append(user); objectWillChange.send(); save(); dispatchWorkflows()
@@ -80,8 +82,8 @@ extension AppStore {
         guard roster.contains(where: { $0.id == workflow.coordinatorID }) else { return }
         let old = workflow.coordination
         var policy = TeamPolicy(originID: workflow.groupID, decision: workflow.request, members: roster.map(teamIdentity), ownerDeviceID: teamDeviceID)
-        policy.version = (old?.policy.version ?? 0) + 1
-        workflow.coordination = old ?? TeamCoordination(policy: policy, originMessageID: UUID())
+        policy.version = (old?.policy.version ?? 0) + 1; policy.actions = configuredTeamActions
+        workflow.coordination = old ?? TeamCoordination(policy: policy, limits: configuredTeamLimits, originMessageID: UUID())
         workflow.coordination?.policy = policy; workflow.deadline = nil
         commitWorkflow(workflow)
     }

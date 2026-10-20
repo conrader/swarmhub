@@ -8,7 +8,7 @@ import Testing
     let (store, bot, host) = routinesStore(server)
 
     #expect(await store.refreshRoutines(for: bot))
-    #expect(store.routines.state(for: bot.id).jobs.value?.map(\.name) == ["Morning brief"])
+    #expect(store.routines.state(for: bot.id).jobs.value?.map(\.name) == (["Morning brief"] as [String]))
 
     #expect(await store.createRoutine(for: bot, name: "Tide check", schedule: "30 7 * * 1-5", prompt: "Check the tides") == nil)
     let created = try #require(store.routines.state(for: bot.id).jobs.value?.first { $0.name == "Tide check" })
@@ -26,10 +26,10 @@ import Testing
     await store.runRoutineNow(created, for: bot)
     await store.deleteRoutine(created, for: bot)
     #expect(server.job(created.id) == nil)
-    #expect(store.routines.state(for: bot.id).jobs.value?.map(\.name) == ["Morning brief"])
+    #expect(store.routines.state(for: bot.id).jobs.value?.map(\.name) == (["Morning brief"] as [String]))
 
     let id = created.id
-    #expect(requestLines(host) == [
+    #expect(requestLines(host) == ([
         "GET /p/grok-jarvis/api/jobs?include_disabled=true",
         "POST /p/grok-jarvis/api/jobs",
         "PATCH /p/grok-jarvis/api/jobs/\(id)",
@@ -37,7 +37,7 @@ import Testing
         "POST /p/grok-jarvis/api/jobs/\(id)/resume",
         "POST /p/grok-jarvis/api/jobs/\(id)/run",
         "DELETE /p/grok-jarvis/api/jobs/\(id)",
-    ])
+    ] as [String]))
     #expect(MockHermesProtocol.recorded(host).allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer jarvis-key" })
     #expect(store.routines.state(for: bot.id).error == nil)
 }
@@ -51,7 +51,7 @@ import Testing
     #expect(store.routines.state(for: bot.id).jobs == .unavailable("This Hermes server has no jobs API."))
     #expect(!store.routines.state(for: bot.id).hasJobsAPI)
     await store.pollRoutinesOnce(now: now.addingTimeInterval(3600))
-    #expect(requestLines(host) == ["GET /p/grok-jarvis/api/jobs?include_disabled=true"], "the inbox skips a server without the jobs API")
+    #expect(requestLines(host) == (["GET /p/grok-jarvis/api/jobs?include_disabled=true"] as [String]), "the inbox skips a server without the jobs API")
     #expect(bot.routines.count == 1, "the local list stays as it was")
 }
 
@@ -63,8 +63,8 @@ import Testing
     #expect(store.routines.state(for: bot.id).error == error)
     // The saved job is listed (fetched again), not created twice.
     #expect(server.jobIDs.count == 1)
-    #expect(store.routines.state(for: bot.id).jobs.value?.map(\.name) == ["Ledger"])
-    #expect(requestLines(host) == ["POST /p/grok-jarvis/api/jobs", "GET /p/grok-jarvis/api/jobs?include_disabled=true"])
+    #expect(store.routines.state(for: bot.id).jobs.value?.map(\.name) == (["Ledger"] as [String]))
+    #expect(requestLines(host) == (["POST /p/grok-jarvis/api/jobs", "GET /p/grok-jarvis/api/jobs?include_disabled=true"] as [String]))
 }
 
 @MainActor @Test func inboxPostsOneCardPerRunAcrossPollsAndRestore() async throws {
@@ -77,7 +77,7 @@ import Testing
     // First sighting: an old run is only recorded, never carded.
     await store.pollRoutinesOnce(now: now)
     #expect(bot.messages.isEmpty && bot.unreadCount == 0)
-    #expect(bot.routineRunMarks == ["00000000beef": "2026-10-12T09:00:04.512345+02:00"])
+    #expect(bot.routineRunMarks == (["00000000beef": "2026-10-12T09:00:04.512345+02:00"] as [String: String]))
 
     let longReply = "Inbox: " + String(repeating: "x", count: 700)
     server.finishRun("00000000beef", at: "2026-10-13T09:00:06.000001+02:00", sessionStarted: 1_791_874_800, reply: longReply)
@@ -89,8 +89,8 @@ import Testing
     #expect(card.presentation == .routineResult && card.role == .assistant)
     #expect(card.metadata["routine"] == "Morning brief" && card.metadata["status"] == "ok" && card.metadata["sessionID"] == "cron_00000000beef_1791874800")
     #expect(card.content.count == 601 && card.content.hasPrefix("Inbox: x") && card.content.hasSuffix("…"))
-    #expect(requestLines(host).suffix(2) == ["GET /p/grok-jarvis/api/sessions?source=cron&limit=50&offset=0",
-                                             "GET /p/grok-jarvis/api/sessions/cron_00000000beef_1791874800/messages?order=latest&limit=50"])
+    #expect(requestLines(host).suffix(2) == (["GET /p/grok-jarvis/api/sessions?source=cron&limit=50&offset=0",
+                                             "GET /p/grok-jarvis/api/sessions/cron_00000000beef_1791874800/messages?order=latest&limit=50"] as ArraySlice<String>))
 
     now.addTimeInterval(61); await store.pollRoutinesOnce(now: now)
     #expect(bot.messages.count == 1 && bot.unreadCount == 1, "the same run is never carded twice")
@@ -123,7 +123,7 @@ import Testing
     #expect(await store.createRoutineOnServer(routine, for: bot) == nil)
     let id = try #require(server.jobIDs.first)
     #expect(server.job(id)?["enabled"] as? Bool == false)
-    #expect(requestLines(host).suffix(2) == ["POST /p/grok-jarvis/api/jobs", "POST /p/grok-jarvis/api/jobs/\(id)/pause"])
+    #expect(requestLines(host).suffix(2) == (["POST /p/grok-jarvis/api/jobs", "POST /p/grok-jarvis/api/jobs/\(id)/pause"] as ArraySlice<String>))
     #expect(bot.routines.isEmpty)
     #expect(store.routines.state(for: bot.id).jobs.value?.first?.isPaused == true)
     #expect(bot.routineRunMarks[id] == "", "its first run will be carded")
@@ -133,9 +133,9 @@ import Testing
     let second = BotRoutine(name: "Weekly", schedule: "0 9 * * 1", prompt: "Plan", isEnabled: false, importKind: .cron)
     bot.routines = [second]
     #expect(await store.createRoutineOnServer(second, for: bot) != nil)
-    #expect(server.jobIDs == [id])
+    #expect(server.jobIDs == ([id] as [String]))
     #expect(requestLines(host).last?.hasPrefix("DELETE /p/grok-jarvis/api/jobs/") == true)
-    #expect(bot.routines.map(\.name) == ["Weekly"])
+    #expect(bot.routines.map(\.name) == (["Weekly"] as [String]))
 }
 
 @MainActor @Test func runNowOnPausedRoutinePausesItAgainAfterTheRun() async throws {

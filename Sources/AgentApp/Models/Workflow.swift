@@ -16,7 +16,7 @@ struct RunBudget: Codable, Sendable, Equatable {
 
 /// P38 D: one step of a workflow, answered by one group member in a thread of its own.
 struct WorkflowTask: Codable, Identifiable, Sendable, Equatable {
-    enum State: String, Codable, Sendable { case queued, running, completed, blocked, cancelled }
+    enum State: String, Codable, Sendable { case queued, running, completed, blocked, cancelled, awaitingUserAcceptance }
     var id: String
     var botID: UUID
     var instructions: String
@@ -45,13 +45,17 @@ struct WorkflowTask: Codable, Identifiable, Sendable, Equatable {
     /// What the agent reported with reportResult (used as the result once its reply finishes) and a reviewer's verdict.
     var reportedResult: String?
     var reviewVerdict: WorkflowOperation.Verdict?
-    /// Set when a review needs the user: the task stays blocked until "Accept review with noted limitations".
+    /// Set when structured reporting failed or a review reached its revision limit.
     var reviewBlock: String?
     var completionConfirmed: Bool?
     var reviewAcceptedByUser: Bool?
     var delivery: TeamDelivery?
     var evidence: [TeamEvidence]?
     var verifiedByUser: Bool?
+
+    var stateLabel: String {
+        state == .awaitingUserAcceptance ? "Waiting for user acceptance" : state.rawValue.capitalized
+    }
 }
 
 /// P38 D: a group request split by a coordinator into dependent tasks. Planning ends paused: nothing runs before the
@@ -79,12 +83,14 @@ struct Workflow: Codable, Identifiable, Sendable, Equatable {
 
     var isActive: Bool { state == .planning || state == .running }
     var isFinished: Bool { state == .completed || state == .cancelled }
+    var reviewPolicy: TeamReviewPolicy { TeamReviewPolicy(actions: coordination?.policy.actions) }
+    var awaitsUserAcceptance: Bool { tasks.contains { $0.state == .awaitingUserAcceptance } }
 
     var stateLabel: String {
         switch state {
         case .planning: "Planning"
         case .running: coordination != nil && !tasks.contains(where: { $0.state == .running }) ? "Waiting to continue" : "Running"
-        case .paused: coordination != nil ? "Paused" : tasks.isEmpty ? "Paused" : (tasks.allSatisfy { $0.state == .queued } ? "Waiting for your approval" : "Paused")
+        case .paused: awaitsUserAcceptance ? "Waiting for user acceptance" : coordination != nil ? "Paused" : tasks.isEmpty ? "Paused" : (tasks.allSatisfy { $0.state == .queued } ? "Waiting for your approval" : "Paused")
         case .completed: "Completed"
         case .cancelled: "Cancelled"
         }

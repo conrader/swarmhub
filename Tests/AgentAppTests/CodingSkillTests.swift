@@ -36,7 +36,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(description.hasPrefix("Use for any coding task") && description.contains("supersedes the claude-code, codex and opencode skills")
             && description.hasSuffix("Installed by SwarmHub, v{{VERSION}}."))
     let script = try #require(skill.files.first { $0.path == "scripts/code-job" })
-    #expect(skill.files.map(\.path) == ["scripts/code-job", "scripts/completion-contract.py", "scripts/scratch.py", "scripts/swarmhub-claude-login", "scripts/verify-sandbox.py", "scripts/verify_darwin.py", "scripts/verify_git.py", "scripts/verify_processes.py", "scripts/verify_signals.py"] && script.isExecutable && script.content.hasPrefix("#!/bin/sh\n"))
+    #expect(skill.files.map(\.path) == (["scripts/code-job", "scripts/completion-contract.py", "scripts/scratch.py", "scripts/swarmhub-claude-login", "scripts/verify-sandbox.py", "scripts/verify_darwin.py", "scripts/verify_git.py", "scripts/verify_processes.py", "scripts/verify_signals.py"] as [String]) && script.isExecutable && script.content.hasPrefix("#!/bin/sh\n"))
     // POSIX only: none of the tools the brief rules out, no bash-only syntax.
     #expect(script.content.range(of: #"(?m)(^|[;&|(]|then|do)\s*(timeout|flock|setsid|local)\s"#, options: .regularExpression) == nil)
     for banned in ["[[ ", "function ", "<(", "$'", "pipefail", "#!/bin/bash", "declare ", "source "] {
@@ -60,16 +60,16 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
 @Test func onlyTheCodingSkillHasAVariant() throws {
     let manager = try #require(SkillLibrary.bundled().first { $0.name == SkillLibrary.managerSkill })
     #expect(SkillLibrary.variant(of: manager, codingOrder: .codexOnly) == nil)
-    #expect(CodingOrder.allCases.map(\.argument) == ["claude,codex,hermes", "codex,claude,hermes", "claude", "codex", "hermes"])
-    #expect(CodingOrder.allCases.map(\.title) == ["Claude Code → Codex → Hermes sub-agent", "Codex → Claude Code → Hermes sub-agent",
-                                                   "Claude Code only", "Codex only", "Hermes sub-agent only"])
+    #expect(CodingOrder.allCases.map(\.argument) == (["claude,codex,hermes", "codex,claude,hermes", "claude", "codex", "hermes"] as [String]))
+    #expect(CodingOrder.allCases.map(\.title) == (["Claude Code → Codex → Hermes sub-agent", "Codex → Claude Code → Hermes sub-agent",
+                                                   "Claude Code only", "Codex only", "Hermes sub-agent only"] as [String]))
 }
 
 @Test @MainActor func installTurnCarriesTheScriptAndTheVariant() throws {
     let (store, _, coder, _) = codingStore()
     coder.modelSettings = BotModelSettings(codingAgent: .codexClaudeHermes)
     let skills = store.skills(for: coder)
-    #expect(skills.map(\.name) == ["swarmhub-coding", "swarmhub-feedback", "swarmhub-messages"], "every Hermes bot gets them; the manager skill only the manager")
+    #expect(skills.map(\.name) == (["swarmhub-coding", "swarmhub-feedback", "swarmhub-messages"] as [String]), "every Hermes bot gets them; the manager skill only the manager")
     let text = try #require(try store.skillInstallInstructions(skills, profile: "coder", botName: "Coder", codingOrder: store.codingOrder(for: coder)))
     let folder = "~/.hermes/profiles/coder/skills/swarmhub/swarmhub-coding"
     let script = try #require(try codingSkill().files.first { $0.path == "scripts/code-job" })
@@ -194,24 +194,24 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let sent = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.compactMap { $0.body?["instructions"] as? String }
     #expect(sent.count == 1 && sent[0].contains("--order codex --dir") && sent[0].contains("for Coder (profile `coder`)"))
     #expect(jarvis.messages.first { $0.role == .user }?.content == "Install SwarmHub’s instructions for Coder.")
-    #expect(coder.installedSkills == ["swarmhub-coding": "1.3.12"] && coder.installedSkillVariants == ["swarmhub-coding": "codex"])
+    #expect(coder.installedSkills == (["swarmhub-coding": "1.3.12"] as [String: String]) && coder.installedSkillVariants == (["swarmhub-coding": "codex"] as [String: String]))
     #expect(store.skillState(try codingSkill(), for: coder) == .current)
     // The variant survives a save and reload with the bot; a bot without one encodes as before.
     let url = temporaryStore()
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     try JSONEncoder().encode(StoreFile(bots: [coder, jarvis], groups: [])).write(to: url)
     let reloaded = try StoreFile.decode(Data(contentsOf: url)).bots
-    #expect(reloaded.first?.installedSkillVariants == ["swarmhub-coding": "codex"] && reloaded.last?.installedSkillVariants.isEmpty == true)
+    #expect(reloaded.first?.installedSkillVariants == (["swarmhub-coding": "codex"] as [String: String]) && reloaded.last?.installedSkillVariants.isEmpty == true)
     #expect(!String(decoding: try JSONEncoder().encode(jarvis), as: UTF8.self).contains("installedSkillVariants"))
 }
 
 @Test func blockVariantIsOptionalAndChecked() {
     func parse(_ row: String) -> [SwarmhubOp]? { SwarmhubBlock.ops(in: "```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"coder\",\"skills\":[\(row)]}\n```") }
     #expect(parse(#"{"name":"swarmhub-coding","version":"1.0.0","variant":"claude,codex,hermes"}"#)
-            == [.skillsInstalled(bot: "coder", skills: [.init(name: "swarmhub-coding", version: "1.0.0", variant: "claude,codex,hermes")])])
-    #expect(parse(#"{"name":"swarmhub-manager","version":"1.0.1"}"#) == [.skillsInstalled(bot: "coder", skills: [.init(name: "swarmhub-manager", version: "1.0.1")])])
+            == ([.skillsInstalled(bot: "coder", skills: [.init(name: "swarmhub-coding", version: "1.0.0", variant: "claude,codex,hermes")])] as [SwarmhubOp]))
+    #expect(parse(#"{"name":"swarmhub-manager","version":"1.0.1"}"#) == ([.skillsInstalled(bot: "coder", skills: [.init(name: "swarmhub-manager", version: "1.0.1")])] as [SwarmhubOp]))
     #expect(parse(#"{"name":"swarmhub-coding","version":"1.0.0","variant":"$(rm -rf ~)"}"#)
-            == [.skillsInstalled(bot: "coder", skills: [.init(name: "swarmhub-coding", version: "1.0.0", variant: nil)])])
+            == ([.skillsInstalled(bot: "coder", skills: [.init(name: "swarmhub-coding", version: "1.0.0", variant: nil)])] as [SwarmhubOp]))
 }
 
 // MARK: code-job

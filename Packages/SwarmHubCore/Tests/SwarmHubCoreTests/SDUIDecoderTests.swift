@@ -82,7 +82,7 @@ struct SDUIDecoderTests {
             return
         }
         #expect(asked.first == "routine_result_card")
-        #expect(Set(asked.dropFirst()) == ["card", "badge", "text", "key_value", "progress", "diff_preview", "list", "button"])
+        #expect(Set(asked.dropFirst()) == (["card", "badge", "text", "key_value", "progress", "diff_preview", "list", "button"] as Set<String>))
         let badgeKilled = SDUIDecoder.decode(data, view: "routine_result_card", policy: policy,
                                              isViewKilled: { $0 == "badge" })
         #expect(badgeKilled == .fallback(reason: "killed"))

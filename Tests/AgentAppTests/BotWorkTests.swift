@@ -59,7 +59,7 @@ final class WorkClock: @unchecked Sendable {
     let t0 = Date(timeIntervalSince1970: 1_800_000_000), stages = workStages(at: t0)
     let mid = try #require(BotWorkReader.lastTurn(stages[2]))
     #expect(mid.origin == .bot("grok-jarvis") && mid.request == "Is the backup disk on box 2 healthy?" && !mid.finished && mid.reply == nil)
-    #expect(mid.activity?.steps.map(\.name) == ["terminal", "read_file"] && mid.activity?.steps.map(\.preview) == ["df -h /backup", "/var/log/backup.log"])
+    #expect(mid.activity?.steps.map(\.name) == (["terminal", "read_file"] as [String]) && mid.activity?.steps.map(\.preview) == (["df -h /backup", "/var/log/backup.log"] as [String?]))
     #expect(mid.activity?.steps.last?.isRunning == true && mid.activity?.steps.first?.isRunning == false, "the newest step runs until the reply")
     let done = try #require(BotWorkReader.lastTurn(stages[3]))
     #expect(done.finished && done.reply == "Disk at 62 %, last night's run finished." && done.activity?.steps.allSatisfy { !$0.isRunning } == true)
@@ -78,8 +78,8 @@ final class WorkClock: @unchecked Sendable {
                                              ["function": ["name": "web_extract", "arguments": ["urls": "https://example.org"]]],
                                              ["function": ["name": "skill_view", "arguments": ["name": "swarmhub-messages"]]]]]
     let message = try #require(HermesBackend.workRow(row))
-    #expect(message.tools == ["terminal", "web_extract", "skill_view"] && message.toolPreviews == ["df -h /backup", "https://example.org", "swarmhub-messages"])
-    #expect(HermesBackend.parseMessage(row, toolCalls: true)?.toolPreviews == [], "reconcile reads stay as they were")
+    #expect(message.tools == (["terminal", "web_extract", "skill_view"] as [String]) && message.toolPreviews == (["df -h /backup", "https://example.org", "swarmhub-messages"] as [String?]))
+    #expect(HermesBackend.parseMessage(row, toolCalls: true)?.toolPreviews == ([] as [String?]), "reconcile reads stay as they were")
 }
 
 @Test @MainActor func aLiveCardUnfoldsAndTheReplyEndsIt() async throws {
@@ -90,14 +90,14 @@ final class WorkClock: @unchecked Sendable {
     store.applyBotThreadRows([BotThreadRow(sessionID: "swarmhub-from-grok-jarvis", sender: "grok-jarvis", mark: "1", updatedAt: clock.now, preview: nil)], recipient: infra)
     await finishWatches(store)
     #expect(thread.reads == 4, "one read per row, stopped at the reply")
-    #expect(thread.seen.map(\.steps) == [0, 0, 1, 2], "the steps unfold in order")
+    #expect(thread.seen.map(\.steps) == ([0, 0, 1, 2] as [Int]), "the steps unfold in order")
     #expect(thread.seen.dropFirst().allSatisfy { $0.line == "Working… · for Jarvis" && $0.streaming }, "working for the whole run")
     let card = try #require(infra.messages.last)
     #expect(infra.messages.count == 1 && card.presentation == .botMessage && card.content == "Jarvis wrote to Infra", "the arrival line became the card")
     #expect(card.metadata[BotWorkKey.request] == "Is the backup disk on box 2 healthy?" && card.metadata[BotWorkKey.reply] == "Disk at 62 %, last night's run finished.")
-    #expect(card.activity?.steps.map(\.name) == ["terminal", "read_file"] && !card.isStreaming)
+    #expect(card.activity?.steps.map(\.name) == (["terminal", "read_file"] as [String]) && !card.isStreaming)
     #expect(store.botWorkLine(for: infra) == nil && store.workingForOthersLine(for: infra) == nil, "back to idle")
-    #expect(clock.slept.current == [.seconds(2), .seconds(2), .seconds(2)])
+    #expect(clock.slept.current == ([.seconds(2), .seconds(2), .seconds(2)] as [Duration]))
     #expect(BotWorkCopy.wokenBy(.bot("grok-jarvis"), name: store.displayName(forProfile:)) == "Woken by: Jarvis")
 }
 
@@ -196,9 +196,9 @@ final class WorkClock: @unchecked Sendable {
         BackendMessage(id: ($0.id ?? 0) + 100, role: $0.role, content: $0.content, createdAt: $0.createdAt, finishReason: $0.finishReason, tools: $0.tools)
     }
     let lines = AppStore.threadLines(first + second, key: key)
-    #expect(lines.map(\.author) == ["grok-jarvis", "grok-infra", "grok-jarvis", "grok-infra"])
-    #expect(lines.map(\.text) == ["Is the backup disk on box 2 healthy?", "Checking the log.\n\nDisk at 62 %, last night's run finished.", "And box 3?", "Checking the log."])
-    #expect(lines[1].activity?.steps.map(\.name) == ["terminal", "read_file"] && lines[1].activity?.steps.allSatisfy { !$0.isRunning } == true)
+    #expect(lines.map(\.author) == (["grok-jarvis", "grok-infra", "grok-jarvis", "grok-infra"] as [String]))
+    #expect(lines.map(\.text) == (["Is the backup disk on box 2 healthy?", "Checking the log.\n\nDisk at 62 %, last night's run finished.", "And box 3?", "Checking the log."] as [String]))
+    #expect(lines[1].activity?.steps.map(\.name) == (["terminal", "read_file"] as [String]) && lines[1].activity?.steps.allSatisfy { !$0.isRunning } == true)
     #expect(lines[3].activity?.steps.last?.isRunning == true, "the answer still running shows its current step")
     // The sheet reads the recipient's session through the same read as the live card.
     let clock = WorkClock(t0)

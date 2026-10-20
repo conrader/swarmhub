@@ -95,7 +95,7 @@ private func encoded<T: Encodable>(_ value: T) throws -> String {
     #expect(ModelRolesModel.codingNote == "Each bot's coding model is shown under its name.")
     // Settings → Models "All bots": the coding-threads picker is not named like the per-bot "Coding model: …" lines.
     let pane = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "../../Sources/AgentApp/Views/SettingsModelsPane.swift"), encoding: .utf8)
-    #expect(pane.contains(#"defaultMenu("Coding threads model", \.coding"#) && !pane.contains(#"defaultMenu("Coding model""#))
+    #expect(pane.contains(#"defaultMenu("Coding threads model", .coding"#) && !pane.contains(#"defaultMenu("Coding model""#))
     #expect(pane.contains("ModelRolesModel.codingHelp + \" \" + ModelRolesModel.codingNote"))
 }
 

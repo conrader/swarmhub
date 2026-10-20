@@ -121,7 +121,7 @@ import Testing
         #expect(state.problems(form).isEmpty)
         state.setValue(.text("Too long"), form: form, field: "name")
         #expect(state.value(form, "name") == .text("Too long"))
-        #expect(state.problems(form) == ["name": "too_long"])
+        #expect(state.problems(form) == (["name": "too_long"] as [String: String]))
         let outcome13 = state.submit(form, router: router)
         #expect(outcome13 == nil)
         state.setValue(.text("Night"), form: form, field: "name")
@@ -137,7 +137,7 @@ import Testing
         #expect(editor.values["routine.schedule_text"] == .string("Weekdays at 09:00"))
         #expect(editor.values["routine.last_status"] == nil)
         #expect(editor.values["profile.name"] == .string("Grok Bot"))
-        #expect(SDUIRoutineTarget.editorData(profile: "Grok Bot", routine: nil).values.keys.sorted() == ["profile.name"])
+        #expect(SDUIRoutineTarget.editorData(profile: "Grok Bot", routine: nil).values.keys.sorted() == (["profile.name"] as [String]))
         let result = SDUIRoutineResultFields(routineName: "Renamed", routineID: "job-43", status: "error", failed: true,
                                              title: "Routine failed", ranText: "Ran 9:02", finishedAt: "Oct 20", hasOutput: false,
                                              summary: "", error: "timeout", note: nil)

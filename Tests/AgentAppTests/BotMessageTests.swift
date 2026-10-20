@@ -106,20 +106,20 @@ private let key = BotThreadKey(from: "grok-jarvis", to: "grok-infra")
     let reply = jarvis.messages[1]
     #expect(store.threadKey(for: reply.activity!.steps[0].botMessage!, in: reply) == key)
     let known = store.knownThreadLines(key)
-    #expect(known.map(\.author) == ["grok-jarvis", "grok-infra"] && known.map(\.text) == ["How full is /data?", "62%, fine."], "at once, from the step")
+    #expect(known.map(\.author) == (["grok-jarvis", "grok-infra"] as [String]) && known.map(\.text) == (["How full is /data?", "62%, fine."] as [String]), "at once, from the step")
     store.openThread(key)
     #expect(store.openBotThread == key)
     await store.loadThread(key)
     let lines = store.knownThreadLines(key)
-    #expect(lines.map(\.text) == ["How full is /data?", "62%, fine.", "And /home?", "40%."], "newest at the bottom, header stripped")
-    #expect(lines.map(\.author) == ["grok-jarvis", "grok-infra", "grok-jarvis", "grok-infra"])
+    #expect(lines.map(\.text) == (["How full is /data?", "62%, fine.", "And /home?", "40%."] as [String]), "newest at the bottom, header stripped")
+    #expect(lines.map(\.author) == (["grok-jarvis", "grok-infra", "grok-jarvis", "grok-infra"] as [String]))
     #expect(ChatParityServer.requests(host).contains { $0.path == "/api/sessions/swarmhub-from-grok-jarvis/messages" })
 }
 
 @Test @MainActor func notConnectedRecipientKeepsTheSendersSteps() async {
     let (store, _, _, host) = threadStore(messages: [["id": 1, "role": "user", "content": "x"]], connected: false)
     await store.loadThread(key)
-    #expect(store.knownThreadLines(key).map(\.text) == ["How full is /data?", "62%, fine."])
+    #expect(store.knownThreadLines(key).map(\.text) == (["How full is /data?", "62%, fine."] as [String]))
     #expect(!ChatParityServer.requests(host).contains { $0.path.hasSuffix("/messages") })
     // A recipient SwarmHub does not have at all: nothing to read with, still the steps.
     store.bots.removeAll { $0.hermesProfile == "grok-infra" }
@@ -130,7 +130,7 @@ private let key = BotThreadKey(from: "grok-jarvis", to: "grok-infra")
 @Test @MainActor func queuedMessagesShowNoReplyLine() {
     let (store, jarvis, _, _) = threadStore()
     jarvis.messages[1].activity!.steps[0].botMessage!.noWait = true
-    #expect(store.knownThreadLines(key).map(\.author) == ["grok-jarvis"])
+    #expect(store.knownThreadLines(key).map(\.author) == (["grok-jarvis"] as [String]))
 }
 
 // MARK: Arrivals and badge
@@ -151,7 +151,7 @@ private func row(_ sender: String, count: Int, active: Double) -> [String: Any] 
     await store.checkBotMessages(for: infra)
     #expect(infra.messages.isEmpty && !store.hasBotMessageBadge(infra), "the first list only records")
     #expect(ChatParityServer.requests(host).filter { $0.path == "/api/sessions" }.count == 1, "one session-list request")
-    #expect(store.botMessages.rows[infra.id]?.map(\.sessionID) == ["swarmhub-from-grok-jarvis"])
+    #expect(store.botMessages.rows[infra.id]?.map(\.sessionID) == (["swarmhub-from-grok-jarvis"] as [String]))
 
     store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("grok-jarvis", count: 4, active: 2_103)))], recipient: infra)
     let line = try #require(infra.messages.last)
@@ -168,14 +168,14 @@ private func row(_ sender: String, count: Int, active: Double) -> [String: Any] 
     store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("grok-jarvis", count: 5, active: 2_110))),
                               try #require(HermesBackend.botThreadRow(row("coder", count: 2, active: 2_200)))], recipient: infra)
     #expect(infra.messages.count == 2 && infra.messages.last?.content == "coder wrote to Infra")
-    #expect(store.botMessages.unread[infra.id] == ["swarmhub-from-grok-jarvis", "swarmhub-from-coder"])
+    #expect(store.botMessages.unread[infra.id] == (["swarmhub-from-grok-jarvis", "swarmhub-from-coder"] as Set<String>))
 }
 
 @Test @MainActor func aJustSentMessageArrivesEvenOnTheFirstList() throws {
     let (store, _, infra, _) = threadStore()
     store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("grok-jarvis", count: 2, active: 2_003))),
                               try #require(HermesBackend.botThreadRow(row("coder", count: 2, active: 1_003)))], recipient: infra, expecting: "grok-jarvis")
-    #expect(infra.messages.map(\.content) == ["Jarvis wrote to Infra"], "the expected sender only; the rest is the baseline")
+    #expect(infra.messages.map(\.content) == (["Jarvis wrote to Infra"] as [String]), "the expected sender only; the rest is the baseline")
 }
 
 @Test @MainActor func aSendersEndedStepChecksTheRecipientAtOnce() async throws {
@@ -198,16 +198,16 @@ private func row(_ sender: String, count: Int, active: Double) -> [String: Any] 
                               try #require(HermesBackend.botThreadRow(row("coder", count: 2, active: 2_004)))], recipient: infra)
     #expect(store.botMessages.unread[infra.id]?.count == 2)
     store.openThread(key)
-    #expect(store.botMessages.unread[infra.id] == ["swarmhub-from-coder"], "that thread's arrival only")
+    #expect(store.botMessages.unread[infra.id] == (["swarmhub-from-coder"] as Set<String>), "that thread's arrival only")
     // P41: the chat alone is not the conversation; its badge stays until the conversation is opened.
     store.open(infra)
-    #expect(store.botMessages.unread[infra.id] == ["swarmhub-from-coder"])
+    #expect(store.botMessages.unread[infra.id] == (["swarmhub-from-coder"] as Set<String>))
     store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("coder", count: 3, active: 2_300)))], recipient: infra)
-    #expect(infra.messages.map(\.content) == ["Jarvis wrote to Infra", "coder wrote to Infra"], "coder's new message shares its last line")
+    #expect(infra.messages.map(\.content) == (["Jarvis wrote to Infra", "coder wrote to Infra"] as [String]), "coder's new message shares its last line")
     // While that exact conversation is on screen, its arrival brings no badge.
     store.openThread(key)
     store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("grok-jarvis", count: 9, active: 2_400)))], recipient: infra)
-    #expect(store.botMessages.unread[infra.id] == ["swarmhub-from-coder"])
+    #expect(store.botMessages.unread[infra.id] == (["swarmhub-from-coder"] as Set<String>))
 }
 
 // MARK: Activity and ⌘K
@@ -218,10 +218,10 @@ private func row(_ sender: String, count: Int, active: Double) -> [String: Any] 
     #expect(store.infoTabs(for: infra).contains(.activity), "Hermes bots always have the Activity tab")
     store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("coder", count: 2, active: 5_000)))], recipient: infra)
     let threads = store.threadSummaries(for: infra)
-    #expect(threads.map(\.key) == [BotThreadKey(from: "coder", to: "grok-infra"), key])
+    #expect(threads.map(\.key) == ([BotThreadKey(from: "coder", to: "grok-infra"), key] as [BotThreadKey]))
     #expect(threads[1].lastLine == "62%, fine." && threads[1].date == Date(timeIntervalSince1970: 2_004))
-    #expect(store.threadSummaries(for: jarvis).map(\.key) == [key])
-    #expect(store.threadSummaries(for: coder).map(\.key) == [BotThreadKey(from: "coder", to: "grok-infra")])
+    #expect(store.threadSummaries(for: jarvis).map(\.key) == ([key] as [BotThreadKey]))
+    #expect(store.threadSummaries(for: coder).map(\.key) == ([BotThreadKey(from: "coder", to: "grok-infra")] as [BotThreadKey]))
 }
 
 @Test @MainActor func quickSwitcherListsThreads() throws {
@@ -230,6 +230,6 @@ private func row(_ sender: String, count: Int, active: Double) -> [String: Any] 
     let thread = try #require(items.first { $0.title == "Jarvis ↔ Infra" })
     #expect(thread.target == .botThread(key) && !thread.isCommand)
     #expect(items.firstIndex(of: thread)! < items.firstIndex { $0.isCommand }!, "before the commands")
-    #expect(QuickSwitcherModel.items(in: store, query: "↔ inf").map(\.title) == ["Jarvis ↔ Infra"])
-    #expect(QuickSwitcherModel.items(in: store, query: "Infra").map(\.title).prefix(2) == ["Infra", "Jarvis ↔ Infra"])
+    #expect(QuickSwitcherModel.items(in: store, query: "↔ inf").map(\.title) == (["Jarvis ↔ Infra"] as [String]))
+    #expect(QuickSwitcherModel.items(in: store, query: "Infra").map(\.title).prefix(2) == (["Infra", "Jarvis ↔ Infra"] as ArraySlice<String>))
 }

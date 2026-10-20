@@ -44,7 +44,7 @@ struct WorkflowCard: View {
                     Button("Allow in-scope help and reviews") { store.authorizeTeamWorkflow(workflow.id) }.font(.caption)
                 }
                 HStack {
-                    if workflow.state == .paused, !workflow.tasks.isEmpty, !workflow.tasks.contains(where: { $0.state == .blocked }) {
+                    if workflow.state == .paused, !workflow.awaitsUserAcceptance, !workflow.tasks.isEmpty, !workflow.tasks.contains(where: { $0.state == .blocked }) {
                         Button(workflow.tasks.allSatisfy { $0.state == .queued } ? "Approve plan and run" : "Resume") { store.resumeWorkflow(workflow.id) }
                             .buttonStyle(NeutralPrimaryButtonStyle())
                     }
@@ -89,7 +89,7 @@ private struct WorkflowTaskRow: View {
     @State private var instruction = ""
 
     init(workflow: Workflow, task: WorkflowTask) { self.workflow = workflow; self.task = task
-        _expanded = State(initialValue: task.state == .blocked)
+        _expanded = State(initialValue: task.state == .blocked || task.state == .awaitingUserAcceptance)
     }
 
     var body: some View {
@@ -107,7 +107,7 @@ private struct WorkflowTaskRow: View {
                     }.font(.caption2)
                     if task.completionConfirmed == true {
                         Text(task.verifiedByUser == true ? "Acceptance checks confirmed by you" : "Remote reply finished; acceptance checks not verified")
-                        if task.verifiedByUser != true { Button("I verified the acceptance checks") { store.confirmTeamEvidence(workflow.id, taskID: task.id) } }
+                        if task.verifiedByUser != true && task.state != .awaitingUserAcceptance { Button("I verified the acceptance checks") { store.confirmTeamEvidence(workflow.id, taskID: task.id) } }
                     }
                     ForEach(task.evidence ?? [], id: \.source) { evidence in Text(evidence.source + ": " + evidence.observation).textSelection(.enabled) }
                 }
@@ -120,7 +120,7 @@ private struct WorkflowTaskRow: View {
                 Text("Expected: " + task.expectedOutput).foregroundStyle(.secondary)
                 if let parent = task.parentTaskID { Text("From: " + parent).foregroundStyle(.secondary) }
                 if let round = task.reviewRound {
-                    Text("Review round \(round) of \(workflow.reviewLimit) · \(task.reviewVerdict.map { $0 == .accepted ? "Accepted" : "Needs revision" } ?? "Awaiting verdict")").foregroundStyle(.secondary)
+                    Text("Review round \(round) of \(workflow.reviewLimit) · \(task.state == .awaitingUserAcceptance ? task.stateLabel : task.reviewVerdict.map { $0 == .accepted ? "Accepted" : "Needs revision" } ?? "Awaiting verdict")").foregroundStyle(.secondary)
                 }
                 if !task.dependencies.isEmpty { Text("After: " + task.dependencies.joined(separator: ", ")).foregroundStyle(.secondary) }
                 if let result = task.result { Text(result).lineLimit(8).textSelection(.enabled).padding(.top, 2) }
@@ -145,7 +145,7 @@ private struct WorkflowTaskRow: View {
                 Text(task.id).font(.caption.weight(.medium))
                 Text("· \(store.bots.first { $0.id == task.botID }?.name ?? "Removed agent")\(task.role == .coding ? " · coding" : "")\(task.reviewTargetID != nil ? " · review" : "")").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Text(task.state.rawValue.capitalized).font(.caption2).foregroundStyle(.tertiary)
+                Text(task.stateLabel).font(.caption2).foregroundStyle(.tertiary)
             }
         }
     }
@@ -157,6 +157,7 @@ private struct WorkflowTaskRow: View {
         case .completed: "checkmark.circle.fill"
         case .blocked: "exclamationmark.circle"
         case .cancelled: "xmark.circle"
+        case .awaitingUserAcceptance: "clock"
         }
     }
 }

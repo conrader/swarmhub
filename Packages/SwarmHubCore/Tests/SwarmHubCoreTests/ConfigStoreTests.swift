@@ -189,7 +189,7 @@ struct ConfigStoreTests {
         bytes[bytes.startIndex + 600] ^= 0x01
         try bytes.write(to: path)
         let config = ConfigStore(updates: store, log: { _ in })
-        #expect(config.decodeReports == [ConfigReport(reason: "component_unreadable", component: "app-config")])
+        #expect(config.decodeReports == ([ConfigReport(reason: "component_unreadable", component: "app-config")] as [ConfigReport]))
         #expect(config.value(ConfigKey<String>.policy("codingOrder", default: "claude,codex,hermes")) == "claude,codex,hermes")
     }
 }

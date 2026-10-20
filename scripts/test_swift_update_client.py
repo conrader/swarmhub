@@ -224,7 +224,7 @@ class ReviewFixScenarioTests(unittest.TestCase):
             self.assertIn(needle, support)
         for needle in ('index(seq: 6, version: 12', 'index(seq: 7, version: 11', '"bundle_rollback"', '"index_rollback"',
                        '"keys_rollback"', '"unknown_key"', '"http_404"', '.string(">=9.0")', '.string("1.1.0")',
-                       '"incompatible"', 'probe.seen == [[12, 10], [12, 12]]'):
+                       '"incompatible"', 'probe.seen == ([[12, 10], [12, 12]] as [[Int64]])'):
             self.assertIn(needle, FLOOR_TEST)
 
 

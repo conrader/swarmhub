@@ -25,7 +25,7 @@ import Testing
         try await waitUntil { store.workflows[workflow.id]?.state == .completed }
         let done = try #require(store.workflows[workflow.id])
         #expect(done.tasks.allSatisfy { $0.state == .completed && $0.resultArtifactID != nil } && done.budget.reserved == 0 && done.budget.spent > 0)
-        #expect(group.messages.filter { $0.metadata["workflowID"] == workflow.id.uuidString }.map(\.content) == ["Specialist result"])
+        #expect(group.messages.filter { $0.metadata["workflowID"] == workflow.id.uuidString }.map(\.content) == (["Specialist result"] as [String]))
         // Each task ran in its own fresh session, never in the bot's chat.
         #expect(backend.calls.all.filter { $0.hasPrefix("create:") }.allSatisfy { $0.contains("agentapp_workflow_") })
         #expect(a.messages.isEmpty && b.messages.isEmpty && a.threads.count == 2 && b.threads.count == 1)
@@ -55,8 +55,8 @@ import Testing
         let id = try #require(store.workflows.keys.first)
         try await waitUntil { store.workflows[id]?.state == .paused }
         let workflow = try #require(store.workflows[id])
-        #expect(workflow.error == nil && workflow.tasks.map(\.id) == ["code", "review", "synthesis"])
-        #expect(workflow.tasks.map(\.role) == [.coding, .conversation, .conversation] && workflow.tasks[2].dependencies == ["code", "review"])
+        #expect(workflow.error == nil && workflow.tasks.map(\.id) == (["code", "review", "synthesis"] as [String]))
+        #expect(workflow.tasks.map(\.role) == ([.coding, .conversation, .conversation] as [ModelRole]) && workflow.tasks[2].dependencies == (["code", "review"] as [String]))
         #expect(workflow.stateLabel == "Waiting for your approval" && workflow.deadline == nil)
         #expect(backend.calls.all.filter { $0 == "send" }.count == 1, "nothing runs before approval")
     }
@@ -164,9 +164,9 @@ import Testing
         reply.metadata[TurnKey.ambiguous] = nil
         #expect(store.reassignWorkflowTask(workflow.id, taskID: "task", botID: b.id))
         let task = try #require(store.workflows[workflow.id]?.tasks.first)
-        #expect(task.botID == b.id && task.state == .queued && task.threadID != thread.id && task.previousThreadIDs == [thread.id])
+        #expect(task.botID == b.id && task.state == .queued && task.threadID != thread.id && task.previousThreadIDs == ([thread.id] as [UUID]))
         #expect(!store.send(text: "Retry old work", bot: a, conversation: thread, replyToID: nil) && store.errorMessage?.contains("reassigned") == true)
-        #expect(try store.journal().records(Workflow.self, kind: AppStore.workflowKind).first?.tasks.first?.previousThreadIDs == [thread.id])
+        #expect(try store.journal().records(Workflow.self, kind: AppStore.workflowKind).first?.tasks.first?.previousThreadIDs == ([thread.id] as [UUID]))
     }
 
     @Test func plansAndBudgetsAreValidated() throws {

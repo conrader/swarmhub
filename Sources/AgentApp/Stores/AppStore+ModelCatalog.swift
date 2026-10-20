@@ -51,7 +51,7 @@ extension AppStore {
             }
             return "\(bot.name): editor models no list (\(reason))"
         }
-        let check = ModelPolicy.check(modelDefaults.conversation, catalog: catalog)?.word ?? "none"
+        let check = ModelPolicy.check(effectiveModelDefaults.conversation, catalog: catalog)?.word ?? "none"
         return "\(bot.name): editor models \(catalog.place), \(catalog.detail); agent default \(catalog.agentDefault?.model ?? "unknown"); \(AppConstants.name) default \(check); \(catalog.suppliers.count) suppliers"
     }
 }

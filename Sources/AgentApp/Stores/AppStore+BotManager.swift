@@ -1,4 +1,5 @@
 import Foundation
+import SwarmHubCore
 
 /// A request for one chat's composer (the Manage bots menu, the bot editor).
 struct ComposerFill: Equatable { let id = UUID(); let botID: UUID; let text: String }
@@ -71,9 +72,17 @@ extension AppStore {
     /// resource is missing. P31 C: for Hermes the full text, the core and every recipe file.
     func managerText(for bot: Bot) -> String? {
         if bot.backend == .openClaw {
-            return (managerTemplateOverride ?? Self.cachedOpenClawTemplate).map { BotManagerText.filled($0, managerAgent: bot.openClaw?.agentID ?? "") }
+            return (managerTemplateOverride ?? appConfig.managerTemplateOpenClaw ?? Self.cachedOpenClawTemplate)
+                .map { BotManagerText.filled($0, managerAgent: bot.openClaw?.agentID ?? "") }
         }
-        return (managerTemplateOverride ?? Self.cachedTemplate).map { BotManagerText.filled($0, managerProfile: bot.hermesProfile ?? "default") }
+        return (managerTemplateOverride ?? configuredFullTemplate ?? Self.cachedTemplate).map { BotManagerText.filled($0, managerProfile: bot.hermesProfile ?? "default") }
+    }
+
+    /// P6b: the full Hermes manager text rebuilt from the bundle's core and recipes (each missing one compiled); nil when
+    /// the bundle changes none of them, so the cached compiled text is used.
+    private var configuredFullTemplate: String? {
+        guard appConfig.managerTemplate != nil || !appConfig.managerRecipes.isEmpty else { return nil }
+        return BotManagerText.fullTemplate(core: managerCoreTemplate, recipes: BotManagerText.Recipe.allCases.map(managerRecipeTemplate))
     }
 
     /// The manager text for this turn: only on a management turn of the manager's main chat (an intent match, a menu

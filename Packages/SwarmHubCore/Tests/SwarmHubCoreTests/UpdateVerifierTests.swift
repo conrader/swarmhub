@@ -77,12 +77,12 @@ struct UpdateVerifierTests {
             if result.verdict.verdict == "accept" {
                 #expect(result.manifest != nil, "\(vector.id)")
                 #expect(Set(result.blobs.keys) == Set(result.verdict.apply ?? []), "\(vector.id)")
-                #expect(fetched == ["manifest"] + (result.verdict.apply ?? []), "\(vector.id)")
+                #expect(fetched == (["manifest"] as [String]) + (result.verdict.apply ?? []), "\(vector.id)")
             } else {
                 #expect(result.manifest == nil && result.blobs.isEmpty, "\(vector.id)")
                 if ["pins", "keys", "index"].contains(result.verdict.stage) { #expect(fetched.isEmpty) }
             }
-            if vector.id == "archive-oversize-blob" { #expect(fetched == ["manifest"]) }
+            if vector.id == "archive-oversize-blob" { #expect(fetched == (["manifest"] as [String])) }
         }
     }
 

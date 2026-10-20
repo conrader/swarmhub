@@ -26,10 +26,11 @@ enum CodingOrder: String, Codable, Sendable, CaseIterable, Identifiable {
 
     static let help = "Who does a bot’s coding tasks. The next one is used only when the previous isn’t installed, isn’t logged in, or hits its usage limit. A change asks to update that bot’s coding skill."
 
-    /// The bot's own choice, else the SwarmHub-wide default, else Claude Code → Codex → Hermes sub-agent.
-    static func resolve(bot: CodingOrder?, appDefault: CodingOrder?) -> (order: CodingOrder, source: ModelSource) {
+    /// The bot's own choice, else the SwarmHub-wide default, else `fallback`: the bundle's `policy.codingOrder` (P6b),
+    /// compiled Claude Code → Codex → Hermes sub-agent.
+    static func resolve(bot: CodingOrder?, appDefault: CodingOrder?, fallback: CodingOrder = .standard) -> (order: CodingOrder, source: ModelSource) {
         if let bot { return (bot, .bot) }
-        return (appDefault ?? .standard, .appDefault)
+        return (appDefault ?? fallback, .appDefault)
     }
 
     /// Decodes a stored value; an unknown one (a later build's order) reads as unset.

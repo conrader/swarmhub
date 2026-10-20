@@ -51,7 +51,7 @@ struct BotModelSettingsSection: View {
                     Text("\(AppConstants.name) default").tag(CodingOrder?.none)
                     ForEach(CodingOrder.allCases) { Text($0.title).tag(Optional($0)) }
                 }
-                Text((codingAgent == nil ? "\(AppConstants.name) default: \((store.modelDefaults.codingAgent ?? .standard).title). " : "") + CodingOrder.help)
+                Text((codingAgent == nil ? "\(AppConstants.name) default: \((store.modelDefaults.codingAgent ?? store.configuredCodingOrder).title). " : "") + store.appConfig.codingOrderHelp)
                     .font(.caption).foregroundStyle(.secondary)
                 if let bot, bot.backend == .hermes {
                     let target = store.connection(of: bot)
@@ -87,7 +87,7 @@ struct BotModelSettingsSection: View {
     /// The shared-supplier hint for this bot's pending pair of settings.
     private var sharedHint: String? {
         let settings = BotModelSettings(conversation: conversation, coding: coding), catalog = bot.flatMap { store.modelCatalog(for: $0).value }
-        let resolve = { (role: ModelRole) in ModelPolicy.effective(role: role, settings: settings, defaults: store.modelDefaults, catalog: catalog) }
+        let resolve = { (role: ModelRole) in ModelPolicy.effective(role: role, settings: settings, defaults: store.effectiveModelDefaults, catalog: catalog) }
         let codingResolved = resolve(.coding)
         guard codingResolved.source != .sameAsConversation else { return nil }
         return ModelRolesModel.sharedSupplierHint(conversation: resolve(.conversation).choice, coding: codingResolved.choice, catalog: catalog)
@@ -100,7 +100,7 @@ struct BotModelSettingsSection: View {
         }
         return RoleModelEditorModel(isNew: bot == nil, savedBackend: bot?.backend, pendingBackend: pendingBackend,
                                     catalog: bot.map { store.modelCatalog(for: $0) } ?? .loading, hasEntry: info != nil, autoLoad: cache.autoLoad,
-                                    refreshNote: refreshNote, appDefault: role == .coding ? store.modelDefaults.coding : store.modelDefaults.conversation,
+                                    refreshNote: refreshNote, appDefault: role == .coding ? store.effectiveModelDefaults.coding : store.effectiveModelDefaults.conversation,
                                     setting: role == .coding ? coding : conversation, role: role)
     }
 }

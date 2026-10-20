@@ -12,7 +12,7 @@ import Testing
         #expect(store.send(text: "Read this", attachments: [file]))
         try await waitUntil { !store.anyTurnRunning }
         let saved = try store.artifactList(for: bot.id)
-        #expect(saved.map(\.name) == ["notes.txt"] && saved[0].ownerBotIDs == [bot.id])
+        #expect(saved.map(\.name) == (["notes.txt"] as [String]) && saved[0].ownerBotIDs == ([bot.id] as [UUID]))
         #expect(bot.messages.first?.metadata["artifact.\(file.id.uuidString)"] == saved[0].id.uuidString)
         let again = try store.artifactAttachment(saved[0], for: bot.id)
         #expect(again.sourceArtifactID == saved[0].id && again.text == "notes")
@@ -70,7 +70,7 @@ import Testing
         let bot = Bot(name: "Only"), archive = Bot(name: "Archive"); archive.archivedMembers = []; store.bots = [bot, archive]
         let artifacts = try store.artifacts()
         let artifact = try artifacts.save(Data("original".utf8), name: "Doc", mimeType: "text/plain", owners: [bot.id, bot.id])
-        #expect(artifact.ownerBotIDs == [bot.id])
+        #expect(artifact.ownerBotIDs == ([bot.id] as [UUID]))
         #expect(throws: (any Error).self) { try store.revokeArtifact(artifact, from: bot.id) }
         #expect(throws: (any Error).self) { try store.shareArtifact(artifact, with: archive.id) }
         #expect(throws: (any Error).self) { try artifacts.save(Data(count: RuntimeArtifacts.byteLimit + 1), name: "Big", mimeType: "text/plain", owners: [bot.id]) }

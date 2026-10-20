@@ -46,9 +46,9 @@ struct ConfigStoreBundleTests {
         #expect(vector["id"] == .string("signed-bundle-12"))
         let result = await check(store, route: { Self.bundle12Route($0) })
         #expect(result.verdict.verdict == "accept" && result.verdict.bundleVersion == 12)
-        #expect(result.verdict.apply == ["app-config"])
+        #expect(result.verdict.apply == (["app-config"] as [String]))
         // The box-only config component is neither fetched nor stored, so it can never become app config.
-        #expect(store.record()?.components.map(\.name) == ["app-config"])
+        #expect(store.record()?.components.map(\.name) == (["app-config"] as [String]))
         let log = ReportLog()
         let config = ConfigStore(updates: store, log: { log.append($0) })
         #expect(config.bundleVersion == 12)
@@ -93,7 +93,7 @@ struct ConfigStoreBundleTests {
         let result = await check(store, route: UpdateFixtures.route())
         #expect(result.verdict.verdict == "accept" && store.record()?.bundleVersion == 11)
         let config = ConfigStore(updates: store, log: { _ in })
-        #expect(config.decodeReports == [ConfigReport(reason: "schema_invalid", domain: "policy", component: "policy")])
+        #expect(config.decodeReports == ([ConfigReport(reason: "schema_invalid", domain: "policy", component: "policy")] as [ConfigReport]))
         #expect(config.value(ConfigKey<Int64>.policy("coding_job_limit", default: 1)) == 1)
         #expect(config.value(ConfigKey<String>.policy("default_model", default: "")) == "")
     }

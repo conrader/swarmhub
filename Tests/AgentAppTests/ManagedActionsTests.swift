@@ -47,7 +47,7 @@ private let secretReply = "I need the key.\n```swarmhub\n{\"op\":\"secret_reques
     #expect(ManagedApproval.parse(in: "```swarmhub\n{\"op\":\"approval\",\"task\":\"task.a\",\"kind\":\"shell\",\"gate\":\"owner\"}\n```").isEmpty)
     #expect(ManagedApproval.parse(in: "```swarmhub\n{\"op\":\"approval\",\"task\":\"task.a\",\"kind\":\"prod\",\"gate\":\"anyone\"}\n```").isEmpty)
     let odd = try #require(ManagedApproval.parse(in: "```swarmhub\n{\"op\":\"approval\",\"task\":\"task.a\",\"kind\":\"prod\",\"gate\":\"owner\",\"decider\":\"../x\",\"risks\":[\"prod\",\"bogus\"]}\n```").first)
-    #expect(odd.decider == nil && odd.risks == ["prod"] && odd.draft == nil && odd.title == "Prod action awaits the owner: ")
+    #expect(odd.decider == nil && odd.risks == (["prod"] as [String]) && odd.draft == nil && odd.title == "Prod action awaits the owner: ")
     #expect(ManagedApproval.parse(in: "```swarmhub\n{\"op\":\"goal\",\"status\":\"done\"}\n```").isEmpty)
     #expect(ManagedApproval.profileName("jarvis\n") == nil && ManagedApproval.validTask(taskID + "\n") == nil)
 }

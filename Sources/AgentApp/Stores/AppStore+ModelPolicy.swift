@@ -20,7 +20,7 @@ extension AppStore {
     /// model options, and refuses a pair its own list lacks. A refused override throws; a refused default posts
     /// `note` and returns nil, so the message goes out on the box default.
     func prepareModel(for bot: Bot, backend: any AgentBackend, note: (String) -> Void) async throws -> ModelPlan? {
-        let resolved = ModelPolicy.resolve(role: .conversation, settings: bot.modelSettings, defaults: modelDefaults)
+        let resolved = ModelPolicy.resolve(role: .conversation, settings: bot.modelSettings, defaults: effectiveModelDefaults)
         guard let choice = resolved.choice, let hermes = backend as? HermesBackend else { return nil }
         let origin: LockOrigin = resolved.source == .bot ? .bot : .torvliDefault
         await botInfo.load(botID: bot.id, sessionID: bot.hermesSessionID, using: hermes, includeSkills: false)
@@ -94,7 +94,7 @@ extension AppStore {
     /// Overview "Switch this chat": pins the chat to what the bot resolves to now, or to the box's current default
     /// pair when it resolves to the box default (Hermes has no unpin).
     func switchChatToRoleModel(for bot: Bot) async {
-        switch ModelPolicy.lockTarget(settings: bot.modelSettings, defaults: modelDefaults, catalog: modelCatalog(for: bot).value) {
+        switch ModelPolicy.lockTarget(settings: bot.modelSettings, defaults: effectiveModelDefaults, catalog: modelCatalog(for: bot).value) {
         case .refused(let reason): botInfo.finishSwitch(botID: bot.id, error: reason)
         case .pair(let pair, let origin): await switchModel(for: bot, provider: pair.provider, model: pair.model, origin: origin)
         }
