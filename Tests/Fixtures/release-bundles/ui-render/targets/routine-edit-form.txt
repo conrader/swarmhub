@@ -1,0 +1,7 @@
+card title="Edit routine"
+  form id=routine_edit
+    field text id=name label="Name" required max_length=200 value="Morning report"
+    field schedule id=schedule label="Schedule" required value="0 9 * * 1-5"
+    field multiline id=prompt label="What should it do?" value="Summarise yesterday's commits.\nKeep it short."
+    submit "Save" -> routine.save routine="job-42"
+  button style=secondary "Cancel" -> dismiss

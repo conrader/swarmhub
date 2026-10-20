@@ -1,0 +1,8 @@
+card title="Morning report" subtitle="Oct 20, 2026 at 9:02 AM"
+  badge tone=success "Done"
+  text style=markdown role=body "All **3** checks passed. See [docs](https://example.com) <https://example.com> \"q\" \u001b"
+  key_value
+    "Schedule" = "Weekdays at 09:00"
+  list style=plain
+    button style=primary "Run now" -> routine.run_now routine="job-42" confirm
+    button style=secondary "Copy summary" -> copy_text text="All **3** checks passed. See [docs](https://example.com) <https://example.com> \"q\" \u001b"

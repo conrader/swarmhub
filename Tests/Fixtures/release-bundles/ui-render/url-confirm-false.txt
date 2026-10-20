@@ -1,0 +1,2 @@
+card
+  button style=secondary "Read the guide" -> open_url url="https://docs.swarmhub.test/guide" confirm

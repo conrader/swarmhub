@@ -1,0 +1,59 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "routine_form",
+  "root": {
+    "type": "card",
+    "title": "Edit routine",
+    "children": [
+      {
+        "type": "form",
+        "id": "routine_edit",
+        "fields": [
+          {
+            "id": "name",
+            "kind": "text",
+            "label": "Name",
+            "required": true,
+            "max_length": 200,
+            "value": {
+              "bind": "routine.name"
+            }
+          },
+          {
+            "id": "schedule",
+            "kind": "schedule",
+            "label": "Schedule",
+            "required": true,
+            "value": {
+              "bind": "routine.schedule"
+            }
+          },
+          {
+            "id": "prompt",
+            "kind": "multiline",
+            "label": "What should it do?",
+            "value": {
+              "bind": "routine.prompt"
+            }
+          }
+        ],
+        "submit": {
+          "label": "Save",
+          "action": {
+            "command": "routine.save",
+            "routine": {
+              "bind": "routine.id"
+            }
+          }
+        }
+      },
+      {
+        "type": "button",
+        "label": "Cancel",
+        "action": {
+          "command": "dismiss"
+        }
+      }
+    ]
+  }
+}

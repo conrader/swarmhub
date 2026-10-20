@@ -1,0 +1,20 @@
+card title="Morning report" subtitle="Oct 20, 2026 at 9:02 AM"
+  badge tone=success "Done"
+  text style=markdown role=body "All **3** checks passed. See [docs](https://example.com) <https://example.com> \"q\" \u001b"
+  key_value
+    "Schedule" = "Weekdays at 09:00"
+    "Box" = "Studio box"
+    "Duration" = "2 min"
+  progress total=10 value=10 label="Steps"
+  diff_preview title="Changes" lines=6/6
+    "--- a/report.md"
+    "+++ b/report.md"
+    "@@ -1,2 +1,2 @@"
+    "-old line"
+    "+new line\r"
+    " context"
+  list style=plain
+    button style=primary "Run now" -> routine.run_now routine="job-42" confirm
+    button style=secondary "Pause" -> routine.pause routine="job-42"
+    button style=secondary "Copy summary" -> copy_text text="All **3** checks passed. See [docs](https://example.com) <https://example.com> \"q\" \u001b"
+    button style=secondary "Routine help" -> open_url url="https://docs.swarmhub.test/routines?from=card" confirm

@@ -1,0 +1,95 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "routine_result_card",
+  "root": {
+    "type": "card",
+    "title": {
+      "bind": "routine.name"
+    },
+    "subtitle": {
+      "bind": "result.finished_at"
+    },
+    "children": [
+      {
+        "type": "badge",
+        "text": "Done",
+        "tone": "success",
+        "visible_if": {
+          "equals": {
+            "bind": "result.status",
+            "value": "ok"
+          }
+        }
+      },
+      {
+        "type": "badge",
+        "text": {
+          "bind": "result.status"
+        },
+        "tone": "danger",
+        "visible_if": {
+          "exists": {
+            "bind": "result.error"
+          }
+        }
+      },
+      {
+        "type": "text",
+        "text": {
+          "bind": "result.summary"
+        },
+        "style": "markdown"
+      },
+      {
+        "type": "text",
+        "text": {
+          "bind": "result.error"
+        },
+        "role": "caption",
+        "visible_if": {
+          "exists": {
+            "bind": "result.error"
+          }
+        }
+      },
+      {
+        "type": "key_value",
+        "items": [
+          {
+            "key": "Schedule",
+            "value": {
+              "bind": "routine.schedule_text"
+            }
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "children": [
+          {
+            "type": "button",
+            "label": "Run now",
+            "style": "primary",
+            "action": {
+              "command": "routine.run_now",
+              "routine": {
+                "bind": "routine.id"
+              },
+              "confirm": true
+            }
+          },
+          {
+            "type": "button",
+            "label": "Copy summary",
+            "action": {
+              "command": "copy_text",
+              "text": {
+                "bind": "result.summary"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
