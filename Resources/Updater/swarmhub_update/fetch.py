@@ -85,10 +85,11 @@ def redirect_target(current, location):
     """The absolute URL a `Location` (or `URI`) header points to, or ValueError. http.client decodes header bytes as
     ISO-8859-1, so those bytes are recovered and every one outside URL_SAFE is percent-encoded (a `%` that does not
     start an escape too), then the result is resolved against `current`. Scheme, host and userinfo are checked by
-    the caller's allowlist (origin_key)."""
-    value = location.strip(" \t")
-    if CONTROL.search(value):
+    the caller's allowlist (origin_key). Control characters (tab included) are refused on the raw value, before
+    surrounding spaces are stripped."""
+    if CONTROL.search(location):
         raise ValueError("control character in the redirect location")
+    value = location.strip(" ")
     quoted = urllib.parse.quote(LONE_PERCENT.sub("%25", value), safe=URL_SAFE, encoding="iso-8859-1")
     return urllib.parse.urljoin(current, quoted)
 
@@ -185,9 +186,9 @@ def _resolve(host, port, timeout):
 
 def _open_socket(address, remaining, source_address=None):
     """socket.create_connection with every step under the file deadline: the lookup, and each address's connect
-    (create_connection gives every address the full timeout). The socket leaves with the time still left, which
-    the TLS handshake (bounded as a whole by it) and the request send inherit; a proxy's CONNECT reply is read by
-    the guarded response."""
+    (create_connection gives every address the full timeout). The socket leaves with the time still left for the
+    next step (a proxy CONNECT send, or the TLS handshake, bounded as a whole by it); _connection resets it after
+    each later step."""
     host, port = address
     error = OSError("no address for %s" % host)
     for family, kind, proto, _, sockaddr in _resolve(host, port, remaining()):
@@ -210,7 +211,8 @@ def _open_socket(address, remaining, source_address=None):
 
 def _connection(connection_type, remaining):
     """Install the guard before HTTPResponse.begin, so response headers share the file deadline too, and open the
-    socket under the same deadline."""
+    socket under the same deadline. A socket timeout is only as fresh as when it was set, so it is reset to the time
+    left after the proxy CONNECT reply (before the TLS handshake) and after connect (before the request send)."""
     class Response(http.client.HTTPResponse):
         def __init__(self, sock, *args, **kwargs):
             super().__init__(sock, *args, **kwargs)
@@ -221,6 +223,17 @@ def _connection(connection_type, remaining):
         connection.response_class = Response
         connection._create_connection = (
             lambda address, timeout=None, source_address=None: _open_socket(address, remaining, source_address))
+        tunnel, connect = connection._tunnel, connection.connect
+
+        def tunnel_then_reset():
+            tunnel()
+            connection.sock.settimeout(remaining())
+
+        def connect_then_reset():
+            connect()
+            connection.sock.settimeout(remaining())
+
+        connection._tunnel, connection.connect = tunnel_then_reset, connect_then_reset
         return connection
 
     return create

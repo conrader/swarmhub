@@ -112,9 +112,10 @@ command's verdict) and `updater`. `swarmctl update-status` prints the same file 
   against the system trust store, TLS 1.2+. Every request sends `Cache-Control: no-store` and `Pragma: no-cache`, no
   credentials or cookies. Redirects are followed only to an allowlisted origin, at most 3 hops; otherwise
   `redirect_refused` and nothing is fetched from the target. The `Location` is normalised before that check: control
-  characters are refused, bytes outside RFC 3986's unreserved and reserved sets (and a `%` that starts no escape) are
-  percent-encoded, a relative value is resolved against the current URL, and the result must be https without
-  userinfo. Signed files are capped at `max_signed_bytes`, a blob at
+  characters (tab, CR and LF included) are refused in the raw value, before anything is stripped; bytes outside
+  RFC 3986's unreserved and reserved sets (and a `%` that starts no escape) are percent-encoded, a relative value is
+  resolved against the current URL, and the result must be https without userinfo.
+  Signed files are capped at `max_signed_bytes`, a blob at
   its declared size (+1 byte, so a longer body is `blob_size_mismatch`); a larger `Content-Length` is refused before
   reading. Redirect bodies are closed without reading, so they spend none of that byte budget. The response stream
   never reads ahead (`peek` and unbounded reads are refused). One 300 s deadline per file covers every step of every

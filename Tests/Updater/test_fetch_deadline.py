@@ -1,6 +1,7 @@
 """The per-file deadline covers DNS, TCP connect, proxy CONNECT and the TLS handshake, not only reads (fetch.py).
 Fake resolvers and sockets, or loopback listeners that never answer; nothing reaches the real network."""
 
+import io
 from pathlib import Path
 import socket
 import sys
@@ -66,6 +67,102 @@ class Listener:
         for peer in self.held:
             peer.close()
         self.sock.close()
+
+
+class StalledPeer:
+    """A fake socket on the fake clock: connects at once, takes `reply_delay` seconds over the last byte of a proxy
+    CONNECT reply, and with `stall_send` stalls the GET request for its whole timeout."""
+
+    def __init__(self, clock, reply_delay=0, stall_send=False):
+        self.clock, self.timeout, self.reply_delay, self.stall_send = clock, None, reply_delay, stall_send
+
+    def settimeout(self, value):
+        self.timeout = value
+
+    def connect(self, address):
+        pass
+
+    def setsockopt(self, *args):
+        pass
+
+    def sendall(self, data):
+        if self.stall_send and data.startswith(b"GET "):
+            self.clock[0] += self.timeout
+            raise socket.timeout("simulated send stall")
+
+    def makefile(self, mode):
+        peer, reply = self, io.BytesIO(b"HTTP/1.1 200 Connection established\r\n\r\n")
+
+        class Reply:
+            def read1(self, size):
+                data = reply.read1(size)
+                if reply.tell() == len(reply.getvalue()):
+                    peer.clock[0] += peer.reply_delay
+                    peer.reply_delay = 0
+                return data
+
+            def flush(self):
+                pass
+
+            def close(self):
+                pass
+
+        return Reply()
+
+    def close(self):
+        pass
+
+
+class FakeTLS:
+    """A TLS context on the fake clock. `handshake` seconds pass, then the handshake either completes (returning the
+    socket) or, with `stall`, runs out the socket's timeout as one bounded handshake does."""
+
+    def __init__(self, clock, handshake=0, stall=False):
+        self.clock, self.handshake, self.stall, self.timeouts = clock, handshake, stall, []
+
+    def wrap_socket(self, sock, server_hostname=None):
+        self.timeouts.append(sock.timeout)
+        if self.stall:
+            self.clock[0] += sock.timeout
+            raise socket.timeout("simulated TLS handshake stall")
+        self.clock[0] += self.handshake
+        return sock
+
+
+class PhaseTransitions(unittest.TestCase):
+    """Each phase gets the time actually left, not a timeout set before an earlier phase (coreP3a3 review)."""
+
+    def run_fetch(self, peer, tls, proxies):
+        clock = peer.clock
+        addresses = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.%d" % n, 443)) for n in range(1, 11)]
+        sockets = [BlackholeSocket(clock) for _ in range(9)] + [peer]
+        fetcher = fetch.Fetcher([BASE], proxies=proxies, timeout=30, deadline=300, context=tls,
+                                clock=lambda: clock[0])
+        with patch("socket.getaddrinfo", lambda *args, **kwargs: addresses), \
+                patch("socket.socket", lambda *args: sockets.pop(0)):
+            with self.assertRaises(fetch.FetchError) as caught:
+                fetcher.get(BASE + "keys.json", 100)
+        return caught.exception
+
+    def test_tls_handshake_after_proxy_connect_gets_the_time_left(self):
+        # 9 addresses time out (270 s), the 10th proxy answers CONNECT at 299 s, then the TLS handshake stalls.
+        # Before: the handshake kept the 30 s set before the CONNECT read and the fetch ended at 329 s.
+        clock = [0]
+        tls = FakeTLS(clock, stall=True)
+        error = self.run_fetch(StalledPeer(clock, reply_delay=29), tls, PROXY)
+        self.assertEqual(error.reason, "timeout")
+        self.assertEqual(tls.timeouts, [1])
+        self.assertLessEqual(clock[0], 300 + fetch.DEADLINE_SLACK)
+
+    def test_request_send_after_tls_handshake_gets_the_time_left(self):
+        # 9 addresses time out (270 s), the handshake takes 29 s, then the request send stalls.
+        # Before: the send kept the 30 s set before the handshake and the fetch ended at 329 s.
+        for proxies in ({}, PROXY):
+            with self.subTest(proxy=bool(proxies)):
+                clock = [0]
+                error = self.run_fetch(StalledPeer(clock, stall_send=True), FakeTLS(clock, handshake=29), proxies)
+                self.assertEqual(error.reason, "timeout")
+                self.assertLessEqual(clock[0], 300 + fetch.DEADLINE_SLACK)
 
 
 class WholeFetchDeadline(unittest.TestCase):

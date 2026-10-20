@@ -253,19 +253,29 @@ class RedirectLocation(unittest.TestCase):
         # response() writes headers as UTF-8: the two bytes of "\xfc" come back as their own escapes.
         cases = {"/a b/\xfc\"<>`{|}^\\x": BASE + "a%20b/%C3%BC%22%3C%3E%60%7B%7C%7D%5E%5Cx",
                  "/50%off/%2Fkept%2f": BASE + "50%25off/%2Fkept%2f",
-                 "next?v=1": BASE + "dir/next?v=1", "../up": BASE + "up", " /padded\t": BASE + "padded",
+                 "next?v=1": BASE + "dir/next?v=1", "../up": BASE + "up", " /padded ": BASE + "padded",
                  "https://updates.invalid/abs": BASE + "abs", "//updates.invalid/net": BASE + "net"}
         for location, expected in cases.items():
             with self.subTest(location=location):
                 self.assertEqual(self.follow(location), expected)
 
     def test_refused_locations_fetch_nothing(self):
-        for location in ("/x\x00y", "/x\x01", "/x\x7f", "/a\tb", "http://updates.invalid/x", "ftp://updates.invalid/x",
+        for location in ("/x\x00y", "/x\x01", "/x\x7f", "/a\tb", "/trailing\t", " /padded\t", "http://updates.invalid/x", "ftp://updates.invalid/x",
                          "https://user@updates.invalid/x", "https://u:p@updates.invalid/x", "//evil.invalid/x",
                          "https://updates.invalid\\@evil.invalid/", "https://updates%2Einvalid/x",
                          "https://\xfcpdates.invalid/x", "javascript:alert(1)", "data:text/plain,x"):
             with self.subTest(location=location):
                 self.assertEqual(self.follow(location), "redirect_refused")
+
+
+    def test_control_characters_are_refused_before_any_stripping(self):
+        # http.client already drops a header value's leading whitespace, so the raw function is checked directly too.
+        for char in ("\t", "\r", "\n", "\x00", "\x0b", "\x1f", "\x7f"):
+            for location in (char + "/lead", "/trail" + char, "/in" + char + "side", " /x" + char + " "):
+                with self.subTest(location=location):
+                    with self.assertRaises(ValueError):
+                        fetch.redirect_target(BASE + "dir/file", location)
+        self.assertEqual(fetch.redirect_target(BASE + "dir/file", "  /spaces  "), BASE + "spaces")
 
 
 if __name__ == "__main__":
