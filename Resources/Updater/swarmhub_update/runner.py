@@ -58,14 +58,30 @@ def _manager_text(box, verified, names_now, comps, errors):
     try:
         if component is not None and component["name"] in names_now:
             return bundle.manager_template(work, component, verified.blobs[component["name"]])
+    except bundle.ComponentError as error:
+        errors[component["name"]] = str(error)
+    try:
         record = comps.get(bundle.MANAGER_PROMPTS)
         blob = box.state.blob(record.get("sha256")) if isinstance(record, dict) else None
         if blob is not None:
             return bundle.manager_template(work, {"name": bundle.MANAGER_PROMPTS, "kind": "config"}, blob)
-    except bundle.ComponentError as error:
-        if component is not None and component["name"] in names_now:
-            errors[component["name"]] = str(error)
+    except bundle.ComponentError:
+        pass
     return None
+
+
+def _ready(now, names_now, loaded, targets, unavailable, comps):
+    """Settle preparation failures and dependencies, including availability in each target profile."""
+    ready = policy.settle(now, names_now - unavailable, comps)
+    while True:
+        blocked = set()
+        for target in targets:
+            available = ready - (set(loaded) - set(target.skills))
+            allowed = policy.settle(now, available, comps)
+            blocked |= (set(target.skills) & ready) - allowed
+        if not blocked:
+            return ready
+        ready = policy.settle(now, ready - blocked, comps)
 
 
 def _apply_now(box, verified, now, waiting, comps):
@@ -83,9 +99,6 @@ def _apply_now(box, verified, now, waiting, comps):
             skill = bundle.load_skill(box.state.path("work"), component, verified.blobs[component["name"]])
         except bundle.ComponentError as error:
             errors[component["name"]] = str(error)
-            continue
-        if "{{MANAGER_TEXT}}" in skill.template and template is None:
-            errors[component["name"]] = "no applied %s to render the manager text from" % bundle.MANAGER_PROMPTS
             continue
         loaded[component["name"]] = skill
     targets, entries = [], []
@@ -109,19 +122,19 @@ def _apply_now(box, verified, now, waiting, comps):
     # cannot undo dependent data that already landed. Include held/dropped skills and transitive edges.
     targeted = {name for p in targets for name in p.skills}
     unavailable = set(errors) | set(held) | (set(loaded) - targeted)
-    ready = policy.settle(now, names_now - unavailable, comps)
-    while True:  # A dependency also has to be eligible in each profile that would install its data.
-        blocked = set()
-        for target in targets:
-            available = ready - (set(loaded) - set(target.skills))
-            allowed = policy.settle(now, available, comps)
-            blocked |= (set(target.skills) & ready) - allowed
-        if not blocked:
-            break
-        ready = policy.settle(now, ready - blocked, comps)
+    ready = _ready(now, names_now, loaded, targets, unavailable, comps)
+    if bundle.MANAGER_PROMPTS not in ready:
+        template = _manager_text(box, verified, set(), comps, errors)
+    if template is None:
+        for name, skill in loaded.items():
+            if "{{MANAGER_TEXT}}" in skill.template:
+                errors[name] = "no applied %s to render the manager text from" % bundle.MANAGER_PROMPTS
+        unavailable |= set(errors)
+        ready = _ready(now, names_now, loaded, targets, unavailable, comps)
     for name in names_now - unavailable - ready:
         errors[name] = "held: required component unavailable before install"
-    loaded = {name: skill for name, skill in loaded.items() if name not in names_now or name in ready}
+    loaded = {name: skill for name, skill in loaded.items()
+              if name not in unavailable and (name not in names_now or name in ready)}
     eligible = []
     for target in targets:
         wanted = tuple(n for n in target.skills if n in loaded)

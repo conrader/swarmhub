@@ -74,12 +74,16 @@ What applies how:
 - Skills go through the P2a engine per profile: render, checks, idle wait, atomic swap, `previous`.
 - The rendered SKILL.md description advertises the component version (`SwarmHub, v<version>`). A skill that does not
   advertise it is refused.
-- `manager-prompts` supplies the manager text. When it changes, the manager skill is rendered again.
+- `manager-prompts` supplies the manager text. When it changes, the manager skill is rendered again; if the new
+  prompts cannot install, every skill using `{{MANAGER_TEXT}}` uses the previously applied prompts (or cannot install
+  if there are none).
 - `tool`, `config` and `ui` components are recorded and kept in the state's blob store. Nothing on the box reads them
   yet; P1a ships no tool components.
 
 Without `profiles.json`, only skills already installed in a profile are updated. A skill that renders a coding order
 is held there (state `held`), because the box does not record which order it was installed with.
+If a skill is held for an unknown coding order in any target profile, it is skipped in all profiles for that run
+to avoid partial updates that the box-wide component record cannot represent.
 
 ## State and status
 
