@@ -316,6 +316,12 @@ def verify_manifest(raw, line, keys, *, consumer, now, revoked, limits):
         raise Reject("manifest", "version_mismatch")
     if not satisfies(manifest["requires"], consumer):
         raise Reject("manifest", "incompatible_requires")
+    check_dependencies(manifest)
+    return manifest
+
+
+def check_dependencies(manifest):
+    """Validate every dependency in a schema-checked bundle, independent of consumer compatibility."""
     names = {c["name"]: c for c in manifest["components"]}
     for component in manifest["components"]:
         for dep in component["requires_component"]:
@@ -324,7 +330,6 @@ def verify_manifest(raw, line, keys, *, consumer, now, revoked, limits):
                     or version_tuple(target["version"]) < version_tuple(dep["min_version"])
                     or not set(component["targets"]) <= set(target["targets"])):
                 raise Reject("manifest", "dependency_invalid")
-    return manifest
 
 
 def plan_components(manifest, consumer):
