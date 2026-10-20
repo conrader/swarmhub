@@ -137,6 +137,10 @@ def set_mode(mode):
         known = valid_state(db)
         if mode == "required" and not any(not d["revoked"] for d in known.values()):
             raise ValueError("enroll an active device before requiring device approvals")
+        if ds.device_required(db) != (mode == "required"):
+            # Invalidate under the decision lock, including pre-upgrade challenges. Switching back
+            # cannot revive them; repeating the current mode leaves its challenges alone.
+            db.execute("INSERT OR IGNORE INTO approval_mode_changed SELECT nonce FROM approval_challenges WHERE used=0")
         db.execute("INSERT OR REPLACE INTO approval_mode VALUES(1,?,?)", (int(mode == "required"), now))
     return listing()
 

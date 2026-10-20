@@ -4,15 +4,8 @@ import Foundation
 /// The app-owned service shares the Hermes HTTPS origin and profile key. No model-mediated decisions,
 /// separate secret store, redirects, URL credentials, cookies or plaintext remote connections.
 enum ManagedRemoteControl {
-    static func origin(address: String) throws -> String {
-        guard var parts = URLComponents(string: address), parts.scheme == "https", parts.host != nil,
-              parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
-              ["", "/", "/v1", "/v1/"].contains(parts.path) else { throw ManagedControlError.unavailable }
-        parts.path = ""
-        parts.host = parts.host?.lowercased()
-        guard let origin = parts.string else { throw ManagedControlError.unavailable }
-        return origin
-    }
+    /// The same HTTPS origin rule as the device-signed client (one implementation, in SwarmHubCore since P5d).
+    static func origin(address: String) throws -> String { try DeviceApprovalWire.baseOrigin(address: address) }
 
     static func signature(_ data: Data, key: String, purpose: String) -> String {
         let message = Data("swarmhub-approval-v1:\(purpose)\n".utf8) + data

@@ -1,27 +1,64 @@
 import Foundation
 
-/// Direct app → box v2 only. TLS authenticates responses; reads and decisions use separate domains.
-enum DeviceApprovalClient {
+/// Host hooks around the shared client. iOS uses `.standard`; the Mac passes its QA boundary and test-run guard.
+public struct DeviceApprovalEnvironment: Sendable {
+    public var prepare: @Sendable (URLRequest) throws -> URLRequest
+    public var configure: @Sendable (URLSessionConfiguration) -> URLSessionConfiguration
+    public init(prepare: @escaping @Sendable (URLRequest) throws -> URLRequest = { $0 },
+                configure: @escaping @Sendable (URLSessionConfiguration) -> URLSessionConfiguration = { $0 }) {
+        self.prepare = prepare; self.configure = configure
+    }
+    public static let standard = DeviceApprovalEnvironment()
+}
+
+/// Extra checks a device-signed-only app (iOS) adds. `.compatible`, the default, is the P5c behaviour the Mac keeps.
+public struct DeviceApprovalChecks: Sendable, Equatable {
+    /// Show, adopt or sign only when the box reports `mode: "required"` in the same read (unknown or legacy fails closed).
+    public var requireDeviceRequiredMode: Bool
+    /// Adopt a valid receipt for this operation that another enrolled device (for example the Mac) committed.
+    public var adoptOtherDeviceReceipts: Bool
+    public init(requireDeviceRequiredMode: Bool, adoptOtherDeviceReceipts: Bool) {
+        self.requireDeviceRequiredMode = requireDeviceRequiredMode; self.adoptOtherDeviceReceipts = adoptOtherDeviceReceipts
+    }
+    public static let compatible = DeviceApprovalChecks(requireDeviceRequiredMode: false, adoptOtherDeviceReceipts: false)
+    public static let deviceRequiredOnly = DeviceApprovalChecks(requireDeviceRequiredMode: true, adoptOtherDeviceReceipts: true)
+}
+
+/// Direct app → box v2 only, shared by Mac and iOS (P5d). TLS authenticates responses; reads and decisions use
+/// separate domains. There is no shared-key path here: no Bearer key, no HMAC, no v1 endpoint.
+public enum DeviceSignedApprovalClient {
     private struct Refusal: Error { let reason: String }
-    static func request(address: String, profile: String, verb: String, task: String, input: Data?,
-                        identity: DeviceApprovalIdentity, settings: DeviceApprovalSettings, reviewed: ManagedRecord? = nil,
-                        session: URLSession? = nil, timeout: TimeInterval = 15) async throws -> ManagedRecord {
+    public static func request(address: String, profile: String, verb: String, task: String, input: Data?,
+                               identity: DeviceApprovalIdentity, settings: DeviceApprovalSettings, reviewed: ManagedRecord? = nil,
+                               session: URLSession? = nil, timeout: TimeInterval = 15,
+                               environment: DeviceApprovalEnvironment = .standard,
+                               checks: DeviceApprovalChecks = .compatible) async throws -> ManagedRecord {
         var dispatched = false
         do {
             let origin = try DeviceApprovalWire.origin(address: address)
-            guard ManagedApproval.profileName(profile) != nil, ManagedApproval.validTask(task) != nil,
+            guard DeviceApprovalWire.validProfile(profile), DeviceApprovalWire.validTask(task),
                   ["get", "decide"].contains(verb) else { throw ManagedControlError.unavailable }
             let pending = try settings.attempt(origin: origin, task: task)
             if verb == "get" {
                 let response = try await read("receipt", origin: origin, profile: profile, task: task,
-                                              identity: identity, session: session, timeout: timeout)
+                                              identity: identity, session: session, timeout: timeout, environment: environment)
+                let gone = response["receipt"] == .null && response["status"] == .string("gone")
+                    && Set(response.keys) == ["request", "receipt", "status"]
+                // Checked before anything is adopted or cleared. The exact gone shape carries no mode and nothing to show.
+                if checks.requireDeviceRequiredMode, !gone { try requireDeviceMode(response) }
                 if let value = response["receipt"], !value.isNull {
                     let record = try decodeRecord(value)
+                    if checks.adoptOtherDeviceReceipts, let device = record.remoteReceipt?.device, device != identity.keyID {
+                        try validateOtherDeviceReceipt(record, device: device, origin: origin, profile: profile, task: task,
+                                                       identity: identity, pending: pending)
+                        // The box keeps one receipt per task, so this device's own attempt can no longer commit.
+                        if let pending { try settings.clearExpiredAttempt(pending, origin: origin, task: task) }
+                        return record
+                    }
                     try validateReceipt(record, origin: origin, profile: profile, task: task, identity: identity, expected: pending)
                     return record
                 }
-                if response["receipt"] == .null, response["status"] == .string("gone"),
-                   Set(response.keys) == ["request", "receipt", "status"] {
+                if gone {
                     // No receipt and no stored operation: no decision can commit for this task any more.
                     if let pending { try settings.clearExpiredAttempt(pending, origin: origin, task: task) }
                     throw ManagedControlError.operationGone
@@ -58,7 +95,9 @@ enum DeviceApprovalClient {
             if pending != nil { throw ManagedControlError.rejected }
             // Each decide obtains a new box-owned binding. No nonce or times are constructed locally.
             let response = try await read("challenge", origin: origin, profile: profile, task: task,
-                                          identity: identity, session: session, timeout: timeout)
+                                          identity: identity, session: session, timeout: timeout, environment: environment)
+            // The box reports its mode under the lock that issued this nonce; legacy or unknown signs nothing.
+            if checks.requireDeviceRequiredMode { try requireDeviceMode(response) }
             guard var signed = response["challenge"]?.objectValue, let value = response["record"] else { throw ManagedControlError.invalidRecord }
             var record = try decodeRecord(value)
             try DeviceApprovalWire.validateChallenge(signed, identity: identity, origin: origin, profile: profile, task: task, record: record)
@@ -77,7 +116,8 @@ enum DeviceApprovalClient {
             dispatched = true
             let result: [String: JSONValue]
             do {
-                result = try await post(raw, origin: origin, profile: profile, verb: "decide", session: session, timeout: timeout)
+                result = try await post(raw, origin: origin, profile: profile, verb: "decide", session: session, timeout: timeout,
+                                       environment: environment)
             } catch let refusal as Refusal {
                 // Only an authenticated, explicit box refusal proves this dispatch did not commit.
                 try settings.clearRefusedAttempt(origin: origin, task: task)
@@ -88,6 +128,9 @@ enum DeviceApprovalClient {
             try validateReceipt(confirmed, origin: origin, profile: profile, task: task, identity: identity, expected: signed)
             guard confirmed.confirms(approved, original: reviewed) else { throw ManagedControlError.invalidRecord }
             return confirmed
+        } catch ManagedControlError.notDeviceRequired {
+            // Nothing was signed or stored: the box is not device-required, so this app shows and decides nothing there.
+            throw ManagedControlError.notDeviceRequired
         } catch {
             if verb == "decide", !dispatched {
                 // Existing pending metadata means an earlier dispatch was uncertain, even if this call sent nothing.
@@ -99,31 +142,59 @@ enum DeviceApprovalClient {
         }
     }
 
-    static func read(_ verb: String, origin: String, profile: String, task: String, identity: DeviceApprovalIdentity,
-                     session: URLSession?, timeout: TimeInterval) async throws -> [String: JSONValue] {
+    public static func read(_ verb: String, origin: String, profile: String, task: String, identity: DeviceApprovalIdentity,
+                            session: URLSession?, timeout: TimeInterval,
+                            environment: DeviceApprovalEnvironment = .standard) async throws -> [String: JSONValue] {
         let body: [String: JSONValue] = ["version": .int(2), "domain": .string(DeviceApprovalWire.readDomain), "verb": .string(verb),
             "key_id": .string(identity.keyID), "origin": .string(origin), "profile": .string(profile), "task": .string(task),
             "issued": .int(Int64(Date().timeIntervalSince1970))]
         do {
             return try await post(DeviceApprovalWire.envelope(body, identity: identity, read: true), origin: origin,
-                                  profile: profile, verb: verb, session: session, timeout: timeout)
+                                  profile: profile, verb: verb, session: session, timeout: timeout, environment: environment)
         } catch is Refusal {
             throw ManagedControlError.rejected
         }
     }
 
-    static func decodeRecord(_ value: JSONValue) throws -> ManagedRecord {
+    public static func decodeRecord(_ value: JSONValue) throws -> ManagedRecord {
         // Validate the original spec before Codable can normalize a float such as 1.0 to an integer.
         guard let spec = value["spec"], spec.objectValue != nil else { throw ManagedControlError.invalidRecord }
         _ = try DeviceApprovalWire.canonical(spec)
         return try JSONDecoder().decode(ManagedRecord.self, from: JSONEncoder().encode(value))
     }
 
-    static func validateReceipt(_ record: ManagedRecord, origin: String, profile: String, task: String,
+    public static func validateReceipt(_ record: ManagedRecord, origin: String, profile: String, task: String,
+                                       identity: DeviceApprovalIdentity, expected: [String: JSONValue]?) throws {
+        try validateReceipt(record, device: identity.keyID, origin: origin, profile: profile, task: task, identity: identity, expected: expected)
+    }
+
+    /// A receipt committed by another enrolled device for this box, decider profile and task: the full structural check
+    /// with that device's key ID, and, when this device holds an uncertain attempt, the same operation as that attempt
+    /// (runtime, fingerprint, gate) under a different nonce. Its message digest binds the other device's signed bytes,
+    /// which this device never saw, so it is not recomputed; TLS to the operator-configured origin and the request
+    /// digest authenticate the box's answer, as for every v2 read.
+    static func validateOtherDeviceReceipt(_ record: ManagedRecord, device: String, origin: String, profile: String, task: String,
+                                           identity: DeviceApprovalIdentity, pending: [String: JSONValue]?) throws {
+        guard device != identity.keyID, DeviceApprovalWire.matches(device, "[A-Za-z0-9._-]{1,64}") else { throw ManagedControlError.invalidRecord }
+        try validateReceipt(record, device: device, origin: origin, profile: profile, task: task, identity: identity, expected: nil)
+        guard let pending else { return }
+        guard let binding = record.remoteBinding, let receipt = record.remoteReceipt,
+              pending["key_id"] == .string(identity.keyID), pending["origin"] == .string(origin),
+              pending["profile"] == .string(profile), pending["task"] == .string(task),
+              pending["runtime"] == .string(binding.runtime), pending["gate"] == .string(record.gate),
+              pending["fingerprint"] == receipt.fingerprint.map(JSONValue.string),
+              pending["nonce"] != receipt.nonce.map(JSONValue.string) else { throw ManagedControlError.invalidRecord }
+    }
+
+    private static func requireDeviceMode(_ response: [String: JSONValue]) throws {
+        guard response["mode"] == .string("required") else { throw ManagedControlError.notDeviceRequired }
+    }
+
+    static func validateReceipt(_ record: ManagedRecord, device: String, origin: String, profile: String, task: String,
                                 identity: DeviceApprovalIdentity, expected: [String: JSONValue]?) throws {
         guard record.id == task, record.decider == profile, ["owner", "coordinator"].contains(record.gate), let binding = record.remoteBinding,
               binding.origin == origin, binding.profile == profile, DeviceApprovalWire.matches(binding.runtime, "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"),
-              let receipt = record.remoteReceipt, receipt.`protocol` == 2, receipt.device == identity.keyID,
+              let receipt = record.remoteReceipt, receipt.`protocol` == 2, receipt.device == device,
               let nonce = receipt.nonce, DeviceApprovalWire.matches(nonce, "[a-f0-9]{64}"),
               let message = receipt.message, DeviceApprovalWire.matches(message, "[a-f0-9]{64}"),
               receipt.fingerprint == (try DeviceApprovalWire.digest(DeviceApprovalWire.canonical(.object(record.spec.fields)))),
@@ -140,26 +211,24 @@ enum DeviceApprovalClient {
     }
 
     static func post(_ raw: Data, origin: String, profile: String, verb: String, session: URLSession?,
-                     timeout: TimeInterval) async throws -> [String: JSONValue] {
+                     timeout: TimeInterval, environment: DeviceApprovalEnvironment) async throws -> [String: JSONValue] {
         guard let url = URL(string: origin + "/swarmhub/control/v2/" + profile + "/" + verb) else { throw ManagedControlError.unavailable }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"; request.httpBody = raw; request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.cachePolicy = .reloadIgnoringLocalCacheData; request.httpShouldHandleCookies = false
-        #if DEBUG
-        if QAMode.enabled { request = try QAMode.boundary.native(request) }
-        #endif
+        request = try environment.prepare(request)
         let client: URLSession
         if let session { client = session }
         else {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.httpCookieStorage = nil; configuration.urlCredentialStorage = nil; configuration.urlCache = nil
             configuration.timeoutIntervalForResource = 20
-            client = URLSession(configuration: TestRunGuard.guarded(configuration))
+            client = URLSession(configuration: environment.configure(configuration))
         }
         defer { if session == nil { client.finishTasksAndInvalidate() } }
-        let outbound = request, redirects = ManagedRemoteControl.NoRedirect()
+        let outbound = request, redirects = NoRedirect()
         let (data, response) = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
             defer { group.cancelAll() }
             group.addTask {
@@ -181,7 +250,7 @@ enum DeviceApprovalClient {
         let refusals: Set<String> = ["schema_invalid", "protocol_unsupported", "device_unknown", "device_revoked",
             "signature_invalid", "box_mismatch", "profile_mismatch", "device_unauthorized", "task_mismatch",
             "fingerprint_mismatch", "gate_mismatch", "operation_not_pending", "nonce_unknown", "nonce_mismatch",
-            "nonce_replayed", "nonce_not_yet_valid", "nonce_expired", "state_invalid"]
+            "nonce_replayed", "mode_changed", "nonce_not_yet_valid", "nonce_expired", "state_invalid"]
         if http.statusCode == 403, Set(result.keys) == ["error", "reason"],
            result["error"] == .string("control request refused"), let reason = result["reason"]?.stringValue,
            refusals.contains(reason) { throw Refusal(reason: reason) }
@@ -189,5 +258,21 @@ enum DeviceApprovalClient {
             throw ManagedControlError.rejected
         }
         return result
+    }
+
+    /// Declines redirects and cancels the task, so a redirect can never carry a signed request elsewhere.
+    final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        private let lock = NSLock()
+        private var sawRedirect = false
+        var rejected: Bool { lock.withLock { sawRedirect } }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+            lock.withLock { sawRedirect = true }
+            // Declining alone can wait for the original response body indefinitely. Cancel this
+            // task as well, recording the policy error first so cancellation cannot mask it.
+            task.cancel()
+            completionHandler(nil)
+        }
     }
 }

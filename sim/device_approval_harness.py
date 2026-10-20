@@ -88,7 +88,7 @@ class Box(unittest.TestCase):
     def box_rows(self):
         with database() as db:
             return {table: [tuple(r) for r in db.execute('SELECT * FROM ' + table + ' ORDER BY 1')]
-                    for table in ('actions', 'approval_challenges', 'approval_expired', 'approval_receipts',
+                    for table in ('actions', 'approval_challenges', 'approval_expired', 'approval_mode_changed', 'approval_receipts',
                                   'approval_devices', 'approval_mode', 'denials')}
 
     # Live flow ----------------------------------------------------------------------------------

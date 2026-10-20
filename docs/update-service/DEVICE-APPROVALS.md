@@ -25,6 +25,12 @@ UTF-8 JSON, at most 16 KiB, exactly `{"signed":{...},"signature":"<128 lowercase
 | `nonce` | 32 box-generated cryptographically random bytes, encoded as 64 lowercase hex |
 | `issued`, `expires` | Nonnegative safe integer Unix seconds from the box; `0 < expires-issued <= 60` |
 
+For example, `https://box.invalid:444` is valid and `https://box.invalid:0444` is rejected, never repaired.
+The shared Mac/iOS connection-address adapter checks the raw spelling before Foundation URL normalization;
+it still accepts a mixed-case host and the existing `/`, `/v1`, `/v1/` connection suffixes. Signed origins on
+the Python box remain exact. Both implementations consume `Tests/Fixtures/device_approval_origins.json` in tests.
+Skill 1.4.5 clarifies the box rule; its validator already enforced canonical decimal ports.
+
 Use the P0a [JCS profile](SCHEMAS.md#2-canonical-json-jcs-profile) unchanged:
 ASCII unique member names, sorted keys, UTF-8, minimal escaping, array order
 preserved, safe integers, no floats/exponents/negative zero/null/BOM/lone
@@ -99,8 +105,8 @@ First failure wins: trusted snapshot validity → strict JSON/envelope/field sha
 box/profile/device authorization/task/fingerprint/gate/pending state
 (`box_mismatch`, `profile_mismatch`, `device_unauthorized`, `task_mismatch`,
 `fingerprint_mismatch`, `gate_mismatch`, `operation_not_pending`) → nonce existence,
-binding, unused status and time (`nonce_unknown`, `nonce_mismatch`,
-`nonce_replayed`, `nonce_not_yet_valid`, `nonce_expired`) → `accept/ok`.
+binding, unused status, mode validity and time (`nonce_unknown`, `nonce_mismatch`,
+`nonce_replayed`, `mode_changed`, `nonce_not_yet_valid`, `nonce_expired`) → `accept/ok`.
 Invalid local state returns `reject/state_invalid`; any unclassified malformed
 input rejects. All checks precede consumption. v1 dispatch checks local mode
 before any v1 authentication; it cannot grant device-required authority.
@@ -126,9 +132,12 @@ update host; the device list, mode and nonces are local tables in `~/.hermes/swa
 
 | Verb | Body | Result |
 | --- | --- | --- |
-| `challenge` | signed read request | `{request, challenge, record}`: a fresh nonce binding (all signed fields except `approved`) and the full stored operation |
+| `challenge` | signed read request | `{request, challenge, record, mode}`: a fresh nonce binding (all signed fields except `approved`) and the full stored operation |
 | `decide` | the P5a envelope | `{request, receipt}` |
-| `receipt` | signed read request | `{request, receipt}` or `{request, receipt: null, status, observed_at, record}`; `record` is omitted when gone; never authorizes |
+| `receipt` | signed read request | `{request, receipt, mode}` or `{request, receipt: null, status, observed_at, record, mode}`; exactly `{request, receipt: null, status: "gone"}` when gone; never authorizes |
+
+`mode` (skill 1.4.3+) is `"required"` or `"legacy"`, read under the same lock as the rest of the response. It is
+reporting only: the box's checks are unchanged, and the Mac ignores it.
 
 `request` is SHA-256 of the raw body. Refusals are HTTP 403 `{"error":"control request refused","reason":<code>}`.
 Responses are authenticated by TLS to the operator-configured origin (the client keeps v1's no-redirect rule);
@@ -200,3 +209,54 @@ tests enroll those keys only through the library function.
 Tests: `sim/test_device_approvals.py` (every P5a vector through the real box, replay across restart, kill
 mid-transaction, concurrent consume, revoke, cutover, host unreachable, Hermes byte-identical) and
 `sim/test_device_enrollment.py` (operator guard, enrollment rules, corrupt state, read/challenge rules).
+
+## P5d iOS managed approvals (device-signed only)
+
+The P5c client now lives in SwarmHubCore (`Sources/SwarmHubCore/Approvals/`): `JSONValue`, `ManagedRecord`,
+`ManagedControlError`, `DeviceApprovalJSON`, `DeviceApprovalWire`, `DeviceApprovalIdentity` (+ `DeviceApprovalKeychain`),
+`DeviceApprovalSettings` and `DeviceSignedApprovalClient`. The Mac keeps its names through typealiases in
+`Sources/AgentApp/Approvals/DeviceApprovalCore.swift`; its QA boundary and test-run guard are passed in as
+`DeviceApprovalEnvironment.mac`, and v1 (`ManagedRemoteControl`) stays in the Mac app only. Wire bytes, key IDs
+(`mac-` prefix), Keychain service, defaults keys and fixtures are unchanged.
+
+iOS adds `ManagedApprovalStore`, `ManagedApprovalViews` and `DeviceApprovalSetupView` in `Apps/iOS/Sources/`. Each
+phone/box pair gets its own key (`ios-` prefix) enrolled by the operator as above. The Settings row shows the key and the
+enroll command; after `mode required` on the box, the user confirms the cutover on the phone (sticky, no way back in
+the app). `ManagedApprovalScope` then reads approval fences (notifications only) from assistant messages of profiles on
+device-required boxes and routes each to the connected decider profile; a card appears only for a pending record the
+box returns over the signed `receipt` read. Boxes without a confirmed cutover show no managed section at all. Decisions
+use `ManagedApprovalFlow.decide`: re-read, adopt any committed receipt, else challenge → sign → decide → receipt; a lost
+acknowledgement keeps the attempt locked until a receipt or box-observed expiry settles it. Native Hermes approvals
+(`MobileStore.resolve`) are unchanged.
+
+**P5d2 (review gaps).** The phone's confirmation is only a local opt-in that lets it send signed reads to a box. What
+it shows and decides follows the mode the box reports (`DeviceApprovalChecks.deviceRequiredOnly`, used only by
+`ManagedApprovalFlow`): every non-gone receipt read and every challenge must say `mode: "required"`, checked before
+anything is adopted, cleared or signed. `legacy`, a missing mode (boxes before skill 1.4.3) or any other value throws
+`notDeviceRequired`; the store then drops every card of that box and hides the managed section until a later read
+reports `required` again. Reported modes are kept in memory only, so after launch every box starts hidden. The refresh
+runs from the Approvals list (`.task`, pull to refresh), so a hidden section is still re-checked. Skill 1.4.4
+invalidates every outstanding challenge atomically on an actual mode switch, including challenges issued before the
+update. A subsequent decision rejects with `mode_changed`, consumes nothing and records no decision or receipt; the
+operation stays pending for the current mode’s normal path. Switching back cannot revive an invalidated challenge;
+setting the same mode leaves challenges valid, including the Mac’s legacy-mode challenges. The phone shows
+"Not accepted, box mode changed", clears the refused attempt and drops the box’s cards until a fresh read. It never
+retries or re-signs automatically. Invalidation marks are pruned with their challenge rows.
+
+A receipt another enrolled device committed (for example the Mac) resolves the phone's card as "Decided on another
+device". It must pass the same structural receipt checks under that device's key ID (`[A-Za-z0-9._-]{1,64}`, not the
+phone's), for this origin, decider profile and task, with the v2 fingerprint of the stored spec. When the phone holds an
+uncertain attempt, the receipt must also match that attempt's origin, runtime, profile, task, gate and fingerprint
+under a different nonce; the attempt is then cleared, because the box keeps one receipt per task and the phone's nonce
+can no longer commit. A receipt that carries the phone's key ID still needs the phone's exact attempt and message. The
+other device's message digest cannot be recomputed by the phone; like every v2 read, the answer is authenticated by
+TLS to the configured origin and the request digest (the box holds no signing key). The Mac keeps `.compatible`: no
+mode requirement and only its own receipts, exactly as in P5c. Tests: `sim/test_device_mode_reads.py` (Linux, real box)
+and `ManagedApprovalModeTests` (Mac).
+
+No shared-key path reaches the iOS target. `scripts/check-ios-approvals.py` runs as the first build phase of the
+generated Xcode project and fails on HMAC/SymmetricKey, the v1 domain, endpoint or header, the Mac v1/local clients,
+`swarmctl`, Hermes key-store use in approval files, project files outside `Apps/iOS/Sources`, or a stale project.
+`--binary <app executable>` scans a built binary. Tests: `scripts/test_ios_approval_boundary.py` (Linux) and the
+SwarmHubCore suites `DeviceApprovalCoreTests`, `ManagedApprovalFlowTests`, `ManagedApprovalScopeTests`,
+`IOSApprovalBoundaryTests` (Mac).

@@ -94,7 +94,7 @@ Your server must report `session_chat_streaming` for native chat. Reachable lega
 
 Credentials live in iPhone Keychain, separate from conversation snapshots. A default-profile key does not grant access to every profile. Sharing a server session shares its transcript; roster bindings, reactions and preferences are not yet synchronized between clients.
 
-Approvals are manual. A request needs an exact, unredacted action and an offered `once` choice before it can be approved. A decision remains pending until the server acknowledges a nonzero resolved count. Uncertain delivery blocks another decision until an explicit status check. A complete pending-request inbox and cross-device audit are later milestones.
+Approvals are manual. A request needs an exact, unredacted action and an offered `once` choice before it can be approved. A decision remains pending until the server acknowledges a nonzero resolved count. Uncertain delivery blocks another decision until an explicit status check. A complete pending-request inbox and cross-device audit are later milestones. Managed operations (P5d, in development) appear in a separate section only for boxes the operator switched to device-required mode and that you confirmed in Settings; they are signed with this phone's own approval key and never use the Hermes key.
 
 Leaving the app closes its local stream without sending Stop. On reopening a known session, history and any cached run are checked. When the server cannot report an interrupted run, or the app never received its run ID, the outcome stays unconfirmed and the message is not automatically resent. Cached history remains readable. Notifications while the app is closed require the planned push relay.
 
