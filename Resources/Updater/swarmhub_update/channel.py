@@ -61,8 +61,11 @@ def explain(index_raw, consumer, install_id):
     """Per line of a verified index: compatibility (unmet axes) and rollout (bucket vs percent). Read from the raw
     index the pull already verified; [] if it cannot be parsed."""
     try:
-        lines = verify.parse_signed(index_raw, "index", LIMITS)["signed"]["lines"]
-    except (verify.Reject, KeyError, TypeError):
+        envelope = verify.parse_signed(index_raw, "index", LIMITS)
+        verify.check_envelope(envelope, "index")
+        verify.check_index(envelope["signed"])
+        lines = envelope["signed"]["lines"]
+    except verify.Reject:
         return []
     view = []
     for line in lines:

@@ -113,7 +113,9 @@ command's verdict) and `updater`. `swarmctl update-status` prints the same file 
   credentials or cookies. Redirects are followed only to an allowlisted origin, at most 3 hops; otherwise
   `redirect_refused` and nothing is fetched from the target. Signed files are capped at `max_signed_bytes`, a blob at
   its declared size (+1 byte, so a longer body is `blob_size_mismatch`); a larger `Content-Length` is refused before
-  reading. Each read times out after 30 s, each file after 300 s.
+  reading. Redirect bodies are closed without reading, so they spend none of that byte budget. Each underlying read
+  times out after at most 30 s or the remaining file deadline, whichever is smaller; the 300 s deadline is shared
+  across redirects, response headers and body reads (including chunk framing).
 - **Order:** `keys.json`, `channels/<channel>.json`, then only the selected line's `bundles/<version>.json` and the blobs
   of components targeted at the box and compatible with it. What the box already holds verified is not fetched again
   (the stored manifest for a refresh; blobs in the state's blob store, hash-checked when read).

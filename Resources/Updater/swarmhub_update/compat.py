@@ -91,4 +91,3 @@ def annotate(verified, consumer_):
             entry.update(axes=axes, detail="incompatible: " + ", ".join(axes))
         skipped.append(entry)
     return verified._replace(skipped=skipped)
-
