@@ -152,6 +152,8 @@ class ProtoAndCryptoTests(unittest.TestCase):
     def test_safe_storage_vector_from_openssl(self):
         key = g.safe_storage_key(b"synthetic-pass")
         self.assertEqual(key.hex(), "c3b228bd930628aa1baab3f1a0f9911a")
+        if sys.platform != "darwin":
+            self.skipTest("decrypt_safe_storage needs macOS /usr/lib/system/libcommonCrypto.dylib; key derivation checked above")
         self.assertEqual(g.decrypt_safe_storage(VECTOR, key), "synthetic-token-123")
         with self.assertRaises(g.HistoryError):
             g.decrypt_safe_storage(base64.b64encode(b"v11xxxx").decode(), key)

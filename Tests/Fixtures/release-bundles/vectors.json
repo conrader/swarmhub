@@ -1,0 +1,2313 @@
+{
+  "cases": [
+    {
+      "description": "Valid chain; the box applies every box-targeted component.",
+      "expect": {
+        "apply": [
+          "swarmhub-manager",
+          "swarmhub-feedback",
+          "swarm-tools",
+          "box-prompts",
+          "policy"
+        ],
+        "bundle_version": 11,
+        "reason": "ok",
+        "skipped": [],
+        "stage": "component",
+        "verdict": "accept"
+      },
+      "id": "valid-box",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Valid chain; the Mac takes only its data components.",
+      "expect": {
+        "apply": [
+          "policy",
+          "routine-card"
+        ],
+        "bundle_version": 11,
+        "reason": "ok",
+        "skipped": [],
+        "stage": "component",
+        "verdict": "accept"
+      },
+      "id": "valid-mac",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "mac",
+          "versions": {
+            "app": "0.6.2",
+            "config_schema": "2",
+            "ui_catalog": "1.3"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Key manifest signed by both roots meets a 2-of-2 pin.",
+      "expect": {
+        "apply": [
+          "swarmhub-manager",
+          "swarmhub-feedback",
+          "swarm-tools",
+          "box-prompts",
+          "policy"
+        ],
+        "bundle_version": 11,
+        "reason": "ok",
+        "skipped": [],
+        "stage": "component",
+        "verdict": "accept"
+      },
+      "id": "keys-two-roots",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2--two-roots.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins--threshold-2.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "ui_catalog 1.3 cannot take the 2.x line and gets bundle 11.",
+      "expect": {
+        "apply": [
+          "policy",
+          "routine-card"
+        ],
+        "bundle_version": 11,
+        "reason": "ok",
+        "skipped": [],
+        "stage": "component",
+        "verdict": "accept"
+      },
+      "id": "line-selection-mac",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "mac",
+          "versions": {
+            "app": "0.6.2",
+            "config_schema": "2",
+            "ui_catalog": "1.3"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--line-selection.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "One byte of the key manifest changed after signing.",
+      "expect": {
+        "reason": "keys_bad_signature",
+        "stage": "keys",
+        "verdict": "reject"
+      },
+      "id": "tampered-keys",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2--tampered-byte.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Key manifest signed by a release key, not a pinned root.",
+      "expect": {
+        "reason": "keys_untrusted",
+        "stage": "keys",
+        "verdict": "reject"
+      },
+      "id": "keys-untrusted",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2--untrusted.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "One root signature against a 2-of-2 pin.",
+      "expect": {
+        "reason": "keys_threshold",
+        "stage": "keys",
+        "verdict": "reject"
+      },
+      "id": "keys-threshold",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins--threshold-2.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Persisted keys.version 3 is above the served version 2.",
+      "expect": {
+        "reason": "keys_rollback",
+        "stage": "keys",
+        "verdict": "reject"
+      },
+      "id": "lower-keys-version",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 3
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "One byte of the index changed after signing.",
+      "expect": {
+        "reason": "bad_signature",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "tampered-index",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--tampered-byte.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Index claims TEST-release-1 but was signed with another key.",
+      "expect": {
+        "reason": "bad_signature",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "wrong-key",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--wrong-key.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Index signed by a key the key manifest does not list.",
+      "expect": {
+        "reason": "unknown_key",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "unknown-key",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--unknown-key.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Index signed by a key that only holds role bundle.",
+      "expect": {
+        "reason": "key_wrong_role",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "wrong-role",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--wrong-role.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Index signed by a key past its not_after.",
+      "expect": {
+        "reason": "key_expired",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "key-expired",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--key-expired.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "The protected checkpoint revokes TEST-release-1.",
+      "expect": {
+        "reason": "key_revoked",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "key-revoked",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": [
+          "TEST-release-1"
+        ]
+      }
+    },
+    {
+      "description": "Persisted index.seq 6 is above the served seq 5.",
+      "expect": {
+        "reason": "index_rollback",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "lower-index-seq",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 6,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Index expired at 2026-10-20T00:00:00Z; now is 12:00 that day.",
+      "expect": {
+        "reason": "index_expired",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "expired-index",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--expired.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A beta index served for the stable subscription.",
+      "expect": {
+        "reason": "channel_mismatch",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "channel-mismatch",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--beta.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "rollout_percent written as 100.0: floats are not allowed.",
+      "expect": {
+        "reason": "schema_invalid",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "float-in-signed",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--float.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "The only line needs updater>=2.0.",
+      "expect": {
+        "reason": "no_compatible_line",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "no-compatible-line",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--no-line.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Bucket 53 is not below rollout_percent 53.",
+      "expect": {
+        "reason": "not_in_rollout",
+        "stage": "index",
+        "verdict": "no_update"
+      },
+      "id": "not-in-rollout",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--rollout.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Applied bundle 12 is above the offered 11.",
+      "expect": {
+        "reason": "bundle_rollback",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "lower-bundle-version",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 12,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Bundle 11 is already applied.",
+      "expect": {
+        "reason": "already_applied",
+        "stage": "index",
+        "verdict": "no_update"
+      },
+      "id": "already-applied",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 11,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Index pins another manifest's hash; the served manifest differs.",
+      "expect": {
+        "reason": "manifest_hash_mismatch",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "manifest-hash-mismatch",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--hash-mismatch.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Index line says 11; the signed manifest says 12.",
+      "expect": {
+        "reason": "version_mismatch",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "manifest-version-mismatch",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--version-mismatch.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/12--version-mismatch.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Bundle requires updater>=2.0.",
+      "expect": {
+        "reason": "incompatible_requires",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "incompatible-bundle-requires",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--bundle-requires.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--bundle-requires.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "code_bearing false although code components are present.",
+      "expect": {
+        "reason": "code_bearing_mismatch",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "code-bearing-mismatch",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--code-bearing.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--code-bearing.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A tool labelled class data.",
+      "expect": {
+        "reason": "class_mismatch",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "class-mismatch-tool",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--tool-data.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--tool-data.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A tool targeted at the Mac.",
+      "expect": {
+        "reason": "target_invalid",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "target-invalid",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--tool-mac.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--tool-mac.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "box-prompts requires a component the bundle does not carry.",
+      "expect": {
+        "reason": "dependency_invalid",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "dependency-invalid",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--dependency.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--dependency.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A key's roles is [{}] (an object, not a role name).",
+      "expect": {
+        "reason": "schema_invalid",
+        "stage": "keys",
+        "verdict": "reject"
+      },
+      "id": "keys-roles-object",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2--roles-object.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "The index signature's key_id ends in a newline.",
+      "expect": {
+        "reason": "schema_invalid",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "index-key-id-newline",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--key-id-newline.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A component's targets is [{}].",
+      "expect": {
+        "reason": "schema_invalid",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "manifest-targets-object",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--targets-object.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--targets-object.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A component's kind is [] instead of a string.",
+      "expect": {
+        "reason": "schema_invalid",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "manifest-kind-array",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--kind-array.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--kind-array.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A component's install path ends in a newline.",
+      "expect": {
+        "reason": "schema_invalid",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "manifest-path-newline",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--path-newline.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--path-newline.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "swarm-tools needs hermes>=0.30; it and box-prompts (requires it) are skipped.",
+      "expect": {
+        "apply": [
+          "swarmhub-manager",
+          "swarmhub-feedback",
+          "policy"
+        ],
+        "bundle_version": 11,
+        "reason": "ok",
+        "skipped": [
+          {
+            "name": "swarm-tools",
+            "reason": "incompatible"
+          },
+          {
+            "name": "box-prompts",
+            "reason": "dependency_skipped"
+          }
+        ],
+        "stage": "component",
+        "verdict": "accept"
+      },
+      "id": "incompatible-component",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--component-requires.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--component-requires.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "The box cannot read its Hermes version; Hermes-ranged components are skipped.",
+      "expect": {
+        "apply": [
+          "swarmhub-manager",
+          "swarmhub-feedback",
+          "policy"
+        ],
+        "bundle_version": 11,
+        "reason": "ok",
+        "skipped": [
+          {
+            "name": "swarm-tools",
+            "reason": "incompatible"
+          },
+          {
+            "name": "box-prompts",
+            "reason": "dependency_skipped"
+          }
+        ],
+        "stage": "component",
+        "verdict": "accept"
+      },
+      "id": "hermes-unknown",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "One byte of a component archive changed.",
+      "expect": {
+        "reason": "blob_hash_mismatch",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "tampered-blob",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--tampered-blob.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--tampered-blob.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Declared size is one byte larger than the blob.",
+      "expect": {
+        "reason": "blob_size_mismatch",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "blob-size-mismatch",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--size.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--size.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Entry path ../evil.sh.",
+      "expect": {
+        "reason": "archive_unsafe_path",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-dotdot",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-dotdot.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-dotdot.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Entry path /tmp/evil.sh.",
+      "expect": {
+        "reason": "archive_unsafe_path",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-absolute",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-absolute.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-absolute.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Symlink entry to /etc/passwd.",
+      "expect": {
+        "reason": "archive_link",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-symlink",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-symlink.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-symlink.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Hard-link entry.",
+      "expect": {
+        "reason": "archive_link",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-hardlink",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-hardlink.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-hardlink.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Character device entry.",
+      "expect": {
+        "reason": "archive_special_file",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-device",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-device.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-device.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Setuid script (04755).",
+      "expect": {
+        "reason": "archive_bad_mode",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-bad-mode-setuid",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-bad-mode-setuid.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-bad-mode-setuid.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "World-writable file (0666).",
+      "expect": {
+        "reason": "archive_bad_mode",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-bad-mode-writable",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-bad-mode-writable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-bad-mode-writable.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "SKILL.md appears twice.",
+      "expect": {
+        "reason": "archive_duplicate_path",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-duplicate-path",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-duplicate-path.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-duplicate-path.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Entry path ends in a newline.",
+      "expect": {
+        "reason": "archive_unsafe_path",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-path-newline",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-path-newline.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-path-newline.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "scripts is a file and also a parent directory.",
+      "expect": {
+        "reason": "archive_path_conflict",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-path-conflict",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-path-conflict.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-path-conflict.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Header checksum does not match.",
+      "expect": {
+        "reason": "archive_malformed",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-malformed",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-malformed.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-malformed.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A 5000-byte file against max_file_size 4096.",
+      "expect": {
+        "reason": "archive_oversize",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-oversize-file",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--oversize-file.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 4096,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--oversize-file.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Files totalling more than max_total_size 1500.",
+      "expect": {
+        "reason": "archive_oversize",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-oversize-total",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--oversize-total.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 1500
+        },
+        "manifest": "bundles/11--oversize-total.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Declared blob size above max_blob_size 1024.",
+      "expect": {
+        "reason": "archive_oversize",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-oversize-blob",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 1024,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A skill labelled data that contains a Python file.",
+      "expect": {
+        "reason": "class_mismatch",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "class-mismatch-skill",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--skill-data-code.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--skill-data-code.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A config component whose JSON file is executable (0755).",
+      "expect": {
+        "reason": "class_mismatch",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "class-mismatch-exec-data",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--exec-data.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--exec-data.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    }
+  ],
+  "jcs": [
+    {
+      "canonical": "{\"a\":1,\"b\":2,\"c\":{\"y\":false,\"z\":true}}",
+      "id": "sort-members",
+      "input": "{\"b\":2,\"a\":1,\"c\":{\"z\":true,\"y\":false}}"
+    },
+    {
+      "canonical": "{\"a\":[1,2],\"b\":\"x\"}",
+      "id": "strip-whitespace",
+      "input": " { \"a\" : [ 1 , 2 ] ,\n \"b\" : \"x\" } "
+    },
+    {
+      "canonical": "{\"s\":\"q\\\" b\\\\ s/ n\\n t\\t r\\r b\\b f\\f c\\u0001 d\\u001f\"}",
+      "id": "string-escapes",
+      "input": "{\"s\":\"q\\\" b\\\\ s\\/ n\\n t\\t r\\r b\\b f\\f c\\u0001 d\\u001F\"}"
+    },
+    {
+      "canonical": "{\"k\":\"é€😀 zażółć\"}",
+      "id": "non-ascii-literal",
+      "input": "{\"k\":\"\\u00e9\\u20ac\\ud83d\\ude00 za\\u017c\\u00f3\\u0142\\u0107\"}"
+    },
+    {
+      "canonical": "{\"k\":\"\"}",
+      "id": "del-literal",
+      "input": "{\"k\":\"\\u007f\"}"
+    },
+    {
+      "canonical": "{\"m\":9007199254740991,\"n\":-5,\"z\":0}",
+      "id": "integers",
+      "input": "{\"n\":-5,\"m\":9007199254740991,\"z\":0}"
+    },
+    {
+      "canonical": "{\"a\":[{\"x\":[true,false],\"y\":1},[]]}",
+      "id": "nested-arrays",
+      "input": "{\"a\":[{\"y\":1,\"x\":[true,false]},[]]}"
+    },
+    {
+      "error": true,
+      "id": "float",
+      "input": "{\"a\":1.0}"
+    },
+    {
+      "error": true,
+      "id": "exponent",
+      "input": "{\"a\":1e3}"
+    },
+    {
+      "error": true,
+      "id": "big-integer",
+      "input": "{\"a\":9007199254740992}"
+    },
+    {
+      "error": true,
+      "id": "negative-zero",
+      "input": "{\"a\":-0}"
+    },
+    {
+      "error": true,
+      "id": "null",
+      "input": "{\"a\":null}"
+    },
+    {
+      "error": true,
+      "id": "duplicate-member",
+      "input": "{\"a\":1,\"a\":2}"
+    },
+    {
+      "error": true,
+      "id": "lone-surrogate",
+      "input": "{\"a\":\"\\ud800\"}"
+    },
+    {
+      "error": true,
+      "id": "nan",
+      "input": "{\"a\":NaN}"
+    },
+    {
+      "error": true,
+      "id": "non-ascii-member",
+      "input": "{\"é\":1}"
+    }
+  ],
+  "note": "Generated by scripts/release/make_vectors.py. TEST keys only. See docs/update-service/SCHEMAS.md.",
+  "schema": "swarmhub/release-vectors/1"
+}
