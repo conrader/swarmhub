@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import ImageIO
 import SwiftUI
 import SwarmHubCore
 import Testing
@@ -29,12 +30,60 @@ private func critical(_ view: String) -> [String: Data] {
     [view: Data(#"{"schema":"swarmhub/ui/2","critical":true,"view":"\#(view)","root":{}}"#.utf8)]
 }
 
-@MainActor private func pixels<V: View>(_ view: V) throws -> String {
-    _ = NSApplication.shared
-    let renderer = ImageRenderer(content: view.frame(width: 560, height: 520, alignment: .topLeading).environment(\.colorScheme, .light))
-    let image = try #require(renderer.cgImage)
-    let data = try #require(image.dataProvider?.data)
-    return SHA256.hash(data: data as Data).map { String(format: "%02x", $0) }.joined()
+/// Drawn by AppKit in an offscreen window with the light appearance pinned (`SnapshotRenderer`), as the app's other
+/// snapshot tests do. `ImageRenderer` draws AppKit-backed controls as placeholders and does not pin the appearance
+/// `AppColor` resolves against; under it the same compiled view drew different pixels as the run went on (the Mac runs
+/// of af86f86 and b9d33dc failed different cases with the host code unchanged).
+@MainActor private func pixels<V: View>(_ view: V) async throws -> String {
+    let size = NSSize(width: 560, height: 520)
+    let png = try #require(await SnapshotRenderer.png(view.frame(width: size.width, height: size.height, alignment: .topLeading),
+                                                      size: size, scale: 1, scheme: .light))
+    let source = try #require(CGImageSourceCreateWithData(png as CFData, nil))
+    return try pixelDigest(try #require(CGImageSourceCreateImageAtIndex(source, 0, nil)))
+}
+
+/// The compiled baseline after one warm-up draw, drawn twice: a difference here is the renderer, not a host.
+@MainActor private func baseline<V: View>(_ view: V, _ name: String) async throws -> String {
+    _ = try await pixels(view)
+    let first = try await pixels(view), second = try await pixels(view)
+    #expect(first == second, "\(name): the compiled view must draw the same pixels every time")
+    return first
+}
+
+/// Compare visible pixels, not the provider's storage (which can include undefined row padding, unused channels
+/// and different bitmap formats). Keep every pixel and the dimensions, with no tolerance or downsampling.
+private func pixelDigest(_ image: CGImage) throws -> String {
+    var rgba = Data(repeating: 0, count: image.width * image.height * 4)
+    let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+    try rgba.withUnsafeMutableBytes { bytes in
+        let context = try #require(CGContext(data: bytes.baseAddress, width: image.width, height: image.height,
+            bitsPerComponent: 8, bytesPerRow: image.width * 4, space: space,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+        context.setBlendMode(.copy)
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    }
+    let hash = SHA256.hash(data: rgba).map { String(format: "%02x", $0) }.joined()
+    return "\(image.width)x\(image.height):\(hash)"
+}
+
+@Test func routinePixelComparisonIgnoresStoragePaddingButDetectsChangedPixels() throws {
+    func image(padding: UInt8, red: UInt8 = 120, height: Int = 2) throws -> CGImage {
+        let row: [UInt8] = [red, 30, 60, 255, padding, padding, padding, padding]
+        let bytes = Data(Array(repeating: row, count: height).flatMap { $0 })
+        let provider = try #require(CGDataProvider(data: bytes as CFData))
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        return try #require(CGImage(width: 1, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 8,
+            space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+                .union(.byteOrder32Big), provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+    }
+    let first = try image(padding: 0), second = try image(padding: 255)
+    // The old helper would reject these identical images.
+    let firstBytes = try #require(first.dataProvider?.data) as Data
+    let secondBytes = try #require(second.dataProvider?.data) as Data
+    #expect(firstBytes != secondBytes)
+    #expect(try pixelDigest(first) == pixelDigest(second))
+    #expect(try pixelDigest(first) != pixelDigest(image(padding: 0, red: 121)))
+    #expect(try pixelDigest(first) != pixelDigest(image(padding: 0, height: 1)))
 }
 
 private func sampleJob(_ id: String = "0123456789ab") -> HermesJob {
@@ -44,10 +93,10 @@ private func sampleJob(_ id: String = "0123456789ab") -> HermesJob {
 
 /// The four wiring cases, compared pixel for pixel with the compiled card: no bundle / no document, decoder fallback
 /// and kill switch draw exactly the compiled view; `update_required` draws the compiled update-required view.
-@MainActor @Test func routineCardHostDrawsTheCompiledCardUnlessADocumentFits() throws {
+@MainActor @Test func routineCardHostDrawsTheCompiledCardUnlessADocumentFits() async throws {
     let message = AppStore.routineCard(job: sampleJob(), result: HermesRunResult(sessionID: "cron_x_1", text: "All checks passed."),
                                        lookupError: nil)
-    let compiled = try pixels(RoutineResultCard(message: message))
+    let compiled = try await baseline(RoutineResultCard(message: message), "card")
     let unknown = [SDUIRoutineTarget.resultCardView: Data(#"{"schema":"swarmhub/ui/1","view":"routine_result_card","root":{"type":"web_view"}}"#.utf8)]
     let empty = SDUIMac.installedSource(root: FileManager.default.temporaryDirectory.appending(path: "p7b-\(UUID().uuidString)"))
     for (name, compiledSource) in [("no bundle", SDUIViewSource.compiledOnly), ("nothing installed", empty),
@@ -56,19 +105,20 @@ private func sampleJob(_ id: String = "0123456789ab") -> HermesJob {
                                    ("killed view", source(targets, killed: [SDUIRoutineTarget.resultCardView])),
                                    ("killed component", source(targets, killed: ["badge"])),
                                    ("killed critical", source(critical(SDUIRoutineTarget.resultCardView), killed: [SDUIRoutineTarget.resultCardView]))] {
-        let hosted = try pixels(RoutineResultCardHost(message: message).environment(\.sduiViewSource, compiledSource))
+        if case .compiled = SDUIRoutineTarget.resultCard(compiledSource) {} else { Issue.record("\(name): expected compiled card") }
+        let hosted = try await pixels(RoutineResultCardHost(message: message).environment(\.sduiViewSource, compiledSource))
         #expect(hosted == compiled, "\(name)")
     }
-    let update = try pixels(RoutineResultCardHost(message: message).environment(\.sduiViewSource, source(critical(SDUIRoutineTarget.resultCardView))))
-    let updateView = try pixels(SDUIUpdateRequiredView(inSheet: false))
+    let update = try await pixels(RoutineResultCardHost(message: message).environment(\.sduiViewSource, source(critical(SDUIRoutineTarget.resultCardView))))
+    let updateView = try await pixels(SDUIUpdateRequiredView(inSheet: false))
     #expect(update != compiled)
     #expect(update == updateView)
 }
 
-@MainActor @Test func routineEditorHostDrawsTheCompiledSheetUnlessADocumentFits() throws {
+@MainActor @Test func routineEditorHostDrawsTheCompiledSheetUnlessADocumentFits() async throws {
     let (store, bot, _) = routinesStore(FakeJobsServer())
     for job in [nil, sampleJob()] as [HermesJob?] {
-        let compiled = try pixels(RoutineEditorSheet(bot: bot, job: job).environmentObject(store))
+        let compiled = try await baseline(RoutineEditorSheet(bot: bot, job: job).environmentObject(store), job == nil ? "create" : "edit")
         let view = job == nil ? SDUIRoutineTarget.createFormView : SDUIRoutineTarget.editFormView
         let golden = (try? Data(contentsOf: repoRoot.appending(path: "Tests/Fixtures/release-bundles/ui/documents/routine-form.json"))) ?? Data()
         for (name, compiledSource) in [("no bundle", SDUIViewSource.compiledOnly),
@@ -76,11 +126,13 @@ private func sampleJob(_ id: String = "0123456789ab") -> HermesJob {
                                        ("does not fit", source([SDUIRoutineTarget.editFormView: golden, SDUIRoutineTarget.createFormView: golden])),
                                        ("killed view", source(targets, killed: [view])),
                                        ("killed critical", source(critical(view), killed: [view]))] {
-            let hosted = try pixels(RoutineEditorHost(bot: bot, job: job).environment(\.sduiViewSource, compiledSource).environmentObject(store))
+            if case .compiled = SDUIRoutineTarget.editor(compiledSource, routineID: job?.id, data: RoutineSDUIData.editor(bot: bot, job: job)) {
+            } else { Issue.record("\(name): expected compiled editor") }
+            let hosted = try await pixels(RoutineEditorHost(bot: bot, job: job).environment(\.sduiViewSource, compiledSource).environmentObject(store))
             #expect(hosted == compiled, "\(name) \(job == nil ? "create" : "edit")")
         }
-        let update = try pixels(RoutineEditorHost(bot: bot, job: job).environment(\.sduiViewSource, source(critical(view))).environmentObject(store))
-        let updateView = try pixels(SDUIUpdateRequiredView(inSheet: true))
+        let update = try await pixels(RoutineEditorHost(bot: bot, job: job).environment(\.sduiViewSource, source(critical(view))).environmentObject(store))
+        let updateView = try await pixels(SDUIUpdateRequiredView(inSheet: true))
         #expect(update != compiled)
         #expect(update == updateView)
         if case .document = SDUIRoutineTarget.editor(source(targets), routineID: job?.id, data: RoutineSDUIData.editor(bot: bot, job: job)) {
