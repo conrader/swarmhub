@@ -198,6 +198,25 @@ class MoveTests(unittest.TestCase):
         self.assertIn('"Decided on another device. "', store)
         self.assertIn('ManagedApprovalFlow.decidedElsewhere(record, identity: identity)', store)
 
+    def test_mode_changed_refusal_frees_the_attempt_and_hides_the_box_without_retry(self):
+        client = (CORE / 'DeviceSignedApprovalClient.swift').read_text()
+        self.assertIn('"mode_changed"', client[client.index('let refusals: Set<String>'):])
+        refusal = client[client.index('} catch let refusal as Refusal {'):client.index('guard let receipt = result')]
+        self.assertIn('try settings.clearRefusedAttempt(origin: origin, task: task)', refusal)
+        self.assertIn('throw ManagedControlError.refused(refusal.reason)', refusal)
+        store = (IOS / 'ManagedApprovalStore.swift').read_text()
+        changed = store[store.index('case .refused("mode_changed"):'):store.index('case .notDeviceRequired:')]
+        self.assertIn('notice = message', changed)
+        self.assertIn('reportedRequired.remove(target.origin)', changed)
+        self.assertIn('cards.removeAll { $0.target.origin == target.origin }', changed)
+        self.assertIn('return', changed)
+        self.assertNotIn('await', changed, 'refusal must not dispatch another request')
+        self.assertIn('Not accepted, box mode changed.', (CORE / 'ManagedRecord.swift').read_text())
+        views = (IOS / 'ManagedApprovalViews.swift').read_text()
+        self.assertIn('else if !store.demo, let notice = managed.notice', views, 'notice survives hiding the section')
+        removed = views.index('AvailabilityNote(text: "This operation is no longer pending on this phone.")')
+        self.assertIn('if let notice = managed.notice', views[removed:], 'notice survives freeing the detail card')
+
     def test_native_hermes_approval_path_is_unchanged(self):
         base = subprocess.run(['git', '-C', str(ROOT), 'show', 'b3a5617:Apps/iOS/Sources/MobileStore.swift'],
                               capture_output=True, text=True)

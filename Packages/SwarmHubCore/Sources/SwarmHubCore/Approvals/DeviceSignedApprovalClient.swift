@@ -250,7 +250,7 @@ public enum DeviceSignedApprovalClient {
         let refusals: Set<String> = ["schema_invalid", "protocol_unsupported", "device_unknown", "device_revoked",
             "signature_invalid", "box_mismatch", "profile_mismatch", "device_unauthorized", "task_mismatch",
             "fingerprint_mismatch", "gate_mismatch", "operation_not_pending", "nonce_unknown", "nonce_mismatch",
-            "nonce_replayed", "nonce_not_yet_valid", "nonce_expired", "state_invalid"]
+            "nonce_replayed", "mode_changed", "nonce_not_yet_valid", "nonce_expired", "state_invalid"]
         if http.statusCode == 403, Set(result.keys) == ["error", "reason"],
            result["error"] == .string("control request refused"), let reason = result["reason"]?.stringValue,
            refusals.contains(reason) { throw Refusal(reason: reason) }

@@ -181,6 +181,7 @@ def challenges(db):
     """
     result = {}
     expired = {row[0] for row in db.execute("SELECT nonce FROM approval_expired")}
+    mode_changed = {row[0] for row in db.execute("SELECT nonce FROM approval_mode_changed")}
     for row in db.execute("SELECT nonce,key_id,task,issued,expires,used,binding FROM approval_challenges"):
         require(isinstance(row["binding"], str) and type(row["used"]) is int and row["used"] in (0, 1),
                 "state_invalid")
@@ -195,7 +196,8 @@ def challenges(db):
                 and (row["nonce"], row["key_id"], row["task"], row["issued"], row["expires"])
                 == (binding["nonce"], binding["key_id"], binding["task"], binding["issued"], binding["expires"]),
                 "state_invalid")
-        result[row["nonce"]] = {"binding": binding, "used": row["used"] == 1, "expired": row["nonce"] in expired}
+        result[row["nonce"]] = {"binding": binding, "used": row["used"] == 1, "expired": row["nonce"] in expired,
+                                "mode_changed": row["nonce"] in mode_changed}
     return result
 
 

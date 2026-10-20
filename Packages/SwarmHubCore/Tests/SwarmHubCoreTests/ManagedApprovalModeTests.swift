@@ -54,6 +54,27 @@ struct ManagedApprovalModeTests {
         #expect(!harness.settings.hasAttempt(origin: harness.box.origin, task: DeviceBoxProtocol.task))
     }
 
+    @Test func modeSwitchAfterChallengeRefusesAndFreesThePhoneAttemptWithoutRetry() async throws {
+        for approved in [true, false] {
+            let harness = try Harness()
+            let reviewed = try await harness.load()
+            harness.box.lock.withLock { harness.box.modeAfterChallenge = "legacy" }
+            do { _ = try await harness.decide(reviewed, approved); Issue.record("mode switch must refuse") }
+            catch ManagedControlError.refused(let reason) {
+                #expect(reason == "mode_changed")
+                #expect(ManagedControlError.refused(reason).localizedDescription ==
+                        "Not accepted, box mode changed. The operation remains pending.")
+            } catch { Issue.record(error) }
+            #expect(!harness.settings.hasAttempt(origin: harness.box.origin, task: DeviceBoxProtocol.task))
+            #expect(harness.box.lock.withLock { harness.box.committed == nil })
+            #expect(harness.calls == ["receipt", "receipt", "challenge", "decide"])
+            // Refresh is read-only and hides the legacy box; it never re-signs the freed choice.
+            do { _ = try await harness.load(); Issue.record("legacy box must stay hidden") }
+            catch ManagedControlError.notDeviceRequired {} catch { Issue.record(error) }
+            #expect(harness.calls == ["receipt", "receipt", "challenge", "decide", "receipt"])
+        }
+    }
+
     @Test func anotherDevicesReceiptSettlesThisDevicesUncertainAttempt() async throws {
         let harness = try Harness()
         let reviewed = try await harness.load()

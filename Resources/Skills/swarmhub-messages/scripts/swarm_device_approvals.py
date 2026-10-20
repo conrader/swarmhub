@@ -82,6 +82,7 @@ def saved_receipt(db, task, origin, runtime):
 def prune(db, now):
     db.execute("DELETE FROM approval_challenges WHERE expires+?<=?", (ds.TTL, now))
     db.execute("DELETE FROM approval_expired WHERE nonce NOT IN (SELECT nonce FROM approval_challenges)")
+    db.execute("DELETE FROM approval_mode_changed WHERE nonce NOT IN (SELECT nonce FROM approval_challenges)")
 
 
 class DeviceApprovals:
@@ -127,6 +128,7 @@ class DeviceApprovals:
             require(nonce is not None, "nonce_unknown")
             require(nonce["binding"] == {k: body[k] for k in ds.NONCE_FIELDS}, "nonce_mismatch")
             require(not nonce["used"], "nonce_replayed")
+            require(not nonce["mode_changed"], "mode_changed")
             require(body["issued"] <= now, "nonce_not_yet_valid")
             # A box clock that steps back below `expires` cannot revive a nonce a read already saw expire.
             require(now < body["expires"] and not nonce["expired"], "nonce_expired")

@@ -23,6 +23,8 @@ struct ManagedApprovalsSection: View {
             } header: { Text("Managed operations") } footer: {
                 Text("Signed with this phone’s approval key and sent directly to the box. Only boxes switched to device-required mode appear here.")
             }
+        } else if !store.demo, let notice = managed.notice {
+            Section { Text(notice).font(.footnote).foregroundStyle(.secondary) }
         }
     }
     private func refresh() async { await managed.refresh(profiles: store.profiles, caches: store.caches, demo: store.demo) }
@@ -69,11 +71,11 @@ struct ManagedApprovalDetailView: View {
                         check(card)
                         Button("Hide from this phone") { managed.hide(card); dismiss() }.buttonStyle(.bordered)
                     }
-                    if let notice = managed.notice { Text(notice).font(.footnote).foregroundStyle(.secondary) }
                     if busy { ProgressView("Waiting for the box’s receipt…") }
                 } else {
                     AvailabilityNote(text: "This operation is no longer pending on this phone.")
                 }
+                if let notice = managed.notice { Text(notice).font(.footnote).foregroundStyle(.secondary) }
             }.padding(20)
         }.navigationTitle("Managed operation").navigationBarTitleDisplayMode(.inline)
     }

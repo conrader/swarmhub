@@ -91,6 +91,70 @@ class ModeReportTests(Box):
         status, result = self.post(self.service(), 'receipt', b'{}')
         self.assertEqual((status, set(result)), (403, {'error', 'reason'}))
 
+    def assert_mode_switch_refuses(self, issued_mode, current_mode):
+        devices.set_mode(issued_mode)
+        service = self.service()
+        challenge = self.challenge(service, self.task)
+        # Already signed on the phone; the operator switches before the decision arrives.
+        raw = self.decision(challenge)
+        devices.set_mode(current_mode)
+        before = self.box_rows()
+        # A new service instance also sees the persistent invalidation.
+        for approved in (True, False):
+            status, result = self.post(self.service(), 'decide', raw if approved else self.decision(challenge, False))
+            self.assertEqual((status, result), (403, {'error': 'control request refused', 'reason': 'mode_changed'}))
+            self.assertEqual(self.box_rows(), before, 'refusal consumes nothing and records no decision')
+        status, result = self.receipt(service, self.task)
+        self.assertEqual((status, result['receipt'], result['status'], result['mode']),
+                         (200, None, 'awaiting-owner', current_mode))
+        self.assertIsNone(result['record']['decided_at'])
+        self.assertIsNone(result['record']['decided_by'])
+        self.wake.assert_not_called()
+        # The current mode's normal path still works for this pending operation.
+        if current_mode == 'legacy':
+            self.v1(service, 'decide', self.task)
+        else:
+            fresh = self.challenge(service, self.task)
+            self.assertEqual(self.post(service, 'decide', self.decision(fresh))[0], 200)
+
+    def test_required_to_legacy_refuses_in_flight_decision(self):
+        self.assert_mode_switch_refuses('required', 'legacy')
+
+    def test_legacy_to_required_refuses_in_flight_decision(self):
+        self.assert_mode_switch_refuses('legacy', 'required')
+
+    def test_same_mode_challenges_still_work_including_mac_legacy(self):
+        for mode in ('legacy', 'required'):
+            for approved in (True, False):
+                with self.subTest(mode=mode, approved=approved):
+                    devices.set_mode(mode)
+                    task, service = self.submit(mode + str(approved)), self.service()
+                    challenge = self.challenge(service, task)
+                    devices.set_mode(mode)  # Repeating the operator command is not a switch.
+                    status, result = self.post(service, 'decide', self.decision(challenge, approved))
+                    self.assertEqual((status, result['receipt']['remoteReceipt']['approved']), (200, approved))
+
+    def test_switching_back_does_not_revive_old_challenges(self):
+        service = self.service()
+        challenge = self.challenge(service, self.task)
+        devices.set_mode('required')
+        devices.set_mode('legacy')
+        before = self.box_rows()
+        status, result = self.post(service, 'decide', self.decision(challenge))
+        self.assertEqual((status, result['reason']), (403, 'mode_changed'))
+        self.assertEqual(self.box_rows(), before)
+        self.wake.assert_not_called()
+
+    def test_invalidation_marks_are_pruned_with_challenges(self):
+        from device_approval_harness import clock
+        service = self.service()
+        challenge = self.challenge(service, self.task)
+        devices.set_mode('required')
+        self.assertEqual(self.box_rows()['approval_mode_changed'], [(challenge['nonce'],)])
+        with clock(challenge['expires'] + ds.TTL):
+            self.challenge(service, self.task)
+        self.assertEqual(self.box_rows()['approval_mode_changed'], [])
+
 
 if __name__ == '__main__':
     unittest.main()

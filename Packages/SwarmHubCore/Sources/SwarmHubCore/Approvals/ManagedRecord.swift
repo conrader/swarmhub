@@ -109,6 +109,7 @@ public enum ManagedControlError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .unsent(let reason): reason
+        case .refused("mode_changed"): "Not accepted, box mode changed. The operation remains pending."
         case .refused(let reason): "The box refused the decision (\(reason)). You can retry or deny."
         case .retired(_, _, _, let reason): "The runtime retired this approval: \(reason)."
         case .unavailable: "Managed approval requires an authenticated SwarmHub control service at this Hermes connection. The operation remains pending."

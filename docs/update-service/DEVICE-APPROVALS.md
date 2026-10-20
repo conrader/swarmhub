@@ -99,8 +99,8 @@ First failure wins: trusted snapshot validity → strict JSON/envelope/field sha
 box/profile/device authorization/task/fingerprint/gate/pending state
 (`box_mismatch`, `profile_mismatch`, `device_unauthorized`, `task_mismatch`,
 `fingerprint_mismatch`, `gate_mismatch`, `operation_not_pending`) → nonce existence,
-binding, unused status and time (`nonce_unknown`, `nonce_mismatch`,
-`nonce_replayed`, `nonce_not_yet_valid`, `nonce_expired`) → `accept/ok`.
+binding, unused status, mode validity and time (`nonce_unknown`, `nonce_mismatch`,
+`nonce_replayed`, `mode_changed`, `nonce_not_yet_valid`, `nonce_expired`) → `accept/ok`.
 Invalid local state returns `reject/state_invalid`; any unclassified malformed
 input rejects. All checks precede consumption. v1 dispatch checks local mode
 before any v1 authentication; it cannot grant device-required authority.
@@ -229,9 +229,13 @@ it shows and decides follows the mode the box reports (`DeviceApprovalChecks.dev
 anything is adopted, cleared or signed. `legacy`, a missing mode (boxes before skill 1.4.3) or any other value throws
 `notDeviceRequired`; the store then drops every card of that box and hides the managed section until a later read
 reports `required` again. Reported modes are kept in memory only, so after launch every box starts hidden. The refresh
-runs from the Approvals list (`.task`, pull to refresh), so a hidden section is still re-checked. Remaining window: an
-operator switching to legacy after the challenge was issued can still receive that one signed decision, which the box
-accepts in either mode, as before.
+runs from the Approvals list (`.task`, pull to refresh), so a hidden section is still re-checked. Skill 1.4.4
+invalidates every outstanding challenge atomically on an actual mode switch, including challenges issued before the
+update. A subsequent decision rejects with `mode_changed`, consumes nothing and records no decision or receipt; the
+operation stays pending for the current mode’s normal path. Switching back cannot revive an invalidated challenge;
+setting the same mode leaves challenges valid, including the Mac’s legacy-mode challenges. The phone shows
+"Not accepted, box mode changed", clears the refused attempt and drops the box’s cards until a fresh read. It never
+retries or re-signs automatically. Invalidation marks are pruned with their challenge rows.
 
 A receipt another enrolled device committed (for example the Mac) resolves the phone's card as "Decided on another
 device". It must pass the same structural receipt checks under that device's key ID (`[A-Za-z0-9._-]{1,64}`, not the

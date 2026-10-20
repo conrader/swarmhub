@@ -106,6 +106,11 @@ final class ManagedApprovalStore {
         let message = error.localizedDescription
         if let control = error as? ManagedControlError {
             switch control {
+            case .refused("mode_changed"):
+                notice = message
+                reportedRequired.remove(target.origin)
+                cards.removeAll { $0.target.origin == target.origin }
+                return
             case .notDeviceRequired:
                 // The box is legacy (or did not say): hide every card of that box; nothing was signed or sent.
                 reportedRequired.remove(target.origin)
@@ -116,7 +121,7 @@ final class ManagedApprovalStore {
                 cards.removeAll { $0.id == id }
                 return
             case .attemptExpired, .refused, .unsent:
-                // Both are thrown only after the box reported device-required mode in that same exchange.
+                // The challenge reported required; a mode_changed refusal is handled above.
                 if case .attemptExpired = control { reportedRequired.insert(target.origin) }
                 if case .refused = control { reportedRequired.insert(target.origin) }
                 // Nothing was recorded. A reviewed card stays and the user chooses again; any other card

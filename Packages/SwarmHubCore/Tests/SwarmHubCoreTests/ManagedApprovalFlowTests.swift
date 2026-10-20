@@ -5,7 +5,7 @@ import Testing
 
 /// An in-process stand-in for a device-required P5b box, one unique host per test. It verifies both signature
 /// domains with the enrolled public key and refuses anything carrying a shared-key header. No sockets.
-/// Like the box (skill 1.4.3), receipt reads other than `gone` and challenges report `mode`; a missing entry in
+/// Like the box (skill 1.4.4), receipt reads other than `gone` and challenges report `mode`; a missing entry in
 /// `modes` stands for an older box that reports none.
 final class DeviceBoxProtocol: URLProtocol, @unchecked Sendable {
     final class Box: @unchecked Sendable {
@@ -21,6 +21,8 @@ final class DeviceBoxProtocol: URLProtocol, @unchecked Sendable {
         var dropDecision = false
         var gone = false
         var modes: [String: String] = ["receipt": "required", "challenge": "required"]
+        var modeAfterChallenge: String?
+        var challengeMode: String?
         init(origin: String, identity: DeviceApprovalIdentity) throws {
             self.origin = origin; keyID = identity.keyID
             publicKey = try Curve25519.Signing.PublicKey(rawRepresentation: DeviceApprovalFixtures.hex(identity.publicKey))
@@ -90,6 +92,7 @@ final class DeviceBoxProtocol: URLProtocol, @unchecked Sendable {
                 response["observed_at"] = .int(Int64(Date().timeIntervalSince1970)); response["record"] = encode(Self.operation(box.origin))
             }
         case "challenge":
+            box.challengeMode = box.modes["challenge"]
             let record = Self.operation(box.origin, binding: false)
             let issued = Int64(Date().timeIntervalSince1970)
             response["record"] = encode(record); response["mode"] = box.modes["challenge"].map(JSONValue.string)
@@ -98,8 +101,10 @@ final class DeviceBoxProtocol: URLProtocol, @unchecked Sendable {
                 "runtime": .string(Self.runtime), "profile": .string("owner"), "task": .string(Self.task), "gate": .string("owner"),
                 "nonce": .string(String(repeating: "1", count: 64)), "issued": .int(issued), "expires": .int(issued + 60),
                 "fingerprint": .string((try? DeviceApprovalWire.digest(DeviceApprovalWire.canonical(.object(record.spec.fields)))) ?? "")])
+            if let mode = box.modeAfterChallenge { box.modes = ["receipt": mode, "challenge": mode] }
         case "decide":
             guard box.committed == nil else { return refused("operation_not_pending") }
+            guard box.challengeMode == box.modes["challenge"] else { return refused("mode_changed") }
             if let reason = box.refuseDecision { box.refuseDecision = nil; return refused(reason) }
             if box.dropDecision { return (503, Data(#"{"error":"TEST lost acknowledgement"}"#.utf8)) }
             let approved = signed["approved"]?.boolValue ?? false
