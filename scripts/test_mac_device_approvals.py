@@ -13,7 +13,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'sim'))
-from device_approval_harness import Box, DOCUMENT, KEYS, clock, ds, remote  # noqa: E402
+from device_approval_harness import Box, DOCUMENT, KEYS, clock, ds, policy, remote  # noqa: E402
 import ed25519_ref  # noqa: E402
 
 FIXTURE = ROOT / 'Tests/Fixtures/release-bundles/TEST-mac-device-signatures.json'
@@ -135,12 +135,55 @@ class MacBoxVerifierTests(Box):
                              (200, None, 'awaiting-owner', observed))
             self.assertIsNone(result['record']['decided_at'])
             self.assertIsNone(result['record']['decided_by'])
-            self.assertEqual(self.box_rows(), before)
+            # Only the expiry mark is written, and only once box time reached `expires`.
+            marked = [(binding['nonce'],)] if observed >= binding['expires'] else []
+            self.assertEqual(self.box_rows(), {**before, 'approval_expired': marked})
+        before = self.box_rows()
         with clock(binding['expires']):
             status, result = self.post(service, 'decide', self.decision(binding))
         self.assertEqual((status, result['reason']), (403, 'nonce_expired'))
         self.assertEqual(self.box_rows(), before)
         self.wake.assert_not_called()
+
+    def test_box_clock_stepping_back_after_expired_read_cannot_commit(self):
+        self.enroll()
+        task, service = self.submit(), self.service()
+        start = int(ds.time.time())
+        with clock(start):
+            binding = self.challenge(service, task)
+        with clock(binding['expires']):
+            status, result = self.receipt(service, task)
+        self.assertEqual((status, result['observed_at']), (200, binding['expires']))
+        before = self.box_rows()
+        self.assertEqual(before['approval_expired'], [(binding['nonce'],)])
+        # The box clock steps back below `expires`; a restarted service still refuses that nonce.
+        for now in (binding['expires'] - 1, start + 1):
+            with self.subTest(now=now), clock(now):
+                status, result = self.post(self.service(), 'decide', self.decision(binding, approved=False))
+            self.assertEqual((status, result['reason']), (403, 'nonce_expired'))
+            self.assertEqual(self.box_rows(), before)
+        self.assertEqual(policy.action(task)['status'], 'awaiting-owner')
+        self.wake.assert_not_called()
+        # A fresh nonce, issued later and never seen expired, still decides; the mark is per nonce.
+        with clock(binding['expires'] - 1):
+            fresh = self.challenge(service, task)
+            status, result = self.post(service, 'decide', self.decision(fresh, approved=False))
+        self.assertEqual((status, result['receipt']['status']), (200, 'denied'))
+        self.assertEqual(self.box_rows()['approval_expired'], [(binding['nonce'],)])
+
+    def test_expiry_marks_are_pruned_with_their_challenges(self):
+        self.enroll()
+        task, service = self.submit(), self.service()
+        start = int(ds.time.time())
+        with clock(start):
+            binding = self.challenge(service, task)
+        with clock(binding['expires']):
+            self.receipt(service, task)
+        with clock(binding['expires'] + ds.TTL):  # Old challenge rows (and their marks) may now be pruned.
+            self.challenge(service, task)
+        rows = self.box_rows()
+        self.assertNotIn(binding['nonce'], [r[0] for r in rows['approval_challenges']])
+        self.assertEqual(rows['approval_expired'], [])
 
     def test_refused_signature_can_retry_with_fresh_nonce_and_deny(self):
         self.enroll()

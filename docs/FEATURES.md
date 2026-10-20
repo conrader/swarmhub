@@ -107,7 +107,7 @@ Actions that an agent queues through SwarmHub's runtime (coding, messages to oth
 
 - **Agents on this Mac:** SwarmHub decides through the runtime's local `swarmctl` control command.
 - **Agents on a remote box:** SwarmHub uses the agent's existing HTTPS connection and key. Each decision is signed, bound to that exact action, host and runtime, and valid for 60 seconds. Redirects and plain HTTP are refused.
-  - The remote side also needs a small control service and a reverse-proxy route on the box (instructions are in the `swarmhub-messages` skill, version 1.4.1 on this branch). Installing the skill does not set them up.
+  - The remote side also needs a small control service and a reverse-proxy route on the box (instructions are in the `swarmhub-messages` skill, version 1.4.2 on this branch). Installing the skill does not set them up.
   - **Not deployed:** this service has not been run on a real box. The path through a real TLS connection and the Keychain is untested.
 
 The approval service has automated tests on Linux. The Swift app builds and its automated tests, including `ManagedRemoteControlTests`, pass on a Mac. The native local and remote approval cards have not yet been hand-tested on a Mac, and the remote service has not been deployed; the real TLS/Keychain path remains untested.

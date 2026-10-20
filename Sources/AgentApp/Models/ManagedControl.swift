@@ -122,7 +122,7 @@ extension JSONValue: Decodable {
 }
 
 enum ManagedControlError: LocalizedError {
-    case unavailable, invalidRecord, rejected, attemptExpired
+    case unavailable, invalidRecord, rejected, attemptExpired, operationGone
     case unsent(String)
     case refused(String)
     case retired(task: String, origin: String, runtime: String, reason: String)
@@ -135,6 +135,7 @@ enum ManagedControlError: LocalizedError {
         case .invalidRecord: "The runtime record is stale or does not match this approval."
         case .rejected: "The runtime did not confirm the decision. Refresh status before retrying."
         case .attemptExpired: "The earlier attempt expired without a recorded decision. Review the operation and choose again."
+        case .operationGone: "The box no longer has this operation, so no decision was recorded. Any saved choice on this card was cleared."
         }
     }
 }

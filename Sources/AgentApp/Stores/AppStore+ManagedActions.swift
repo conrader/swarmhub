@@ -42,9 +42,18 @@ extension AppStore {
         let profile = bot.hermesProfile ?? "default"
         let approvalSettings = DeviceApprovalSettings(defaults: defaults)
         if let box = try? ManagedRemoteControl.origin(address: address), approvalSettings.isRequired(box) {
-            return try await ManagedRemoteControl.requestForBox(address: address, profile: profile, key: "", verb: verb,
-                task: task, input: input, settings: approvalSettings, approvalKeys: approvalKeys, reviewed: reviewed,
-                session: hermesSession === HermesURLSession.shared ? nil : hermesSession)
+            do {
+                return try await ManagedRemoteControl.requestForBox(address: address, profile: profile, key: "", verb: verb,
+                    task: task, input: input, settings: approvalSettings, approvalKeys: approvalKeys, reviewed: reviewed,
+                    session: hermesSession === HermesURLSession.shared ? nil : hermesSession)
+            } catch let error as ManagedControlError {
+                // The saved attempt is gone, whichever read cleared it (notification or decision), so is the card's choice.
+                switch error {
+                case .attemptExpired, .operationGone: clearManagedChoice(task: task, origin: box)
+                default: break
+                }
+                throw error
+            }
         }
         if let host = URL(string: address)?.host, !["localhost", "127.0.0.1", "::1"].contains(host) {
             guard !prefixIgnoredHermesProfiles.contains(profile) else { throw ManagedControlError.unsent("This profile is unavailable.") }
@@ -57,6 +66,16 @@ extension AppStore {
         return try await ManagedLocalControl.request(
             address: address, profile: profile, verb: verb, task: task, input: input,
             home: managedHome ?? FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    /// After the client cleared a saved attempt, the user may approve or deny again on that box's card.
+    private func clearManagedChoice(task: String, origin: String) {
+        var changed = false
+        for index in approvals.indices where approvals[index].managedRecord?.id == task
+            && approvals[index].managedRecord?.remoteBinding?.origin == origin && approvals[index].managedDecision != nil {
+            approvals[index].managedDecision = nil; changed = true
+        }
+        if changed { objectWillChange.send(); save() }
     }
 
     /// Keep the persisted pending card until an authoritative runtime receipt confirms the decision.
@@ -125,7 +144,7 @@ extension AppStore {
                 if let controlError = error as? ManagedControlError {
                     switch controlError {
                     case .unsent: approvals[index].managedDecision = earlierChoice
-                    case .refused, .attemptExpired: approvals[index].managedDecision = nil
+                    case .refused, .attemptExpired, .operationGone: approvals[index].managedDecision = nil
                     default: break
                     }
                 }

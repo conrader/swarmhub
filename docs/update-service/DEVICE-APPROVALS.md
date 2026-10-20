@@ -145,9 +145,16 @@ has expired at the fresh receipt read's `observed_at` box timestamp and the vali
 pending with no decision. The box snapshots this integer Unix time and record under the same transaction
 lock used for decisions; the Mac clock cannot establish expiry. Missing/invalid `observed_at` keeps a
 saved attempt locked (including against older boxes until their skill is updated).
-That reconciliation also clears the card's saved choice and stops; the user must review and choose
-again. Before expiry, or if the receipt read fails or is invalid, the attempt stays locked. Nothing
+That reconciliation also clears the card's saved choice and stops, whichever read cleared the attempt
+(a decision retry or a repeated approval notification); the user must review and may approve or deny.
+Before expiry, or if the receipt read fails or is invalid, the attempt stays locked. Nothing
 automatically resends a decision. Read refusals use the normal user-facing rejected error.
+In the same transaction as that read, the box records every unused nonce of the task whose `expires` is at
+or before `observed_at` in `approval_expired`. A decision for a recorded nonce is refused `nonce_expired`
+even if the box clock later steps back below `expires`; the marks are pruned with their challenges.
+A receipt read that answers exactly `{request, receipt: null, status: "gone"}` (no receipt and no stored
+operation, so nothing can commit) clears the saved attempt and the card's choice and shows "The box no
+longer has this operation, so no decision was recorded"; any other shape keeps the attempt.
 
 The Mac fixture stores canonical payload/message bytes, public keys, and signatures. Ed25519 signatures
 from CryptoKit may be randomized: both Swift and Python verify stored signatures instead of comparing

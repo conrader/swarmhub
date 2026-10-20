@@ -20,6 +20,12 @@ enum DeviceApprovalClient {
                     try validateReceipt(record, origin: origin, profile: profile, task: task, identity: identity, expected: pending)
                     return record
                 }
+                if response["receipt"] == .null, response["status"] == .string("gone"),
+                   Set(response.keys) == ["request", "receipt", "status"] {
+                    // No receipt and no stored operation: no decision can commit for this task any more.
+                    if let pending { try settings.clearExpiredAttempt(pending, origin: origin, task: task) }
+                    throw ManagedControlError.operationGone
+                }
                 guard response["receipt"] == .null, response["status"]?.stringValue == "awaiting-owner"
                         || response["status"]?.stringValue == "awaiting-coordinator" else { throw ManagedControlError.invalidRecord }
                 guard let value = response["record"] else { throw ManagedControlError.invalidRecord }

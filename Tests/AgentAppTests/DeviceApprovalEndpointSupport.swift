@@ -18,6 +18,7 @@ final class DeviceEndpoint: @unchecked Sendable {
     var corruptChallenge = false
     var decisionFailure: Int?
     var refusalReason = "signature_invalid"
+    var gone = false // P5b reports a deleted operation as {receipt: null, status: "gone"}.
     init(identity: DeviceApprovalIdentity) { self.identity = identity }
     var calls: [String] { lock.withLock { events } }
 
@@ -50,7 +51,9 @@ final class DeviceEndpoint: @unchecked Sendable {
             switch verb {
             case "receipt":
                 response["receipt"] = try committed.map { try DeviceApprovalJSON.parse(JSONEncoder().encode($0)) } ?? .null
-                if committed == nil {
+                if committed == nil, gone {
+                    response["status"] = .string("gone")
+                } else if committed == nil {
                     response["observed_at"] = .int(receiptTime ?? Int64(Date().timeIntervalSince1970))
                     response["status"] = .string("awaiting-owner")
                     response["record"] = try DeviceApprovalJSON.parse(JSONEncoder().encode(operation(origin: origin)))
