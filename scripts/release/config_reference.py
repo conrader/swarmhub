@@ -2,10 +2,14 @@
 
 The Python statement of Packages/SwarmHubCore/Sources/SwarmHubCore/Updates/ConfigDecoder.swift and the reads of
 ConfigStore.swift. scripts/test_swift_config_vectors.py runs it over Tests/Fixtures/release-bundles/config/ and
-checks that the Swift sources carry the same denylist. Release tooling can call `decode` to refuse a config
-component an app would ignore.
+checks that the Swift sources carry the same denylist. `snapshot` mirrors the pinned, all-or-nothing store
+read; release tooling can call `decode` to refuse a config component an app would ignore.
 """
 
+import hashlib
+import json
+import os
+from pathlib import Path
 import re
 
 import jcs
@@ -147,7 +151,7 @@ def _decode_document(domain, component, data, result):
 
 
 def decode(components):
-    """components: [(name, archive bytes or None when the stored copy failed its integrity check)], record order."""
+    """Decoder-only vectors: [(name, archive bytes or None)], record order. Live reads use snapshot below."""
     result = {"values": {}, "killed_keys": set(), "killed_views": set(), "reports": []}
     found = {}
     for name, archive in components:
@@ -174,6 +178,53 @@ def decode(components):
                 result["reports"].append(report("duplicate_document", domain, component=component))
             continue
         _decode_document(domain, documents[0][0], documents[0][1], result)
+    return result
+
+
+def snapshot(root, before_component_read=None):
+    """ConfigStore's disk rule: pin current + record once, read each archive once, then decode.
+
+    A missing/corrupt pinned record or config component discards ALL values and kill flags. No retry against
+    a newer current is allowed. The optional hook models a switch/collection between the record and bytes,
+    or between components. Decoder-only fixtures above retain their original partial-decode semantics.
+    """
+    root = Path(root)
+    empty = decode([])
+    empty["bundle_version"] = None
+    try:
+        target = os.readlink(root / "current")
+    except OSError:
+        return empty
+    if not re.fullmatch(r"versions/[0-9]{1,16}-[0-9a-f]{16}", target):
+        return empty
+    directory = root / target
+    try:
+        record = json.loads((directory / "record.json").read_bytes())
+        entries = [c for c in record["components"] if c["kind"] == "config" and c["class"] == "data"]
+        version = record["bundle_version"]
+    except (OSError, ValueError, KeyError, TypeError):
+        empty["reports"] = [report("bundle_unreadable")]
+        return empty
+    components, failures = [], []
+    for entry in entries:
+        name, archive = entry["name"], None
+        try:
+            if re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", name):
+                if before_component_read:
+                    before_component_read(name)
+                data = (directory / "components" / name).read_bytes()
+                if len(data) == entry["size"] and hashlib.sha256(data).hexdigest() == entry["sha256"]:
+                    archive = data
+        except OSError:
+            pass
+        components.append((name, archive))
+        if archive is None:
+            failures.append(report("component_unreadable", component=name))
+    if failures:
+        empty["reports"] = failures
+        return empty
+    result = decode(components)
+    result["bundle_version"] = version
     return result
 
 

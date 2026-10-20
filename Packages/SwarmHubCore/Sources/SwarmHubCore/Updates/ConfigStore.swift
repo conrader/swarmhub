@@ -89,11 +89,11 @@ extension ConfigKey where Value == [String: Int64] {
 /// which leaves the store as it was) every key is its compiled default, exactly as before this existed.
 ///
 /// A snapshot: build a new one after the update client switches bundles. Each fallback with a reason is
-/// logged once and kept in `reports`.
+/// logged once and kept in `reports`. Snapshot integrity failures select compiled defaults for every key.
 public final class ConfigStore: @unchecked Sendable {
     public typealias Log = @Sendable (ConfigReport) -> Void
 
-    /// Bundle the values come from; nil when none is installed.
+    /// Bundle the values come from; nil when absent or the snapshot failed its integrity check.
     public let bundleVersion: Int64?
     /// What the decoder refused, in decode order (SCHEMAS.md §12).
     public let decodeReports: [ConfigReport]
@@ -114,18 +114,35 @@ public final class ConfigStore: @unchecked Sendable {
         self.init(components: [], bundleVersion: nil, log: log)
     }
 
-    /// The `config` components of the current bundle, each re-checked against its record and the archive rules.
+    /// Pin one current directory and record; read each config archive once against that record. If any
+    /// archive disappears or fails integrity, discard the whole snapshot, including values and kill flags.
     public convenience init(updates: UpdateStore, log: @escaping Log = ConfigStore.systemLog) {
-        let record = updates.record(.current)
-        let components = (record?.components ?? []).filter { $0.kind == "config" && $0.contentClass == "data" }
-            .map { ConfigComponent(name: $0.name, archive: updates.component($0.name)) }
-        self.init(components: components, bundleVersion: record?.bundleVersion, log: log)
+        do {
+            let bundle = try updates.pinnedBundle()
+            let components = (bundle?.record.components ?? []).filter { $0.kind == "config" && $0.contentClass == "data" }
+                .map { ConfigComponent(name: $0.name, archive: bundle?.component($0.name)) }
+            let failures = components.filter { $0.archive == nil }
+                .map { ConfigReport(reason: "component_unreadable", component: $0.name) }
+            if failures.isEmpty {
+                self.init(components: components, bundleVersion: bundle?.record.bundleVersion, log: log)
+            } else {
+                self.init(documents: ConfigDocuments(reports: failures), bundleVersion: nil, log: log)
+            }
+        } catch {
+            self.init(documents: ConfigDocuments(reports: [ConfigReport(reason: "bundle_unreadable")]),
+                      bundleVersion: nil, log: log)
+        }
     }
 
-    init(components: [ConfigComponent], bundleVersion: Int64?, log: @escaping Log) {
+    /// Decoder-only entry point for shared vectors; live snapshots enforce all-or-nothing integrity above.
+    convenience init(components: [ConfigComponent], bundleVersion: Int64?, log: @escaping Log) {
+        self.init(documents: ConfigDecoder.decode(components), bundleVersion: bundleVersion, log: log)
+    }
+
+    private init(documents: ConfigDocuments, bundleVersion: Int64?, log: @escaping Log) {
         self.bundleVersion = bundleVersion
         self.log = log
-        documents = ConfigDecoder.decode(components)
+        self.documents = documents
         decodeReports = documents.reports
         for report in decodeReports { note(report) }
     }

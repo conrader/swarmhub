@@ -124,14 +124,28 @@ enum ConfigVectors {
     }
 }
 
-/// P6a acceptance against the shared vectors: each case is committed to a real `UpdateStore` as the current
-/// bundle and read back through `ConfigStore`.
+/// The unchanged vectors describe decoder rules, including partial decode of unreadable input. Live store
+/// snapshots enforce the stronger all-or-nothing integrity rule before calling that decoder.
 struct ConfigStoreTests {
-    @Test func everySharedVectorReadsAsExpected() throws {
+    @Test func everySharedDecoderVectorReadsAsExpected() throws {
         let cases = ConfigVectors.cases
         #expect(cases.count == 15)
         for vector in cases {
-            let store = try ConfigVectors.store(for: ConfigVectors.objects(vector["components"]))
+            let components = ConfigVectors.objects(vector["components"]).map { component in
+                ConfigComponent(name: ConfigVectors.string(component["name"]) ?? "?",
+                    archive: component["unreadable"] == .bool(true) ? nil
+                        : ConfigVectors.string(component["archive"]).map(UpdateFixtures.data))
+            }
+            let log = ReportLog()
+            ConfigVectors.check(ConfigStore(components: components, bundleVersion: nil, log: { log.append($0) }), vector, log: log)
+        }
+    }
+
+    @Test func everyReadableSharedVectorReadsFromUpdateStore() throws {
+        for vector in ConfigVectors.cases {
+            let components = ConfigVectors.objects(vector["components"])
+            guard !components.contains(where: { $0["unreadable"] == .bool(true) }) else { continue }
+            let store = try ConfigVectors.store(for: components)
             defer { try? FileManager.default.removeItem(at: store.root) }
             let log = ReportLog()
             ConfigVectors.check(ConfigStore(updates: store, log: { log.append($0) }), vector, log: log)

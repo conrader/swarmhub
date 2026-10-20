@@ -9,11 +9,16 @@ the Swift tests must read every case. This checks expectations and source rules,
 (`swift test`) remains mandatory.
 """
 
+import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import shutil
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "Tests/Fixtures/release-bundles"
@@ -22,13 +27,15 @@ CORE = ROOT / "Packages/SwarmHubCore"
 UPDATES = CORE / "Sources/SwarmHubCore/Updates"
 DECODER = (UPDATES / "ConfigDecoder.swift").read_text(encoding="utf-8")
 STORE = (UPDATES / "ConfigStore.swift").read_text(encoding="utf-8")
-TESTS = [CORE / "Tests/SwarmHubCoreTests" / name for name in ("ConfigStoreTests.swift", "ConfigStoreBundleTests.swift")]
+TESTS = [CORE / "Tests/SwarmHubCoreTests" / name for name in
+         ("ConfigStoreTests.swift", "ConfigStoreBundleTests.swift", "ConfigStoreSnapshotTests.swift")]
 sys.path.insert(0, str(ROOT / "scripts/release"))
 sys.path.insert(0, str(ROOT / "Resources/Updater"))
 import build_bundle  # noqa: E402
 import config_reference  # noqa: E402
 import make_config_vectors  # noqa: E402
 import make_vectors  # noqa: E402
+import ustar  # noqa: E402
 from swarmhub_update import verify  # noqa: E402
 
 
@@ -75,7 +82,164 @@ class SignedBundleTests(unittest.TestCase):
         self.assertEqual(make_config_vectors.check_result(decoded, case), [])
 
 
+class SnapshotTests(unittest.TestCase):
+    """The live snapshot rule, using temporary store directories and deterministic read interleavings."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.a = self.bundle(12, 3, True)
+        self.b = self.bundle(13, 7, False)
+        self.switch(self.a)
+
+    def bundle(self, version, limit, killed):
+        directory = self.root / f"versions/{version}-{'a' * 16}"
+        (directory / "components").mkdir(parents=True)
+        documents = {
+            "policy": {"codingOrder": f"TEST-{version}", "coding_job_limit": limit, "autoRoutines": True},
+            "flags": {"routineCards": True, "kill.policy.codingOrder": killed, "kill.view.routine_card": killed},
+        }
+        entries = []
+        for name, members in documents.items():
+            data = json.dumps(dict(schema=f"swarmhub/config-{name}/1", **members)).encode()
+            archive = ustar.build([dict(name=f"{name}.json", type="file", mode=0o644, data=data)])
+            (directory / "components" / name).write_bytes(archive)
+            entries.append(dict(name=name, kind="config", **{"class": "data"}, size=len(archive),
+                                sha256=hashlib.sha256(archive).hexdigest()))
+        (directory / "record.json").write_text(json.dumps(dict(bundle_version=version, components=entries)))
+        return directory
+
+    def switch(self, directory):
+        link = self.root / ".current-next"
+        link.symlink_to(directory.relative_to(self.root))
+        os.replace(link, self.root / "current")
+
+    def assert_defaults(self, result):
+        self.assertIsNone(result["bundle_version"])
+        self.assertEqual(result["values"], {})
+        self.assertEqual(result["killed_keys"], set())
+        self.assertEqual(result["killed_views"], set())
+        self.assertEqual(config_reference.read(result, "policy", "coding_job_limit", "integer", 1), (1, None))
+        self.assertEqual(config_reference.read(result, "flags", "routineCards", "bool", False), (False, None))
+
+    def test_switch_after_record_or_between_components_pins_one_bundle_and_reads_once(self):
+        for switch_before in ("policy", "flags"):
+            with self.subTest(switch_before=switch_before):
+                self.switch(self.a)
+                reads = []
+                def hook(name):
+                    reads.append(name)
+                    if name == switch_before:
+                        self.switch(self.b)
+                byte_reads, read_bytes = [], Path.read_bytes
+                def counted(path):
+                    byte_reads.append(path)
+                    return read_bytes(path)
+                with patch.object(Path, "read_bytes", counted):
+                    result = config_reference.snapshot(self.root, hook)
+                self.assertEqual(reads, ["policy", "flags"])
+                self.assertEqual(byte_reads, [self.a / "record.json", self.a / "components/policy", self.a / "components/flags"])
+                self.assertEqual(result["bundle_version"], 12)
+                self.assertEqual(result["reports"], [])
+                self.assertEqual(config_reference.read(result, "policy", "coding_job_limit", "integer", 1), (3, None))
+                self.assertEqual(config_reference.read(result, "policy", "codingOrder", "string", "compiled"), ("compiled", "killed"))
+                self.assertEqual(result["killed_views"], {"routine_card"})
+                after = config_reference.snapshot(self.root)
+                self.assertEqual(after["bundle_version"], 13)
+                self.assertEqual(after["killed_keys"], set())
+
+    def failed_read(self, failure):
+        reads = []
+        def hook(name):
+            reads.append(name)
+            if name != "flags":
+                return
+            flags = self.a / "components/flags"
+            if failure == "collected":
+                self.switch(self.b)
+                shutil.rmtree(self.a)
+            elif failure == "missing":
+                flags.unlink()
+            elif failure == "size":
+                flags.write_bytes(b"")
+            else:
+                data = bytearray(flags.read_bytes())
+                data[600] ^= 1
+                flags.write_bytes(data)
+        result = config_reference.snapshot(self.root, hook)
+        self.assert_defaults(result)
+        self.assertEqual(reads, ["policy", "flags"])
+        self.assertEqual(result["reports"], [dict(reason="component_unreadable", component="flags")])
+
+    def test_collection_discards_already_read_policy(self):
+        self.failed_read("collected")
+
+    def test_missing_component_discards_already_read_policy(self):
+        self.failed_read("missing")
+
+    def test_hash_mismatch_discards_already_read_policy(self):
+        self.failed_read("hash")
+
+    def test_size_mismatch_discards_already_read_policy(self):
+        self.failed_read("size")
+
+    def test_pinned_record_is_read_only_once(self):
+        def hook(name):
+            if name == "policy":
+                (self.a / "record.json").unlink()
+        result = config_reference.snapshot(self.root, hook)
+        self.assertEqual(result["bundle_version"], 12)
+        self.assertEqual(result["reports"], [])
+        self.assertEqual(result["killed_keys"], {"policy.codingOrder"})
+
+    def test_failed_policy_discards_already_read_kill_flags(self):
+        record_path = self.a / "record.json"
+        record = json.loads(record_path.read_bytes())
+        record["components"].reverse()
+        record_path.write_text(json.dumps(record))
+        reads = []
+        def hook(name):
+            reads.append(name)
+            if name == "policy":
+                (self.a / "components/policy").unlink()
+        result = config_reference.snapshot(self.root, hook)
+        self.assert_defaults(result)
+        self.assertEqual(reads, ["flags", "policy"])
+        self.assertEqual(result["reports"], [dict(reason="component_unreadable", component="policy")])
+
+    def test_missing_pinned_record_reports_whole_snapshot_failure(self):
+        shutil.rmtree(self.a)
+        result = config_reference.snapshot(self.root)
+        self.assert_defaults(result)
+        self.assertEqual(result["reports"], [dict(reason="bundle_unreadable")])
+
+
 class SourceParityTests(unittest.TestCase):
+    def test_swift_snapshot_pins_record_and_directory_and_fails_closed(self):
+        updates = (UPDATES / "UpdateStore.swift").read_text(encoding="utf-8")
+        initializer = STORE[STORE.index("public convenience init(updates:"):STORE.index("/// Decoder-only")]
+        self.assertEqual(initializer.count("updates.pinnedBundle()"), 1)
+        self.assertNotIn("updates.record(", initializer)
+        self.assertNotIn("updates.component(", initializer)
+        for needle in ("bundle?.record.components", "bundle?.component($0.name)", "$0.archive == nil",
+                       'ConfigReport(reason: "component_unreadable"', "ConfigDocuments(reports: failures)",
+                       'ConfigReport(reason: "bundle_unreadable")'):
+            self.assertIn(needle, initializer)
+        pinned = updates[updates.index("func pinnedBundle("):updates.index("/// The stored archive bytes")]
+        self.assertEqual(pinned.count("target(slot.rawValue)"), 1)
+        self.assertEqual(pinned.count("JSONDecoder().decode(UpdateRecord.self"), 1)
+        self.assertEqual(pinned.count("Data(contentsOf: url)"), 1)
+        for needle in ("directory.appendingPathComponent", "Int64(data.count) == entry.size",
+                       "updateDigest(data) == entry.sha256", "try beforeComponentRead?(name)"):
+            self.assertIn(needle, pinned)
+        source = TESTS[-1].read_text(encoding="utf-8")
+        for needle in ("switchAfterRecordOrBetweenComponentsKeepsOneBundle", "failedPinnedReadDiscardsAllValuesAndKills",
+                       "pinnedRecordIsReadOnlyOnce", "missingPinnedRecordReportsWholeSnapshotFailure",
+                       "failedPolicyDiscardsAlreadyReadKillFlags",
+                       '["policy", "flags"]', '["missing", "hash", "size", "collected"]'):
+            self.assertIn(needle, source)
+
     def test_swift_denylist_and_rules_match_the_reference(self):
         self.assertEqual(swift_strings("deniedFragments"), list(config_reference.DENIED_FRAGMENTS))
         self.assertEqual(set(swift_strings("deniedWords")), set(config_reference.DENIED_WORDS))
@@ -103,7 +267,7 @@ class SourceParityTests(unittest.TestCase):
             self.assertIn(needle, source)
 
     def test_sources_are_ios_safe_and_under_500_lines(self):
-        for path in [UPDATES / "ConfigDecoder.swift", UPDATES / "ConfigStore.swift", UPDATES / "ArchiveRules.swift",
+        for path in [UPDATES / "ConfigDecoder.swift", UPDATES / "ConfigStore.swift", UPDATES / "UpdateStore.swift", UPDATES / "ArchiveRules.swift",
                      *TESTS, ROOT / "scripts/release/config_reference.py", ROOT / "scripts/release/config_vector_cases.py",
                      ROOT / "scripts/release/make_config_vectors.py", Path(__file__)]:
             source = path.read_text(encoding="utf-8")
