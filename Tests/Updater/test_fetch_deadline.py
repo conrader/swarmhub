@@ -4,6 +4,7 @@ Fake resolvers and sockets, or loopback listeners that never answer; nothing rea
 import io
 from pathlib import Path
 import socket
+import ssl
 import sys
 import threading
 import time
@@ -115,7 +116,10 @@ class StalledPeer:
 
 class FakeTLS:
     """A TLS context on the fake clock. `handshake` seconds pass, then the handshake either completes (returning the
-    socket) or, with `stall`, runs out the socket's timeout as one bounded handshake does."""
+    socket) or, with `stall`, runs out the socket's timeout as one bounded handshake does. `verify_mode` and
+    `check_hostname` are what ssl.create_default_context sets; Python < 3.12 HTTPSConnection reads both."""
+
+    verify_mode, check_hostname = ssl.CERT_REQUIRED, True
 
     def __init__(self, clock, handshake=0, stall=False):
         self.clock, self.handshake, self.stall, self.timeouts = clock, handshake, stall, []
