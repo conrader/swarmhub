@@ -46,7 +46,7 @@ struct ComposioClient: Sendable {
 
     func request(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: ComposioValue? = nil) async throws -> ComposioValue {
         #if DEBUG
-        if QAMode.enabled { throw QAError.refused }
+        if QAMode.enabled || UIAcceptanceMode.requested { throw QAError.refused }
         #endif
         try Task.checkCancellation()
         guard !apiKey.isEmpty else { throw ComposioError.missingKey }

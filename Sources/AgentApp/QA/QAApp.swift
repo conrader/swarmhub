@@ -8,7 +8,8 @@ import SwiftUI
 @main
 @MainActor enum AgentAppLauncher {
     static func main() {
-        if QAMode.enabled { QAApp.main() }
+        if UIAcceptanceMode.requested { UIAcceptanceApp.main() }
+        else if QAMode.enabled { QAApp.main() }
         else { AgentAppMain.main() }
     }
 }
