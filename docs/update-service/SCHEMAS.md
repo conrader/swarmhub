@@ -168,3 +168,7 @@ python3 scripts/release/make_config_vectors.py            # rewrite config/ only
 python3 scripts/release/make_config_vectors.py --check    # byte-identical regeneration
 python3 scripts/test_swift_config_vectors.py              # reference vs every case, P0b verify of bundle 12, Swift source parity
 ```
+
+Vectors with unreadable components are checked against the decoder only. Live store snapshots are all-or-nothing:
+an unreadable record (`bundle_unreadable`) or config component discards all bundle values and kill flags, so every
+read uses its compiled default.

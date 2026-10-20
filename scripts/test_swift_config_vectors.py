@@ -105,9 +105,11 @@ class SnapshotTests(unittest.TestCase):
             data = json.dumps(dict(schema=f"swarmhub/config-{name}/1", **members)).encode()
             archive = ustar.build([dict(name=f"{name}.json", type="file", mode=0o644, data=data)])
             (directory / "components" / name).write_bytes(archive)
-            entries.append(dict(name=name, kind="config", **{"class": "data"}, size=len(archive),
+            entries.append(dict(name=name, kind="config", **{"class": "data"}, version="1.0.0", size=len(archive),
                                 sha256=hashlib.sha256(archive).hexdigest()))
-        (directory / "record.json").write_text(json.dumps(dict(bundle_version=version, components=entries)))
+        (directory / "record.json").write_text(json.dumps(dict(
+            bundle_version=version, manifest_sha256="a" * 64, applied_at="2026-10-20T12:00:00Z",
+            platform="ios", components=entries)))
         return directory
 
     def switch(self, directory):
@@ -120,6 +122,8 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(result["values"], {})
         self.assertEqual(result["killed_keys"], set())
         self.assertEqual(result["killed_views"], set())
+        self.assertEqual(config_reference.read(result, "policy", "codingOrder", "string", "compiled"), ("compiled", None))
+        self.assertEqual(config_reference.read(result, "policy", "autoRoutines", "bool", False), (False, None))
         self.assertEqual(config_reference.read(result, "policy", "coding_job_limit", "integer", 1), (1, None))
         self.assertEqual(config_reference.read(result, "flags", "routineCards", "bool", False), (False, None))
 
@@ -214,8 +218,105 @@ class SnapshotTests(unittest.TestCase):
         self.assert_defaults(result)
         self.assertEqual(result["reports"], [dict(reason="bundle_unreadable")])
 
+    def assert_bad_record(self, record):
+        (self.a / "record.json").write_text(json.dumps(record))
+        reads = []
+        result = config_reference.snapshot(self.root, reads.append)
+        self.assert_defaults(result)
+        self.assertEqual(result["reports"], [dict(reason="bundle_unreadable")])
+        self.assertEqual(reads, [])
+
+    def test_record_and_component_containers_must_be_objects(self):
+        original = json.loads((self.a / "record.json").read_bytes())
+        for value in (None, False, 12, "record", []):
+            with self.subTest(value=value):
+                self.assert_bad_record(value)
+                record = dict(original, components=[original["components"][0], value])
+                self.assert_bad_record(record)
+
+    def test_invalid_skipped_component_also_rejects_the_bundle(self):
+        record = json.loads((self.a / "record.json").read_bytes())
+        skipped = dict(record["components"][0], kind="ui")
+        del skipped["version"]
+        record["components"].append(skipped)
+        self.assert_bad_record(record)
+
+    def test_unknown_fields_and_unvalidated_strings_remain_accepted(self):
+        record = json.loads((self.a / "record.json").read_bytes())
+        # Codable checks types here, not hash/date/platform/version syntax or unknown members.
+        record.update(manifest_sha256="", applied_at="", platform="TEST-unknown", extra=None)
+        for entry in record["components"]:
+            entry.update(version="", extra=None)
+        (self.a / "record.json").write_text(json.dumps(record))
+        result = config_reference.snapshot(self.root)
+        self.assertEqual(result["bundle_version"], 12)
+        self.assertEqual(result["reports"], [])
+        self.assertEqual(result["killed_views"], {"routine_card"})
+
+    def test_int64_bounds_and_integral_json_numbers(self):
+        path = self.a / "record.json"
+        original = path.read_text()
+        for number, expected in (("-9223372036854775808", -(2 ** 63)), ("9223372036854775807", 2 ** 63 - 1),
+                                 ("12.0", 12), ("1.2e1", 12)):
+            with self.subTest(number=number):
+                path.write_text(original.replace('"bundle_version": 12', f'"bundle_version": {number}'))
+                result = config_reference.snapshot(self.root)
+                self.assertEqual(result["bundle_version"], expected)
+                self.assertEqual(result["reports"], [])
+        for number in ("12.5", "12.0000000000000000001", "1e9999999999999999999", "NaN", "Infinity"):
+            with self.subTest(number=number):
+                path.write_text(original.replace('"bundle_version": 12', f'"bundle_version": {number}'))
+                result = config_reference.snapshot(self.root)
+                self.assert_defaults(result)
+                self.assertEqual(result["reports"], [dict(reason="bundle_unreadable")])
+
+
+def record_field_test(component, field, kind, missing):
+    def test(self):
+        path = self.a / "record.json"
+        original = path.read_bytes()
+        invalid = [None, True, False, 1.5, {}]
+        if kind != "[Component]":
+            invalid.append([])
+        invalid += ["12", -(2 ** 63) - 1, 2 ** 63] if kind == "Int64" else [12]
+        if kind != "String":
+            invalid.append("wrong")
+        for value in ([None] if missing else invalid):
+            with self.subTest(value=value):
+                record = json.loads(original)
+                target = record["components"][-1] if component else record
+                if missing:
+                    del target[field]
+                else:
+                    target[field] = value
+                self.assert_bad_record(record)
+    return test
+
+
+for is_component, fields in ((False, config_reference.RECORD_FIELDS), (True, config_reference.COMPONENT_FIELDS)):
+    for field_name, field_kind in fields.items():
+        for is_missing in (True, False):
+            test_name = "test_" + ("missing_" if is_missing else "wrong_type_")
+            test_name += ("component_" if is_component else "record_") + field_name
+            setattr(SnapshotTests, test_name, record_field_test(is_component, field_name, field_kind, is_missing))
+
 
 class SourceParityTests(unittest.TestCase):
+    def test_record_required_fields_and_types_match_swift_codable(self):
+        updates = (UPDATES / "UpdateStore.swift").read_text(encoding="utf-8")
+        record = updates[updates.index("public struct UpdateRecord:"):updates.index("/// Everything one commit writes:")]
+        component = record[record.index("public struct Component:"):record.index("    public let bundleVersion:")]
+        outer = record[record.index("    public let bundleVersion:"):]
+        for source, expected in ((outer, config_reference.RECORD_FIELDS), (component, config_reference.COMPONENT_FIELDS)):
+            with self.subTest(fields=expected):
+                self.assertNotIn("init(from", record)  # The reference mirrors synthesized Codable only.
+                fields = re.findall(r"public let (\w+): ([\w\[\]?]+)", source)
+                self.assertEqual(len(fields), len(expected))
+                aliases = dict(re.findall(r'(\w+) = "([^"]+)"', source))
+                self.assertEqual({aliases.get(name, name): kind for name, kind in fields}, expected)
+                self.assertIn("Codable", record)
+                self.assertIn("enum CodingKeys: String, CodingKey", source)
+
     def test_swift_snapshot_pins_record_and_directory_and_fails_closed(self):
         updates = (UPDATES / "UpdateStore.swift").read_text(encoding="utf-8")
         initializer = STORE[STORE.index("public convenience init(updates:"):STORE.index("/// Decoder-only")]

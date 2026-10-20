@@ -6,6 +6,7 @@ checks that the Swift sources carry the same denylist. `snapshot` mirrors the pi
 read; release tooling can call `decode` to refuse a config component an app would ignore.
 """
 
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import os
@@ -34,6 +35,36 @@ DENIED_WORDS = frozenset((
 KILL_SCOPES = frozenset(("policy", "prompts", "copy", "flags", "view"))
 LIMITS = dict(max_blob_size=67108864, max_depth=16, max_entries=4096, max_file_size=8388608, max_path_bytes=255,
               max_signed_bytes=1048576, max_total_size=67108864)
+# Required Codable fields, including components the config reader will later filter out.
+RECORD_FIELDS = dict(bundle_version="Int64", manifest_sha256="String", applied_at="String",
+                     platform="String", components="[Component]")
+COMPONENT_FIELDS = dict(name="String", kind="String", **{"class": "String"}, version="String",
+                        sha256="String", size="Int64")
+
+
+def _record_object(value, fields):
+    """Match UpdateRecord's synthesized JSONDecoder shape, without imposing manifest schema rules."""
+    if not isinstance(value, dict):
+        raise ValueError("record must be an object")
+    for name, kind in fields.items():
+        item = value[name]
+        if kind == "String":
+            valid = isinstance(item, str)
+        elif kind == "Int64":
+            # JSONDecoder accepts integral JSON numbers, including decimal/exponent notation, but not bools.
+            valid = (isinstance(item, (int, Decimal)) and not isinstance(item, bool)
+                     and -(2 ** 63) <= item < 2 ** 63 and item == int(item))
+        else:
+            valid = isinstance(item, list)
+            if valid:
+                for component in item:
+                    _record_object(component, COMPONENT_FIELDS)
+        if not valid:
+            raise ValueError(f"invalid record field {name}")
+
+
+def _invalid_constant(value):
+    raise ValueError(f"invalid JSON constant {value}")
 
 
 def report(reason, domain=None, key=None, component=None):
@@ -199,10 +230,12 @@ def snapshot(root, before_component_read=None):
         return empty
     directory = root / target
     try:
-        record = json.loads((directory / "record.json").read_bytes())
+        record = json.loads((directory / "record.json").read_bytes(), parse_float=Decimal,
+                            parse_constant=_invalid_constant)
+        _record_object(record, RECORD_FIELDS)
         entries = [c for c in record["components"] if c["kind"] == "config" and c["class"] == "data"]
-        version = record["bundle_version"]
-    except (OSError, ValueError, KeyError, TypeError):
+        version = int(record["bundle_version"])
+    except (OSError, ValueError, KeyError, TypeError, InvalidOperation):
         empty["reports"] = [report("bundle_unreadable")]
         return empty
     components, failures = [], []
