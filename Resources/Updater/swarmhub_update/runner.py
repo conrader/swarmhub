@@ -16,7 +16,7 @@ from collections import namedtuple
 import os
 import time
 
-from . import VERSION, apply, bundle, idle, pins as pinfile, policy, render, stage
+from . import VERSION, apply, bundle, idle, pins as pinfile, policy, render, stage, verify
 
 Report = namedtuple("Report", "succeeded errors held results")
 GOOD = ("applied", "unchanged")
@@ -242,7 +242,7 @@ def _live_variants(record, category):
     if not isinstance(variants, dict):
         return {}
     return {name: row["value"] for name, row in variants.items()
-            if render.is_valid_profile_name(name) and isinstance(row, dict)
+            if isinstance(name, str) and verify.NAME.fullmatch(name) and isinstance(row, dict)
             and row.get("value") in render.CODING_ORDERS and isinstance(row.get("tree"), str)
             and row["tree"] == stage.tree_digest(os.path.join(category, name))}
 

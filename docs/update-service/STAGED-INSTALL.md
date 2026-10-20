@@ -2,19 +2,55 @@
 
 The Mac verifies a **local service-layout snapshot** for the destination box using the core verifier, including
 box compatibility, rollout and floors. It forwards the signed metadata and only the compatible box-targeted blobs
-as base64 bytes. It never extracts an archive, imports its contents or executes them. The management turn writes
-those bytes into a private temporary folder under the updater state directory and invokes exactly:
+as opaque bytes. It never extracts an archive, imports its contents or executes them.
+
+The app sends the bytes directly through stock Hermes' authenticated, profile-prefixed `POST /api/sessions`.
+Each temporary, empty carrier session stores at most 49,152 payload bytes as a base64 `system_prompt` (65,536
+characters). **No model turn is started in a carrier session.** The management turn receives only a bounded script,
+random carrier IDs, expected chunk hashes and the whole payload hash. It never receives the archive payload.
+The script copies the raw profile DB and WAL into updater-owned temporary storage, opens that snapshot with SQLite
+`mode=ro`, checks every part and the complete envelope, then writes the
+opaque files into a private temporary folder under the updater state directory and invokes exactly:
 
 ```
 /usr/local/lib/swarmhub-update/bin/swarmhub-update --max-wait 0 apply --staged <folder>
 ```
 
-It then requests a separate terminal call to `/usr/local/lib/swarmhub-update/bin/swarmhub-update status`.
-The app matches the terminal command and its result by tool-call ID. Assistant prose and `skills_installed` replies
-cannot confirm staged installs. Streams without terminal results leave installation unconfirmed. Refused, deferred,
-held, pinned, failed and pending-code results cannot become an installed requested version. Pending status may
-record the data skills that actually landed. `reload_pending` is reported; nothing enables plugins or restarts Hermes.
-Read-back uses the same status call, and keeps versions newer than the compiled fallback.
+The app requires the matching staging terminal call to finish successfully with this transfer's receipt, then
+requests a separate terminal call to `/usr/local/lib/swarmhub-update/bin/swarmhub-update status`.
+Both calls are matched by exact command and tool-call ID. A missing/altered part stops before invoking the updater;
+an altered archive is refused by the updater. Either keeps the last good tree. An older successful status for the
+same bundle cannot confirm a failed transfer. Assistant prose and `skills_installed` replies cannot confirm installs.
+Streams without terminal results leave installation unconfirmed. Refused, deferred, held, pinned, failed and
+pending-code results cannot become an installed requested version. Pending status may record the data skills that
+actually landed. `reload_pending` is reported; nothing enables plugins or restarts Hermes.
+
+Skills-view opens reuse the last updater reading (including persisted installed versions), with no model turn.
+“Refresh from updater” explicitly requests a fresh reading, single-flight per connection. Its temporary session is
+deleted afterward. Carrier sessions are also deleted after completion, upload failure or cancellation. Cleanup IDs
+are saved before upload; interrupted/unreachable cleanup is retried before the next updater action. New transfers
+and refresh turns wait for that cleanup, so repeated failures cannot accumulate sessions.
+
+### Stock Hermes transport investigation
+
+Read-only inspection of the local **stock 0.21.7** source verified `gateway/platforms/api_server.py`:
+`_handle_create_session` inserts `body.system_prompt` verbatim into `sessions.system_prompt`, commits before replying,
+and does not start an agent; `_handle_delete_session` deletes the session through the normal authenticated API.
+The prefix middleware scopes both endpoints to the selected profile. `hermes_state.py` resolves `state.db` under
+that profile's Hermes home. The script queries only these newly created rows, never imports Hermes or opens its live DB through SQLite.
+Copying DB/WAL bytes first keeps SQLite shared-memory bookkeeping inside updater state too. A concurrent checkpoint
+that makes the copied snapshot inconsistent fails closed; retrying creates fresh carrier IDs.
+The server itself performs its normal session bookkeeping through its existing API. Hermes source, configuration,
+services and plugins are untouched. No terminal call writes outside the updater state and `skills/swarmhub/`.
+
+The script uses `HERMES_HOME` when set, otherwise `~/.hermes`, and selects the manager profile's `state.db`.
+The terminal must share the gateway's local profile storage (stock host execution); a sandbox without that storage,
+a relocated database, incompatible schema or absent native-session API fails closed. No legacy raw-payload fallback
+is attempted for a bootstrapped connection. Commands above 32 KiB are refused before upload.
+
+The stock `/v1/artifacts/upload` alternative was rejected: it is gated on browser extension control, returns no
+filesystem path, and stores artifacts outside the permitted updater write area. This transport needs no Hermes
+configuration changes, browser-control enablement, new listener, update host or credentials in model instructions.
 
 ## Operator configuration for test boxes
 
@@ -62,12 +98,15 @@ dependencies still require the existing separate local confirmation; P4b never i
 ## Validation
 
 `Tests/Updater/test_staged_transport.py` instantiates the exact box-side shell literal from `StagedInstall.swift`
-with TEST-signed bytes and an isolated updater prefix, then runs the real launcher. It builds today's resources
+with TEST-signed bytes and an isolated updater prefix, populates temporary SQLite carrier rows matching the stock
+session-create contract, then runs the real launcher. It also transfers a signed archive over 300 KB and checks
+altered/missing chunks stop before the updater, leaving status and live/previous trees intact. It builds today's resources
 with the release builder, verifies all four skills against the render goldens, checks altered archives leave live
 and previous trees intact, and checks profile/variant refresh and Hermes confinement. No external host is used.
 `Tests/AgentAppTests/StagedInstallTests.swift` covers verification, opaque transport, exact terminal-result binding,
 the native Hermes event parser plus the app install path, model-only claims, pending code, source/box failure,
-and legacy fallback. The existing Swift golden test remains the renderer authority.
+legacy fallback, direct carrier upload and cleanup, stale-status refusal after a failed transfer, and explicit
+single-flight status refresh with cleanup on success/failure. Swift tests are authored but require the Mac run. The existing Swift golden test remains the renderer authority.
 
 On the MacBook run AgentApp `swift test` (including staged install, render and managed remote control tests),
 SwarmHubCore `swift test`, and `scripts/test-ios-core.sh`. Goldens still carry the existing PROVISIONAL marker:

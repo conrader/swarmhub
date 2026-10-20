@@ -21,8 +21,7 @@ extension HermesBackend {
 
 /// P27 D9: Hermes tool events as `ToolEvent`s. Previews come only from the display fields Hermes builds for this purpose
 /// (`preview`, `label`, `message`), never from `args`; each is redacted and cut to one short line. P34: `args.command`
-/// is read only when it runs bot-msg (the script reads keys itself, so its command line carries none), and a step's
-/// result is passed on for the bot-msg step it ends.
+/// is retained for bot-msg and staged updater calls. Results are retained up to 1 MB for every tool.
 extension HermesBackend {
     /// `tool.started|progress|completed|failed` on the native session stream (`tool_name` or `tool`, `preview`,
     /// `tool_call_id`/`toolCallId`; a completion with `error`/`is_error` true counts as failed).
@@ -48,11 +47,12 @@ extension HermesBackend {
         return command
     }
 
-    /// Keep only the fixed read-only updater call, never arbitrary shell arguments or a truncated preview.
+    /// Keep status and bounded staging scripts for exact call binding. Staging carries IDs/hashes, never secrets.
     static func updaterStatusCommand(_ args: Any?) -> String? {
         var object = args as? [String: Any]
         if object == nil, let text = args as? String, let data = text.data(using: .utf8) { object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] }
-        guard let command = (object?["command"] ?? object?["cmd"]) as? String, command == StagedInstall.statusCommand else { return nil }
+        guard let command = (object?["command"] ?? object?["cmd"]) as? String, command.utf8.count <= 32_768,
+              command == StagedInstall.statusCommand || command.hasPrefix("python3 -I -B <<'SWARMHUB_STAGE'\n") else { return nil }
         return command
     }
 

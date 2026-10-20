@@ -102,7 +102,7 @@ command's verdict) and `updater`. `swarmctl update-status` prints the same file 
 
 P4b adds `profiles.<name>.variants`, the coding-order variants recorded after successful rendering, bound to the
 live skill tree's digest. A revert or manual edit invalidates that variant reading. See `STAGED-INSTALL.md` for the
-Mac transport, fixed updater path, operator record, and terminal-status read-back rules.
+Mac chunk transport through temporary stock Hermes sessions, fixed updater path, operator record, and staging/terminal-status read-back rules.
 
 ## Pull (P3a)
 

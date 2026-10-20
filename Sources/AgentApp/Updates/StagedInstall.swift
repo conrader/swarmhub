@@ -69,7 +69,7 @@ enum StagedInstall {
         // reuse that floor, never another signed manifest at the same version.
         let repeatable = floor.bundle == saved.bundle && saved.manifest != nil
         let verificationFloor = UpdateFloors(keysVersion: floor.keys, indexSequence: floor.index,
-                                             bundleVersion: repeatable ? max(0, floor.bundle - 1) : floor.bundle)
+                                             bundleVersion: floor.bundle)
         var files: [String: Data] = [:], versions: [String: String] = [:]
         func read(_ path: String, limit: Int) throws -> Data {
             let data = try readBytes(box.source.appendingPathComponent(path), limit: limit)
@@ -119,48 +119,82 @@ enum StagedInstall {
         return data
     }
 
-    /// This script travels as text; only the destination shell runs it. Archives remain base64 opaque bytes until
-    /// the protected updater verifies them. mkdtemp prevents an earlier turn from planting staging symlinks.
-    static func command(_ package: Package) throws -> String {
-        let payload = try JSONEncoder().encode(package.files.mapValues { $0.base64EncodedString() }).base64EncodedString()
-        let profiles = try JSONEncoder().encode(package.profiles).base64EncodedString()
+    /// Only identifiers and hashes travel through the model. The app uploads the bytes before starting its turn.
+    static func command(_ transfer: StagedTransfer, profile: String) throws -> String {
+        guard HermesKeyPaste.isValidProfileName(profile) else { throw Failure.refused("manager profile") }
+        let prefix = transfer.prefix
+        let hashes = transfer.hashes.map { "'\($0)'" }.joined(separator: ", ")
+        let whole = transfer.sha256
+        let managerProfile = profile
         return """
         python3 -I -B <<'SWARMHUB_STAGE'
-        import base64, json, os, pathlib, shutil, subprocess, tempfile
+        import base64, hashlib, json, os, pathlib, shutil, sqlite3, subprocess, tempfile
         state = pathlib.Path(os.environ.get('XDG_STATE_HOME', str(pathlib.Path.home() / '.local/state'))) / 'swarmhub-update'
         state.mkdir(mode=0o700, parents=True, exist_ok=True)
         folder = pathlib.Path(tempfile.mkdtemp(prefix='mac-stage-', dir=state))
         try:
-            files = json.loads(base64.b64decode('\(payload)'))
+            home = pathlib.Path(os.environ.get('HERMES_HOME', str(pathlib.Path.home() / '.hermes')))
+            profile = '\(managerProfile)'
+            if profile != 'default' and home.name != profile:
+                home = home / 'profiles' / profile
+            # Snapshot raw DB/WAL bytes into updater state before opening SQLite, so even SQLite's
+            # shared-memory bookkeeping cannot touch Hermes. Concurrent checkpoint races fail closed.
+            snapshot = folder / 'carrier.db'
+            shutil.copyfile(home / 'state.db', snapshot)
+            wal = home / 'state.db-wal'
+            if wal.exists():
+                shutil.copyfile(wal, folder / 'carrier.db-wal')
+            db = sqlite3.connect(snapshot.as_uri() + '?mode=ro', uri=True, timeout=5)
+            try:
+                hashes = [\(hashes)]
+                parts = []
+                for i, expected in enumerate(hashes):
+                    row = db.execute('SELECT system_prompt FROM sessions WHERE id = ?', ('\(prefix)' + str(i),)).fetchone()
+                    if row is None or row[0] is None or len(row[0]) > 65536:
+                        raise ValueError('missing or oversized transfer part')
+                    part = base64.b64decode(row[0], validate=True)
+                    if len(part) > 49152 or hashlib.sha256(part).hexdigest() != expected:
+                        raise ValueError('transfer part hash mismatch')
+                    parts.append(part)
+            finally:
+                db.close()
+            payload = b''.join(parts)
+            if hashlib.sha256(payload).hexdigest() != '\(whole)':
+                raise ValueError('whole transfer hash mismatch')
+            files = json.loads(payload)
             for name, encoded in files.items():
+                if name.startswith('/') or any(p in ('', '.', '..') for p in name.split('/')):
+                    raise ValueError('invalid staged path')
                 target = folder / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(base64.b64decode(encoded, validate=True))
+            incoming = json.loads((folder / 'profiles.json').read_bytes())
             prior = state / 'profiles.json'
             doc = json.loads(prior.read_bytes()) if prior.exists() else {'schema': 'swarmhub/profiles/1', 'profiles': []}
             rows = {row['name']: row for row in doc['profiles']}
-            for row in json.loads(base64.b64decode('\(profiles)')):
+            for row in incoming:
                 old = rows.get(row['name'])
                 if old is not None:
                     row['skills'] = None if old.get('skills') is None else sorted(set(old['skills']) | set(row['skills']))
                 rows[row['name']] = row
             doc['profiles'] = list(rows.values())
             (folder / 'profiles.json').write_text(json.dumps(doc))
-            subprocess.run(['\(updater)', '--max-wait', '0', 'apply', '--staged', str(folder)], check=False)
+            subprocess.run(['\(updater)', '--max-wait', '0', 'apply', '--staged', str(folder)], check=True)
+            print('SWARMHUB_TRANSFER_OK:\(prefix)')
         finally:
             shutil.rmtree(folder)
         SWARMHUB_STAGE
         """
     }
 
-    static func instructions(_ package: Package) throws -> String {
+    static func instructions(_ transfer: StagedTransfer, profile: String) throws -> String {
         """
-        Install these signed SwarmHub bytes for the requested profiles using the operator-installed updater.
+        Install the signed SwarmHub bytes already stored by the app in temporary Hermes sessions.
         Run exactly the first terminal command, then run the status command as a separate terminal call.
         Never extract or execute an archive yourself. Do not run apply without --staged: code waits for a separate confirmation.
         Do not modify Hermes, enable plugins or restart anything. A reply cannot establish install success.
         ````sh
-        \(try command(package))
+        \(try command(transfer, profile: profile))
         ````
         Then, in a separate terminal call, run exactly:
         ```sh
