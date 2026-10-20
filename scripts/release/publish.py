@@ -8,7 +8,7 @@
 The directory holds `keys.json` (root-signed, from `keys.py sign-keys`), `bundles/<N>.json`, `blobs/sha256/<h>`
 and `channels/<channel>.json`. Publishing signs with the release key only: the signer must be a key the verified
 key manifest lists with roles `bundle` and `index`, valid at `--issued`, and never a pinned root. The roots are
-needed only to sign the key manifest. P1c adds object-store and mirror backends; this is the local one.
+needed only to sign the key manifest. Optional P1c backends publish a verified dependency closure first.
 
 Order and immutability: everything is checked, signed and verified with the P0b library first; then blobs are
 written, then the manifest, then the index (atomic replace). A blob or manifest that exists with other bytes is
@@ -27,6 +27,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import backends  # noqa: E402
 import build_bundle  # noqa: E402
 import jcs  # noqa: E402
 import sign  # noqa: E402
@@ -197,7 +198,7 @@ def write_replace(path, data):
 
 
 def publish_body(repo, body, blobs, *, signer, pins_bytes, channel, issued, expires, seq=None, rollout_percent=100,
-                 line_requires=None, replace_lines=False, production=False):
+                 line_requires=None, replace_lines=False, production=False, backend=None):
     """Sign body with the release signer and publish it with its blobs. Returns the written relative paths."""
     repo = Path(repo)
     pins, release_keys, _ = load_trust(repo, pins_bytes, production=production)
@@ -232,6 +233,9 @@ def publish_body(repo, body, blobs, *, signer, pins_bytes, channel, issued, expi
         if check_immutable(path, blobs[component["name"]]) and path not in [p for p, _ in blob_writes]:
             blob_writes.append((path, blobs[component["name"]]))
     write_manifest = check_immutable(manifest_path, manifest_raw)
+    if backend is not None:
+        objects = backends.release_objects(repo, body, blobs, manifest_raw, index_raw, release_keys, issued)
+        backend.publish(objects)  # remote dependencies + index succeed before advancing local state
     written = []
     for path, data in blob_writes:  # 1. blobs
         write_immutable(path, data)
@@ -247,6 +251,13 @@ def publish_body(repo, body, blobs, *, signer, pins_bytes, channel, issued, expi
 
 def common_arguments(parser):
     parser.add_argument("--repo", type=Path, required=True, help="published directory (holds keys.json)")
+    parser.add_argument("--backend", choices=["local", "s3", "github", "both"], default="local")
+    parser.add_argument("--s3-config", type=Path, help="explicit JSON: endpoint, bucket, region, access_key, secret_key, optional prefix/session_token")
+    parser.add_argument("--gh-repository", help="mirror owner/repo (explicit, no default account)")
+    parser.add_argument("--gh-tag", help="unique mirror release tag for this bundle")
+    parser.add_argument("--gh-staging", type=Path, help="mirror staging and dry-run layout directory")
+    parser.add_argument("--gh-dry-run", action="store_true", help="record gh calls without executing them")
+    parser.add_argument("--gh-calls", type=Path, help="JSON file recording exact gh argv")
     parser.add_argument("--pins", type=Path, required=True, help="pin file with the root public keys")
     parser.add_argument("--signer", required=True, help="release key signer, e.g. file:TEST-release-1.key.json")
     parser.add_argument("--channel", required=True)
@@ -259,10 +270,32 @@ def common_arguments(parser):
     parser.add_argument("--production", action="store_true", help="refuse TEST- keys and test-only signers")
 
 
+def backend_from_args(args):
+    if args.backend == "local":
+        return None
+    store = None
+    if args.backend in ("s3", "both"):
+        from s3_backend import S3Client
+        if args.s3_config is None:
+            raise PublishError("--backend s3 requires --s3-config; credentials are never discovered")
+        store = backends.ObjectStoreBackend(S3Client(**json.loads(args.s3_config.read_text())))
+        if args.backend == "s3":
+            return store
+    from github_backend import GitHubBackend
+    if not all((args.gh_repository, args.gh_tag, args.gh_staging)):
+        raise PublishError("--backend github requires --gh-repository, --gh-tag and --gh-staging")
+    if args.gh_dry_run and args.gh_calls is None:
+        raise PublishError("--gh-dry-run requires --gh-calls")
+    mirror = GitHubBackend(args.gh_repository, args.gh_tag, args.gh_staging, dry_run=args.gh_dry_run,
+                           calls_file=args.gh_calls)
+    return backends.CompositeBackend(store, mirror) if store else mirror
+
+
 def options(args):
     return {"pins_bytes": args.pins.read_bytes(), "channel": args.channel, "issued": args.issued,
             "expires": args.expires, "seq": args.seq, "rollout_percent": args.rollout,
-            "line_requires": args.line_requires, "replace_lines": args.replace_lines, "production": args.production}
+            "line_requires": args.line_requires, "replace_lines": args.replace_lines, "production": args.production,
+            "backend": backend_from_args(args)}
 
 
 def main(argv=None):
@@ -275,7 +308,7 @@ def main(argv=None):
         signer = sign.load_signer(args.signer, args.production)
         body, blobs = load_build(args.build, args.version)
         written = publish_body(args.repo, body, blobs, signer=signer, **options(args))
-    except (PublishError, sign.SignerError, build_bundle.BuildError, jcs.JCSError, OSError) as error:
+    except (PublishError, backends.BackendError, sign.SignerError, build_bundle.BuildError, jcs.JCSError, OSError) as error:
         print(f"publish: {error}", file=sys.stderr)
         return 1
     for rel in written:
