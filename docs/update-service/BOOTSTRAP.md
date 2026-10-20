@@ -47,8 +47,10 @@ frameworks, including the framework app-bundle binary. Its library and folder pa
 override checks. Unknown, ambiguous, unsupported or unresolved linkage, a library outside the resolved interpreter
 prefix, and shadow `lib`/`lib64` folders between its folder and the prefix are refused. A framework's normal
 prefix-level `lib` remains allowed and checked. Static Python builds with no shared libpython remain supported. Linux
-needs binutils installed; missing inspection tools fail closed. Explicit ELF and dyld search folders, including
-absent earlier candidates, must also be protected so another account cannot plant a replacement library there. The binary's own standard
+needs binutils installed; missing inspection tools fail closed. Explicit ELF and dyld search folders (ELF
+`RPATH`/`RUNPATH`, Mach-O `LC_RPATH`), including absent earlier candidates, must also be protected so another account
+cannot plant a replacement library there. This holds for every interpreter, also one with Python linked in
+statically: the loader searches those folders for its other libraries too. The binary's own standard
 library must sit beside the resolved binary
 (`lib/python3.N/os.py` for the N in its name `python3.N`, or the only one there), else Python would look elsewhere. Only then is the interpreter run (empty environment, cwd `/`, `-I -S -B`), and every
 `sys.path` entry it reports is checked again. On macOS it also checks for ACLs that grant writing. It picks `/usr/bin/python3` or `/usr/local/bin/python3` on Linux. On macOS it picks the Command Line
@@ -57,6 +59,11 @@ Tools python (`xcrun -f python3`), never the `/usr/bin/python3` shim, which `DEV
 these protections.
 
 ## Install (and upgrade)
+
+**Before you start, on a Linux box: install binutils** (`apt-get install binutils`, `dnf install binutils` or
+`apk add binutils`). The installer uses its `readelf` to see which libraries `python3` loads before running it.
+Many server images do not ship binutils. Without it the installer stops with "binutils is not installed" and
+changes nothing. A Mac needs the Command Line Tools instead (see below).
 
 1. On the Mac, open Settings → Advanced → About → "Box updater package". Export `swarmhub-updater-<v>.tar` and its
    `.sha256`, and keep the window open: **the SHA-256 shown there is the trust root.** The `.sha256` file travels with
@@ -120,7 +127,8 @@ max(checkpoint, state) and refuses checkpoint-revoked keys, even after the bot w
    account. Use a standard (non-admin) account for Hermes if the guarantee matters.
 3. On each box, at the console or over his own SSH session: run steps 1–2 of the install, then `verify`, and keep the
    output (package digest, checkpoint) with the box's records. On a Mac, install the Command Line Tools first
-   (`xcode-select --install`) unless he names another root-owned python with `--python`.
+   (`xcode-select --install`) unless he names another root-owned python with `--python`. On Linux, install binutils
+   first (see the start of "Install").
 4. Decide the maintenance cadence (for example after each key manifest or index he publishes) and run the pass as above.
 
 ## Tests

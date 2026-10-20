@@ -240,6 +240,21 @@ refusals() {
   expect "left a prefix or ran the fake python" no_trace
   done_case
 
+  begin "without binutils (no readelf) the installer says plainly that binutils is missing, and runs nothing"
+  if [ -n "$PRIV" ] && [ "$(uname -s)" = Linux ]; then  # only in the throwaway container: hide readelf from the installer
+    _hidden=
+    for _d in /usr/bin /bin /usr/sbin /sbin; do
+      [ -e "$_d/readelf" ] || [ -L "$_d/readelf" ] || continue
+      mv "$_d/readelf" "$_d/readelf.p2d-hidden" && _hidden="$_hidden $_d"
+    done
+    expect "accepted without readelf" fails inst install --prefix "$PREFIX" --package "$PACKAGE" --sha256 "$GOOD"
+    for _d in $_hidden; do mv "$_d/readelf.p2d-hidden" "$_d/readelf"; done
+    expect "no plain binutils message" has "binutils is not installed" "$W/out"
+    expect "readelf not restored" command -v readelf
+    expect "left a prefix, a staging folder or ran code" no_trace
+    done_case
+  else skip "the installer names missing binutils" "readelf can only be hidden inside the Docker test container"; fi
+
   interpreter_refusals  # updater-bootstrap-interp.sh
 }
 

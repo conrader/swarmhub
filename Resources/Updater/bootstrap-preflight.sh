@@ -124,6 +124,9 @@ prefix_ok() {  # $1 a bin folder Python may start from; $2 the resolved binary's
   done
 }
 python_ok() {
+  [ "$OS" != Linux ] || command -v readelf > /dev/null 2>&1 || die "binutils is not installed: its readelf is needed \
+to check which libraries python3 loads before python3 runs. Install binutils (Debian/Ubuntu: apt-get install binutils; \
+Fedora/RHEL: dnf install binutils; Alpine: apk add binutils), then run this again. Nothing was changed"
   case $1 in /*) ;; *) return 1 ;; esac
   case $1 in *[!A-Za-z0-9._/+-]*) return 1 ;; esac
   trusted "$1" || return 1
@@ -213,9 +216,11 @@ linked_python_ok() {
       trusted "$_app" && mac_libraries "$_app" || return 1
     done
   elif [ "$OS" = Linux ]; then
-    _reader=$(command -v readelf) && trusted "$_reader" || { BAD="libpython discovery needs trusted readelf (binutils)"; return 1; }
+    _reader=$(command -v readelf) || { BAD="libpython discovery needs readelf: binutils is not installed"; return 1; }
+    trusted "$_reader" || { BAD="libpython discovery needs a protected readelf (binutils): $BAD"; return 1; }
     _dyn=$(clean "$_reader" -dW "$_lb" 2>/dev/null) && _ph=$(clean "$_reader" -lW "$_lb" 2>/dev/null) \
       || { BAD="libpython linkage cannot be determined (not a readable ELF binary)"; return 1; }
+    elf_search_ok || return 1  # every binary, also one with Python linked in statically: its other libraries load there
     _ld=$(printf '%s\n' "$_ph" | sed -n 's/.*\[Requesting program interpreter: \(.*\)\]/\1/p')
     if [ -z "$_ld" ]; then
       case $_dyn in *NEEDED*) BAD="libpython linkage has dependencies but no ELF loader"; return 1 ;; esac
@@ -230,7 +235,6 @@ linked_python_ok() {
       case $_dyn in *libpython*|*libPython*) BAD="libpython dependency missing from loader report"; return 1 ;; esac
       return 0  # Python is linked statically (system Python often still links libc dynamically).
     fi
-    elf_search_ok || return 1
     # A single library is required. Treat even a second alias/report line as ambiguous.
     no_controls "$(printf '%s' "$_libs" | tr -d '\t')" \
       || { BAD="libpython linkage is ambiguous or contains control characters"; return 1; }
@@ -240,8 +244,15 @@ linked_python_ok() {
   else BAD="libpython discovery is unsupported on $OS"; return 1; fi
 }
 
-# Protect explicitly configured ELF search folders too, including absent earlier candidates. The empty environment
-# removes LD_LIBRARY_PATH; unsupported dynamic tokens/relative paths cannot establish a stable libpython location.
+search_folder_ok() {  # $1 a folder the loader searches (or a file in it): it, or its nearest existing parent, is trusted
+  _probe=$1
+  while [ ! -e "$_probe" ] && [ ! -L "$_probe" ]; do _probe=$(dirname "$_probe"); done
+  trusted "$_probe"
+}
+
+# Protect explicitly configured ELF search folders too, including absent earlier candidates, whether or not libpython
+# is shared: the loader searches them for every library. The empty environment removes LD_LIBRARY_PATH; unsupported
+# dynamic tokens/relative paths cannot establish a stable library location.
 elf_search_ok() {
   _search=$(printf '%s\n' "$_dyn" | sed -n '/(RPATH)\|(RUNPATH)/s/.*\[\(.*\)\].*/\1/p')
   [ -n "$_search" ] || return 0
@@ -258,9 +269,7 @@ elf_search_ok() {
       *) set +f; BAD="libpython ELF search path cannot be resolved: $_sr"; return 1 ;;
     esac
     case $_sr in *[!A-Za-z0-9._/+-]*) set +f; BAD="libpython ELF search path is unsupported: $_sr"; return 1 ;; esac
-    _probe=$_sr
-    while [ ! -e "$_probe" ] && [ ! -L "$_probe" ]; do _probe=$(dirname "$_probe"); done
-    trusted "$_probe" || { set +f; BAD="libpython ELF search path is untrusted: $BAD"; return 1; }
+    search_folder_ok "$_sr" || { set +f; BAD="libpython ELF search path is untrusted: $BAD"; return 1; }
   done
   IFS=$_sifs; set +f
 }
@@ -310,17 +319,27 @@ mac_libraries() {
     NR == 1 { exit 1 }
     /^[ \t]+.* \(compatibility version .*\)$/ { next } { exit 1 } END { if (!header) exit 1 }' \
     || { BAD="libpython dependency table is malformed"; return 1; }
+  # Every LC_RPATH folder must be protected even when libpython is not linked: dyld searches them for any @rpath library.
+  _commands=$(clean "$_otool" -l "$_mb" 2>/dev/null) || { BAD="libpython rpaths unreadable"; return 1; }
+  printf '%s\n' "$_commands" | awk '$1 == "cmd" { r = ($2 == "LC_RPATH") }
+    r && $1 == "path" && $0 !~ / \(offset [0-9]+\)$/ { exit 1 }' \
+    || { BAD="libpython rpath table is malformed"; return 1; }
+  _rpaths=$(printf '%s\n' "$_commands" | awk '$1 == "cmd" { r = ($2 == "LC_RPATH") } r && $1 == "path" { sub(/^[ \t]*path /, ""); sub(/ \(offset [0-9]+\)$/, ""); print }')
+  _saveifs=$IFS; IFS='
+'
+  set -f
+  for _rp in $_rpaths; do
+    IFS=$_saveifs
+    mac_expand "$_rp" || { set +f; return 1; }
+    no_controls "$MAC_PATH" && search_folder_ok "$MAC_PATH" || { set +f; BAD="libpython rpath is untrusted: $BAD"; return 1; }
+  done
+  IFS=$_saveifs; set +f
   _ml=$(printf '%s\n' "$_deps" | sed -n 's/^[[:space:]]*\(.*\) (compatibility version .*$/\1/p' \
     | grep -E '(^|/)(lib[Pp]ython[^/]*|Python|Python3)$' | sort -u)
   [ -n "$_ml" ] || return 0  # no shared libpython: statically linked Python
   no_controls "$_ml" || { BAD="libpython dependencies are ambiguous or contain control characters"; return 1; }
   case $_ml in
     @rpath/*)
-      _commands=$(clean "$_otool" -l "$_mb" 2>/dev/null) || { BAD="libpython rpaths unreadable"; return 1; }
-      printf '%s\n' "$_commands" | awk '$1 == "cmd" { r = ($2 == "LC_RPATH") }
-        r && $1 == "path" && $0 !~ / \(offset [0-9]+\)$/ { exit 1 }' \
-        || { BAD="libpython rpath table is malformed"; return 1; }
-      _rpaths=$(printf '%s\n' "$_commands" | awk '$1 == "cmd" { r = ($2 == "LC_RPATH") } r && $1 == "path" { sub(/^[ \t]*path /, ""); sub(/ \(offset [0-9]+\)$/, ""); print }')
       _saveifs=$IFS; IFS='
 '
       _found=; set -f
@@ -330,9 +349,7 @@ mac_libraries() {
         _try=$MAC_PATH/${_ml#@rpath/}
         no_controls "$_try" || { set +f; BAD="libpython rpath contains a control character"; return 1; }
         # Missing earlier candidates must also be protected: otherwise another account can plant the next load.
-        _probe=$_try
-        while [ ! -e "$_probe" ] && [ ! -L "$_probe" ]; do _probe=$(dirname "$_probe"); done
-        trusted "$_probe" || { set +f; BAD="libpython rpath is untrusted: $BAD"; return 1; }
+        search_folder_ok "$_try" || { set +f; BAD="libpython rpath is untrusted: $BAD"; return 1; }
         if [ -e "$_try" ] || [ -L "$_try" ]; then
           trusted "$_try" || { set +f; return 1; }
           [ -z "$_found" ] || [ "$_found" = "$RESOLVED" ] || { set +f; BAD="libpython @rpath is ambiguous"; return 1; }

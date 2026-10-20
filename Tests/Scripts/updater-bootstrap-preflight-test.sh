@@ -67,6 +67,22 @@ if [ "${1:-}" != --before ]; then
     expect "fully static ELF refused" linked_python_ok "$FP/bin/static-python" "$FP"
   fi
   done_case
+
+  begin "with no shared libpython, a library search folder another account can write is still refused"
+  mkdir -p "$FP/open" && cp "$PKG/linkage/nolib-search" "$FP/bin/nolib-python" || exit 1
+  expect "control: protected search folder refused" linked_python_ok "$FP/bin/nolib-python" "$FP"
+  chmod 0777 "$FP/open"
+  expect "accepted a writable search folder" fails linked_python_ok "$FP/bin/nolib-python" "$FP"
+  done_case  # (a fully static ELF has no dynamic section: the linker drops its rpath and no loader runs)
+  rm -rf "$FP/open"
+
+  begin "without readelf (binutils) the refusal says binutils is missing, before anything runs"
+  mkdir -p "$W/nobin"; rm -f "$MARK"
+  (PATH=$W/nobin; die() { printf '%s\n' "$*"; exit 1; }; python_ok "$FP/bin/python3") > "$W/out" 2>&1
+  expect "accepted without readelf" [ "$?" != 0 ]
+  expect "no plain binutils message" has "binutils is not installed" "$W/out"
+  expect "ran the interpreter" no_trace
+  done_case
 fi
 
 for control in 10 13 9 27 127; do
@@ -97,7 +113,7 @@ OTOOL
   LP_ROOT=$SAFE/framework
   mkdir -p "$LP_ROOT/bin" "$LP_ROOT/lib/python3.12" "$LP_ROOT/Resources/Python.app/Contents/MacOS"
   : > "$LP_ROOT/Python3"; : > "$LP_ROOT/bin/python3"
-  for mode in absolute rpath loader app ambiguous unknown pth multiline badheader badrpath openrpath; do
+  for mode in absolute rpath loader app ambiguous unknown pth multiline badheader badrpath openrpath nolib nolibopen otherrpath; do
     begin "macOS framework libpython resolution: $mode"
     LP_LIBRARY=
     dep=$LP_ROOT/Python3
@@ -121,9 +137,13 @@ $LP_ROOT/Python3" ;;
       openrpath) mkdir -p "$LP_ROOT/open"; chmod 0777 "$LP_ROOT/open"
         printf 'cmd LC_RPATH\npath %s/open (offset 12)\n' "$LP_ROOT" >> "$TABLE_RPATHS" ;;
       pth) : > "$LP_ROOT/Python3._pth" ;;
+      nolib|nolibopen|otherrpath)  # no libpython linked; dyld still searches LC_RPATH for any @rpath library
+        dep=/usr/lib/libSystem.B.dylib; [ "$mode" != otherrpath ] || dep=@rpath/libz.1.dylib
+        printf '%s:\n\t%s (compatibility version 1.0.0, current version 1.0.0)\n' "$_candidate" "$dep" > "$TABLE_DEPS"
+        [ "$mode" = nolib ] || printf 'cmd LC_RPATH\npath %s/open/later (offset 12)\n' "$LP_ROOT" >> "$TABLE_RPATHS" ;;
     esac
     case $mode in
-      ambiguous|unknown|pth|multiline|badheader|badrpath|openrpath) expect "accepted unsafe framework linkage" fails mac_libraries "$_candidate" ;;
+      ambiguous|unknown|pth|multiline|badheader|badrpath|openrpath|nolibopen|otherrpath) expect "accepted unsafe framework linkage" fails mac_libraries "$_candidate" ;;
       *) expect "refused normal framework linkage" mac_libraries "$_candidate" ;;
     esac
     done_case

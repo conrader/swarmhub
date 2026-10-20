@@ -43,5 +43,8 @@ C
     -Wl,-rpath,"$_rpath" -o "$1/linkage/search" &&
   cc "$1/linkage/main.c" "$1/linkage/libpython3.bootstrap.so" -Wl,-rpath,"$_rpath" -o "$1/linkage/python3" &&
   cc -DOTHER "$1/linkage/main.c" "$1/linkage/libpython3.bootstrap.so" "$1/linkage/libpython3.other.so" \
-    -Wl,-rpath,"$_rpath" -o "$1/linkage/ambiguous"
+    -Wl,-rpath,"$_rpath" -o "$1/linkage/ambiguous" || return 1
+  # no shared libpython at all (as in a statically linked Python), but a search folder for its other libraries
+  printf 'int main(void) { return 0; }\n' > "$1/linkage/nolib.c"
+  cc "$1/linkage/nolib.c" -Wl,-rpath,"$_rpath/../../open" -o "$1/linkage/nolib-search"
 }

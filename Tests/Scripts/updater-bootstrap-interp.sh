@@ -138,7 +138,7 @@ link_target_refusals() {
 
 # host() builds native fixtures before Docker starts: no compiler or network is needed in the container.
 linked_library_refusals() {
-  for variant in pth lib writable outside missing ambiguous search; do
+  for variant in pth lib writable outside missing ambiguous search nolib; do
     begin "actual linked libpython in a custom folder: $variant"
     if fakepy clean && mkdir -p "$FP/private/deep" && cp "$PKG/linkage/python3" "$FP/bin/python3" \
         && cp "$PKG/linkage/libpython3.bootstrap.so" "$FP/private/deep/"; then
@@ -149,11 +149,12 @@ linked_library_refusals() {
         outside) mkdir -p "$SAFE/external"; mv "$FP/private/deep/libpython3.bootstrap.so" "$SAFE/external/"
           ln -s "$SAFE/external/libpython3.bootstrap.so" "$FP/private/deep/libpython3.bootstrap.so" ;;
         search) mkdir -p "$FP/open"; chmod 0777 "$FP/open"; cp "$PKG/linkage/search" "$FP/bin/python3" ;;
+        nolib) mkdir -p "$FP/open"; chmod 0777 "$FP/open"; cp "$PKG/linkage/nolib-search" "$FP/bin/python3" ;;
         missing) rm "$FP/private/deep/libpython3.bootstrap.so" ;;
         ambiguous) cp "$PKG/linkage/libpython3.other.so" "$FP/private/deep/"; cp "$PKG/linkage/ambiguous" "$FP/bin/python3" ;;
       esac
       rm -f "$MARK"
-      if [ "$variant" != missing ]; then
+      if [ "$variant" != missing ] && [ "$variant" != nolib ]; then  # nolib loads no fixture library
         "$FP/bin/python3" > /dev/null 2>&1
         expect "control: linked fixture did not execute" has linkage-target "$MARK"
         rm -f "$MARK"
