@@ -22,6 +22,7 @@ private func decodedContext(_ prompt: String) throws -> BotPromptContext {
 @Test func absentCoordinatorAndDefaultLanguageRemainExplicit() throws {
     let rendered = try BotSystemPrompt.render(BotPromptContext(name: "Scout"))
     #expect(!rendered.contains(BotSystemPrompt.contextSlot))
+    #expect(rendered.hasPrefix("# Swarm Hub default behavior · v\(BotSystemPrompt.version)\n"), "header and version move together")
     let context = try decodedContext(rendered)
     #expect(context.coordinator == nil && context.owner == "the user")
     #expect(context.language.contains("user's current language"))

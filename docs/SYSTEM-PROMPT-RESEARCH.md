@@ -16,6 +16,38 @@ Researched 2026-10-20 against app base `749d826`. Scope: observable assistant be
 
 These are design conclusions from public guidance, not claims about another assistant's internal implementation. The requested acknowledgement, draft-first sending, approval categories, completion ordering and quiet-hours behavior are Swarm Hub product requirements.
 
+## Grok Bot: public behavior documentation
+
+Researched 2026-10-20 for template v2. All URLs were accessed on 2026-10-20, and every quoted phrase was matched against the raw page text that day. Sources are public product documentation and press only. No Grok Bot system prompt, leaked or official, was used. xAI's public [grok-prompts](https://github.com/xai-org/grok-prompts) repository lists prompts for the grok.com/X chat assistant and "the Grok bot on X". That is a different product, and it was not used.
+
+**Identity.** Grok Bot is a team of persistent cloud agents ("Bots") from SpaceXAI, tied to Cursor. It launched in beta on 2026-08-11 ([MacRumors](https://www.macrumors.com/2026/08/11/grok-bot-macos-ios/)). Its documentation lives on cursor.com and lists desktop apps for macOS, Windows and Linux plus an iOS app ([Cursor docs](https://cursor.com/docs/grok-bot)). The repository's `PLAN.md` calls it "Cursor's hosted Mac agent app".
+
+| Topic | Sourced fact (Cursor docs unless noted) |
+| --- | --- |
+| Tone, reply length | **No public source found.** The docs describe "a concise action log" as one feature of a strong result ([work](https://cursor.com/docs/grok-bot/work)). |
+| Acknowledging work | **No public source found** for an acknowledgement habit. A Bot "keeps you updated in the conversation, and comes back when something needs your approval" ([overview](https://cursor.com/docs/grok-bot)). "A direct message from you takes priority over background work and can redirect the current turn." "Stop now" ends work, and "stopping doesn't undo actions the Bot already completed" ([work](https://cursor.com/docs/grok-bot/work)). |
+| Draft-first vs sending | This is user-configured, not a documented built-in default. Users are told to set a lasting rule such as "From now on, never send external messages without approval" and to "keep sending, purchasing, deleting, publishing, and production changes behind approval" ([work](https://cursor.com/docs/grok-bot/work)). A use-case prompt says "Return a review list; don't send or enroll anyone" ([use cases](https://cursor.com/docs/grok-bot/use-cases)). |
+| Approval gates | Approval cards show the proposed operation and its inputs, with Allow once, Always allow and Deny. "An approval controls the proposed action, not work already completed". Auto Review is "an independent review model that evaluates risky Bot actions before they run". For login, two-factor and payment steps, the Bot hands the computer to the member instead of typing credentials ([security](https://cursor.com/docs/grok-bot/security)). Approvals from work that started without the user (a routine, a trigger or another Bot) expire after about 10 minutes, and the action does not run ([how-to](https://cursor.com/help/grok-bot/how-to)). When a site expires a session or asks the user to re-verify, the docs say to "ask the Bot to pause and notify you rather than work around the check" ([work](https://cursor.com/docs/grok-bot/work)). |
+| Background jobs, completion | Cloud work continues "while your laptop is closed". For consequential work, users should ask the Bot to "separate facts found in source systems, assumptions, actions already completed, actions waiting for approval, and unresolved questions", with "an explicit list of anything the Bot couldn't verify" ([work](https://cursor.com/docs/grok-bot/work)). The per-Bot notification switch reads "Get notified when this Bot finishes or is waiting for you". Desktop alerts are hidden while Grok Bot is the window in use ([how-to](https://cursor.com/help/grok-bot/how-to)). |
+| Routines, schedules | A routine runs a workflow "on a schedule or after a supported event". Users should "Confirm the owning Bot, the schedule and time zone, the input source, the expected result, the approval boundary, and what happens when a source is missing." "A test run performs real work." Routines should "report missing or stale sources instead of working around them" ([work](https://cursor.com/docs/grok-bot/work)). |
+| Memory | A Bot "retains stable preferences, important facts, and summaries". "Memory is not a substitute for an authoritative source". Users should recheck current data for consequential decisions and back safety boundaries with approvals rather than memory alone ([work](https://cursor.com/docs/grok-bot/work)). Users can say "Remember this for future work" ([get started](https://cursor.com/docs/grok-bot/get-started)). |
+| Delegation | Bots hand work to each other. The docs say: "Ask for a single owner at each stage; parallel handoffs create duplicate work and noisy updates" ([work](https://cursor.com/docs/grok-bot/work)). Helper Bots created by other Bots appear in the sidebar and send notifications ([how-to](https://cursor.com/help/grok-bot/how-to)). |
+| Untrusted content | "Outside content is marked as untrusted data when presented to the model." The controls "reduce, but don't eliminate, risk from malicious content", which is why consequential actions stay behind approval ([security](https://cursor.com/docs/grok-bot/security)). |
+| Quiet hours | **No public source found.** The closest items are the notification switch, alert suppression while the app is focused, and advice to schedule a digest "for a time you can review it" ([use cases](https://cursor.com/docs/grok-bot/use-cases)). |
+
+**Inferences, not sourced facts.** Many of these passages tell users how to instruct a Bot. They do not say what the product does by default, so treat them as recommended operating practice rather than as Grok Bot's internal behavior. The public material does not establish tone, reply length, a first acknowledgement or quiet hours. Swarm Hub's rules for those remain its own product requirements: Konrad's orientation and quiet-hours requirements in `PLAN.md` (P49).
+
+**Template v2 changes, each tied to a source above:**
+
+* An owner message takes priority over background work. A stop request halts work and reports the actions already completed, which are not undone (work).
+* For consequential work, the completion report separates facts, assumptions, completed actions, pending approvals and open questions, and lists anything unverified (work).
+* When creating or changing a routine, the bot states its schedule and time zone, input source, expected result, recipient, approval stop and missing-source behavior. A test run counts as real work, and missing or stale sources are reported (work). The recipient field comes from Swarm Hub's existing completion-recipient rule.
+* Memory is context, not an authoritative source (work).
+* Login, two-factor, payment and human-verification steps go to the owner instead of being worked around (security, work).
+* Delegation keeps a single owner for each stage and avoids parallel handoffs (work).
+
+Unchanged, because the sources agree or are silent: acknowledgement and tone, draft-first sending (stricter than Grok Bot's opt-in rule, and kept as a Swarm Hub requirement), confirmation categories, untrusted content, quiet hours, typed slots, envelope `v="1"` and once-per-turn Hermes delivery. The template has no time-based approval expiry. "Never treat a timeout as approval" already covers the same risk.
+
 ## What the repository already does
 
 * `Sources/AgentApp/Models/Models.swift`: `Bot.defaultPersona`, editable `persona`, descriptions, profile/session bindings and approval settings. Imports and manager-created bots can have custom or empty personas.
@@ -52,7 +84,7 @@ The app's checked-in `chat.send` schema and `OpenClawBackend` do not expose a sy
 
 ## Implementation and configuration
 
-The canonical template is [`BotSystemPrompt.template`](../Packages/SwarmHubCore/Sources/SwarmHubCore/Configuration/BotSystemPrompt.swift), version 1. It is a code-owned configuration template shared by desktop and iOS; it requires no resource copying and works in both SwiftPM and standalone `swiftc` builds.
+The canonical template is [`BotSystemPrompt.template`](../Packages/SwarmHubCore/Sources/SwarmHubCore/Configuration/BotSystemPrompt.swift), version 2 (header `· v2`). The OpenClaw envelope stays `v="1"` because its wire format did not change and existing history must still strip. It is a code-owned configuration template shared by desktop and iOS; it requires no resource copying and works in both SwiftPM and standalone `swiftc` builds.
 
 `BotPromptContext` provides the per-bot slots: `name`, `role`, `owner`, `coordinator`, `timeZone`, `language`, `approvalRules`, `quietHours`. `render` inserts one JSON-encoded context object into `{{BOT_CONTEXT_JSON}}` in a single pass. Quotes/newlines are encoded and angle brackets escaped; slot-looking values are never recursively substituted. Do not add web/tool content or credentials to this object.
 
@@ -75,7 +107,7 @@ The canonical template is [`BotSystemPrompt.template`](../Packages/SwarmHubCore/
 
 Automated Swift coverage added:
 
-* `Packages/SwarmHubCore/Tests/SwarmHubCoreTests/SystemPromptTests.swift`: all typed slots round-trip, Unicode and hostile delimiter/slot values, persona preservation, machine-format compatibility text, and exact envelope removal with malformed/quoted blocks left intact.
+* `Packages/SwarmHubCore/Tests/SwarmHubCoreTests/SystemPromptTests.swift`: all typed slots round-trip, header matches `BotSystemPrompt.version`, Unicode and hostile delimiter/slot values, persona preservation, machine-format compatibility text, and exact envelope removal with malformed/quoted blocks left intact.
 * `Packages/SwarmHubCore/Tests/SwarmHubCoreTests/ClientTests.swift`: native creation plus repeated and resumed turns contain exactly one policy across the saved prompt and per-turn instructions.
 * `Tests/AgentAppTests/SystemPromptTests.swift`: decoded existing bot and settings refresh without persona/session edits; Hermes native and legacy payloads; repeated OpenClaw sends, management nesting, schema compatibility, ignored persona and clean displayed history.
 * Existing OpenClaw management/correction tests now account for the shared outer envelope; actual steer RPCs retain their prior payload.
