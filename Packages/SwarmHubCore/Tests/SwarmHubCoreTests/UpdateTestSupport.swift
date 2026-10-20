@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 @testable import SwarmHubCore
 
 /// In-process static update host keyed by a unique host per test, so parallel tests never share state.
@@ -126,6 +127,71 @@ enum UpdateFixtures {
                                sha256: updateDigest(blob), size: Int64(blob.count))])
         return UpdateSnapshot(record: record, keys: Data("{}".utf8), index: Data("{}".utf8), manifest: manifest,
                               blobs: ["policy": blob])
+    }
+
+    // MARK: Re-signed variants (TEST keys only, built at test time; the fixture files stay as they are)
+
+    /// The `signed` object of a fixture envelope.
+    static func signedObject(_ path: String) -> [String: JCS.Value] {
+        guard case .object(let envelope)? = try? JCS.parse(data(path)),
+              case .object(let signed)? = envelope["signed"] else { return [:] }
+        return signed
+    }
+
+    /// An envelope over `signed` by one TEST key, its seed read from `keys/TEST-keys.json`.
+    static func sign(_ signed: [String: JCS.Value], by keyID: String) -> Data {
+        guard case .object(let listing)? = try? JCS.parse(data("keys/TEST-keys.json")),
+              case .array(let keys)? = listing["keys"] else { return Data() }
+        var seed = ""
+        for case .object(let key) in keys where key["key_id"] == .string(keyID) {
+            if case .string(let text)? = key["seed"] { seed = text }
+        }
+        guard seed.count == 64, let privateKey = try? Curve25519.Signing.PrivateKey(rawRepresentation: hexBytes(seed)),
+              let canonical = try? JCS.canonical(.object(signed)),
+              let signature = try? privateKey.signature(for: Data("swarmhub-signature/1\n".utf8) + canonical) else { return Data() }
+        let hex = signature.map { String(format: "%02x", $0) }.joined()
+        let envelope: [String: JCS.Value] = ["signed": .object(signed),
+                                             "signatures": .array([.object(["key_id": .string(keyID), "sig": .string(hex)])])]
+        return (try? JCS.canonical(.object(envelope))) ?? Data()
+    }
+
+    /// Bundle 11's signed manifest at another version, with `change` applied to the named component.
+    static func manifest(_ version: Int64, component name: String? = nil,
+                         change: (inout [String: JCS.Value]) -> Void = { _ in }) -> Data {
+        var signed = signedObject("bundles/11.json")
+        signed["version"] = .integer(version)
+        if let name, case .array(let components)? = signed["components"] {
+            signed["components"] = .array(components.map { value in
+                guard case .object(var component) = value, component["name"] == .string(name) else { return value }
+                change(&component)
+                return .object(component)
+            })
+        }
+        return sign(signed, by: "TEST-release-1")
+    }
+
+    /// `channels/stable.json` at `seq`, its only line naming `manifest` as bundle `version`.
+    static func index(seq: Int64, version: Int64, manifest: Data) -> Data {
+        var signed = signedObject("channels/stable.json")
+        signed["seq"] = .integer(seq)
+        guard case .array(let lines)? = signed["lines"], case .object(var line)? = lines.first else { return Data() }
+        line["bundle_version"] = .integer(version)
+        line["manifest_sha256"] = .string(updateDigest(manifest))
+        signed["lines"] = .array([.object(line)])
+        return sign(signed, by: "TEST-release-1")
+    }
+
+    /// `keys/keys-2.json` at version 3 without TEST-release-1: the release key that signs the index is revoked.
+    static func keysRevokingRelease1() -> Data {
+        var signed = signedObject("keys/keys-2.json")
+        signed["version"] = .integer(3)
+        if case .array(let keys)? = signed["keys"] {
+            signed["keys"] = .array(keys.filter { value in
+                guard case .object(let key) = value else { return true }
+                return key["key_id"] != .string("TEST-release-1")
+            })
+        }
+        return sign(signed, by: "TEST-root-1")
     }
 
     /// Every file and link under the store except state.json: file bytes, link destinations, permissions.

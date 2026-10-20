@@ -54,8 +54,10 @@ public struct UpdateCheckResult: Equatable, Sendable {
 }
 
 /// P4a / CORE-PLAN §3.1, §3.3. Fetches, verifies everything through `UpdateVerifier`, and stores only
-/// verified data components targeted at this app. Any failure leaves the stored bundle, the floors and
-/// the app's behaviour as they were: fail closed means "do not apply", never "stop working".
+/// verified data components targeted at this app. Any failure leaves the stored bundle and the app's
+/// behaviour as they were: fail closed means "do not apply", never "stop working". Floors only rise, and
+/// each rise reaches disk before anything relies on it: a verified key manifest before the index is fetched
+/// (§3.1 step 1), a bundle floor before its switch (§3.2).
 public actor UpdateClient {
     public let configuration: UpdateConfiguration
     public let store: UpdateStore
@@ -143,6 +145,7 @@ public actor UpdateClient {
         state.lastResult = verdict
         if ["accept", "no_update"].contains(verdict.verdict) { state.failingSince = nil }
         else if state.failingSince == nil { state.failingSince = now }
+        // Floors are already on disk (`persist`); this write records the check for status only.
         try? store.saveState(state)
         return UpdateCheckResult(verdict: verdict, status: status(state: state, now: now))
     }
@@ -157,6 +160,19 @@ public actor UpdateClient {
         let transport = try UpdateTransport(base: c.baseURL, session: session, timeout: c.timeout)
         defer { transport.finish() }
         let keys = try await transport.get("keys.json", limit: c.limits.maxSignedBytes)
+        // §3.1 step 1: a key manifest that verifies is persisted before anything else is fetched, so a key it
+        // drops stays revoked even when the index, manifest or a blob fails afterwards.
+        if (try? KeyManifest.verify(pins: c.pins, manifest: keys, floors: state.floors, limits: c.limits)) != nil {
+            try persist(&state, raising: UpdateFloors(keysVersion: Self.signedInteger(keys, "version"),
+                                                      indexSequence: 0, bundleVersion: 0))
+        }
+        // A kill between a floor write and its switch leaves the floor at a bundle that never became current.
+        // That bundle (or a newer one) may still be applied; anything lower is refused as before.
+        let floors = state.floors
+        let resuming = state.pendingBundle == floors.bundleVersion && floors.bundleVersion > 0
+            && store.record()?.bundleVersion != floors.bundleVersion
+        let verifyFloors = resuming ? UpdateFloors(keysVersion: floors.keysVersion, indexSequence: floors.indexSequence,
+                                                   bundleVersion: floors.bundleVersion - 1) : floors
         let index = try await transport.get("channels/\(c.channel).json", limit: c.limits.maxSignedBytes)
         let consumer = UpdateConsumer(platform: c.platform, versions: c.versions)
         let installID = c.installID ?? state.installID
@@ -177,7 +193,7 @@ public actor UpdateClient {
                         guard let data = blobs[component.sha256] else { throw Pending.blob(component) }
                         return data
                     },
-                    channel: c.channel, now: now, floors: state.floors, consumer: consumer, installID: installID,
+                    channel: c.channel, now: now, floors: verifyFloors, consumer: consumer, installID: installID,
                     revokedKeyIDs: c.revokedKeyIDs, limits: c.limits)
             } catch Pending.manifest(let line) {
                 manifests[line.manifestSHA256] = try await transport.get("bundles/\(line.bundleVersion).json",
@@ -188,18 +204,26 @@ public actor UpdateClient {
                                                                   limit: Int(component.size))
                 continue
             }
-            let verdict = verification.verdict
+            var verdict = verification.verdict
+            if resuming, verdict.reason == "already_applied" {
+                // The resumed floor sits one below the persisted one: this line is below the real floor.
+                verdict = Self.reject("index", "bundle_rollback")
+            }
             switch verdict.verdict {
             case "accept":
                 guard let selected, let manifest = manifests[selected] else { throw UpdateStoreError.storage }
                 let snapshot = try Self.snapshot(verification, keys: keys, index: index, manifest: manifest,
-                                                 manifestSHA256: selected, platform: c.platform, now: now)
+                                                 manifestSHA256: selected, platform: c.platform, now: now, installed: store)
                 guard validate(snapshot.record, snapshot.blobs) else { throw PolicyFailure(reason: "post_apply_check_failed") }
+                let version = snapshot.record.bundleVersion
+                // Floors first (§3.2): from here on, a kill leaves them at or above whatever is current. A failed
+                // write throws before the switch, so the stored bundle stays as it was.
+                try persist(&state, raising: Self.floors(keys: keys, index: index, bundle: version), pending: version)
                 try store.commit(snapshot)
-                state.raise(to: Self.floors(keys: keys, index: index, bundle: snapshot.record.bundleVersion))
+                state.pendingBundle = nil
                 markFresh(&state, index: index, now: now)
             case "no_update":
-                state.raise(to: Self.floors(keys: keys, index: index, bundle: 0))
+                try persist(&state, raising: Self.floors(keys: keys, index: index, bundle: 0))
                 markFresh(&state, index: index, now: now)
             default:
                 break
@@ -207,6 +231,17 @@ public actor UpdateClient {
             return verdict
         }
         throw UpdateTransport.Failure(reason: "fetch_limit")
+    }
+
+    /// Writes the raised floors (and the pending bundle) to disk, then adopts them. A failed write throws and
+    /// leaves `state` as it was, so the final status write cannot record floors that never reached disk.
+    private func persist(_ state: inout UpdateState, raising floors: UpdateFloors, pending: Int64? = nil) throws {
+        var raised = state
+        raised.raise(to: floors)
+        if let pending { raised.pendingBundle = pending }
+        guard raised != state else { return }
+        try store.saveState(raised)
+        state = raised
     }
 
     private func markFresh(_ state: inout UpdateState, index: Data, now: String) {
@@ -232,28 +267,42 @@ public actor UpdateClient {
         return signed[key]
     }
 
+    static func signedInteger(_ data: Data, _ key: String) -> Int64 {
+        guard case .integer(let number)? = signedField(data, key) else { return 0 }
+        return number
+    }
+
     static func floors(keys: Data, index: Data, bundle: Int64) -> UpdateFloors {
-        func integer(_ value: JCS.Value?) -> Int64 {
-            guard case .integer(let number)? = value else { return 0 }
-            return number
-        }
-        return UpdateFloors(keysVersion: integer(signedField(keys, "version")),
-                            indexSequence: integer(signedField(index, "seq")), bundleVersion: bundle)
+        UpdateFloors(keysVersion: signedInteger(keys, "version"), indexSequence: signedInteger(index, "seq"),
+                     bundleVersion: bundle)
     }
 
     /// Only `config` and `ui` data components targeted at this platform are stored. The verifier already
     /// guarantees this for `mac`/`ios`; the store refuses anything else rather than trusting that alone.
+    /// A component the verifier skipped (`incompatible`, `dependency_skipped`) keeps its installed version
+    /// (SCHEMAS.md §7), re-hashed from the current bundle; an unreadable copy fails closed.
     static func snapshot(_ verification: UpdateVerification, keys: Data, index: Data, manifest: Data,
-                         manifestSHA256: String, platform: String, now: String) throws -> UpdateSnapshot {
+                         manifestSHA256: String, platform: String, now: String,
+                         installed: UpdateStore) throws -> UpdateSnapshot {
         guard case .object(let signed)? = verification.manifest, case .integer(let version)? = signed["version"],
               case .array(let listed)? = signed["components"], updateDigest(manifest) == manifestSHA256,
               version == verification.verdict.bundleVersion else { throw PolicyFailure(reason: "store_policy") }
+        let apply = verification.verdict.apply ?? []
+        let skipped = Set((verification.verdict.skipped ?? []).map(\.name))
+        let current = installed.record(.current)
         var entries: [UpdateRecord.Component] = []
         var stored: [String: Data] = [:]
-        for name in verification.verdict.apply ?? [] {
-            var found: [String: JCS.Value]?
-            for case .object(let candidate) in listed where candidate["name"] == .string(name) { found = candidate; break }
-            guard let object = found, case .string(let kind)? = object["kind"], case .string(let contentClass)? = object["class"],
+        for case .object(let object) in listed {
+            guard case .string(let name)? = object["name"] else { throw PolicyFailure(reason: "store_policy") }
+            if skipped.contains(name), let kept = current?.components.first(where: { $0.name == name }) {
+                guard current?.platform == platform, kept.contentClass == "data", ["config", "ui"].contains(kept.kind),
+                      let blob = installed.component(name) else { throw UpdateStoreError.storage }
+                entries.append(kept)
+                stored[name] = blob
+                continue
+            }
+            guard apply.contains(name) else { continue }
+            guard case .string(let kind)? = object["kind"], case .string(let contentClass)? = object["class"],
                   case .string(let componentVersion)? = object["version"], case .string(let sha256)? = object["sha256"],
                   case .integer(let size)? = object["size"], case .array(let targets)? = object["targets"],
                   contentClass == "data", ["config", "ui"].contains(kind), targets.contains(.string(platform)),
@@ -264,6 +313,8 @@ public actor UpdateClient {
                                  sha256: sha256, size: size))
             stored[name] = blob
         }
+        // Every applied component was found once in the manifest.
+        guard entries.filter({ apply.contains($0.name) }).map(\.name) == apply else { throw PolicyFailure(reason: "store_policy") }
         let record = UpdateRecord(bundleVersion: version, manifestSHA256: manifestSHA256, appliedAt: now,
                                   platform: platform, components: entries)
         return UpdateSnapshot(record: record, keys: keys, index: index, manifest: manifest, blobs: stored)

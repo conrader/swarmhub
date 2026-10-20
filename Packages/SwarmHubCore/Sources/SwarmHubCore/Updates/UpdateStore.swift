@@ -14,6 +14,9 @@ public struct UpdateState: Codable, Equatable, Sendable {
     /// First failed check since the last verified index.
     public var failingSince: String? = nil
     public var lastResult: UpdateVerdict? = nil
+    /// Bundle whose floor was written before its switch (§3.1 step 5). Set until the switch completes, so a
+    /// kill in between can re-apply exactly that bundle (or a newer one) and never a lower one.
+    public var pendingBundle: Int64? = nil
 
     public init(installID: String) { self.installID = installID }
 
@@ -39,6 +42,7 @@ public struct UpdateState: Codable, Equatable, Sendable {
         case keysVersion = "keys_version", indexSequence = "index_seq", bundleVersion = "bundle_version"
         case installID = "install_id", lastCheck = "last_check", lastVerified = "last_verified"
         case freshUntil = "fresh_until", failingSince = "failing_since", lastResult = "last_result"
+        case pendingBundle = "pending_bundle"
     }
 }
 
@@ -96,6 +100,10 @@ public struct UpdateStore: Sendable {
     public let root: URL
     /// Test seam: runs after staging and before the switch. A throw must leave `current` untouched.
     var beforeSwitch: (@Sendable () throws -> Void)? = nil
+    /// Test seam: runs right after `current` is switched, before anything else is written.
+    var afterSwitch: (@Sendable () -> Void)? = nil
+    /// Test seam: runs before each state write. A throw is a failed write; nothing is written.
+    var beforeStateWrite: (@Sendable (UpdateState) throws -> Void)? = nil
 
     public init(root: URL) { self.root = root }
 
@@ -117,6 +125,7 @@ public struct UpdateStore: Sendable {
     }
 
     public func saveState(_ state: UpdateState) throws {
+        try beforeStateWrite?(state)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -148,7 +157,7 @@ public struct UpdateStore: Sendable {
     func commit(_ snapshot: UpdateSnapshot) throws {
         let fm = FileManager.default
         let id = Self.versionID(snapshot.record)
-        // Re-committing what is already current (state save lost after a switch) is a no-op.
+        // Re-committing what is already current (killed after the switch, before the state recorded it) is a no-op.
         if target(Slot.current.rawValue) == id { return }
         guard target(Slot.previous.rawValue) != id else { throw UpdateStoreError.storage }
         let staging = root.appendingPathComponent("staging", isDirectory: true)
@@ -177,6 +186,7 @@ public struct UpdateStore: Sendable {
         try fm.moveItem(at: staging, to: destination)
         if let old = target(Slot.current.rawValue) { try point(.previous, to: old) }
         try point(.current, to: id)
+        afterSwitch?()
         collect()
     }
 

@@ -59,7 +59,7 @@ struct UpdateClientTests {
     func cleanup(_ store: UpdateStore) { try? FileManager.default.removeItem(at: store.root) }
 
     @Test(arguments: UpdateClientTests.matrix)
-    func failureLeavesStoreFloorsAndBehaviourUnchanged(_ entry: MatrixCase) async throws {
+    func failureLeavesStoreAndBehaviourUnchanged(_ entry: MatrixCase) async throws {
         let store = try seededStore()
         defer { cleanup(store) }
         let before = UpdateFixtures.tree(store)
@@ -76,7 +76,9 @@ struct UpdateClientTests {
         #expect(result.status.current?.bundleVersion == 10, "\(entry.name)")
         #expect(store.component("policy") == UpdateFixtures.synthetic(10).blobs["policy"], "\(entry.name)")
         let state = try #require(try store.loadState())
-        #expect([state.keysVersion, state.indexSequence, state.bundleVersion] == [1, 4, 10], "\(entry.name)")
+        // Only a key manifest that verified raises a floor (keys-2: version 2); the rest stay at the baseline.
+        let keysVerified = entry.overrides["/keys.json"] == nil
+        #expect([state.keysVersion, state.indexSequence, state.bundleVersion] == [keysVerified ? 2 : 1, 4, 10], "\(entry.name)")
         #expect(state.lastResult == result.verdict)
         // Never verified anything: stale since this first failed check.
         #expect(result.status.staleSince == "2026-10-20T12:00:00Z", "\(entry.name)")
@@ -170,7 +172,9 @@ struct UpdateClientTests {
         #expect(result.verdict == UpdateVerdict(verdict: "reject", stage: stage, reason: reason))
         #expect(UpdateFixtures.tree(store) == before)
         let after = try #require(try store.loadState())
-        #expect([after.keysVersion, after.indexSequence, after.bundleVersion] == floors)
+        // keys-2 verified unless the keys floor itself refused it; nothing else moves.
+        let keys = stage == "keys" ? floors[0] : max(floors[0], 2)
+        #expect([after.keysVersion, after.indexSequence, after.bundleVersion] == [keys, floors[1], floors[2]])
     }
 
     @Test func persistedFloorsBelowTheCompiledBaselineAreRaised() async throws {
