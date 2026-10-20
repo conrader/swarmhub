@@ -1,4 +1,5 @@
 import Foundation
+import SwarmHubCore
 
 /// Session IDs are local to a gateway/profile; different connections can reuse the same ID.
 private actor HermesRunRegistry {
@@ -83,6 +84,8 @@ struct HermesBackend: AgentBackend {
     var profile: String = "default"
     var session: URLSession = HermesURLSession.shared
     var timeouts = HermesTimeouts.standard
+    /// Rendered by AppStore for every real bot; QA and transport-only clients stay isolated.
+    var defaultInstructions: String? = nil
 
     static func validatedBaseURL(_ value: String) -> URL? {
         guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme), url.host != nil else { return nil }
@@ -174,6 +177,7 @@ struct HermesBackend: AgentBackend {
 
     func createSession(title: String, systemPrompt: String, id: String? = nil) async throws -> String {
         guard try await transport() == .nativeSessions else { throw BackendError.unavailable("Legacy Hermes servers do not support durable sessions.") }
+        // Keep the saved persona intact. The app policy is ephemeral, supplied only on each turn.
         var body: [String: Any] = ["title": title, "system_prompt": systemPrompt, "source": "api_server"]
         if let id { body["id"] = id }
         let json: [String: Any]
@@ -201,55 +205,6 @@ struct HermesBackend: AgentBackend {
         case .disconnectedLegacy: return .disconnectedLegacy
         case .noActiveRun: return .noActiveRun
         }
-    }
-
-    /// A box row: integer `id` (a numeric string is accepted too), `finish_reason` kept; image data URLs in user rows
-    /// (the box returns them whole) become a bare `[Image: inline]` line, which `comparable` ignores.
-    /// P43 (`toolCalls`): an assistant row's `tool_calls` names are kept, and a row with only tool calls is kept too (reconcile
-    /// draws the steps where they happened).
-    static func parseMessage(_ row: [String: Any], toolCalls: Bool = false) -> BackendMessage? {
-        let tools = toolCalls && row["role"] as? String == "assistant" ? toolNames(row["tool_calls"]) : []
-        guard let role = row["role"] as? String, ["user", "assistant", "system"].contains(role),
-              var content = normalizedContent(row["content"]) ?? (tools.isEmpty ? nil : ""), !content.isEmpty || !tools.isEmpty else { return nil }
-        if role == "user", content.contains("[Image: data:") {
-            content = content.components(separatedBy: "\n").map { $0.hasPrefix("[Image: data:") ? "[Image: inline]" : $0 }.joined(separator: "\n")
-        }
-        let rawDate = row["created_at"] ?? row["timestamp"]
-        let date: Date?
-        if let seconds = rawDate as? Double { date = Date(timeIntervalSince1970: seconds) }
-        else if let seconds = rawDate as? Int { date = Date(timeIntervalSince1970: Double(seconds)) }
-        else if let value = rawDate as? String { date = ISO8601DateFormatter().date(from: value) }
-        else { date = nil }
-        let rawID = row["id"] ?? row["message_id"]
-        let id = (rawID as? Int) ?? (rawID as? String).flatMap { Int($0) }
-        return .init(id: id, role: role, content: content, createdAt: date, finishReason: row["finish_reason"] as? String, tools: tools)
-    }
-
-    /// `tool_calls` as an array (or its JSON string) of `{function: {name}}` or `{name}` entries.
-    static func toolNames(_ value: Any?) -> [String] {
-        var calls = value as? [[String: Any]]
-        if calls == nil, let text = value as? String, let data = text.data(using: .utf8) { calls = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] }
-        return (calls ?? []).compactMap { call in
-            let name = ((call["function"] as? [String: Any])?["name"] ?? call["name"]) as? String
-            return name.flatMap { $0.isEmpty ? nil : $0 }
-        }
-    }
-
-    static func normalizedContent(_ value: Any?) -> String? {
-        if let text = value as? String { return text }
-        if value == nil || value is NSNull { return nil }
-        if let object = value as? [String: Any] { return object["text"] as? String }
-        guard let parts = value as? [Any] else { return nil }
-        let rendered = parts.compactMap { part -> String? in
-            if let text = part as? String { return text }
-            guard let object = part as? [String: Any] else { return nil }
-            if let text = object["text"] as? String { return text }
-            let image = object["image_url"]
-            if let url = image as? String { return "[Image: \(url)]" }
-            if let image = image as? [String: Any], let url = image["url"] as? String { return "[Image: \(url)]" }
-            return nil
-        }.filter { !$0.isEmpty }
-        return rendered.isEmpty ? nil : rendered.joined(separator: "\n")
     }
 
     func resolveApproval(id: UUID, approved: Bool) async throws { throw BackendError.unavailable("The approval no longer identifies its Hermes run.") }
@@ -310,7 +265,7 @@ struct HermesBackend: AgentBackend {
         let escaped = request.sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? request.sessionID
         var urlRequest = try makeRequest(path: "api/sessions/\(escaped)/chat/stream", method: "POST")
         let input = request.messages.last(where: { $0.role == "user" })?.content ?? ""
-        urlRequest.httpBody = try Self.requestBody(["input": Self.contentParts(text: input, images: request.images), "instructions": request.effectiveSystemPrompt])
+        urlRequest.httpBody = try Self.requestBody(["input": Self.contentParts(text: input, images: request.images), "instructions": BotSystemPrompt.compose(policy: defaultInstructions, instructions: request.effectiveSystemPrompt)])
         return sseStream(urlRequest, sessionID: request.sessionID, legacy: false)
     }
 
@@ -320,7 +275,7 @@ struct HermesBackend: AgentBackend {
         urlRequest.setValue(request.sessionID, forHTTPHeaderField: "X-Hermes-Session-Id")
         // The persona stays one system string; every history message is split too, since Hermes cuts plain strings as well.
         let lastUser = request.messages.lastIndex { $0.role == "user" }
-        var messages: [[String: Any]] = [["role": "system", "content": request.effectiveSystemPrompt]]
+        var messages: [[String: Any]] = [["role": "system", "content": BotSystemPrompt.compose(policy: defaultInstructions, instructions: request.effectiveSystemPrompt)]]
         messages.append(contentsOf: request.messages.enumerated().map { index, message in
             ["role": message.role, "content": Self.contentParts(text: message.content, images: index == lastUser ? request.images : [])]
         })

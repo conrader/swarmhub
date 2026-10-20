@@ -29,6 +29,16 @@ struct ContentView: View {
                 }
             }.ignoresSafeArea(.container, edges: .top)
         }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let warning = store.botPromptSyncWarning {
+                HStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle").accessibilityHidden(true)
+                    Text(warning).frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Dismiss") { store.botPromptSyncWarning = nil }
+                        .accessibilityLabel("Dismiss bot prompt sync warning")
+                }.font(.callout).padding(12).background(.regularMaterial)
+            }
+        }
         .task { store.startRoutinePolling(); store.startLaunchWork(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
         // P21 item 8: "New agent" with no box opens the setup window instead of an editor that could only make a mock.
         .sheet(isPresented: Binding(get: { store.showingNewBot && store.boxConfigured }, set: { store.showingNewBot = $0 })) { BotEditorView(bot: nil) }

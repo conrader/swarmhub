@@ -1,8 +1,10 @@
 import Foundation
+import SwarmHubCore
 
 /// P12: an OpenClaw agent behind a Gateway, over the hub's shared WebSocket (Gateway RPC, protocol 4). Persona, tools,
 /// skills, memory and model stay in the Gateway; `bot.persona` and `systemPrompt` are sent nowhere (OpenClaw has no
-/// system-prompt parameter). The session key lives in the bot's `hermesSessionID` (documented reuse).
+/// system-prompt parameter). Swarm Hub policy is supplied separately as per-turn context.
+/// The session key lives in the bot's `hermesSessionID` (documented reuse).
 struct OpenClawBackend: AgentBackend {
     /// P21 D4 / P25 D1: the setup window offers the "which software" step and its OpenClaw connect screen; Settings →
     /// Advanced → Servers and keys still adds Gateways too (P12).
@@ -17,6 +19,8 @@ struct OpenClawBackend: AgentBackend {
     let hub: OpenClawHub
     /// The Gateway's main session name (`agents.list.mainKey`) for `main` mode.
     var mainKey = "main"
+    /// Shared app policy only: never the ignored Hermes persona or Gateway credentials.
+    var defaultInstructions: String? = nil
 
     var agentID: String { binding.agentID }
     var secrets: [String] { GatewayCredentials(gateway: gateway, keyStore: hub.keyStore).secrets }

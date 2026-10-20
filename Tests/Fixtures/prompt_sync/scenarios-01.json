@@ -1,0 +1,210 @@
+[
+  {
+    "name": "mac baseline reaches ios",
+    "ops": [
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 1000,
+        "context": {
+          "base": "mac"
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "mac"
+        }
+      },
+      {
+        "op": "stamp",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "field": "owner",
+        "at": 0,
+        "origin": "mac",
+        "value": "Konrad"
+      }
+    ]
+  },
+  {
+    "name": "ios edit wins and an unchanged mac observe does not revert it",
+    "ops": [
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 1000,
+        "context": {
+          "base": "mac"
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "edit",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "now": 2000,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "owner": "K."
+        }
+      },
+      {
+        "op": "stamp",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "field": "owner",
+        "at": 2000,
+        "origin": "ios"
+      },
+      {
+        "op": "sync",
+        "from": "ios",
+        "to": "mac"
+      },
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 3000,
+        "context": {
+          "base": "mac"
+        }
+      },
+      {
+        "op": "expect",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "mac"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "owner": "K."
+          }
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "owner": "K."
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "fields merge independently",
+    "ops": [
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 1000,
+        "context": {
+          "base": "mac"
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "edit",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "now": 2000,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "owner": "K."
+        }
+      },
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 2500,
+        "context": {
+          "base": "mac",
+          "with": {
+            "language": "English"
+          }
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "sync",
+        "from": "ios",
+        "to": "mac"
+      },
+      {
+        "op": "expect",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "mac"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "owner": "K.",
+            "language": "English"
+          }
+        }
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "owner": "K.",
+            "language": "English"
+          }
+        }
+      }
+    ]
+  }
+]

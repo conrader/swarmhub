@@ -1,0 +1,299 @@
+[
+  {
+    "name": "NFC and NFD spellings are different values and origins",
+    "ops": [
+      {
+        "op": "receive",
+        "device": "ios",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "https://box.example#scout": {
+              "owner": {
+                "value": "José",
+                "at": 7,
+                "origin": "x"
+              },
+              "role": {
+                "value": "r",
+                "at": 7,
+                "origin": "é"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "receive",
+        "device": "ios",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "https://box.example#scout": {
+              "owner": {
+                "value": "José",
+                "at": 7,
+                "origin": "x"
+              },
+              "role": {
+                "value": "s",
+                "at": 7,
+                "origin": "é"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "receive",
+        "device": "mac",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "https://box.example#scout": {
+              "owner": {
+                "value": "José",
+                "at": 7,
+                "origin": "x"
+              },
+              "role": {
+                "value": "s",
+                "at": 7,
+                "origin": "é"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "receive",
+        "device": "mac",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "https://box.example#scout": {
+              "owner": {
+                "value": "José",
+                "at": 7,
+                "origin": "x"
+              },
+              "role": {
+                "value": "r",
+                "at": 7,
+                "origin": "é"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "ios",
+          "with": {
+            "owner": "José",
+            "role": "r"
+          }
+        }
+      },
+      {
+        "op": "expect",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "mac"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "owner": "José",
+            "role": "r"
+          }
+        }
+      },
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 100,
+        "context": {
+          "base": "mac",
+          "with": {
+            "owner": "José"
+          }
+        }
+      },
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 200,
+        "context": {
+          "base": "mac",
+          "with": {
+            "owner": "José"
+          }
+        }
+      },
+      {
+        "op": "stamp",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "field": "owner",
+        "at": 200,
+        "origin": "mac",
+        "value": "José"
+      }
+    ]
+  },
+  {
+    "name": "documents missing schema or bots merge nothing",
+    "ops": [
+      {
+        "op": "receive",
+        "device": "ios",
+        "document": {
+          "bots": {
+            "https://box.example#scout": {
+              "owner": {
+                "value": "Z",
+                "at": 5,
+                "origin": "mac"
+              }
+            }
+          }
+        },
+        "merged": false
+      },
+      {
+        "op": "receive",
+        "device": "ios",
+        "document": {
+          "schema": 1
+        },
+        "merged": true
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "ios"
+        }
+      }
+    ]
+  },
+  {
+    "name": "identical time and origin break on value bytes in either order",
+    "ops": [
+      {
+        "op": "receive",
+        "device": "ios",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "https://box.example#scout": {
+              "owner": {
+                "value": "Alpha",
+                "at": 7,
+                "origin": "x"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "receive",
+        "device": "ios",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "https://box.example#scout": {
+              "owner": {
+                "value": "Beta",
+                "at": 7,
+                "origin": "x"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "receive",
+        "device": "mac",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "https://box.example#scout": {
+              "owner": {
+                "value": "Beta",
+                "at": 7,
+                "origin": "x"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "receive",
+        "device": "mac",
+        "document": {
+          "schema": 1,
+          "bots": {
+            "https://box.example#scout": {
+              "owner": {
+                "value": "Alpha",
+                "at": 7,
+                "origin": "x"
+              }
+            }
+          }
+        },
+        "merged": true
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "ios",
+          "with": {
+            "owner": "Beta"
+          }
+        }
+      },
+      {
+        "op": "expect",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "mac"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "owner": "Beta"
+          }
+        }
+      }
+    ]
+  }
+]

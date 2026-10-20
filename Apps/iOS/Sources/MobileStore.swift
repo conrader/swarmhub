@@ -17,7 +17,10 @@ final class MobileStore {
     var booted = false
     var error: String?
     var notice: String?
+    var botPromptSyncWarning: String?
     @ObservationIgnored private var repository: SQLiteRepository?
+    @ObservationIgnored private var botPromptSync: BotPromptSyncStore?
+    @ObservationIgnored private var botPromptSyncURL: URL?
     @ObservationIgnored private let credentials = KeychainCredentials()
     @ObservationIgnored private var clients: [String: any AgentClient] = [:]
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
@@ -27,15 +30,32 @@ final class MobileStore {
     /// installed bundle in `init` (never fetched); screenshot capture keeps the compiled values.
     @ObservationIgnored private(set) var appConfig = AppConfig.compiled
 
-    init() {
-        if CaptureConfiguration.screen != nil { CaptureConfiguration.configure(self); return }
+    init(storageDirectory: URL? = nil) {
+        if storageDirectory == nil, CaptureConfiguration.screen != nil { CaptureConfiguration.configure(self); return }
         appConfig = AppConfig.load()
         do {
-            let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("SwarmHub")
+            let directory = try storageDirectory ?? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("SwarmHub")
             repository = try SQLiteRepository(url: directory.appendingPathComponent("mobile.sqlite"))
             try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: directory.path)
+            botPromptSyncURL = directory.appendingPathComponent("bot-prompt-sync.json")
+            retryBotPromptSyncLoad()
         } catch { repository = nil; self.error = "Local storage is unavailable. Setup and chat are disabled until it is available." }
     }
+
+    /// Retry only local loading; never reset or replace an unreadable sync file.
+    func retryBotPromptSyncLoad() {
+        guard let botPromptSyncURL else { return }
+        do {
+            botPromptSync = try BotPromptSyncStore(fileURL: botPromptSyncURL)
+            // Sample clients have no saved credentials from which to recreate them.
+            if !demo { clients = [:] }
+            botPromptSyncWarning = nil
+        } catch {
+            botPromptSyncWarning = "Saved bot prompt settings could not be loaded. Chat is using local settings; the sync file was kept unchanged."
+        }
+    }
+
+    func dismissBotPromptSyncWarning() { botPromptSyncWarning = nil }
 
     func load() async {
         guard !booted else { return }; defer { booted = true }
@@ -83,14 +103,32 @@ final class MobileStore {
         }
         if demo { stopLocalStreams(); clients = [:]; caches = [:]; approvals = [] }
         demo = false; profiles = next
-        clients[profile.id] = HermesClient(address: address, key: key)
+        clients[profile.id] = nil
         capabilities[profile.id] = verification.capabilities
     }
 
     func client(_ id: String) throws -> any AgentClient {
         if let existing = clients[id] { return existing }
         guard let profile = profiles.first(where: { $0.id == id }), let key = try credentials.read(id), !key.isEmpty else { throw CoreError.missingKey }
-        let client = HermesClient(address: profile.address, key: key); clients[id] = client; return client
+        let local = BotPromptContext(name: profile.name)
+        let context = botPromptSync?.context(for: BotPromptDocument.botKey(profile.address), fallback: local) ?? local
+        let client = HermesClient(address: profile.address, key: key, promptContext: context); clients[id] = client; return client
+    }
+
+    /// Explicit edits only: mobile defaults are never published as local observations.
+    func editBotPrompt(_ id: String, change: (inout BotPromptContext) -> Void) throws {
+        guard !demo, let profile = profiles.first(where: { $0.id == id }), let botPromptSync else { throw CoreError.storage }
+        try botPromptSync.edit(key: BotPromptDocument.botKey(profile.address), now: Int64(Date().timeIntervalSince1970 * 1_000),
+                               fallback: BotPromptContext(name: profile.name), change)
+        // A HermesClient captures its context at creation; the next turn must use the saved values.
+        clients[id] = nil
+    }
+
+    @discardableResult func syncBotPrompts(using transport: any BotPromptSyncTransport) async throws -> Bool {
+        guard !demo, let botPromptSync else { throw CoreError.storage }
+        let merged = try await botPromptSync.synchronize(using: transport)
+        if merged { clients = [:] }
+        return merged
     }
 
     func sessions(_ id: String) async throws -> [SessionSummary] {

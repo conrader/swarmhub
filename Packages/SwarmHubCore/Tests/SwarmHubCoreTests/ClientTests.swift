@@ -33,6 +33,57 @@ private func client(profile: String = "research", handler: @escaping @Sendable (
     return HermesClient(address: try ConnectionAddress("https://agents.example.com", profile: profile), key: "synthetic-key", session: URLSession(configuration: config))
 }
 
+private final class PromptLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var prompts: [String] = []
+    func append(_ prompt: String) { lock.lock(); defer { lock.unlock() }; prompts.append(prompt) }
+    var values: [String] { lock.lock(); defer { lock.unlock() }; return prompts }
+}
+
+@Test func mobileClientSendsPolicyOnceAcrossCreationAndResumedTurns() async throws {
+    let log = PromptLog()
+    let backend = try client { request in
+        if request.url!.path.hasSuffix("capabilities") { return StubReply(status: 200, body: "{\"features\":{\"session_chat_streaming\":true}}") }
+        var data = request.httpBody ?? Data()
+        if data.isEmpty, let stream = request.httpBodyStream {
+            stream.open(); defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                data.append(buffer, count: count)
+            }
+        }
+        let body = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        if request.url!.path.hasSuffix("/chat/stream") {
+            #expect(Set(body.keys) == ["input", "instructions"])
+            let policy = try #require(body["instructions"] as? String)
+            log.append(policy)
+            #expect(policy.contains("research") && policy.contains("Draft first") && policy.contains("Report-on-finish"))
+            #expect(body["input"] as? String == "Hello")
+            return StubReply(status: 200, body: "event: run.completed\ndata: {}\n\n")
+        }
+        #expect(request.httpMethod == "POST" && request.url!.path.hasSuffix("/api/sessions"))
+        let saved = try #require(body["system_prompt"] as? String)
+        log.append(saved)
+        #expect(saved.isEmpty)
+        return StubReply(status: 200, body: "{\"session\":{\"id\":\"new\"}}")
+    }
+    #expect(try await backend.createSession(title: "Research") == "new")
+    for sessionID in ["new", "new", "resumed"] {
+        for try await _ in backend.stream(sessionID: sessionID, text: "Hello") {}
+    }
+    let prompts = log.values
+    #expect(prompts.count == 4)
+    let saved = try #require(prompts.first)
+    for (index, policy) in prompts.dropFirst().enumerated() {
+        // Mirror Hermes's saved-prompt + ephemeral-instructions assembly. A resumed custom
+        // server persona stays untouched; no session update or migration request is sent.
+        let stored = index == 2 ? "Existing server persona" : saved
+        #expect((stored + "\n\n" + policy).components(separatedBy: "# Swarm Hub default behavior").count == 2)
+    }
+}
+
 @Test func profileProbeCannotSilentlyUseDefaultAgent() async throws {
     let backend = try client { request in
         #expect(request.url?.path == "/p/research/v1/models")

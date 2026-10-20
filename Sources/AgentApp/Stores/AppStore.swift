@@ -116,6 +116,8 @@ import SwarmHubCore
     var teamAppReviewsInFlight: Set<UUID> = []
     @Published var projectFacts: [ProjectFact] = []
     let fileURL: URL
+    var botPromptSync: BotPromptSyncStore?
+    @Published var botPromptSyncWarning: String?
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     var historyLoadTokens: [UUID: UUID] = [:]
     /// Prepended to every session id the app creates (chat, thread, group); `--e2e` sets `AppConstants.selfTestPrefix`.
@@ -176,6 +178,9 @@ import SwarmHubCore
         self.reviewerTimeout = reviewerTimeout
         let directory = storeURL?.deletingLastPathComponent() ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appending(path: "AgentApp", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true); fileURL = storeURL ?? directory.appending(path: "store.json")
+        do {
+            botPromptSync = try BotPromptSyncStore(fileURL: demoMode ? nil : directory.appending(path: "bot-prompt-sync.json"))
+        } catch { botPromptSyncWarning = "Saved bot prompt settings could not be loaded. Chat is using local settings; the sync file was kept unchanged." }
         if demoMode {
             persistenceEnabled = false
             loadDemoData(includeActivity: true)
@@ -353,9 +358,9 @@ import SwarmHubCore
         let profile = bot.hermesProfile ?? "default"
         let key = keyStore.key(for: Self.keyAccount(forProfile: profile))
         if key.isEmpty, keyStore.needsReentry(Self.keyAccount(forProfile: profile)) { throw BackendError.unavailable(KeychainStore.reenterMessage) }
-        return HermesBackend(baseURL: baseURL, apiKey: key, profile: profile, session: hermesSession)
+        return HermesBackend(baseURL: baseURL, apiKey: key, profile: profile, session: hermesSession, defaultInstructions: try defaultBotInstructions(for: bot))
     case .openClaw:
         guard let binding = bot.openClaw, let gateway = gateway(id: binding.gatewayID) else { throw BackendError.unavailable(OpenClawBackend.unboundMessage) }
-        return OpenClawBackend(gateway: gateway, binding: binding, hub: openClawHub)
+        return OpenClawBackend(gateway: gateway, binding: binding, hub: openClawHub, defaultInstructions: try defaultBotInstructions(for: bot))
     } }
 }

@@ -10,7 +10,7 @@ extension HermesClient {
                 do {
                     try Self.validateID(sessionID)
                     guard try await capabilities().sessions else { throw CoreError.unsupported("Native chat needs this server’s Sessions API. Legacy chat is a later mobile milestone.") }
-                    var request = try request(path: "api/sessions/\(sessionID)/chat/stream", method: "POST", body: ["input": HermesContent.parts(text: text), "instructions": ""])
+                    var request = try request(path: "api/sessions/\(sessionID)/chat/stream", method: "POST", body: ["input": HermesContent.parts(text: text), "instructions": try BotSystemPrompt.render(promptContext)])
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                     var decoder = SSEByteDecoder()
                     var terminal = false

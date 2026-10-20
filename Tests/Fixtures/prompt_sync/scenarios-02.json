@@ -1,0 +1,282 @@
+[
+  {
+    "name": "concurrent same-field edits: later wins, equal times break on origin",
+    "ops": [
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 1000,
+        "context": {
+          "base": "mac"
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 5000,
+        "context": {
+          "base": "mac",
+          "with": {
+            "language": "English"
+          }
+        }
+      },
+      {
+        "op": "edit",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "now": 5001,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "language": "Deutsch"
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "sync",
+        "from": "ios",
+        "to": "mac"
+      },
+      {
+        "op": "expect",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "mac"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "language": "Deutsch"
+          }
+        }
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "language": "Deutsch"
+          }
+        }
+      },
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 6000,
+        "context": {
+          "base": "mac",
+          "with": {
+            "language": "Français"
+          }
+        }
+      },
+      {
+        "op": "edit",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "now": 6000,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "language": "Italiano"
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "sync",
+        "from": "ios",
+        "to": "mac"
+      },
+      {
+        "op": "expect",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "mac"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "language": "Français"
+          }
+        }
+      },
+      {
+        "op": "expect",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "ios"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "language": "Français"
+          }
+        }
+      },
+      {
+        "op": "stamp",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "field": "language",
+        "at": 6000,
+        "origin": "mac"
+      }
+    ]
+  },
+  {
+    "name": "an edit on a slow clock after seeing a newer value still wins",
+    "ops": [
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 1000,
+        "context": {
+          "base": "mac"
+        }
+      },
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 9000,
+        "context": {
+          "base": "mac",
+          "with": {
+            "owner": "Konrad S."
+          }
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "edit",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "now": 100,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "owner": "K."
+        }
+      },
+      {
+        "op": "stamp",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "field": "owner",
+        "at": 9001,
+        "origin": "ios"
+      },
+      {
+        "op": "sync",
+        "from": "ios",
+        "to": "mac"
+      },
+      {
+        "op": "expect",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "mac"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "owner": "K."
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "clearing the coordinator syncs",
+    "ops": [
+      {
+        "op": "observe",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "now": 1000,
+        "context": {
+          "base": "mac"
+        }
+      },
+      {
+        "op": "sync",
+        "from": "mac",
+        "to": "ios"
+      },
+      {
+        "op": "edit",
+        "device": "ios",
+        "bot": "https://box.example#scout",
+        "now": 2000,
+        "fallback": {
+          "base": "ios"
+        },
+        "set": {
+          "coordinator": ""
+        }
+      },
+      {
+        "op": "sync",
+        "from": "ios",
+        "to": "mac"
+      },
+      {
+        "op": "expect",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "fallback": {
+          "base": "mac"
+        },
+        "context": {
+          "base": "mac",
+          "with": {
+            "coordinator": ""
+          }
+        }
+      },
+      {
+        "op": "stamp",
+        "device": "mac",
+        "bot": "https://box.example#scout",
+        "field": "coordinator",
+        "at": 2000,
+        "origin": "ios",
+        "value": ""
+      }
+    ]
+  }
+]
