@@ -174,3 +174,85 @@ remain pending, with updated 1.4.6 Swift expectations; iOS remains suspended.
 **Commit: uncommitted.** Attempting `git add -- scripts/test_ios_approval_boundary.py` returned:
 `fatal: Unable to create '/home/ubuntu/work/swarmhub/peer-review/.git/worktrees/wt-coreint1/index.lock': Read-only file system`.
 The sandbox blocks Git metadata writes, so changes are left unstaged on this branch; no push was attempted.
+
+## coreInt4: merge of GitHub main
+
+2026-10-20, on `swarmhub/core-integration`. Fetched `https://github.com/conrader/swarmhub.git main`, and
+FETCH_HEAD was `5dba61a0f95404b78c39c0b9313e1c9130710d43` as expected (0.5.7–0.5.9, P50–P56; 72 commits
+since the merge base `ed9c70a`). Merged `--no-ff` as **`9bc5bde`** (parents `b030b3b`, `5dba61a`). Main and every
+remote branch are untouched, and nothing was pushed or deployed. Hermes and iOS are unchanged, and no `codex exec` was run.
+
+### Conflicts and resolutions (exactly the six expected; no others)
+
+Each one was a single hunk. Every resolution keeps both sides:
+
+- **README.md:** core-integration's condensed overview against main's rewording of the "No reply is lost" bullet
+  (e8f0c22, to "Reply recovery … can recover available server history"). Kept the condensed overview. It has no
+  such bullet, so main's softer claim went into `docs/FEATURES.md` (Conversations bullet). The overview's
+  branch-state sentence ("does not contain the 0.5.7–0.5.9 code changes", "builds and tests pass on a Mac") was
+  false after this merge, so it now says the changes are included and that the merged code has not been built on a Mac.
+  For the same reason, FEATURES.md's header notes were updated: connected-app reads now follow 0.5.8, and Draft Send
+  still records a test action, which is still true (`ManagedActions.swift`, outbound FAKE). Main's auto-merged
+  "Team coordination" heading change is kept.
+- **Sources/AgentApp/Models/GroupChat.swift (`StoreFile`):** our `managedApprovals` (persisted verified managed
+  cards) and P50's `scrollPositions` are both in the memberwise init, the assignments and `CodingKeys`. Both
+  decoders auto-merged. `managedApprovals` keeps its strict `try` decode and `scrollPositions` keeps its tolerant `try?`.
+- **AppStore+ModelPolicy.swift (`storeFile`):** passes `managedApprovals:` (only managed cards; nil while empty)
+  and `scrollPositions: chatScroll.stored`.
+- **AppStore.swift (load):** `approvals = file.managedApprovals ?? []`, then automations, heartbeat and
+  `chatScroll.restore(file.scrollPositions)`.
+- **AppStore+Turns.swift (turn end):** P54's "This app request was not run" warning for a turn that still ends with
+  an app request. The abandoned-approval sweep still excludes managed cards (`!$0.isManaged`), so a run ending
+  never cancels a runtime-recorded card.
+- **Views/MessageView.swift:** the DEBUG-only `[QA-TEST]` badge is kept. The reply quote uses P51's
+  `store.technicalLine(repliedMessage)`, which applies `SwarmhubBlock.visibleText` itself (TechnicalRow.displayLine),
+  so swarmhub blocks stay hidden and technical rows show their folded line.
+
+**Static checks (no Swift toolchain here):**
+- No top-level type is declared twice in any module, and the merge adds no duplicate `AppStore` extension member.
+- No caller of a signature changed on either side was found: `AccountProfileName.read(field:)` and
+  `HermesRunRegistry.set(…scope:…)` have no stale callers.
+- All referenced symbols exist (`ChatScrollModel`, `isManaged`, `addWarning`, `AppRequestMarker.notRun`).
+- None of the 89 changed Swift, Python or shell files exceeds 500 lines.
+
+### Linux suites (merged tree, `PYTHONDONTWRITEBYTECODE=1`)
+
+| Suite | Result |
+| --- | --- |
+| `python3 -m unittest discover -s scripts -p 'test_*.py'` | **609 OK**, 1 skipped (macOS-only libcommonCrypto vector) |
+| `python3 -m unittest discover -s Tests/Updater -p 'test_*.py'` (run alone) | **206 run, 3 failures**: the stale swarmhub-manager render goldens (below) |
+| `python3 -m unittest discover -s sim -p 'test_*approvals*.py'` | **71 OK** (local sockets now work; the coreInt2 refusals are gone) |
+| `sim.test_fixes8_skills`, `sim.test_prompt_sync` | **11 OK** |
+| `updater-bootstrap-preflight-test.sh` under sh, dash, bash, zsh | **33 passed, 0 failed, 0 skipped** each |
+| `BOOTSTRAP_TEST_MODE=fallback sh Tests/Scripts/updater-bootstrap-test.sh` | **36 passed, 0 failed, 2 skipped** (Docker absent) |
+| `bot-msg-test.sh` with `BOT_MSG_SH` = sh, dash, bash, zsh | **14 passed, 0 failed** each |
+| code-job / swarmhub-report / claude-login / box-adopt / box-readings / accounts-recipes `*-test.sh` | 23 / 22 / 5 / 11 / 12 / 6 passed, 0 failed |
+| `make_vectors`, `make_config_vectors`, `make_ui_vectors`, `make_ui_renders`, `device_approval_vectors` `--check` | **5/5 byte-identical** |
+| `git diff --check` | clean |
+
+The first Updater run, which ran in parallel with the scripts and sim suites, had 14 failures. Eleven came from a
+`Resources/Updater/swarmhub_update/__pycache__` created during the parallel run and copied into staged-transport
+fixtures. After deleting the caches and running Updater alone, only the three golden failures remain, and no
+`__pycache__` is left in the tree.
+
+### Open risks
+
+1. **swarmhub-manager render goldens are stale (3 red Updater tests).** Main's P56 bumped `swarmhub-manager` 1.2.0 → 1.3.0
+   and added a Heartbeat section. The three `Tests/Fixtures/release-bundles/renders/swarmhub-manager/*/any-order/SKILL.md`
+   goldens are Swift-final at 1.2.0. The failing tests are `test_render…test_every_golden_is_byte_identical`,
+   `test_apply…test_real_resources_render_as_the_goldens` and
+   `test_staged_transport…test_real_release_bytes_render_all_four_skills_as_todays_goldens`.
+   - The renders README requires body changes to be rewritten on the Mac. `--refresh-versions` accepts only version-only changes, and `--write-provisional` refuses a Swift-final set.
+   - The goldens were therefore **not** edited or overwritten from Python.
+   - Evidence the Python port is consistent: the default-profile Python render differs from the golden by exactly main's
+     `Resources/Skills/swarmhub-manager/SKILL.md` delta (14 ± lines), with `{{VERSION}}` substituted.
+   - **Mac:** `SWARMHUB_WRITE_RENDERS=1 swift test --filter RenderGoldenTests`. Only the three manager files should change; then commit them.
+2. **Merged Swift is unbuilt.** Main's P50–P56 and this branch's managed approvals, SDUI and prompt sync meet in
+   `AppStore`, `StoreFile`, turn completion and `MessageView` for the first time. `swift test` (AgentApp and
+   SwarmHubCore) on the Mac decides. Main's new tests (`--check-account-names`, P54 marker, P55 voice RPC, P56 heartbeat)
+   have not run against this branch.
+3. **Managed approvals × P54 app requests:** a turn ending in an app request now adds the "not run" warning, and managed
+   cards survive the turn end. Their interaction in one chat has not been exercised.
+4. **Parallel test runs pollute `Resources/` with `__pycache__`** despite `PYTHONDONTWRITEBYTECODE=1`, presumably a
+   subprocess that drops the variable. This was not root-caused. Run Updater alone, or clean caches first.
+5. The Mac checklist above still applies. iOS stays unbuilt and suspended.
