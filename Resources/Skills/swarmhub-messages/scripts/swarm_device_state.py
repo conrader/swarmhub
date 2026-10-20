@@ -156,6 +156,7 @@ def devices(db):
     result = {}
     for row in db.execute("SELECT key_id,public,profiles,revoked,enrolled,label FROM approval_devices"):
         require(matches(row["key_id"], KEY_ID) and matches(row["public"], HEX32)
+                and prime_point(bytes.fromhex(row["public"]))
                 and type(row["revoked"]) is int and row["revoked"] in (0, 1)
                 and integer(row["enrolled"]) and isinstance(row["label"], str)
                 and isinstance(row["profiles"], str), "state_invalid")

@@ -44,22 +44,22 @@ class OperatorGuardTests(Box):
         devices.refuse_model_context(environ={}, ancestry=lambda: ['-bash', 'sshd: konrad@pts/0'])
 
     def test_changes_need_a_code_typed_on_the_terminal(self):
+        self.enroll()  # TEST fixtures enter through the library, never the operator CLI.
         with patch.object(devices, 'TTY', str(Path(self.tmp.name) / 'no-tty')):
-            self.assertEqual(devices.main(['enroll', DEVICE, KEYS[DEVICE]['ed25519_pub'], '--profile', 'owner']), 77)
-        self.assertEqual(devices.listing()['devices'], [])
+            self.assertEqual(devices.main(['mode', 'required']), 77)
+        self.assertEqual(devices.listing()['mode'], 'legacy')
         master, slave = os.openpty()
         self.addCleanup(os.close, master)
         self.addCleanup(os.close, slave)
         with patch.object(devices, 'TTY', os.ttyname(slave)), patch.object(devices.secrets, 'token_hex',
                                                                          return_value='c0ffee'):
             os.write(master, b'wrong\n')
-            self.assertEqual(devices.main(['enroll', DEVICE, KEYS[DEVICE]['ed25519_pub'], '--profile', 'owner']), 77)
-            self.assertEqual(devices.listing()['devices'], [])
+            self.assertEqual(devices.main(['mode', 'required']), 77)
+            self.assertEqual(devices.listing()['mode'], 'legacy')
             os.write(master, b'c0ffee\n')
-            self.assertEqual(devices.main(['enroll', DEVICE, KEYS[DEVICE]['ed25519_pub'], '--profile', 'owner',
-                                           '--label', 'Konrad MacBook TEST']), 0)
+            self.assertEqual(devices.main(['mode', 'required']), 0)
         listed = devices.listing()
-        self.assertEqual((listed['mode'], [d['key_id'] for d in listed['devices']]), ('legacy', [DEVICE]))
+        self.assertEqual((listed['mode'], [d['key_id'] for d in listed['devices']]), ('required', [DEVICE]))
         self.assertIn(b'c0ffee', os.read(master, 4096))
 
     def test_no_model_facing_entry_point(self):

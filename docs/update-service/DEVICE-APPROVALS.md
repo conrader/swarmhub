@@ -85,6 +85,14 @@ even a correct HMAC. This persistent mode survives restarts and flag changes;
 recovery requires an explicit local operator action. iOS offers managed approvals
 only on device-required boxes and has no shared-key decision path.
 
+Device-required mode also refuses unsigned local gateway decisions, including
+`swarmctl decide` and the local client's `swarmctl control decide` path. These
+paths check the device list and persistent mode under the decision transaction
+lock; they cannot fall back to gateway identity, v1, or an environment flag.
+Use a valid device signature through the v2 verifier to decide on such boxes.
+Unenrolled and explicitly legacy boxes retain their existing local gateway and
+v1 behavior, provided their local device state is valid.
+
 First failure wins: trusted snapshot validity → strict JSON/envelope/field shape
 (`schema_invalid`) → version/domain (`protocol_unsupported`) → local device
 (`device_unknown`, `device_revoked`) → signature (`signature_invalid`) → exact
@@ -146,6 +154,9 @@ dispatch advice, never approval).
 row, a mode row missing while devices exist, a non-finite or out-of-range clock, or a spec that fails its
 stored digest is `state_invalid`. v1 checks the mode (and that the device list is valid) before any v1
 authentication and again under its transaction lock, so a corrupt store or a cutover mid-request refuses v1.
+Every stored public key must decode canonically to a nonidentity prime-order Ed25519 point, using the
+same check as enrollment. An invalid key anywhere, including a revoked device, makes the whole list
+corrupt and refuses v2, unsigned local decisions, and v1 even in legacy mode.
 
 **Operator CLI** (`python3 swarm_devices.py list|enroll|revoke|mode`). Changes refuse when any `HERMES_*`
 variable is set or any ancestor process is Hermes, and need a fresh code typed on `/dev/tty`; `swarmctl` and
@@ -154,8 +165,9 @@ and that neither the ID nor the key was ever enrolled. `revoke` is permanent and
 needs an active device; `mode legacy` is the only way back (explicit local recovery). No policy key,
 environment variable or file re-enables v1. Bot profiles share the Unix account that owns `control.sqlite`
 and the skill files, so this keeps model turns away from the tool and leaves an audit trail; it is not a
-boundary against a hostile shell on the box (same limit as the local gateway-identity check in
-`swarm_policy.decide`, which device-required mode does not change).
+boundary against a hostile shell on the box. The operator CLI refuses key IDs starting with `TEST-`
+because their fixture seeds are public. No CLI flag or environment variable bypasses this refusal;
+tests enroll those keys only through the library function.
 
 Tests: `sim/test_device_approvals.py` (every P5a vector through the real box, replay across restart, kill
 mid-transaction, concurrent consume, revoke, cutover, host unreachable, Hermes byte-identical) and

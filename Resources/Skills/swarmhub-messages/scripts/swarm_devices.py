@@ -182,6 +182,8 @@ def main(argv=None):
         if args.command == "list":
             result = listing()
         else:
+            if args.command == "enroll" and args.key_id.startswith("TEST-"):
+                raise ValueError("TEST- keys use public seeds and cannot be enrolled through the operator CLI")
             refuse_model_context()
             confirm(describe(args))
             result = (enroll(args.key_id, args.public, args.profile, args.label) if args.command == "enroll"
