@@ -386,12 +386,7 @@ PYTHONPATH=sim python3 -B -m unittest discover -s sim -p 'test_*.py' -v
 for shell in sh dash bash; do CODE_JOB_SH=/bin/$shell /bin/$shell Tests/Scripts/code-job-test.sh Resources/Skills/swarmhub-coding/scripts/code-job; done
 ```
 
-Focused run:
-
-```text
-Ran 81 tests in 283.483s
-OK (skipped=5)
-```
+Focused run: 81 tests in 283.483s, OK (skipped=5).
 
 Full discovery is **not green**. The eight failure records are in unchanged fixes6/7/8 tests: fallback mode denies creating `build`, Node reports `spawnSync /bin/sh EPERM`, namespace expectations see fallback mode, and the SIGIO probe's socket send gets EPERM. These match the sandbox-related categories already recorded under macsmoke5 above. Every `test_macsmoke2` record passed; no host-global `/tmp` interference required a rerun.
 
@@ -433,22 +428,14 @@ The fixture-symlink test also failed on `843024b` when its temporary root was al
 
 The original file was 529 lines. Split into `sim/test_macsmoke2.py` (215 lines, smoke integration), `sim/test_macsmoke_library.py` (250, Library regressions), and `sim/macsmoke_library.py` (120, classifier). All 20 original tests remain, discovered once. The three classifier functions are AST-identical to `843024b`; Darwin-only gating and all unexpected/unreadable/unparsable rejection rules are unchanged. Python 3.9 syntax parsing and the 500-line checks pass (runtime here is Python 3.12).
 
-Mutation checks, applied only in memory: restoring `assertEqual` fails both Preferences-first encodings; removing the normalized fixture spelling fails the symlinked-root fixture case. Raw results:
+Mutation checks, applied only in memory: restoring `assertEqual` fails both Preferences-first encodings; removing the normalized fixture spelling fails the symlinked-root fixture case. Results:
 
-```text
-843024b reproduction:
-Ran 2 tests in 0.180s
-FAILED (failures=2)
-Order-assertion mutation:
-Ran 1 test in 0.319s
-FAILED (failures=2)
-Fixture-normalization mutation:
-Ran 1 test in 0.002s
-FAILED (failures=1)
-Fixed direct Library regressions:
-Ran 5 tests in 0.315s
-OK
-```
+| Check | Tests | Seconds | Result |
+|---|---:|---:|---|
+| 843024b reproduction | 2 | 0.180 | FAILED (failures=2) |
+| Order-assertion mutation | 1 | 0.319 | FAILED (failures=2) |
+| Fixture-normalization mutation | 1 | 0.002 | FAILED (failures=1) |
+| Fixed direct Library regressions | 5 | 0.315 | OK |
 
 Validation commands (sequential, `PYTHONDONTWRITEBYTECODE=1` throughout):
 
@@ -461,26 +448,14 @@ for shell in sh dash bash; do CODE_JOB_SH=/bin/$shell /bin/$shell Tests/Scripts/
 
 Initial focused run: all 41 Darwin-kill records passed or were native skips (36 OK, 5 skipped); all 16 failure records were the unchanged host-global `/tmp` assertion. Full discovery had those same 16 `/tmp` records plus the eight sandbox-related fixes6/7/8 failures listed under mactest3 (fallback namespace mode, denied workspace creation, Node `EPERM`, SIGIO `EPERM`). The full suite is **not green**. Sampled transient directories disappeared afterward, and `/tmp` had no smoke/job entries before a standalone retry. Concurrent activity is consistent with the procdisc1 warning; the owning job was not identified. An unchanged smoke case then passed alone, followed by the complete standalone rerun below. No `/tmp` checks were relaxed.
 
-Raw initial results:
+Initial results and standalone rerun (no overlapping validation batches):
 
-```text
-Focused:
-Ran 61 tests in 251.929s
-FAILED (failures=16, skipped=5)
-Full discovery:
-Ran 426 tests in 373.803s
-FAILED (failures=24, skipped=13)
-Single smoke diagnostic retry:
-Ran 1 test in 13.345s
-OK
-```
-
-Standalone rerun (no overlapping validation batches):
-
-```text
-Ran 20 tests in 286.091s
-OK
-```
+| Run | Tests | Seconds | Result |
+|---|---:|---:|---|
+| Focused | 61 | 251.929 | FAILED (failures=16, skipped=5) |
+| Full discovery | 426 | 373.803 | FAILED (failures=24, skipped=13) |
+| Single smoke diagnostic retry | 1 | 13.345 | OK |
+| Standalone rerun | 20 | 286.091 | OK |
 
 Mac confirmation, after copying all three Python modules to `/tmp/qm6`, on a quiet box. The PATH prefix keeps subprocess `python3` aligned with the test interpreter's bytecode version. Native macOS/Python 3.9 runtime remains untested here:
 
@@ -502,3 +477,23 @@ code-job tests under /bin/bash: 23 passed, 0 failed
 
 Final checks: Python 3.9 syntax, preserved test inventory, classifier/smoke-class AST comparison, module line limits and git diff --check pass. Temporary fixtures and validation logs removed. The two fixes8 briefs, process-discovery files and PROCDISC1-REPORT.md are untouched; no commits, Hermes changes, outbound messages or real Codex/provider calls.
 Host-global smoke/job directories appeared again after our validation batches had exited; those unidentified concurrent-run paths were left untouched. Our `msk2*`, `mactest4-*`, temporary smoke scripts and validation-log directory are gone.
+
+## pyc314
+
+Cause: the Library allowlist compared every cache with the runner's magic and marshal format. Valid Homebrew 3.14 caches therefore failed under Xcode Python 3.9.
+
+Change: `sim/macsmoke_library.py` maps exact CPython 3.8–3.14 filename tags to known magic values (including prereleases), checks CRLF, a complete 16-byte header, flags 0/1/3, and timestamp/size modulo 2³² for timestamp caches. Unknown tags, unissued magic values and malformed optimization suffixes fail closed. Hash headers have no timestamp/size; their version-dependent hashes are not verified. Matching-runtime caches still require exact native magic, one complete marshalled code object and matching `co_filename`. Foreign caches require at least 32 payload bytes starting with `c` or `0xe3`; this is a shape check, not full payload or embedded-filename validation. Real regular mirrored sources, repository/fixture exclusions (including symlinks), fixture-byte scanning and I/O rejection apply throughout.
+
+Magic table source: [official CPython v3.14.0 history](https://github.com/python/cpython/blob/v3.14.0/Include/internal/pycore_magic_number.h). Values: 3.8 = 3400–3401/3410–3413; 3.9 = 3420–3425; 3.10 = 3430–3439; 3.11 = 3450–3495; 3.12 = 3500–3531; 3.13 = 3550–3571; 3.14 = 3600–3627. Future versions require an explicit verified table update; reserved ranges are not accepted.
+
+Regressions synthesize a 3.14 code record using CPython's marshal field order and opcodes, independent of the runner. They cover native/foreign validation, magic boundaries/gaps, 3.13 magic under a 3.14 tag, malformed headers/flags/payloads/names, stale timestamps/sizes, fixture sources/bytes, symlink escapes and read/stat failures. Existing native fixtures now carry real source metadata.
+
+Validation (Linux, sequential, `PYTHONPATH=sim`, `PYTHONDONTWRITEBYTECODE=1`): the five modules in the command below ran under Python 3.12.3 (70 tests, OK, 5 native-macOS skips, 287.011s) and cached Python 3.9.25 (70 tests, 1 failure, 5 skips, 281.679s). All Library, macsmoke5 and Darwin-kill checks passed or were native skips on both. Direct classifier tests also pass on Python 3.14.4 (8 tests), including native decoding of the synthetic record. `/bin/sh Tests/Scripts/code-job-test.sh "$PWD/Resources/Skills/swarmhub-coding/scripts/code-job"`: 23 passed, 0 failed. `git diff --check` passes. Changed files remain below 500 lines; earlier report output was compacted into tables.
+
+The Python 3.9 failure was solely the unchanged host-global `/tmp` leak assertion (`code-job.CwWIGW`, gone immediately afterward). Two standalone `sim.test_macsmoke2` retries ran 11 tests each: 14 failure records in 158.590s, then 9 in 170.698s, all at that same assertion. The latter started after 20 seconds with no global smoke/job entries; another shell suite (`code-job-test.TVKW54`) and smoke directories then appeared. Our shell suite had already exited. Concurrent activity therefore prevents a green Python 3.9 smoke result; no checks were weakened. Our fixtures were cleaned up, other jobs' paths left untouched. No commits, Hermes changes, outbound messages or real provider calls. Native Mac confirmation remains pending.
+
+MacBook confirmation on a quiet box (stub tests only, no provider calls):
+
+```sh
+cd /tmp/qm6 && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=sim /usr/bin/python3 -B -m unittest -v sim.test_macsmoke_library sim.test_macsmoke2 sim.test_macsmoke5 sim.test_darwinkill1 sim.test_darwinkill2 && /bin/sh Tests/Scripts/code-job-test.sh "$PWD/Resources/Skills/swarmhub-coding/scripts/code-job" && git diff --check
+```
