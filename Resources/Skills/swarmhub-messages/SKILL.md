@@ -207,3 +207,6 @@ Remote approval recovery: a choice is locked only once its decision request may 
 status lookup or a provably unsent request allows another choice. Authenticated gone/superseded responses retire
 stale cards with an audit note. Saved receipts retain their original deciding profile after policy changes; new
 decisions require the current profile. Denial cancellation markers are emitted from a durable outbox after commit.
+
+`scripts/swarmctl update-status` prints the box updater's status file (read-only: applied bundle, pending code
+confirm, reload_pending); it never runs or changes the updater.

@@ -42,7 +42,7 @@ Every signed file on the service is written as the canonical bytes of its whole 
 
 ## 4. Pins (local, unsigned)
 
-`{"schema":"swarmhub/pins/1","threshold":1,"roots":[{"key_id","ed25519_pub"}, ...]}`. `threshold` is between 1 and the number of roots; plan B uses 1 of 2. The floors checkpoint and revoked key IDs (plan §3.2) live in the same protected file on boxes; vectors pass them as the inputs `floors` and `revoked_key_ids` (the effective floor is max(checkpoint, state), computed by the caller).
+`{"schema":"swarmhub/pins/1","threshold":1,"roots":[{"key_id","ed25519_pub"}, ...]}`. `threshold` is between 1 and the number of roots; plan B uses 1 of 2. The floors checkpoint and revoked key IDs (plan §3.2) live in the same protected file on boxes, as the optional members `"checkpoint": {"min_keys_version", "min_index_seq", "min_bundle_version"}` (non-negative integers, absent = 0) and `"revoked_key_ids": [key_id, ...]`; any other member except `note` makes the box updater refuse the file (`docs/update-service/UPDATER.md`). Vectors pass them as the inputs `floors` and `revoked_key_ids` (the effective floor is max(checkpoint, state), computed by the caller).
 
 ## 5. Key manifest (`swarmhub/keys/1`)
 
