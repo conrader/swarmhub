@@ -22,27 +22,44 @@ import SwarmHubCore
     #expect(bot.persona == "My custom persona" && bot.hermesSessionID == "existing")
 }
 
-@Test func hermesPolicyTravelsOnCreationAndEveryExistingNativeOrLegacyTurn() async throws {
+@Test func hermesPolicyAppearsOnceAcrossCreationAndNativeOrLegacyTurns() async throws {
     for native in [true, false] {
         let (host, unconfigured) = ChatParityServer.serve(features: ["session_chat_streaming": native]) { request, _ in
-            if request.httpMethod == "POST", request.url!.path == "/api/sessions" { return .json(200, ["session": ["id": "existing"]]) }
+            if request.httpMethod == "POST", request.url!.path == "/api/sessions" { return .json(200, ["session": ["id": "new"]]) }
             if request.url!.path.hasSuffix("/chat/stream") { return .sse([("run.completed", [:])]) }
             return .init(body: Data("data: [DONE]\n\n".utf8))
         }
+        let persona = "custom persona\nKeep my formatting."
         var backend = unconfigured
-        backend.defaultInstructions = try BotSystemPrompt.render(BotPromptContext(name: "Scout"))
-        if native { _ = try await backend.createSession(title: "Scout", systemPrompt: "custom persona", id: "existing") }
-        let request = AgentRequest(sessionID: "existing", systemPrompt: "custom persona", messages: [("user", "Hello")], managementText: "manager recipe")
-        for _ in 0..<2 { for try await _ in try await backend.send(request) {} }
+        backend.defaultInstructions = try BotSystemPrompt.render(BotPromptContext(name: "Scout before creation"))
+        if native { _ = try await backend.createSession(title: "Scout", systemPrompt: persona, id: "new") }
+        // A settings refresh must apply even after creation; resumed sessions have their own saved persona.
+        backend.defaultInstructions = try BotSystemPrompt.render(BotPromptContext(name: "Scout after creation"))
+        for sessionID in ["new", "new", "resumed"] {
+            let request = AgentRequest(sessionID: sessionID, systemPrompt: persona, messages: [("user", "Hello")], managementText: "manager recipe")
+            for try await _ in try await backend.send(request) {}
+        }
         let posts = ChatParityServer.requests(host).filter { $0.method == "POST" }
-        #expect(posts.count == (native ? 3 : 2))
-        for post in posts {
-            let body = try #require(post.body)
+        let creations = posts.filter { $0.path == "/api/sessions" }
+        #expect(creations.count == (native ? 1 : 0))
+        let savedPersona: String
+        if native { savedPersona = try #require(creations.first?.body?["system_prompt"] as? String) }
+        else { savedPersona = "" }
+        #expect(savedPersona == (native ? persona : ""))
+        let turns = posts.filter { $0.path != "/api/sessions" }
+        #expect(turns.count == 3)
+        for turn in turns {
+            let body = try #require(turn.body)
+            if native { #expect(Set(body.keys) == ["input", "instructions"]) }
             let messages = body["messages"] as? [[String: Any]]
-            let text = try #require(body["system_prompt"] as? String ?? body["instructions"] as? String ?? messages?.first?["content"] as? String)
-            #expect(text.contains("# Swarm Hub default behavior") && text.contains("custom persona"))
-            if body["system_prompt"] == nil { #expect(text.contains("manager recipe")) }
-            #expect(text.components(separatedBy: "# Swarm Hub default behavior").count == 2)
+            let text = try #require(native ? body["instructions"] as? String : messages?.first?["content"] as? String)
+            #expect(text.contains(persona) && text.contains("manager recipe"))
+            #expect(text.contains("Scout after creation") && !text.contains("Scout before creation"))
+            // Hermes appends instructions to the saved system prompt. Check the combined model input,
+            // not just each HTTP body in isolation. A pre-feature resumed session has no saved policy.
+            let stored = turn.path.contains("/resumed/") ? "Existing server persona" : savedPersona
+            let effective = (native ? stored + "\n\n" : "") + text
+            #expect(effective.components(separatedBy: "# Swarm Hub default behavior").count == 2)
         }
     }
 }

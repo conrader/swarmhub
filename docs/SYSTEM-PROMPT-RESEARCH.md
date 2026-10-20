@@ -36,11 +36,11 @@ The app's existing transport is the integration contract for its supported Herme
 
 | Operation | Existing API surface now carrying the default |
 | --- | --- |
-| New durable session | `POST /api/sessions`, `system_prompt` |
+| New durable session | `POST /api/sessions`, `system_prompt` keeps the caller's persona only (empty on iOS); no app policy |
 | New turn in an existing durable session | `POST /api/sessions/{id}/chat/stream`, `instructions` |
 | Legacy completion | `POST /v1/chat/completions`, initial `role: system` message |
 
-The public personality guide does not establish those API schemas; the app adapter and existing transport fixtures do. Supplying instructions on every turn avoids replacing, recreating or migrating existing sessions. Hermes's own system instructions and tool policy still apply.
+The public personality guide does not establish those API schemas; the app adapter and existing transport fixtures do. Local Hermes source confirms that saved prompts and ephemeral instructions are concatenated, so the policy is supplied only in per-turn instructions. See [review follow-up evidence](SYSTEM-PROMPT-REVIEW.md) for exact local paths and lines. This avoids persisting a second copy or freezing app settings into new sessions. Existing saved personas and Hermes's own system instructions and tool policy still apply.
 
 ### OpenClaw
 
@@ -60,7 +60,7 @@ The canonical template is [`BotSystemPrompt.template`](../Packages/SwarmHubCore/
 
 `AppStore.backend(for:)` renders the policy for every real Hermes/OpenClaw backend selection. The setup window's pre-save box scan also supplies it. Hermes composes it with the request's current persona, management and connected-app instructions at serialization. OpenClaw wraps the normal send message. Thus new, imported and decoded bots, existing sessions, retry turns, group/workflow turns, reviews and quiet management calls get the default without rewriting saved personas. An already running turn keeps its captured policy; changes take effect at the next backend selection. QA and injected test backends deliberately keep their isolated instructions.
 
-`HermesClient` renders the same template on session creation and every streamed turn, including resumed iOS sessions. Mobile uses the saved profile's name and local timezone; owner/coordinator/approval settings are not synchronized from desktop, so their conservative defaults apply. This feature neither adds mobile OpenClaw support nor changes its connection surface.
+`HermesClient` renders the same template only on every streamed turn, including resumed iOS sessions. Creation retains the pre-feature empty `system_prompt`. Mobile uses the saved profile's name and local timezone; owner/coordinator/approval settings are not synchronized from desktop, so their conservative defaults apply. This feature neither adds mobile OpenClaw support nor changes its connection surface.
 
 ## Behavior and boundaries
 
@@ -76,7 +76,7 @@ The canonical template is [`BotSystemPrompt.template`](../Packages/SwarmHubCore/
 Automated Swift coverage added:
 
 * `Packages/SwarmHubCore/Tests/SwarmHubCoreTests/SystemPromptTests.swift`: all typed slots round-trip, Unicode and hostile delimiter/slot values, persona preservation, machine-format compatibility text, and exact envelope removal with malformed/quoted blocks left intact.
-* `Packages/SwarmHubCore/Tests/SwarmHubCoreTests/ClientTests.swift`: native creation plus repeated existing-session turns carry the default.
+* `Packages/SwarmHubCore/Tests/SwarmHubCoreTests/ClientTests.swift`: native creation plus repeated and resumed turns contain exactly one policy across the saved prompt and per-turn instructions.
 * `Tests/AgentAppTests/SystemPromptTests.swift`: decoded existing bot and settings refresh without persona/session edits; Hermes native and legacy payloads; repeated OpenClaw sends, management nesting, schema compatibility, ignored persona and clean displayed history.
 * Existing OpenClaw management/correction tests now account for the shared outer envelope; actual steer RPCs retain their prior payload.
 
@@ -89,7 +89,7 @@ swift test
 
 On the implementation host, Swift/Xcode is unavailable. Swift tests and native app builds are therefore **not run**, and no generated model behavior is certified. Static/deterministic tests establish composition and transport contracts, not prompt-injection immunity or assistant behavior.
 
-Linux checks for this change:
+Original implementation Linux checks (superseded by the complete sequential comparison in [review follow-up](SYSTEM-PROMPT-REVIEW.md)):
 
 | Check | Result |
 | --- | --- |

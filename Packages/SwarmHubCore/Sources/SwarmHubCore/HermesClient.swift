@@ -61,7 +61,8 @@ public struct HermesClient: AgentClient {
 
     public func createSession(title: String) async throws -> String {
         let id = "agentapp_ios_\(UUID().uuidString.lowercased())"
-        let json = try await json(path: "api/sessions", method: "POST", body: ["id": id, "title": title, "source": "api_server", "system_prompt": try BotSystemPrompt.render(promptContext)])
+        // Policy belongs only in per-turn instructions; Hermes appends them to its saved prompt.
+        let json = try await json(path: "api/sessions", method: "POST", body: ["id": id, "title": title, "source": "api_server", "system_prompt": ""])
         guard let row = json["session"] as? [String: Any], let created = row["id"] as? String,
               ConnectionAddress.validResourceID(created) else { throw CoreError.invalidResponse }
         return created
