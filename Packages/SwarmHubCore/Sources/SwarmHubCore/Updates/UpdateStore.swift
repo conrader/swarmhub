@@ -17,6 +17,11 @@ public struct UpdateState: Codable, Equatable, Sendable {
     /// Bundle whose floor was written before its switch (§3.1 step 5). Set until the switch completes, so a
     /// kill in between can re-apply exactly that bundle (or a newer one) and never a lower one.
     public var pendingBundle: Int64? = nil
+    /// Local pin (§2.2). While set, checks still verify and raise the key and index floors, but apply nothing.
+    public var pin: UpdatePin? = nil
+    /// Set when a `previous` pin is cleared: the bundle pinned away from. The next check that applies nothing newer
+    /// makes it current again; persisted, so an interruption between the clear and that check loses nothing.
+    public var restoreBundle: Int64? = nil
 
     public init(installID: String) { self.installID = installID }
 
@@ -43,6 +48,23 @@ public struct UpdateState: Codable, Equatable, Sendable {
         case installID = "install_id", lastCheck = "last_check", lastVerified = "last_verified"
         case freshUntil = "fresh_until", failingSince = "failing_since", lastResult = "last_result"
         case pendingBundle = "pending_bundle"
+        case pin
+        case restoreBundle = "restore_bundle"
+    }
+}
+
+/// A choice this device makes (CORE-PLAN §2.2): `previous` swaps back to the previous bundle and holds there,
+/// `current` holds the current one. It never lowers a floor. The shape matches the box's `applied.json` `pin`
+/// (`swarmhub-update pin`, UPDATER.md): `{mode, at, bundle_version}`, the bundle floor when pinned.
+public struct UpdatePin: Codable, Equatable, Sendable {
+    public enum Mode: String, Codable, Sendable { case previous, current }
+    public let mode: Mode
+    public let at: String
+    public let bundleVersion: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case mode, at
+        case bundleVersion = "bundle_version"
     }
 }
 
