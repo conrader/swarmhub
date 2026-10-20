@@ -286,7 +286,7 @@ class StdlibOnlyTests(unittest.TestCase):
             "(getattr(mod, '__file__', None) or '')]\n"
             "print(json.dumps(bad))\n")
         env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
-        result = subprocess.run([sys.executable, "-I", "-S", "-c", script], capture_output=True, text=True, env=env,
+        result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", script], capture_output=True, text=True, env=env,
                                 timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr)
         verdict_line, bad_line = result.stdout.strip().splitlines()[-2:]
