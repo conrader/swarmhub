@@ -74,7 +74,7 @@ private func threadRow(_ sender: String, mark: String, updated: Date) -> BotThre
         store.save()
     }
     let (store, _, infra) = liveStore(url: url, now: now)
-    #expect(store.botMessages.marks[store.botMessageMarkKey(infra)] == ["swarmhub-from-grok-jarvis": "2"], "marks load with the store")
+    #expect(store.botMessages.marks[store.botMessageMarkKey(infra)] == (["swarmhub-from-grok-jarvis": "2"] as [String: String]), "marks load with the store")
     store.applyBotThreadRows([threadRow("grok-jarvis", mark: "2", updated: old)], recipient: infra)
     #expect(infra.messages.isEmpty, "same mark after a restart: nothing new")
     store.applyBotThreadRows([threadRow("grok-jarvis", mark: "4", updated: old)], recipient: infra)

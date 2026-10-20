@@ -123,7 +123,8 @@ private let builtAppURL: URL? = {
 }()
 
 @Test(.enabled(if: builtAppURL != nil)) func builtPackageMatchesItsRecordedDigest() throws {
-    let bundle = try #require(Bundle(url: #require(builtAppURL)))
+    let url = try #require(builtAppURL)
+    let bundle = try #require(Bundle(url: url))
     let package = try #require(BootstrapPackage.locate(in: bundle))
     #expect(try package.actualDigest() == package.expectedDigest)
 }

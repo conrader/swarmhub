@@ -84,8 +84,8 @@ private func writeGoldens(_ renders: [String: Data]) throws {
     #expect(renders.count == 36, "3 profiles × (5 coding orders + 3 other SKILL.md + 4 references)")
     if ProcessInfo.processInfo.environment["SWARMHUB_WRITE_RENDERS"] == "1" { try writeGoldens(renders) }
     let disk = goldensOnDisk()
-    #expect(Set(renders.keys).subtracting(disk.keys).sorted() == [], "goldens missing; rerun with SWARMHUB_WRITE_RENDERS=1")
-    #expect(Set(disk.keys).subtracting(renders.keys).sorted() == [], "stale goldens; rerun with SWARMHUB_WRITE_RENDERS=1")
+    #expect(Set(renders.keys).subtracting(disk.keys).sorted() == ([] as [String]), "goldens missing; rerun with SWARMHUB_WRITE_RENDERS=1")
+    #expect(Set(disk.keys).subtracting(renders.keys).sorted() == ([] as [String]), "stale goldens; rerun with SWARMHUB_WRITE_RENDERS=1")
     for (path, data) in renders.sorted(by: { $0.key < $1.key }) where disk[path] != nil {
         #expect(disk[path] == data, "\(path) drifted from SkillLibrary.render; rerun with SWARMHUB_WRITE_RENDERS=1")
     }

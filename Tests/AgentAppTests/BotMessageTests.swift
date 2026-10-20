@@ -168,7 +168,7 @@ private func row(_ sender: String, count: Int, active: Double) -> [String: Any] 
     store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("grok-jarvis", count: 5, active: 2_110))),
                               try #require(HermesBackend.botThreadRow(row("coder", count: 2, active: 2_200)))], recipient: infra)
     #expect(infra.messages.count == 2 && infra.messages.last?.content == "coder wrote to Infra")
-    #expect(store.botMessages.unread[infra.id] == ["swarmhub-from-grok-jarvis", "swarmhub-from-coder"])
+    #expect(store.botMessages.unread[infra.id] == (["swarmhub-from-grok-jarvis", "swarmhub-from-coder"] as Set<String>))
 }
 
 @Test @MainActor func aJustSentMessageArrivesEvenOnTheFirstList() throws {
@@ -198,16 +198,16 @@ private func row(_ sender: String, count: Int, active: Double) -> [String: Any] 
                               try #require(HermesBackend.botThreadRow(row("coder", count: 2, active: 2_004)))], recipient: infra)
     #expect(store.botMessages.unread[infra.id]?.count == 2)
     store.openThread(key)
-    #expect(store.botMessages.unread[infra.id] == ["swarmhub-from-coder"], "that thread's arrival only")
+    #expect(store.botMessages.unread[infra.id] == (["swarmhub-from-coder"] as Set<String>), "that thread's arrival only")
     // P41: the chat alone is not the conversation; its badge stays until the conversation is opened.
     store.open(infra)
-    #expect(store.botMessages.unread[infra.id] == ["swarmhub-from-coder"])
+    #expect(store.botMessages.unread[infra.id] == (["swarmhub-from-coder"] as Set<String>))
     store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("coder", count: 3, active: 2_300)))], recipient: infra)
     #expect(infra.messages.map(\.content) == ["Jarvis wrote to Infra", "coder wrote to Infra"], "coder's new message shares its last line")
     // While that exact conversation is on screen, its arrival brings no badge.
     store.openThread(key)
     store.applyBotThreadRows([try #require(HermesBackend.botThreadRow(row("grok-jarvis", count: 9, active: 2_400)))], recipient: infra)
-    #expect(store.botMessages.unread[infra.id] == ["swarmhub-from-coder"])
+    #expect(store.botMessages.unread[infra.id] == (["swarmhub-from-coder"] as Set<String>))
 }
 
 // MARK: Activity and ⌘K

@@ -79,7 +79,7 @@ final class WorkClock: @unchecked Sendable {
                                              ["function": ["name": "skill_view", "arguments": ["name": "swarmhub-messages"]]]]]
     let message = try #require(HermesBackend.workRow(row))
     #expect(message.tools == ["terminal", "web_extract", "skill_view"] && message.toolPreviews == ["df -h /backup", "https://example.org", "swarmhub-messages"])
-    #expect(HermesBackend.parseMessage(row, toolCalls: true)?.toolPreviews == [], "reconcile reads stay as they were")
+    #expect(HermesBackend.parseMessage(row, toolCalls: true)?.toolPreviews == ([] as [String?]), "reconcile reads stay as they were")
 }
 
 @Test @MainActor func aLiveCardUnfoldsAndTheReplyEndsIt() async throws {

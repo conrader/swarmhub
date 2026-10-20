@@ -164,9 +164,9 @@ import Testing
         reply.metadata[TurnKey.ambiguous] = nil
         #expect(store.reassignWorkflowTask(workflow.id, taskID: "task", botID: b.id))
         let task = try #require(store.workflows[workflow.id]?.tasks.first)
-        #expect(task.botID == b.id && task.state == .queued && task.threadID != thread.id && task.previousThreadIDs == [thread.id])
+        #expect(task.botID == b.id && task.state == .queued && task.threadID != thread.id && task.previousThreadIDs == ([thread.id] as [UUID]))
         #expect(!store.send(text: "Retry old work", bot: a, conversation: thread, replyToID: nil) && store.errorMessage?.contains("reassigned") == true)
-        #expect(try store.journal().records(Workflow.self, kind: AppStore.workflowKind).first?.tasks.first?.previousThreadIDs == [thread.id])
+        #expect(try store.journal().records(Workflow.self, kind: AppStore.workflowKind).first?.tasks.first?.previousThreadIDs == ([thread.id] as [UUID]))
     }
 
     @Test func plansAndBudgetsAreValidated() throws {

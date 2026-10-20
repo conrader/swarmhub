@@ -201,7 +201,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     try JSONEncoder().encode(StoreFile(bots: [coder, jarvis], groups: [])).write(to: url)
     let reloaded = try StoreFile.decode(Data(contentsOf: url)).bots
-    #expect(reloaded.first?.installedSkillVariants == ["swarmhub-coding": "codex"] && reloaded.last?.installedSkillVariants.isEmpty == true)
+    #expect(reloaded.first?.installedSkillVariants == (["swarmhub-coding": "codex"] as [String: String]) && reloaded.last?.installedSkillVariants.isEmpty == true)
     #expect(!String(decoding: try JSONEncoder().encode(jarvis), as: UTF8.self).contains("installedSkillVariants"))
 }
 
