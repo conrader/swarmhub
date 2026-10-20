@@ -1,5 +1,5 @@
 """P2a engine internals (Resources/Updater/swarmhub_update/{apply,stage,idle}.py): rollback when a swap fails part
-way, recovery of a run that died mid-swap or mid-rotation, the rename fallback, atomic exchange, `previous` and
+way, recovery of a run that died mid-swap or mid-rotation, unsupported swaps, atomic exchange, `previous` and
 revert, the run lock, idle edge cases and the stdlib-only import rule. Acceptance tests are in test_apply.py.
 
     PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s Tests/Updater
@@ -73,20 +73,24 @@ class Rollback(BoxCase):
         self.assertEqual(apply.recover(str(self.category())), 1)
         self.assertEqual(box_snapshot(self.category()), self.before)
 
-    def test_crash_mid_fallback_rename_is_rolled_back(self):
-        real_rename, calls = os.rename, []
-
-        def rename(a, b):
-            calls.append(a)
-            if len(calls) == 2:  # live moved to spare, staged not yet in place: the skill is briefly absent
-                raise Crash()
-            return real_rename(a, b)
-        with mock.patch.object(apply, "ATOMIC_EXCHANGE", False), mock.patch.object(os, "rename", rename):
-            with self.assertRaises(Crash):
-                self.apply(self.v2, PROFILES[:1])
-        self.assertFalse(self.live(CODING).exists())
-        apply.recover(str(self.category()))
-        self.assertEqual(box_snapshot(self.category()), self.before)
+    def test_legacy_fallback_spare_is_recovered(self):
+        # Recover a transaction left by the old engine; new runs never enter this non-atomic state.
+        category = str(self.category())
+        for staged_moved in (False, True):
+            with self.subTest(staged_moved=staged_moved):
+                txn = apply._new_txn(category)
+                slot = Path(txn) / "swap" / CODING
+                stage.write_tree(str(slot), stage.render_profile(*self.v2, PROFILES[0])[CODING])
+                entry = {"skill": CODING, "action": "replace", "old": stage.tree_digest(str(self.live(CODING))),
+                         "new": stage.tree_digest(str(slot))}
+                apply._write_json(str(Path(txn) / apply.JOURNAL), {"state": "open", "entries": [entry]}, 0o600)
+                os.rename(self.live(CODING), Path(txn) / "spare" / CODING)
+                if staged_moved:
+                    os.rename(slot, self.live(CODING))
+                else:
+                    self.assertFalse(self.live(CODING).exists())
+                apply.recover(category)
+                self.assertEqual(box_snapshot(self.category()), self.before)
 
     def test_crash_after_commit_finishes_rotation(self):
         with mock.patch.object(apply, "_rotate", side_effect=Crash()):
@@ -137,13 +141,14 @@ class Swap(BoxCase):
         if sys.platform.startswith("linux") or sys.platform == "darwin":
             self.assertTrue(apply.exchange(str(a), str(b)))
 
-    def test_rename_fallback_applies_and_keeps_previous(self):
+    def test_unsupported_exchange_preserves_current_and_previous(self):
         v1, v2 = self.source("v1"), self.source("v2", version="1.1.0", note="v2")
         self.apply(v1)
+        before = box_snapshot(self.category())
         with mock.patch.object(apply, "ATOMIC_EXCHANGE", False):
-            self.assertEqual({r.status for r in self.apply(v2)}, {"applied"})
-        self.assert_live(v2)
-        self.assertEqual(stage.snapshot(str(self.previous(CODING))), self.expected(v1, CODING))
+            self.assertEqual({r.status for r in self.apply(v2)}, {"failed"})
+        self.assert_live(v1)
+        self.assertEqual(box_snapshot(self.category()), before)
 
     def test_unchanged_bundle_touches_nothing(self):
         v1 = self.source("v1")

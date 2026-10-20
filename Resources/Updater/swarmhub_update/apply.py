@@ -4,8 +4,8 @@ Per profile, `apply` renders the given skills (render.py), writes every changed 
 `skills/swarmhub/.archive/swarmhub-update/txn-*/swap/<skill>` and runs the post-apply checks there (stage.py). Only
 when all pass does it wait for the box to be idle (idle.py, bounded: past the bound the run is `deferred` and nothing
 live changes). Then each live `skills/swarmhub/<skill>` is exchanged with its staged folder in one atomic rename
-(`renameat2(RENAME_EXCHANGE)` on Linux, `renamex_np(RENAME_SWAP)` on macOS; three plain renames where the file
-system refuses). Running processes keep their open files: a rename never touches the inodes they hold. The live
+(`renameat2(RENAME_EXCHANGE)` on Linux, `renamex_np(RENAME_SWAP)` on macOS; fail closed where unavailable).
+Running processes keep their open files: a rename never touches the inodes they hold. The live
 trees are then compared with what was staged; any error before the commit swaps every changed skill back, so
 `current` ends byte-identical. After the commit the replaced folders move to `previous/<skill>` (a newly installed
 skill leaves `previous/<skill>.absent`), and `revert` swaps `previous` back in through the same path.
@@ -30,16 +30,25 @@ import time
 from . import idle, render, stage
 
 Result = namedtuple("Result", "profile status detail versions reload_pending")  # status: see STATUSES
-STATUSES = ("applied", "reverted", "unchanged", "deferred", "failed")
+STATUSES = ("applied", "reverted", "unchanged", "deferred", "failed", "recovery_pending")
 MESSAGES_SKILL = "swarmhub-messages"
 JOURNAL = "journal.json"
 LOCK = "apply.lock"
-ATOMIC_EXCHANGE = True  # tests turn it off to exercise the rename fallback
+ATOMIC_EXCHANGE = True  # tests turn it off to exercise unsupported file systems
 _UNSUPPORTED = {errno.ENOSYS, errno.EINVAL, errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)}
 
 
 class Busy(Exception):
     """Another updater run holds the lock."""
+
+
+class RecoveryPending(Exception):
+    """Live may contain new code; retain the journal and report recovery, never a plain failure."""
+
+    def __init__(self, detail, versions=None, reload_pending=False):
+        super().__init__(detail)
+        self.versions = versions or {}
+        self.reload_pending = reload_pending
 
 
 def exchange(a, b):
@@ -73,12 +82,9 @@ def exchange(a, b):
 
 
 def _swap(slot, live, spare):
-    """Swap the contents of `slot` and `live` (both exist): atomic exchange, else live→spare, slot→live, spare→slot."""
-    if exchange(slot, live):
-        return
-    os.rename(live, spare)
-    os.rename(slot, live)
-    os.rename(spare, slot)
+    """Exchange complete trees atomically, or refuse without moving either path."""
+    if not exchange(slot, live):
+        raise OSError(errno.ENOTSUP, "atomic directory exchange unavailable; current untouched", live)
 
 
 def _fsync_dir(path):
@@ -159,8 +165,9 @@ def _undo_entry(category, txn, entry, swapped=None):
     live, slot, spare = _paths(category, txn, entry["skill"])
     if os.path.lexists(spare):  # the rename fallback stopped part way: spare holds the old tree
         if os.path.lexists(live):
-            os.rename(live, slot)
-        os.rename(spare, live)
+            _swap(spare, live, slot)
+        else:
+            os.rename(spare, live)
         return
     if swapped is not None:
         if swapped and entry["action"] == "replace":
@@ -197,6 +204,11 @@ def _rotate(category, txn, entries):
     Safe to repeat (recovery finishes a rotation that was cut short)."""
     previous = _previous(category)
     os.makedirs(previous, stage.DIR_MODE, exist_ok=True)
+    changed = {entry["skill"] for entry in entries}
+    for name in os.listdir(previous):
+        skill = name[:-len(".absent")] if name.endswith(".absent") else name
+        if skill not in changed:
+            _clear_previous(category, txn, skill)
     for entry in entries:
         skill = entry["skill"]
         _, slot, _ = _paths(category, txn, skill)
@@ -210,7 +222,7 @@ def _rotate(category, txn, entries):
             os.rename(slot, os.path.join(previous, skill))
 
 
-def recover(category):
+def recover(category, state_dir=None, profile=None):
     """Finish or roll back transactions a dead run left behind. Returns how many it found."""
     work = stage.work_dir(category)
     try:
@@ -225,10 +237,24 @@ def recover(category):
         except FileNotFoundError:
             journal = None  # died before the first swap: nothing live changed
         if journal is not None and journal["state"] == "committed":
-            _rotate(category, txn, journal["entries"])
+            # Older journals did not carry plugin metadata: conservatively request a reload for messages.
+            reload = journal.get("reload_pending", any(e["skill"] == MESSAGES_SKILL for e in journal["entries"]))
+            try:
+                if state_dir is None or profile is None:
+                    raise OSError(errno.EINVAL, "committed recovery requires profile state")
+                _rotate(category, txn, journal["entries"])
+                _record(state_dir, profile, journal.get("status", "applied"), "committed transaction recovered",
+                        journal.get("versions"), reload)
+            except OSError as error:
+                raise RecoveryPending("committed update awaits recovery on the next run: %s" % error,
+                                      journal.get("versions"), reload) from error
         elif journal is not None:
-            for entry in reversed(journal["entries"]):
-                _undo_entry(category, txn, entry)
+            try:
+                for entry in reversed(journal["entries"]):
+                    _undo_entry(category, txn, entry)
+            except OSError as error:
+                raise RecoveryPending("rollback awaits recovery on the next run: %s" % error,
+                                      reload_pending=True) from error
         _discard(txn)
     return len(names)
 
@@ -301,30 +327,37 @@ def _swap_in(hermes_home, state_dir, category, txn, entries, profile, deadline, 
                 _undo_entry(category, txn, entry, entry["skill"] in swapped)
             _discard(txn)
         except OSError as undo_error:
-            return _record(state_dir, profile, "failed", "swap failed (%s); rollback incomplete (%s), the next run "
-                           "finishes it" % (error, undo_error))
+            raise RecoveryPending("swap failed (%s); rollback incomplete (%s), the next run finishes it" %
+                                  (error, undo_error), reload_pending=True) from undo_error
         return _record(state_dir, profile, "failed", "swap failed, current restored: %s" % error)
-    _write_json(os.path.join(txn, JOURNAL), {"state": "committed", "entries": entries}, 0o600)
-    _rotate(category, txn, entries)
+    reload = any(e["skill"] == MESSAGES_SKILL for e in entries)
+    try:
+        reload = stage.plugin_digest(messages) != plugin_before
+        _write_json(os.path.join(txn, JOURNAL), {"state": "committed", "entries": entries, "versions": versions,
+                                               "status": done, "reload_pending": reload}, 0o600)
+        _rotate(category, txn, entries)
+        result = _record(state_dir, profile, done, "%d skill(s) swapped" % len(entries), versions, reload)
+    except OSError as error:
+        raise RecoveryPending("new trees live; journal retained for the next run to recover: %s" % error,
+                              versions, reload) from error
     _discard(txn)
-    reload = stage.plugin_digest(messages) != plugin_before
-    return _record(state_dir, profile, done, "%d skill(s) swapped" % len(entries), versions, reload)
+    return result
 
 
-def _prepare(hermes_home, profile):
+def _prepare(hermes_home, profile, state_dir):
     home = stage.profile_home(hermes_home, profile)
     if not os.path.isdir(home):
         raise stage.StageError("no such profile on this box")
     category = stage.category_dir(hermes_home, profile)
     os.makedirs(category, stage.DIR_MODE, exist_ok=True)
-    recover(category)
+    recover(category, state_dir, profile)
     return category
 
 
 def apply_profile(hermes_home, state_dir, skills, manager_template, profile, deadline, poll=idle.DEFAULT_POLL):
     """Stage, check, wait for idle and swap one profile (a stage.Profile). Returns a Result."""
     try:
-        category = _prepare(hermes_home, profile.name)
+        category = _prepare(hermes_home, profile.name, state_dir)
         rendered = stage.render_profile(skills, manager_template, profile)
     except (stage.StageError, OSError) as error:
         return _record(state_dir, profile.name, "failed", str(error)) if render.is_valid_profile_name(profile.name) \
@@ -359,6 +392,8 @@ def _guarded(profile, function, *args):
     """One profile's error never stops the others; a half-done swap is left to `recover` on the next run."""
     try:
         return function(*args)
+    except RecoveryPending as error:
+        return Result(profile, "recovery_pending", str(error), error.versions, error.reload_pending)
     except Exception as error:  # noqa: BLE001 - reported per profile, never swallowed silently
         return Result(profile, "failed", "internal error (%s: %s); the next run recovers" % (type(error).__name__,
                                                                                             error), {}, False)
@@ -390,7 +425,7 @@ def revert(hermes_home, state_dir, profile, max_wait=idle.DEFAULT_MAX_WAIT, poll
 
 def _revert(hermes_home, state_dir, profile, deadline, poll):
     try:
-        category = _prepare(hermes_home, profile)
+        category = _prepare(hermes_home, profile, state_dir)
     except (stage.StageError, OSError) as error:
         return Result(profile, "failed", str(error), {}, False)
     previous = _previous(category)
