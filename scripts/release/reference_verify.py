@@ -1,4 +1,4 @@
-"""Reference evaluation of one release test vector (docs/update-service/SCHEMAS.md §9). Stdlib only.
+"""Reference evaluation of one release test vector (docs/update-service/SCHEMAS.md §10). Stdlib only.
 
 This is the executable statement of the verification order the vectors encode, used to check that every vector in
 Tests/Fixtures/release-bundles/vectors.json has its expected verdict. It is not the updater: no I/O policy, no

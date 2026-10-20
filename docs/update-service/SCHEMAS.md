@@ -62,7 +62,7 @@ Valid only when every signature is from a distinct pinned root and verifies, and
 | `issued`, `expires` | timestamps | `now ≥ expires` → `index_expired` (consumer keeps its last good bundle and reports "stale"). |
 | `lines` | array | Each `{requires, bundle_version (int ≥ 1), manifest_sha256, rollout_percent (int 0–100)}`. |
 
-**Line selection.** Keep lines whose `requires` the consumer satisfies (§8); none → `no_compatible_line`. Of those, keep lines whose rollout includes the consumer; none → verdict `no_update` / `not_in_rollout`. Take the highest `bundle_version`. Below the applied-bundle floor → `bundle_rollback`; equal → `no_update` / `already_applied`.
+**Line selection.** Keep lines whose `requires` the consumer satisfies (§8); none → `no_compatible_line`. Of those, keep lines whose rollout includes the consumer; none → verdict `no_update` / `not_in_rollout`. Take the highest `bundle_version`. Below the applied-bundle floor → `bundle_rollback`; equal → `no_update` / `already_applied`. The floor advances when a bundle verifies and its apply starts, even if its code components are still waiting for the local confirm (decision 2); the confirm then applies that same verified bundle's code from updater state (P2b), so a lower bundle can never be re-offered to fill the gap.
 
 **Rollout bucket.** `bucket = uint64_be(SHA-256(UTF-8(install_id + "\n" + decimal(bundle_version)))[0:8]) mod 100`; the line includes the consumer when `bucket < rollout_percent`. `install_id` is random and local.
 

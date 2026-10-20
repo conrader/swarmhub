@@ -78,7 +78,7 @@ def check_requires(value, stage):
 
 
 def satisfies(requires, consumer):
-    """True when every requirement on an axis of the consumer's platform holds (§6). Unknown axes fail closed."""
+    """True when every requirement on an axis of the consumer's platform holds (§8). Unknown axes fail closed."""
     axes = AXES[consumer["platform"]]
     for axis, constraint in requires.items():
         if axis not in AXES["box"] | AXES["mac"]:
