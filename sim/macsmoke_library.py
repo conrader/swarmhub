@@ -7,6 +7,7 @@ from pathlib import Path
 import plistlib
 import re
 import stat
+import sys
 import types
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +19,20 @@ ROOT = Path(__file__).resolve().parents[1]
 # stdlib-style bytecode under Caches/com.apple.python/<real source dir>/ and com.apple.*.plist directly in
 # Preferences. Everything else fails: other names, empty dirs, symlinks, specials, and any walk/stat/read error.
 PYC_PREFIX = ("Caches", "com.apple.python")
-PYC_NAME = re.compile(r"(.+)\.cpython-\d+(?:\.opt-[12])?\.pyc")
+PYC_NAME = re.compile(r"(.+)\.cpython-(3[0-9]+)(?:\.opt-[12])?\.pyc")
+# Known CPython values, including prereleases; do not reserve unissued numbers.
+# https://github.com/python/cpython/blob/v3.14.0/Include/internal/pycore_magic_number.h
+# 3.8 has a gap; later minors are contiguous through the listed release magic.
+# Extend explicitly from CPython's history when another version is needed.
+PYC_MAGICS = {
+    "38": (*range(3400, 3402), *range(3410, 3414)),
+    "39": range(3420, 3426),
+    "310": range(3430, 3440),
+    "311": range(3450, 3496),
+    "312": range(3500, 3532),
+    "313": range(3550, 3572),
+    "314": range(3600, 3628),
+}
 PLIST_NAME = re.compile(r"com\.apple\.[A-Za-z0-9_.-]+\.plist")
 
 
@@ -55,7 +69,7 @@ def os_library_file(rel, data, fixtures):
         except Exception:
             return "not a property list"
         return None
-    match = PYC_NAME.fullmatch(parts[-1])
+    match = PYC_NAME.fullmatch(parts[-1]) if parts else None
     if not (len(parts) > 3 and parts[:2] == PYC_PREFIX and match):
         return "not an OS-owned file"
     source = Path("/", *parts[2:-1], match[1] + ".py")
@@ -63,13 +77,34 @@ def os_library_file(rel, data, fixtures):
         resolved = source.resolve(strict=True)
         if under(source, fixtures) or under(resolved, fixtures):
             return "bytecode of a fixture source"
-        if not stat.S_ISREG(os.stat(source).st_mode):
+        source_stat = os.stat(source)
+        if not stat.S_ISREG(source_stat.st_mode):
             return "bytecode without a real source"
     except (OSError, ValueError, RuntimeError):
         return "bytecode without a real source"
     try:
-        if (len(data) < 16 or data[:4] != importlib.util.MAGIC_NUMBER or
-                int.from_bytes(data[4:8], "little") not in (0, 1, 3)):
+        flags = int.from_bytes(data[4:8], "little")
+        if (len(data) < 16 or data[2:4] != b"\r\n" or
+                int.from_bytes(data[:2], "little") not in PYC_MAGICS.get(match[2], ()) or
+                flags not in (0, 1, 3)):
+            return "not CPython bytecode"
+        # CPython truncates timestamp and size to uint32. Both are checkable here;
+        # stale timestamp caches fail closed. Hash headers (1/3) have no mtime/size;
+        # their version-dependent source hash is not verified by this classifier.
+        if flags == 0 and (
+                int.from_bytes(data[8:12], "little") != (int(source_stat.st_mtime) & 0xffffffff) or
+                int.from_bytes(data[12:16], "little") != (source_stat.st_size & 0xffffffff)):
+            return "bytecode timestamp/size does not match source"
+        if any(os.fsencode(f) in data for f in fixtures):
+            return "mentions a smoke fixture path"
+        if f"cpython-{match[2]}" != sys.implementation.cache_tag:
+            # Cross-version marshal is unsafe/unsupported. A code record needs
+            # more than 32 bytes even for empty code; this is a shape check only,
+            # not proof of payload integrity or of its embedded co_filename.
+            if len(data[16:]) < 32 or data[16:17] not in (b"c", b"\xe3"):
+                return "not CPython bytecode"
+            return None
+        if data[:4] != importlib.util.MAGIC_NUMBER:
             return "not CPython bytecode"
         payload = io.BytesIO(data[16:])
         code = marshal.load(payload)
@@ -117,4 +152,3 @@ def os_library_problems(library, markers, fixtures=()):
             elif any(marker in data for marker in markers):
                 problems.append(f"{rel}: mentions a smoke fixture path")
     return problems
-

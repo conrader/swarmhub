@@ -6,6 +6,7 @@ from pathlib import Path
 import plistlib
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -194,7 +195,10 @@ class LibraryFileValidationTests(unittest.TestCase):
                          for f in (str(p), os.path.realpath(p))}
 
     def bytecode(self, filename=None, flags=0):
-        return (importlib.util.MAGIC_NUMBER + flags.to_bytes(4, "little") + bytes(8) +
+        source_stat = self.source.stat()
+        stamp = ((int(source_stat.st_mtime) & 0xffffffff).to_bytes(4, "little") +
+                 (source_stat.st_size & 0xffffffff).to_bytes(4, "little"))
+        return (importlib.util.MAGIC_NUMBER + flags.to_bytes(4, "little") + stamp +
                 marshal.dumps(compile("", str(filename or self.source), "exec")))
 
     def test_malformed_plist_and_crlf_garbage_are_rejected(self):
@@ -244,6 +248,107 @@ class LibraryFileValidationTests(unittest.TestCase):
                 self.source.symlink_to(target)
                 self.assertIsNotNone(os_library_file(self.rel, valid, self.fixtures))
                 self.source.unlink()
+
+    def pyc314(self, flags=0, code_type=b"c", constants=(None,)):
+        # Synthetic 3.14 code record, independent of the host's CodeType layout.
+        # Field order: CPython v3.14.0/Python/marshal.c (PyCode_Check branch).
+        # Opcodes: v3.14.0/Include/opcode_ids.h: RESUME, LOAD_CONST, RETURN_VALUE.
+        fields = (bytes((128, 0, 82, 0, 35, 0)), constants, (), (), b"",
+                  str(self.source), "<module>", "<module>")
+        payload = (code_type + struct.pack("<5i", 0, 0, 0, 1, 0) +
+                   b"".join(marshal.dumps(value, 2) for value in fields) +
+                   struct.pack("<i", 1) + marshal.dumps(b"", 2) * 2)
+        return (struct.pack("<H2sI", 3627, b"\r\n", flags) +
+                self.bytecode()[8:16] + payload)
+
+    def test_newer_cpython314_cache_passes_without_cross_version_marshal(self):
+        for flags in (0, 1, 3):
+            for code_type in (b"c", b"\xe3"):
+                data = self.pyc314(flags, code_type)
+                for opt in ("", ".opt-1", ".opt-2"):
+                    rel = self.rel.with_name(f"mod.cpython-314{opt}.pyc")
+                    with self.subTest(flags=flags, code_type=code_type, opt=opt):
+                        self.assertIsNone(os_library_file(rel, data, self.fixtures))
+                        if sys.implementation.cache_tag != "cpython-314":
+                            with patch.object(marshal, "load", side_effect=AssertionError("foreign marshal")) as load:
+                                self.assertIsNone(os_library_file(rel, data, self.fixtures))
+                                load.assert_not_called()
+        library = self.external / "Library"
+        cache = library / self.rel.with_name("mod.cpython-314.pyc")
+        cache.parent.mkdir(parents=True)
+        cache.write_bytes(self.pyc314())
+        self.assertEqual(os_library_problems(library, [], self.fixtures), [])
+        cache.write_bytes(self.pyc314(constants=(None, b"smoke-marker")))
+        self.assertIn("mentions a smoke fixture path", os_library_problems(library, [b"smoke-marker"])[0])
+
+    def test_newer_cache_rejects_malformed_headers_payloads_and_names(self):
+        rel = self.rel.with_name("mod.cpython-314.pyc")
+        valid = self.pyc314()
+        invalid = [b"garbage", struct.pack("<H", 3571) + valid[2:],
+                   valid[:2] + b"\n\r" + valid[4:], b"xx" + valid[2:],
+                   valid[:16] + marshal.dumps("not code"), valid[:16] + b"x" * 128]
+        invalid += [valid[:n] for n in range(17)]
+        invalid += [valid[:16] + b"c" + bytes(n) for n in (0, 1, 15, 30)]
+        invalid += [valid[:4] + struct.pack("<I", flag) + valid[8:] for flag in (2, 4, 0xffffffff)]
+        invalid += [valid[:offset] + struct.pack("<I", int.from_bytes(valid[offset:offset+4], "little") ^ 1) +
+                    valid[offset+4:] for offset in (8, 12)]
+        for data in invalid:
+            with self.subTest(data=data[:24], size=len(data)):
+                self.assertIsNotNone(os_library_file(rel, data, self.fixtures))
+        for tag in ("cpython-313", "cpython-315", "cpython-399", "cpython-0314", "cpython-314t",
+                    "pypy-314", "pypy314", "cpython-314.opt-0", "cpython-314.opt-3",
+                    "cpython-314.opt-01", "cpython-314.opt-", "cpython-314.opt-1.extra"):
+            with self.subTest(tag=tag):
+                self.assertIsNotNone(os_library_file(rel.with_name(f"mod.{tag}.pyc"), valid, self.fixtures))
+
+    def test_known_magic_boundaries_and_unissued_numbers(self):
+        # Independent expected values catch accidental widening to reserved ranges.
+        for tag, low, high in (("38", 3400, 3413), ("39", 3420, 3425), ("310", 3430, 3439),
+                               ("311", 3450, 3495), ("312", 3500, 3531), ("313", 3550, 3571),
+                               ("314", 3600, 3627)):
+            rel = self.rel.with_name(f"mod.cpython-{tag}.pyc")
+            for magic in (low, high, low - 1, high + 1):
+                with self.subTest(tag=tag, magic=magic):
+                    data = struct.pack("<H", magic) + self.pyc314()[2:]
+                    if f"cpython-{tag}" == sys.implementation.cache_tag:
+                        # A compatible magic alone must never bypass native marshal.
+                        data = data[:16] + b"c" + bytes(64)
+                        self.assertIsNotNone(os_library_file(rel, data, self.fixtures))
+                    else:
+                        self.assertEqual(os_library_file(rel, data, self.fixtures) is None,
+                                         magic in (low, high))
+        for magic in (3402, 3409):
+            data = struct.pack("<H", magic) + self.pyc314()[2:]
+            self.assertIsNotNone(os_library_file(self.rel.with_name("mod.cpython-38.pyc"), data, self.fixtures))
+
+    def test_newer_cache_source_and_io_checks_fail_closed(self):
+        rel = self.rel.with_name("mod.cpython-314.pyc")
+        valid = self.pyc314()
+        fixture = self.external / "fixture"
+        fixture.mkdir()
+        target = fixture / "mod.py"
+        target.write_text("")
+        fixture_rel = Path(*PYC_PREFIX) / str(target.parent).lstrip("/") / rel.name
+        self.assertEqual(os_library_file(fixture_rel, valid, self.fixtures), "bytecode of a fixture source")
+        for path in self.fixtures:
+            self.assertEqual(os_library_file(rel, valid + os.fsencode(path), self.fixtures),
+                             "mentions a smoke fixture path")
+        with patch.object(os, "stat", side_effect=PermissionError):
+            self.assertIsNotNone(os_library_file(rel, valid, self.fixtures))
+        library = self.external / "Library"
+        cache = library / rel
+        cache.parent.mkdir(parents=True)
+        cache.write_bytes(valid)
+        with patch.object(Path, "read_bytes", side_effect=PermissionError(13, "Permission denied")):
+            self.assertIn("unreadable", os_library_problems(library, [])[0])
+        self.source.unlink()
+        for dest in (target, ROOT / "sim/test_macsmoke2.py", self.external / "missing", self.source):
+            self.source.symlink_to(dest)
+            self.assertIsNotNone(os_library_file(rel, valid, self.fixtures))
+            self.source.unlink()
+        self.assertIsNotNone(os_library_file(rel, valid, self.fixtures))
+        self.source.mkdir()
+        self.assertIsNotNone(os_library_file(rel, valid, self.fixtures))
 
 
 if __name__ == "__main__":
