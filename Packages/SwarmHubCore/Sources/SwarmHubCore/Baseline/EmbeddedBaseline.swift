@@ -8,11 +8,13 @@ import Foundation
 ///
 /// This reader checks structure and hashes only: the bundle manifest's SHA-256 against the highest index line, and every
 /// blob's size and SHA-256 against the manifest (an iOS build embeds only the blobs of components that target `ios`, so
-/// iOS loads with `target: "ios"`). Signatures are the update verifier's job (P0c); the build checked them
-/// (`check_baseline.py`) and the app's code signature seals these files. The floors and pins feed the update client (P4a).
+/// iOS loads with `target: "ios"`). The build verified signatures (`check_baseline.py`); the app's code signature seals
+/// these files. AppContent only loads this reader from the app bundle, never from a fetched store. Downloaded content
+/// needs a runtime signature verifier (P0c/P4a). The floors and pins feed the update client (P4a).
 public struct EmbeddedBaseline: Sendable, Equatable {
     public struct Component: Sendable, Equatable {
         public let kind: String
+        public let contentClass: String
         public let name: String
         public let version: String
         public let targets: [String]
@@ -85,7 +87,7 @@ public struct EmbeddedBaseline: Sendable, Equatable {
     static func hex(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     private static func read(_ directory: URL, _ path: String) throws -> Data {
-        do { return try Data(contentsOf: directory.appending(path: path)) } catch { throw LoadError.missing(path) }
+        do { return try AppBundleResources.read(path, in: directory) } catch { throw LoadError.missing(path) }
     }
 
     private static func signed(_ data: Data, _ path: String) throws -> [String: Any] {
@@ -95,9 +97,10 @@ public struct EmbeddedBaseline: Sendable, Equatable {
     }
 
     private static func component(_ entry: [String: Any]) throws -> Component {
-        guard let kind = entry["kind"] as? String, let name = entry["name"] as? String, let version = entry["version"] as? String,
+        guard let kind = entry["kind"] as? String, let contentClass = entry["class"] as? String,
+              let name = entry["name"] as? String, let version = entry["version"] as? String,
               let targets = entry["targets"] as? [String], let sha256 = entry["sha256"] as? String, let size = entry["size"] as? Int,
               sha256.count == 64, sha256.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) else { throw LoadError.malformed("component") }
-        return Component(kind: kind, name: name, version: version, targets: targets, sha256: sha256, size: size)
+        return Component(kind: kind, contentClass: contentClass, name: name, version: version, targets: targets, sha256: sha256, size: size)
     }
 }

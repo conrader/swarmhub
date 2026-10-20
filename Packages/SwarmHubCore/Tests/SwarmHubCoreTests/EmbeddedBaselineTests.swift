@@ -16,7 +16,7 @@ private func layout(blob: Data = Data("abc".utf8), manifestTail: String = "") th
         try FileManager.default.createDirectory(at: dir.appending(path: sub), withIntermediateDirectories: true)
     }
     let sig = #"[{"key_id":"TEST-release-1","sig":"00"}]"#
-    let manifest = Data((#"{"signatures":\#(sig),"signed":{"components":[{"kind":"config","name":"policy","sha256":"\#(abcDigest)","size":3,"#
+    let manifest = Data((#"{"signatures":\#(sig),"signed":{"components":[{"kind":"config","class":"data","name":"policy","sha256":"\#(abcDigest)","size":3,"#
         + #""targets":["mac","ios"],"version":"1.0.0"}],"label":"baseline","version":2}}"#).utf8)
     let index = #"{"signatures":\#(sig),"signed":{"lines":[{"bundle_version":2,"manifest_sha256":"\#(hex(manifest))"}],"seq":7}}"#
     try Data(#"{"roots":[],"schema":"swarmhub/pins/1","threshold":1}"#.utf8).write(to: dir.appending(path: "pins.json"))

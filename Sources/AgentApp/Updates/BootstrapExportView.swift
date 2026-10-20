@@ -5,8 +5,8 @@ import SwiftUI
 /// P2c: Settings → Advanced → About shows the box updater package's expected SHA-256 and exports the package for the
 /// operator's own transfer to a box (console or SSH). Reads only the app's resources: no network, no box, no model turn.
 struct BootstrapExportSection: View {
+    @EnvironmentObject private var store: AppStore
     @State private var updaterPackage = BootstrapPackage.locate()
-    @State private var baseline = EmbeddedBaseline.locate(BotManagerText.candidates("Baseline"), target: "mac")
     @State private var message: String?
 
     var body: some View {
@@ -22,9 +22,9 @@ struct BootstrapExportSection: View {
                     .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 if let message { Text(message).font(.caption).textSelection(.enabled) }
             } else {
-                Text("This build has no box updater package.").foregroundStyle(.secondary)
+                Text("No verified package in this build.").foregroundStyle(.secondary)
             }
-            if let baseline { LabeledContent("Built-in bundle", value: "\(baseline.label) (\(baseline.bundleVersion))") }
+            if let baseline = store.appContent.baseline { LabeledContent("Built-in bundle", value: "\(baseline.label) (\(baseline.bundleVersion))") }
         }
     }
 

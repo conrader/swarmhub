@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import SwarmHubCore
 
 /// P2c (CORE-PLAN.md §3.5): the box updater's bootstrap package, embedded in the app build with its SHA-256 by
 /// `scripts/release/baseline.py embed` (`Bootstrap/swarmhub-updater-<version>.tar` and `.tar.sha256`). The expected digest
@@ -9,6 +10,7 @@ struct BootstrapPackage: Equatable {
     let packageURL: URL
     /// Lowercase hex SHA-256 the build recorded for the package; what the operator compares on the box.
     let expectedDigest: String
+    private let directory: URL
     var fileName: String { packageURL.lastPathComponent }
 
     enum ExportError: Error, Equatable, LocalizedError {
@@ -25,21 +27,20 @@ struct BootstrapPackage: Equatable {
         }
     }
 
-    /// The `Bootstrap` folder as each build lays out resources (the .app, SwiftPM's bundle, AgentApp.resources).
-    static var defaultCandidates: [URL] { BotManagerText.candidates("Bootstrap") }
-
-    /// The first candidate folder holding one `<name>.tar` and its `<name>.tar.sha256`; nil when the build has none.
-    static func locate(_ candidates: [URL] = defaultCandidates) -> BootstrapPackage? {
+    /// Only the app's sealed Bootstrap directory is trusted. Bare SwiftPM executables have no verified package.
+    /// Check the bytes before offering either export or the expected digest in the UI.
+    static func locate(in bundle: Bundle = .main) -> BootstrapPackage? {
         let files = FileManager.default
-        for folder in candidates {
-            guard let names = try? files.contentsOfDirectory(atPath: folder.path) else { continue }
-            let packages = names.filter { $0.hasPrefix("swarmhub-updater-") && $0.hasSuffix(".tar") }
-            guard packages.count == 1, let name = packages.first,
-                  let text = try? String(contentsOf: folder.appending(path: name + ".sha256"), encoding: .ascii),
-                  let digest = digest(fromLine: text, fileName: name) else { continue }
-            return BootstrapPackage(packageURL: folder.appending(path: name), expectedDigest: digest)
-        }
-        return nil
+        guard let folder = AppBundleResources.directory("Bootstrap", in: bundle),
+              let names = try? files.contentsOfDirectory(atPath: folder.path) else { return nil }
+        let packages = names.filter { $0.hasPrefix("swarmhub-updater-") && $0.hasSuffix(".tar") }
+        guard packages.count == 1, let name = packages.first,
+              let sidecar = try? AppBundleResources.read(name + ".sha256", in: folder),
+              let text = String(data: sidecar, encoding: .ascii),
+              let digest = digest(fromLine: text, fileName: name),
+              let bytes = try? AppBundleResources.read(name, in: folder),
+              Self.digest(of: bytes) == digest else { return nil }
+        return BootstrapPackage(packageURL: folder.appending(path: name), expectedDigest: digest, directory: folder)
     }
 
     /// The digest from a `shasum -a 256` / `sha256sum` line for `fileName`, or nil.
@@ -58,14 +59,14 @@ struct BootstrapPackage: Equatable {
 
     /// The package's current SHA-256 (what export would write).
     func actualDigest() throws -> String {
-        guard let data = try? Data(contentsOf: packageURL) else { throw ExportError.unreadable }
+        guard let data = try? AppBundleResources.read(fileName, in: directory) else { throw ExportError.unreadable }
         return Self.digest(of: data)
     }
 
     /// Writes the package and its `.sha256` line into `folder` after checking the bytes against `expectedDigest`, then reads
     /// the written package back and checks it again. Returns the written package's URL.
     func export(to folder: URL) throws -> URL {
-        guard let data = try? Data(contentsOf: packageURL) else { throw ExportError.unreadable }
+        guard let data = try? AppBundleResources.read(fileName, in: directory) else { throw ExportError.unreadable }
         let actual = Self.digest(of: data)
         guard actual == expectedDigest else { throw ExportError.digestMismatch(expected: expectedDigest, actual: actual) }
         let target = folder.appending(path: fileName), sidecar = folder.appending(path: fileName + ".sha256")
