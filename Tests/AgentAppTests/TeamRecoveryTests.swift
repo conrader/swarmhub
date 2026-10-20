@@ -84,7 +84,7 @@ actor TeamRecoveryBackend: AgentBackend {
         #expect(store.startTeamRequest("Inspect fixture", origin: author, coordinator: author, recipient: peer, roster: [author, peer]))
         let saved = try #require(store.workflows.values.first)
         let records = try store.journal().records(Workflow.self, kind: AppStore.workflowKind)
-        #expect(records == [saved])
+        #expect(records == ([saved] as [Workflow]))
         #expect(saved.coordination?.policy.ownerDeviceID == store.teamDeviceID)
         #expect(saved.tasks.allSatisfy { $0.state == .queued })
     }

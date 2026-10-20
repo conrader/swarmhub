@@ -29,7 +29,7 @@ import Testing
     let key = BotThreadKey(from: "jarvis", to: "infra")
     let rows = [BackendMessage(id: 1, role: "user", content: "[Message from jarvis via SwarmHub]\nFYI"),
                 BackendMessage(id: 2, role: "assistant", content: " NO_REPLY ", finishReason: "stop")]
-    #expect(AppStore.threadLines(rows, key: key).map(\.text) == ["FYI"])
+    #expect(AppStore.threadLines(rows, key: key).map(\.text) == (["FYI"] as [String]))
 }
 
 @Test @MainActor func heldPeerStepsDoNotShowTheRecipientAsWorkingOrTheReceiptAsAReply() throws {
@@ -49,7 +49,7 @@ import Testing
     activity.apply(ToolEvent(phase: .completed, name: "terminal", callID: "held", result: "held:abc"), at: store.now())
     assistant.activity = activity
     #expect(store.chipState(for: activity.steps[0], key: key, streaming: false) == .held)
-    #expect(store.knownThreadLines(key).map(\.text) == ["FYI"])
+    #expect(store.knownThreadLines(key).map(\.text) == (["FYI"] as [String]))
     #expect(store.allBotThreads().first?.lastLine == "FYI")
     #expect(BotMessageCopy.chip("Infra", .held) == "Held for Infra’s next turn")
     store.endTurn(turn.token)

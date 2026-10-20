@@ -66,9 +66,9 @@ import SwarmHubCoordination
         var other = waiting; other.id = UUID(); other.tasks[0].state = .queued
         try ledger.putMany([(waiting.id.uuidString, waiting), (other.id.uuidString, other)], kind: "workflow")
         let oldRecords = try ledger.records(OldWorkflow.self, kind: "workflow")
-        #expect(oldRecords.map(\.id) == [waiting.id, other.id])
-        #expect(oldRecords.map { $0.tasks[0].state } == [.blocked, .queued])
-        #expect(try ledger.records(Workflow.self, kind: "workflow") == [waiting, other])
+        #expect(oldRecords.map(\.id) == ([waiting.id, other.id] as [UUID]))
+        #expect(oldRecords.map { $0.tasks[0].state } == ([.blocked, .queued] as [OldWorkflow.Task.State]))
+        #expect(try ledger.records(Workflow.self, kind: "workflow") == ([waiting, other] as [Workflow]))
     }
 
     @Test func markerLossOnAnOldSaveStillRequiresAcceptance() throws {

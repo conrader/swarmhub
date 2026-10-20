@@ -70,7 +70,7 @@ private func sentInstructions(_ host: String) -> [String] {
 @Test @MainActor func gettingStartedSkillInstallsTheSameWay() async throws {
     let block = "```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"travel\",\"skills\":[{\"name\":\"getting-started\",\"version\":\"1.0.0\"}]}\n```"
     let (store, _, travel, host) = importedStore(replies: [block])
-    #expect(store.importedSkills(for: travel).map(\.name) == ["Travel Planner", "Getting started"])
+    #expect(store.importedSkills(for: travel).map(\.name) == (["Travel Planner", "Getting started"] as [String]))
     let skill = try #require(travel.gettingStartedSkill)
     #expect(store.installImportedSkill(skill, on: travel))
     try await waitUntil { !store.anyTurnRunning && travel.gettingStartedSkill?.isEnabled == true }

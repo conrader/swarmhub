@@ -23,7 +23,7 @@ struct AppConfigTests {
 
     @Test func everySharedCaseResolvesToItsSnapshotAndReports() throws {
         #expect(Self.cases.map { ConfigVectors.string($0["id"]) ?? "" }
-                == ["no-bundle", "release-policy", "bundle", "wrong-type", "out-of-range", "kill-switch", "denied"])
+                == (["no-bundle", "release-policy", "bundle", "wrong-type", "out-of-range", "kill-switch", "denied"] as [String]))
         for vector in Self.cases {
             let id = ConfigVectors.string(vector["id"]) ?? "?"
             let store = try ConfigVectors.store(for: ConfigVectors.objects(vector["components"]))
@@ -47,10 +47,10 @@ struct AppConfigTests {
         let compiled = AppConfig.compiled
         #expect(compiled.codingOrder == "claude,codex,hermes")
         #expect(compiled.conversationModel == nil && compiled.codingModel == nil)
-        #expect(compiled.teamActions == ["assign", "reportResult", "requestHelp", "requestReview"])
+        #expect(compiled.teamActions == (["assign", "reportResult", "requestHelp", "requestReview"] as [String]))
         let limits = compiled.teamLimits
-        #expect([limits.tasks, limits.reviewRounds, limits.handoffDepth, limits.operations, limits.parallelTasks,
-                 limits.activeSeconds] == [12, 2, 3, 48, 1, 1800])
+        #expect(([limits.tasks, limits.reviewRounds, limits.handoffDepth, limits.operations, limits.parallelTasks,
+                 limits.activeSeconds] as [Int]) == ([12, 2, 3, 48, 1, 1800] as [Int]))
         #expect(compiled.managerTemplate == nil && compiled.managerTemplateOpenClaw == nil && compiled.managerRecipes.isEmpty)
         let prompt = compiled.botPrompt
         #expect(prompt.owner == "the user" && prompt.role == "Personal assistant" && prompt.coordinator == "automatic")
@@ -79,7 +79,7 @@ struct AppConfigTests {
         var expected = AppConfig.compiled
         expected.codingOrder = "codex,claude,hermes"
         #expect(resolved == expected)
-        #expect(log.reports == [ConfigReport(reason: "denied_key", domain: "policy", key: "approvers", component: "app-config")])
+        #expect(log.reports == ([ConfigReport(reason: "denied_key", domain: "policy", key: "approvers", component: "app-config")] as [ConfigReport]))
 
         let again = await check(store, route: { _ in .fail(.cannotConnectToHost) })
         #expect(again.verdict.reason == "unreachable")

@@ -21,8 +21,8 @@ struct UpdateStoreTests {
         #expect(store.record()?.bundleVersion == 12 && store.record(.previous)?.bundleVersion == 11)
         #expect(store.component("policy") == UpdateFixtures.synthetic(12).blobs["policy"])
         #expect(store.component("policy", in: .previous) == UpdateFixtures.synthetic(11).blobs["policy"])
-        #expect(versionDirectories(store) == [UpdateStore.versionID(UpdateFixtures.synthetic(12).record),
-                                              UpdateStore.versionID(UpdateFixtures.synthetic(11).record)])
+        #expect(versionDirectories(store) == ([UpdateStore.versionID(UpdateFixtures.synthetic(12).record),
+                                              UpdateStore.versionID(UpdateFixtures.synthetic(11).record)] as [String]))
         let fm = FileManager.default
         #expect(try fm.destinationOfSymbolicLink(atPath: store.root.appendingPathComponent("current").path)
                 == "versions/" + UpdateStore.versionID(UpdateFixtures.synthetic(12).record))
@@ -143,7 +143,7 @@ struct UpdateStoreTests {
         defer { session.invalidateAndCancel() }
         let client = UpdateClient(configuration: UpdateFixtures.configuration(host: host), store: store, session: session,
                                   clock: { TestClock().now }, validate: { record, blobs in
-                                      #expect(record.bundleVersion == 11 && Set(blobs.keys) == ["policy", "routine-card"])
+                                      #expect(record.bundleVersion == 11 && Set(blobs.keys) == (["policy", "routine-card"] as Set<String>))
                                       return false
                                   })
         let result = await client.check()
@@ -162,8 +162,8 @@ struct UpdateStoreTests {
         try store.saveState(state)
         #expect(try store.loadState() == state)
         let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: store.root.appendingPathComponent("state.json"))) as? [String: Any]
-        #expect(Set(raw?.keys.map { $0 } ?? []) == ["keys_version", "index_seq", "bundle_version", "install_id",
-                                                     "fresh_until", "last_result"])
+        #expect(Set(raw?.keys.map { $0 } ?? []) == (["keys_version", "index_seq", "bundle_version", "install_id",
+                                                     "fresh_until", "last_result"] as Set<String>))
         #expect(state.staleSince(now: "2026-10-25T23:59:59Z") == nil)
         #expect(state.staleSince(now: "2026-10-26T00:00:00Z") == "2026-10-26T00:00:00Z")
     }

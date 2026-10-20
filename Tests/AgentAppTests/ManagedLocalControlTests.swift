@@ -78,7 +78,7 @@ private final class RuntimeHome {
     #expect(record.id == task && record.gate == "owner" && record.status == "awaiting-owner" && record.decider == "coordinator" && record.awaiting)
     #expect(record.fingerprint.count == 64 && record.decided_by == nil && record.decided_at == nil)
     #expect(record.spec.kind == "prod" && record.spec.bot == "worker" && record.spec.intent == "B-operation" && record.spec.fake == true)
-    #expect(record.spec.argv == ["/bin/echo", "FAKE B"] && record.spec.risks == ["prod"] && record.spec.fields["speculative"] == .bool(false))
+    #expect(record.spec.argv == (["/bin/echo", "FAKE B"] as [String]) && record.spec.risks == (["prod"] as [String]) && record.spec.fields["speculative"] == .bool(false))
     // The card renders the complete fingerprinted spec, including fields the old struct dropped (finding 7).
     let card = try record.request(botID: UUID())
     #expect(card.requestID == task && card.profile == "coordinator" && card.actionKind == "managed.prod" && card.managedRecord == record)

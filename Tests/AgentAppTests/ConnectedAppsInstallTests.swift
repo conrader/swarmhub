@@ -35,7 +35,7 @@ private func swarmHub(provision: @escaping @Sendable () -> (Int, Any) = { (200, 
     let (client, center) = provisioned(hub, keys: keys)
     let credential = try await client.credentialForFirstConnection(toolkit: "gmail")
     #expect(credential.apiKey == projectKey && credential.userID == "swarmhub_p40" && credential.projectID == "pr_p40")
-    #expect(SwarmHubStub.paths(hub.host) == ["POST /swarmhub/v1/composio/provision"], "a stored install is reused; no auth route")
+    #expect(SwarmHubStub.paths(hub.host) == (["POST /swarmhub/v1/composio/provision"] as [String]), "a stored install is reused; no auth route")
     #expect(SwarmHubStub.requests(hub.host)[0].request.value(forHTTPHeaderField: "Authorization") == "Install ins_p40.\(installKey)")
     #expect(center.account == .signedOut && center.signInTask == nil && center.storedToken == nil)
 }
@@ -48,7 +48,7 @@ private func swarmHub(provision: @escaping @Sendable () -> (Int, Any) = { (200, 
     #expect(store.reportsCenter.storedInstall == nil)
     let client = ComposioProvisioningClient(baseURL: URL(string: "https://\(hub.host)/swarmhub/")!, session: hub.session, credential: store.connectedAppsInstall())
     _ = try await client.credentialForFirstConnection(toolkit: "gmail")
-    #expect(SwarmHubStub.paths(hub.host) == ["POST /swarmhub/v1/installs", "POST /swarmhub/v1/composio/provision"])
+    #expect(SwarmHubStub.paths(hub.host) == (["POST /swarmhub/v1/installs", "POST /swarmhub/v1/composio/provision"] as [String]))
     #expect(store.reportsCenter.storedInstall == SwarmHubInstall(installID: "ins_new", installKey: installKey), "the same install reports use")
     #expect(SwarmHubStub.requests(hub.host)[1].request.value(forHTTPHeaderField: "Authorization") == "Install ins_new.\(installKey)")
 }
@@ -65,7 +65,7 @@ private func swarmHub(provision: @escaping @Sendable () -> (Int, Any) = { (200, 
     #expect(keys.key(for: ConnectedAppsStore.keyAccount) == projectKey && apps.configuration.projectID == "pr_p40" && apps.configuration.userID == "swarmhub_p40")
     #expect(MockHermesProtocol.recorded(composio).allSatisfy { $0.value(forHTTPHeaderField: "x-api-key") == projectKey })
     #expect(await apps.connect("slack")?.host == "connect.composio.dev")
-    #expect(SwarmHubStub.paths(hub.host) == ["POST /swarmhub/v1/installs", "POST /swarmhub/v1/composio/provision"], "the second Connect does not provision")
+    #expect(SwarmHubStub.paths(hub.host) == (["POST /swarmhub/v1/installs", "POST /swarmhub/v1/composio/provision"] as [String]), "the second Connect does not provision")
     #expect(apps.error == nil && apps.retryToolkit == nil && center.account == .signedOut)
     // The keys are never written anywhere but the key store, nor shown.
     for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
@@ -97,7 +97,7 @@ private func swarmHub(provision: @escaping @Sendable () -> (Int, Any) = { (200, 
     let limited = SwarmHubStub.serve { _, _ in (429, ["error": "too many installs"]) }
     let (client, _) = provisioned(limited, keys: InMemoryKeyStore())
     await #expect(throws: ComposioProvisioningError.rateLimited) { try await client.credentialForFirstConnection(toolkit: "gmail") }
-    #expect(SwarmHubStub.paths(limited.host) == ["POST /swarmhub/v1/installs"])
+    #expect(SwarmHubStub.paths(limited.host) == (["POST /swarmhub/v1/installs"] as [String]))
 }
 
 @MainActor @Test func p40RetryAfterAFailedProvisionConnectsAndClearsTheRetry() async throws {
@@ -122,7 +122,7 @@ private func swarmHub(provision: @escaping @Sendable () -> (Int, Any) = { (200, 
     })
     let (client, center) = provisioned(hub, keys: InMemoryKeyStore([SwarmHubInstall.account: storedInstall]))
     _ = try await client.credentialForFirstConnection(toolkit: "gmail")
-    #expect(SwarmHubStub.paths(hub.host) == ["POST /swarmhub/v1/composio/provision", "POST /swarmhub/v1/installs", "POST /swarmhub/v1/composio/provision"])
+    #expect(SwarmHubStub.paths(hub.host) == (["POST /swarmhub/v1/composio/provision", "POST /swarmhub/v1/installs", "POST /swarmhub/v1/composio/provision"] as [String]))
     #expect(center.storedInstall?.installID == "ins_new" && center.account == .signedOut)
 }
 
@@ -132,7 +132,7 @@ private func swarmHub(provision: @escaping @Sendable () -> (Int, Any) = { (200, 
         let hub = SwarmHubStub.serve { _, _ in (status, ["status": status == 200 ? "ready" : "unavailable", "sign_in": false]) }
         store.reportsCenter.session = hub.session
         await store.checkConnectedAppsService(url: URL(string: "https://\(hub.host)/swarmhub/")!)
-        #expect(store.connectedApps.serviceNote == note && SwarmHubStub.paths(hub.host) == ["GET /swarmhub/health"])
+        #expect(store.connectedApps.serviceNote == note && SwarmHubStub.paths(hub.host) == (["GET /swarmhub/health"] as [String]))
     }
     for line in [ConnectedAppsCopy.notAvailable, ConnectedAppsCopy.tooManyConnections, ConnectedAppsCopy.backgroundNotAvailable, ConnectedAppsCopy.serviceNotConfigured] {
         #expect(!line.localizedCaseInsensitiveContains("sign"))

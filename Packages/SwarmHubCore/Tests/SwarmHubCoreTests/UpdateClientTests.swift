@@ -78,7 +78,7 @@ struct UpdateClientTests {
         let state = try #require(try store.loadState())
         // Only a key manifest that verified raises a floor (keys-2: version 2); the rest stay at the baseline.
         let keysVerified = entry.overrides["/keys.json"] == nil
-        #expect([state.keysVersion, state.indexSequence, state.bundleVersion] == [keysVerified ? 2 : 1, 4, 10], "\(entry.name)")
+        #expect(([state.keysVersion, state.indexSequence, state.bundleVersion] as [Int64]) == ([keysVerified ? 2 : 1, 4, 10] as [Int64]), "\(entry.name)")
         #expect(state.lastResult == result.verdict)
         // Never verified anything: stale since this first failed check.
         #expect(result.status.staleSince == "2026-10-20T12:00:00Z", "\(entry.name)")
@@ -94,11 +94,11 @@ struct UpdateClientTests {
                                   store: store, session: session, clock: { TestClock().now })
         let result = await client.check()
         #expect(result.verdict.verdict == "accept")
-        #expect(result.verdict.apply == ["policy", "routine-card"])
+        #expect(result.verdict.apply == (["policy", "routine-card"] as [String]))
         // Box archives (skills, tools, box config) are never requested by an app.
         let paths = UpdateHostProtocol.paths(host)
-        #expect(paths == ["/keys.json", "/channels/stable.json", "/bundles/11.json",
-                          "/blobs/sha256/" + UpdateFixtures.digest("policy"), "/blobs/sha256/" + UpdateFixtures.digest("routine-card")])
+        #expect(paths == (["/keys.json", "/channels/stable.json", "/bundles/11.json",
+                          "/blobs/sha256/" + UpdateFixtures.digest("policy"), "/blobs/sha256/" + UpdateFixtures.digest("routine-card")] as [String]))
         for name in UpdateFixtures.boxComponents { #expect(!paths.contains("/blobs/sha256/" + UpdateFixtures.digest(name))) }
         for request in UpdateHostProtocol.requests(host) {
             #expect(request.httpMethod == "GET")
@@ -109,7 +109,7 @@ struct UpdateClientTests {
         let record = try #require(store.record())
         #expect(record.bundleVersion == 11 && record.platform == platform)
         #expect(record.manifestSHA256 == updateDigest(UpdateFixtures.data("bundles/11.json")))
-        #expect(record.components.map(\.name) == ["policy", "routine-card"])
+        #expect(record.components.map(\.name) == (["policy", "routine-card"] as [String]))
         #expect(record.components.allSatisfy { $0.contentClass == "data" && ["config", "ui"].contains($0.kind) })
         #expect(store.component("policy") == UpdateFixtures.blob("policy"))
         #expect(store.component("routine-card") == UpdateFixtures.blob("routine-card"))
@@ -124,7 +124,7 @@ struct UpdateClientTests {
             #expect(mode & 0o111 == 0)
         }
         let state = try #require(try store.loadState())
-        #expect([state.keysVersion, state.indexSequence, state.bundleVersion] == [2, 5, 11])
+        #expect(([state.keysVersion, state.indexSequence, state.bundleVersion] as [Int64]) == ([2, 5, 11] as [Int64]))
         #expect(state.freshUntil == "2026-10-26T00:00:00Z" && state.failingSince == nil)
         #expect(result.status.staleSince == nil)
     }
@@ -174,7 +174,7 @@ struct UpdateClientTests {
         let after = try #require(try store.loadState())
         // keys-2 verified unless the keys floor itself refused it; nothing else moves.
         let keys = stage == "keys" ? floors[0] : max(floors[0], 2)
-        #expect([after.keysVersion, after.indexSequence, after.bundleVersion] == [keys, floors[1], floors[2]])
+        #expect(([after.keysVersion, after.indexSequence, after.bundleVersion] as [Int64]) == ([keys, floors[1], floors[2]] as [Int64]))
     }
 
     @Test func persistedFloorsBelowTheCompiledBaselineAreRaised() async throws {
@@ -187,7 +187,7 @@ struct UpdateClientTests {
                                   clock: { TestClock().now })
         _ = await client.check()
         let state = try #require(try store.loadState())
-        #expect([state.keysVersion, state.indexSequence, state.bundleVersion] == [1, 4, 10])
+        #expect(([state.keysVersion, state.indexSequence, state.bundleVersion] as [Int64]) == ([1, 4, 10] as [Int64]))
     }
 
     @Test func redirectToAnotherHostIsRefusedAndNeverFollowed() async throws {
@@ -205,7 +205,7 @@ struct UpdateClientTests {
             let result = await client.check()
             #expect(ContinuousClock.now - start < .seconds(2))
             #expect(result.verdict == UpdateVerdict(verdict: "reject", stage: "fetch", reason: "redirect_refused"))
-            #expect(UpdateHostProtocol.paths(host) == ["/keys.json"])
+            #expect(UpdateHostProtocol.paths(host) == (["/keys.json"] as [String]))
             #expect(UpdateFixtures.tree(store) == before)
         }
         #expect(UpdateHostProtocol.requests(target).isEmpty)

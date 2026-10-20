@@ -43,7 +43,7 @@ private func steps(_ previews: String?...) -> [ToolStep] { previews.map { ToolSt
     try await waitUntil { !store.anyTurnRunning && capabilityReads(host) >= 3 }
     #expect(!reads(host).contains { $0.hasSuffix("/v1/skills") }, "skills are not read")
     let reply = try #require(jarvis.messages.last)
-    #expect(store.refreshModelsAfterRecipe(reply, from: jarvis, in: jarvis).map(\.id) == [jarvis.id, mira.id])
+    #expect(store.refreshModelsAfterRecipe(reply, from: jarvis, in: jarvis).map(\.id) == ([jarvis.id, mira.id] as [UUID]))
 }
 
 @Test @MainActor func anOrdinaryReplyRefreshesNothing() async throws {
@@ -64,7 +64,7 @@ private func steps(_ previews: String?...) -> [ToolStep] { previews.map { ToolSt
     let first = ChatMessage(role: .user, content: "set models"), steer = ChatMessage(role: .user, content: "and Mira", metadata: [SteerKey.steer: "delivered"])
     let tail = ChatMessage(role: .assistant, content: "Done.")
     jarvis.messages = [first, reply, steer, tail]
-    #expect(store.refreshModelsAfterRecipe(tail, from: jarvis, in: jarvis).map(\.name) == ["Jarvis", "Mira"])
+    #expect(store.refreshModelsAfterRecipe(tail, from: jarvis, in: jarvis).map(\.name) == (["Jarvis", "Mira"] as [String]))
     mira.messages = [first, reply]
     #expect(store.refreshModelsAfterRecipe(reply, from: mira, in: mira).isEmpty, "not a manager")
     let thread = ChatThread(parentMessageID: reply.id, parentSessionID: nil, hermesSessionID: nil, messages: [first, reply]); jarvis.threads = [thread]

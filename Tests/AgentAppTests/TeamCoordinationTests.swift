@@ -12,7 +12,7 @@ import SwarmHubCoordination
         let workflow = try #require(store.workflows[id])
         #expect(workflow.state == .completed, "\(workflow.error ?? "")")
         #expect(workflow.tasks.count == 7 && workflow.tasks.allSatisfy { $0.delivery?.state == .completed })
-        #expect(workflow.tasks.filter { $0.reviewTargetID != nil }.map(\.reviewRound) == [1, 2])
+        #expect(workflow.tasks.filter { $0.reviewTargetID != nil }.map(\.reviewRound) == ([1, 2] as [Int?]))
         #expect(await backend.recordedPrompts().count == 7)
         #expect(store.groups[0].messages.count == 1)
         store.projectWorkflowResult(workflow); store.dispatchWorkflows()

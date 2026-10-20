@@ -49,7 +49,7 @@ private final class RemoteFixture: @unchecked Sendable {
             if verb == "decide" {
                 #expect(body["fingerprint"] as? String == String(repeating: "b", count: 64))
                 #expect(body["gate"] as? String == "owner")
-                #expect((body["binding"] as? [String: String]) == ["origin": origin, "runtime": runtimeID, "profile": "owner"])
+                #expect((body["binding"] as? [String: String]) == (["origin": origin, "runtime": runtimeID, "profile": "owner"] as [String: String]))
                 decision = try #require(body["approved"] as? Bool)
                 return (503, ["error": "synthetic lost acknowledgement"])
             }
@@ -96,7 +96,7 @@ struct ManagedRemoteControlTests {
         let record = try await ManagedRemoteControl.request(address: "https://\(host)/v1", profile: "owner", key: remoteKey,
                                                             verb: "get", task: remoteTask, input: nil, session: session)
         #expect(record == remoteRecord(origin: "https://" + host))
-        #expect(fixture.calls == ["get"])
+        #expect(fixture.calls == (["get"] as [String]))
     }
 
     @Test func plaintextMissingKeyAndRedirectsFailClosed() async throws {
@@ -193,10 +193,10 @@ struct ManagedRemoteControlTests {
             #expect(store.approvals.first?.managedRecord?.remoteBinding == original.remoteBinding)
             // A new notification cannot overwrite the uncertain choice, and the opposite button cannot reverse it.
             store.decideManagedAction(try #require(store.approvals.first), approved: !approved)
-            #expect(store.approvals.count == 1 && fixture.calls == ["get", "get", "decide"])
+            #expect(store.approvals.count == 1 && fixture.calls == (["get", "get", "decide"] as [String]))
             store.decideManagedAction(try #require(store.approvals.first), approved: approved)
             try await waitUntil { store.approvals.isEmpty }
-            #expect(fixture.calls == ["get", "get", "decide", "get"])
+            #expect(fixture.calls == (["get", "get", "decide", "get"] as [String]))
             #expect(bot.approvalAudit.last?.outcome == (approved ? .approved : .denied))
         }
     }
@@ -226,7 +226,7 @@ struct ManagedRemoteControlTests {
         }
         store.decideManagedAction(try #require(store.approvals.first), approved: false)
         try await waitUntil { store.approvals.isEmpty }
-        #expect(calls == ["get", "decide"] && bot.approvalAudit.last?.outcome == .denied)
+        #expect(calls == (["get", "decide"] as [String]) && bot.approvalAudit.last?.outcome == .denied)
     }
 
     @Test @MainActor func provenUnsentDecisionUnlocksOnlyANewChoice() async throws {

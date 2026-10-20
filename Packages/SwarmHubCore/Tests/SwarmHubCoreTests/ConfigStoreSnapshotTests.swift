@@ -79,7 +79,7 @@ struct ConfigStoreSnapshotTests {
         }
         let config = ConfigStore(updates: reader, log: { _ in })
         #expect(writer.record()?.bundleVersion == 13 && config.bundleVersion == 12)
-        #expect(reads.names == ["policy", "flags"] && config.decodeReports.isEmpty)
+        #expect(reads.names == (["policy", "flags"] as [String]) && config.decodeReports.isEmpty)
         #expect(config.value(ConfigKey<Int64>.policy("coding_job_limit", default: 1)) == 3)
         #expect(config.isKilled(.policy, "codingOrder") && config.isViewKilled("routine_card"))
         #expect(config.value(ConfigKey<String>.policy("codingOrder", default: "compiled")) == "compiled")
@@ -87,7 +87,7 @@ struct ConfigStoreSnapshotTests {
         let after = ConfigStore(updates: writer, log: { _ in })
         #expect(after.bundleVersion == 13 && !after.isKilled(.policy, "codingOrder"))
         #expect(after.value(ConfigKey<Int64>.policy("coding_job_limit", default: 1)) == 7)
-        #expect(config.isViewKilled("routine_card") && reads.names == ["policy", "flags"])
+        #expect(config.isViewKilled("routine_card") && reads.names == (["policy", "flags"] as [String]))
     }
 
     @Test(arguments: ["missing", "hash", "size", "collected"])
@@ -117,8 +117,8 @@ struct ConfigStoreSnapshotTests {
         }
         let config = ConfigStore(updates: reader, log: { log.append($0) })
         expectDefaults(config)
-        #expect(reads.names == ["policy", "flags"])
-        #expect(config.decodeReports == [ConfigReport(reason: "component_unreadable", component: "flags")])
+        #expect(reads.names == (["policy", "flags"] as [String]))
+        #expect(config.decodeReports == ([ConfigReport(reason: "component_unreadable", component: "flags")] as [ConfigReport]))
         #expect(config.reports == config.decodeReports && log.reports == config.decodeReports)
     }
 
@@ -152,8 +152,8 @@ struct ConfigStoreSnapshotTests {
         }
         let config = ConfigStore(updates: reader, log: { _ in })
         expectDefaults(config)
-        #expect(reads.names == ["flags", "policy"])
-        #expect(config.reports == [ConfigReport(reason: "component_unreadable", component: "policy")])
+        #expect(reads.names == (["flags", "policy"] as [String]))
+        #expect(config.reports == ([ConfigReport(reason: "component_unreadable", component: "policy")] as [ConfigReport]))
     }
 
     @Test func missingPinnedRecordReportsWholeSnapshotFailure() throws {
@@ -166,7 +166,7 @@ struct ConfigStoreSnapshotTests {
         let log = ReportLog()
         let config = ConfigStore(updates: store, log: { log.append($0) })
         expectDefaults(config)
-        #expect(config.reports == [ConfigReport(reason: "bundle_unreadable")])
+        #expect(config.reports == ([ConfigReport(reason: "bundle_unreadable")] as [ConfigReport]))
         #expect(log.reports == config.reports)
     }
 }

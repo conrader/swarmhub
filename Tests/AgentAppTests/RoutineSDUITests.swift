@@ -33,8 +33,43 @@ private func critical(_ view: String) -> [String: Data] {
     _ = NSApplication.shared
     let renderer = ImageRenderer(content: view.frame(width: 560, height: 520, alignment: .topLeading).environment(\.colorScheme, .light))
     let image = try #require(renderer.cgImage)
-    let data = try #require(image.dataProvider?.data)
-    return SHA256.hash(data: data as Data).map { String(format: "%02x", $0) }.joined()
+    return try pixelDigest(image)
+}
+
+/// Compare visible pixels, not the provider's storage (which can include undefined row padding, unused channels
+/// and different bitmap formats). Keep every pixel and the dimensions, with no tolerance or downsampling.
+private func pixelDigest(_ image: CGImage) throws -> String {
+    var rgba = Data(repeating: 0, count: image.width * image.height * 4)
+    let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+    try rgba.withUnsafeMutableBytes { bytes in
+        let context = try #require(CGContext(data: bytes.baseAddress, width: image.width, height: image.height,
+            bitsPerComponent: 8, bytesPerRow: image.width * 4, space: space,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+        context.setBlendMode(.copy)
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    }
+    let hash = SHA256.hash(data: rgba).map { String(format: "%02x", $0) }.joined()
+    return "\(image.width)x\(image.height):\(hash)"
+}
+
+@Test func routinePixelComparisonIgnoresStoragePaddingButDetectsChangedPixels() throws {
+    func image(padding: UInt8, red: UInt8 = 120, height: Int = 2) throws -> CGImage {
+        let row: [UInt8] = [red, 30, 60, 255, padding, padding, padding, padding]
+        let bytes = Data(Array(repeating: row, count: height).flatMap { $0 })
+        let provider = try #require(CGDataProvider(data: bytes as CFData))
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        return try #require(CGImage(width: 1, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 8,
+            space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+                .union(.byteOrder32Big), provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+    }
+    let first = try image(padding: 0), second = try image(padding: 255)
+    // The old helper would reject these identical images.
+    let firstBytes = try #require(first.dataProvider?.data) as Data
+    let secondBytes = try #require(second.dataProvider?.data) as Data
+    #expect(firstBytes != secondBytes)
+    #expect(try pixelDigest(first) == pixelDigest(second))
+    #expect(try pixelDigest(first) != pixelDigest(image(padding: 0, red: 121)))
+    #expect(try pixelDigest(first) != pixelDigest(image(padding: 0, height: 1)))
 }
 
 private func sampleJob(_ id: String = "0123456789ab") -> HermesJob {
@@ -56,6 +91,7 @@ private func sampleJob(_ id: String = "0123456789ab") -> HermesJob {
                                    ("killed view", source(targets, killed: [SDUIRoutineTarget.resultCardView])),
                                    ("killed component", source(targets, killed: ["badge"])),
                                    ("killed critical", source(critical(SDUIRoutineTarget.resultCardView), killed: [SDUIRoutineTarget.resultCardView]))] {
+        if case .compiled = SDUIRoutineTarget.resultCard(compiledSource) {} else { Issue.record("\(name): expected compiled card") }
         let hosted = try pixels(RoutineResultCardHost(message: message).environment(\.sduiViewSource, compiledSource))
         #expect(hosted == compiled, "\(name)")
     }
@@ -76,6 +112,8 @@ private func sampleJob(_ id: String = "0123456789ab") -> HermesJob {
                                        ("does not fit", source([SDUIRoutineTarget.editFormView: golden, SDUIRoutineTarget.createFormView: golden])),
                                        ("killed view", source(targets, killed: [view])),
                                        ("killed critical", source(critical(view), killed: [view]))] {
+            if case .compiled = SDUIRoutineTarget.editor(compiledSource, routineID: job?.id, data: RoutineSDUIData.editor(bot: bot, job: job)) {
+            } else { Issue.record("\(name): expected compiled editor") }
             let hosted = try pixels(RoutineEditorHost(bot: bot, job: job).environment(\.sduiViewSource, compiledSource).environmentObject(store))
             #expect(hosted == compiled, "\(name) \(job == nil ? "create" : "edit")")
         }

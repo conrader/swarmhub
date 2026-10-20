@@ -108,7 +108,7 @@ struct SDUIRenderTreeTests {
             return
         }
         #expect(children.count == 1)
-        #expect(form.fields.map(\.id) == ["box"])
+        #expect(form.fields.map(\.id) == (["box"] as [String]))
         #expect(form.initial["box"] == .text("local"))
         // Current form values drive `form.*` predicates on every render.
         let far = SDUIRenderer.tree(document, data: local, forms: ["f": ["box": .text("far")]])
@@ -116,7 +116,7 @@ struct SDUIRenderTreeTests {
             Issue.record("unexpected tree")
             return
         }
-        #expect(farForm.fields.map(\.id) == ["box", "host_note"])
+        #expect(farForm.fields.map(\.id) == (["box", "host_note"] as [String]))
         // A bound value that is not an option starts empty.
         let unknown = SDUIRenderer.initialValues(try #require(fields(document)), data: SDUIData(["routine.box": .string("x")]))
         #expect(unknown["box"] == .text(""))

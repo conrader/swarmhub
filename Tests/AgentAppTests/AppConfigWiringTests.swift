@@ -72,7 +72,7 @@ import SwarmHubCoordination
         let conversation = ModelPolicy.resolve(role: .conversation, settings: bot.modelSettings, defaults: store.effectiveModelDefaults)
         #expect(conversation == .init(choice: ModelChoice(provider: "TEST-provider", model: "TEST-chat-1"), source: .appDefault))
         #expect(ModelPolicy.resolve(role: .coding, settings: nil, defaults: store.effectiveModelDefaults).choice?.model == "TEST-coder-1")
-        #expect(store.configuredTeamActions == ["assign", "requestReview"])
+        #expect(store.configuredTeamActions == (["assign", "requestReview"] as Set<String>))
         #expect(store.configuredTeamLimits.tasks == 20 && store.configuredTeamLimits.reviewRounds == 3 && store.configuredTeamLimits.isValid)
         #expect(store.managerCoreTemplate == "TEST manager core for {{MANAGER}}")
         #expect(store.managerRecipeTemplate(.box) == "TEST box recipe" && store.managerRecipeTemplate(.accounts) == BotManagerText.recipe(.accounts))
@@ -120,7 +120,7 @@ import SwarmHubCoordination
         bundled.appConfig = Self.bundled
         bundled.authorizeTeamWorkflow(second)
         let team = try #require(bundled.workflows[second]?.coordination)
-        #expect(team.policy.actions == ["assign", "requestReview"] && team.limits.tasks == 20 && team.limits.reviewRounds == 3)
+        #expect(team.policy.actions == (["assign", "requestReview"] as Set<String>) && team.limits.tasks == 20 && team.limits.reviewRounds == 3)
         #expect(team.limits.isValid && team.policy.actions.isSubset(of: Self.compiledTeamActions))
     }
 }

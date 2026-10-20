@@ -15,7 +15,7 @@ import SwarmHubCoordination
                     .init(id: "final", botID: author.id, instructions: "Consolidate", expectedOutput: "Answer", dependencies: ["work"])],
             budget: .init(id: UUID(), tokenLimit: 64_000))
         try store.saveWorkflow(workflow); store.authorizeTeamWorkflow(workflow.id)
-        #expect(store.workflows[workflow.id]?.coordination?.policy.actions == ["assign", "requestReview"])
+        #expect(store.workflows[workflow.id]?.coordination?.policy.actions == (["assign", "requestReview"] as Set<String>))
         store.resumeWorkflow(workflow.id)
         try await backend.calls.wait { $0.filter { $0.hasPrefix("send:") }.count == 1 }
         #expect(store.workflows[workflow.id]?.tasks[0].delivery?.submissionStarted == true)

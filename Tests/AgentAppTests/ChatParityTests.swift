@@ -19,7 +19,7 @@ import Testing
     try await backend.steer(sessionID: "steer-s1", text: "Focus on the summary")
     let steer = try #require(ChatParityServer.requests(host).first { $0.path == "/v1/runs/run_abc/steer" })
     #expect(steer.method == "POST")
-    #expect(steer.body as? [String: String] == ["input": "Focus on the summary"])
+    #expect(steer.body as? [String: String] == (["input": "Focus on the summary"] as [String: String]))
 }
 
 @Test func steerIsRefusedWithoutTheCapability() async throws {
@@ -63,7 +63,7 @@ import Testing
     let id = try await backend.forkSession(sessionID: "s1", id: "agentapp_thread_abc")
     #expect(id == "agentapp_thread_abc")
     let fork = try #require(ChatParityServer.requests(host).first { $0.path == "/api/sessions/s1/fork" })
-    #expect(fork.method == "POST" && fork.body as? [String: String] == ["id": "agentapp_thread_abc"])
+    #expect(fork.method == "POST" && fork.body as? [String: String] == (["id": "agentapp_thread_abc"] as [String: String]))
 
     let (offHost, offBackend) = ChatParityServer.serve(features: ["session_fork": false])
     await #expect(throws: BackendError.self) { _ = try await offBackend.forkSession(sessionID: "s1", id: nil) }

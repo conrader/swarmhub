@@ -129,7 +129,7 @@ private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1
         await reply("Beta done.", backends[1])
         try await backends[1].calls.wait { $0.contains("send:after Beta") }
         #expect(!backends[0].calls.all.contains("send:after Alpha"), "Alpha's message waits for Alpha's turn only")
-        #expect(store.turns.nextMessages.map(\.bubble.content) == ["after Alpha"])
+        #expect(store.turns.nextMessages.map(\.bubble.content) == (["after Alpha"] as [String]))
         await reply("Alpha done.", backends[0])
         try await backends[0].calls.wait { $0.contains("send:after Alpha") }
         await reply("A2.", backends[0]); await reply("B2.", backends[1])
@@ -157,7 +157,7 @@ private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1
         for (index, bot) in restored.enumerated() {
             #expect(bot.messages.contains { $0.role == .assistant && $0.turnState == .incomplete && $0.content == "Part \(index) " })
         }
-        #expect(reopened.turns.nextMessages.map(\.bubble.content).sorted() == ["queued 0", "queued 1"])
+        #expect(reopened.turns.nextMessages.map(\.bubble.content).sorted() == (["queued 0", "queued 1"] as [String]))
         // The launch reconcile confirmed both cut replies; both chats' messages then go at once.
         for bot in restored { bot.messages.first { $0.role == .assistant }?.turnState = .finished }
         reopened.resumeRestoredNextMessages()
@@ -179,11 +179,11 @@ private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1
         #expect(store.runningTurns.count == 6 && store.isIdle(bots[6]))
         let line = try #require(bots[6].messages.last)
         #expect(line.role == .system && line.content == "Waiting: 6 replies are already running.")
-        #expect(store.turns.nextMessages.map(\.kind) == [.turn] && backends[6].calls.all.isEmpty)
+        #expect(store.turns.nextMessages.map(\.kind) == ([.turn] as [NextMessageRecord.Kind]) && backends[6].calls.all.isEmpty)
         await reply("done", backends[0])
         try await backends[6].calls.wait { $0.contains("send:q6") }
         #expect(!bots[6].messages.contains { $0.content.hasPrefix("Waiting:") }, "the line goes when the turn starts")
-        #expect(bots[6].messages.filter { $0.role == .user }.map(\.content) == ["q6"], "the waiting message itself is answered")
+        #expect(bots[6].messages.filter { $0.role == .user }.map(\.content) == (["q6"] as [String]), "the waiting message itself is answered")
         for index in 1..<7 { await reply("done", backends[index]) }
         try await waitUntil { !store.anyTurnRunning }
     }

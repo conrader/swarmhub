@@ -74,11 +74,11 @@ private func threadRow(_ sender: String, mark: String, updated: Date) -> BotThre
         store.save()
     }
     let (store, _, infra) = liveStore(url: url, now: now)
-    #expect(store.botMessages.marks[store.botMessageMarkKey(infra)] == ["swarmhub-from-grok-jarvis": "2"], "marks load with the store")
+    #expect(store.botMessages.marks[store.botMessageMarkKey(infra)] == (["swarmhub-from-grok-jarvis": "2"] as [String: String]), "marks load with the store")
     store.applyBotThreadRows([threadRow("grok-jarvis", mark: "2", updated: old)], recipient: infra)
     #expect(infra.messages.isEmpty, "same mark after a restart: nothing new")
     store.applyBotThreadRows([threadRow("grok-jarvis", mark: "4", updated: old)], recipient: infra)
-    #expect(infra.messages.map(\.content) == ["Jarvis wrote to Infra"], "a change around the restart is shown, whatever its date")
+    #expect(infra.messages.map(\.content) == (["Jarvis wrote to Infra"] as [String]), "a change around the restart is shown, whatever its date")
 }
 
 @Test @MainActor func theFirstListAfterTheUpdateShowsThreadsChangedInTheLastDay() {
@@ -87,7 +87,7 @@ private func threadRow(_ sender: String, mark: String, updated: Date) -> BotThre
     #expect(store.botMessages.marks.isEmpty)
     store.applyBotThreadRows([threadRow("grok-jarvis", mark: "44", updated: now.addingTimeInterval(-3 * 3_600)),
                               threadRow("coder", mark: "2", updated: now.addingTimeInterval(-2 * 86_400))], recipient: infra)
-    #expect(infra.messages.map(\.content) == ["Jarvis wrote to Infra"], "changed 3 h ago is new; 2 days ago is the baseline")
+    #expect(infra.messages.map(\.content) == (["Jarvis wrote to Infra"] as [String]), "changed 3 h ago is new; 2 days ago is the baseline")
     #expect(store.hasBotMessageBadge(infra))
 }
 
@@ -139,7 +139,7 @@ private func threadRow(_ sender: String, mark: String, updated: Date) -> BotThre
     store.open(infra); store.openThreadID = thread.id
     store.applyBotThreadRows([], recipient: infra)
     store.applyBotThreadRows([threadRow("grok-jarvis", mark: "1", updated: store.now())], recipient: infra)
-    #expect(store.arrivalsAboveThread(in: infra).map(\.content) == ["Jarvis wrote to Infra"], "shown while a side thread is open")
+    #expect(store.arrivalsAboveThread(in: infra).map(\.content) == (["Jarvis wrote to Infra"] as [String]), "shown while a side thread is open")
     #expect(store.hasBotMessageBadge(infra), "the chat is open, the conversation is not")
     store.openThread(BotThreadKey(from: "grok-jarvis", to: "grok-infra"))
     #expect(store.arrivalsAboveThread(in: infra).isEmpty && !store.hasBotMessageBadge(infra))

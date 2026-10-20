@@ -48,8 +48,8 @@ struct UpdateClientFloorTests {
         store.beforeSwitch = { probe.capture(); throw TestStop() }
         let killed = await client(up.host, up.session, store).check()
         #expect(killed.verdict == UpdateVerdict(verdict: "reject", stage: "store", reason: "storage_error"))
-        #expect(probe.seen == [[12, 10]])
-        #expect(try floors(store) == [2, 6, 12])
+        #expect(probe.seen == ([[12, 10]] as [[Int64]]))
+        #expect(try floors(store) == ([2, 6, 12] as [Int64]))
         #expect(try store.loadState()?.pendingBundle == 12)
         #expect(store.record()?.bundleVersion == 10)
         let stopped = UpdateFixtures.tree(store)
@@ -65,7 +65,7 @@ struct UpdateClientFloorTests {
             #expect(result.verdict == UpdateVerdict(verdict: "reject", stage: "index", reason: reason))
             #expect(!UpdateHostProtocol.paths(mirror.host).contains("/bundles/11.json"))
             #expect(UpdateFixtures.tree(store) == stopped)
-            #expect(try floors(store) == [2, 6, 12])
+            #expect(try floors(store) == ([2, 6, 12] as [Int64]))
         }
 
         // The host serving 12 again: exactly the interrupted bundle is applied; the floor never sat below current.
@@ -73,9 +73,9 @@ struct UpdateClientFloorTests {
         resumed.afterSwitch = { probe.capture() }
         let result = await client(up.host, up.session, resumed).check()
         #expect(result.verdict.verdict == "accept" && result.verdict.bundleVersion == 12)
-        #expect(probe.seen == [[12, 10], [12, 12]])
+        #expect(probe.seen == ([[12, 10], [12, 12]] as [[Int64]]))
         #expect(store.record()?.bundleVersion == 12 && store.record(.previous)?.bundleVersion == 10)
-        #expect(try floors(store) == [2, 6, 12])
+        #expect(try floors(store) == ([2, 6, 12] as [Int64]))
         #expect(try store.loadState()?.pendingBundle == nil)
         // Applied and recorded: the same index is now an ordinary no_update.
         #expect(await client(up.host, up.session, UpdateStore(root: store.root)).check().verdict.reason == "already_applied")
@@ -97,7 +97,7 @@ struct UpdateClientFloorTests {
         #expect(UpdateFixtures.tree(store) == before)
         #expect(result.status.current?.bundleVersion == 10)
         // The key manifest's floor was written before the index was fetched; the bundle floor never was.
-        #expect(try floors(store) == [2, 4, 10])
+        #expect(try floors(store) == ([2, 4, 10] as [Int64]))
         #expect(try store.loadState()?.pendingBundle == nil)
     }
 
@@ -115,13 +115,13 @@ struct UpdateClientFloorTests {
         defer { revoking.session.invalidateAndCancel(); mirror.session.invalidateAndCancel() }
         let first = await client(revoking.host, revoking.session, store).check()
         #expect(first.verdict == UpdateVerdict(verdict: "reject", stage: reason == "http_404" ? "fetch" : "index", reason: reason))
-        #expect(try floors(store) == [3, 4, 10])
+        #expect(try floors(store) == ([3, 4, 10] as [Int64]))
         // Relaunched against a mirror still serving keys-2 (which lists the dropped key) and the index it signed.
         let replay = await client(mirror.host, mirror.session, UpdateStore(root: store.root)).check()
         #expect(replay.verdict == UpdateVerdict(verdict: "reject", stage: "keys", reason: "keys_rollback"))
         #expect(!UpdateHostProtocol.paths(mirror.host).contains("/bundles/11.json"))
         #expect(UpdateFixtures.tree(store) == before && store.record()?.bundleVersion == 10)
-        #expect(try floors(store) == [3, 4, 10])
+        #expect(try floors(store) == ([3, 4, 10] as [Int64]))
     }
 
     @Test(arguments: ["ios", "mac"])
@@ -142,23 +142,23 @@ struct UpdateClientFloorTests {
         defer { second.session.invalidateAndCancel() }
         let result = await client(second.host, second.session, store, platform: platform).check()
         #expect(result.verdict.verdict == "accept" && result.verdict.bundleVersion == 12)
-        #expect(result.verdict.apply == ["policy"])
-        #expect(result.verdict.skipped == [UpdateVerdict.Skipped(name: "routine-card", reason: "incompatible")])
+        #expect(result.verdict.apply == (["policy"] as [String]))
+        #expect(result.verdict.skipped == ([UpdateVerdict.Skipped(name: "routine-card", reason: "incompatible")] as [UpdateVerdict.Skipped]))
         let record = try #require(store.record())
-        #expect(record.bundleVersion == 12 && record.components.map(\.name) == ["policy", "routine-card"])
+        #expect(record.bundleVersion == 12 && record.components.map(\.name) == (["policy", "routine-card"] as [String]))
         let kept = try #require(record.components.first { $0.name == "routine-card" })
         #expect(kept == store.record(.previous)?.components.first { $0.name == "routine-card" })
         #expect(kept.version == "1.0.0" && kept.sha256 == UpdateFixtures.digest("routine-card"))
         #expect(store.component("routine-card") == UpdateFixtures.blob("routine-card"))
         // The kept archive comes from the store, not the host.
-        #expect(UpdateHostProtocol.paths(second.host) == ["/keys.json", "/channels/stable.json", "/bundles/12.json",
-                                                          "/blobs/sha256/" + UpdateFixtures.digest("policy")])
+        #expect(UpdateHostProtocol.paths(second.host) == (["/keys.json", "/channels/stable.json", "/bundles/12.json",
+                                                          "/blobs/sha256/" + UpdateFixtures.digest("policy")] as [String]))
 
         // Nothing installed to keep: a fresh install of 12 stores only what it applied.
         let fresh = UpdateFixtures.temporaryStore()
         defer { cleanup(fresh) }
         #expect(await client(second.host, second.session, fresh, platform: platform).check().verdict.bundleVersion == 12)
-        #expect(fresh.record()?.components.map(\.name) == ["policy"])
+        #expect(fresh.record()?.components.map(\.name) == (["policy"] as [String]))
         #expect(fresh.component("routine-card") == nil)
     }
 
@@ -182,6 +182,6 @@ struct UpdateClientFloorTests {
         let result = await client(second.host, second.session, store).check()
         #expect(result.verdict == UpdateVerdict(verdict: "reject", stage: "store", reason: "storage_error"))
         #expect(UpdateFixtures.tree(store) == before && store.record()?.bundleVersion == 11)
-        #expect(try floors(store) == [2, 5, 11])
+        #expect(try floors(store) == ([2, 5, 11] as [Int64]))
     }
 }
