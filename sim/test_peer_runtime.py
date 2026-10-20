@@ -221,11 +221,15 @@ class PeerTests(unittest.TestCase):
     def turns(self):
         return [r for r in self.requests if r[0].endswith("/chat/stream")]
 
-    def eventually(self, check):
-        deadline = time.monotonic() + 8
-        while not check() and time.monotonic() < deadline:
-            time.sleep(.02)
-        self.assertTrue(check())
+    def eventually(self, check, timeout=30):
+        # swift test runs ten pattern interpreters alongside the native suites. On a loaded Mac,
+        # the real code-job subprocess chain can exceed eight seconds even with synthetic CLI I/O.
+        # Keep polling the same condition; a monotonic deadline still fails a hung worker.
+        deadline = time.monotonic() + timeout
+        while not check():
+            remaining = deadline - time.monotonic()
+            self.assertGreater(remaining, 0, f"condition not met within {timeout}s")
+            time.sleep(min(.02, remaining))
 
     def completion(self, origin="sender", name="job.synthetic"):
         job = peer.state() / "job-completions" / name

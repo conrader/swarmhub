@@ -234,6 +234,27 @@ class SwiftSourceTests(unittest.TestCase):
         for case in ('"no bundle"', '"decoder fallback"', '"killed view"', "update == updateView"):
             self.assertIn(case, app_tests)
 
+    def test_fallback_hosts_return_the_compiled_views_unwrapped(self):
+        # The whole host body: the compiled branch is the bare compiled view (no container, frame, padding,
+        # background, id or environment), and nothing is applied to the switch.
+        hosts = MAC_SOURCES["RoutineSDUIHosts.swift"]
+        for host, compiled in (("RoutineResultCardHost", "RoutineResultCard(message: message)"),
+                               ("RoutineEditorHost", "RoutineEditorSheet(bot: bot, job: job)")):
+            body = re.search(r"struct %s: View \{\n(?:(?:    [^\n]*)?\n)*?    var body: some View \{\n"
+                             r"        switch SDUIRoutineTarget\.\w+\(source[^\n]*\) \{\n"
+                             r"        case \.compiled: (?P<compiled>[^\n]*)\n"
+                             r"        case \.updateRequired: SDUIUpdateRequiredView\(inSheet: (?:true|false)\)\n"
+                             r"        case \.document\(let document\): [^\n]*\n"
+                             r"        \}\n    \}\n\}\n" % host, hosts)
+            self.assertIsNotNone(body, host)
+            self.assertEqual(body.group("compiled"), compiled, host)
+        # The pixel check draws with AppKit and a pinned appearance, and proves its baseline is stable.
+        app_tests = (ROOT / "Tests/AgentAppTests/RoutineSDUITests.swift").read_text(encoding="utf-8")
+        self.assertNotIn("ImageRenderer(", app_tests)
+        self.assertIn("await SnapshotRenderer.png(", app_tests)
+        self.assertIn("must draw the same pixels every time", app_tests)
+        self.assertEqual(app_tests.count("#expect(hosted == compiled"), 2)
+
     def test_sources_under_500_lines_and_schemas_note(self):
         files = list(RENDER.glob("*.swift")) + list(MAC.glob("*.swift"))
         files += [TESTS / n for n in ("SDUIRenderTreeTests.swift", "SDUIActionRouterTests.swift", "SDUIViewSourceTests.swift",
