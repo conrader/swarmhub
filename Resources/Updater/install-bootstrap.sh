@@ -27,6 +27,8 @@
 # (test machines only). --unprivileged-test (tests only): the trusted owner is the invoking user instead of root; needs --prefix.
 # Exit codes: 0 done, 1 refused or failed (nothing half-installed), 64 usage.
 
+# "zsh install-bootstrap.sh": zsh splits no unquoted words unless it emulates sh, which /bin/sh-as-zsh does itself.
+[ -z "${ZSH_VERSION:-}" ] || emulate sh
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LC_ALL=C
 export PATH LC_ALL

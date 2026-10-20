@@ -1,4 +1,6 @@
 # Sourced by install-bootstrap.sh. No candidate Python code may execute until all on-disk checks pass.
+# Under zsh, act as POSIX sh (word splitting, globbing of expanded names): otherwise checks fail on unsplit words.
+[ -z "${ZSH_VERSION:-}" ] || emulate sh
 no_controls() { case $1 in *[[:cntrl:]]*) return 1 ;; esac; }
 
 link_target() {  # -n emits only target bytes on GNU/BSD; the sentinel protects trailing newlines from $(...)
@@ -106,9 +108,10 @@ prefix_ok() {  # $1 a bin folder Python may start from; $2 the resolved binary's
   [ -n "$_pw" ] || [ "$_pn" != 1 ] || _pf=1
   [ -n "$_pf" ] || { BAD="$_pp holds no lib/${_pw:-python3.N}/os.py (or several): cannot tell where $PYC loads its library from"; return 1; }
   _pd=
-  for _pv in "$_pp"/lib/${_pw:-python3.[0-9]*}/lib-dynload "$_pp"/lib64/${_pw:-python3.[0-9]*}/lib-dynload; do
-    [ -d "$_pv" ] && _pd=1
-  done
+  # zsh does not glob a pattern inside ${x:-...} even as sh: spell both lists out (and never glob the binary's name)
+  if [ -n "$_pw" ]; then set -- "$_pp/lib/$_pw/lib-dynload" "$_pp/lib64/$_pw/lib-dynload"
+  else set -- "$_pp"/lib/python3.[0-9]*/lib-dynload "$_pp"/lib64/python3.[0-9]*/lib-dynload; fi
+  for _pv; do [ -d "$_pv" ] && _pd=1; done
   _pa=$_pp
   while [ "$_pa" != / ]; do
     _pa=$(dirname "$_pa")

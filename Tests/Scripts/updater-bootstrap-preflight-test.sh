@@ -1,4 +1,6 @@
 #!/bin/sh
+# zsh splits no unquoted words and keeps $0 per function unless it emulates sh (as /bin/sh-as-zsh does).
+[ -z "${ZSH_VERSION:-}" ] || emulate sh
 # Focused tests of the real preflight functions. The full installer suite checks root ownership end to end.
 # This harness checks real fixture ownership, but exempts ancestors/system files from node_ok: sandbox mounts can
 # remap root to nobody and make HOME read-only. It never runs an install or weakens the shipped owner checks.
@@ -8,7 +10,12 @@ HERE=$(cd "$(dirname "$0")" && pwd -P)
 REPO=$(cd "$HERE/../.." && pwd -P)
 W=$(mktemp -d /tmp/updater-preflight.XXXXXX) || exit 1
 W=$(cd "$W" && pwd -P)
-trap 'chmod -R u+w "$W"; rm -rf "$W"' EXIT
+FINISHED=
+# A stop before the summary (an unset variable, exit in a sourced helper, a setup failure) must never be silent.
+trap '_rc=$?; if [ -z "$FINISHED" ]; then
+    echo "FAIL: updater-bootstrap-preflight stopped before its summary (status $_rc), last case: ${NAME:-setup}" >&2
+    [ ! -s "$W/out" ] || cat "$W/out" >&2; fi
+  chmod -R u+w "$W"; rm -rf "$W"; [ -n "$FINISHED" ] || exit 1' EXIT
 SAFE=$W PKG=$W/pkg MARK=$W/executed PREFIX=$W/prefix PRIV= PACKAGE=unused GOOD=unused
 PASSED=0 FAILED=0 SKIPPED=0 OS=$(uname -s) TRUST_UID=$(id -u) TEST_MODE=1
 PATH=/usr/bin:/bin:/usr/sbin:/sbin LC_ALL=C
@@ -174,4 +181,5 @@ $LP_ROOT/Python3" ;;
   done
 fi
 printf 'updater-bootstrap-preflight: %s passed, %s failed, %s skipped\n' "$PASSED" "$FAILED" "$SKIPPED"
+FINISHED=1
 [ "$FAILED" = 0 ]
