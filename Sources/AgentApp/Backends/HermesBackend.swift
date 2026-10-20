@@ -1,4 +1,5 @@
 import Foundation
+import SwarmHubCore
 
 /// Session IDs are local to a gateway/profile; different connections can reuse the same ID.
 private actor HermesRunRegistry {
@@ -83,6 +84,8 @@ struct HermesBackend: AgentBackend {
     var profile: String = "default"
     var session: URLSession = HermesURLSession.shared
     var timeouts = HermesTimeouts.standard
+    /// Rendered by AppStore for every real bot; QA and transport-only clients stay isolated.
+    var defaultInstructions: String? = nil
 
     static func validatedBaseURL(_ value: String) -> URL? {
         guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme), url.host != nil else { return nil }
@@ -174,7 +177,7 @@ struct HermesBackend: AgentBackend {
 
     func createSession(title: String, systemPrompt: String, id: String? = nil) async throws -> String {
         guard try await transport() == .nativeSessions else { throw BackendError.unavailable("Legacy Hermes servers do not support durable sessions.") }
-        var body: [String: Any] = ["title": title, "system_prompt": systemPrompt, "source": "api_server"]
+        var body: [String: Any] = ["title": title, "system_prompt": BotSystemPrompt.compose(policy: defaultInstructions, instructions: systemPrompt), "source": "api_server"]
         if let id { body["id"] = id }
         let json: [String: Any]
         do { json = try await jsonRequest(path: "api/sessions", method: "POST", body: body, timeout: timeouts.read) }
@@ -310,7 +313,7 @@ struct HermesBackend: AgentBackend {
         let escaped = request.sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? request.sessionID
         var urlRequest = try makeRequest(path: "api/sessions/\(escaped)/chat/stream", method: "POST")
         let input = request.messages.last(where: { $0.role == "user" })?.content ?? ""
-        urlRequest.httpBody = try Self.requestBody(["input": Self.contentParts(text: input, images: request.images), "instructions": request.effectiveSystemPrompt])
+        urlRequest.httpBody = try Self.requestBody(["input": Self.contentParts(text: input, images: request.images), "instructions": BotSystemPrompt.compose(policy: defaultInstructions, instructions: request.effectiveSystemPrompt)])
         return sseStream(urlRequest, sessionID: request.sessionID, legacy: false)
     }
 
@@ -320,7 +323,7 @@ struct HermesBackend: AgentBackend {
         urlRequest.setValue(request.sessionID, forHTTPHeaderField: "X-Hermes-Session-Id")
         // The persona stays one system string; every history message is split too, since Hermes cuts plain strings as well.
         let lastUser = request.messages.lastIndex { $0.role == "user" }
-        var messages: [[String: Any]] = [["role": "system", "content": request.effectiveSystemPrompt]]
+        var messages: [[String: Any]] = [["role": "system", "content": BotSystemPrompt.compose(policy: defaultInstructions, instructions: request.effectiveSystemPrompt)]]
         messages.append(contentsOf: request.messages.enumerated().map { index, message in
             ["role": message.role, "content": Self.contentParts(text: message.content, images: index == lastUser ? request.images : [])]
         })

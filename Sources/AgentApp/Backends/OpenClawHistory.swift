@@ -1,4 +1,5 @@
 import Foundation
+import SwarmHubCore
 
 /// P12: an OpenClaw session's transcript, threads and model list.
 extension OpenClawBackend: ModelCatalogProviding {
@@ -47,7 +48,7 @@ enum OpenClawHistory {
         (page["messages"]?.array ?? []).compactMap { row in
             guard let role = row["role"]?.string, role == "user" || role == "assistant" else { return nil }
             let shown = OpenClawText.visible(row) ?? ""
-            let text = role == "user" ? ManagerEnvelope.strip(shown) : shown
+            let text = role == "user" ? ManagerEnvelope.strip(BotSystemPrompt.stripEnvelope(shown)) : shown
             let content = ([text] + OpenClawText.imageLines(row)).filter { !$0.isEmpty }.joined(separator: "\n")
             guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             return BackendMessage(role: role, content: content, createdAt: date(row["timestamp"] ?? row["createdAt"]), finishReason: row["stopReason"]?.string)

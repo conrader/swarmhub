@@ -343,9 +343,9 @@ import SwarmHubCoordination
         let profile = bot.hermesProfile ?? "default"
         let key = keyStore.key(for: Self.keyAccount(forProfile: profile))
         if key.isEmpty, keyStore.needsReentry(Self.keyAccount(forProfile: profile)) { throw BackendError.unavailable(KeychainStore.reenterMessage) }
-        return HermesBackend(baseURL: baseURL, apiKey: key, profile: profile, session: hermesSession)
+        return HermesBackend(baseURL: baseURL, apiKey: key, profile: profile, session: hermesSession, defaultInstructions: try defaultBotInstructions(for: bot))
     case .openClaw:
         guard let binding = bot.openClaw, let gateway = gateway(id: binding.gatewayID) else { throw BackendError.unavailable(OpenClawBackend.unboundMessage) }
-        return OpenClawBackend(gateway: gateway, binding: binding, hub: openClawHub)
+        return OpenClawBackend(gateway: gateway, binding: binding, hub: openClawHub, defaultInstructions: try defaultBotInstructions(for: bot))
     } }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import SwarmHubCore
 
 /// P12: one turn. Subscribe to the session's events first, then `chat.send`; take `runId` from the ack and replay only
 /// that run's buffered events (before the ack matched by session key, after it by run id). The stream ends on the
@@ -11,7 +12,8 @@ extension OpenClawBackend {
         try require(.chat, in: capabilities)
         let sessionKey = request.sessionID
         let typed = request.messages.last { $0.role == "user" }?.content ?? ""
-        let text = request.managementText.map { ManagerEnvelope.wrap($0, around: typed) } ?? typed
+        let managed = request.managementText.map { ManagerEnvelope.wrap($0, around: typed) } ?? typed
+        let text = BotSystemPrompt.wrap(policy: defaultInstructions, message: managed)
         var params: [String: GatewayJSON] = ["sessionKey": .string(sessionKey), "agentId": .string(agentID), "message": .string(text),
                                             "idempotencyKey": .string(UUID().uuidString.lowercased())]
         if !request.images.isEmpty {

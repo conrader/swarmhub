@@ -8,9 +8,11 @@ public struct HermesClient: AgentClient {
     public let address: ConnectionAddress
     private let key: String
     let session: URLSession
+    public var promptContext: BotPromptContext
 
-    public init(address: ConnectionAddress, key: String, session: URLSession? = nil) {
+    public init(address: ConnectionAddress, key: String, session: URLSession? = nil, promptContext: BotPromptContext? = nil) {
         self.address = address; self.key = key
+        self.promptContext = promptContext ?? BotPromptContext(name: address.profile)
         if let session { self.session = session }
         else {
             let configuration = URLSessionConfiguration.ephemeral
@@ -59,7 +61,7 @@ public struct HermesClient: AgentClient {
 
     public func createSession(title: String) async throws -> String {
         let id = "agentapp_ios_\(UUID().uuidString.lowercased())"
-        let json = try await json(path: "api/sessions", method: "POST", body: ["id": id, "title": title, "source": "api_server", "system_prompt": ""])
+        let json = try await json(path: "api/sessions", method: "POST", body: ["id": id, "title": title, "source": "api_server", "system_prompt": try BotSystemPrompt.render(promptContext)])
         guard let row = json["session"] as? [String: Any], let created = row["id"] as? String,
               ConnectionAddress.validResourceID(created) else { throw CoreError.invalidResponse }
         return created

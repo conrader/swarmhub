@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import SwarmHubCore
 @testable import AgentApp
 
 // P26: an OpenClaw agent as its Gateway's bot manager, over the fake Gateway. Synthetic values only: `agent-alpha`,
@@ -87,9 +88,11 @@ private func block(_ json: String) -> String { "Done.\n```swarmhub\n\(json)\n```
     let (store, alpha, _, fake) = clawManager(script)
     let typed = ["Good morning", "Create a bot called rapper that raps", "yes", "yes"]
     for text in typed { try await turn(store, text) }
-    let messages = fake.requestsFor("chat.send").compactMap { $0["message"]?.string }
+    let wireMessages = fake.requestsFor("chat.send").compactMap { $0["message"]?.string }
+    #expect(wireMessages.allSatisfy { $0.hasPrefix(BotSystemPrompt.envelopeOpen) })
+    let messages = wireMessages.map(BotSystemPrompt.stripEnvelope)
     #expect(messages.count == 4)
-    #expect(messages[0] == "Good morning", "an ordinary turn sends Konrad's text only")
+    #expect(messages[0] == "Good morning", "an ordinary turn has the shared policy but no manager recipe")
     for attached in messages[1...2] {
         #expect(attached.hasPrefix(ManagerEnvelope.open) && attached.components(separatedBy: ManagerEnvelope.open).count == 2)
         #expect(attached.contains("\(marker) you are agent-alpha") && !attached.contains("{{"))

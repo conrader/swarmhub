@@ -33,6 +33,34 @@ private func client(profile: String = "research", handler: @escaping @Sendable (
     return HermesClient(address: try ConnectionAddress("https://agents.example.com", profile: profile), key: "synthetic-key", session: URLSession(configuration: config))
 }
 
+@Test func mobileClientSendsDefaultPolicyOnCreationAndResumedTurns() async throws {
+    let backend = try client { request in
+        if request.url!.path.hasSuffix("capabilities") { return StubReply(status: 200, body: "{\"features\":{\"session_chat_streaming\":true}}") }
+        var data = request.httpBody ?? Data()
+        if data.isEmpty, let stream = request.httpBodyStream {
+            stream.open(); defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                data.append(buffer, count: count)
+            }
+        }
+        let body = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let policy = try #require(body["system_prompt"] as? String ?? body["instructions"] as? String)
+        #expect(policy.contains("# Swarm Hub default behavior") && policy.contains("research"))
+        #expect(policy.contains("Draft first") && policy.contains("Report-on-finish"))
+        if request.url!.path.hasSuffix("/chat/stream") {
+            #expect(body["input"] as? String == "Hello")
+            return StubReply(status: 200, body: "event: run.completed\ndata: {}\n\n")
+        }
+        return StubReply(status: 200, body: "{\"session\":{\"id\":\"existing\"}}")
+    }
+    #expect(try await backend.createSession(title: "Research") == "existing")
+    // These turns do not depend on creating a session or migrating a saved profile first.
+    for _ in 0..<2 { for try await _ in backend.stream(sessionID: "existing", text: "Hello") {} }
+}
+
 @Test func profileProbeCannotSilentlyUseDefaultAgent() async throws {
     let backend = try client { request in
         #expect(request.url?.path == "/p/research/v1/models")

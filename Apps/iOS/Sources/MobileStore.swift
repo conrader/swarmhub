@@ -78,14 +78,14 @@ final class MobileStore {
         }
         if demo { stopLocalStreams(); clients = [:]; caches = [:]; approvals = [] }
         demo = false; profiles = next
-        clients[profile.id] = HermesClient(address: address, key: key)
+        clients[profile.id] = HermesClient(address: address, key: key, promptContext: BotPromptContext(name: profile.name))
         capabilities[profile.id] = verification.capabilities
     }
 
     func client(_ id: String) throws -> any AgentClient {
         if let existing = clients[id] { return existing }
         guard let profile = profiles.first(where: { $0.id == id }), let key = try credentials.read(id), !key.isEmpty else { throw CoreError.missingKey }
-        let client = HermesClient(address: profile.address, key: key); clients[id] = client; return client
+        let client = HermesClient(address: profile.address, key: key, promptContext: BotPromptContext(name: profile.name)); clients[id] = client; return client
     }
 
     func sessions(_ id: String) async throws -> [SessionSummary] {

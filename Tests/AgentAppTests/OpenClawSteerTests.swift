@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import SwarmHubCore
 @testable import AgentApp
 
 // P28 D3: OpenClaw's steer (`chat.send` with `queueMode:"steer"`) also lands only after the current tool batch (docs:
@@ -33,7 +34,7 @@ import Testing
     #expect(log == ["chat.send", "chat.abort", "chat.send"], "the abort goes out before the correction")
     #expect(fake.requestsFor("chat.abort").first?["runId"] == "run-1")
     let correction = try #require(fake.requestsFor("chat.send").last)
-    #expect(correction["queueMode"] == nil && correction["message"]?.string == SteerCopy.lead + "\nstop counting" && correction["sessionKey"]?.string == key)
+    #expect(correction["queueMode"] == nil && correction["message"]?.string.map(BotSystemPrompt.stripEnvelope) == SteerCopy.lead + "\nstop counting" && correction["sessionKey"]?.string == key)
     #expect(bot.messages[1].content == "1 2 " && bot.messages[1].turnState == .stopped)
     #expect(bot.messages[2].isCorrection && bot.messages[2].content == "stop counting")
     store.stop(); try await waitUntil { !store.anyTurnRunning }
