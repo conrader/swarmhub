@@ -147,3 +147,88 @@ Pass criteria:
 - `test_a_zombie_leader_alone_drains_quickly` prints `killpg skips zombies: True`. `False` is not a failure; it means the
   ps fallback is in use.
 - The Swift `CodingSkillTests` pass at 1.3.10.
+
+## darwinkill2
+
+Base: `swarmhub/peer-delivery` @ `e60dc3d`. Changes remain uncommitted for the box shell.
+
+Both review claims were reproduced before editing: a fake-clock listing that consumed its requested timeout
+made the old drain take **20.325 s**, and an interrupted leader reached `wait(timeout=None)` before any refusal.
+The earlier emergency SIGKILL did not bound that wait if the leader could not exit.
+
+### Changes and ceiling
+
+- Teardown now has a **5.25 s total wait ceiling**, measured from entry to teardown after the non-reaping exit wait
+  finishes, is interrupted, or fails: **5.0 s group drain + at most 0.25 s leader reap**. This does not limit how long
+  the verifier may run before teardown. As with userspace timeouts, OS scheduling and syscall execution add overhead;
+  no blocking wait is intentionally allowed beyond the shared deadline.
+- Every process listing receives only the drain deadline's remaining budget. Time is checked again after the
+  listing, sleeps are capped to the remaining budget, and no last listing starts at/after the deadline. An empty
+  listing arriving at the deadline is insufficient to certify success.
+- `subprocess.run(timeout=...)` also has an unbounded timeout cleanup wait. The new listing helper instead uses
+  `Popen.communicate(timeout=remaining)`, kills the helper on failure, and performs only `wait(timeout=0)` during
+  cleanup. It closes its output pipe and never uses a `Popen` context manager or a second blocking `communicate`.
+  A helper that cannot die is left for OS reaping when the launcher exits; it cannot hold verification open.
+- The leader's only reap uses `min(0.25, overall_time_remaining)`, floored at zero. An unreapable leader, surviving
+  or unlistable members, a teardown error, or an exceeded ceiling returns **77**, with the group ID, observed live
+  PIDs when available, and the leader PID on reap timeout. Failure takes precedence over launcher signal status.
+- Normal verifier exit, verifier SIGKILL, launcher TERM/INT/HUP, and kqueue failure all converge on this teardown.
+  Successful cleanup preserves the old status mapping (verifier status, `128+signal`, or 77 for wait failure).
+  Known already-reaped leaders (`ChildProcessError` or an existing `Popen.returncode`) are never group-signalled.
+  Every group signal, including emergency kills, precedes the sole reap attempt; the emergency leader kill uses
+  `os.kill`, avoiding `Popen.kill`'s implicit reap. The launcher continues to reset inherited SIGCHLD=SIG_IGN.
+- The production Linux verifier path is unchanged. Only the app's bundled Darwin script, coding skill, tests, and
+  this report changed; Hermes was not altered. No real provider calls or outbound messages were made.
+- Coding skill **1.3.10 → 1.3.11** because timeout/refusal behavior changes visibly. Swift `CodingSkillTests` and
+  `sim/test_fixes8_skills.py` now expect 1.3.11, with 1.3.10 as the prior coding version. Messages remains 1.3.9.
+
+### Regression coverage
+
+`sim/test_darwinkill2.py` adds 12 Linux/macOS tests with fake time and mocked processes: never-reaping leaders on
+all entry paths; a hanging listing combined with that leader; shrinking budgets across repeated slow listings;
+late empty listings; deadline-capped sleeps; delayed drain consuming the overall reap budget; a `ps` helper that
+survives its kill; already-reaped leader protection; and TERM/INT/HUP both before and during successful teardown.
+The native kqueue, Seatbelt, and real process tests in `test_darwinkill1.py` remain in place. Its mocks now accept
+bounded waits and listings, and its error tests expect the explicit fail-closed result.
+
+In-memory mutations (no source/temp artifacts) confirmed the regressions catch an unbounded leader wait
+(21 failures), a restored 10-second listing budget (15 failures), and an unbounded helper cleanup wait (1 failure).
+
+### What ran (Linux, Python 3.12)
+
+- Python compilation and Python 3.9 grammar checks on all coding-skill `.py` scripts and the three changed Python
+  tests: **10 files OK**. Compile artifacts were confined to an automatically removed temporary directory.
+- `sh -n`, `dash -n`, and `bash -n` on `code-job` and `code-job-test.sh`: OK. `git diff --check`: OK.
+- Dedicated requested run: `python3 -B -m unittest -v sim.test_darwinkill1 sim.test_darwinkill2 sim.test_fixes18
+  sim.test_macsmoke5 sim.test_macsmoke2 sim.test_fixes8_skills`: **72 tests OK, 5 skipped** (native Darwin).
+- Code-job shell suite with `CODE_JOB_SH` and the suite interpreter both set to `/bin/sh`, `/bin/dash`, and
+  `/bin/bash`: **23 passed, 0 failed each**. All provider interfaces were fixtures.
+- An earlier overlapping targeted/shell/full run produced five `test_macsmoke2` cleanup assertion failures because
+  it observed the other suites' active `/tmp` directories. The isolated 72-test run above passed all of them.
+- The first full root discovery ran 414 tests with 8 failures and 13 skips. All eight failures were then reproduced
+  with the original `e60dc3d` coding scripts in an automatically removed temporary copy (five test methods, including
+  four failing signal subtests). They are existing Linux/sandbox limitations, not changes to Darwin teardown:
+  - `test_fixes6`: new top-level `build` directory denied in fallback mode; Node `spawnSync /bin/sh` reports EPERM.
+  - `test_fixes7`: expected `namespaced`, recorded `fallback`.
+  - `test_fixes8`: SIGIO socket send reports EPERM; four namespaced signal subtests instead use fallback.
+  The namespace availability probe succeeds here, but the verifier cannot enter its full namespace setup.
+
+- Final full suite, after the last regression was added, run alone from the repository root:
+  `python3 -B -m unittest discover -s sim -p 'test_*.py'`: **415 tests, 8 baseline failures, 13 skips**
+  (239.147 s). The same failures listed above; no new failures.
+- Cleanup: no task-created temporary files/directories remain. Removed three empty `swarmhub-verify-*` directories
+  from the shell suites' deliberately killed verification cases; compile and baseline-copy directories removed
+  themselves. Pre-existing scratch/cache files and the two untracked `fixes8` brief files were left untouched.
+  HEAD remains `e60dc3d`; no commit was made.
+
+### MacBook: exact one-command invocation
+
+From the checkout at `/tmp/qm6`, using Xcode's Python and then the Swift toolchain:
+
+```sh
+cd /tmp/qm6 && PYTHONPATH=sim /usr/bin/python3 -B -m unittest -v test_darwinkill1 test_darwinkill2 test_fixes18 test_macsmoke5 test_macsmoke2 test_fixes8_skills && swift build && swift test
+```
+
+The five `DarwinNativeTests` and all `RealGroupTests` must execute without skips. The new fake-clock tests must
+pass unchanged on Python 3.9, and Swift's coding-skill expectations must pass at 1.3.11. Native Darwin tests,
+actual Xcode Python 3.9 execution, `swift build`, and `swift test` cannot be run on this Linux host.

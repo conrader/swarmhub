@@ -1,7 +1,7 @@
 ---
 name: swarmhub-coding
 description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.10
+version: 1.3.11
 author: SwarmHub
 metadata:
   swarmhub:
@@ -98,8 +98,9 @@ records the mode (`verify-mode`: `namespaced`, `fallback`, `seatbelt`) in the jo
 the limited mode. If the limited mode cannot confine either, the verification is refused (exit 77). macOS uses sandbox-exec with a named Mach service allowlist (no pasteboard, LaunchServices,
 AppleEvents or keychain) and `.git` write-denied, including linked worktree metadata; the verifier runs in its own process group, killed when it exits.
 Darwin teardown: the launcher waits for the verifier's exit without reaping it (kqueue), SIGKILLs the group and waits
-up to 5 s until it is empty, then reaps; every group signal precedes the reap, so the group ID cannot have been reused.
-Group members still alive after that fail the verification (77). Terminating the launcher (TERM/INT/HUP, as on timeout or
+up to 5 s until it is empty (including process listings), then allows at most 0.25 s to reap the leader: a total
+teardown wait ceiling of 5.25 s, plus OS scheduling/syscall overhead. Every group signal precedes the reap, so the
+group ID cannot have been reused. Surviving/unlistable members or a leader that cannot be reaped fail verification (77). Terminating the launcher (TERM/INT/HUP, as on timeout or
 cancel) runs the same teardown. Limit: a descendant that calls `setsid()` or `setpgid()`, or is spawned into a new
 session/group, leaves the group and escapes this cleanup (Seatbelt has no pidfd/subreaper equivalent); a result is not
 proof that such a process has stopped. Exact Xcode license/selection

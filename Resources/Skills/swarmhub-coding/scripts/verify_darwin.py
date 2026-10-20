@@ -96,8 +96,12 @@ def darwin_profile(workspace, temporary, git_paths=()):
     return profile
 
 
-# Teardown bounds. A killed group normally empties in milliseconds; members that outlive the deadline fail closed.
+# Teardown has a 5.25 s total wait budget from entry to drain: 5 s for the group (including ps),
+# then at most 0.25 s for the leader. As with any userspace deadline, OS scheduling/syscall overhead is additional.
+# No blocking cleanup is allowed after either deadline, even if SIGKILL cannot make a child exit.
 DRAIN_SECONDS = 5.0
+REAP_SECONDS = 0.25
+TEARDOWN_SECONDS = DRAIN_SECONDS + REAP_SECONDS
 MEMBERSHIP_INTERVAL = 0.25  # how often a group that still answers is checked for live (non-zombie) members
 DESCENDANTS_REMAIN = 77
 TEARDOWN_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)  # code-job's kill_tree sends TERM first
@@ -149,11 +153,33 @@ def signal_group(pgid, signum, killpg=os.killpg):
     return True
 
 
-def live_members(pgid, run=subprocess.run):
+def bounded_listing(argv, timeout, **kwargs):
+    """Like run(capture_output=True), without its unbounded wait/communicate after a timeout.
+    The helper's kill and nonblocking reap consume no additional wait budget. Do not use a Popen context manager:
+    its __exit__ waits without a timeout. A stuck helper is left for the OS to reap when the launcher exits."""
+    deadline = time.monotonic() + timeout
+    kwargs.pop('capture_output')
+    process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **kwargs)
+    try:
+        stdout, _ = process.communicate(timeout=max(0, deadline - time.monotonic()))
+        return subprocess.CompletedProcess(argv, process.returncode, stdout, '')
+    finally:
+        try:
+            if process.returncode is None:
+                process.kill()  # Only the ps helper; never the verifier/group.
+                try:
+                    process.wait(timeout=0)
+                except subprocess.TimeoutExpired:
+                    pass
+        finally:
+            process.stdout.close()
+
+
+def live_members(pgid, run=bounded_listing, timeout=DRAIN_SECONDS):
     """PIDs in the group that are not zombies; None if the process listing failed (callers fail closed)."""
     try:
         listing = run(['/bin/ps', '-A', '-o', 'pid=', '-o', 'pgid=', '-o', 'stat='], stdin=subprocess.DEVNULL,
-                      capture_output=True, text=True, env={'PATH': '/usr/bin:/bin', 'LANG': 'C'}, timeout=10)
+                      capture_output=True, text=True, env={'PATH': '/usr/bin:/bin', 'LANG': 'C'}, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return None
     if listing.returncode != 0:
@@ -173,31 +199,41 @@ def drain(pgid, killpg=os.killpg, members=live_members, clock=time.monotonic, sl
     The kill is repeated: a member that was forking can add a child after the first one. Darwin's killpg skips
     zombies; where zombies still answer (Linux), the process listing decides."""
     start = checked = clock()
+    deadline = start + limit
+    remaining = None
     pause = 0.005
-    while signal_group(pgid, signal.SIGKILL, killpg):
+    while True:
         now = clock()
-        if now - checked >= MEMBERSHIP_INTERVAL or now - start >= limit:
+        if now >= deadline:
+            return remaining
+        if not signal_group(pgid, signal.SIGKILL, killpg):
+            return []
+        if now - checked >= MEMBERSHIP_INTERVAL:
             checked = now
-            remaining = members(pgid)
+            budget = deadline - clock()
+            if budget <= 0:
+                return remaining
+            remaining = members(pgid, timeout=budget)
+            now = clock()  # Listing time counts, including when it returns an empty group.
+            if now >= deadline:
+                return remaining if remaining else None
             if remaining == []:
                 return []
-            if now - start >= limit:
-                return remaining
-        sleep(pause)
+        sleep(max(0, min(pause, deadline - clock())))
         pause = min(pause * 2, 0.05)
-    return []
 
 
 def exit_code(returncode):
     return 128 - returncode if returncode < 0 else returncode
 
 
-def run_grouped(argv, env, cwd, wait_exit=wait_exited, drain_group=drain):
+def run_grouped(argv, env, cwd, wait_exit=wait_exited, drain_group=drain, clock=time.monotonic):
     """Run the verifier as the leader of its own process group and tear the group down before the result is reported:
     background processes it left would otherwise keep changing the workspace. Order: wait for the leader's exit
     without reaping it, SIGKILL the group and wait (bounded) until it is empty, then reap. Every group signal is sent
     while the leader is alive or an unreaped zombie, so its group ID cannot have been reused. Members that survive
-    fail closed (77). TERM/INT/HUP to the launcher stop the wait, run the same teardown and return 128+signal.
+    fail closed (77). All teardown waits share a 5.25 s ceiling (see constants above); a leader that cannot be
+    reaped also fails closed. TERM/INT/HUP stop the wait, run the same teardown and return 128+signal on success.
     A descendant that calls setsid() or setpgid() (or is spawned with POSIX_SPAWN_SETSID/SETPGROUP) leaves the group
     and is not reached: Seatbelt has no pidfd/subreaper equivalent."""
     state = {'waiting': False, 'signals': []}
@@ -218,6 +254,9 @@ def run_grouped(argv, env, cwd, wait_exit=wait_exited, drain_group=drain):
     try:
         process = subprocess.Popen(argv, env=env, cwd=cwd, start_new_session=True)
         remaining = None
+        failure = None
+        reap_failed = False
+        owned = True
         try:
             try:
                 state['waiting'] = True
@@ -226,24 +265,47 @@ def run_grouped(argv, env, cwd, wait_exit=wait_exited, drain_group=drain):
                 state['waiting'] = False
             except Interrupted:
                 pass
+            except ChildProcessError as exc:
+                # Someone else reaped it. Its group ID is no longer pinned; never signal it.
+                owned = False
+                failure = str(exc)
+            except Exception as exc:
+                failure = str(exc)
             finally:
                 state['waiting'] = False
+                deadline = clock() + TEARDOWN_SECONDS
+                if process.returncode is not None:
+                    owned = False
+                    failure = 'leader was already reaped'
                 try:
-                    remaining = drain_group(process.pid)
-                except BaseException:
-                    # Still unreaped, so both are safe; reaping a live leader would block forever.
-                    for kill in (lambda: os.killpg(process.pid, signal.SIGKILL), process.kill):
+                    if owned:
+                        remaining = drain_group(process.pid)
+                except Exception as exc:
+                    failure = str(exc)
+                    # Still unreaped. Avoid Popen.kill(), whose implicit poll can reap the leader.
+                    for kill in (lambda: os.killpg(process.pid, signal.SIGKILL),
+                                 lambda: os.kill(process.pid, signal.SIGKILL)):
                         try:
                             kill()
                         except OSError:
                             pass
-                    raise
         finally:
-            returncode = process.wait()  # The only reap; no group signal follows it.
-        if remaining != []:
-            detail = 'members that could not be listed' if remaining is None else 'live pids ' + ' '.join(map(str, remaining))
+            try:
+                # The only reap; no group signal follows it, even on timeout or error.
+                returncode = process.wait(timeout=max(0, min(REAP_SECONDS, deadline - clock())))
+            except subprocess.TimeoutExpired:
+                reap_failed = True
+            except Exception as exc:
+                failure = str(exc)
+        if remaining != [] or reap_failed or failure is not None or clock() > deadline:
+            detail = ('members that could not be listed' if remaining is None else
+                      'live pids ' + ' '.join(map(str, remaining)) if remaining else 'no observed live members')
+            if reap_failed:
+                detail += '; leader pid %d could not be reaped within %.2f s' % (process.pid, REAP_SECONDS)
+            if failure is not None:
+                detail += '; teardown failed: ' + failure
             print('code-job: verification refused: descendants outlived the verifier (process group %d still had %s '
-                  'after SIGKILL)' % (process.pid, detail), file=sys.stderr)
+                  'after SIGKILL; teardown wait ceiling %.2f s)' % (process.pid, detail, TEARDOWN_SECONDS), file=sys.stderr)
             return DESCENDANTS_REMAIN
         if state['signals']:
             print('code-job: verification interrupted by signal %d; its process group was killed' % state['signals'][0],

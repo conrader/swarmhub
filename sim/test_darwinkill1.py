@@ -50,10 +50,11 @@ class FakeProcess:
     pid = 4242
 
     def __init__(self, log, returncode=0):
-        self.log, self.returncode = log, returncode
+        self.log, self.exit_status, self.returncode = log, returncode, None
 
-    def wait(self):
+    def wait(self, timeout=None):
         self.log.append(('reap',))
+        self.returncode = self.exit_status
         return self.returncode
 
 
@@ -84,7 +85,7 @@ class OrderingTests(unittest.TestCase):
 
         def drain(pgid):
             log.append(('drain', pgid))
-            return DARWIN.drain(pgid, killpg=killpg or default_killpg, members=members or (lambda _: [9]),
+            return DARWIN.drain(pgid, killpg=killpg or default_killpg, members=lambda pid, timeout: members(pid) if members else [9],
                                 clock=clock or Clock(0.001), sleep=lambda _: None)
         stderr = io.StringIO()
         with patch('subprocess.Popen', lambda *a, **k: FakeProcess(log, returncode)), \
@@ -160,9 +161,10 @@ class OrderingTests(unittest.TestCase):
 
         def broken(pid):
             raise OSError('kqueue unavailable')
-        with patch('subprocess.Popen', lambda *a, **k: FakeProcess(log)), self.assertRaises(OSError):
-            DARWIN.run_grouped(['verifier'], env={}, cwd='/', wait_exit=broken,
-                               drain_group=lambda pgid: log.append(('drain', pgid)) or [])
+        with patch('subprocess.Popen', lambda *a, **k: FakeProcess(log)), contextlib.redirect_stderr(io.StringIO()):
+            result = DARWIN.run_grouped(['verifier'], env={}, cwd='/', wait_exit=broken,
+                                        drain_group=lambda pgid: log.append(('drain', pgid)) or [])
+        self.assertEqual(result, 77)
         self.assertEqual(log, [('drain', 4242), ('reap',)])
 
     def test_a_failed_drain_kills_the_leader_before_the_reap(self):
@@ -171,11 +173,12 @@ class OrderingTests(unittest.TestCase):
         def broken(pgid):
             raise OSError(errno.EINVAL, 'killpg failed')
         process = FakeProcess(log)
-        process.kill = lambda: log.append(('kill-leader',))
         with patch('subprocess.Popen', lambda *a, **k: process), \
              patch.object(DARWIN.os, 'killpg', lambda pgid, sig: log.append(('kill', pgid, sig))), \
-             self.assertRaises(OSError):
-            DARWIN.run_grouped(['verifier'], env={}, cwd='/', wait_exit=lambda pid: None, drain_group=broken)
+             patch.object(DARWIN.os, 'kill', lambda pid, sig: log.append(('kill-leader',))), \
+             contextlib.redirect_stderr(io.StringIO()):
+            result = DARWIN.run_grouped(['verifier'], env={}, cwd='/', wait_exit=lambda pid: None, drain_group=broken)
+        self.assertEqual(result, 77)
         self.assertEqual(log, [('kill', 4242, signal.SIGKILL), ('kill-leader',), ('reap',)])
 
     def test_inherited_ignored_sigchld_is_reset_for_the_verifier(self):
