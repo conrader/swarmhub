@@ -138,7 +138,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(SwarmHubSkillsSection.stateText(.changed(installed: "1.0.0"), bundled: bundled) == "v1.0.0 installed · coding agent changed, needs updating")
 }
 
-// Darwinkill3 changes coding and P5d Mac regressions update messages; previous installs need the Update banner.
+// Darwinkill3 changes coding; P5d Mac regressions and the P2b/P8a update-status merge update messages; previous installs need the Update banner.
 @Test @MainActor func installsAtThePreviousSkillVersionsAreOutdated() throws {
     let (store, _, coder, _) = codingStore()
     let coding = try codingSkill()

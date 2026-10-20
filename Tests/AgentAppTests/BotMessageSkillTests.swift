@@ -43,6 +43,13 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
     #expect(main.contains("~/.hermes/skills/swarmhub/swarmhub-messages/scripts/bot-msg --from default --to"))
 }
 
+@Test func olderMessagesScriptsNeedAnUpdate() throws {
+    let skill = try messagesSkill()
+    for installed in ["1.3.10", "1.4.0", "1.4.1", "1.4.2", "1.4.3", "1.4.4"] {
+        #expect(SkillLibrary.state(installed: installed, bundled: skill.version) == .outdated(installed: installed))
+    }
+}
+
 /// `Tests/Scripts/bot-msg-test.sh` under each shell present: a stub gateway, a temp HOME, every case must pass.
 @Test(arguments: ["/bin/sh", "/bin/dash"]) func botMsgShellTestPasses(_ shell: String) async throws {
     guard FileManager.default.isExecutableFile(atPath: shell), FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { return }

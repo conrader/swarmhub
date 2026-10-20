@@ -45,6 +45,8 @@ public struct UpdateStatus: Equatable, Sendable {
     public let lastResult: UpdateVerdict?
     /// Non-nil: show "updates stale since <date>". Runtime is unaffected (§3.2).
     public let staleSince: String?
+    /// Non-nil: a local pin holds the stored bundle (§2.2).
+    public let pin: UpdatePin?
 }
 
 public struct UpdateCheckResult: Equatable, Sendable {
@@ -120,6 +122,73 @@ public actor UpdateClient {
 
     static func timestamp(_ date: Date) -> String { date.formatted(Date.ISO8601FormatStyle()) }
 
+    // MARK: Local pin
+
+    /// Local rollback and hold (§2.2), as `swarmhub-update pin previous|current` on a box. `previous` makes the
+    /// previous bundle current and holds it there; `current` holds what is current. Once pinned to `previous`, a
+    /// further pin keeps that (the store is already swapped). Checks keep verifying and raising the key and index
+    /// floors, but apply nothing while pinned. No floor is lowered. Waits for a running check, so a check never
+    /// switches the store under a pin.
+    @discardableResult
+    public func pin(_ mode: UpdatePin.Mode) async throws -> UpdateStatus {
+        await settle()
+        var state = try loadedState()
+        let now = Self.timestamp(clock())
+        if state.pin?.mode == .previous { return status(state: state, now: now) }
+        let original = state
+        state.pin = UpdatePin(mode: mode, at: now, bundleVersion: store.record()?.bundleVersion ?? 0)
+        state.restoreBundle = nil
+        // The hold is written first: an interruption leaves a held store, never an unheld revert.
+        try store.saveState(state)
+        if mode == .previous {
+            do { try store.revertToPrevious() } catch {
+                try store.saveState(original)  // no revert happened: drop the hold again
+                throw error
+            }
+        }
+        return status(state: state, now: now)
+    }
+
+    /// Releases the pin and checks at once, as `swarmhub-update pin clear` runs `check`. A newer bundle the check
+    /// accepts becomes current. Otherwise, after `pin(.previous)`, the bundle it swapped away from is current again
+    /// (verified when stored, re-hashed on every read). A failed apply may have raised the floor above that bundle.
+    @discardableResult
+    public func clearPin() async throws -> UpdateCheckResult {
+        await settle()
+        var state = try loadedState()
+        if let pin = state.pin {
+            state.pin = nil
+            state.restoreBundle = pin.mode == .previous ? pin.bundleVersion : nil
+            try store.saveState(state)
+        }
+        return await check()
+    }
+
+    /// The second half of `clearPin` (also after an interruption): with nothing newer applied and no new pin, the
+    /// bundle pinned away from becomes current again while it is still in `previous`, even below the floor.
+    private func restoreAfterClear(_ state: inout UpdateState, verdict: UpdateVerdict) {
+        guard let restore = state.restoreBundle, state.pin == nil else { return }
+        if verdict.verdict == "accept" || (store.record()?.bundleVersion ?? 0) >= restore {
+            // Also covers a kill after either the restore or a newer apply switched current, before state saved.
+            state.restoreBundle = nil
+            return
+        }
+        // Missing or temporarily unreadable recovery content must not discard the durable intent to restore it.
+        guard store.record(.previous)?.bundleVersion == restore,
+              (try? store.revertToPrevious()) != nil else { return }
+        state.restoreBundle = nil
+    }
+
+    private func settle() async {
+        while let running { _ = await running.value }
+    }
+
+    private func loadedState() throws -> UpdateState {
+        var state = try store.loadState() ?? UpdateState(installID: UUID().uuidString.lowercased())
+        state.raise(to: configuration.baseline)
+        return state
+    }
+
     // MARK: Check
 
     private enum Pending: Error { case manifest(UpdateLine), blob(UpdateComponent) }
@@ -141,6 +210,7 @@ public actor UpdateClient {
         catch is UpdateInputError { verdict = Self.reject("config", "invalid_configuration") }
         catch let failure as PolicyFailure { verdict = Self.reject("store", failure.reason) }
         catch { verdict = Self.reject("store", "storage_error") }
+        restoreAfterClear(&state, verdict: verdict)
         state.lastCheck = now
         state.lastResult = verdict
         if ["accept", "no_update"].contains(verdict.verdict) { state.failingSince = nil }
@@ -209,6 +279,14 @@ public actor UpdateClient {
                 // The resumed floor sits one below the persisted one: this line is below the real floor.
                 verdict = Self.reject("index", "bundle_rollback")
             }
+            if state.pin != nil, verdict.verdict == "accept" {
+                // Held by a local pin: the chain verified, so the key and index floors rise and freshness is
+                // recorded, but nothing is stored and the bundle floor stays, so clearing the pin can apply it.
+                try persist(&state, raising: Self.floors(keys: keys, index: index, bundle: 0))
+                markFresh(&state, index: index, now: now)
+                return UpdateVerdict(verdict: "no_update", stage: "pin", reason: "pinned",
+                                     bundleVersion: verdict.bundleVersion)
+            }
             switch verdict.verdict {
             case "accept":
                 guard let selected, let manifest = manifests[selected] else { throw UpdateStoreError.storage }
@@ -251,7 +329,7 @@ public actor UpdateClient {
 
     private func status(state: UpdateState?, now: String) -> UpdateStatus {
         UpdateStatus(current: store.record(.current), previous: store.record(.previous), lastCheck: state?.lastCheck,
-                     lastResult: state?.lastResult, staleSince: state?.staleSince(now: now))
+                     lastResult: state?.lastResult, staleSince: state?.staleSince(now: now), pin: state?.pin)
     }
 
     // MARK: Verified-data helpers

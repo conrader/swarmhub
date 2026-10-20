@@ -19,6 +19,8 @@ fixtures; nothing here has run on a real box or against a real update host. All 
 | `pull [--origin URL ...]` | fetches the key manifest, the channel index, then the selected bundle manifest and the blobs it does not hold, over HTTPS, and continues as `apply --staged` | same as `apply --staged` |
 | `pin previous\|current\|clear` | `previous` reverts each profile's last transaction and holds; `current` holds; `clear` releases the hold and runs `check` | same |
 
+Channel promotion, rollout edits, the app-side pin and the drills that exercise `pull` and `pin`: `CHANNELS.md` (P8a).
+
 Options: `--state-dir` (default `$XDG_STATE_HOME/swarmhub-update`, else `~/.local/state/swarmhub-update`),
 `--hermes-home` (default `~/.hermes`), `--max-wait SECONDS` (idle wait bound, default 600). Output is one JSON object.
 Exit codes: 0 done (also `pending_confirm`, `pinned`, `held`, `no_update`), 64 usage, 65 refused, 70 an apply failed or
