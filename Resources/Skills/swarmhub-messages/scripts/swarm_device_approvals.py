@@ -232,7 +232,7 @@ class DeviceApprovals:
             decider = policy(db).get(record["gate"])
             require(destination in (decider, record["spec"].get("bot")), "profile_mismatch")
             binding = {"origin": state["origin"], "runtime": state["runtime"], "profile": decider}
-            return {"receipt": None, "status": record["status"],
+            return {"receipt": None, "status": record["status"], "observed_at": now,
                     "record": {**record, "decider": decider, "remoteBinding": binding}}
 
     # HTTP boundary ------------------------------------------------------------------------------

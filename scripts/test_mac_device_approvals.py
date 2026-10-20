@@ -123,6 +123,25 @@ class MacBoxVerifierTests(Box):
             self.assertEqual(self.box_rows(), before)
         self.assertIsNotNone(self.challenge(service, task))
 
+    def test_expired_nonce_pending_read_uses_box_time_and_cannot_commit(self):
+        self.enroll()
+        task, service = self.submit(), self.service()
+        binding = self.challenge(service, task)
+        before = self.box_rows()
+        for observed in (binding['expires'] - 1, binding['expires'], binding['expires'] + 1):
+            with clock(observed):
+                status, result = self.receipt(service, task)
+            self.assertEqual((status, result['receipt'], result['status'], result['observed_at']),
+                             (200, None, 'awaiting-owner', observed))
+            self.assertIsNone(result['record']['decided_at'])
+            self.assertIsNone(result['record']['decided_by'])
+            self.assertEqual(self.box_rows(), before)
+        with clock(binding['expires']):
+            status, result = self.post(service, 'decide', self.decision(binding))
+        self.assertEqual((status, result['reason']), (403, 'nonce_expired'))
+        self.assertEqual(self.box_rows(), before)
+        self.wake.assert_not_called()
+
     def test_refused_signature_can_retry_with_fresh_nonce_and_deny(self):
         self.enroll()
         task, service = self.submit(), self.service()

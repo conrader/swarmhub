@@ -125,7 +125,7 @@ extension AppStore {
                 if let controlError = error as? ManagedControlError {
                     switch controlError {
                     case .unsent: approvals[index].managedDecision = earlierChoice
-                    case .refused: approvals[index].managedDecision = nil
+                    case .refused, .attemptExpired: approvals[index].managedDecision = nil
                     default: break
                     }
                 }

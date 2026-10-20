@@ -122,7 +122,7 @@ extension JSONValue: Decodable {
 }
 
 enum ManagedControlError: LocalizedError {
-    case unavailable, invalidRecord, rejected
+    case unavailable, invalidRecord, rejected, attemptExpired
     case unsent(String)
     case refused(String)
     case retired(task: String, origin: String, runtime: String, reason: String)
@@ -134,6 +134,7 @@ enum ManagedControlError: LocalizedError {
         case .unavailable: "Managed approval requires an authenticated SwarmHub control service at this Hermes connection. The operation remains pending."
         case .invalidRecord: "The runtime record is stale or does not match this approval."
         case .rejected: "The runtime did not confirm the decision. Refresh status before retrying."
+        case .attemptExpired: "The earlier attempt expired without a recorded decision. Review the operation and choose again."
         }
     }
 }

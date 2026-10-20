@@ -128,7 +128,7 @@ update host; the device list, mode and nonces are local tables in `~/.hermes/swa
 | --- | --- | --- |
 | `challenge` | signed read request | `{request, challenge, record}`: a fresh nonce binding (all signed fields except `approved`) and the full stored operation |
 | `decide` | the P5a envelope | `{request, receipt}` |
-| `receipt` | signed read request | `{request, receipt}` or `{request, receipt: null, status, record}`; `record` is omitted when gone; never authorizes |
+| `receipt` | signed read request | `{request, receipt}` or `{request, receipt: null, status, observed_at, record}`; `record` is omitted when gone; never authorizes |
 
 `request` is SHA-256 of the raw body. Refusals are HTTP 403 `{"error":"control request refused","reason":<code>}`.
 Responses are authenticated by TLS to the operator-configured origin (the client keeps v1's no-redirect rule);
@@ -140,7 +140,14 @@ nonces. Only a decision asks for a fresh challenge, then checks it against the r
 The Mac persists its exact signed attempt before dispatch. A recognized HTTP 403 box refusal clears
 that attempt and the card's saved choice, allowing another explicit retry or deny. Timeouts, unknown
 results, redirects, invalid receipts and server errors retain the attempt; only receipt reconciliation
-may resolve them, with no automatic resending or changed decision.
+may resolve them. A decision receipt is adopted. A saved attempt can be cleared only when its nonce
+has expired at the fresh receipt read's `observed_at` box timestamp and the validated record still shows
+pending with no decision. The box snapshots this integer Unix time and record under the same transaction
+lock used for decisions; the Mac clock cannot establish expiry. Missing/invalid `observed_at` keeps a
+saved attempt locked (including against older boxes until their skill is updated).
+That reconciliation also clears the card's saved choice and stops; the user must review and choose
+again. Before expiry, or if the receipt read fails or is invalid, the attempt stays locked. Nothing
+automatically resends a decision. Read refusals use the normal user-facing rejected error.
 
 The Mac fixture stores canonical payload/message bytes, public keys, and signatures. Ed25519 signatures
 from CryptoKit may be randomized: both Swift and Python verify stored signatures instead of comparing

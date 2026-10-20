@@ -22,7 +22,6 @@ enum DeviceApprovalClient {
                 }
                 guard response["receipt"] == .null, response["status"]?.stringValue == "awaiting-owner"
                         || response["status"]?.stringValue == "awaiting-coordinator" else { throw ManagedControlError.invalidRecord }
-                guard pending == nil else { throw ManagedControlError.rejected }
                 guard let value = response["record"] else { throw ManagedControlError.invalidRecord }
                 let record = try decodeRecord(value)
                 guard record.id == task, record.decider == profile, record.awaiting,
@@ -31,6 +30,22 @@ enum DeviceApprovalClient {
                       binding.origin == origin, binding.profile == profile,
                       DeviceApprovalWire.matches(binding.runtime, "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}") else {
                     throw ManagedControlError.invalidRecord
+                }
+                if let pending {
+                    // The box snapshots time and pending state under its decision lock. A local
+                    // clock ahead of the box, or a read from before expiry, cannot unlock a nonce.
+                    guard pending["approved"]?.boolValue != nil, let expires = pending["expires"]?.intValue,
+                          let observed = response["observed_at"]?.intValue, observed >= expires,
+                          observed <= 9_007_199_254_740_991 else { throw ManagedControlError.rejected }
+                    var challenge = pending
+                    challenge.removeValue(forKey: "approved")
+                    try DeviceApprovalWire.validateChallenge(challenge, identity: identity, origin: origin,
+                                                             profile: profile, task: task, record: record)
+                    guard pending["runtime"] == .string(binding.runtime), record.remoteReceipt == nil,
+                          record.decided_by == nil, record.decided_at == nil else { throw ManagedControlError.invalidRecord }
+                    try settings.clearExpiredAttempt(pending, origin: origin, task: task)
+                    // Stop card reconciliation here. Another explicit user choice is required.
+                    throw ManagedControlError.attemptExpired
                 }
                 return record
             }
@@ -83,8 +98,12 @@ enum DeviceApprovalClient {
         let body: [String: JSONValue] = ["version": .int(2), "domain": .string(DeviceApprovalWire.readDomain), "verb": .string(verb),
             "key_id": .string(identity.keyID), "origin": .string(origin), "profile": .string(profile), "task": .string(task),
             "issued": .int(Int64(Date().timeIntervalSince1970))]
-        return try await post(DeviceApprovalWire.envelope(body, identity: identity, read: true), origin: origin,
-                              profile: profile, verb: verb, session: session, timeout: timeout)
+        do {
+            return try await post(DeviceApprovalWire.envelope(body, identity: identity, read: true), origin: origin,
+                                  profile: profile, verb: verb, session: session, timeout: timeout)
+        } catch is Refusal {
+            throw ManagedControlError.rejected
+        }
     }
 
     static func decodeRecord(_ value: JSONValue) throws -> ManagedRecord {

@@ -32,6 +32,10 @@ final class DeviceApprovalSettings: @unchecked Sendable {
             throw ManagedControlError.rejected
         }
     }
+    func clearExpiredAttempt(_ expected: [String: JSONValue], origin: String, task: String) throws {
+        guard try attempt(origin: origin, task: task) == expected else { throw ManagedControlError.rejected }
+        try clearRefusedAttempt(origin: origin, task: task)
+    }
 }
 
 extension ManagedRemoteControl {
