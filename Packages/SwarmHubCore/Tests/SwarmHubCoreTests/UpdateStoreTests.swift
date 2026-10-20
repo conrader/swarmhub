@@ -22,7 +22,7 @@ struct UpdateStoreTests {
         #expect(store.component("policy") == UpdateFixtures.synthetic(12).blobs["policy"])
         #expect(store.component("policy", in: .previous) == UpdateFixtures.synthetic(11).blobs["policy"])
         #expect(versionDirectories(store) == ([UpdateStore.versionID(UpdateFixtures.synthetic(12).record),
-                                              UpdateStore.versionID(UpdateFixtures.synthetic(11).record)] as [String]))
+                                              UpdateStore.versionID(UpdateFixtures.synthetic(11).record)] as Set<String>))
         let fm = FileManager.default
         #expect(try fm.destinationOfSymbolicLink(atPath: store.root.appendingPathComponent("current").path)
                 == "versions/" + UpdateStore.versionID(UpdateFixtures.synthetic(12).record))

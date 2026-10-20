@@ -59,7 +59,7 @@ final class WorkClock: @unchecked Sendable {
     let t0 = Date(timeIntervalSince1970: 1_800_000_000), stages = workStages(at: t0)
     let mid = try #require(BotWorkReader.lastTurn(stages[2]))
     #expect(mid.origin == .bot("grok-jarvis") && mid.request == "Is the backup disk on box 2 healthy?" && !mid.finished && mid.reply == nil)
-    #expect(mid.activity?.steps.map(\.name) == (["terminal", "read_file"] as [String]) && mid.activity?.steps.map(\.preview) == (["df -h /backup", "/var/log/backup.log"] as [String]))
+    #expect(mid.activity?.steps.map(\.name) == (["terminal", "read_file"] as [String]) && mid.activity?.steps.map(\.preview) == (["df -h /backup", "/var/log/backup.log"] as [String?]))
     #expect(mid.activity?.steps.last?.isRunning == true && mid.activity?.steps.first?.isRunning == false, "the newest step runs until the reply")
     let done = try #require(BotWorkReader.lastTurn(stages[3]))
     #expect(done.finished && done.reply == "Disk at 62 %, last night's run finished." && done.activity?.steps.allSatisfy { !$0.isRunning } == true)
@@ -78,8 +78,8 @@ final class WorkClock: @unchecked Sendable {
                                              ["function": ["name": "web_extract", "arguments": ["urls": "https://example.org"]]],
                                              ["function": ["name": "skill_view", "arguments": ["name": "swarmhub-messages"]]]]]
     let message = try #require(HermesBackend.workRow(row))
-    #expect(message.tools == (["terminal", "web_extract", "skill_view"] as [String]) && message.toolPreviews == (["df -h /backup", "https://example.org", "swarmhub-messages"] as [String]))
-    #expect(HermesBackend.parseMessage(row, toolCalls: true)?.toolPreviews == ([] as [String]), "reconcile reads stay as they were")
+    #expect(message.tools == (["terminal", "web_extract", "skill_view"] as [String]) && message.toolPreviews == (["df -h /backup", "https://example.org", "swarmhub-messages"] as [String?]))
+    #expect(HermesBackend.parseMessage(row, toolCalls: true)?.toolPreviews == ([] as [String?]), "reconcile reads stay as they were")
 }
 
 @Test @MainActor func aLiveCardUnfoldsAndTheReplyEndsIt() async throws {
