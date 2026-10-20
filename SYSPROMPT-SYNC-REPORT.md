@@ -1,6 +1,28 @@
 # Bot prompt sync follow-up, 2026-10-20
 
-Branch `swarmhub/sysprompt1`, follow-up to `19fa540` and the sysprompt5 review.
+Branch `swarmhub/sysprompt1`, follow-up to `e65ba5b` and the sysprompt6 review.
+
+## Current review follow-up
+
+- iOS now keeps load failures in `botPromptSyncWarning`, independent of transient status `notice`.
+  A non-blocking root banner appears across welcome, chats and other tabs. Dismiss clears only the
+  warning; Retry loading preserves unreadable files and clears the warning on successful local load,
+  invalidating cached clients so recovered prompts take effect. No transport or Mac settings write-back.
+- Added iOS Swift tests (2 functions / 3 cases) for corrupt/future-schema warnings surviving status
+  changes, failed retry, dismissal, preserved bytes, and successful recovery. Wired a hosted
+  `SwarmHubTests` target into the generated project and shared scheme; test storage uses isolated paths.
+- Core persistence accepts an injectable writer with the existing atomic writer as its default.
+  Core and Mac failed-save tests now inject a throwing writer, verify it was called, and verify
+  unchanged memory and saved bytes. They no longer depend on directory replacement behavior.
+- Ran `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest sim.test_prompt_sync -v`:
+  **9 tests passed, 0 failures, 0 skips** (0.687s), including all 19 vectors. A search of sim sources
+  found no other suite touching this code. Historical full-suite results are retained below.
+- Project regeneration was byte-for-byte deterministic; scheme XML parsed with the test target present.
+  `git diff --check` passed. All 10 changed/new files are below 500 lines (maximum 305).
+  Hermes is untouched. Commit unavailable: `git add` could not create the worktree's `index.lock`
+  on a read-only filesystem; changes remain unstaged on `swarmhub/sysprompt1` at `e65ba5b`.
+- **Swift tests and native UI remain unbuilt/unrun**: no Swift/Xcode toolchain here, including the new
+  iOS target. Banner layout, accessibility and Apple data protection still require native verification.
 
 ## Mechanism finding
 
@@ -43,7 +65,7 @@ is one-way configuration delivery, not a carrier for per-user edits. Hermes rema
   chat/backend creation working. A dismissible inline warning reports the fallback and preserved file
   without opening a backend-error alert or entering the fatal error channel;
   failed saves still leave sync memory unchanged. iOS client creation likewise uses local defaults
-  after a sync load failure and shows a notice. No corrupt file is reset or replaced.
+  after a sync load failure and shows the dedicated root warning. No corrupt file is reset or replaced.
 - Mac sync identity now uses the same HTTPS-only `ConnectionAddress` policy as mobile. HTTP endpoints,
   including the default Mac URL and IPv4/IPv6/localhost loopback, render locally without publishing
   sync entries. The demo persistence test uses HTTPS so it still exercises an actual observation.
@@ -51,7 +73,7 @@ is one-way configuration delivery, not a carrier for per-user edits. Hermes rema
   timestamps and received stamp timestamps decode as `Int64`, with explicit checks for `Int64.max`
   and `Int64.max - 1`; there is no NSNumber/Double conversion on the vector path.
 
-## Validation
+## Prior sysprompt6 validation (historical)
 
 - Focused Python command: `python3 -B -m unittest sim.test_prompt_sync -v`.
   **9 tests passed**, including all 19 shared scenarios, 300 randomized three-device convergence

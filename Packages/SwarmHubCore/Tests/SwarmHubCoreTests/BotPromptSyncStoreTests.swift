@@ -57,13 +57,22 @@ private func promptSyncURL() -> URL {
 @MainActor @Test func failedPromptSaveDoesNotCommitMemory() throws {
     let url = promptSyncURL()
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-    let store = try BotPromptSyncStore(fileURL: url)
-    // An ordinary file where the parent directory should be makes persistence fail deterministically.
-    try Data("block parent".utf8).write(to: url.deletingLastPathComponent())
-    #expect(throws: (any Error).self) {
+    let seed = try BotPromptSyncStore(fileURL: url)
+    try seed.observe(BotPromptContext(name: "Scout"), key: "k", now: 0)
+    let bytes = try Data(contentsOf: url)
+    var writeAttempts = 0
+    let store = try BotPromptSyncStore(fileURL: url, writeFile: { _, destination in
+        #expect(destination == url)
+        writeAttempts += 1
+        throw CoreError.storage
+    })
+    let before = store.state
+    #expect(throws: CoreError.storage) {
         try store.edit(key: "k", now: 1, fallback: BotPromptContext(name: "Scout")) { $0.owner = "changed" }
     }
-    #expect(store.state.document.bots.isEmpty && store.state.observed.isEmpty)
+    #expect(writeAttempts == 1)
+    #expect(store.state == before)
+    #expect(try Data(contentsOf: url) == bytes)
 }
 
 @MainActor @Test func corruptAndFuturePromptFilesArePreserved() throws {

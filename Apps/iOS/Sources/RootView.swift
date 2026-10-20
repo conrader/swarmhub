@@ -18,6 +18,23 @@ struct RootView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .top) {
+            if let warning = store.botPromptSyncWarning {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(warning).font(.footnote).fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 16) {
+                        Button { store.retryBotPromptSyncLoad() } label: {
+                            Text("Retry loading").frame(minWidth: 44, minHeight: 44)
+                        }.accessibilityLabel("Retry loading bot prompt settings")
+                        Button { store.dismissBotPromptSyncWarning() } label: {
+                            Text("Dismiss").frame(minWidth: 44, minHeight: 44)
+                        }.accessibilityLabel("Dismiss bot prompt sync warning")
+                    }.buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading).background(.bar)
+            }
+        }
         .sheet(isPresented: $showSetup) { SetupView() }
         .alert("SwarmHub", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
             Button("OK") { store.error = nil }

@@ -80,25 +80,28 @@ func macPromptSyncCorruptFileWarnsButKeepsChatWorkingWithoutOverwriting(saved: S
     let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: defaults)
     let bot = Bot(name: "Scout", backend: .hermes)
     _ = try store.defaultBotInstructions(for: bot)
-    let sync = try #require(store.botPromptSync)
+    let seed = try #require(store.botPromptSync)
     let key = BotPromptDocument.botKey(try ConnectionAddress("https://box.example"))
-    try sync.edit(key: key, now: 100, fallback: BotPromptContext(name: "Scout")) { $0.owner = "Remote owner" }
-    let before = sync.state
+    try seed.edit(key: key, now: 100, fallback: BotPromptContext(name: "Scout")) { $0.owner = "Remote owner" }
     let syncURL = url.deletingLastPathComponent().appendingPathComponent("bot-prompt-sync.json")
-    // A nonempty directory at the destination forces an atomic save failure, even as root.
-    try FileManager.default.removeItem(at: syncURL)
-    try FileManager.default.createDirectory(at: syncURL, withIntermediateDirectories: true)
-    let marker = syncURL.appendingPathComponent("keep")
-    let bytes = Data("saved state must remain untouched".utf8)
-    try bytes.write(to: marker)
+    let bytes = try Data(contentsOf: syncURL)
+    var writeAttempts = 0
+    let sync = try BotPromptSyncStore(fileURL: syncURL, writeFile: { _, destination in
+        #expect(destination == syncURL)
+        writeAttempts += 1
+        throw CoreError.storage
+    })
+    store.botPromptSync = sync
+    let before = sync.state
     store.userName = "Changed local owner"
     let backend = try #require(try store.backend(for: bot) as? HermesBackend)
     #expect(backend.defaultInstructions?.contains("Changed local owner") == true)
     #expect(backend.defaultInstructions?.contains("Remote owner") == false)
     #expect(store.botPromptSyncWarning?.contains("Chat is using local settings") == true)
     #expect(store.errorMessage == nil)
+    #expect(writeAttempts == 1)
     #expect(sync.state == before)
-    #expect(try Data(contentsOf: marker) == bytes)
+    #expect(try Data(contentsOf: syncURL) == bytes)
     #expect(store.persistenceEnabled)
 }
 

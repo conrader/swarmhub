@@ -20,11 +20,16 @@ public protocol BotPromptSyncTransport: Sendable {
     public let origin: String
     public private(set) var state: BotPromptSyncState
     private let fileURL: URL?
+    private let writeFile: (Data, URL) throws -> Void
 
     /// A nil URL is an isolated in-memory store for demos/tests. Corrupt or future-schema files throw
     /// and remain untouched; callers must surface the storage problem rather than reset the file.
-    public init(fileURL: URL?) throws {
+    /// The writer defaults to an atomic write; injection lets callers test persistence failures.
+    public init(fileURL: URL?, writeFile: @escaping (Data, URL) throws -> Void = { data, url in
+        try data.write(to: url, options: .atomic)
+    }) throws {
         self.fileURL = fileURL
+        self.writeFile = writeFile
         if let fileURL, FileManager.default.fileExists(atPath: fileURL.path) {
             let saved = try JSONDecoder().decode(Saved.self, from: Data(contentsOf: fileURL))
             guard !saved.origin.isEmpty, saved.state.document.schema == BotPromptDocument.schema else {
@@ -79,7 +84,7 @@ public protocol BotPromptSyncTransport: Sendable {
         if let fileURL {
             let data = try encoder.encode(Saved(origin: origin, state: next))
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: fileURL, options: .atomic)
+            try writeFile(data, fileURL)
         }
         state = next
     }
