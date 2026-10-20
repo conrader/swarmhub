@@ -104,11 +104,41 @@ reachable() {  # other accounts can traverse every ancestor (root installs only)
   done
 }
 
-# ---- the interpreter: absolute, root-owned chain, >= 3.8, and every sys.path entry (-I -S) root-owned ---------------
+# ---- the interpreter: checked on disk BEFORE it runs at all, then run isolated (-I -S -B, empty env, cwd /) ---------
+# Python reads its library (encodings, ...) while starting, before any -c code. So first, for the bin folder as named
+# and as resolved: no pyvenv.cfg or bin/lib* (they move where the library is looked up), a trusted prefix, trusted
+# lib/lib64 folders, libpython and pythonNN.zip, whole trusted lib*/python3.N trees (links followed), and the binary's
+# own stdlib beside it: lib*/python3.N/os.py for the N in its name (python3.N), or the only one there when the name has
+# none. Otherwise Python would look further up or at its built-in prefix, which nothing here checked. Only then is it
+# run, and its -I -S sys.path checked again.
+prefix_ok() {  # $1 a bin folder Python may start from; $2 the resolved binary's name: its prefix must hold its stdlib
+  _pb=$1 _pp=$(dirname "$1") _pf= _pn=0
+  case ${2:-} in python3.[0-9]*) _pw=python${2#python} ;; *) _pw= ;; esac
+  for _pv in "$_pb/pyvenv.cfg" "$_pp/pyvenv.cfg" "$_pb/lib" "$_pb/lib64"; do
+    [ ! -e "$_pv" ] && [ ! -L "$_pv" ] || { BAD="$_pv (it changes where Python loads its library from)"; return 1; }
+  done
+  trusted "$_pp" || return 1
+  for _pv in "$_pp/lib" "$_pp/lib64" "$_pp/Python" "$_pp/Python3" "$_pp"/lib/libpython3* "$_pp"/lib64/libpython3* \
+      "$_pp"/lib/python3[0-9]*.zip "$_pp"/lib64/python3[0-9]*.zip "$_pp"/lib/python3.[0-9]* "$_pp"/lib64/python3.[0-9]*; do
+    [ -e "$_pv" ] || [ -L "$_pv" ] || continue
+    trusted "$_pv" || return 1
+    case $_pv in */python3.[0-9]*) [ -d "$_pv" ] || continue
+      tree_ok "$RESOLVED" || { BAD="$BAD (in $_pv, the library the interpreter loads)"; return 1; }
+      if [ -f "$_pv/os.py" ]; then _pn=$((_pn + 1)); [ "${_pv##*/}" != "$_pw" ] || _pf=1; fi ;;
+    esac
+  done
+  [ -n "${2:-}" ] || return 0
+  [ -n "$_pw" ] || [ "$_pn" != 1 ] || _pf=1
+  [ -n "$_pf" ] || { BAD="$_pp holds no lib/${_pw:-python3.N}/os.py (or several): cannot tell where $PYC loads its library from"; return 1; }
+}
 python_ok() {
   case $1 in /*) ;; *) return 1 ;; esac
   case $1 in *[!A-Za-z0-9._/+-]*) return 1 ;; esac
   [ -f "$1" ] && [ -x "$1" ] && trusted "$1" || return 1
+  PYC=$1 _real=$RESOLVED
+  prefix_ok "$(dirname "$_real")" "$(basename "$_real")" || return 1
+  _named=$(cd -P "$(dirname "$1")" && pwd -P) || { BAD=$1; return 1; }
+  [ "$_named" = "$(dirname "$_real")" ] || prefix_ok "$_named" || return 1
   (cd / && clean "$1" -I -S -B -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 3)') 2>/dev/null \
     || { BAD="$1 (needs Python 3.8 or later)"; return 1; }
   _paths=$(cd / && clean "$1" -I -S -B -c 'import sys; print("\n".join(p for p in sys.path if p))') || return 1
@@ -119,9 +149,9 @@ python_ok() {
     IFS=$_old; set +f
     case $_e in /*) ;; *) BAD="$1: relative sys.path entry $_e"; return 1 ;; esac
     _x=$_e
-    while [ ! -e "$_x" ]; do _x=$(dirname "$_x"); done
-    trusted "$_x" || return 1
-    if [ -d "$_x" ] && ! tree_ok "$_x"; then BAD="$BAD (in $_x, which the bot account could change)"; return 1; fi
+    while [ ! -e "$_x" ] && [ ! -L "$_x" ]; do _x=$(dirname "$_x"); done
+    trusted "$_x" || return 1  # a missing entry: its nearest folder must be trusted, so nobody else can create it
+    if [ "$_x" = "$_e" ] && [ -d "$_x" ] && ! tree_ok "$RESOLVED"; then BAD="$BAD (in $_x, which the bot account could change)"; return 1; fi
   done
   IFS=$_old; set +f
 }
@@ -239,7 +269,8 @@ installed() {  # PREFIX is our install and trusted; sets CUR
   trusted "$PREFIX" || die "$PREFIX is not protected: $BAD is writable by or owned by another account"
   CUR=$(link_id current) && [ -d "$PREFIX/releases/$CUR" ] || die "$PREFIX has no current release"
 }
-tree_ok() {  # nothing under PREFIX is owned by or writable for another account
+tree_ok() {  # $1 folder: nothing in it is owned by or writable for another account, and every link resolves (each hop
+             # and its folders) to a trusted file, or to a folder inside $1; $2 = inside: every link stays inside $1
   _bad=$(find "$1" \( ! -user 0 ! -user "$TRUST_UID" \) -print -o \( ! -type l -perm -0002 \) -print \
          -o \( ! -type l -perm -0020 ! -group 0 \) -print 2>/dev/null | sed -n 1p)
   [ -z "$_bad" ] || { BAD=$_bad; return 1; }
@@ -249,6 +280,21 @@ tree_ok() {  # nothing under PREFIX is owned by or writable for another account
   else  # any POSIX ACL entry fails closed
     ! ls -lAR "$1" 2>/dev/null | grep -q '^[-dlpcbs][-rwxsStT]\{9\}+' || { BAD="$1 (an entry has an ACL)"; return 1; }
   fi
+  _troot=$(cd -P "$1" 2>/dev/null && pwd -P) && _tlinks=$(find "$1" -type l -print) || { BAD="$1 (cannot list its links)"; return 1; }
+  _tifs=$IFS; IFS='
+'
+  set -f
+  for _tl in $_tlinks; do
+    IFS=$_tifs; set +f
+    trusted "$_tl" || { BAD="$_tl links through $BAD, which is not protected"; return 1; }
+    if [ -d "$RESOLVED" ]; then
+      _tt=$(cd -P "$RESOLVED" 2>/dev/null && pwd -P) || { BAD="$_tl (its target cannot be resolved)"; return 1; }
+      case $_tt/ in "$_troot"/*) ;; *) BAD="$_tl links to the folder $_tt, outside $1"; return 1 ;; esac
+    elif [ -f "$RESOLVED" ]; then
+      [ "${2:-}" != inside ] || case $RESOLVED in "$_troot"/*) ;; *) BAD="$_tl links to $RESOLVED, outside $1"; return 1 ;; esac
+    else BAD="$_tl links to $RESOLVED, which is not a plain file or folder"; return 1; fi
+  done
+  IFS=$_tifs; set +f
 }
 finish_release() {  # $1 release folder: modes, owner, pin file and import check
   find "$1" -type d -exec chmod 0755 {} + && find "$1" -type f -exec chmod 0644 {} + \
@@ -342,7 +388,7 @@ cmd_install() {
   [ -n "$TEST_MODE" ] || chown -h 0:0 "$PREFIX/current" "$PREFIX/bin/swarmhub-update" "$PREFIX/bootstrap.log" \
     ${PREV:+"$PREFIX/previous"}
   chmod 0644 "$PREFIX/bootstrap.log"
-  tree_ok "$PREFIX" || die "after install, $BAD is not protected"
+  tree_ok "$PREFIX" inside || die "after install, $BAD is not protected"
   note "installed $ID at $PREFIX (python $PY)"
   note "pins $(cat "$STAGE/pins-summary")"
   note "run it as the bot account by its absolute path: $PREFIX/bin/swarmhub-update status"
@@ -375,7 +421,7 @@ cmd_maintenance() {
 
 cmd_verify() {
   installed
-  tree_ok "$PREFIX" || die "NOT PROTECTED: $BAD"
+  tree_ok "$PREFIX" inside || die "NOT PROTECTED: $BAD"
   reachable "$PREFIX" || die "$BAD is not reachable by the bot account"
   REL=$PREFIX/releases/$CUR
   [ "$(readlink "$PREFIX/bin/swarmhub-update")" = ../current/bin/swarmhub-update ] || die "the launcher link is wrong"

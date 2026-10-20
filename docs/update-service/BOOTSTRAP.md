@@ -25,9 +25,14 @@ turn cannot establish it.
 
 The launcher names a vetted interpreter by absolute path, so there is no `PATH` lookup. It runs that interpreter with
 `-I` (ignores `PYTHON*` variables, the script folder, the cwd and the user site), `-S` (no site-packages or `.pth`
-files) and `-B` (no bytecode). The installer accepts an interpreter only when it, every folder above it and every
-`sys.path` entry it uses are root-owned and not writable by group or others. On macOS it also checks for ACLs that
-grant writing. It picks `/usr/bin/python3` or `/usr/local/bin/python3` on Linux. On macOS it picks the Command Line
+files) and `-B` (no bytecode). Python reads its library (for example `encodings`) while starting, before any code
+it is given, so the installer checks the interpreter on disk **before running it at all**: the binary, every folder
+above it, every link hop, its prefix, the `lib`/`lib64` folders, `libpython` and `pythonNN.zip`, and the whole
+`lib*/python3.N` library trees must be root-owned and not writable by group or others. Links inside those trees are
+followed and their targets checked the same way; a link to a folder outside the tree is refused. A `pyvenv.cfg` or a
+`lib` folder beside the binary is refused, and the binary's own standard library must sit beside the resolved binary
+(`lib/python3.N/os.py` for the N in its name `python3.N`, or the only one there), else Python would look elsewhere. Only then is the interpreter run (empty environment, cwd `/`, `-I -S -B`), and every
+`sys.path` entry it reports is checked again. On macOS it also checks for ACLs that grant writing. It picks `/usr/bin/python3` or `/usr/local/bin/python3` on Linux. On macOS it picks the Command Line
 Tools python (`xcrun -f python3`), never the `/usr/bin/python3` shim, which `DEVELOPER_DIR` can redirect. Use
 `--python PATH` to name another one. Always call the updater by its absolute path. Running `python3 <launcher>` skips
 these protections.
@@ -61,8 +66,8 @@ script itself is not inside the package, so take it from the same trusted checko
 sudo sh install-bootstrap.sh verify
 ```
 
-This checks that nothing under the prefix is owned by, or writable for, another account, that the launcher link is
-right, that the installed files match `files.sha256`, that the interpreter still passes the checks above, and that
+This checks that nothing under the prefix is owned by, or writable for, another account, that every link in it
+resolves inside the prefix, that the launcher link is right, that the installed files match `files.sha256`, that the interpreter still passes the checks above, and that
 `pins.json` loads. It prints the checkpoint. Record bootstrap as complete only from this output, never from a bot's
 message.
 
@@ -106,23 +111,34 @@ sh Tests/Scripts/updater-bootstrap-test.sh                          # Docker if 
 BOOTSTRAP_TEST_MODE=fallback BOOTSTRAP_SH=/bin/dash sh Tests/Scripts/updater-bootstrap-test.sh
 ```
 
-Docker (`python:3.12-slim`, `--network none`, root plus a `bot` account) covers these cases:
+Docker (`python:3.12-slim`, `--network none`, root plus a `bot` account) covers these cases. That mode runs only in
+the container the test itself starts (it passes `--inside-container` and a launch marker, and checks for root and
+`/.dockerenv`); anywhere else it refuses, since it creates `bot` and uses `/opt/swarmhub-updater`. A second container
+runs the suite as root without the marker and checks that it fell back, created no account and left
+`/opt/swarmhub-updater` alone.
 
 - an altered or tampered package is refused before anything is extracted or run (with a positive control showing the
   planted code does run when its own digest is given);
 - a disagreeing `.sha256` file, a non-root run, bot-writable prefixes and interpreters, and TEST roots are refused;
+- an interpreter whose `encodings/__init__.py` the bot can write, or which links to a file the bot can write, is
+  refused before it runs (a control shows the planted code runs when the binary is started directly), and so is a
+  `python3.N` binary with only another version's library beside it;
 - 15 write attempts by the bot against the updater, pins and links all fail;
 - with hostile `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, cwd modules, user-site `usercustomize`/`.pth` and a fake
   `python3`/`env` first on `PATH`, no planted code runs (controls show each plant fires without the protections);
 - the bot applies the TEST baseline through the installed updater;
 - maintenance raise, refusal to lower, and revocation work, and the bot is refused even after wiping its state;
 - an upgrade and a rollback keep the checkpoint;
-- `verify` catches a changed file;
+- `verify` catches a changed file, and a link in the install to a bot-writable file, to a protected file outside the
+  prefix, or to a folder outside it;
 - there is no bytecode, the bot's home is unchanged by the installer, Hermes fixture files are byte-identical, and
   uninstall removes only the prefix.
 
-The fallback runs the same cases as the invoking user (`--unprivileged-test`, prefix under `$HOME`) and skips the one
-that needs a second account.
+The fallback runs the same cases as the invoking user (`--unprivileged-test`, a private prefix under `$HOME`) and skips
+the one that needs a second account. Run as root, it still uses only that private prefix and creates no account (it
+then also skips the non-root refusal).
 
 macOS has not been run here. On the MacBook, run `sh Tests/Scripts/updater-bootstrap-test.sh` (fallback, without
-Docker). It exercises the Darwin paths: `xcrun` interpreter choice, `shasum`, BSD `tar`/`find`/`ls` and ACL parsing.
+Docker). It exercises the Darwin paths: `xcrun` interpreter choice and the on-disk library check of a framework
+python (it must find `lib/python3.N/os.py` beside the resolved binary), `shasum`, BSD `tar`/`find`/`ls` and ACL
+parsing. The two fake-interpreter cases skip there if a copied framework binary does not load the copied library.

@@ -8,7 +8,10 @@
 #       BOOTSTRAP_TEST_IMAGE (default python:3.12-slim, pulled once if absent; the container runs with --network none)
 #
 # docker: the installer runs as root in a container with a separate unprivileged `bot` account, which then uses the
-# updater. fallback (no Docker, no root): the same checks as the invoking user with --unprivileged-test; the cases that
+# updater. Only host() starts that mode (--inside-container plus the BOOTSTRAP_TEST_CONTAINER launch marker); anywhere
+# else it refuses, because it creates `bot` and uses /opt/swarmhub-updater. A second container runs as root WITHOUT the
+# marker and must fall back. fallback (no Docker; also when run as root): the same checks as the invoking user with
+# --unprivileged-test and a private prefix under $HOME; it never creates an account or uses a real path; the cases that
 # need a second account are reported as skipped. Exit 0 all passed, 1 a failure, 77 nothing could run.
 
 HERE=$(cd "$(dirname "$0")" && pwd -P)
@@ -36,7 +39,7 @@ host() {
   # under HOME: a snap-confined Docker cannot bind-mount the host's /tmp
   T=$(mktemp -d "${HOME:-/tmp}/.updater-bootstrap-pkg.XXXXXX") || exit 1
   CONTAINER=swarmhub-p2d-test-$$
-  trap 'rm -rf "$T"; [ -n "$DOCKER" ] && "$DOCKER" rm -f "$CONTAINER" > /dev/null 2>&1' EXIT
+  trap 'rm -rf "$T"; [ -n "$DOCKER" ] && "$DOCKER" rm -f "$CONTAINER" "$CONTAINER-nomark" > /dev/null 2>&1' EXIT
   PYTHONDONTWRITEBYTECODE=1 python3 -B "$REPO/scripts/release/baseline.py" embed --configuration debug --out "$T/res" \
     > "$T/embed.log" 2>&1 || { cat "$T/embed.log"; echo "SKIP: cannot build the TEST bootstrap package"; exit 77; }
   mkdir "$T/pkg" && cp "$T"/res/Bootstrap/* "$T/pkg/" && cp -R "$T/res/Baseline" "$T/pkg/Baseline" || exit 1
@@ -76,29 +79,56 @@ EOF
     [ "$MODE" = docker ] && { echo "SKIP: Docker is not available"; exit 77; }
     DOCKER=
   fi
+  HOST_FAILED=0
+  if [ "$(id -u)" = 0 ] && [ -f /.dockerenv ]; then  # here the probe would really run the privileged mode
+    echo "skip: --inside-container refusal on this host (it is itself a root container)"
+  elif BOOTSTRAP_TEST_CONTAINER=$CONTAINER sh "$SELF" --inside-container "$REPO" "$T/pkg" "$MARK" > "$T/refuse" 2>&1 \
+      || ! grep -q 'refused' "$T/refuse"; then
+    echo "FAIL: --inside-container ran outside the container launch:"; sed 's/^/    | /' "$T/refuse"; HOST_FAILED=1
+  else echo "pass: --inside-container outside the container launch refuses before doing anything"; fi
   if [ -n "$DOCKER" ]; then
-    "$DOCKER" run --rm --name "$CONTAINER" --network none -e BOOTSTRAP_SH="${BOOTSTRAP_SH:-/bin/sh}" \
-      -v "$REPO:/repo:ro" -v "$T/pkg:/pkg:ro" "$IMAGE" /bin/sh /repo/Tests/Scripts/updater-bootstrap-test.sh \
-      --inside /repo /pkg "$MARK"
+    in_container() { _n=$1; shift; "$DOCKER" run --rm --name "$_n" --network none -e BOOTSTRAP_SH="${BOOTSTRAP_SH:-/bin/sh}" \
+      -v "$REPO:/repo:ro" -v "$T/pkg:/pkg:ro" "$@"; }
+    in_container "$CONTAINER" -e BOOTSTRAP_TEST_CONTAINER="$CONTAINER" "$IMAGE" \
+      /bin/sh /repo/Tests/Scripts/updater-bootstrap-test.sh --inside-container /repo /pkg "$MARK" || HOST_FAILED=1
+    # root without the launch marker: --inside-container refuses, the plain run falls back to a private prefix
+    in_container "$CONTAINER-nomark" "$IMAGE" /bin/sh -c '
+      t=/repo/Tests/Scripts/updater-bootstrap-test.sh
+      if /bin/sh "$t" --inside-container /repo /pkg "$1" > /tmp/refuse 2>&1 || ! grep -q refused /tmp/refuse; then
+        echo "FAIL: root --inside-container without the launch marker was not refused"; exit 1; fi
+      /bin/sh "$t" --inside /repo /pkg "$1"; rc=$?
+      if id bot > /dev/null 2>&1 || [ -e /opt/swarmhub-updater ] || [ -L /opt/swarmhub-updater ]; then
+        echo "FAIL: root without the container marker created a bot account or used /opt/swarmhub-updater"; exit 1; fi
+      echo "pass: root without the container marker created no account and left /opt/swarmhub-updater alone"
+      exit $rc' sh "$MARK" || HOST_FAILED=1
   else
-    sh "$SELF" --inside "$REPO" "$T/pkg" "$MARK"
+    sh "$SELF" --inside "$REPO" "$T/pkg" "$MARK" || HOST_FAILED=1
   fi
+  return $HOST_FAILED
 }
 
 # ======================================== inside: root + bot (container) or the invoking user (fallback) ===========
 setup() {
   REPO=$1 PKG=$2 MARK=$3
+  if [ -n "$IN_CONTAINER" ]; then  # refuse unless this is the container host() launched (before any side effect)
+    why=
+    case ${BOOTSTRAP_TEST_CONTAINER:-} in swarmhub-p2d-test-*) ;; *) why="no launch marker" ;; esac
+    [ "$(id -u)" = 0 ] || why="${why:+$why, }not root"
+    [ -f /.dockerenv ] || why="${why:+$why, }no /.dockerenv"
+    [ -z "$why" ] || { echo "--inside-container refused ($why): it creates a bot account and uses /opt/swarmhub-updater"; exit 1; }
+  fi
   S=$REPO/Resources/Updater/install-bootstrap.sh ISH=${BOOTSTRAP_SH:-/bin/sh}
   PACKAGE=$(ls "$PKG"/swarmhub-updater-*.tar) && GOOD=$(cut -d' ' -f1 "$PACKAGE.sha256") || exit 1
-  if [ "$(id -u)" = 0 ]; then
-    PRIV=1 MODE=docker W=/tmp/w TFLAG= PREFIX=/opt/swarmhub-updater BPATH=/usr/local/bin:/usr/bin:/bin
-    mkdir -p "$W" && chmod 0700 "$W"
+  if [ -n "$IN_CONTAINER" ]; then
+    PRIV=1 MODE=docker W=/tmp/w TFLAG= PREFIX=/opt/swarmhub-updater BPATH=/usr/local/bin:/usr/bin:/bin SAFE=/opt/p2d-scratch
+    mkdir -p "$W" "$SAFE" && chmod 0700 "$W" && chmod 0755 "$SAFE"
     id bot > /dev/null 2>&1 || useradd -m -s /bin/sh bot || adduser --disabled-password --gecos '' bot > /dev/null || exit 1
     BHOME=$(cd ~bot && pwd -P)
-  else
+  else  # also as root: a private prefix, no second account, nothing outside $W
     PRIV= MODE=fallback TFLAG=--unprivileged-test BPATH=/usr/bin:/bin
-    W=$(mktemp -d "$HOME/.updater-bootstrap-test.XXXXXX") || exit 1   # not under /tmp: the installer refuses it
-    BHOME=$W/home PREFIX=$W/opt/swarmhub-updater
+    [ "$(id -u)" = 0 ] && MODE="fallback as root"
+    W=$(mktemp -d "${HOME:-/nonexistent}/.updater-bootstrap-test.XXXXXX") || exit 1   # not under /tmp: the installer refuses it
+    BHOME=$W/home PREFIX=$W/opt/swarmhub-updater SAFE=$W
     trap 'chmod -R u+w "$W" 2>/dev/null; rm -rf "$W" "$MARK"' EXIT
   fi
   rm -f "$MARK"
@@ -173,16 +203,18 @@ refusals() {
   expect "left a prefix, a staging folder or ran code" no_trace
   done_case
 
-  begin "the installer refuses to run without root (and without the test flag)"
-  if [ -n "$PRIV" ]; then
-    as_bot /bin/sh "$S" install --prefix "$PREFIX" --package "$PACKAGE" --sha256 "$GOOD" > "$W/out" 2>&1; rc=$?
-  else
-    $ISH "$S" install --prefix "$PREFIX" --package "$PACKAGE" --sha256 "$GOOD" > "$W/out" 2>&1; rc=$?
-  fi
-  expect "rc $rc" [ "$rc" = 1 ]
-  expect "no root message" has "run as root" "$W/out"
-  expect "left a prefix" no_trace
-  done_case
+  if [ -n "$PRIV" ] || [ "$(id -u)" != 0 ]; then
+    begin "the installer refuses to run without root (and without the test flag)"
+    if [ -n "$PRIV" ]; then
+      as_bot /bin/sh "$S" install --prefix "$PREFIX" --package "$PACKAGE" --sha256 "$GOOD" > "$W/out" 2>&1; rc=$?
+    else
+      $ISH "$S" install --prefix "$PREFIX" --package "$PACKAGE" --sha256 "$GOOD" > "$W/out" 2>&1; rc=$?
+    fi
+    expect "rc $rc" [ "$rc" = 1 ]
+    expect "no root message" has "run as root" "$W/out"
+    expect "left a prefix" no_trace
+    done_case
+  else skip "the installer refuses to run without root" "this run is root with no second account: run with Docker"; fi
 
   begin "a prefix in a folder another account can write is refused"
   if [ -n "$PRIV" ]; then bad1=$BHOME/updater; else bad1=$W/open/updater; mkdir -p "$W/open"; chmod 0777 "$W/open"; fi
@@ -203,6 +235,57 @@ refusals() {
   expect "no refusal message" has "no trusted python3" "$W/out"
   expect "left a prefix or ran the fake python" no_trace
   done_case
+
+  for v in writable link; do
+    begin "an interpreter whose library the bot could change ($v encodings/__init__.py) is refused before it runs"
+    fakepy "$v" || { PROBLEMS="; cannot build the fake interpreter"; done_case; continue; }
+    (cd / && env -i "$FP/bin/python3" -I -S -B -c pass) > /dev/null 2>&1
+    if ! has "fake-stdlib $v" "$MARK" 2> /dev/null; then
+      [ "$(uname -s)" = Darwin ] && { skip "fake interpreter ($v)" "a framework python loads its library from the framework"; continue; }
+      PROBLEMS="; control: the planted encodings/__init__.py did not run at start-up"
+    fi
+    rm -f "$MARK"
+    expect "accepted it" fails inst install --prefix "$PREFIX" --package "$PACKAGE" --sha256 "$GOOD" --python "$FP/bin/python3"
+    expect "no refusal message" has "no trusted python3" "$W/out"
+    expect "ran the interpreter before refusing it, or left a prefix" no_trace
+    done_case
+    rm -rf "$MARK" "$PREFIX"  # a failure here must not leak into the later cases
+  done
+
+  begin "an interpreter without its own stdlib beside it (only another version's) is refused before it runs"
+  if fakepy other; then
+    expect "accepted it" fails inst install --prefix "$PREFIX" --package "$PACKAGE" --sha256 "$GOOD" --python "$FP/bin/$PYNAME"
+    expect "no refusal message" has "cannot tell where" "$W/out"
+    expect "left a prefix" no_trace
+  else PROBLEMS="; cannot build the fake interpreter"; fi
+  done_case
+  rm -rf "$MARK" "$PREFIX" "$FP" "$SAFE/fpy-evil.py"
+}
+
+# a copy of this python in $SAFE/fpy with only the start-up part of its library (os.py, encodings/). Python imports
+# encodings while it starts, before any -c code, so a planted encodings/__init__.py runs as whoever runs the binary.
+fakepy() {  # $1 writable: the bot can write encodings/__init__.py; link: it links to a file the bot can write;
+            # other: bin/python3.N beside a clean lib/python3.(N-1) only (Python then takes the stdlib from elsewhere)
+  FP=$SAFE/fpy; rm -rf "$FP" "$SAFE/fpy-evil.py"
+  PYINFO=$(python3 -I -S -c 'import encodings, os, sys; print(os.path.realpath(sys.executable)); print(os.path.dirname(os.path.dirname(encodings.__file__)))') || return 1
+  REALPY=$(printf '%s\n' "$PYINFO" | sed -n 1p) PYLIB=$(printf '%s\n' "$PYINFO" | sed -n 2p)
+  L=$FP/lib/$(basename "$PYLIB")
+  [ -n "$REALPY" ] && [ -d "$PYLIB/encodings" ] || return 1
+  PYNAME=$(basename "$PYLIB")
+  if [ "$1" = other ]; then  # the binary keeps its versioned name; the only stdlib beside it is one version lower
+    L=$FP/lib/python3.$(( ${PYNAME#python3.} - 1 ))
+    mkdir -p "$FP/bin" "$L" && cp "$REALPY" "$FP/bin/$PYNAME" && cp "$PYLIB/os.py" "$L/" && cp -R "$PYLIB/encodings" "$L/" \
+      && find "$FP" -name __pycache__ -exec rm -rf {} + && chmod -R go-w "$FP"
+    return
+  fi
+  mkdir -p "$FP/bin" "$L/lib-dynload" && cp "$REALPY" "$FP/bin/python3" && cp "$PYLIB/os.py" "$L/" \
+    && cp -R "$PYLIB/encodings" "$L/" && find "$FP" -name __pycache__ -exec rm -rf {} + && chmod -R go-w "$FP" || return 1
+  { printf '%s\n' "import os as _o; _f = _o.open('$MARK', _o.O_WRONLY | _o.O_CREAT | _o.O_APPEND, 0o644)" \
+      "_o.write(_f, b'fake-stdlib $1\\n'); _o.close(_f); del _o, _f"  # builtins.open does not exist yet
+    cat "$PYLIB/encodings/__init__.py"; } > "$W/enc" || return 1
+  if [ "$1" = writable ]; then E=$L/encodings/__init__.py; cat "$W/enc" > "$E"
+  else E=$SAFE/fpy-evil.py; cat "$W/enc" > "$E" && rm "$L/encodings/__init__.py" && ln -s "$E" "$L/encodings/__init__.py"; fi
+  chmod 0666 "$E" && { [ -z "$PRIV" ] || chown bot "$E"; }
 }
 
 install_checks() {
@@ -333,6 +416,20 @@ apply_and_maintenance() {
   cp "$W/jcs.py" "$F"
   expect "verify after restore" inst verify --prefix "$PREFIX"
   done_case
+
+  begin "verify follows links: one to a file the bot can write, or to anything outside the install, is refused"
+  D=$(cd -P "$PREFIX/current" && pwd -P)/swarmhub_update
+  mkdir -p "$SAFE/outside" && printf '# planted\n' > "$SAFE/outside/evil.py" && cp "$SAFE/outside/evil.py" "$SAFE/outside/plain.py"
+  chmod 0666 "$SAFE/outside/evil.py"; [ -z "$PRIV" ] || chown bot "$SAFE/outside/evil.py"
+  for target in "$SAFE/outside/evil.py" "$SAFE/outside/plain.py" "$SAFE/outside"; do
+    ln -s "$target" "$D/zz_link.py"
+    expect "verify accepted a link to $target" fails inst verify --prefix "$PREFIX"
+    expect "no link named in the refusal for $target" has zz_link "$W/out"
+    rm -f "$D/zz_link.py"
+  done
+  rm -rf "$SAFE/outside"
+  expect "verify after removing the links" inst verify --prefix "$PREFIX"
+  done_case
 }
 
 finale() {
@@ -363,4 +460,9 @@ inside() {
   [ "$FAILED" = 0 ]
 }
 
-if [ "${1:-}" = --inside ]; then shift; inside "$@"; else host; fi
+IN_CONTAINER=
+case ${1:-} in
+  --inside) shift; inside "$@" ;;
+  --inside-container) shift; IN_CONTAINER=1; inside "$@" ;;
+  *) host ;;
+esac
