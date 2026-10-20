@@ -70,6 +70,11 @@ def saved_receipt(db, task, origin, runtime):
         raise Refusal("state_invalid") from error
 
 
+def prune(db, now):
+    db.execute("DELETE FROM approval_challenges WHERE expires+?<=?", (ds.TTL, now))
+    db.execute("DELETE FROM approval_expired WHERE nonce NOT IN (SELECT nonce FROM approval_challenges)")
+
+
 class DeviceApprovals:
     def __init__(self, origin, wake):
         self.origin = origin
@@ -114,7 +119,8 @@ class DeviceApprovals:
             require(nonce["binding"] == {k: body[k] for k in ds.NONCE_FIELDS}, "nonce_mismatch")
             require(not nonce["used"], "nonce_replayed")
             require(body["issued"] <= now, "nonce_not_yet_valid")
-            require(now < body["expires"], "nonce_expired")
+            # A box clock that steps back below `expires` cannot revive a nonce a read already saw expire.
+            require(now < body["expires"] and not nonce["expired"], "nonce_expired")
             context = {"body": body, "record": record, "decider": decider, "v2": v2, "state": state,
                        "message": hashlib.sha256(ds.message(ds.CONTEXT, body)).hexdigest()}
             return {"verdict": "accept", "reason": "ok"}, context
@@ -162,7 +168,7 @@ class DeviceApprovals:
                                      "fingerprint": context["v2"], "message": context["message"]}}
         db.execute("INSERT INTO approval_receipts VALUES(?,?,?,?)",
                    (record["id"], canonical(binding), int(body["approved"]), canonical(receipt)))
-        db.execute("DELETE FROM approval_challenges WHERE expires+?<=?", (ds.TTL, now))
+        prune(db, now)
         return receipt
 
     # Reads --------------------------------------------------------------------------------------
@@ -200,7 +206,7 @@ class DeviceApprovals:
                     "operation_not_pending")
             # A box clock behind an issued challenge has gone backwards: refuse to issue more.
             require(all(n["binding"]["issued"] <= now for n in state["nonces"].values()), "state_invalid")
-            db.execute("DELETE FROM approval_challenges WHERE expires+?<=?", (ds.TTL, now))
+            prune(db, now)
             mine = db.execute("SELECT count(*) FROM approval_challenges WHERE key_id=? AND used=0 AND expires>?",
                               (body["key_id"], now)).fetchone()[0]
             total = db.execute("SELECT count(*) FROM approval_challenges").fetchone()[0]
@@ -229,8 +235,14 @@ class DeviceApprovals:
             if not found:
                 return {"receipt": None, "status": "gone"}
             record = found[0]
-            require(destination in (policy(db).get(record["gate"]), record["spec"].get("bot")), "profile_mismatch")
-            return {"receipt": None, "status": record["status"]}
+            decider = policy(db).get(record["gate"])
+            require(destination in (decider, record["spec"].get("bot")), "profile_mismatch")
+            binding = {"origin": state["origin"], "runtime": state["runtime"], "profile": decider}
+            # The Mac may clear its attempt on this observed_at, so persist the expiry it sees, under the lock.
+            db.execute("INSERT OR IGNORE INTO approval_expired SELECT nonce FROM approval_challenges"
+                       " WHERE task=? AND used=0 AND expires<=?", (record["id"], now))
+            return {"receipt": None, "status": record["status"], "observed_at": now,
+                    "record": {**record, "decider": decider, "remoteBinding": binding}}
 
     # HTTP boundary ------------------------------------------------------------------------------
 

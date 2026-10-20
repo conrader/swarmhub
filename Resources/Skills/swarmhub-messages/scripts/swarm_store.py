@@ -86,6 +86,7 @@ def database():
           CREATE TABLE IF NOT EXISTS approval_challenges(nonce TEXT PRIMARY KEY, key_id TEXT NOT NULL,
             task TEXT NOT NULL, issued INTEGER NOT NULL, expires INTEGER NOT NULL, used INTEGER NOT NULL,
             binding TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS approval_expired(nonce TEXT PRIMARY KEY);
           CREATE TABLE IF NOT EXISTS webhooks(profile TEXT, routine TEXT, slug TEXT, key_file TEXT,
             created REAL, rotated REAL, fired INTEGER DEFAULT 0, PRIMARY KEY(profile,routine));
         """)

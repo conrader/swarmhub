@@ -51,6 +51,7 @@ struct SettingsAccountPane: View {
                 }
             }
         }
+        DeviceApprovalEnrollmentSection()
         AddAllBotsSection()
         // P42: the messaging skills on every bot, one confirmation.
         AllBotsSkillsSection()

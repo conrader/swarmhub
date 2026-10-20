@@ -98,6 +98,7 @@ import SwarmHubCoordination
     /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
+    let approvalKeys: any DeviceApprovalKeyStore
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     /// P16: turn bookkeeping, the token autosave interval, the connectivity events and the reconcile timing (injectable).
     let turns = TurnBook(); var autosaveInterval: Duration = .seconds(2); var connectivity: (any ConnectivitySource)?
@@ -142,7 +143,7 @@ import SwarmHubCoordination
     /// P42: the pause between reads of a live card's session (tests inject it).
     var botWorkSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
-    init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil, openClawHub: OpenClawHub? = nil) {
+    init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil, openClawHub: OpenClawHub? = nil, approvalKeys: any DeviceApprovalKeyStore = ApprovalKeychainStore()) {
         #if DEBUG
         if UIAcceptanceMode.requested {
             do {
@@ -159,6 +160,7 @@ import SwarmHubCoordination
             storeURL = FileManager.default.temporaryDirectory.appending(path: "AgentAppTests-unguarded-\(UUID().uuidString)/store.json")
         }
         if defaults === UserDefaults.standard, TestRunGuard.refuses("AppStore on UserDefaults.standard") { defaults = TestRunGuard.scratchDefaults("unguarded-\(UUID().uuidString)") }
+        self.approvalKeys = approvalKeys
         self.keyStore = keyStore; self.defaults = defaults; self.hermesSession = hermesSession; self.connectivity = connectivity
         injectedOpenClawHub = openClawHub
         self.backendFactory = backendFactory

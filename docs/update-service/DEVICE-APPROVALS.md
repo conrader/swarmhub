@@ -128,11 +128,39 @@ update host; the device list, mode and nonces are local tables in `~/.hermes/swa
 | --- | --- | --- |
 | `challenge` | signed read request | `{request, challenge, record}`: a fresh nonce binding (all signed fields except `approved`) and the full stored operation |
 | `decide` | the P5a envelope | `{request, receipt}` |
-| `receipt` | signed read request | `{request, receipt}` or `{request, receipt: null, status}`; never authorizes |
+| `receipt` | signed read request | `{request, receipt}` or `{request, receipt: null, status, observed_at, record}`; `record` is omitted when gone; never authorizes |
 
 `request` is SHA-256 of the raw body. Refusals are HTTP 403 `{"error":"control request refused","reason":<code>}`.
 Responses are authenticated by TLS to the operator-configured origin (the client keeps v1's no-redirect rule);
 the box holds no signing key.
+
+Pending receipt reads include the full stored operation, current decider and `remoteBinding`
+(origin/runtime/decider profile). The Mac uses these reads to display pending cards without creating
+nonces. Only a decision asks for a fresh challenge, then checks it against the reviewed operation.
+The Mac persists its exact signed attempt before dispatch. A recognized HTTP 403 box refusal clears
+that attempt and the card's saved choice, allowing another explicit retry or deny. Timeouts, unknown
+results, redirects, invalid receipts and server errors retain the attempt; only receipt reconciliation
+may resolve them. A decision receipt is adopted. A saved attempt can be cleared only when its nonce
+has expired at the fresh receipt read's `observed_at` box timestamp and the validated record still shows
+pending with no decision. The box snapshots this integer Unix time and record under the same transaction
+lock used for decisions; the Mac clock cannot establish expiry. Missing/invalid `observed_at` keeps a
+saved attempt locked (including against older boxes until their skill is updated).
+That reconciliation also clears the card's saved choice and stops, whichever read cleared the attempt
+(a decision retry or a repeated approval notification); the user must review and may approve or deny.
+Before expiry, or if the receipt read fails or is invalid, the attempt stays locked. Nothing
+automatically resends a decision. Read refusals use the normal user-facing rejected error.
+In the same transaction as that read, the box records every unused nonce of the task whose `expires` is at
+or before `observed_at` in `approval_expired`. A decision for a recorded nonce is refused `nonce_expired`
+even if the box clock later steps back below `expires`; the marks are pruned with their challenges.
+A receipt read that answers exactly `{request, receipt: null, status: "gone"}` (no receipt and no stored
+operation, so nothing can commit) clears the saved attempt and the card's choice and shows "The box no
+longer has this operation, so no decision was recorded"; any other shape keeps the attempt.
+
+The Mac fixture stores canonical payload/message bytes, public keys, and signatures. Ed25519 signatures
+from CryptoKit may be randomized: both Swift and Python verify stored signatures instead of comparing
+fresh signatures. On the Mac, run `SWARMHUB_WRITE_DEVICE_FIXTURE=1 swift test --filter DeviceApprovalIdentityTests`,
+then plain `swift test`, then `PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_mac_device_approvals.py -v`.
+The Python check verifies the stored fixture through P5b without regenerating expected signatures.
 
 A **read request** is `{"signed":{...},"signature":...}` signed over ASCII `swarmhub-device-request/2` + LF +
 `JCS(signed)`, with exactly `version` 2, `domain` `swarmhub/device-request/2`, `verb` (`challenge`/`receipt`,

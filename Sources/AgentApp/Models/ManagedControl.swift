@@ -58,6 +58,11 @@ struct ManagedRecord: Codable, Equatable, Sendable {
     struct RemoteReceipt: Codable, Equatable, Sendable {
         let id: String
         let approved: Bool
+        var `protocol`: Int? = nil
+        var device: String? = nil
+        var nonce: String? = nil
+        var fingerprint: String? = nil
+        var message: String? = nil
     }
     var remoteBinding: RemoteBinding? = nil
     var remoteReceipt: RemoteReceipt? = nil
@@ -117,16 +122,20 @@ extension JSONValue: Decodable {
 }
 
 enum ManagedControlError: LocalizedError {
-    case unavailable, invalidRecord, rejected
+    case unavailable, invalidRecord, rejected, attemptExpired, operationGone
     case unsent(String)
+    case refused(String)
     case retired(task: String, origin: String, runtime: String, reason: String)
     var errorDescription: String? {
         switch self {
         case .unsent(let reason): reason
+        case .refused(let reason): "The box refused the decision (\(reason)). You can retry or deny."
         case .retired(_, _, _, let reason): "The runtime retired this approval: \(reason)."
         case .unavailable: "Managed approval requires an authenticated SwarmHub control service at this Hermes connection. The operation remains pending."
         case .invalidRecord: "The runtime record is stale or does not match this approval."
         case .rejected: "The runtime did not confirm the decision. Refresh status before retrying."
+        case .attemptExpired: "The earlier attempt expired without a recorded decision. Review the operation and choose again."
+        case .operationGone: "The box no longer has this operation, so no decision was recorded. Any saved choice on this card was cleared."
         }
     }
 }
