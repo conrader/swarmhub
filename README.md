@@ -27,13 +27,16 @@ Hermes is supported; OpenClaw agents connect through their Gateway (built agains
 
 ## Features
 
-- **Conversations:** streaming chat, threads, group chats with `@mentions`, corrections while an agent answers, images and files, and replies that are never silently lost.
+- **Conversations:** streaming chat, threads, group chats with `@mentions`, images and files; saved reading positions and folded technical rows (0.5.7).
 - **Routines:** recurring tasks, heartbeats and standing goals, with results in the agent's chat.
 - **Your agents:** overview, models per agent, coding agents, agents that manage other agents, and import from Grok Bot.
 - **Approvals:** approve or decline requests, with a policy per agent and reviewer bots.
+- **Connected apps and voice:** fewer prompts for read-only app actions (0.5.8), recognizable account names and clearer live-voice errors (0.5.9).
 - **Hermes and OpenClaw:** Hermes 0.20.5, 0.21.7 and 0.22.0. OpenClaw connects through its Gateway but has not yet been checked against a real Gateway.
 
 In development, not released: managed approvals for agents on this Mac and on remote boxes (the remote service is not deployed yet), a secure key sheet that gives an agent a file path instead of the key, and Draft Send (it records drafts but does not send them yet).
+
+The development Swift code builds and its automated tests pass on a Mac; these native UI flows have not yet been hand-tested. The full feature page covers releases through 0.5.9, though this development branch does not contain the 0.5.7–0.5.9 code changes.
 
 **[All features, with what is released and what is in development →](docs/FEATURES.md)**
 
