@@ -126,9 +126,12 @@ update host; the device list, mode and nonces are local tables in `~/.hermes/swa
 
 | Verb | Body | Result |
 | --- | --- | --- |
-| `challenge` | signed read request | `{request, challenge, record}`: a fresh nonce binding (all signed fields except `approved`) and the full stored operation |
+| `challenge` | signed read request | `{request, challenge, record, mode}`: a fresh nonce binding (all signed fields except `approved`) and the full stored operation |
 | `decide` | the P5a envelope | `{request, receipt}` |
-| `receipt` | signed read request | `{request, receipt}` or `{request, receipt: null, status, observed_at, record}`; `record` is omitted when gone; never authorizes |
+| `receipt` | signed read request | `{request, receipt, mode}` or `{request, receipt: null, status, observed_at, record, mode}`; exactly `{request, receipt: null, status: "gone"}` when gone; never authorizes |
+
+`mode` (skill 1.4.3+) is `"required"` or `"legacy"`, read under the same lock as the rest of the response. It is
+reporting only: the box's checks are unchanged, and the Mac ignores it.
 
 `request` is SHA-256 of the raw body. Refusals are HTTP 403 `{"error":"control request refused","reason":<code>}`.
 Responses are authenticated by TLS to the operator-configured origin (the client keeps v1's no-redirect rule);
@@ -219,6 +222,27 @@ box returns over the signed `receipt` read. Boxes without a confirmed cutover sh
 use `ManagedApprovalFlow.decide`: re-read, adopt any committed receipt, else challenge → sign → decide → receipt; a lost
 acknowledgement keeps the attempt locked until a receipt or box-observed expiry settles it. Native Hermes approvals
 (`MobileStore.resolve`) are unchanged.
+
+**P5d2 (review gaps).** The phone's confirmation is only a local opt-in that lets it send signed reads to a box. What
+it shows and decides follows the mode the box reports (`DeviceApprovalChecks.deviceRequiredOnly`, used only by
+`ManagedApprovalFlow`): every non-gone receipt read and every challenge must say `mode: "required"`, checked before
+anything is adopted, cleared or signed. `legacy`, a missing mode (boxes before skill 1.4.3) or any other value throws
+`notDeviceRequired`; the store then drops every card of that box and hides the managed section until a later read
+reports `required` again. Reported modes are kept in memory only, so after launch every box starts hidden. The refresh
+runs from the Approvals list (`.task`, pull to refresh), so a hidden section is still re-checked. Remaining window: an
+operator switching to legacy after the challenge was issued can still receive that one signed decision, which the box
+accepts in either mode, as before.
+
+A receipt another enrolled device committed (for example the Mac) resolves the phone's card as "Decided on another
+device". It must pass the same structural receipt checks under that device's key ID (`[A-Za-z0-9._-]{1,64}`, not the
+phone's), for this origin, decider profile and task, with the v2 fingerprint of the stored spec. When the phone holds an
+uncertain attempt, the receipt must also match that attempt's origin, runtime, profile, task, gate and fingerprint
+under a different nonce; the attempt is then cleared, because the box keeps one receipt per task and the phone's nonce
+can no longer commit. A receipt that carries the phone's key ID still needs the phone's exact attempt and message. The
+other device's message digest cannot be recomputed by the phone; like every v2 read, the answer is authenticated by
+TLS to the configured origin and the request digest (the box holds no signing key). The Mac keeps `.compatible`: no
+mode requirement and only its own receipts, exactly as in P5c. Tests: `sim/test_device_mode_reads.py` (Linux, real box)
+and `ManagedApprovalModeTests` (Mac).
 
 No shared-key path reaches the iOS target. `scripts/check-ios-approvals.py` runs as the first build phase of the
 generated Xcode project and fails on HMAC/SymmetricKey, the v1 domain, endpoint or header, the Mac v1/local clients,

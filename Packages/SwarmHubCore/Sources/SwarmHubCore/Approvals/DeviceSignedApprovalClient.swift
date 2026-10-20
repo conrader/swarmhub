@@ -11,6 +11,19 @@ public struct DeviceApprovalEnvironment: Sendable {
     public static let standard = DeviceApprovalEnvironment()
 }
 
+/// Extra checks a device-signed-only app (iOS) adds. `.compatible`, the default, is the P5c behaviour the Mac keeps.
+public struct DeviceApprovalChecks: Sendable, Equatable {
+    /// Show, adopt or sign only when the box reports `mode: "required"` in the same read (unknown or legacy fails closed).
+    public var requireDeviceRequiredMode: Bool
+    /// Adopt a valid receipt for this operation that another enrolled device (for example the Mac) committed.
+    public var adoptOtherDeviceReceipts: Bool
+    public init(requireDeviceRequiredMode: Bool, adoptOtherDeviceReceipts: Bool) {
+        self.requireDeviceRequiredMode = requireDeviceRequiredMode; self.adoptOtherDeviceReceipts = adoptOtherDeviceReceipts
+    }
+    public static let compatible = DeviceApprovalChecks(requireDeviceRequiredMode: false, adoptOtherDeviceReceipts: false)
+    public static let deviceRequiredOnly = DeviceApprovalChecks(requireDeviceRequiredMode: true, adoptOtherDeviceReceipts: true)
+}
+
 /// Direct app → box v2 only, shared by Mac and iOS (P5d). TLS authenticates responses; reads and decisions use
 /// separate domains. There is no shared-key path here: no Bearer key, no HMAC, no v1 endpoint.
 public enum DeviceSignedApprovalClient {
@@ -18,7 +31,8 @@ public enum DeviceSignedApprovalClient {
     public static func request(address: String, profile: String, verb: String, task: String, input: Data?,
                                identity: DeviceApprovalIdentity, settings: DeviceApprovalSettings, reviewed: ManagedRecord? = nil,
                                session: URLSession? = nil, timeout: TimeInterval = 15,
-                               environment: DeviceApprovalEnvironment = .standard) async throws -> ManagedRecord {
+                               environment: DeviceApprovalEnvironment = .standard,
+                               checks: DeviceApprovalChecks = .compatible) async throws -> ManagedRecord {
         var dispatched = false
         do {
             let origin = try DeviceApprovalWire.origin(address: address)
@@ -28,13 +42,23 @@ public enum DeviceSignedApprovalClient {
             if verb == "get" {
                 let response = try await read("receipt", origin: origin, profile: profile, task: task,
                                               identity: identity, session: session, timeout: timeout, environment: environment)
+                let gone = response["receipt"] == .null && response["status"] == .string("gone")
+                    && Set(response.keys) == ["request", "receipt", "status"]
+                // Checked before anything is adopted or cleared. The exact gone shape carries no mode and nothing to show.
+                if checks.requireDeviceRequiredMode, !gone { try requireDeviceMode(response) }
                 if let value = response["receipt"], !value.isNull {
                     let record = try decodeRecord(value)
+                    if checks.adoptOtherDeviceReceipts, let device = record.remoteReceipt?.device, device != identity.keyID {
+                        try validateOtherDeviceReceipt(record, device: device, origin: origin, profile: profile, task: task,
+                                                       identity: identity, pending: pending)
+                        // The box keeps one receipt per task, so this device's own attempt can no longer commit.
+                        if let pending { try settings.clearExpiredAttempt(pending, origin: origin, task: task) }
+                        return record
+                    }
                     try validateReceipt(record, origin: origin, profile: profile, task: task, identity: identity, expected: pending)
                     return record
                 }
-                if response["receipt"] == .null, response["status"] == .string("gone"),
-                   Set(response.keys) == ["request", "receipt", "status"] {
+                if gone {
                     // No receipt and no stored operation: no decision can commit for this task any more.
                     if let pending { try settings.clearExpiredAttempt(pending, origin: origin, task: task) }
                     throw ManagedControlError.operationGone
@@ -72,6 +96,8 @@ public enum DeviceSignedApprovalClient {
             // Each decide obtains a new box-owned binding. No nonce or times are constructed locally.
             let response = try await read("challenge", origin: origin, profile: profile, task: task,
                                           identity: identity, session: session, timeout: timeout, environment: environment)
+            // The box reports its mode under the lock that issued this nonce; legacy or unknown signs nothing.
+            if checks.requireDeviceRequiredMode { try requireDeviceMode(response) }
             guard var signed = response["challenge"]?.objectValue, let value = response["record"] else { throw ManagedControlError.invalidRecord }
             var record = try decodeRecord(value)
             try DeviceApprovalWire.validateChallenge(signed, identity: identity, origin: origin, profile: profile, task: task, record: record)
@@ -102,6 +128,9 @@ public enum DeviceSignedApprovalClient {
             try validateReceipt(confirmed, origin: origin, profile: profile, task: task, identity: identity, expected: signed)
             guard confirmed.confirms(approved, original: reviewed) else { throw ManagedControlError.invalidRecord }
             return confirmed
+        } catch ManagedControlError.notDeviceRequired {
+            // Nothing was signed or stored: the box is not device-required, so this app shows and decides nothing there.
+            throw ManagedControlError.notDeviceRequired
         } catch {
             if verb == "decide", !dispatched {
                 // Existing pending metadata means an earlier dispatch was uncertain, even if this call sent nothing.
@@ -136,9 +165,36 @@ public enum DeviceSignedApprovalClient {
 
     public static func validateReceipt(_ record: ManagedRecord, origin: String, profile: String, task: String,
                                        identity: DeviceApprovalIdentity, expected: [String: JSONValue]?) throws {
+        try validateReceipt(record, device: identity.keyID, origin: origin, profile: profile, task: task, identity: identity, expected: expected)
+    }
+
+    /// A receipt committed by another enrolled device for this box, decider profile and task: the full structural check
+    /// with that device's key ID, and, when this device holds an uncertain attempt, the same operation as that attempt
+    /// (runtime, fingerprint, gate) under a different nonce. Its message digest binds the other device's signed bytes,
+    /// which this device never saw, so it is not recomputed; TLS to the operator-configured origin and the request
+    /// digest authenticate the box's answer, as for every v2 read.
+    static func validateOtherDeviceReceipt(_ record: ManagedRecord, device: String, origin: String, profile: String, task: String,
+                                           identity: DeviceApprovalIdentity, pending: [String: JSONValue]?) throws {
+        guard device != identity.keyID, DeviceApprovalWire.matches(device, "[A-Za-z0-9._-]{1,64}") else { throw ManagedControlError.invalidRecord }
+        try validateReceipt(record, device: device, origin: origin, profile: profile, task: task, identity: identity, expected: nil)
+        guard let pending else { return }
+        guard let binding = record.remoteBinding, let receipt = record.remoteReceipt,
+              pending["key_id"] == .string(identity.keyID), pending["origin"] == .string(origin),
+              pending["profile"] == .string(profile), pending["task"] == .string(task),
+              pending["runtime"] == .string(binding.runtime), pending["gate"] == .string(record.gate),
+              pending["fingerprint"] == receipt.fingerprint.map(JSONValue.string),
+              pending["nonce"] != receipt.nonce.map(JSONValue.string) else { throw ManagedControlError.invalidRecord }
+    }
+
+    private static func requireDeviceMode(_ response: [String: JSONValue]) throws {
+        guard response["mode"] == .string("required") else { throw ManagedControlError.notDeviceRequired }
+    }
+
+    static func validateReceipt(_ record: ManagedRecord, device: String, origin: String, profile: String, task: String,
+                                identity: DeviceApprovalIdentity, expected: [String: JSONValue]?) throws {
         guard record.id == task, record.decider == profile, ["owner", "coordinator"].contains(record.gate), let binding = record.remoteBinding,
               binding.origin == origin, binding.profile == profile, DeviceApprovalWire.matches(binding.runtime, "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"),
-              let receipt = record.remoteReceipt, receipt.`protocol` == 2, receipt.device == identity.keyID,
+              let receipt = record.remoteReceipt, receipt.`protocol` == 2, receipt.device == device,
               let nonce = receipt.nonce, DeviceApprovalWire.matches(nonce, "[a-f0-9]{64}"),
               let message = receipt.message, DeviceApprovalWire.matches(message, "[a-f0-9]{64}"),
               receipt.fingerprint == (try DeviceApprovalWire.digest(DeviceApprovalWire.canonical(.object(record.spec.fields)))),

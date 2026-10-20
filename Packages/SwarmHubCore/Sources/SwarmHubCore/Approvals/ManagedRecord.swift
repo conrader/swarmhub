@@ -101,6 +101,8 @@ public struct ManagedRecord: Codable, Equatable, Sendable {
 
 public enum ManagedControlError: LocalizedError {
     case unavailable, invalidRecord, rejected, attemptExpired, operationGone
+    /// The box did not report device-required mode (legacy or unknown). Device-signed-only apps show and decide nothing.
+    case notDeviceRequired
     case unsent(String)
     case refused(String)
     case retired(task: String, origin: String, runtime: String, reason: String)
@@ -114,6 +116,7 @@ public enum ManagedControlError: LocalizedError {
         case .rejected: "The runtime did not confirm the decision. Refresh status before retrying."
         case .attemptExpired: "The earlier attempt expired without a recorded decision. Review the operation and choose again."
         case .operationGone: "The box no longer has this operation, so no decision was recorded. Any saved choice on this card was cleared."
+        case .notDeviceRequired: "This box is not in device-required mode, so its managed approvals are hidden on this device and nothing was sent."
         }
     }
 }

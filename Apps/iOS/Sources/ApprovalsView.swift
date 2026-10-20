@@ -3,6 +3,7 @@ import SwarmHubCore
 
 struct ApprovalsView: View {
     @Environment(MobileStore.self) private var store
+    @Environment(ManagedApprovalStore.self) private var managed
     var body: some View {
         NavigationStack {
             List {
@@ -22,8 +23,12 @@ struct ApprovalsView: View {
                 // Device-signed managed approvals; renders nothing unless a connected box is device-required.
                 ManagedApprovalsSection()
             }.navigationTitle("Approvals")
+            // Asks opted-in boxes for their mode and pending operations even while the managed section is hidden.
+            .task(id: managed.routingRevision) { await refreshManaged() }
+            .refreshable { await refreshManaged() }
         }
     }
+    private func refreshManaged() async { await managed.refresh(profiles: store.profiles, caches: store.caches, demo: store.demo) }
 }
 
 struct ApprovalDetailView: View {

@@ -1,8 +1,9 @@
 import SwiftUI
 import SwarmHubCore
 
-/// Managed approvals on device-required boxes only. Renders nothing at all when no connected box qualifies,
-/// so legacy boxes never show a managed card or a way to decide one from this phone.
+/// Managed approvals on device-required boxes only. Renders nothing at all unless a connected, opted-in box reported
+/// device-required mode on its latest read, so legacy (or unknown) boxes never show a managed card or a way to decide
+/// one from this phone. The refresh that asks the boxes runs from ApprovalsView, so it also runs while this is hidden.
 struct ManagedApprovalsSection: View {
     @Environment(MobileStore.self) private var store
     @Environment(ManagedApprovalStore.self) private var managed
@@ -22,7 +23,6 @@ struct ManagedApprovalsSection: View {
             } header: { Text("Managed operations") } footer: {
                 Text("Signed with this phone’s approval key and sent directly to the box. Only boxes switched to device-required mode appear here.")
             }
-            .task { await refresh() }
         }
     }
     private func refresh() async { await managed.refresh(profiles: store.profiles, caches: store.caches, demo: store.demo) }

@@ -13,7 +13,7 @@ SKILLS = ROOT / 'Resources/Skills'
 TESTS = ROOT / 'Tests/AgentAppTests'
 # skill -> (version installed before this change, bundled now, the Swift test that pins it)
 BUMPS = {'swarmhub-coding': ('1.3.11', '1.3.12', 'CodingSkillTests.swift'),  # darwinkill3
-         'swarmhub-messages': ('1.4.1', '1.4.2', 'BotMessageSkillTests.swift')}  # P5c4
+         'swarmhub-messages': ('1.4.2', '1.4.3', 'BotMessageSkillTests.swift')}  # P5d2
 
 
 def semver(text):

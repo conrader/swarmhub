@@ -2,8 +2,8 @@ import Foundation
 import Observation
 import SwarmHubCore
 
-/// Device-signed managed approvals (P5d). Only boxes whose device-required cutover was confirmed on this phone get
-/// cards; every other box shows none. Decisions are Ed25519-signed with this phone's own approval key, never with the
+/// Device-signed managed approvals (P5d). Boxes whose cutover was confirmed on this phone are asked; a box shows cards
+/// only while its latest read reported device-required mode (unknown or legacy: hidden, nothing can be decided). Decisions are Ed25519-signed with this phone's own approval key, never with the
 /// Hermes key. Native Hermes approvals stay in MobileStore, unchanged.
 @MainActor @Observable
 final class ManagedApprovalStore {
@@ -25,6 +25,8 @@ final class ManagedApprovalStore {
     var notice: String?
     /// Bumped on a confirmed cutover, so views that read device-required routing (stored in UserDefaults) update.
     private(set) var routingRevision = 0
+    /// Origins whose most recent read or challenge reported `mode: "required"`. In memory only: unknown after launch.
+    private(set) var reportedRequired: Set<String> = []
     @ObservationIgnored let settings: DeviceApprovalSettings
     @ObservationIgnored private let keys: any DeviceApprovalKeyStore
     @ObservationIgnored private let session: URLSession?
@@ -33,9 +35,10 @@ final class ManagedApprovalStore {
         settings = DeviceApprovalSettings(defaults: defaults); self.keys = keys; self.session = session
     }
 
+    /// Opted-in origins whose box currently reports device-required mode. Only these render a managed section.
     func requiredOrigins(_ profiles: [AgentProfile]) -> [String] {
         _ = routingRevision
-        return ManagedApprovalScope.requiredOrigins(profiles, settings: settings)
+        return ManagedApprovalScope.requiredOrigins(profiles, settings: settings).filter(reportedRequired.contains)
     }
 
     func identity(origin: String) throws -> DeviceApprovalIdentity {
@@ -64,9 +67,11 @@ final class ManagedApprovalStore {
         let id = target.origin + " " + target.task
         let shown = cards.contains { $0.id == id }
         do {
-            let record = try await ManagedApprovalFlow.load(target, identity: identity(origin: target.origin), settings: settings, session: session)
+            let identity = try identity(origin: target.origin)
+            let record = try await ManagedApprovalFlow.load(target, identity: identity, settings: settings, session: session)
+            reportedRequired.insert(target.origin)
             if record.remoteReceipt != nil || !record.awaiting {
-                if shown { notice = receiptNotice(record, approved: nil) }
+                if shown { notice = receiptNotice(record, approved: nil, identity: identity) }
                 cards.removeAll { $0.id == id }
             } else if let index = cards.firstIndex(where: { $0.id == id }) {
                 // A refresh never replaces a reviewed record with a different operation.
@@ -86,10 +91,11 @@ final class ManagedApprovalStore {
         }
         deciding.insert(card.id); defer { deciding.remove(card.id) }
         do {
+            let identity = try identity(origin: card.target.origin)
             let receipt = try await ManagedApprovalFlow.decide(card.target, reviewed: reviewed, approved: approved,
-                                                               identity: identity(origin: card.target.origin), settings: settings, session: session)
+                                                               identity: identity, settings: settings, session: session)
             cards.removeAll { $0.id == card.id }
-            notice = receiptNotice(receipt, approved: approved)
+            notice = receiptNotice(receipt, approved: approved, identity: identity)
         } catch {
             fail(card.target, error, shown: true)
         }
@@ -100,19 +106,29 @@ final class ManagedApprovalStore {
         let message = error.localizedDescription
         if let control = error as? ManagedControlError {
             switch control {
+            case .notDeviceRequired:
+                // The box is legacy (or did not say): hide every card of that box; nothing was signed or sent.
+                reportedRequired.remove(target.origin)
+                cards.removeAll { $0.target.origin == target.origin }
+                return
             case .operationGone:
                 if shown { notice = message }
                 cards.removeAll { $0.id == id }
                 return
             case .attemptExpired, .refused, .unsent:
+                // Both are thrown only after the box reported device-required mode in that same exchange.
+                if case .attemptExpired = control { reportedRequired.insert(target.origin) }
+                if case .refused = control { reportedRequired.insert(target.origin) }
                 // Nothing was recorded. A reviewed card stays and the user chooses again; any other card
                 // (for example one restored from a saved attempt) asks for a fresh status check first.
                 if let index = cards.firstIndex(where: { $0.id == id }), case .pending = cards[index].state { notice = message }
-                else { upsert(target, .failed(message)) }
+                else if reportedRequired.contains(target.origin) { upsert(target, .failed(message)) }
                 return
             default: break
             }
         }
+        // A box not reported device-required shows nothing, not even an unconfirmed card.
+        guard reportedRequired.contains(target.origin) else { cards.removeAll { $0.id == id }; return }
         if settings.hasAttempt(origin: target.origin, task: target.task) {
             upsert(target, .awaitingReceipt(approved: attemptChoice(target)))
         } else if shown {
@@ -132,9 +148,10 @@ final class ManagedApprovalStore {
         (try? settings.attempt(origin: target.origin, task: target.task))?["approved"]?.boolValue
     }
 
-    private func receiptNotice(_ record: ManagedRecord, approved: Bool?) -> String {
+    private func receiptNotice(_ record: ManagedRecord, approved: Bool?, identity: DeviceApprovalIdentity) -> String {
         guard let recorded = record.remoteReceipt?.approved else { return "This operation is no longer pending on the box." }
         let text = recorded ? "The box recorded the approval." : "The box recorded the denial."
+        if ManagedApprovalFlow.decidedElsewhere(record, identity: identity) { return "Decided on another device. " + text }
         return approved == nil || approved == recorded ? text : "The box had already recorded another decision. " + text
     }
 }

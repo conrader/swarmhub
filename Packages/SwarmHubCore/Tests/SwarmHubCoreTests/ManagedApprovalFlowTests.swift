@@ -5,6 +5,8 @@ import Testing
 
 /// An in-process stand-in for a device-required P5b box, one unique host per test. It verifies both signature
 /// domains with the enrolled public key and refuses anything carrying a shared-key header. No sockets.
+/// Like the box (skill 1.4.3), receipt reads other than `gone` and challenges report `mode`; a missing entry in
+/// `modes` stands for an older box that reports none.
 final class DeviceBoxProtocol: URLProtocol, @unchecked Sendable {
     final class Box: @unchecked Sendable {
         let origin: String
@@ -15,7 +17,10 @@ final class DeviceBoxProtocol: URLProtocol, @unchecked Sendable {
         var committed: ManagedRecord?
         var refuseDecision: String?
         var loseAcknowledgement = false
+        /// A lost acknowledgement for a decision the box did not commit (for example another device won the race).
+        var dropDecision = false
         var gone = false
+        var modes: [String: String] = ["receipt": "required", "challenge": "required"]
         init(origin: String, identity: DeviceApprovalIdentity) throws {
             self.origin = origin; keyID = identity.keyID
             publicKey = try Curve25519.Signing.PublicKey(rawRepresentation: DeviceApprovalFixtures.hex(identity.publicKey))
@@ -78,16 +83,16 @@ final class DeviceBoxProtocol: URLProtocol, @unchecked Sendable {
         let encode = { (record: ManagedRecord) in (try? DeviceApprovalJSON.parse(JSONEncoder().encode(record))) ?? .null }
         switch verb {
         case "receipt":
-            if let committed = box.committed { response["receipt"] = encode(committed) }
+            if let committed = box.committed { response["receipt"] = encode(committed); response["mode"] = box.modes["receipt"].map(JSONValue.string) }
             else if box.gone { response["receipt"] = .null; response["status"] = .string("gone") }
             else {
-                response["receipt"] = .null; response["status"] = .string("awaiting-owner")
+                response["receipt"] = .null; response["status"] = .string("awaiting-owner"); response["mode"] = box.modes["receipt"].map(JSONValue.string)
                 response["observed_at"] = .int(Int64(Date().timeIntervalSince1970)); response["record"] = encode(Self.operation(box.origin))
             }
         case "challenge":
             let record = Self.operation(box.origin, binding: false)
             let issued = Int64(Date().timeIntervalSince1970)
-            response["record"] = encode(record)
+            response["record"] = encode(record); response["mode"] = box.modes["challenge"].map(JSONValue.string)
             response["challenge"] = .object([
                 "version": .int(2), "domain": .string(DeviceApprovalWire.domain), "key_id": .string(box.keyID), "origin": .string(box.origin),
                 "runtime": .string(Self.runtime), "profile": .string("owner"), "task": .string(Self.task), "gate": .string("owner"),
@@ -96,6 +101,7 @@ final class DeviceBoxProtocol: URLProtocol, @unchecked Sendable {
         case "decide":
             guard box.committed == nil else { return refused("operation_not_pending") }
             if let reason = box.refuseDecision { box.refuseDecision = nil; return refused(reason) }
+            if box.dropDecision { return (503, Data(#"{"error":"TEST lost acknowledgement"}"#.utf8)) }
             let approved = signed["approved"]?.boolValue ?? false
             let base = Self.operation(box.origin)
             box.committed = ManagedRecord(id: base.id, fingerprint: base.fingerprint, gate: base.gate, status: approved ? "queued" : "denied",
@@ -108,6 +114,18 @@ final class DeviceBoxProtocol: URLProtocol, @unchecked Sendable {
         default: return refused("schema_invalid")
         }
         return (200, (try? JSONEncoder().encode(JSONValue.object(response))) ?? Data())
+    }
+
+    /// A receipt as the box stores it when another enrolled device (for example the Mac) decided this operation.
+    static func receipt(_ origin: String, approved: Bool, device: String, nonce: String = String(repeating: "2", count: 64),
+                        fingerprint: String? = nil, bindingOrigin: String? = nil) -> ManagedRecord {
+        let base = operation(origin)
+        let digest = (try? DeviceApprovalWire.digest(DeviceApprovalWire.canonical(.object(base.spec.fields)))) ?? ""
+        return ManagedRecord(id: base.id, fingerprint: base.fingerprint, gate: base.gate, status: approved ? "queued" : "denied",
+            decider: "owner", spec: base.spec, decided_by: "owner", decided_at: 1020,
+            remoteBinding: .init(origin: bindingOrigin ?? origin, runtime: runtime, profile: "owner"),
+            remoteReceipt: .init(id: "11111111-2222-3333-4444-555555555555", approved: approved, `protocol`: 2, device: device,
+                                 nonce: nonce, fingerprint: fingerprint ?? digest, message: String(repeating: "c", count: 64)))
     }
 }
 

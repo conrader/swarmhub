@@ -32,6 +32,15 @@ def v1_allowed(db):
         return False
 
 
+def mode(state):
+    """The box's device-approval mode, read under the same lock as the response it is reported in.
+
+    Device-signed-only apps (iOS) show and decide managed approvals only while this says "required". The exact
+    `gone` receipt shape stays unchanged: it carries nothing to show or decide.
+    """
+    return "required" if state["device_required"] else "legacy"
+
+
 def operation(db, task):
     """The stored action with its parsed spec, or None; a spec that fails either digest is state_invalid."""
     row = db.execute("SELECT * FROM actions WHERE id=?", (task,)).fetchone()
@@ -219,7 +228,7 @@ class DeviceApprovals:
                        "issued": now, "expires": now + ds.TTL}
             db.execute("INSERT INTO approval_challenges VALUES(?,?,?,?,?,0,?)",
                        (nonce, body["key_id"], record["id"], now, now + ds.TTL, ds.jcs.canonical(binding).decode()))
-        return {"challenge": binding, "record": {**record, "decider": decider}}
+        return {"challenge": binding, "record": {**record, "decider": decider}, "mode": mode(state)}
 
     def receipt(self, destination, raw):
         """Idempotent read of the committed receipt; it never authorizes anything."""
@@ -230,7 +239,7 @@ class DeviceApprovals:
             saved = saved_receipt(db, body["task"], state["origin"], state["runtime"])
             if saved:
                 require(destination in (saved["decider"], saved["spec"].get("bot")), "profile_mismatch")
-                return {"receipt": saved}
+                return {"receipt": saved, "mode": mode(state)}
             found = operation(db, body["task"])
             if not found:
                 return {"receipt": None, "status": "gone"}
@@ -241,7 +250,7 @@ class DeviceApprovals:
             # The Mac may clear its attempt on this observed_at, so persist the expiry it sees, under the lock.
             db.execute("INSERT OR IGNORE INTO approval_expired SELECT nonce FROM approval_challenges"
                        " WHERE task=? AND used=0 AND expires<=?", (record["id"], now))
-            return {"receipt": None, "status": record["status"], "observed_at": now,
+            return {"receipt": None, "status": record["status"], "observed_at": now, "mode": mode(state),
                     "record": {**record, "decider": decider, "remoteBinding": binding}}
 
     # HTTP boundary ------------------------------------------------------------------------------

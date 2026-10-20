@@ -63,9 +63,10 @@ public struct ManagedApprovalTarget: Hashable, Sendable {
     }
 }
 
-/// Which managed approvals a device-signed-only app (iOS) may show. Only boxes whose operator cutover to
-/// device-required mode was confirmed on this device qualify; every other box shows none, and nothing
-/// here falls back to a shared-key or native path.
+/// Which boxes a device-signed-only app (iOS) may ask about managed approvals. A box qualifies as a candidate only
+/// after the user confirmed its operator cutover on this device (a local opt-in, so unenrolled boxes get no signed
+/// reads); what is shown and decided then follows the mode the box itself reports on every read
+/// (`ManagedApprovalFlow`, `DeviceApprovalChecks.deviceRequiredOnly`). Nothing here falls back to a shared-key or native path.
 public enum ManagedApprovalScope {
     /// Notices are read from the newest assistant messages only.
     public static let messageLimit = 50
@@ -74,7 +75,7 @@ public enum ManagedApprovalScope {
         try? DeviceApprovalWire.origin(address: address.baseURL.absoluteString)
     }
 
-    /// Device-required origins of the given profiles, sorted and unique.
+    /// Origins of the given profiles opted in on this device (candidates, not proof of the box's mode), sorted and unique.
     public static func requiredOrigins(_ profiles: [AgentProfile], settings: DeviceApprovalSettings) -> [String] {
         Array(Set(profiles.compactMap { Self.origin(of: $0.address) }.filter(settings.isRequired))).sorted()
     }
@@ -109,13 +110,22 @@ public enum ManagedApprovalScope {
 }
 
 /// The device-signed decision sequence for apps without a native card store (iOS). Every step re-reads the box:
-/// a committed receipt is adopted, never re-sent; an uncertain earlier attempt blocks a new one.
+/// a committed receipt is adopted, never re-sent; an uncertain earlier attempt blocks a new one. Every read and the
+/// challenge must report `mode: "required"` (else `ManagedControlError.notDeviceRequired`, nothing signed), and a
+/// valid receipt another enrolled device committed for the same operation resolves the card (`decidedElsewhere`).
 public enum ManagedApprovalFlow {
     /// Pending record for display, or the committed receipt. Never creates a nonce.
     public static func load(_ target: ManagedApprovalTarget, identity: DeviceApprovalIdentity, settings: DeviceApprovalSettings,
                             session: URLSession? = nil, timeout: TimeInterval = 15) async throws -> ManagedRecord {
         try await DeviceSignedApprovalClient.request(address: target.address, profile: target.profile, verb: "get", task: target.task,
-                                                     input: nil, identity: identity, settings: settings, session: session, timeout: timeout)
+                                                     input: nil, identity: identity, settings: settings, session: session, timeout: timeout,
+                                                     checks: .deviceRequiredOnly)
+    }
+
+    /// True for a receipt whose decision was signed by a different device than `identity` (for example the Mac).
+    public static func decidedElsewhere(_ record: ManagedRecord, identity: DeviceApprovalIdentity) -> Bool {
+        guard let device = record.remoteReceipt?.device else { return false }
+        return device != identity.keyID
     }
 
     /// Returns the box's receipt. Its `remoteReceipt.approved` may differ from `approved` when the box had already
@@ -127,13 +137,17 @@ public enum ManagedApprovalFlow {
             throw ManagedControlError.invalidRecord
         }
         let current = try await load(target, identity: identity, settings: settings, session: session, timeout: timeout)
-        if current.remoteReceipt != nil { return current }
+        if current.remoteReceipt != nil {
+            guard current.sameOperation(as: reviewed) else { throw ManagedControlError.invalidRecord }
+            return current
+        }
         guard current.sameOperation(as: reviewed), current.awaiting else { throw ManagedControlError.invalidRecord }
         let input = try DeviceApprovalWire.canonical(.object([
             "approved": .bool(approved), "fingerprint": .string(reviewed.fingerprint), "gate": .string(reviewed.gate),
             "binding": .object(["origin": .string(binding.origin), "runtime": .string(binding.runtime), "profile": .string(binding.profile)])]))
         let confirmed = try await DeviceSignedApprovalClient.request(address: target.address, profile: target.profile, verb: "decide",
-            task: target.task, input: input, identity: identity, settings: settings, reviewed: reviewed, session: session, timeout: timeout)
+            task: target.task, input: input, identity: identity, settings: settings, reviewed: reviewed, session: session, timeout: timeout,
+            checks: .deviceRequiredOnly)
         guard confirmed.confirms(approved, original: reviewed) else { throw ManagedControlError.rejected }
         return confirmed
     }

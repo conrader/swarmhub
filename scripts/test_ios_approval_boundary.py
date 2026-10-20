@@ -161,6 +161,43 @@ class MoveTests(unittest.TestCase):
             if path.name != 'ManagedApprovalStore.swift':
                 self.assertNotIn('confirmOperatorCutover', text, path.name)  # one place routes a box to device-required
 
+    def test_ios_visibility_follows_the_mode_the_box_reports(self):
+        """P5d2: a sticky phone setting only opts a box in; legacy or unknown box mode hides and blocks everything."""
+        client = (CORE / 'DeviceSignedApprovalClient.swift').read_text()
+        self.assertIn('checks: DeviceApprovalChecks = .compatible', client)  # Mac default: P5c behaviour
+        self.assertIn('guard response["mode"] == .string("required") else { throw ManagedControlError.notDeviceRequired }', client)
+        read = client.index('let response = try await read("receipt"')
+        self.assertLess(client.index('if checks.requireDeviceRequiredMode, !gone { try requireDeviceMode(response) }', read),
+                        client.index('let record = try decodeRecord(value)', read), 'mode is checked before adopting')
+        challenge = client.index('let response = try await read("challenge"')
+        self.assertLess(client.index('if checks.requireDeviceRequiredMode { try requireDeviceMode(response) }', challenge),
+                        client.index('try settings.remember(signed', challenge), 'mode is checked before signing')
+        flow = (CORE / 'ManagedApprovalScope.swift').read_text()
+        self.assertEqual(flow.count('checks: .deviceRequiredOnly'), 2)
+        store = (IOS / 'ManagedApprovalStore.swift').read_text()
+        self.assertIn('.filter(reportedRequired.contains)', store)
+        self.assertIn('case .notDeviceRequired:', store)
+        self.assertIn('cards.removeAll { $0.target.origin == target.origin }', store)
+        self.assertIn('guard reportedRequired.contains(target.origin) else', store)
+        self.assertIn('if case .attemptExpired = control { reportedRequired.insert(target.origin) }', store)
+        for path in MAC.rglob('*.swift'):
+            self.assertNotIn('deviceRequiredOnly', path.read_text(), path)  # Mac behaviour unchanged
+
+    def test_receipts_from_another_enrolled_device_resolve_the_card(self):
+        client = (CORE / 'DeviceSignedApprovalClient.swift').read_text()
+        self.assertIn('if checks.adoptOtherDeviceReceipts, let device = record.remoteReceipt?.device, device != identity.keyID {',
+                      client)
+        self.assertIn('receipt.device == device', client)
+        self.assertNotIn('receipt.device == identity.keyID', client)
+        self.assertIn('try validateReceipt(record, device: identity.keyID,', client)  # public Mac entry unchanged
+        other = client[client.index('static func validateOtherDeviceReceipt'):client.index('private static func requireDeviceMode')]
+        for check in ('device != identity.keyID', 'expected: nil', 'pending["fingerprint"] == receipt.fingerprint',
+                      'pending["runtime"] == .string(binding.runtime)', 'pending["nonce"] != receipt.nonce'):
+            self.assertIn(check, other)
+        store = (IOS / 'ManagedApprovalStore.swift').read_text()
+        self.assertIn('"Decided on another device. "', store)
+        self.assertIn('ManagedApprovalFlow.decidedElsewhere(record, identity: identity)', store)
+
     def test_native_hermes_approval_path_is_unchanged(self):
         base = subprocess.run(['git', '-C', str(ROOT), 'show', 'b3a5617:Apps/iOS/Sources/MobileStore.swift'],
                               capture_output=True, text=True)
@@ -174,8 +211,14 @@ class MoveTests(unittest.TestCase):
         self.assertEqual(new[new.index('struct ApprovalDetailView'):], detail)
         added = [l for l in new.splitlines() if l not in old.splitlines()]
         self.assertEqual([l.strip() for l in added], [
+            '@Environment(ManagedApprovalStore.self) private var managed',
             '// Device-signed managed approvals; renders nothing unless a connected box is device-required.',
-            'ManagedApprovalsSection()'])
+            'ManagedApprovalsSection()',
+            '// Asks opted-in boxes for their mode and pending operations even while the managed section is hidden.',
+            '.task(id: managed.routingRevision) { await refreshManaged() }',
+            '.refreshable { await refreshManaged() }',
+            'private func refreshManaged() async { await managed.refresh(profiles: store.profiles, caches: store.caches, '
+            'demo: store.demo) }'])
 
     def test_sources_stay_within_500_lines(self):
         for folder in [CORE, IOS, MAC / 'Approvals', MAC / 'Models', MAC / 'GrokExport/Local']:
