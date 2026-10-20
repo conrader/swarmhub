@@ -68,6 +68,12 @@ else
   cp -R Resources/AppIcon/ThemeIcons "$BUILD_DIR/AgentApp.resources/ThemeIcons"
   cp Resources/AppIcon/SwarmHub-dark.icns "$BUILD_DIR/AgentApp.resources/AppIcon-dark.icns"
 fi
+# P2c: the signed baseline bundle and the box updater's bootstrap package (+ SHA-256) in AgentApp.resources, checked.
+# Debug signs a TEST baseline here; release takes SWARMHUB_BASELINE_DIR (real keys, P1b) and fails on any TEST key.
+BASELINE_ARGS=(--configuration "$BUILD_CONFIGURATION" --out "$BUILD_DIR/AgentApp.resources")
+[[ -z "${SWARMHUB_BASELINE_DIR:-}" ]] || BASELINE_ARGS+=(--baseline-dir "$SWARMHUB_BASELINE_DIR")
+[[ "$BUILD_CONFIGURATION" != release || "${SWARMHUB_RELEASE_WITHOUT_BASELINE:-}" != 1 ]] || BASELINE_ARGS+=(--without-baseline)
+python3 -B "$ROOT_DIR/scripts/release/baseline.py" embed "${BASELINE_ARGS[@]}"
 # Bare executable launches need the dynamic framework beside the binary too.
 if [[ "$SPARKLE_FRAMEWORK" != "$BUILD_DIR/Sparkle.framework" ]]; then
   rm -rf "$BUILD_DIR/Sparkle.framework"

@@ -4,6 +4,7 @@ import SwarmHubCore
 
 @MainActor @Observable
 final class MobileStore {
+    let appContent = AppContent.resolve(target: .ios)
     var profiles: [AgentProfile] = []
     var caches: [String: ChatCache] = [:]
     var capabilities: [String: ServerCapabilities] = [:]

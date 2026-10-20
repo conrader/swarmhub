@@ -4,9 +4,11 @@ import AppKit
 import UserNotifications
 import SwarmHubCore
 import SwarmHubCoordination
+import SwarmHubCore
 
 
 @MainActor final class AppStore: ObservableObject {
+    let appContent = AppContent.resolve(target: .mac)
     #if DEBUG
     var uiAcceptance: UIAcceptanceBackend?
     var qaEventRecorder: ((UUID, AgentEvent) -> Void)?

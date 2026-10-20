@@ -84,6 +84,7 @@ struct SettingsAboutPane: View {
                 Text("When enabled, updates are checked daily. You can install an available update now or let it install when you quit.").font(.caption).foregroundStyle(.secondary)
             }
         }
+        BootstrapExportSection()
         AcknowledgementsSection()
     }
 }

@@ -40,6 +40,10 @@ cp -R "$ROOT_DIR/Resources/Avatars" "$APP_DIR/Contents/Resources/Avatars"
 cp -R "$ROOT_DIR/Resources/BotManager" "$APP_DIR/Contents/Resources/BotManager"
 # P27: the skills SwarmHub installs into bots' own profiles.
 cp -R "$ROOT_DIR/Resources/Skills" "$APP_DIR/Contents/Resources/Skills"
+# P2c: the signed baseline bundle and the box updater's bootstrap package with its SHA-256 (made by build.sh).
+for PART in Baseline Bootstrap; do
+  [[ ! -d "$BUILD_DIR/AgentApp.resources/$PART" ]] || cp -R "$BUILD_DIR/AgentApp.resources/$PART" "$APP_DIR/Contents/Resources/$PART"
+done
 # P23: the Swarm app icon (CFBundleIconFile/CFBundleIconName = AppIcon in Info.plist).
 /usr/bin/iconutil -c icns "$ROOT_DIR/Resources/AppIcon/AppIcon.iconset" -o "$APP_DIR/Contents/Resources/AppIcon.icns"
 # P38: the light and dark Dock icons AppIconAppearance picks at run time (the icns stays the light Finder fallback).
@@ -94,6 +98,11 @@ TEAM_ID="$(/usr/bin/codesign -dv "$APP_DIR/Contents/MacOS/AgentApp" 2>&1 | awk -
 echo "signing_team=${TEAM_ID:-adhoc}" >> "$APP_DIR/Contents/Resources/SOURCE.txt"
 /usr/bin/codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT_DIR/Resources/SwarmHub.entitlements" --identifier com.konrad.agentapp "$APP_DIR"
 /usr/bin/codesign --verify --deep --strict "$APP_DIR"
+# P2c: check the signed bundle itself: the baseline verifies, the digest matches the package, release has no TEST key.
+PACKAGE_CONFIGURATION="${SWARMHUB_BUILD_CONFIGURATION:-release}"
+CHECK_ARGS=(--configuration "$PACKAGE_CONFIGURATION")
+[[ "$PACKAGE_CONFIGURATION" != release || "${SWARMHUB_RELEASE_WITHOUT_BASELINE:-}" != 1 ]] || CHECK_ARGS+=(--without-baseline)
+python3 -B "$ROOT_DIR/scripts/release/check_baseline.py" "${CHECK_ARGS[@]}" "$APP_DIR/Contents/Resources"
 if [[ ! -s "$APP_DIR/Contents/Resources/AppIcon.icns" ]]; then
   echo "ERROR: $APP_DIR lacks Contents/Resources/AppIcon.icns." >&2
   exit 1
