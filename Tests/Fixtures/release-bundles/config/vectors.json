@@ -1,0 +1,1223 @@
+{
+  "bundle": {
+    "apply": [
+      "app-config"
+    ],
+    "description": "Fetched and verified like any bundle (TEST keys); only the app-targeted component is read.",
+    "id": "signed-bundle-12",
+    "inputs": {
+      "blobs": "config/blobs/sha256",
+      "channel": "stable",
+      "consumer": {
+        "platform": "ios",
+        "versions": {
+          "app": "0.6.2",
+          "config_schema": "2",
+          "ui_catalog": "1.3"
+        }
+      },
+      "floors": {
+        "bundle_version": 10,
+        "index_seq": 4,
+        "keys_version": 1
+      },
+      "index": "config/channels/stable.json",
+      "install_id": "TEST-install-0001",
+      "keys": "keys/keys-2.json",
+      "manifest": "config/bundles/12.json",
+      "now": "2026-10-20T12:00:00Z",
+      "pins": "keys/pins.json"
+    },
+    "reads": [
+      {
+        "default": "claude,codex,hermes",
+        "domain": "policy",
+        "expect": "codex,claude,hermes",
+        "key": "codingOrder",
+        "type": "string"
+      },
+      {
+        "default": 2,
+        "domain": "policy",
+        "expect": 3,
+        "key": "coding_job_limit",
+        "max": 8,
+        "min": 1,
+        "type": "integer"
+      },
+      {
+        "default": [],
+        "domain": "policy",
+        "expect": [],
+        "key": "approvers",
+        "type": "string_list"
+      },
+      {
+        "default": "Welcome",
+        "domain": "copy",
+        "expect": "TEST bundle 12",
+        "key": "onboardingTitle",
+        "type": "string"
+      },
+      {
+        "default": false,
+        "domain": "flags",
+        "expect": true,
+        "key": "routineCards",
+        "type": "bool"
+      }
+    ],
+    "reports": [
+      {
+        "component": "app-config",
+        "domain": "policy",
+        "key": "approvers",
+        "reason": "denied_key"
+      }
+    ],
+    "views": [
+      {
+        "killed": true,
+        "type": "routine_card"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "components": [],
+      "description": "No config component: every read is its compiled default, nothing is reported.",
+      "id": "no-bundle",
+      "reads": [
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "claude,codex,hermes",
+          "key": "codingOrder",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": false,
+          "key": "routineCards",
+          "type": "bool"
+        },
+        {
+          "default": "Welcome",
+          "domain": "copy",
+          "expect": "Welcome",
+          "key": "onboardingTitle",
+          "type": "string"
+        }
+      ],
+      "reports": [],
+      "views": [
+        {
+          "killed": false,
+          "type": "routine_card"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/full--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Valid documents in all four domains; nested and non-document files are ignored.",
+      "id": "full",
+      "reads": [
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "codex,claude,hermes",
+          "key": "codingOrder",
+          "type": "string"
+        },
+        {
+          "default": 2,
+          "domain": "policy",
+          "expect": 3,
+          "key": "coding_job_limit",
+          "max": 8,
+          "min": 1,
+          "type": "integer"
+        },
+        {
+          "default": [
+            "assign"
+          ],
+          "domain": "policy",
+          "expect": [
+            "assign",
+            "reportResult"
+          ],
+          "key": "teamActions",
+          "type": "string_list"
+        },
+        {
+          "default": {},
+          "domain": "policy",
+          "expect": {
+            "manager": "TEST-model"
+          },
+          "key": "modelDefaults",
+          "type": "string_map"
+        },
+        {
+          "default": {
+            "tasks": 12
+          },
+          "domain": "policy",
+          "expect": {
+            "reviewRounds": 3,
+            "tasks": 20
+          },
+          "key": "teamLimits",
+          "max": 1000,
+          "min": 0,
+          "type": "integer_map"
+        },
+        {
+          "default": false,
+          "domain": "policy",
+          "expect": true,
+          "key": "autoRoutines",
+          "type": "bool"
+        },
+        {
+          "default": "compiled",
+          "domain": "prompts",
+          "expect": "TEST manager prompt\nLine 2",
+          "key": "managerTemplate",
+          "type": "string"
+        },
+        {
+          "default": "Welcome",
+          "domain": "copy",
+          "expect": "Welcome to Swarm Hub (TEST)",
+          "key": "onboardingTitle",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "domain": "copy",
+          "expect": "See https://example.test/help",
+          "key": "helpLink",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": true,
+          "key": "routineCards",
+          "type": "bool"
+        },
+        {
+          "default": true,
+          "domain": "flags",
+          "expect": false,
+          "key": "draftSendPreview",
+          "type": "bool"
+        }
+      ],
+      "reports": [],
+      "views": [
+        {
+          "killed": false,
+          "type": "routine_card"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/missing-key--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "A document without the key, and a domain without a document: compiled defaults, no report.",
+      "id": "missing-key",
+      "reads": [
+        {
+          "default": 2,
+          "domain": "policy",
+          "expect": 2,
+          "key": "coding_job_limit",
+          "type": "integer"
+        },
+        {
+          "default": "Welcome",
+          "domain": "copy",
+          "expect": "Welcome",
+          "key": "onboardingTitle",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": false,
+          "key": "routineCards",
+          "type": "bool"
+        }
+      ],
+      "reports": [],
+      "views": []
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/wrong-type--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Values of another type: domain rules at decode, key types (and ranges) at read, each reported.",
+      "id": "wrong-type",
+      "reads": [
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "claude,codex,hermes",
+          "key": "codingOrder",
+          "report": "wrong_type",
+          "type": "string"
+        },
+        {
+          "default": 0,
+          "domain": "policy",
+          "expect": 7,
+          "key": "codingOrder",
+          "type": "integer"
+        },
+        {
+          "default": 2,
+          "domain": "policy",
+          "expect": 2,
+          "key": "coding_job_limit",
+          "report": "wrong_type",
+          "type": "integer"
+        },
+        {
+          "default": 1,
+          "domain": "policy",
+          "expect": 1,
+          "key": "maxParallel",
+          "max": 8,
+          "min": 1,
+          "report": "out_of_range",
+          "type": "integer"
+        },
+        {
+          "default": [
+            "assign"
+          ],
+          "domain": "policy",
+          "expect": [
+            "assign"
+          ],
+          "key": "teamActions",
+          "report": "wrong_type",
+          "type": "string_list"
+        },
+        {
+          "default": {},
+          "domain": "policy",
+          "expect": {},
+          "key": "modelDefaults",
+          "report": "wrong_type",
+          "type": "string_map"
+        },
+        {
+          "default": {
+            "tasks": 12
+          },
+          "domain": "policy",
+          "expect": {
+            "tasks": 12
+          },
+          "key": "teamLimits",
+          "max": 1000,
+          "min": 0,
+          "report": "wrong_type",
+          "type": "integer_map"
+        },
+        {
+          "default": {
+            "rounds": 2
+          },
+          "domain": "policy",
+          "expect": {
+            "rounds": 2
+          },
+          "key": "reviewLimits",
+          "max": 1000,
+          "min": 0,
+          "report": "out_of_range",
+          "type": "integer_map"
+        },
+        {
+          "default": false,
+          "domain": "policy",
+          "expect": false,
+          "key": "autoRoutines",
+          "report": "wrong_type",
+          "type": "bool"
+        },
+        {
+          "default": "compiled",
+          "domain": "prompts",
+          "expect": "compiled",
+          "key": "managerTemplate",
+          "type": "string"
+        },
+        {
+          "default": "Welcome",
+          "domain": "copy",
+          "expect": "Welcome",
+          "key": "onboardingTitle",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": false,
+          "key": "routineCards",
+          "type": "bool"
+        }
+      ],
+      "reports": [
+        {
+          "component": "app-config",
+          "domain": "prompts",
+          "key": "managerTemplate",
+          "reason": "wrong_type"
+        },
+        {
+          "component": "app-config",
+          "domain": "copy",
+          "key": "onboardingTitle",
+          "reason": "wrong_type"
+        },
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "key": "routineCards",
+          "reason": "wrong_type"
+        }
+      ],
+      "views": []
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/schema-invalid--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Missing or wrong `schema`, or not an object: the whole document falls back.",
+      "id": "schema-invalid",
+      "reads": [
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "claude,codex,hermes",
+          "key": "codingOrder",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": false,
+          "key": "routineCards",
+          "type": "bool"
+        },
+        {
+          "default": "Welcome",
+          "domain": "copy",
+          "expect": "Welcome",
+          "key": "onboardingTitle",
+          "type": "string"
+        }
+      ],
+      "reports": [
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "reason": "schema_invalid"
+        },
+        {
+          "component": "app-config",
+          "domain": "prompts",
+          "reason": "schema_invalid"
+        },
+        {
+          "component": "app-config",
+          "domain": "copy",
+          "reason": "schema_invalid"
+        },
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "reason": "schema_invalid"
+        }
+      ],
+      "views": []
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/config-invalid--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Not profile JSON (float, null, duplicate member, trailing bytes): the document falls back.",
+      "id": "config-invalid",
+      "reads": [
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "claude,codex,hermes",
+          "key": "codingOrder",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": false,
+          "key": "routineCards",
+          "type": "bool"
+        },
+        {
+          "default": "Welcome",
+          "domain": "copy",
+          "expect": "Welcome",
+          "key": "onboardingTitle",
+          "type": "string"
+        }
+      ],
+      "reports": [
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "reason": "config_invalid"
+        },
+        {
+          "component": "app-config",
+          "domain": "prompts",
+          "reason": "config_invalid"
+        },
+        {
+          "component": "app-config",
+          "domain": "copy",
+          "reason": "config_invalid"
+        },
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "reason": "config_invalid"
+        }
+      ],
+      "views": []
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/size-limit--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "A document of exactly 262144 bytes is read; one byte more falls back.",
+      "id": "size-limit",
+      "reads": [
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "claude,codex,hermes",
+          "key": "codingOrder",
+          "type": "string"
+        },
+        {
+          "default": "Welcome",
+          "domain": "copy",
+          "expect": "TEST at limit",
+          "key": "onboardingTitle",
+          "type": "string"
+        }
+      ],
+      "reports": [
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "reason": "config_too_large"
+        }
+      ],
+      "views": []
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/duplicate-document--config-a.tar",
+          "name": "config-a"
+        },
+        {
+          "archive": "config/archives/duplicate-document--config-b.tar",
+          "name": "config-b"
+        }
+      ],
+      "description": "Two components carry policy.json: neither wins; their other documents still count.",
+      "id": "duplicate-document",
+      "reads": [
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "claude,codex,hermes",
+          "key": "codingOrder",
+          "type": "string"
+        },
+        {
+          "default": "Welcome",
+          "domain": "copy",
+          "expect": "TEST a",
+          "key": "onboardingTitle",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": true,
+          "key": "routineCards",
+          "type": "bool"
+        }
+      ],
+      "reports": [
+        {
+          "component": "config-a",
+          "domain": "policy",
+          "reason": "duplicate_document"
+        },
+        {
+          "component": "config-b",
+          "domain": "policy",
+          "reason": "duplicate_document"
+        }
+      ],
+      "views": []
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/kill-switch--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "kill.<domain>.<key> and kill.view.<type>: true selects the compiled fallback, false does nothing.",
+      "id": "kill-switch",
+      "reads": [
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "claude,codex,hermes",
+          "key": "codingOrder",
+          "report": "killed",
+          "type": "string"
+        },
+        {
+          "default": 2,
+          "domain": "policy",
+          "expect": 3,
+          "key": "coding_job_limit",
+          "type": "integer"
+        },
+        {
+          "default": "Welcome",
+          "domain": "copy",
+          "expect": "TEST title",
+          "key": "onboardingTitle",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "domain": "copy",
+          "expect": "TEST sub",
+          "key": "onboardingSubtitle",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": false,
+          "key": "routineCards",
+          "report": "killed",
+          "type": "bool"
+        },
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": false,
+          "key": "kill.view.routine_card",
+          "type": "bool"
+        },
+        {
+          "default": "compiled",
+          "domain": "prompts",
+          "expect": "compiled",
+          "key": "managerTemplate",
+          "report": "killed",
+          "type": "string"
+        }
+      ],
+      "reports": [],
+      "views": [
+        {
+          "killed": true,
+          "type": "routine_card"
+        },
+        {
+          "killed": false,
+          "type": "settings_pane"
+        },
+        {
+          "killed": false,
+          "type": "onboarding"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/kill-invalid--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Kill flags with an unknown scope, an empty or kill.* target, or a non-boolean are refused.",
+      "id": "kill-invalid",
+      "reads": [
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": true,
+          "key": "killer",
+          "type": "bool"
+        }
+      ],
+      "reports": [
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "key": "kill.bogus.x",
+          "reason": "invalid_kill"
+        },
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "key": "kill.policy.",
+          "reason": "invalid_kill"
+        },
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "key": "kill.policy.kill.view.routine_card",
+          "reason": "invalid_kill"
+        },
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "key": "kill.view",
+          "reason": "invalid_kill"
+        },
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "key": "kill.view.routine_card",
+          "reason": "wrong_type"
+        }
+      ],
+      "views": [
+        {
+          "killed": false,
+          "type": "routine_card"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/denylist-keys--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "CORE-PLAN §4: names about approvals, approvers, gates, keys, secrets, devices or endpoints are refused in every domain, nested names included; look-alikes such as delegate or keyboard are not.",
+      "id": "denylist-keys",
+      "reads": [
+        {
+          "default": [],
+          "domain": "policy",
+          "expect": [],
+          "key": "approvers",
+          "type": "string_list"
+        },
+        {
+          "default": {
+            "tasks": 12
+          },
+          "domain": "policy",
+          "expect": {
+            "tasks": 12
+          },
+          "key": "teamLimits",
+          "type": "integer_map"
+        },
+        {
+          "default": 1,
+          "domain": "policy",
+          "expect": 3,
+          "key": "delegateLimit",
+          "type": "integer"
+        },
+        {
+          "default": "",
+          "domain": "policy",
+          "expect": "TEST",
+          "key": "keyboardLayout",
+          "type": "string"
+        },
+        {
+          "default": 1,
+          "domain": "policy",
+          "expect": 5,
+          "key": "aggregateWindow",
+          "type": "integer"
+        },
+        {
+          "default": "compiled",
+          "domain": "prompts",
+          "expect": "compiled",
+          "key": "approvalPrompt",
+          "type": "string"
+        },
+        {
+          "default": "compiled",
+          "domain": "prompts",
+          "expect": "TEST template",
+          "key": "managerTemplate",
+          "type": "string"
+        },
+        {
+          "default": "Review",
+          "domain": "copy",
+          "expect": "Review",
+          "key": "operationReviewTitle",
+          "type": "string"
+        },
+        {
+          "default": "Sign in",
+          "domain": "copy",
+          "expect": "TEST sign in",
+          "key": "signInButton",
+          "type": "string"
+        },
+        {
+          "default": true,
+          "domain": "flags",
+          "expect": true,
+          "key": "managedApprovals",
+          "type": "bool"
+        },
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": true,
+          "key": "routineCards",
+          "type": "bool"
+        }
+      ],
+      "reports": [
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "apiKey",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "approvalKeys",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "approvers",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "authToken",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "codingGate",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "deviceRequired",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "gate_class",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "gatewayURL",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "operation-review",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "pins",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "remoteHost",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "requireConfirmation",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "secretStore",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "signingKey",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "teamLimits",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "prompts",
+          "key": "approvalPrompt",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "prompts",
+          "key": "secretEntryHelp",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "copy",
+          "key": "deviceEnrollTitle",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "copy",
+          "key": "operationReviewTitle",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "key": "deviceSigning",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "key": "kill.view.operation_review",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "key": "kill.view.secret_entry",
+          "reason": "denied_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "flags",
+          "key": "managedApprovals",
+          "reason": "denied_key"
+        }
+      ],
+      "views": [
+        {
+          "killed": false,
+          "type": "operation_review"
+        },
+        {
+          "killed": false,
+          "type": "secret_entry"
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/denylist-values--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Policy strings that look like endpoints or name approvals and secrets are refused; copy and prompts are display text and may contain them.",
+      "id": "denylist-values",
+      "reads": [
+        {
+          "default": "",
+          "domain": "policy",
+          "expect": "",
+          "key": "helpBase",
+          "type": "string"
+        },
+        {
+          "default": [
+            "assign"
+          ],
+          "domain": "policy",
+          "expect": [
+            "assign"
+          ],
+          "key": "teamActions",
+          "type": "string_list"
+        },
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "codex,claude,hermes",
+          "key": "codingOrder",
+          "type": "string"
+        },
+        {
+          "default": "compiled",
+          "domain": "prompts",
+          "expect": "Ask before you approve anything.",
+          "key": "managerTemplate",
+          "type": "string"
+        },
+        {
+          "default": "",
+          "domain": "copy",
+          "expect": "https://example.test/help",
+          "key": "helpLink",
+          "type": "string"
+        }
+      ],
+      "reports": [
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "controlPath",
+          "reason": "denied_value"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "helpBase",
+          "reason": "denied_value"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "modelDefaults",
+          "reason": "denied_value"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "teamActions",
+          "reason": "denied_value"
+        }
+      ],
+      "views": []
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/invalid-key--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Names outside [A-Za-z0-9._-]{1,128}, at the top level or nested, are refused.",
+      "id": "invalid-key",
+      "reads": [
+        {
+          "default": 0,
+          "domain": "policy",
+          "expect": 4,
+          "key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+          "type": "integer"
+        },
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "hermes",
+          "key": "codingOrder",
+          "type": "string"
+        }
+      ],
+      "reports": [
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "",
+          "reason": "invalid_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "bad key",
+          "reason": "invalid_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+          "reason": "invalid_key"
+        },
+        {
+          "component": "app-config",
+          "domain": "policy",
+          "key": "teamLimits",
+          "reason": "invalid_key"
+        }
+      ],
+      "views": []
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/archive-problems--malformed.tar",
+          "name": "malformed"
+        },
+        {
+          "archive": "config/archives/archive-problems--code.tar",
+          "name": "code"
+        },
+        {
+          "archive": "config/archives/archive-problems--linked.tar",
+          "name": "linked"
+        },
+        {
+          "name": "unreadable",
+          "unreadable": true
+        },
+        {
+          "archive": "config/archives/archive-problems--good.tar",
+          "name": "good"
+        }
+      ],
+      "description": "A malformed, code-bearing, linked or unreadable component is refused as a whole; the others still count.",
+      "id": "archive-problems",
+      "reads": [
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "claude,codex,hermes",
+          "key": "codingOrder",
+          "type": "string"
+        },
+        {
+          "default": "Welcome",
+          "domain": "copy",
+          "expect": "TEST good",
+          "key": "onboardingTitle",
+          "type": "string"
+        }
+      ],
+      "reports": [
+        {
+          "component": "malformed",
+          "reason": "archive_malformed"
+        },
+        {
+          "component": "code",
+          "reason": "component_not_data"
+        },
+        {
+          "component": "linked",
+          "reason": "archive_link"
+        },
+        {
+          "component": "unreadable",
+          "reason": "component_unreadable"
+        }
+      ],
+      "views": []
+    },
+    {
+      "components": [
+        {
+          "archive": "config/archives/not-documents--app-config.tar",
+          "name": "app-config"
+        }
+      ],
+      "description": "Only regular files named <domain>.json at the archive root are documents.",
+      "id": "not-documents",
+      "reads": [
+        {
+          "default": "claude,codex,hermes",
+          "domain": "policy",
+          "expect": "claude,codex,hermes",
+          "key": "codingOrder",
+          "type": "string"
+        },
+        {
+          "default": false,
+          "domain": "flags",
+          "expect": false,
+          "key": "routineCards",
+          "type": "bool"
+        },
+        {
+          "default": "Welcome",
+          "domain": "copy",
+          "expect": "Welcome",
+          "key": "onboardingTitle",
+          "type": "string"
+        },
+        {
+          "default": "compiled",
+          "domain": "prompts",
+          "expect": "compiled",
+          "key": "managerTemplate",
+          "type": "string"
+        }
+      ],
+      "reports": [],
+      "views": []
+    }
+  ],
+  "note": "Generated by scripts/release/make_config_vectors.py. TEST keys only. See docs/update-service/SCHEMAS.md §12.",
+  "schema": "swarmhub/config-vectors/1"
+}

@@ -104,6 +104,8 @@ public struct UpdateStore: Sendable {
     var afterSwitch: (@Sendable () -> Void)? = nil
     /// Test seam: runs before each state write. A throw is a failed write; nothing is written.
     var beforeStateWrite: (@Sendable (UpdateState) throws -> Void)? = nil
+    /// Test seam: runs after pinning the record, before each component's single byte read.
+    var beforeComponentRead: (@Sendable (String) throws -> Void)? = nil
 
     public init(root: URL) { self.root = root }
 
@@ -135,20 +137,39 @@ public struct UpdateStore: Sendable {
     // MARK: Reading
 
     public func record(_ slot: Slot = .current) -> UpdateRecord? {
+        (try? pinnedBundle(slot))?.record
+    }
+
+    /// Resolve the slot once, then read its record once. All subsequent reads use this directory and
+    /// record, even if the slot switches. Collection/corruption fails reads; it never retargets them.
+    func pinnedBundle(_ slot: Slot = .current) throws -> PinnedBundle? {
         guard let id = target(slot.rawValue) else { return nil }
-        let url = versions.appendingPathComponent(id).appendingPathComponent("record.json")
-        return (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(UpdateRecord.self, from: $0) }
+        let directory = versions.appendingPathComponent(id, isDirectory: true)
+        do {
+            let record = try JSONDecoder().decode(UpdateRecord.self, from: Data(contentsOf: directory.appendingPathComponent("record.json")))
+            return PinnedBundle(record: record, directory: directory, beforeComponentRead: beforeComponentRead)
+        } catch { throw UpdateStoreError.storage }
+    }
+
+    struct PinnedBundle: Sendable {
+        let record: UpdateRecord
+        let directory: URL
+        let beforeComponentRead: (@Sendable (String) throws -> Void)?
+
+        func component(_ name: String) -> Data? {
+            guard matches(name, updateName), let entry = record.components.first(where: { $0.name == name }) else { return nil }
+            do { try beforeComponentRead?(name) } catch { return nil }
+            let url = directory.appendingPathComponent("components").appendingPathComponent(name)
+            guard let data = try? Data(contentsOf: url), Int64(data.count) == entry.size,
+                  updateDigest(data) == entry.sha256 else { return nil }
+            return data
+        }
     }
 
     /// The stored archive bytes, only when they still match the record's size and SHA-256. Opaque data:
     /// interpreting config or UI documents is the caller's compiled code (P6a, P7a).
     public func component(_ name: String, in slot: Slot = .current) -> Data? {
-        guard matches(name, updateName), let id = target(slot.rawValue), let record = record(slot),
-              let entry = record.components.first(where: { $0.name == name }) else { return nil }
-        let url = versions.appendingPathComponent(id).appendingPathComponent("components").appendingPathComponent(name)
-        guard let data = try? Data(contentsOf: url), Int64(data.count) == entry.size,
-              updateDigest(data) == entry.sha256 else { return nil }
-        return data
+        (try? pinnedBundle(slot))?.component(name)
     }
 
     // MARK: Switching
