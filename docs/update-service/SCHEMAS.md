@@ -137,3 +137,72 @@ python3 scripts/test_release_vectors.py            # byte-identical regeneration
 ```
 
 The generator is stdlib-only (pure-Python Ed25519 in `scripts/release/ed25519_ref.py`, for TEST keys only, cross-checked against `cryptography` and RFC 8032 when that package is installed).
+
+## 13. View documents (`swarmhub/ui/1`, P7a)
+
+What a `ui` component means to the apps: server-driven UI catalogue v1 (plan §5.1, §5.3, §5.4). (§12, app config documents, is on the P6a branch.) Implemented by `SDUIDecoder` in `Packages/SwarmHubCore/Sources/SwarmHubCore/SDUI/`; the Python statement is `scripts/release/ui_reference.py`. A view document is data read by compiled code: a closed catalogue of components, typed predicates and a closed enum of existing local commands. There are no expressions, loops, scripts, HTML or network calls, and no document can describe or reach `operation_review`, `secret_entry` or any other approval or secret surface. Renderers (P7b/P7c) are not part of this section.
+
+**Outcome.** The app asks for a view type (`routine_result_card`, …) and gets exactly one of: `render` (the whole decoded document), `fallback` (the compiled view it ships today) or `update_required` (a compiled "update required" screen). Never part of a document. The first failing check decides:
+
+| Order | Check → reason |
+| --- | --- |
+| 1 | kill switch `kill.view.<view>` (P6a flags, passed in as `isViewKilled`) → `killed` |
+| 2 | size above `max_document_bytes` → `too_large` |
+| 3 | profile JSON (§2: no floats, `null`, duplicates; depth ≤ 32) → `invalid_json` |
+| 4 | document and node checks below → their reason; if the parsed top-level object has `"critical": true`, the verdict is `update_required` instead of `fallback` |
+| 5 | kill switch on any component type the document uses → `killed` |
+
+A kill switch always selects the compiled view, never `update_required`. A document that does not parse cannot ask for `update_required`.
+
+**Document.** `{"schema":"swarmhub/ui/1","view":<name>,"critical"?:bool,"root":<node>}`, no other members. `schema` not a string → `schema_invalid`, another schema → `unsupported_schema`; members → `schema_invalid`; `view` matches `[a-z][a-z0-9_]{0,63}` (`schema_invalid`), does not name a denied surface (`denied_route`) and equals the requested view (`view_mismatch`).
+
+**Nodes**, depth-first in document order. Each node: an object (`schema_invalid`); depth (root = 1) ≤ `max_depth` (`too_deep`); running node count ≤ `max_nodes` (`too_many_nodes`); `type` a string (`schema_invalid`), not a denied surface (`denied_route`), in the catalogue (`unknown_component`); members exactly as listed, unknown ones refused (`schema_invalid`). Common optional members: `id` (`[a-z][a-z0-9_]{0,63}`) and `visible_if` (predicate). Then the members in this order:
+
+| Type | Members (`?` optional) |
+| --- | --- |
+| `text` | `text`, `style?` `plain`/`markdown`, `role?` `body`/`title`/`headline`/`caption`/`footnote`/`monospace` |
+| `badge` | `text`, `tone?` `neutral`/`info`/`success`/`warning`/`danger` |
+| `key_value` | `items`: non-empty array of `{key, value}` texts |
+| `list` | `children`: non-empty array of nodes, `style?` `plain`/`bulleted`/`numbered` |
+| `card` | `title?`, `subtitle?`, `children` (may be empty) |
+| `form` | `id`, `title?`, `fields` (non-empty), `submit` `{label, action}` |
+| `button` | `label`, `action`, `style?` `primary`/`secondary`/`destructive` |
+| `flow` | `id`, `steps`: non-empty array of `{id, title, children}`, step ids unique; flows do not nest |
+| `progress` | `total?` (1–1000000, default 100), `value?` (0–`total`, or a binding), `label?` |
+| `diff_preview` | `text`, `title?`, `max_lines?` (1–2000) |
+
+Every array (`children`, `items`, `fields`, `options`, `steps`) holds at most `max_children` entries (`too_many_children`), checked before its entries.
+
+**Texts** are a literal string or `{"bind": <path>}`. A literal is at most `max_string_bytes` UTF-8 bytes (`string_too_long`) and has no control character other than tab and LF (`invalid_text`). Strings are shown as text, never markup. `text` with style `markdown` and a literal is the inline markdown subset only: no `](`, `![` or `<` followed by a letter, `/`, `!` or `?` (`markup_not_allowed`); links reach the user only through `open_url`.
+
+**Bindings** name local data the app already holds; they are paths, not expressions. Path `[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,5}` whose first segment is `app`, `box`, `form`, `profile`, `record`, `result` or `routine` (else `invalid_binding`). A segment is `denied_binding` when, with `_` removed, it contains `approv secret token password passphrase credential keychain apikey privatekey signingkey hmac nonce signature authent authoriz cookie session`, or one of its `_` words is `auth key keys pin pins device devices gate gates otp`. A malformed `{"bind"}` object is `schema_invalid`.
+
+**Predicates** (`visible_if`) are one of `{"exists":{"bind":p}}`, `{"missing":{"bind":p}}`, `{"equals":{"bind":p,"value":<string|integer|boolean>}}`. Any other shape, operator or literal type → `invalid_predicate`; the path follows the binding rules.
+
+**Actions** `{"command":<c>, "confirm"?:bool, <argument>}`. `command` a string (`schema_invalid`), not a denied surface (`denied_route`), in the enum (`unknown_action`); members exactly `command`, optional `confirm` and the command's one argument (`schema_invalid`); `routine.create` and `routine.save` only and always as a form `submit`, `flow_next` and `flow_back` only inside a flow step (`action_context`).
+
+| Command | Argument |
+| --- | --- |
+| `dismiss`, `refresh`, `flow_next`, `flow_back`, `routine.create` | none |
+| `copy_text` | `text` (a text) |
+| `open_url` | `url`: at most 2048 bytes, `https://<host>[/path][?query]` with host `[a-z0-9-]+(\.[a-z0-9-]+)+` (no port, userinfo or fragment), host exactly in the app's compiled allowlist (empty by default) → else `url_not_allowed` |
+| `navigate` | `screen`: not a denied surface (`denied_route`), one of `routines`, `chat`, `boxes`, `skills`, `settings`, `updates` (`unknown_action`) |
+| `routine.open`, `routine.run_now`, `routine.pause`, `routine.resume`, `routine.save` | `routine`: a `{"bind"}` object |
+
+`open_url` always requires a user confirmation; `confirm: false` cannot turn it off (`SDUIAction.requiresConfirmation`). `confirm: true` asks for one on any command.
+
+**Form fields** `{id, kind, label, required?, placeholder?, options?, max_length?, types?, value?, visible_if?}`. `id` matches the name pattern (`schema_invalid`), follows the binding segment denylist (`denied_binding`) and is unique in the form; `kind` not a denied surface (`denied_route`), one of `text`, `multiline`, `choice`, `toggle`, `date`, `schedule`, `file_pick` (`unknown_component`). `placeholder` and `max_length` (1–`max_string_bytes`) only on `text`/`multiline`, `options` (required) only on `choice` as `{value [A-Za-z0-9._-]{1,64} unique, label}`, `types` (1–16 unique `[a-z0-9]+(\.[a-z0-9-]+)+` type identifiers) only on `file_pick`; `value` is a `{"bind"}` object.
+
+**Denied surfaces.** A view, component type, command, screen or field kind is `denied_route` when, lowercased (ASCII) with `.`, `_` and `-` removed, it contains `operationreview secretentry approv secret keychain credential enroll password passphrase token apikey privatekey signingkey hmac nonce`.
+
+**Limits** (vectors carry them in `inputs.limits`): `max_document_bytes` 65536, `max_depth` 12, `max_nodes` 256, `max_children` 64, `max_string_bytes` 4096.
+
+**Target rules.** SwarmHubCore contains no `JavaScriptCore`, `JSContext`, `WebKit`, `dlopen`/`dlsym`, `NSClassFromString`/`NSSelectorFromString`, `NSExpression`/`NSPredicate`, `#selector`, `Bundle(path:)` or other dynamic loading entry points (checked by `SDUIDecoderTests` and `scripts/test_swift_ui_vectors.py`).
+
+**Vectors.** `Tests/Fixtures/release-bundles/ui/vectors.json` (`swarmhub/ui-vectors/1`): every reason above, each case with `inputs` (`document` under `ui/documents/`, raw non-JSON inputs as `.bytes`; `view`, `killed`, `url_hosts`, `limits`) and `expect` (`verdict`, `reason`). `ui/fuzz.json` (`swarmhub/ui-fuzz/1`) is the shared deterministic fuzz: seed, iteration count and the reference verdict of each mutated golden (`scripts/release/ui_fuzz.py`, ported line by line in `SDUIFuzzTests.swift`).
+
+```
+python3 scripts/release/make_ui_vectors.py            # rewrite ui/ only
+python3 scripts/release/make_ui_vectors.py --check    # byte-identical regeneration
+python3 scripts/test_swift_ui_vectors.py              # reference vs every case, fuzz replay, Swift source parity
+```

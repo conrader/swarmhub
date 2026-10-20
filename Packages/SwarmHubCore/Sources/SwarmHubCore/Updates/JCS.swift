@@ -157,8 +157,9 @@ public enum JCS {
                 let byte = bytes[offset]
                 offset += 1
                 if byte == 34 {
-                    guard let text = String(bytes: output, encoding: .utf8) else { throw Invalid.json }
-                    return text
+                    // Validate only: Foundation's decoder may drop a leading U+FEFF, which is a character here.
+                    guard String(bytes: output, encoding: .utf8) != nil else { throw Invalid.json }
+                    return String(decoding: output, as: UTF8.self)
                 }
                 guard byte >= 32 else { throw Invalid.json }
                 if byte != 92 { output.append(byte); continue }

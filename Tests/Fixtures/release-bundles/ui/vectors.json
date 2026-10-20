@@ -1,0 +1,1543 @@
+{
+  "cases": [
+    {
+      "description": "valid routine result card: bindings, predicates, every display component, local actions",
+      "expect": {
+        "verdict": "render"
+      },
+      "id": "routine-card",
+      "inputs": {
+        "document": "documents/routine-card.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "valid routine form with all seven field kinds and a routine.save submit",
+      "expect": {
+        "verdict": "render"
+      },
+      "id": "routine-form",
+      "inputs": {
+        "document": "documents/routine-form.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_form"
+      }
+    },
+    {
+      "description": "valid three-step flow with flow_next/flow_back and navigate",
+      "expect": {
+        "verdict": "render"
+      },
+      "id": "connect-flow",
+      "inputs": {
+        "document": "documents/connect-flow.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "connect_box_flow"
+      }
+    },
+    {
+      "description": "a valid critical document renders normally",
+      "expect": {
+        "verdict": "render"
+      },
+      "id": "critical-valid",
+      "inputs": {
+        "document": "documents/critical-valid.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "settings_pane"
+      }
+    },
+    {
+      "description": "open_url with confirm:false decodes; the URL still requires confirmation",
+      "expect": {
+        "verdict": "render"
+      },
+      "id": "url-confirm-false",
+      "inputs": {
+        "document": "documents/url-confirm-false.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "help_card"
+      }
+    },
+    {
+      "description": "nesting exactly max_depth (12) is accepted",
+      "expect": {
+        "verdict": "render"
+      },
+      "id": "depth-at-limit",
+      "inputs": {
+        "document": "documents/depth-at-limit.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "deep_card"
+      }
+    },
+    {
+      "description": "exactly max_children (64) children are accepted",
+      "expect": {
+        "verdict": "render"
+      },
+      "id": "children-at-limit",
+      "inputs": {
+        "document": "documents/children-at-limit.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "wide_card"
+      }
+    },
+    {
+      "description": "not JSON",
+      "expect": {
+        "reason": "invalid_json",
+        "verdict": "fallback"
+      },
+      "id": "trailing-comma",
+      "inputs": {
+        "document": "documents/trailing-comma.bytes",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "x"
+      }
+    },
+    {
+      "description": "floating-point number (profile §2)",
+      "expect": {
+        "reason": "invalid_json",
+        "verdict": "fallback"
+      },
+      "id": "float",
+      "inputs": {
+        "document": "documents/float.bytes",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "p"
+      }
+    },
+    {
+      "description": "null is not in the profile",
+      "expect": {
+        "reason": "invalid_json",
+        "verdict": "fallback"
+      },
+      "id": "null",
+      "inputs": {
+        "document": "documents/null.bytes",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "p"
+      }
+    },
+    {
+      "description": "duplicate member names",
+      "expect": {
+        "reason": "invalid_json",
+        "verdict": "fallback"
+      },
+      "id": "duplicate-member",
+      "inputs": {
+        "document": "documents/duplicate-member.bytes",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "p"
+      }
+    },
+    {
+      "description": "critical cannot be read from a document that does not parse",
+      "expect": {
+        "reason": "invalid_json",
+        "verdict": "fallback"
+      },
+      "id": "critical-unparseable",
+      "inputs": {
+        "document": "documents/critical-unparseable.bytes",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "p"
+      }
+    },
+    {
+      "description": "document above max_document_bytes (lowered to 512 for this case)",
+      "expect": {
+        "reason": "too_large",
+        "verdict": "fallback"
+      },
+      "id": "too-large",
+      "inputs": {
+        "document": "documents/too-large.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 512,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "nesting max_depth + 1",
+      "expect": {
+        "reason": "too_deep",
+        "verdict": "fallback"
+      },
+      "id": "too-deep",
+      "inputs": {
+        "document": "documents/too-deep.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "deep_card"
+      }
+    },
+    {
+      "description": "more than max_nodes nodes",
+      "expect": {
+        "reason": "too_many_nodes",
+        "verdict": "fallback"
+      },
+      "id": "too-many-nodes",
+      "inputs": {
+        "document": "documents/too-many-nodes.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "big_card"
+      }
+    },
+    {
+      "description": "max_children + 1 children",
+      "expect": {
+        "reason": "too_many_children",
+        "verdict": "fallback"
+      },
+      "id": "too-many-children",
+      "inputs": {
+        "document": "documents/too-many-children.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "wide_card"
+      }
+    },
+    {
+      "description": "a document must be an object",
+      "expect": {
+        "reason": "schema_invalid",
+        "verdict": "fallback"
+      },
+      "id": "not-object",
+      "inputs": {
+        "document": "documents/not-object.bytes",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "x"
+      }
+    },
+    {
+      "description": "a newer document schema",
+      "expect": {
+        "reason": "unsupported_schema",
+        "verdict": "fallback"
+      },
+      "id": "schema-v2",
+      "inputs": {
+        "document": "documents/schema-v2.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "a newer critical document asks for an app update",
+      "expect": {
+        "reason": "unsupported_schema",
+        "verdict": "update_required"
+      },
+      "id": "schema-v2-critical",
+      "inputs": {
+        "document": "documents/schema-v2-critical.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "settings_pane"
+      }
+    },
+    {
+      "description": "root is required",
+      "expect": {
+        "reason": "schema_invalid",
+        "verdict": "fallback"
+      },
+      "id": "missing-root",
+      "inputs": {
+        "document": "documents/missing-root.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "unknown members are refused (strict)",
+      "expect": {
+        "reason": "schema_invalid",
+        "verdict": "fallback"
+      },
+      "id": "unknown-top-member",
+      "inputs": {
+        "document": "documents/unknown-top-member.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "unknown node members are refused (no onClick, no html)",
+      "expect": {
+        "reason": "schema_invalid",
+        "verdict": "fallback"
+      },
+      "id": "unknown-node-member",
+      "inputs": {
+        "document": "documents/unknown-node-member.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "critical must be a boolean",
+      "expect": {
+        "reason": "schema_invalid",
+        "verdict": "fallback"
+      },
+      "id": "critical-not-bool",
+      "inputs": {
+        "document": "documents/critical-not-bool.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "settings_pane"
+      }
+    },
+    {
+      "description": "closed style enums",
+      "expect": {
+        "reason": "schema_invalid",
+        "verdict": "fallback"
+      },
+      "id": "bad-enum",
+      "inputs": {
+        "document": "documents/bad-enum.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "a fixed progress value above total",
+      "expect": {
+        "reason": "schema_invalid",
+        "verdict": "fallback"
+      },
+      "id": "progress-over-total",
+      "inputs": {
+        "document": "documents/progress-over-total.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "p"
+      }
+    },
+    {
+      "description": "the document is for another view",
+      "expect": {
+        "reason": "view_mismatch",
+        "verdict": "fallback"
+      },
+      "id": "view-mismatch",
+      "inputs": {
+        "document": "documents/view-mismatch.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_form"
+      }
+    },
+    {
+      "description": "a component this catalogue does not have",
+      "expect": {
+        "reason": "unknown_component",
+        "verdict": "fallback"
+      },
+      "id": "unknown-component",
+      "inputs": {
+        "document": "documents/unknown-component.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "an unknown component in a critical document asks for an app update",
+      "expect": {
+        "reason": "unknown_component",
+        "verdict": "update_required"
+      },
+      "id": "unknown-component-critical",
+      "inputs": {
+        "document": "documents/unknown-component-critical.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "settings_pane"
+      }
+    },
+    {
+      "description": "form field kinds are closed",
+      "expect": {
+        "reason": "unknown_component",
+        "verdict": "fallback"
+      },
+      "id": "unknown-field-kind",
+      "inputs": {
+        "document": "documents/unknown-field-kind.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_form"
+      }
+    },
+    {
+      "description": "no document can describe operation_review",
+      "expect": {
+        "reason": "denied_route",
+        "verdict": "fallback"
+      },
+      "id": "operation-review-node",
+      "inputs": {
+        "document": "documents/operation-review-node.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "no document can describe secret_entry",
+      "expect": {
+        "reason": "denied_route",
+        "verdict": "fallback"
+      },
+      "id": "secret-entry-node",
+      "inputs": {
+        "document": "documents/secret-entry-node.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "a document cannot be the secret_entry view",
+      "expect": {
+        "reason": "denied_route",
+        "verdict": "fallback"
+      },
+      "id": "secret-entry-view",
+      "inputs": {
+        "document": "documents/secret-entry-view.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "secret_entry"
+      }
+    },
+    {
+      "description": "no secret or password form fields",
+      "expect": {
+        "reason": "denied_route",
+        "verdict": "fallback"
+      },
+      "id": "password-field",
+      "inputs": {
+        "document": "documents/password-field.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_form"
+      }
+    },
+    {
+      "description": "navigate cannot reach approval screens",
+      "expect": {
+        "reason": "denied_route",
+        "verdict": "fallback"
+      },
+      "id": "navigate-operation-review",
+      "inputs": {
+        "document": "documents/navigate-operation-review.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "navigate cannot reach the approvals list",
+      "expect": {
+        "reason": "denied_route",
+        "verdict": "fallback"
+      },
+      "id": "navigate-approvals",
+      "inputs": {
+        "document": "documents/navigate-approvals.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "no approval command exists",
+      "expect": {
+        "reason": "denied_route",
+        "verdict": "fallback"
+      },
+      "id": "approve-command",
+      "inputs": {
+        "document": "documents/approve-command.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "the action enum is closed",
+      "expect": {
+        "reason": "unknown_action",
+        "verdict": "fallback"
+      },
+      "id": "unknown-command",
+      "inputs": {
+        "document": "documents/unknown-command.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "navigate screens are closed",
+      "expect": {
+        "reason": "unknown_action",
+        "verdict": "fallback"
+      },
+      "id": "unknown-screen",
+      "inputs": {
+        "document": "documents/unknown-screen.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "routine.save is only a form submit",
+      "expect": {
+        "reason": "action_context",
+        "verdict": "fallback"
+      },
+      "id": "save-outside-form",
+      "inputs": {
+        "document": "documents/save-outside-form.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "flow_next only inside a flow",
+      "expect": {
+        "reason": "action_context",
+        "verdict": "fallback"
+      },
+      "id": "flow-next-outside-flow",
+      "inputs": {
+        "document": "documents/flow-next-outside-flow.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "action arguments are closed per command",
+      "expect": {
+        "reason": "schema_invalid",
+        "verdict": "fallback"
+      },
+      "id": "action-extra-member",
+      "inputs": {
+        "document": "documents/action-extra-member.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "https only",
+      "expect": {
+        "reason": "url_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "url-http",
+      "inputs": {
+        "document": "documents/url-http.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "host not on the allowlist",
+      "expect": {
+        "reason": "url_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "url-host",
+      "inputs": {
+        "document": "documents/url-host.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "allowlisted hosts match exactly, not as a suffix",
+      "expect": {
+        "reason": "url_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "url-subdomain",
+      "inputs": {
+        "document": "documents/url-subdomain.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "no userinfo (the real host would be evil.example)",
+      "expect": {
+        "reason": "url_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "url-userinfo",
+      "inputs": {
+        "document": "documents/url-userinfo.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "no other schemes",
+      "expect": {
+        "reason": "url_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "url-javascript",
+      "inputs": {
+        "document": "documents/url-javascript.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "with no allowlist every URL is refused (compiled default)",
+      "expect": {
+        "reason": "url_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "url-empty-allowlist",
+      "inputs": {
+        "document": "documents/url-empty-allowlist.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "no expression strings",
+      "expect": {
+        "reason": "invalid_predicate",
+        "verdict": "fallback"
+      },
+      "id": "predicate-expression",
+      "inputs": {
+        "document": "documents/predicate-expression.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "a predicate is a typed object, not a string",
+      "expect": {
+        "reason": "invalid_predicate",
+        "verdict": "fallback"
+      },
+      "id": "predicate-string",
+      "inputs": {
+        "document": "documents/predicate-string.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "exactly one operator per predicate",
+      "expect": {
+        "reason": "invalid_predicate",
+        "verdict": "fallback"
+      },
+      "id": "predicate-two-ops",
+      "inputs": {
+        "document": "documents/predicate-two-ops.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "equals compares with a string, integer or boolean literal only",
+      "expect": {
+        "reason": "invalid_predicate",
+        "verdict": "fallback"
+      },
+      "id": "predicate-object-literal",
+      "inputs": {
+        "document": "documents/predicate-object-literal.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "bindings start at a known local data root",
+      "expect": {
+        "reason": "invalid_binding",
+        "verdict": "fallback"
+      },
+      "id": "binding-root",
+      "inputs": {
+        "document": "documents/binding-root.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "bindings never reach secret-like data",
+      "expect": {
+        "reason": "denied_binding",
+        "verdict": "fallback"
+      },
+      "id": "binding-secret",
+      "inputs": {
+        "document": "documents/binding-secret.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "bindings never reach approval records",
+      "expect": {
+        "reason": "denied_binding",
+        "verdict": "fallback"
+      },
+      "id": "binding-approval",
+      "inputs": {
+        "document": "documents/binding-approval.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "form fields cannot collect keys",
+      "expect": {
+        "reason": "denied_binding",
+        "verdict": "fallback"
+      },
+      "id": "field-id-key",
+      "inputs": {
+        "document": "documents/field-id-key.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_form"
+      }
+    },
+    {
+      "description": "markdown links are refused; URLs go through open_url",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-link",
+      "inputs": {
+        "document": "documents/markdown-link.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "no HTML in markdown",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-html",
+      "inputs": {
+        "document": "documents/markdown-html.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "no control characters other than tab and newline",
+      "expect": {
+        "reason": "invalid_text",
+        "verdict": "fallback"
+      },
+      "id": "control-character",
+      "inputs": {
+        "document": "documents/control-character.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "a string above max_string_bytes",
+      "expect": {
+        "reason": "string_too_long",
+        "verdict": "fallback"
+      },
+      "id": "string-too-long",
+      "inputs": {
+        "document": "documents/string-too-long.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "U+FEFF inside a string is a character, not a byte-order mark to strip",
+      "expect": {
+        "reason": "schema_invalid",
+        "verdict": "fallback"
+      },
+      "id": "bom-in-view",
+      "inputs": {
+        "document": "documents/bom-in-view.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "U+FEFF at the start of a text is kept (the Swift round trip must equal the input)",
+      "expect": {
+        "verdict": "render"
+      },
+      "id": "bom-in-text",
+      "inputs": {
+        "document": "documents/bom-in-text.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "kill.view.<view> selects the compiled fallback before decoding",
+      "expect": {
+        "reason": "killed",
+        "verdict": "fallback"
+      },
+      "id": "killed-view",
+      "inputs": {
+        "document": "documents/killed-view.json",
+        "killed": [
+          "routine_result_card"
+        ],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "kill.view.<component type> used anywhere in the document",
+      "expect": {
+        "reason": "killed",
+        "verdict": "fallback"
+      },
+      "id": "killed-component",
+      "inputs": {
+        "document": "documents/killed-component.json",
+        "killed": [
+          "diff_preview"
+        ],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "a kill switch selects the compiled view, never update required",
+      "expect": {
+        "reason": "killed",
+        "verdict": "fallback"
+      },
+      "id": "killed-critical",
+      "inputs": {
+        "document": "documents/killed-critical.json",
+        "killed": [
+          "settings_pane"
+        ],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "settings_pane"
+      }
+    },
+    {
+      "description": "killing a type the document does not use changes nothing",
+      "expect": {
+        "verdict": "render"
+      },
+      "id": "killed-unused",
+      "inputs": {
+        "document": "documents/killed-unused.json",
+        "killed": [
+          "flow"
+        ],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "routine_result_card"
+      }
+    },
+    {
+      "description": "flows do not nest",
+      "expect": {
+        "reason": "schema_invalid",
+        "verdict": "fallback"
+      },
+      "id": "nested-flow",
+      "inputs": {
+        "document": "documents/nested-flow.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "f"
+      }
+    }
+  ],
+  "note": "Generated by scripts/release/make_ui_vectors.py. See docs/update-service/SCHEMAS.md §13.",
+  "reasons": [
+    "killed",
+    "too_large",
+    "invalid_json",
+    "schema_invalid",
+    "unsupported_schema",
+    "view_mismatch",
+    "too_deep",
+    "too_many_nodes",
+    "too_many_children",
+    "unknown_component",
+    "denied_route",
+    "unknown_action",
+    "action_context",
+    "url_not_allowed",
+    "invalid_predicate",
+    "invalid_binding",
+    "denied_binding",
+    "invalid_text",
+    "string_too_long",
+    "markup_not_allowed"
+  ],
+  "schema": "swarmhub/ui-vectors/1"
+}

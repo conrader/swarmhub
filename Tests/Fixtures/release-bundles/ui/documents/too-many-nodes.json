@@ -1,0 +1,1234 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "big_card",
+  "root": {
+    "type": "card",
+    "children": [
+      {
+        "type": "list",
+        "children": [
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "children": [
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "children": [
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "children": [
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          }
+        ]
+      },
+      {
+        "type": "list",
+        "children": [
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "text",
+            "text": "x"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "connect_box_flow",
+  "root": {
+    "type": "flow",
+    "id": "connect_box",
+    "steps": [
+      {
+        "id": "welcome",
+        "title": "Connect a box",
+        "children": [
+          {
+            "type": "text",
+            "text": "Swarm Hub talks to each box directly.",
+            "role": "headline"
+          },
+          {
+            "type": "button",
+            "label": "Next",
+            "action": {
+              "command": "flow_next"
+            },
+            "style": "primary"
+          }
+        ]
+      },
+      {
+        "id": "connect",
+        "title": "Add the box",
+        "children": [
+          {
+            "type": "text",
+            "text": "You need **SSH access** and the box address. Values like `a < b` stay plain text.",
+            "style": "markdown"
+          },
+          {
+            "type": "list",
+            "style": "numbered",
+            "children": [
+              {
+                "type": "text",
+                "text": "Open Boxes"
+              },
+              {
+                "type": "text",
+                "text": "Choose Add box"
+              },
+              {
+                "type": "text",
+                "text": "Paste the address"
+              }
+            ]
+          },
+          {
+            "type": "button",
+            "label": "Back",
+            "action": {
+              "command": "flow_back"
+            }
+          },
+          {
+            "type": "button",
+            "label": "Open Boxes",
+            "action": {
+              "command": "navigate",
+              "screen": "boxes"
+            }
+          }
+        ]
+      },
+      {
+        "id": "done",
+        "title": "Done",
+        "children": [
+          {
+            "type": "badge",
+            "text": "Ready",
+            "tone": "info"
+          },
+          {
+            "type": "button",
+            "label": "Close",
+            "action": {
+              "command": "dismiss"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

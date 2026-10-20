@@ -1,0 +1,68 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "deep_card",
+  "root": {
+    "type": "card",
+    "children": [
+      {
+        "type": "card",
+        "children": [
+          {
+            "type": "card",
+            "children": [
+              {
+                "type": "card",
+                "children": [
+                  {
+                    "type": "card",
+                    "children": [
+                      {
+                        "type": "card",
+                        "children": [
+                          {
+                            "type": "card",
+                            "children": [
+                              {
+                                "type": "card",
+                                "children": [
+                                  {
+                                    "type": "card",
+                                    "children": [
+                                      {
+                                        "type": "card",
+                                        "children": [
+                                          {
+                                            "type": "card",
+                                            "children": [
+                                              {
+                                                "type": "card",
+                                                "children": [
+                                                  {
+                                                    "type": "text",
+                                                    "text": "leaf"
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

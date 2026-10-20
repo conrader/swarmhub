@@ -1,0 +1,105 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "routine_form",
+  "root": {
+    "type": "card",
+    "title": "Edit routine",
+    "children": [
+      {
+        "type": "form",
+        "id": "routine_edit",
+        "title": "Routine",
+        "fields": [
+          {
+            "id": "name",
+            "kind": "text",
+            "label": "Name",
+            "required": true,
+            "placeholder": "Morning report",
+            "max_length": 80,
+            "value": {
+              "bind": "routine.name"
+            }
+          },
+          {
+            "id": "prompt",
+            "kind": "multiline",
+            "label": "What should it do?",
+            "value": {
+              "bind": "routine.prompt"
+            }
+          },
+          {
+            "id": "box",
+            "kind": "choice",
+            "label": "Box",
+            "options": [
+              {
+                "value": "local",
+                "label": "This Mac"
+              },
+              {
+                "value": "remote-1",
+                "label": {
+                  "bind": "box.name"
+                }
+              }
+            ]
+          },
+          {
+            "id": "enabled",
+            "kind": "toggle",
+            "label": "Enabled",
+            "value": {
+              "bind": "routine.enabled"
+            }
+          },
+          {
+            "id": "start",
+            "kind": "date",
+            "label": "Start",
+            "visible_if": {
+              "exists": {
+                "bind": "routine.start"
+              }
+            }
+          },
+          {
+            "id": "schedule",
+            "kind": "schedule",
+            "label": "Schedule",
+            "value": {
+              "bind": "routine.schedule"
+            }
+          },
+          {
+            "id": "attachment",
+            "kind": "file_pick",
+            "label": "Attachment",
+            "types": [
+              "public.plain-text",
+              "public.image"
+            ]
+          }
+        ],
+        "submit": {
+          "label": "Save",
+          "action": {
+            "command": "routine.save",
+            "routine": {
+              "bind": "routine.id"
+            }
+          }
+        }
+      },
+      {
+        "type": "button",
+        "label": "Cancel",
+        "action": {
+          "command": "dismiss"
+        },
+        "style": "secondary"
+      }
+    ]
+  }
+}
