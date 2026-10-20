@@ -85,7 +85,7 @@ def main(argv=None):
         signer = sign.load_signer(args.signer, args.production)
         written = republish(args.repo, args.old, args.new, signer=signer, created=args.created, label=args.label,
                             **publish.options(args))
-    except (publish.PublishError, sign.SignerError, jcs.JCSError, OSError) as error:
+    except (publish.PublishError, publish.backends.BackendError, sign.SignerError, jcs.JCSError, OSError) as error:
         print(f"republish: {error}", file=sys.stderr)
         return 1
     for rel in written:
