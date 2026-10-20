@@ -25,6 +25,12 @@ UTF-8 JSON, at most 16 KiB, exactly `{"signed":{...},"signature":"<128 lowercase
 | `nonce` | 32 box-generated cryptographically random bytes, encoded as 64 lowercase hex |
 | `issued`, `expires` | Nonnegative safe integer Unix seconds from the box; `0 < expires-issued <= 60` |
 
+For example, `https://box.invalid:444` is valid and `https://box.invalid:0444` is rejected, never repaired.
+The shared Mac/iOS connection-address adapter checks the raw spelling before Foundation URL normalization;
+it still accepts a mixed-case host and the existing `/`, `/v1`, `/v1/` connection suffixes. Signed origins on
+the Python box remain exact. Both implementations consume `Tests/Fixtures/device_approval_origins.json` in tests.
+Skill 1.4.5 clarifies the box rule; its validator already enforced canonical decimal ports.
+
 Use the P0a [JCS profile](SCHEMAS.md#2-canonical-json-jcs-profile) unchanged:
 ASCII unique member names, sorted keys, UTF-8, minimal escaping, array order
 preserved, safe integers, no floats/exponents/negative zero/null/BOM/lone

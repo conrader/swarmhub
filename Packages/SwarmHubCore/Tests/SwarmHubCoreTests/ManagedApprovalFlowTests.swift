@@ -5,7 +5,7 @@ import Testing
 
 /// An in-process stand-in for a device-required P5b box, one unique host per test. It verifies both signature
 /// domains with the enrolled public key and refuses anything carrying a shared-key header. No sockets.
-/// Like the box (skill 1.4.4), receipt reads other than `gone` and challenges report `mode`; a missing entry in
+/// Like the box (skill 1.4.5), receipt reads other than `gone` and challenges report `mode`; a missing entry in
 /// `modes` stands for an older box that reports none.
 final class DeviceBoxProtocol: URLProtocol, @unchecked Sendable {
     final class Box: @unchecked Sendable {

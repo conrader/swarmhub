@@ -51,7 +51,7 @@ def integer(value):
 
 
 def canonical_origin(value):
-    """Operator-configured lowercase HTTPS authority, no path/credentials/default port."""
+    """Exact lowercase HTTPS authority; optional non-default port in canonical decimal (no leading zero)."""
     if not isinstance(value, str) or not value.isascii() or any(c.isspace() for c in value):
         return False
     try:

@@ -100,7 +100,7 @@ struct DeviceApprovalCoreTests {
         #expect(!settings.hasAttempt(origin: origin, task: task))
     }
 
-    @Test(arguments: ["https://Box.Example.Invalid/v1/", "https://box.example.invalid:8443"])
+    @Test(arguments: ["https://Box.Example.Invalid/v1/", "https://box.example.invalid:8443", "https://box.example.invalid:444/v1"])
     func originsMatchTheMacRule(_ address: String) throws {
         #expect(try DeviceApprovalWire.origin(address: address).hasPrefix("https://box.example.invalid"))
     }
@@ -109,5 +109,18 @@ struct DeviceApprovalCoreTests {
                       "https://box.example.invalid:443", "https://[::1]"])
     func unsafeOriginsAreUnavailable(_ address: String) {
         #expect(throws: ManagedControlError.self) { try DeviceApprovalWire.origin(address: address) }
+    }
+
+    @Test func canonicalOriginVectorsAgreeWithThePythonBox() throws {
+        let path = UpdateVerifierTests.repository.appendingPathComponent("Tests/Fixtures/device_approval_origins.json")
+        let cases = try #require(try DeviceApprovalJSON.parse(Data(contentsOf: path)).arrayValue)
+        for entry in cases {
+            let address = try #require(entry["origin"]?.stringValue)
+            if entry["valid"] == .bool(true) {
+                #expect(try DeviceApprovalWire.origin(address: address) == address)
+            } else {
+                #expect(throws: ManagedControlError.self) { try DeviceApprovalWire.origin(address: address) }
+            }
+        }
     }
 }

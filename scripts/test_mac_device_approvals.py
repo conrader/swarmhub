@@ -13,7 +13,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'sim'))
+sys.path.insert(0, str(ROOT / 'scripts'))
 from device_approval_harness import Box, DOCUMENT, KEYS, clock, ds, policy, remote  # noqa: E402
+from approvals import device_approval_reference as ref  # noqa: E402
 import ed25519_ref  # noqa: E402
 
 FIXTURE = ROOT / 'Tests/Fixtures/release-bundles/TEST-mac-device-signatures.json'
@@ -64,6 +66,13 @@ def alternate_test_signature(entry):
 
 
 class MacSignatureTests(unittest.TestCase):
+    def test_shared_canonical_origin_vectors(self):
+        cases = ds.jcs.loads((ROOT / 'Tests/Fixtures/device_approval_origins.json').read_bytes())
+        for case in cases:
+            with self.subTest(origin=case['origin']):
+                self.assertEqual(ds.canonical_origin(case['origin']), case['valid'])
+                self.assertEqual(ref.canonical_origin(case['origin']), case['valid'])
+
     def test_all_applicable_p5a_payloads_are_present(self):
         fixture = ds.jcs.loads(FIXTURE.read_bytes())
         self.assertEqual(set(fixture), {'schema', 'cases'})
@@ -108,6 +117,19 @@ for _case in CASES:
 
 
 class MacBoxVerifierTests(Box):
+    def test_noncanonical_ports_reject_before_signature_checks_without_writes(self):
+        self.enroll()
+        task, service = self.submit(), self.service()
+        binding = self.challenge(service, task)
+        before = self.box_rows()
+        for port in ('0444', '0443', '0', '65536'):
+            raw = self.decision({**binding, 'origin': 'https://box.example.invalid:' + port})
+            with self.subTest(port=port):
+                status, result = self.post(service, 'decide', raw)
+                self.assertEqual((status, result['reason']), (403, 'schema_invalid'))
+                self.assertEqual(self.box_rows(), before)
+                self.wake.assert_not_called()
+
     def test_pending_reads_return_full_bound_record_without_nonce_writes(self):
         self.enroll()
         task, service = self.submit(), self.service()

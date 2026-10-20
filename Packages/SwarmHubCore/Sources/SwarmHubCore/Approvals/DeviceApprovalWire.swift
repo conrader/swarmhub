@@ -30,6 +30,11 @@ public enum DeviceApprovalWire {
     public static func validProfile(_ value: String) -> Bool { value.range(of: "^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,80}\\z", options: .regularExpression) != nil }
 
     public static func origin(address: String) throws -> String {
+        // Validate the spelling before Foundation can normalize :0444 to :444 (or decode an escaped host).
+        // Connection addresses may use a mixed-case host and the existing /v1 suffix; ports must already be canonical.
+        guard matches(address, "https://[A-Za-z0-9.-]+(?::[1-9][0-9]{0,4})?(?:/|/v1/?)?") else {
+            throw ManagedControlError.unavailable
+        }
         let result = try baseOrigin(address: address)
         guard matches(result, "https://[a-z0-9.-]+(?::[1-9][0-9]{0,4})?"),
               let parts = URLComponents(string: result), let host = parts.host,
