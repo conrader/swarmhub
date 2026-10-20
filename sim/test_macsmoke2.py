@@ -4,10 +4,14 @@ Covers the macsmoke1 review: cleanup with a space in $TMPDIR, a timed-out run wh
 unexpected write on a first run that also timed out, and the non-fallback code-job run in the default command.
 macsmoke3 adds the fresh-report/empty-stdout exit-65 reproduction, deterministic completion, fail-closed report
 checks, launcher timeout/nonzero checks, and a symlinked TMPDIR. Fixtures work on Linux and macOS.
-mactest1/2: the fixture stops python3 bytecode in HOME; only exact OS-made HOME/Library shapes pass, Darwin only.
+mactest1/2/3: the fixture stops python3 bytecode in HOME; only parsed OS-made HOME/Library shapes pass, Darwin only.
 """
+import importlib.util
+import io
+import marshal
 import os
 from pathlib import Path
+import plistlib
 import re
 import shlex
 import shutil
@@ -15,6 +19,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -46,19 +51,55 @@ def os_library_file(rel, data, fixtures):
     """Why the regular file <HOME>/Library/<rel> is not an OS-owned shape; None if it is."""
     parts = rel.parts
     if len(parts) == 2 and parts[0] == "Preferences" and PLIST_NAME.fullmatch(parts[1]):
-        return None if data.startswith((b"bplist00", b"<?xml", b"<plist")) else "not a property list"
+        try:
+            pending = [plistlib.loads(data)]
+            seen = set()
+            # Scan decoded keys/values too: XML escapes and binary UTF-16 can hide path bytes.
+            while pending:
+                value = pending.pop()
+                if isinstance(value, (dict, list)):
+                    if id(value) in seen:  # Binary plists can share or cycle container references.
+                        continue
+                    seen.add(id(value))
+                if isinstance(value, dict):
+                    pending.extend(value.keys())
+                    pending.extend(value.values())
+                elif isinstance(value, list):
+                    pending.extend(value)
+                elif isinstance(value, (str, bytes)):
+                    raw = value.encode() if isinstance(value, str) else value
+                    if any(os.fsencode(f) in raw for f in fixtures):
+                        return "mentions a smoke fixture path"
+            if any(os.fsencode(f) in data for f in fixtures):
+                return "mentions a smoke fixture path"
+        except Exception:
+            return "not a property list"
+        return None
     match = PYC_NAME.fullmatch(parts[-1])
     if not (len(parts) > 3 and parts[:2] == PYC_PREFIX and match):
         return "not an OS-owned file"
     source = Path("/", *parts[2:-1], match[1] + ".py")
-    if under(source.parent, fixtures):
-        return "bytecode of a fixture source"
     try:
+        resolved = source.resolve(strict=True)
+        if under(source, fixtures) or under(resolved, fixtures):
+            return "bytecode of a fixture source"
         if not stat.S_ISREG(os.stat(source).st_mode):
             return "bytecode without a real source"
-    except OSError:
+    except (OSError, ValueError, RuntimeError):
         return "bytecode without a real source"
-    return None if len(data) >= 16 and data[2:4] == b"\r\n" else "not CPython bytecode"
+    try:
+        if (len(data) < 16 or data[:4] != importlib.util.MAGIC_NUMBER or
+                int.from_bytes(data[4:8], "little") not in (0, 1, 3)):
+            return "not CPython bytecode"
+        payload = io.BytesIO(data[16:])
+        code = marshal.load(payload)
+        if not isinstance(code, types.CodeType) or payload.read(1):
+            return "not CPython bytecode"
+        if code.co_filename != str(source) or Path(code.co_filename).resolve(strict=True) != resolved:
+            return "bytecode source does not match prefix layout"
+    except Exception:
+        return "not CPython bytecode"
+    return None
 
 
 def os_library_problems(library, markers, fixtures=()):
@@ -291,7 +332,8 @@ class SmokeStubTests(unittest.TestCase):
 # plist, and a python3 shim that forces Apple's prefix whatever the environment says (-X overrides PYTHONPYCACHEPREFIX).
 OS_LIBRARY = ('env -u PYTHONDONTWRITEBYTECODE PYTHONPYCACHEPREFIX="$HOME/Library/Caches/com.apple.python" '
               'python3 -c "import json" && mkdir -p "$HOME/Library/Preferences" && '
-              'printf bplist00 > "$HOME/Library/Preferences/com.apple.python3.plist"\n')
+              'printf \'%s\\n\' \'<plist version="1.0"><dict/></plist>\' '
+              '> "$HOME/Library/Preferences/com.apple.python3.plist"\n')
 XCODE_PYTHON = '#!/bin/sh\nexec {env}{python} -X pycache_prefix="$HOME/Library/Caches/com.apple.python" "$@"\n'
 
 
@@ -378,8 +420,7 @@ class OsLibraryTests(unittest.TestCase):
         (library / "Preferences/notes.plist").write_bytes(b"bplist00")
         (library / "Preferences/link").symlink_to(self.shm, target_is_directory=True)
         os.mkfifo(library / "Preferences/com.apple.fifo.plist")
-        with (library / "Preferences/com.apple.python3.plist").open("ab") as plist:
-            plist.write(os.fsencode(str(self.shm)) + b"/td/x\n")
+        (library / "Preferences/com.apple.python3.plist").write_bytes(plistlib.dumps({"path": str(self.shm / "td/x")}))
         pyc_dir = pyc.parent.relative_to(library)
         self.assertEqual(sorted(os_library_problems(library, markers, (self.shm,))), sorted([
             "Application Support: empty directory",
@@ -418,6 +459,70 @@ class OsLibraryTests(unittest.TestCase):
                           "Preferences/com.apple.python3.plist: unreadable (Permission denied)"])
         with patch.object(os, "scandir", side_effect=PermissionError(13, "Permission denied", str(library))):
             self.assertEqual(os_library_problems(library, []), ["Library: unreadable (Permission denied)"])
+
+
+class LibraryFileValidationTests(unittest.TestCase):
+    """mactest3: exercise the Darwin classifier directly on Linux, without launching a provider."""
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix="mactest3-", dir="/tmp")
+        self.addCleanup(tmp.cleanup)
+        self.external = Path(tmp.name)
+        self.source = self.external / "mod.py"
+        self.source.write_text("")
+        self.rel = (Path(*PYC_PREFIX) / str(self.external).lstrip("/") /
+                    f"mod.{sys.implementation.cache_tag}.pyc")
+        self.fixtures = {str(ROOT), str(self.external / "fixture")}
+
+    def bytecode(self, filename=None, flags=0):
+        return (importlib.util.MAGIC_NUMBER + flags.to_bytes(4, "little") + bytes(8) +
+                marshal.dumps(compile("", str(filename or self.source), "exec")))
+
+    def test_malformed_plist_and_crlf_garbage_are_rejected(self):
+        for data in (b"<?xml left behind", b"<plist left behind", b"bplist00"):
+            with self.subTest(data=data):
+                self.assertIsNotNone(os_library_file(Path("Preferences/com.apple.test.plist"), data, self.fixtures))
+        self.assertIsNotNone(os_library_file(self.rel, b"xx\r\nleft behind!!", self.fixtures))
+
+    def test_external_source_symlinks_into_repo_or_fixture_are_rejected(self):
+        fixture = self.external / "fixture"
+        fixture.mkdir()
+        (fixture / "mod.py").write_text("")
+        for target in (ROOT / "sim/test_macsmoke2.py", fixture / "mod.py"):
+            with self.subTest(target=target):
+                self.source.unlink()
+                self.source.symlink_to(target)
+                self.assertIsNotNone(os_library_file(self.rel, self.bytecode(), self.fixtures))
+
+    def test_plist_formats_and_encoded_fixture_paths(self):
+        rel = Path("Preferences/com.apple.test.plist")
+        for fmt in (plistlib.FMT_XML, plistlib.FMT_BINARY):
+            with self.subTest(fmt=fmt):
+                self.assertIsNone(os_library_file(rel, plistlib.dumps({"ok": True}, fmt=fmt), self.fixtures))
+                for path in self.fixtures:
+                    # The non-ASCII value uses UTF-16 in a binary plist; raw UTF-8 scanning misses it.
+                    for value in ({"nested": ["é " + path]}, {path: True}, {"data": os.fsencode(path)}):
+                        self.assertIsNotNone(os_library_file(rel, plistlib.dumps(value, fmt=fmt), self.fixtures))
+        cycle = [str(ROOT)]
+        cycle.append(cycle)
+        self.assertIsNotNone(os_library_file(rel, plistlib.dumps(cycle, fmt=plistlib.FMT_BINARY), self.fixtures))
+
+    def test_bytecode_header_payload_and_source_mapping(self):
+        for flags in (0, 1, 3):
+            self.assertIsNone(os_library_file(self.rel, self.bytecode(flags=flags), self.fixtures))
+        valid = self.bytecode()
+        other = self.external / "other.py"
+        other.write_text("")
+        for data in (b"xx" + valid[2:], valid[:15], self.bytecode(flags=2), self.bytecode(flags=4),
+                     valid[:16], valid[:16] + marshal.dumps("not code"), valid + b"left behind",
+                     self.bytecode(other), self.bytecode("mod.py")):
+            with self.subTest(data=data[:24]):
+                self.assertIsNotNone(os_library_file(self.rel, data, self.fixtures))
+        self.source.unlink()
+        for target in (self.external / "missing.py", self.source):
+            with self.subTest(target=target):
+                self.source.symlink_to(target)
+                self.assertIsNotNone(os_library_file(self.rel, valid, self.fixtures))
+                self.source.unlink()
 
 
 if __name__ == "__main__":

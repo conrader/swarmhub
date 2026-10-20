@@ -354,3 +354,71 @@ Pass criteria:
 - The suite is green, and `test_macsmoke2` shows no `outside dir left in HOME`.
 - If `smoke files in HOME/Library` appears, macOS made something outside the two allowed shapes, and the listed paths name it. Do not widen the allowlist without seeing them.
 - If `without:` is also `[]`, the bytecode cause is refuted for that interpreter.
+
+
+## mactest3 (e63dcf1 + uncommitted)
+
+Both review bypasses were reproduced before editing: malformed XML, CRLF garbage bytecode, and an actual external `.py` symlink into this repository each returned `None` (allowed).
+
+`sim/test_macsmoke2.py` now parses XML/binary plists with `plistlib` and checks raw bytes plus decoded keys/values for fixture/repository paths, including binary UTF-16 and XML-escaped values. Shared/cyclic containers cannot hang the scan. Bytecode requires this interpreter's magic, a complete 16-byte header with valid flags, and exactly one unmarshalled code object with no trailing bytes. Its `co_filename` must exactly match the source path implied by the prefix layout; the full source path resolves strictly and must be a regular file outside the fixture and repository, including through symlinks. Parse/resolve failures reject the file. The old header-only plist fixture is now valid XML. Linux still tolerates nothing in HOME.
+
+Four Linux-runnable tests cover malformed files, repository/fixture source symlinks, valid plist/header forms, encoded paths, malformed marshal payloads, mismatched filenames, dangling links and symlink loops. Mutation check: restored only `os_library_file` from `git show e63dcf1:sim/test_macsmoke2.py` in memory and ran the two review regressions. All six expected failure records appeared (three malformed plists, garbage bytecode, two source symlinks); the same tests pass after the fix. No baseline files were overwritten.
+
+Raw regression/mutation output:
+
+```text
+Ran 2 tests in 0.003s
+FAILED (failures=6)
+Mutation check: e63dcf1 classifier restored in memory; expected six failure records confirmed.
+test_bytecode_header_payload_and_source_mapping (sim.test_macsmoke2.LibraryFileValidationTests.test_bytecode_header_payload_and_source_mapping) ... ok
+test_external_source_symlinks_into_repo_or_fixture_are_rejected (sim.test_macsmoke2.LibraryFileValidationTests.test_external_source_symlinks_into_repo_or_fixture_are_rejected) ... ok
+test_malformed_plist_and_crlf_garbage_are_rejected (sim.test_macsmoke2.LibraryFileValidationTests.test_malformed_plist_and_crlf_garbage_are_rejected) ... ok
+test_plist_formats_and_encoded_fixture_paths (sim.test_macsmoke2.LibraryFileValidationTests.test_plist_formats_and_encoded_fixture_paths) ... ok
+Ran 4 tests in 0.005s
+OK
+```
+
+Validation from the repository root, Linux/Python 3.12, with `PYTHONDONTWRITEBYTECODE=1`; suites run sequentially:
+
+```sh
+PYTHONPATH=sim python3 -B -m unittest -v sim.test_macsmoke2 sim.test_macsmoke5 sim.test_fixes18 sim.test_darwinkill1 sim.test_darwinkill2
+PYTHONPATH=sim python3 -B -m unittest discover -s sim -p 'test_*.py' -v
+for shell in sh dash bash; do CODE_JOB_SH=/bin/$shell /bin/$shell Tests/Scripts/code-job-test.sh Resources/Skills/swarmhub-coding/scripts/code-job; done
+```
+
+Focused run:
+
+```text
+Ran 81 tests in 283.483s
+OK (skipped=5)
+```
+
+Full discovery is **not green**. The eight failure records are in unchanged fixes6/7/8 tests: fallback mode denies creating `build`, Node reports `spawnSync /bin/sh EPERM`, namespace expectations see fallback mode, and the SIGIO probe's socket send gets EPERM. These match the sandbox-related categories already recorded under macsmoke5 above. Every `test_macsmoke2` record passed; no host-global `/tmp` interference required a rerun.
+
+Raw full-suite failures:
+
+```text
+FAIL: test_workspace_remains_writable_and_outside_stays_closed (test_fixes6.GitMetadataEscapeTests.test_workspace_remains_writable_and_outside_stays_closed)
+FAIL: test_node_child_processes_work (test_fixes6.OrdinaryVerifierTests.test_node_child_processes_work)
+FAIL: test_mode_is_recorded_by_the_launcher_for_the_job_result (test_fixes7.LimitedModeSuitesTests.test_mode_is_recorded_by_the_launcher_for_the_job_result)
+FAIL: test_a_sigio_owner_cannot_name_another_process (test_fixes8.LimitedModeProcessIsolationTests.test_a_sigio_owner_cannot_name_another_process)
+FAIL: test_sigqueue_calls_reach_the_own_child_in_the_namespaced_mode (test_fixes8.NamespacedModeSignalTests.test_sigqueue_calls_reach_the_own_child_in_the_namespaced_mode) [rt_sigqueueinfo]
+FAIL: test_sigqueue_calls_reach_the_own_child_in_the_namespaced_mode (test_fixes8.NamespacedModeSignalTests.test_sigqueue_calls_reach_the_own_child_in_the_namespaced_mode) [rt_tgsigqueueinfo]
+FAIL: test_sigqueue_calls_reach_the_own_child_in_the_namespaced_mode (test_fixes8.NamespacedModeSignalTests.test_sigqueue_calls_reach_the_own_child_in_the_namespaced_mode) [kill]
+FAIL: test_sigqueue_calls_reach_the_own_child_in_the_namespaced_mode (test_fixes8.NamespacedModeSignalTests.test_sigqueue_calls_reach_the_own_child_in_the_namespaced_mode) [tgkill]
+Ran 426 tests in 406.714s
+FAILED (failures=8, skipped=13)
+```
+
+Raw shell results (outer shell and `CODE_JOB_SH` both set to the named shell):
+
+```text
+pass: fallback through a symlinked parent: the physical report counts; an empty or unreadable one is 65, named
+code-job tests under /bin/sh: 23 passed, 0 failed
+pass: fallback through a symlinked parent: the physical report counts; an empty or unreadable one is 65, named
+code-job tests under /bin/dash: 23 passed, 0 failed
+pass: fallback through a symlinked parent: the physical report counts; an empty or unreadable one is 65, named
+code-job tests under /bin/bash: 23 passed, 0 failed
+```
+
+Python syntax and `git diff --check` pass. No temporary fixtures or diagnostic logs remain. The two untracked fixes8 briefs are untouched. Nothing committed, no Hermes changes, no outbound messages or real Codex/provider calls. Native macOS behavior remains untested here.
