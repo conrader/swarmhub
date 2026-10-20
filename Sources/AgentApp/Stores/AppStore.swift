@@ -100,6 +100,7 @@ import SwarmHubCore
     var appConfig = AppConfig.compiled
     /// P27: tests' skill library instead of the bundled one; an Install waiting for its manager turn (per manager bot).
     var skillLibraryOverride: [BundledSkill]?; var pendingSkillInstalls: [UUID: SkillInstallTurn] = [:]
+    lazy var boxInstallTransport = BoxInstallTransport(configurationURL: fileURL.deletingLastPathComponent().appending(path: "Updates/box-transport.json"))
     /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?

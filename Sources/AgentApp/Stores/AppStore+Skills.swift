@@ -85,8 +85,14 @@ extension AppStore {
         let profile = bot.hermesProfile ?? "default"
         let instructions: String
         do {
-            guard let text = try skillInstallInstructions(skills(for: bot), profile: profile, botName: bot.name, codingOrder: codingOrder(for: bot)) else { return false }
-            instructions = text
+            if usesStagedSkills(on: connection(of: bot)) {
+                guard let text = try stagedSkillInstructions(manager: manager, profiles: [.init(name: profile,
+                    coding_order: codingOrder(for: bot).argument, skills: skills(for: bot).map(\.name))]) else { return false }
+                instructions = text
+            } else {
+                guard let text = try skillInstallInstructions(skills(for: bot), profile: profile, botName: bot.name, codingOrder: codingOrder(for: bot)) else { return false }
+                instructions = text
+            }
         } catch {
             SwarmhubBlock.log.error("Skill install refused: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription; return false
@@ -94,7 +100,9 @@ extension AppStore {
         pendingSkillInstalls[manager.id] = SkillInstallTurn(profile: profile, instructions: instructions)
         managementExchanges[manager.id] = nil
         open(manager); openThreadID = nil
-        guard send(text: "Install SwarmHub’s instructions for \(bot.name).") else { pendingSkillInstalls[manager.id] = nil; return false }
+        guard send(text: "Install SwarmHub’s instructions for \(bot.name).") else {
+            pendingSkillInstalls[manager.id] = nil; boxInstallTransport.attempts[manager.id] = nil; return false
+        }
         return true
     }
 
@@ -170,6 +178,7 @@ extension AppStore {
     /// Records a `skills_installed` op for the bot bound to `profile` on the manager's connection: only library skills,
     /// never newer than this build ships (the reply carries names and versions only; the content is never read from it).
     func recordInstalled(_ installed: [SwarmhubOp.InstalledSkill], profile: String, manager: Bot) {
+        guard !usesStagedSkills(on: connection(of: manager)) else { return }
         guard let bot = boundBot(profile, manager: manager) else { return }
         for row in installed {
             guard let skill = skillLibrary.first(where: { $0.name == row.name }), let version = SkillVersion(row.version) else { continue }
@@ -184,6 +193,7 @@ extension AppStore {
     /// record (a version the description advertises, else the recorded one; a library skill not listed is missing).
     /// A 500 (stock 0.22.0) or any other failure keeps the record silently.
     func refreshInstalledSkills(for bot: Bot) async {
+        if usesStagedSkills(on: connection(of: bot)) { await refreshStagedSkills(for: bot); return }
         guard bot.backend == .hermes, !skills(for: bot).isEmpty, let backend = try? backend(for: bot) as? HermesBackend,
               let listed = try? await backend.skills() else { return }
         let ours = listed.filter { $0.category == SkillLibrary.category }

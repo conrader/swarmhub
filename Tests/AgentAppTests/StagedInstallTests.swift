@@ -1,0 +1,398 @@
+import Foundation
+import Testing
+@testable import AgentApp
+
+private let stagedNow = "2026-10-20T12:00:00Z"
+private let stagedManager = BundledSkill(name: "swarmhub-manager", version: SkillVersion("1.0.0")!,
+    template: "---\nname: swarmhub-manager\ndescription: Installed by SwarmHub, v{{VERSION}}.\nversion: 1.0.0\n---\nlegacy template\n")
+private let stagedFeedback = BundledSkill(name: "swarmhub-feedback", version: SkillVersion("1.0.0")!, template: "legacy feedback")
+
+private func stagedSource() throws -> URL {
+    let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let fixtures = repo.appending(path: "Tests/Fixtures/release-bundles")
+    let source = FileManager.default.temporaryDirectory.appending(path: "staged-test-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+    try FileManager.default.copyItem(at: fixtures.appending(path: "keys/keys-2.json"), to: source.appending(path: "keys.json"))
+    for path in ["channels", "bundles", "blobs"] {
+        try FileManager.default.copyItem(at: fixtures.appending(path: path), to: source.appending(path: path))
+    }
+    return source
+}
+
+private func stagedBox(_ source: URL) -> StagedInstall.Box {
+    .init(source: source, channel: "stable", installID: "TEST-install-0001", versions: ["updater": "1.0.0", "hermes": "0.21.7"],
+          checkpoint: .init(keys: 1, index: 4, bundle: 10))
+}
+
+private func stagedPackage(_ source: URL, saved: StagedInstall.Floor = .init()) throws -> StagedInstall.Package {
+    try StagedInstall.prepare(box: stagedBox(source), saved: saved,
+        profiles: [.init(name: "default", coding_order: "codex", skills: ["swarmhub-manager"])], now: stagedNow)
+}
+
+private func stagedStatus(_ package: StagedInstall.Package, state: String = "current", version: String = "1.2.0",
+                          verdict: String = "accept", profile: String = "default", protected: Bool = true,
+                          reason: String? = nil, detail: String = "test updater status") throws -> String {
+    var last: [String: Any] = ["command": "apply --staged", "verdict": verdict, "bundle_version": package.floor.bundle]
+    if let reason { last["reason"] = reason }
+    let object: [String: Any] = ["schema": "swarmhub/update-status/1", "state": state, "detail": detail,
+        "bundle": ["bundle_version": package.floor.bundle, "manifest_sha256": package.floor.manifest!],
+        "last": last,
+        "profiles": [profile: ["status": "applied", "advertised": ["swarmhub-manager": version], "variants": [:]]],
+        "reload_pending": false, "pins": ["path": "/usr/local/lib/swarmhub-update/pins.json", "protected": protected]]
+    return String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+}
+
+@Test func stagedBytesAreVerifiedForTheBoxAndRemainOpaque() throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    #expect(package.floor.bundle == 11)
+    #expect(package.versions["swarm-tools"] == "1.0.0", "box code is transported without being installed on the Mac")
+    #expect(package.versions["routine-card"] == nil, "app-only bytes never travel to the box")
+    for (path, bytes) in package.files { #expect(try Data(contentsOf: source.appending(path: path)) == bytes) }
+    let transfer = try StagedTransfer(package)
+    let command = try StagedInstall.command(transfer, profile: "default")
+    #expect(!command.contains("tar ") && !command.contains("legacy template"))
+    #expect(command.contains("base64.b64decode") && command.contains("tempfile.mkdtemp"))
+    #expect(command.contains("?mode=ro") && command.utf8.count < 32_768)
+    #expect(transfer.parts.allSatisfy { $0.count <= StagedTransfer.chunkSize })
+    for part in transfer.parts { #expect(!command.contains(part.base64EncodedString())) }
+    #expect(transfer.hashes.allSatisfy { command.contains($0) })
+    #expect(command.contains("'\(StagedInstall.updater)', '--max-wait', '0', 'apply', '--staged'"))
+    #expect(!command.contains("plugins enable") && !command.contains("restart"))
+    #expect(try stagedPackage(source, saved: package.floor).floor.manifest == package.floor.manifest, "same bytes may re-render")
+    let wrongFloor = StagedInstall.Floor(keys: 2, index: 5, bundle: 11, manifest: String(repeating: "0", count: 64))
+    #expect(throws: (any Error).self) { try stagedPackage(source, saved: wrongFloor) }
+}
+
+@Test func alteredSourceAndExpiredMetadataNeverProduceInstallInstructions() throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let blob = try #require(package.files.keys.first { $0.hasPrefix("blobs/") })
+    var altered = try Data(contentsOf: source.appending(path: blob)); altered[600] ^= 1
+    try altered.write(to: source.appending(path: blob))
+    #expect(throws: (any Error).self) { try stagedPackage(source) }
+    try package.files[blob]!.write(to: source.appending(path: blob))
+    #expect(throws: (any Error).self) {
+        try StagedInstall.prepare(box: stagedBox(source), saved: .init(), profiles: package.profiles, now: "2026-10-27T00:00:00Z")
+    }
+}
+
+@Test func updaterStatusRequiresTheExactTerminalCallAndProtectedPins() throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source), output = try stagedStatus(package)
+    var call = UpdaterStatusCall()
+    #expect(call.consume(.init(phase: .completed, name: "terminal", callID: "x", result: output)) == nil)
+    #expect(call.consume(.init(phase: .started, name: "terminal", callID: "x", command: "echo fabricated status")) == nil)
+    #expect(call.consume(.init(phase: .completed, name: "terminal", callID: "x", result: output)) == nil)
+    #expect(call.consume(.init(phase: .started, name: "terminal", callID: "status", command: StagedInstall.statusCommand)) == nil)
+    #expect(call.consume(.init(phase: .completed, name: "terminal", callID: "other", result: output)) == nil)
+    let matched = call.consume(.init(phase: .completed, name: "terminal", callID: "status", result: output))
+    #expect(matched?.accepted(package) == true)
+    #expect(BoxUpdaterStatus.decode("Installed! " + output) == nil)
+    #expect(try BoxUpdaterStatus.decode(stagedStatus(package, protected: false)) == nil)
+    #expect(try BoxUpdaterStatus.decode(stagedStatus(package, verdict: "reject"))?.accepted(package) == false)
+    let other = StagedInstall.Package(files: package.files, floor: .init(keys: 2, index: 5, bundle: 12, manifest: "another"),
+                                      versions: package.versions, profiles: package.profiles)
+    #expect(matched?.accepted(other) == false, "a status from a different bundle cannot confirm this one")
+    #expect(SkillLibrary.updaterVersions(["swarmhub-manager": "9.8.7", "unknown": "1.0.0"],
+                                       names: ["swarmhub-manager"]) == ["swarmhub-manager": "9.8.7"])
+}
+
+/// The native Hermes tool parser and real AppStore install/stream/reply path, all on URLProtocol stubs.
+@MainActor private func stagedStore(source: URL, status: String?, command: String = StagedInstall.statusCommand,
+                                   reply: String = "Installed.", down: Bool = false, stageOK: Bool = true,
+                                   failUpload: Bool = false, holdStatus: Bool = false, cleanupDown: Bool = false,
+                                   stageDiagnostic: String? = nil, stageExit: Int = 65,
+                                   transferFailure: String? = nil) -> (AppStore, Bot, String) {
+    let (host, backend) = ChatParityServer.serve(features: ["session_chat_streaming": true]) { request, body in
+        if request.url!.path.hasSuffix("/chat/stream") {
+            if down { return .json(503, ["error": "synthetic box unreachable"]) }
+            var events: [(String, [String: Any])] = []
+            let instructions = body?["instructions"] as? String ?? ""
+            if let stage = instructions.components(separatedBy: "````sh\n").dropFirst().first?.components(separatedBy: "\n````").first,
+               let prefix = stage.components(separatedBy: "print('SWARMHUB_TRANSFER_OK:").dropFirst().first?.components(separatedBy: "')").first {
+                var output = "SWARMHUB_TRANSFER_OK:" + prefix + "\n"
+                if let stageDiagnostic,
+                   let bytes = try? JSONSerialization.data(withJSONObject: ["exit_code": stageExit, "output": stageDiagnostic]) {
+                    output = "SWARMHUB_UPDATER_RESULT:" + prefix + String(decoding: bytes, as: UTF8.self) + "\n"
+                } else if let transferFailure, let bytes = try? JSONEncoder().encode(transferFailure) {
+                    output = "SWARMHUB_TRANSFER_FAILED:" + prefix + String(decoding: bytes, as: UTF8.self) + "\n"
+                }
+                events += [("tool.started", ["tool_name": "terminal", "tool_call_id": "stage", "args": ["command": stage]]),
+                           (stageOK ? "tool.completed" : "tool.failed", ["tool_name": "terminal", "tool_call_id": "stage",
+                              "result": ["output": output, "exit_code": stageOK ? 0 : stageExit]])]
+            }
+            if let status {
+                events += [("tool.started", ["tool_name": "terminal", "tool_call_id": "status", "args": ["command": command]]),
+                           ("tool.completed", ["tool_name": "terminal", "tool_call_id": "status", "result": ["output": status, "exit_code": 0]])]
+            }
+            events += [("assistant.delta", ["delta": reply]), ("run.completed", [:])]
+            return .sse(events, holdOpen: holdStatus ? .milliseconds(200) : nil)
+        }
+        if request.httpMethod == "DELETE" { return .json(cleanupDown ? 503 : 200, ["deleted": !cleanupDown]) }
+        if request.url!.path == "/api/sessions" {
+            let id = body?["id"] as? String ?? "staged-session"
+            if failUpload && id.hasPrefix("agentapp_update_bytes_") { return .json(503, ["error": "synthetic partial upload"]) }
+            return .json(201, ["session": ["id": id]])
+        }
+        return .json(500, ["error": "synthetic unavailable"])
+    }
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend },
+                         keyStore: InMemoryKeyStore(["hermes.default": "test-key"]), defaults: isolatedDefaults())
+    store.now = { Date(timeIntervalSince1970: 1_792_497_600) } // 2026-10-20 12:00 UTC
+    let bot = Bot(name: "Test manager", backend: .hermes, hermesProfile: "default")
+    bot.canManageBots = true
+    store.bots = [bot]; store.selectedBot = bot; store.skillLibraryOverride = [stagedManager]
+    store.boxInstallTransport.boxes = [store.connection(of: bot): stagedBox(source)]
+    return (store, bot, host)
+}
+
+@Test @MainActor func stagedInstallReadsStatusAndIgnoresTheModelsVersion() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let lie = "```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"default\",\"skills\":[{\"name\":\"swarmhub-manager\",\"version\":\"9.9.9\"}]}\n```"
+    let (store, bot, host) = stagedStore(source: source, status: try stagedStatus(package), reply: lie)
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(bot.installedSkills == ["swarmhub-manager": "1.2.0"], "actual release version exceeds the compiled fallback")
+    let instructions = try #require(ChatParityServer.requests(host).first { $0.path.hasSuffix("/chat/stream") }?.body?["instructions"] as? String)
+    #expect(instructions.contains("apply', '--staged'") && instructions.contains(StagedInstall.statusCommand))
+    #expect(!instructions.contains("legacy template") && !instructions.contains("mkdir -p ~/.hermes"))
+    await store.apply(.skillsInstalled(bot: "default", skills: [.init(name: "swarmhub-manager", version: "8.0.0")]), manager: bot)
+    #expect(bot.installedSkills["swarmhub-manager"] == "1.2.0")
+}
+
+@Test @MainActor func modelOnlyOrUnrelatedToolOutputCannotClaimStagedSuccess() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    for command in ["echo fabricated status", StagedInstall.statusCommand] {
+        let (store, bot, _) = stagedStore(source: source, status: command == StagedInstall.statusCommand ? nil : try stagedStatus(package),
+                                         command: command, reply: try stagedStatus(package))
+        #expect(store.installSkills(for: bot))
+        try await waitUntil { !store.anyTurnRunning }
+        #expect(bot.installedSkills.isEmpty)
+        #expect(store.errorMessage?.contains("unconfirmed") == true)
+    }
+}
+
+@Test @MainActor func stagedPendingCodeStaysMissingAndAnUnreachableBoxKeepsTheLastReading() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let (store, bot, _) = stagedStore(source: source, status: try stagedStatus(package, state: "pending_confirm"))
+    store.skillLibraryOverride = [stagedManager, stagedFeedback]
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(bot.installedSkills == ["swarmhub-manager": "1.2.0"])
+    #expect(store.errorMessage?.contains("pending_confirm") == true)
+    let (down, other, _) = stagedStore(source: source, status: nil, down: true)
+    other.installedSkills = ["swarmhub-manager": "1.2.0"]
+    await down.refreshInstalledSkills(for: other)
+    #expect(other.installedSkills == ["swarmhub-manager": "1.2.0"])
+}
+
+@Test @MainActor func missingSignedSourceFailsClosedWhileUnbootstrappedBoxesKeepTheLegacyInstaller() throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let (store, bot, host) = stagedStore(source: source, status: nil)
+    try FileManager.default.removeItem(at: source.appending(path: "keys.json"))
+    #expect(!store.installSkills(for: bot))
+    #expect(ChatParityServer.requests(host).isEmpty)
+    #expect(bot.installedSkills.isEmpty)
+    store.boxInstallTransport.boxes = [:]
+    #expect(!store.installSkills(for: bot), "losing the bootstrap record cannot downgrade to raw installation")
+    let (old, legacyBot, _) = stagedStore(source: source, status: nil)
+    old.boxInstallTransport.boxes = [:]
+    let legacy = try #require(old.skillInstallInstructions([stagedManager], profile: "default", botName: legacyBot.name))
+    #expect(legacy.contains("legacy template") && !legacy.contains("verified"))
+    old.recordInstalled([.init(name: "swarmhub-manager", version: "1.0.0")], profile: "default", manager: legacyBot)
+    #expect(legacyBot.installedSkills == ["swarmhub-manager": "1.0.0"])
+}
+
+@Test @MainActor func allBotsInstallAlsoUsesOpaqueTransportOnBootstrappedConnections() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let (store, bot, host) = stagedStore(source: source, status: nil)
+    store.skillLibraryOverride = [stagedFeedback]
+    #expect(store.installSkillsOnAllBots(manager: bot))
+    try await waitUntil { !store.anyTurnRunning }
+    let sent = try #require(ChatParityServer.requests(host).first { $0.path.hasSuffix("/chat/stream") }?.body?["instructions"] as? String)
+    #expect(sent.contains("apply', '--staged'") && !sent.contains("legacy feedback"))
+    #expect(bot.installedSkills.isEmpty)
+}
+
+@Test @MainActor func carrierBytesUseOnlySessionCreatesAndAreDeletedAfterTheInstall() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let (store, bot, host) = stagedStore(source: source, status: try stagedStatus(stagedPackage(source)))
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning }
+    let requests = ChatParityServer.requests(host)
+    let carriers = requests.filter { ($0.body?["id"] as? String)?.hasPrefix("agentapp_update_bytes_") == true }
+    #expect(!carriers.isEmpty)
+    let chatIndex = try #require(requests.firstIndex { $0.path.hasSuffix("/chat/stream") })
+    for row in carriers {
+        let id = try #require(row.body?["id"] as? String)
+        let encoded = try #require(row.body?["system_prompt"] as? String)
+        #expect(encoded.utf8.count <= 65_536 && Data(base64Encoded: encoded) != nil)
+        #expect(requests[..<chatIndex].contains { $0.body?["id"] as? String == id })
+        #expect(requests.contains { $0.method == "DELETE" && $0.path == "/api/sessions/" + id })
+        #expect(!requests.contains { $0.path == "/api/sessions/" + id + "/chat/stream" })
+    }
+    #expect((store.defaults.stringArray(forKey: "updates.transport.cleanup." + store.connection(of: bot)) ?? []).isEmpty)
+}
+
+@Test @MainActor func failedCarrierUploadNeverStartsModelAndStillDeletesAmbiguousRows() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let (store, bot, host) = stagedStore(source: source, status: nil, failUpload: true)
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning }
+    let requests = ChatParityServer.requests(host)
+    #expect(!requests.contains { $0.path.hasSuffix("/chat/stream") })
+    #expect(requests.contains { $0.method == "DELETE" && $0.path.contains("agentapp_update_bytes_") })
+    #expect(bot.installedSkills.isEmpty)
+}
+
+@Test @MainActor func failedTransferCannotReuseAnOlderSuccessfulStatusForTheSameBundle() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let (store, bot, _) = stagedStore(source: source, status: try stagedStatus(package), stageOK: false)
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(bot.installedSkills.isEmpty)
+    #expect(store.errorMessage?.contains("unconfirmed") == true)
+    #expect(store.boxInstallTransport.status[store.connection(of: bot)]?.state == "failed")
+}
+
+@Test @MainActor func updaterFailuresReachTheUserAndCacheWithoutAcceptingStaleSuccess() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let rejected = try stagedStatus(package, verdict: "reject", reason: "blob_hash_mismatch")
+    let deferred = try stagedStatus(package, state: "deferred", detail: "default deferred: code job running")
+    let lock = #"{"state":"deferred","detail":"another swarmhub-update run is active"}"#
+    for (diagnostic, code, state, reason) in [
+        (rejected, 65, "failed", "blob_hash_mismatch"),
+        (deferred, 75, "deferred", "code job running"),
+        (lock, 75, "deferred", "another swarmhub-update run is active")
+    ] {
+        let (store, bot, _) = stagedStore(source: source, status: try stagedStatus(package), stageOK: false,
+                                          stageDiagnostic: diagnostic, stageExit: code)
+        #expect(store.installSkills(for: bot))
+        try await waitUntil { !store.anyTurnRunning }
+        #expect(bot.installedSkills.isEmpty, "the later old successful status cannot confirm this turn")
+        #expect(store.errorMessage?.contains(reason) == true)
+        let cached = try #require(store.boxInstallTransport.status[store.connection(of: bot)])
+        #expect(cached.state == state && cached.detail.contains(reason))
+        #expect(!cached.accepted(package))
+    }
+}
+
+@Test @MainActor func transferFailureKeepsItsReasonAndLastKnownVersionsInTheCache() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let (store, bot, _) = stagedStore(source: source, status: try stagedStatus(package), stageOK: false,
+                                      transferFailure: "transfer part hash mismatch")
+    bot.installedSkills = ["swarmhub-manager": "1.0.0"]
+    store.boxInstallTransport.status[store.connection(of: bot)] = BoxUpdaterStatus.decode(try stagedStatus(package, version: "1.0.0"))
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(store.errorMessage?.contains("Transfer failed: transfer part hash mismatch") == true)
+    await store.refreshInstalledSkills(for: bot)
+    #expect(bot.installedSkills == ["swarmhub-manager": "1.0.0"])
+    #expect(store.boxInstallTransport.status[store.connection(of: bot)]?.state == "failed")
+}
+
+@Test func stagingDiagnosticsRequireThisTransfersPrefixAndNeverEstablishAcceptance() throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let bytes = try JSONSerialization.data(withJSONObject: ["exit_code": 65, "output": try stagedStatus(package)])
+    let output = "SWARMHUB_UPDATER_RESULT:other_" + String(decoding: bytes, as: UTF8.self)
+    #expect(StagedTransfer.failure(output, prefix: "this_", previous: nil) == nil)
+    #expect(!StagedTransfer.completed(output, prefix: "this_"))
+}
+
+@Test @MainActor func transferAndRefreshNamespaceEveryCreatedSessionAndCleanupFindsThem() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    for namespace in ["QA-", AppConstants.selfTestPrefix] {
+        let (store, bot, host) = stagedStore(source: source, status: try stagedStatus(stagedPackage(source)))
+        store.sessionNamespace = namespace
+        #expect(store.installSkills(for: bot))
+        try await waitUntil { !store.anyTurnRunning }
+        await store.refreshStagedSkills(for: bot, onDemand: true)
+        let requests = ChatParityServer.requests(host)
+        let created = requests.compactMap { $0.method == "POST" ? $0.body?["id"] as? String : nil }
+        #expect(!created.isEmpty && created.allSatisfy { $0.hasPrefix(namespace) })
+        let temporary = created.filter { $0.contains("agentapp_update_") }
+        #expect(temporary.contains { $0.contains("agentapp_update_bytes_") })
+        #expect(temporary.contains { $0.contains("agentapp_update_status_") })
+        for id in temporary { #expect(requests.contains { $0.method == "DELETE" && $0.path == "/api/sessions/" + id }) }
+        #expect((store.defaults.stringArray(forKey: "updates.transport.cleanup." + store.connection(of: bot)) ?? []).isEmpty)
+    }
+    #expect(throws: (any Error).self) { try StagedTransfer(stagedPackage(source), namespace: "bad'namespace") }
+}
+
+@Test @MainActor func skillsViewOpensSpendNoTurnsAndExplicitRefreshIsSingleFlightAndCleansUp() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let (store, bot, host) = stagedStore(source: source, status: try stagedStatus(package), holdStatus: true)
+    await store.refreshInstalledSkills(for: bot)
+    await store.refreshInstalledSkills(for: bot)
+    #expect(ChatParityServer.requests(host).isEmpty)
+    let refresh = Task { await store.refreshStagedSkills(for: bot, onDemand: true) }
+    try await waitUntil { ChatParityServer.requests(host).contains { $0.path.hasSuffix("/chat/stream") } }
+    await store.refreshStagedSkills(for: bot, onDemand: true)
+    await refresh.value
+    await store.refreshInstalledSkills(for: bot)
+    #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count == 1)
+    let created = ChatParityServer.requests(host).compactMap { $0.body?["id"] as? String }
+    #expect(created.count == 1)
+    #expect(ChatParityServer.requests(host).contains { $0.method == "DELETE" && $0.path == "/api/sessions/" + created[0] })
+    #expect(store.boxInstallTransport.refreshing.isEmpty)
+    #expect(bot.installedSkills == ["swarmhub-manager": "1.2.0"])
+}
+
+@Test @MainActor func failedStatusRefreshDeletesSessionAndKeepsLastGood() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let (store, bot, host) = stagedStore(source: source, status: nil, down: true)
+    bot.installedSkills = ["swarmhub-manager": "1.2.0"]
+    await store.refreshStagedSkills(for: bot, onDemand: true)
+    #expect(bot.installedSkills == ["swarmhub-manager": "1.2.0"])
+    #expect(ChatParityServer.requests(host).contains { $0.method == "DELETE" && $0.path.contains("agentapp_update_status_") })
+    #expect(store.boxInstallTransport.refreshing.isEmpty)
+}
+
+@Test @MainActor func cancellingStatusRefreshStillCleansItsSession() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let (store, bot, host) = stagedStore(source: source, status: nil, holdStatus: true)
+    let refresh = Task { await store.refreshStagedSkills(for: bot, onDemand: true) }
+    try await waitUntil { ChatParityServer.requests(host).contains { $0.path.hasSuffix("/chat/stream") } }
+    refresh.cancel()
+    await refresh.value
+    #expect(ChatParityServer.requests(host).contains { $0.method == "DELETE" && $0.path.contains("agentapp_update_status_") })
+    #expect(store.boxInstallTransport.refreshing.isEmpty)
+}
+
+@Test @MainActor func interruptedCleanupIsRetriedBeforeAnotherRefresh() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let (store, bot, host) = stagedStore(source: source, status: nil)
+    let key = "updates.transport.cleanup." + store.connection(of: bot)
+    let interrupted = "QA-agentapp_update_bytes_interrupted_0"
+    let oldStatus = AppConstants.selfTestPrefix + "agentapp_update_status_interrupted"
+    store.defaults.set([interrupted, oldStatus], forKey: key)
+    await store.refreshStagedSkills(for: bot, onDemand: true)
+    let requests = ChatParityServer.requests(host)
+    let deleted = try #require(requests.firstIndex { $0.method == "DELETE" && $0.path == "/api/sessions/" + interrupted })
+    let created = try #require(requests.firstIndex { $0.method == "POST" && $0.path == "/api/sessions" })
+    #expect(deleted < created)
+    #expect(requests[..<created].contains { $0.method == "DELETE" && $0.path == "/api/sessions/" + oldStatus })
+    #expect((store.defaults.stringArray(forKey: key) ?? []).isEmpty)
+}
+
+@Test @MainActor func failedCleanupRetainsIDsAndBlocksMoreTemporarySessions() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let (store, bot, host) = stagedStore(source: source, status: nil, cleanupDown: true)
+    let key = "updates.transport.cleanup." + store.connection(of: bot)
+    let interrupted = "QA-agentapp_update_status_interrupted"
+    store.defaults.set([interrupted], forKey: key)
+    await store.refreshStagedSkills(for: bot, onDemand: true)
+    await store.refreshStagedSkills(for: bot, onDemand: true)
+    #expect(store.defaults.stringArray(forKey: key) == [interrupted])
+    #expect(!ChatParityServer.requests(host).contains { $0.method == "POST" })
+    #expect(store.boxInstallTransport.refreshing.isEmpty)
+}

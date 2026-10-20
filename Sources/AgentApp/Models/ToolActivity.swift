@@ -6,7 +6,7 @@ struct ToolEvent: Sendable, Equatable {
     enum Phase: String, Sendable { case started, progress, completed, failed }
     var phase: Phase; var name: String; var preview: String? = nil; var callID: String? = nil
     /// P34: a started step's full command when it runs bot-msg (P41: from the args, else the uncut first line of the
-    /// display text), and an ended step's result (kept for bot-msg steps only).
+    /// display text), or a staged updater command. Results are kept up to 1 MB for all tools.
     var command: String? = nil; var result: String? = nil
 
     static let previewLimit = 80

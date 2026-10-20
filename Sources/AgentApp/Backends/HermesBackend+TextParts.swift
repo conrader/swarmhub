@@ -21,8 +21,7 @@ extension HermesBackend {
 
 /// P27 D9: Hermes tool events as `ToolEvent`s. Previews come only from the display fields Hermes builds for this purpose
 /// (`preview`, `label`, `message`), never from `args`; each is redacted and cut to one short line. P34: `args.command`
-/// is read only when it runs bot-msg (the script reads keys itself, so its command line carries none), and a step's
-/// result is passed on for the bot-msg step it ends.
+/// is retained for bot-msg and staged updater calls. Results are retained up to 1 MB for every tool.
 extension HermesBackend {
     /// `tool.started|progress|completed|failed` on the native session stream (`tool_name` or `tool`, `preview`,
     /// `tool_call_id`/`toolCallId`; a completion with `error`/`is_error` true counts as failed).
@@ -36,7 +35,7 @@ extension HermesBackend {
         }
         let preview = phase == .progress ? nil : ToolEvent.preview(json["preview"] as? String, key: apiKey)
         return ToolEvent(phase: phase, name: name, preview: preview, callID: (json["tool_call_id"] ?? json["toolCallId"]) as? String,
-                         command: phase == .started ? Self.botMessageCommand(json["args"] ?? json["arguments"]) ?? Self.botMessageLine(json["preview"], key: apiKey) : nil,
+                         command: phase == .started ? Self.updaterStatusCommand(json["args"] ?? json["arguments"]) ?? Self.botMessageCommand(json["args"] ?? json["arguments"]) ?? Self.botMessageLine(json["preview"], key: apiKey) : nil,
                          result: phase == .completed || phase == .failed ? Self.toolResult(json) : nil)
     }
 
@@ -45,6 +44,15 @@ extension HermesBackend {
         var object = args as? [String: Any]
         if object == nil, let text = args as? String, let data = text.data(using: .utf8) { object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] }
         guard let command = (object?["command"] ?? object?["cmd"]) as? String, BotMessageCall.mentionsCall(command) else { return nil }
+        return command
+    }
+
+    /// Keep status and bounded staging scripts for exact call binding. Staging carries IDs/hashes, never secrets.
+    static func updaterStatusCommand(_ args: Any?) -> String? {
+        var object = args as? [String: Any]
+        if object == nil, let text = args as? String, let data = text.data(using: .utf8) { object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] }
+        guard let command = (object?["command"] ?? object?["cmd"]) as? String, command.utf8.count <= 32_768,
+              command == StagedInstall.statusCommand || command.hasPrefix("python3 -I -B <<'SWARMHUB_STAGE'\n") else { return nil }
         return command
     }
 
@@ -61,7 +69,7 @@ extension HermesBackend {
     /// An ended step's result text (`result`, `output` or `content`; an object is passed on as JSON).
     static func toolResult(_ json: [String: Any]) -> String? {
         for key in ["result", "output", "content"] {
-            if let text = json[key] as? String { return String(text.prefix(BotMessageCall.textLimit * 2)) }
+            if let text = json[key] as? String { return String(text.prefix(1_048_576)) }
             if let object = json[key] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: object) { return String(decoding: data, as: UTF8.self) }
         }
         return nil

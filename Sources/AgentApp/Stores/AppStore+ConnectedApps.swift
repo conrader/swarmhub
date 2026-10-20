@@ -42,6 +42,10 @@ extension AppStore {
             return try await backend.send(request)
         }
         #endif
+        if request.managementText != nil, let attempt = boxInstallTransport.attempts[bot.id] {
+            guard let hermes = backend as? HermesBackend else { throw StagedInstall.Failure.refused("Hermes byte transport required") }
+            return try await stagedInstallStream(request, transfer: attempt.transfer, target: connection(of: bot), backend: hermes)
+        }
         let workflow = try workflowTools(for: request, bot: bot), appsAllowed = connectionBot(id: bot.id) != nil
         guard appsAllowed || workflow != nil else { return try await backend.send(request) }
         return try await ConnectedAppsChat.stream(request, botID: bot.id, backend: backend, apps: connectedApps, appsAllowed: appsAllowed, workflow: workflow,

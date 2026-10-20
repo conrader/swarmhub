@@ -208,7 +208,7 @@ def _commit(box, command, verified, profiles, hermes, extra=None):
                          "label": verified.label, "verified_at": box.now}, verified.keys, verified.index,
                         verified.manifest_raw)
     st.raise_floors(bundle_version=verified.version)  # the apply starts now, even if code waits for the confirm
-    run = runner.apply_bundle(box, verified)
+    run = runner.apply_bundle(box, verified, rerender=profiles is not None)
     return _finish(box, command, dict({"verdict": "accept", "bundle_version": verified.version,
                                        "refresh": verified.refresh}, **(extra or {})), run, verified, False, hermes)
 

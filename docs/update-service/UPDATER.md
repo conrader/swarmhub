@@ -100,6 +100,14 @@ The state directory holds `floors.json`, `config.json` (`channel`, random `insta
 effective), `pins` (path, sha256, `protected`, roots, checkpoint, revoked IDs), `pin`, `stale`, `last` (this
 command's verdict) and `updater`. `swarmctl update-status` prints the same file read-only.
 
+P4b adds `profiles.<name>.variants`, the coding-order variants recorded after successful rendering, bound to the
+live skill tree's digest. A revert or manual edit invalidates that variant reading. See `STAGED-INSTALL.md` for the
+Mac chunk transport through temporary stock Hermes sessions, fixed updater path, operator record, and staging/terminal-status read-back rules.
+That transport bounds its temporary DB/WAL snapshot to 64 MiB combined and deletes it before invoking the updater;
+failure paths remove the staging folder too. Its diagnostic receipt carries the updater's exact stdout and nonzero
+exit back to the Mac (including lock deferral, which leaves this status file unchanged). The Mac caches the failure
+reason without treating an older successful status as installation confirmation. This changes no updater CLI exits.
+
 ## Pull (P3a)
 
 `swarmhub-update pull` is what the timer runs. It never confirms: code components still stop at `pending_confirm`.
