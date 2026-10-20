@@ -12,6 +12,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/release"))
@@ -193,6 +194,40 @@ class PublishTests(unittest.TestCase):
         blob_path.write_bytes(before[str(blob_path.relative_to(service.repo))])
         service.publish(second, blobs)
         self.assertEqual(service.read("bundles/1.json"), before["bundles/1.json"])
+
+    def test_p0b_invalid_dependencies_are_refused_before_any_write(self):
+        cases = [("swarmhub-manager", "missing-code", "1.0.0"),
+                 ("swarmhub-manager", "swarmhub-manager", "1.0.0"),
+                 ("swarmhub-manager", "swarmhub-coding", "999.0.0"),
+                 ("policy", "swarmhub-coding", "1.0.0")]
+        for populated in (False, True):
+            for dependent, target, minimum in cases:
+                with self.subTest(populated=populated, dependent=dependent, target=target, minimum=minimum):
+                    service = Service(self)
+                    if populated:
+                        service.build_and_publish()
+                    body, blobs = build_bundle.build(version=2, label="x", created=ISSUED, previous=None)
+                    named = {c["name"]: blobs[c["sha256"]] for c in body["components"]}
+                    component = next(c for c in body["components"] if c["name"] == dependent)
+                    component["requires_component"] = [{"name": target, "min_version": minimum}]
+                    raw = sign.envelope(body, [service.signer("TEST-release-1")])
+                    line = {"bundle_version": 2, "manifest_sha256": hashlib.sha256(raw).hexdigest()}
+                    _, release_keys, _ = publish.load_trust(service.repo, service.pins)
+                    with self.assertRaises(p0b.Reject) as caught:
+                        p0b.verify_manifest(raw, line, release_keys, consumer=BOX, now=NOW, revoked=(),
+                                            limits=p0b.DEFAULT_LIMITS)
+                    self.assertEqual((caught.exception.stage, caught.exception.reason),
+                                     ("manifest", "dependency_invalid"))
+                    before = service.snapshot()
+                    paths = sorted(service.repo.rglob("*"))
+                    with patch.object(publish, "write_immutable", wraps=publish.write_immutable) as immutable, \
+                            patch.object(publish, "write_replace", wraps=publish.write_replace) as replace:
+                        with self.assertRaisesRegex(PublishError, "P0b verifier refused manifest: dependency_invalid"):
+                            service.publish(body, named)
+                        immutable.assert_not_called()
+                        replace.assert_not_called()
+                    self.assertEqual(service.snapshot(), before)
+                    self.assertEqual(sorted(service.repo.rglob("*")), paths)
 
     def test_index_lines_seq_and_order(self):
         service = Service(self)

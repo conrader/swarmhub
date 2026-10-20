@@ -246,7 +246,7 @@ class RequiresComponentTests(unittest.TestCase):
         body, _ = tree.build()
         self.assertEqual(tree.by_name(body)["guide"]["requires_component"], [{"name": "tools", "min_version": "1.0.0"}])
 
-    def test_against_previous_only_changes_of_both_need_a_new_declaration(self):
+    def test_changed_data_needs_current_code_but_unchanged_data_keeps_its_minimum(self):
         tree = self.tree()
         tree.component("skill", "guide", requires_component=[{"name": "tools", "min_version": "1.0.0"}])
         v1, _ = tree.build(1)
@@ -254,16 +254,34 @@ class RequiresComponentTests(unittest.TestCase):
         tree.component("tool", "tools", version="1.1.0")
         v2, _ = tree.build(2, previous=v1)  # code alone changed: the data component did not, nothing new to declare
         tree.skill("guide", version="1.1.0", extra={"more.md": ("uses swarmctl 1.1\n", 0o644)})
-        v3, _ = tree.build(3, previous=v2)  # data alone changed: the code it uses is the one already out
+        tree.component("skill", "guide", requires_component=[{"name": "tools", "min_version": "1.1.0"}])
+        v3, _ = tree.build(3, previous=v2)  # data needs 1.1 even if the box has not confirmed bundle 2's code
         tree.file("src/tools/swarmctl", "#!/bin/sh\necho 3\n", 0o755)
         tree.component("tool", "tools", version="1.2.0")
         tree.skill("guide", version="1.2.0")
-        with self.assertRaisesRegex(BuildError, "missing requires_component: guide 1.2.0 uses tools, which changes to "
-                                                "1.2.0"):
-            tree.build(4, previous=v3)  # both changed, the old declaration (>= 1.0.0) is too low
+        with self.assertRaisesRegex(BuildError, "missing requires_component: guide 1.2.0 uses tools 1.2.0"):
+            tree.build(4, previous=v3)  # both changed, the old declaration (>= 1.1.0) is too low
         tree.component("skill", "guide", requires_component=[{"name": "tools", "min_version": "1.2.0"}])
         v4, _ = tree.build(4, previous=v3)
         self.assertEqual(tree.by_name(v4)["guide"]["requires_component"][0]["min_version"], "1.2.0")
+
+    def test_new_data_requires_previously_published_code_at_its_needed_version(self):
+        tree = self.tree()
+        tree.component("skill", "guide", requires_component=[{"name": "tools", "min_version": "1.0.0"}])
+        v1, _ = tree.build(1)
+        tree.file("src/tools/swarmctl", "#!/bin/sh\necho 2\n", 0o755)
+        tree.component("tool", "tools", version="1.1.0")
+        v2, _ = tree.build(2, previous=v1)
+        tree.skill("guide", version="1.1.0", extra={"more.md": ("needs swarmctl 1.1\n", 0o644)})
+        for deps in ([], [{"name": "tools", "min_version": "1.0.0"}]):
+            with self.subTest(deps=deps):
+                tree.component("skill", "guide", requires_component=deps)
+                with self.assertRaisesRegex(BuildError, "missing requires_component: guide 1.1.0 uses tools"):
+                    tree.build(3, previous=v2)
+        tree.component("skill", "guide", requires_component=[{"name": "tools", "min_version": "1.1.0"}])
+        v3, _ = tree.build(3, previous=v2)
+        self.assertEqual(tree.by_name(v3)["guide"]["requires_component"],
+                         [{"name": "tools", "min_version": "1.1.0"}])
 
     def test_invalid_declarations_stop_the_build(self):
         tree = self.tree()

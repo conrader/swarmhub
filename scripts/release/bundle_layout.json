@@ -1,6 +1,6 @@
 {
   "schema": "swarmhub/bundle-layout/1",
-  "note": "What build_bundle.py puts in a bundle. Sources are relative to the repository root. class is derived, never declared. `uses` names code components whose behaviour this data component relies on: when both change, the build refuses unless `requires_component` names that code at its new version. `version` is read from SKILL.md for skills and declared here for the rest.",
+  "note": "What build_bundle.py puts in a bundle. Sources are relative to the repository root. class is derived, never declared. `uses` names code components whose behaviour this data component relies on: whenever this data component changes, the build refuses unless `requires_component` names each used code component at its version in this bundle. `version` is read from SKILL.md for skills and declared here for the rest.",
   "requires": {"updater": ">=1.0"},
   "components": [
     {"kind": "skill", "name": "swarmhub-coding", "targets": ["box"],

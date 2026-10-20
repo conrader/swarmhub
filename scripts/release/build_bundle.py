@@ -18,10 +18,10 @@ file has an exec bit or an extension outside its kind's data list (`skill` .md; 
 `code_bearing` is true exactly when a code component is present.
 
 `requires_component` (decision 2): a data component lists in `uses` the code components it relies on. When the
-data component and a code component it uses both change in this bundle (new, or a different version than the
-previous bundle), the build refuses unless the data component's `requires_component` names that code at its new
-version or higher. Against the previous bundle, changed content needs a higher component version, and a lower
-version is refused (going back is `republish`, never a build).
+data component changes (new, or a different version than the previous bundle), the build refuses unless its
+`requires_component` names each code component it uses at the version in this bundle, even if that code was
+published earlier and may still await confirmation. Against the previous bundle, changed content needs a higher
+component version, and a lower version is refused (going back is `republish`, never a build).
 """
 
 import argparse
@@ -225,7 +225,7 @@ def changed(component, previous):
 
 
 def check_requires_component(components, uses, previous):
-    """Every declared edge is valid, and every edge new data needs on new code is declared (decision 2)."""
+    """Every declared edge is valid, and new data requires the code version it uses (decision 2)."""
     by_name = {c["name"]: c for c in components}
     for component in components:
         for dep in component["requires_component"]:
@@ -243,12 +243,12 @@ def check_requires_component(components, uses, previous):
             code = by_name.get(name)
             if code is None or code["class"] != "code":
                 raise BuildError(f"{component['name']}: uses {name!r}, which is not a code component of this bundle")
-            if component["class"] != "data" or not (changed(component, previous) and changed(code, previous)):
+            if component["class"] != "data" or not changed(component, previous):
                 continue
             declared = [d for d in component["requires_component"] if d["name"] == name]
             if not declared or _vt(declared[0]["min_version"]) < _vt(code["version"]):
                 raise BuildError(f"missing requires_component: {component['name']} {component['version']} uses "
-                                 f"{name}, which changes to {code['version']} in this bundle; declare "
+                                 f"{name} {code['version']} in this bundle; declare "
                                  f'{{"name": "{name}", "min_version": "{code["version"]}"}} in the layout')
 
 

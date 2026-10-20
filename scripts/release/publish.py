@@ -204,6 +204,7 @@ def publish_body(repo, body, blobs, *, signer, pins_bytes, channel, issued, expi
     check_release_signer(signer, pins, release_keys, issued)
     try:
         p0b.check_bundle(body)
+        p0b.check_dependencies(body)
     except p0b.Reject as error:
         raise _reject(error) from error
     version = body["version"]
