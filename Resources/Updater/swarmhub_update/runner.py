@@ -105,14 +105,37 @@ def _apply_now(box, verified, now, waiting, comps):
             if wanted:
                 targets.append(stage.Profile(entry["name"], entry["coding_order"] or render.STANDARD_ORDER,
                                              tuple(sorted(wanted))))
-        if targets:
-            for result in apply.apply(box.hermes_home, box.state.root, [loaded[n] for n in sorted(loaded)], template,
-                                      targets, max_wait=box.max_wait, poll=box.poll):
-                results[result.profile] = result
+    # Settle preparation failures before passing anything to the engine: adjusting records after a swap
+    # cannot undo dependent data that already landed. Include held/dropped skills and transitive edges.
+    targeted = {name for p in targets for name in p.skills}
+    unavailable = set(errors) | set(held) | (set(loaded) - targeted)
+    ready = policy.settle(now, names_now - unavailable, comps)
+    while True:  # A dependency also has to be eligible in each profile that would install its data.
+        blocked = set()
+        for target in targets:
+            available = ready - (set(loaded) - set(target.skills))
+            allowed = policy.settle(now, available, comps)
+            blocked |= (set(target.skills) & ready) - allowed
+        if not blocked:
+            break
+        ready = policy.settle(now, ready - blocked, comps)
+    for name in names_now - unavailable - ready:
+        errors[name] = "held: required component unavailable before install"
+    loaded = {name: skill for name, skill in loaded.items() if name not in names_now or name in ready}
+    eligible = []
+    for target in targets:
+        wanted = tuple(n for n in target.skills if n in loaded)
+        if wanted:
+            eligible.append(stage.Profile(target.name, target.coding_order, wanted))
+    targets = eligible
+    if targets:
+        for result in apply.apply(box.hermes_home, box.state.root, [loaded[n] for n in sorted(loaded)], template,
+                                  targets, max_wait=box.max_wait, poll=box.poll):
+            results[result.profile] = result
     succeeded = set()
     for component in now:
         name = component["name"]
-        if name in errors or name in held:
+        if name not in ready:
             continue
         if component["kind"] == "skill" and not all(results[p.name].status in GOOD
                                                      for p in targets if name in p.skills):

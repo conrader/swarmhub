@@ -247,8 +247,10 @@ def recover(category, state_dir=None, profile=None):
                 _record(state_dir, profile, journal.get("status", "applied"), "committed transaction recovered",
                         journal.get("versions"), reload)
             except OSError as error:
-                raise RecoveryPending("committed update awaits recovery on the next run: %s" % error,
-                                      journal.get("versions"), reload) from error
+                saved = reload and state_dir is not None and profile is not None and _persist_reload(state_dir, profile)
+                raise RecoveryPending("committed update awaits recovery on the next run: %s%s" %
+                                      (error, "; reload_pending not saved" if reload and not saved else ""),
+                                      journal.get("versions"), bool(saved)) from error
         elif journal is not None:
             try:
                 for entry in reversed(journal["entries"]):
@@ -258,8 +260,11 @@ def recover(category, state_dir=None, profile=None):
                         and not _persist_reload(state_dir, profile):
                     raise OSError(errno.EIO, "reload_pending could not be saved")
             except OSError as error:
-                raise RecoveryPending("rollback awaits recovery on the next run: %s" % error,
-                                      reload_pending=True) from error
+                saved = journal.get("reload_pending") and state_dir is not None and profile is not None \
+                    and _persist_reload(state_dir, profile)
+                raise RecoveryPending("rollback awaits recovery on the next run: %s%s" %
+                                      (error, "; reload_pending not saved" if journal.get("reload_pending")
+                                       and not saved else ""), reload_pending=bool(saved)) from error
         _discard(txn)
     return len(names)
 
@@ -347,8 +352,10 @@ def _swap_in(hermes_home, state_dir, category, txn, entries, profile, deadline, 
                 _undo_entry(category, txn, entry, entry["skill"] in swapped)
             _discard(txn)
         except OSError as undo_error:
-            raise RecoveryPending("swap failed (%s); rollback incomplete (%s), the next run finishes it" %
-                                  (error, undo_error), reload_pending=True) from undo_error
+            saved = staged_reload and _persist_reload(state_dir, profile)
+            raise RecoveryPending("swap failed (%s); rollback incomplete (%s), the next run finishes it%s" %
+                                  (error, undo_error, "; reload_pending not saved" if staged_reload and not saved
+                                   else ""), reload_pending=saved) from undo_error
         return _record(state_dir, profile, "failed", "swap failed, current restored: %s" % error)
     reload = any(e["skill"] == MESSAGES_SKILL for e in entries)
     try:

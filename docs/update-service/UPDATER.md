@@ -41,7 +41,8 @@ index. That is a refresh, used to renew an expired index for a bundle whose code
   `floors.json` therefore never goes below the checkpoint, and a revoked key stays refused with no state at all.
 - The stored bundle is re-verified on every use, because the state is bot-writable. That covers signatures, revocation,
   key `not_after` and index `expires` against the system clock, a line still listed, compatible and in rollout, and
-  blob hashes. Its index `seq` is bounded by the checkpoint, because a newer index may no longer list it. A newer
+  blob hashes. Its index `seq` must meet max(checkpoint, state); a newer signed index that withdraws the bundle
+  therefore prevents an older stored index from authorizing its pending code. A newer
   verified key manifest replaces the stored one, and a newer index replaces the stored index when it still lists the
   same manifest.
 - A local pin never lowers a floor.
@@ -62,8 +63,9 @@ Per component (`policy.py`):
   records the version and the manifest SHA-256. A different signed manifest with the same version is not covered.
 - Data waits when a `requires_component` edge, direct or through other components, leads to waiting code at a version
   the box has not applied.
-- A confirm applies the waiting code and data in one run. Data counts as applied only if the code it needs applied
-  too.
+- A confirm applies the waiting code and data in one run. Failed, held or dropped components block dependent data
+  before installation, including through transitive dependencies. Data counts as applied only if the code it needs
+  applied too.
 - Re-applying the identical archive the box already applied, for example after `pin previous` is cleared, is not new
   code.
 

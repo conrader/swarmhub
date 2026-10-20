@@ -99,12 +99,6 @@ def _persist_progress(st, progress, stored):
                 st.refresh_bundle(meta["bundle_version"], index=raw)
 
 
-def _stored_floors(box):
-    floors = pinfile.effective_floors(box.pins.checkpoint, box.state.floors())
-    # The stored index was checked against the floor when it was stored; only the checkpoint bounds it now.
-    return dict(floors, index_seq=box.pins.checkpoint["index_seq"])
-
-
 def verify_stored(box, consumer, config):
     stored = box.state.latest()
     if stored is None:
@@ -120,7 +114,7 @@ def verify_stored(box, consumer, config):
             raise OSError("stored blob %s missing or altered" % component["sha256"])
         return data
     return bundle.run(lambda: keys, lambda: index, lambda line: manifest, blob, pins=box.pins,
-                      floors=_stored_floors(box), now=box.now, channel=config["channel"], consumer=consumer,
+                      floors=floors, now=box.now, channel=config["channel"], consumer=consumer,
                       install_id=config.get("install_id", ""), stored_version=meta["bundle_version"])
 
 

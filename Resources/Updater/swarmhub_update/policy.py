@@ -63,8 +63,8 @@ def split(components, applied, confirmed):
 
 
 def settle(now, succeeded, applied):
-    """Names in `now` that count as applied: their own apply succeeded and nothing they need from this run
-    failed (a data component never lands without the code it waits for)."""
+    """Keep names whose dependencies are available, to a fixed point. Used before installation for prepared
+    candidates, and afterward for successful results; an already applied dependency can satisfy an edge."""
     by_name = {c["name"]: c for c in now}
     ok = {c["name"] for c in now if c["name"] in succeeded}
     shrank = True
