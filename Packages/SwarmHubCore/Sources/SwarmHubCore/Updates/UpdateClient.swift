@@ -136,7 +136,7 @@ public actor UpdateClient {
         let now = Self.timestamp(clock())
         if state.pin?.mode == .previous { return status(state: state, now: now) }
         let original = state
-        state.pin = UpdatePin(mode: mode, at: now, bundleVersion: state.bundleVersion)
+        state.pin = UpdatePin(mode: mode, at: now, bundleVersion: store.record()?.bundleVersion ?? 0)
         state.restoreBundle = nil
         // The hold is written first: an interruption leaves a held store, never an unheld revert.
         try store.saveState(state)
@@ -151,7 +151,7 @@ public actor UpdateClient {
 
     /// Releases the pin and checks at once, as `swarmhub-update pin clear` runs `check`. A newer bundle the check
     /// accepts becomes current. Otherwise, after `pin(.previous)`, the bundle it swapped away from is current again
-    /// when it is still the one at the bundle floor (verified when stored, re-hashed on every read).
+    /// (verified when stored, re-hashed on every read). A failed apply may have raised the floor above that bundle.
     @discardableResult
     public func clearPin() async throws -> UpdateCheckResult {
         await settle()
@@ -165,13 +165,17 @@ public actor UpdateClient {
     }
 
     /// The second half of `clearPin` (also after an interruption): with nothing newer applied and no new pin, the
-    /// bundle pinned away from becomes current again while it is still at the floor and in `previous`.
+    /// bundle pinned away from becomes current again while it is still in `previous`, even below the floor.
     private func restoreAfterClear(_ state: inout UpdateState, verdict: UpdateVerdict) {
         guard let restore = state.restoreBundle, state.pin == nil else { return }
-        if verdict.verdict != "accept", restore == state.bundleVersion, store.record(.previous)?.bundleVersion == restore,
-           store.record(.current)?.bundleVersion != restore {
-            guard (try? store.revertToPrevious()) != nil else { return }  // kept for the next check
+        if verdict.verdict == "accept" || (store.record()?.bundleVersion ?? 0) >= restore {
+            // Also covers a kill after either the restore or a newer apply switched current, before state saved.
+            state.restoreBundle = nil
+            return
         }
+        // Missing or temporarily unreadable recovery content must not discard the durable intent to restore it.
+        guard store.record(.previous)?.bundleVersion == restore,
+              (try? store.revertToPrevious()) != nil else { return }
         state.restoreBundle = nil
     }
 

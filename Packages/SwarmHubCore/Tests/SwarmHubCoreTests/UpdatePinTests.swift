@@ -110,6 +110,72 @@ struct UpdatePinTests {
         #expect(try store.loadState()?.restoreBundle == nil)
     }
 
+    /// Apply 12 fails after its floor write: current 11, previous 10, floor/pending 12. Pinning must record 11.
+    /// Exercise kills before the pin swap, before the clear's check, and after restoration but before state saves.
+    @Test(arguments: ["none", "beforePinSwap", "beforeClearCheck", "afterRestoreSwitch"])
+    func failedApplyPinClearsOfflineWithoutLosingTheRecoverableBundle(_ interruption: String) async throws {
+        var store = UpdateFixtures.temporaryStore()
+        defer { cleanup(store) }
+        try store.commit(UpdateFixtures.synthetic(10))
+        _ = await check(store)
+        store.beforeSwitch = { throw UpdateStoreError.storage }
+        #expect(await check(store, offering(12, seq: 6)).verdict.reason == "storage_error")
+        #expect(try floors(store) == [2, 6, 12])
+        #expect(store.record()?.bundleVersion == 11 && store.record(.previous)?.bundleVersion == 10)
+        let offline: [String: Reply] = ["/keys.json": .fail(.cannotConnectToHost)]
+        if interruption == "beforePinSwap" {
+            var state = try #require(try store.loadState())
+            state.pin = UpdatePin(mode: .previous, at: UpdateClient.timestamp(TestClock().now), bundleVersion: 11)
+            try store.saveState(state)
+        } else {
+            let pinned = try await withClient(store) { try await $0.pin(.previous) }
+            #expect(pinned.pin?.bundleVersion == 11 && pinned.current?.bundleVersion == 10)
+            #expect(pinned.previous?.bundleVersion == 11)
+        }
+        if interruption == "beforeClearCheck" {
+            var state = try #require(try store.loadState())
+            state.restoreBundle = state.pin?.bundleVersion
+            state.pin = nil
+            try store.saveState(state)
+        }
+        if interruption == "afterRestoreSwitch" {
+            store.beforeStateWrite = { state in
+                if state.pin == nil && state.restoreBundle == nil { throw UpdateStoreError.storage }
+            }
+        }
+        let cleared = try await withClient(store, offline) { try await $0.clearPin() }
+        #expect(cleared.verdict.stage == "fetch" && cleared.status.pin == nil)
+        #expect(cleared.status.current?.bundleVersion == 11 && cleared.status.previous?.bundleVersion == 10)
+        if interruption == "afterRestoreSwitch" { #expect(try store.loadState()?.restoreBundle == 11) }
+        // A fresh client completes any remaining intent and never swaps back to 10 after a kill.
+        _ = await check(UpdateStore(root: store.root), offline)
+        #expect(store.record()?.bundleVersion == 11 && store.record(.previous)?.bundleVersion == 10)
+        #expect(store.component("policy", in: .previous) == UpdateFixtures.synthetic(10).blobs["policy"])
+        #expect(try store.loadState()?.restoreBundle == nil)
+        #expect(try store.loadState()?.pendingBundle == 12)
+        #expect(try floors(store) == [2, 6, 12])
+    }
+
+    @Test func unavailableRestoreKeepsItsMarkerUntilRecoveryCanFinish() async throws {
+        let store = UpdateFixtures.temporaryStore()
+        defer { cleanup(store) }
+        try store.commit(UpdateFixtures.synthetic(10))
+        _ = await check(store)
+        _ = try await withClient(store) { try await $0.pin(.previous) }
+        let record = try #require(store.record(.previous))
+        let recordURL = store.root.appendingPathComponent("versions/\(UpdateStore.versionID(record))/record.json")
+        let bytes = try Data(contentsOf: recordURL)
+        try FileManager.default.removeItem(at: recordURL)
+        let offline: [String: Reply] = ["/keys.json": .fail(.cannotConnectToHost)]
+        _ = try await withClient(store, offline) { try await $0.clearPin() }
+        #expect(store.record()?.bundleVersion == 10)
+        #expect(try store.loadState()?.restoreBundle == 11)
+        try bytes.write(to: recordURL)
+        _ = await check(store, offline)
+        #expect(store.record()?.bundleVersion == 11 && store.record(.previous)?.bundleVersion == 10)
+        #expect(try store.loadState()?.restoreBundle == nil)
+    }
+
     @Test func pinCurrentHoldsUntilCleared() async throws {
         let store = UpdateFixtures.temporaryStore()
         defer { cleanup(store) }

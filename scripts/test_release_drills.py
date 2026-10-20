@@ -14,6 +14,7 @@ os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent / "release"))
 
 import drill  # noqa: E402
+import drill_world  # noqa: E402
 import republish  # noqa: E402
 
 
@@ -45,6 +46,57 @@ class DrillTests(unittest.TestCase):
             error, _ = self.run_drill("rollforward")
         self.assertIn("rebuilt instead of republished", error or "")
         self.assertIs(republish.republish, real)
+
+
+class AppPinRecoveryTests(unittest.TestCase):
+    def app_after_failed_apply(self):
+        app = drill_world.App("failed-apply", b"", "canary", "test-install")
+        # Apply 12 wrote its floor but failed before switching the installed bundles.
+        app.floors.update(keys_version=2, index_seq=6, bundle_version=12)
+        app.current = {"bundle_version": 11, "blobs": {"policy": b"eleven"}}
+        app.previous = {"bundle_version": 10, "blobs": {"policy": b"ten"}}
+        return app
+
+    def offline(self):
+        fetcher = mock.Mock()
+        fetcher.get.side_effect = drill_world.fetch.FetchError("unreachable", "http://127.0.0.1:1/keys.json")
+        return mock.patch.object(drill_world, "loopback_fetcher", return_value=fetcher)
+
+    def test_failed_apply_pin_clears_offline_and_keeps_ten_recoverable(self):
+        for interruption in ("none", "beforePinSwap", "beforeClearCheck", "afterRestoreSwitch"):
+            with self.subTest(interruption=interruption), self.offline():
+                app = self.app_after_failed_apply()
+                app.pin_previous()
+                self.assertEqual(app.pin, {"mode": "previous", "at": drill_world.NOW, "bundle_version": 11})
+                self.assertEqual(app.current["bundle_version"], 10)
+                if interruption == "beforePinSwap":
+                    app.current, app.previous = app.previous, app.current
+                elif interruption in ("beforeClearCheck", "afterRestoreSwitch"):
+                    app.restore_bundle, app.pin = app.pin["bundle_version"], None
+                    if interruption == "afterRestoreSwitch":
+                        app.current, app.previous = app.previous, app.current
+                self.assertEqual(app.clear_pin("http://127.0.0.1:1/")["stage"], "fetch")
+                self.assertEqual(app.current["bundle_version"], 11)
+                self.assertEqual(app.previous, {"bundle_version": 10, "blobs": {"policy": b"ten"}})
+                self.assertIsNone(app.pin)
+                self.assertIsNone(app.restore_bundle)
+                self.assertEqual(app.floors, {"keys_version": 2, "index_seq": 6, "bundle_version": 12})
+                app.check("http://127.0.0.1:1/")
+                self.assertEqual(app.current["bundle_version"], 11)
+
+    def test_missing_restore_keeps_the_marker_for_a_later_check(self):
+        app = self.app_after_failed_apply()
+        app.pin_previous()
+        saved, app.previous = app.previous, None
+        with self.offline():
+            app.clear_pin("http://127.0.0.1:1/")
+            self.assertEqual(app.current["bundle_version"], 10)
+            self.assertEqual(app.restore_bundle, 11)
+            app.previous = saved
+            app.check("http://127.0.0.1:1/")
+        self.assertEqual(app.current["bundle_version"], 11)
+        self.assertEqual(app.previous["bundle_version"], 10)
+        self.assertIsNone(app.restore_bundle)
 
 
 if __name__ == "__main__":

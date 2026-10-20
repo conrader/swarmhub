@@ -55,7 +55,7 @@ public struct UpdateState: Codable, Equatable, Sendable {
 
 /// A choice this device makes (CORE-PLAN §2.2): `previous` swaps back to the previous bundle and holds there,
 /// `current` holds the current one. It never lowers a floor. The shape matches the box's `applied.json` `pin`
-/// (`swarmhub-update pin`, UPDATER.md): `{mode, at, bundle_version}`, the bundle floor when pinned.
+/// (`swarmhub-update pin`, UPDATER.md): `{mode, at, bundle_version}`, the installed bundle when pinned (before swap).
 public struct UpdatePin: Codable, Equatable, Sendable {
     public enum Mode: String, Codable, Sendable { case previous, current }
     public let mode: Mode

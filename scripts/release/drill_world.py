@@ -295,6 +295,7 @@ class App:
         self.consumer = {"platform": platform, "versions": dict(APP_VERSIONS)}
         self.floors = {"keys_version": 0, "index_seq": 0, "bundle_version": 0}
         self.current = self.previous = self.pin = None
+        self.restore_bundle = None
 
     def _raise(self, **values):
         for key, value in values.items():
@@ -317,7 +318,7 @@ class App:
                 fetch_manifest=lambda line: fetcher.get(url + "bundles/%d.json" % line["bundle_version"], limit),
                 fetch_blob=lambda c: fetcher.get(url + "blobs/sha256/" + c["sha256"], c["size"]))
         except fetch.FetchError as error:
-            return {"verdict": "reject", "stage": "fetch", "reason": error.reason}
+            return self._restore_after_clear({"verdict": "reject", "stage": "fetch", "reason": error.reason})
         seq = jcs.loads(index)["signed"]["seq"] if result["verdict"] != "reject" else 0
         if result["verdict"] == "accept" and self.pin is None:
             self._raise(index_seq=seq, bundle_version=result["bundle_version"])
@@ -327,21 +328,31 @@ class App:
             self._raise(index_seq=seq)
             if result["verdict"] == "accept":
                 result = {"verdict": "no_update", "stage": "pin", "reason": "pinned"}
-        return {k: v for k, v in result.items() if k not in ("manifest", "blobs")}
+        return self._restore_after_clear({k: v for k, v in result.items() if k not in ("manifest", "blobs")})
+
+    def _restore_after_clear(self, result):
+        if self.restore_bundle is not None and self.pin is None:
+            current = self.current["bundle_version"] if self.current else 0
+            if result["verdict"] == "accept" or current >= self.restore_bundle:
+                self.restore_bundle = None
+            elif self.previous and self.previous["bundle_version"] == self.restore_bundle:
+                self.current, self.previous = self.previous, self.current
+                self.restore_bundle = None
+        return result
 
     def pin_previous(self):
-        if self.pin == "previous":
+        if self.pin and self.pin["mode"] == "previous":
             return  # already swapped (UpdateClient.pin)
         check(self.previous is not None, "%s: nothing to pin back to" % self.name)
+        self.pin = {"mode": "previous", "at": NOW,
+                    "bundle_version": self.current["bundle_version"] if self.current else 0}
+        self.restore_bundle = None
         self.current, self.previous = self.previous, self.current
-        self.pin = "previous"
 
     def clear_pin(self, url):
         """Release the hold and check (UpdateClient.clearPin). Without a newer accepted bundle, after `pin previous`,
-        the bundle at the floor (the one pinned away from) is current again."""
-        was, self.pin = self.pin, None
-        result = self.check(url)
-        if result["verdict"] != "accept" and was == "previous" and self.previous \
-                and self.previous["bundle_version"] == self.floors["bundle_version"]:
-            self.current, self.previous = self.previous, self.current
-        return result
+        the installed bundle pinned away from is current again, even if a failed apply raised the floor."""
+        if self.pin is not None:
+            self.restore_bundle = self.pin["bundle_version"] if self.pin["mode"] == "previous" else None
+            self.pin = None
+        return self.check(url)

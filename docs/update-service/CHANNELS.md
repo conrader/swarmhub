@@ -37,7 +37,8 @@ python3 scripts/release/channels.py rollout canary --version N --percent P --rep
   checks verify the chain and raise the key and index floors but store nothing (verdict `no_update`, stage `pin`,
   reason `pinned`), and the bundle floor stays, so the held bundle can still be applied later. `clearPin()` releases
   the hold and checks at once: a newer verified bundle becomes current; otherwise, after `pin(.previous)`, the bundle
-  pinned away from is current again when it is still the one at the floor. That second half is driven by the
+  pinned away from is current again when it is still in `previous`, even if a failed apply raised the floor above
+  it. The pin records the installed bundle before the swap. That second half is driven by the
   persisted `restore_bundle`, so a kill between the clear and its check is completed by the next check. Once pinned
   to `previous`, a further pin of either mode changes nothing. No pin lowers a floor. No Mac UI calls it yet (P6b).
 
