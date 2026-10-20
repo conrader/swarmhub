@@ -89,8 +89,7 @@ struct SwarmHubSkillRows: View {
         Text("Instructions \(AppConstants.name) installs into this bot’s own profile, so it follows them instead of improvising. Hermes itself is not changed.")
             .font(.caption).foregroundStyle(.secondary)
         if store.usesStagedSkills(on: store.connection(of: bot)) {
-            Button("Refresh from updater") { Task { await store.refreshStagedSkills(for: bot, onDemand: true) } }
-                .disabled(!store.managerIdle(for: bot))
+            BoxUpdateView(bot: bot)
         }
     }
 }
