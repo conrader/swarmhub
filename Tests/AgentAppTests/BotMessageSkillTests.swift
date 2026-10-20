@@ -10,14 +10,14 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
 
 @Test func messagesSkillShipsWithItsScript() throws {
     let skill = try messagesSkill()
-    #expect(skill.version == SkillVersion("1.3.10")!)
+    #expect(skill.version == SkillVersion("1.4.0")!)
     let fields = SkillLibrary.frontmatter(skill.template)
     #expect(fields["author"] == "SwarmHub" && skill.template.contains("metadata:\n  swarmhub:\n    source: swarmhub"))
     let description = try #require(fields["description"])
     #expect(description.hasPrefix("Use for any message to another bot") && description.contains("supersedes `hermes -p … chat` and peer commands")
             && description.hasSuffix("Installed by SwarmHub, v{{VERSION}}."))
     let script = try #require(skill.files.first { $0.path == "scripts/bot-msg" })
-    #expect(skill.files.map(\.path) == ["scripts/bot-msg", "scripts/peer-runtime.py", "scripts/swarm_control.py", "scripts/swarm_delivery.py", "scripts/swarm_intake.py", "scripts/swarm_jobs.py", "scripts/swarm_policy.py", "scripts/swarm_remote.py", "scripts/swarm_store.py", "scripts/swarm_webhook.py", "scripts/swarmctl"] && script.isExecutable && script.content.hasPrefix("#!/bin/sh\n"))
+    #expect(skill.files.map(\.path) == ["scripts/bot-msg", "scripts/peer-runtime.py", "scripts/swarm_control.py", "scripts/swarm_delivery.py", "scripts/swarm_device_approvals.py", "scripts/swarm_device_state.py", "scripts/swarm_devices.py", "scripts/swarm_ed25519.py", "scripts/swarm_intake.py", "scripts/swarm_jcs.py", "scripts/swarm_jobs.py", "scripts/swarm_policy.py", "scripts/swarm_remote.py", "scripts/swarm_store.py", "scripts/swarm_webhook.py", "scripts/swarmctl"] && script.isExecutable && script.content.hasPrefix("#!/bin/sh\n"))
     #expect(script.content.range(of: #"(?m)(^|[;&|(]|then|do)\s*(timeout|flock|setsid|local|jq)\s"#, options: .regularExpression) == nil)
     // (awk's own `function` lines are fine; a shell `function name` at the start of a line is not.)
     #expect(script.content.range(of: #"(?m)^function "#, options: .regularExpression) == nil)
@@ -38,7 +38,7 @@ private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComp
     #expect(rendered.contains("--no-wait") && rendered.contains("Report what the other bot said"))
     // P42 9: a late reply arrives as a new message; it is never answered back or sent on.
     #expect(rendered.contains("[Reply from <bot> via SwarmHub]") && rendered.contains("Do not answer\nit back to that bot"))
-    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.3.10")
+    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.4.0")
     let main = try #require(SkillLibrary.render(skill, forProfile: "default", managerTemplate: nil, codingOrder: .standard))
     #expect(main.contains("~/.hermes/skills/swarmhub/swarmhub-messages/scripts/bot-msg --from default --to"))
 }

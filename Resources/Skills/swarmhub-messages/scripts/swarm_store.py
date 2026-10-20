@@ -79,6 +79,13 @@ def database():
           CREATE TABLE IF NOT EXISTS approval_receipts(task TEXT PRIMARY KEY, binding TEXT NOT NULL,
             approved INTEGER NOT NULL, receipt TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS approval_nonces(nonce TEXT PRIMARY KEY, digest TEXT NOT NULL, expires REAL NOT NULL);
+          CREATE TABLE IF NOT EXISTS approval_devices(key_id TEXT PRIMARY KEY, public TEXT NOT NULL,
+            profiles TEXT NOT NULL, revoked INTEGER NOT NULL, enrolled INTEGER NOT NULL, label TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS approval_mode(id INTEGER PRIMARY KEY CHECK(id=1), required INTEGER NOT NULL,
+            changed INTEGER NOT NULL);
+          CREATE TABLE IF NOT EXISTS approval_challenges(nonce TEXT PRIMARY KEY, key_id TEXT NOT NULL,
+            task TEXT NOT NULL, issued INTEGER NOT NULL, expires INTEGER NOT NULL, used INTEGER NOT NULL,
+            binding TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS webhooks(profile TEXT, routine TEXT, slug TEXT, key_file TEXT,
             created REAL, rotated REAL, fired INTEGER DEFAULT 0, PRIMARY KEY(profile,routine));
         """)

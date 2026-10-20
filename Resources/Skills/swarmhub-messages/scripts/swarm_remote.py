@@ -3,6 +3,11 @@
 Run behind the existing Hermes TLS reverse proxy on a loopback-only port. Keys
 are resolved from the existing profile .env on each request, never copied. The
 public origin is operator configuration, never inferred from forwarded headers.
+
+v1 (shared-key Bearer + HMAC) lives here. v2 device-signed approvals are in
+swarm_device_approvals (`/swarmhub/control/v2/<profile>/<verb>`). Once a box is
+device-required (swarm_devices.py, an operator action), every v1 request is
+refused before any v1 authentication; there is no flag or setting that re-opens it.
 """
 import base64
 import hashlib
@@ -16,12 +21,14 @@ import time
 from urllib.parse import urlsplit
 import uuid
 
+from swarm_device_approvals import DeviceApprovals, v1_allowed
 from swarm_policy import decide_in_transaction, policy
 from swarm_store import NAME, canonical, database, profile_exists
 
 LIMIT = 1024 * 1024
 TTL = 60
 PREFIX = "/swarmhub/control/v1/"
+PREFIX_V2 = "/swarmhub/control/v2/"
 
 
 def origin_url(value):
@@ -76,6 +83,7 @@ class ControlService:
         with database() as db:
             db.execute("INSERT OR IGNORE INTO approval_runtime VALUES(1,?)", (str(uuid.uuid4()),))
             self.runtime = db.execute("SELECT identity FROM approval_runtime WHERE id=1").fetchone()[0]
+        self.devices = DeviceApprovals(self.origin, wake)
 
     def response(self, key, digest, request, **result):
         payload = canonical({"request": digest, "expires": request["expires"], **result}).encode()
@@ -92,6 +100,9 @@ class ControlService:
         profile = path[len(PREFIX):]
         if not NAME.fullmatch(profile):
             raise ValueError("invalid profile")
+        with database() as db:
+            if not v1_allowed(db):  # Before any v1 authentication; a correct HMAC cannot pass either.
+                raise ValueError("device_required")
         key = profile_key(profile)  # Rotation takes effect without restarting this service.
         if (not hmac.compare_digest(authorization, "Bearer " + key)
                 or not hmac.compare_digest(signature, mac(key, "request", raw))):
@@ -114,6 +125,8 @@ class ControlService:
         digest = hashlib.sha256(raw).hexdigest()
         with database() as db:
             db.execute("BEGIN IMMEDIATE")
+            if not v1_allowed(db):  # Re-read under the lock: a cutover during this request wins.
+                raise ValueError("device_required")
             row = db.execute("SELECT * FROM actions WHERE id=?", (request["task"],)).fetchone()
             if not row:
                 if verb == "get":
@@ -177,6 +190,13 @@ class ControlService:
                 print("swarm_remote: worker wake failed after a recorded decision", file=sys.stderr)
         return self.response(key, digest, request, record=record)
 
+    def handle_v2(self, path, raw):
+        """Device-signed requests: (status, object). No shared key is read on this path."""
+        rest = path[len(PREFIX_V2):].split("/") if path.startswith(PREFIX_V2) else []
+        if len(rest) != 2 or len(raw) > LIMIT:
+            return 403, {"error": "control request refused", "reason": "schema_invalid"}
+        return self.devices.handle(rest[0], rest[1], raw)
+
 
 def handler(service):
     class Handler(BaseHTTPRequestHandler):
@@ -195,13 +215,15 @@ def handler(service):
                 raw = self.rfile.read(size)
                 if len(raw) != size:
                     raise ValueError("incomplete body")
-                result = service.handle(self.path, self.headers.get("Authorization", ""),
-                                        self.headers.get("X-SwarmHub-Signature", ""), raw)
+                if self.path.startswith(PREFIX_V2):
+                    status, result = service.handle_v2(self.path, raw)  # Never falls through to v1.
+                else:
+                    status, result = 200, service.handle(self.path, self.headers.get("Authorization", ""),
+                                                         self.headers.get("X-SwarmHub-Signature", ""), raw)
                 data = canonical(result).encode()
-                self.send_response(200)
             except Exception:  # Any failure (sqlite lock, deep JSON recursion) is a deterministic refusal.
-                data = b'{"error":"control request refused"}'
-                self.send_response(403)
+                status, data = 403, b'{"error":"control request refused"}'
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(data)))

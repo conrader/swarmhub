@@ -13,6 +13,7 @@ import time
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import swarm_device_state as ds
 from swarm_store import canonical, database, invoking_profile, profile_exists, state
 
 SIDE_EFFECT_KINDS = ("read", "outbound", "provision", "money", "prod", "secrets")
@@ -316,6 +317,8 @@ def decide(ident, actor, approved, fingerprint=None, gate=None):
     cannot approve by naming the owner on its command line. Profiles share one
     Unix account, so this is a gateway-identity check plus an audit trail
     (actor, pid, time on the record), not authentication against a hostile shell.
+    Unsigned local decisions are refused on device-required boxes; use the v2
+    device verifier instead. Corrupt enrollment state also fails closed.
     """
     caller = invoking_profile()
     if not caller:
@@ -324,6 +327,8 @@ def decide(ident, actor, approved, fingerprint=None, gate=None):
         raise ValueError("actor does not match the invoking gateway profile")
     with database() as db:
         db.execute("BEGIN IMMEDIATE")
+        ds.devices(db)
+        ds.require(not ds.device_required(db), "device_required")
         decide_in_transaction(db, ident, actor, approved, fingerprint, gate)
 
 
