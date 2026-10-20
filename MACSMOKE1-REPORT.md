@@ -274,3 +274,83 @@ cd /tmp/qm6 && sh sim/mac-codex-tmp-smoke.sh
 ```sh
 cd /tmp/qm6 && sh sim/mac-codex-tmp-smoke.sh
 ```
+
+## mactest1 (e60dc3d + uncommitted)
+
+**Symptom.** In the MacBook's full Python run (`/usr/bin/python3` 3.9.6, macOS 26.6.2, `/tmp/qm6`), all 14 `SmokeStubTests` records failed on the same line: `['Library'] != [] : outside dir left in HOME`. Every other assertion before it passed, including the empty `$TMPDIR`, so the smoke had already removed its own dirs.
+
+**Cause: a harness artifact, not a smoke defect.** Each test gives the smoke a fresh, empty fake HOME. The smoke writes into HOME in only one place: `$HOME/macsmoke1.XXXXXX` for `cj-outside`. Every code-job run gets its own `HOME=$H` inside a disposable dir. The only things that see the test's fake HOME are the smoke's top-level helper programs: the `python3 -c` calls in `hashf`, `cap`, `report-state`, the nonce and the version, plus `date`, `mktemp`, `ls` and `sed`. Xcode's `python3` keeps stdlib bytecode under `~/Library/Caches/com.apple.python` (its `sys.pycache_prefix`). In a fresh HOME it therefore creates `~/Library` on the first `import`. In a real run HOME is the user's home, which already has `~/Library`, so nothing new appears. This is inferred from Apple's Python layout and the smoke's source. It has **not** been confirmed on the Mac. The MacBook command below prints `sys.pycache_prefix` to check it. One thing is still unexplained: the earlier focused Mac run (`test_macsmoke5` + `test_macsmoke2`) passed 16/16. The most likely difference is the shell environment: a `python3` on PATH that was not Xcode's (the smoke uses the PATH `python3`, not `/usr/bin/python3`), or `PYTHONDONTWRITEBYTECODE` set. Both stop the bytecode writes. No test module changes the environment at import time or leaks it between tests; I checked `os.environ` writes in sim, scripts, Resources and Tests.
+
+**Change (`sim/test_macsmoke2.py` only; smoke, stub, launcher and Hermes untouched).** `run_smoke` now accepts a leftover `HOME/Library` only when all of these hold:
+- the platform is Darwin;
+- the entry is named exactly `Library`, is a real directory and is not a symlink;
+- everything in it is under `Library/Caches` or `Library/Preferences`;
+- every entry is a plain directory or regular file (no symlinks);
+- no name matches a smoke artifact (`smoke`, `code-job`, `sentinel`, `codex`, `hermes`, `swarmhub`, `git-trust`, `REPORT.txt`, `msk2`, `new-file`);
+- no file's bytes contain a fixture path (the given and physical shm, HOME and TMPDIR) or `macsmoke`/`code-job`.
+
+Any violation fails with `smoke files in HOME/Library` and lists the offending paths, so a future Mac failure names its cause. Every other HOME entry, including `macsmoke1.*` next to `Library`, still fails `outside dir left in HOME`. On Linux nothing is tolerated.
+
+**Regressions (`OsLibraryTests`, Linux-runnable; the Darwin flag is patched).**
+- `test_os_library_is_tolerated_only_on_darwin`: a wrapper creates an Xcode-shaped `Library/Caches/com.apple.python/.../hashlib.cpython-39.pyc` and a `Library/Preferences` plist, then runs the real stub smoke. It passes as Darwin and fails `outside dir left in HOME` as non-Darwin.
+- `test_smoke_leaks_beside_or_inside_os_library_still_fail`: with the OS Library present, three leaks still fail: `$HOME/macsmoke1.leak` next to it, `Library/Caches/macsmoke1.leak`, and a cache file containing `$TMPDIR`.
+- `test_library_classifier_names_each_smoke_trace`: a dir outside Caches/Preferences, smoke-named file and dir, fixture-path contents, a symlink, and `Library` itself as a symlink are each reported.
+
+Mutation check: each of four weakenings fails at least one of these tests. The four are dropping the Darwin condition, skipping the Library classification, ignoring file contents, and ignoring names.
+
+**What ran here (Linux, Python 3.12, repo root).**
+- Focused `python3 -B -m unittest -v sim.test_macsmoke2 sim.test_macsmoke5 sim.test_fixes18 sim.test_darwinkill1`: **61 tests OK, 5 skipped** (the macOS-native `DarwinNativeTests`; 164 s) on a quiet box. `test_macsmoke2` is 11 smoke tests plus the 3 `OsLibraryTests`.
+- `PYTHONPATH=sim python3 -B -m unittest discover -s sim -p 'test_*.py' -v`: **406 tests OK, 12 skipped** (300 s).
+- `python3 -B -m unittest discover -s scripts -p 'test_*.py' -v`: 56 tests, **1 error**: `test_grokbot_server…test_safe_storage_vector_from_openssl` (no CommonCrypto). This is the known baseline from macsmoke4/5.
+- `Tests/Scripts/code-job-test.sh` under `/bin/sh`, `/bin/dash`, `/bin/bash`: **23/23 each**.
+- Two focused runs failed only on the global `/tmp` assertion. Another session was running the same suites from the `peer-review` checkout at the time, and its `code-job.*`/`code-job-test.*` dirs showed up in `/tmp`. Those runs do not count. No failure in any run came from the HOME check.
+
+No fixtures, logs or `/tmp` entries were left behind. Nothing was committed or sent, and no real Codex or provider was called. Swift and the Mac were not run.
+
+**MacBook: one command (full Python suite, Xcode `/usr/bin/python3`).** First it prints which `python3` the smoke will use and that interpreter's `pycache_prefix`, which confirms or refutes the cause. It needs a quiet box: the smoke tests assert that `/tmp` gains no `code-job*`/`macsmoke1*` entries, so nothing else may run code-job at the same time.
+
+```sh
+cd /tmp/qm6 && command -v python3 && python3 -c 'import sys; print("pycache_prefix:", sys.pycache_prefix)'; PYTHONPATH=sim /usr/bin/python3 -B -m unittest discover -s sim -p 'test_*.py' -v; /usr/bin/python3 -B -m unittest discover -s scripts -p 'test_*.py' -v
+```
+
+Pass criteria: `test_macsmoke2` is green with no `outside dir left in HOME`. If `smoke files in HOME/Library` appears, its listed paths show what macOS (or the smoke) created outside the tolerated shape. On the Mac, `test_grokbot_server` should not hit the Linux CommonCrypto error.
+
+## mactest2 (41869cc + uncommitted; supersedes the mactest1 tolerance and MacBook command)
+
+**Cross-review findings, checked.** On the mactest1 classifier, `Library/Caches/unexpected.txt` containing `left behind` and an empty `Library/Caches/session` both passed, and so did an unreadable directory: `os.walk` without `onerror` skips scan errors. All three are confirmed by the new regressions, which fail on the mactest1 code (mutation run, 4 failures) and pass now. The mactest1 fixture also had the wrong shape. With a `pycache_prefix`, CPython writes `<prefix>/<source dir>/<stem>.cpython-NN.pyc` and has no `__pycache__` level (checked with `importlib.util.cache_from_source`).
+
+**Cause (inferred for the Mac, reproduced here).** Xcode's `python3` sets `sys.pycache_prefix` to `~/Library/Caches/com.apple.python`. The smoke's top-level helper `python3 -c` calls run with the test's fresh fake HOME, so their first import creates `HOME/Library`. A python3 shim that forces that prefix (`-X pycache_prefix=$HOME/Library/Caches/com.apple.python`, which also overrides `PYTHONPYCACHEPREFIX`) reproduces the Mac failure on Linux exactly: `['Library'] != [] : outside dir left in HOME`.
+
+**Change (`sim/test_macsmoke2.py` only; smoke, stub, launcher, skills and Hermes untouched).**
+- Removes the cause: `run_smoke` now sets `PYTHONDONTWRITEBYTECODE=1`, so no python3 the smoke starts writes bytecode under any prefix. It also points `PYTHONPYCACHEPREFIX` into the fixture dir as a second guard. The strict "HOME must be empty" assertion stays, and on Linux nothing is tolerated. Without the env var, the shim test fails (mutation run).
+- Darwin-only fallback, in case macOS still creates a Library (e.g. CFPreferences). This replaces the denylist with an allowlist. `os_library_problems` accepts only two shapes:
+  - `Caches/com.apple.python/<dir>/<stem>.cpython-NN[.opt-N].pyc`, where `/<dir>/<stem>.py` is a real regular file outside every fixture dir and the repo, and the file has a CPython bytecode header;
+  - `Preferences/com.apple.*.plist` directly in `Preferences`, with a plist header.
+- Anything else fails, with the path named: an innocently named file, an empty directory (including an empty `Library`), a symlink, a special file, bytes containing a fixture path, and any walk, stat or read error (`os.walk(onerror=…)`, `lstat` and read in `try`).
+
+**Regressions (`OsLibraryTests`, 5 tests, Linux-runnable; Darwin is patched where needed).**
+- `test_xcode_like_python3_leaves_home_empty`: under the forcing shim, the strict non-Darwin path stays empty and the result is PASS. A shim that also drops `PYTHONDONTWRITEBYTECODE` reproduces the Mac failure.
+- `test_os_library_is_tolerated_only_on_darwin`: a real python3-written Library (not a hand-made one) passes as Darwin and fails as non-Darwin.
+- `test_smoke_leaks_beside_or_inside_os_library_still_fail`: five cases fail through the real stub smoke: `$HOME/macsmoke1.leak`, `Caches/macsmoke1.leak`, `$TMPDIR` appended to the real `.pyc` files, `Caches/unexpected.txt` "left behind", and an empty `Caches/session`.
+- `test_library_classifier_names_each_smoke_trace`: 13 named problems, plus an empty Library and Library as a symlink.
+- `test_unreadable_library_fails_closed`: a mode-0 dir, a mode-0 plist, and a simulated `scandir` `PermissionError` on Library itself.
+
+**What ran here (Linux, Python 3.12, quiet box: no other code-job runs, no `/tmp/code-job*`/`macsmoke1*` before or after).**
+- `PYTHONPATH=sim python3 -B -m unittest -v sim.test_macsmoke2 sim.test_macsmoke5 sim.test_fixes18 sim.test_darwinkill1 sim.test_darwinkill2`: **77 OK, 5 skipped** (the macOS-native `DarwinNativeTests`).
+- `PYTHONPATH=sim python3 -B -m unittest discover -s sim -p 'test_*.py' -v`: **422 OK, 12 skipped**.
+- `Tests/Scripts/code-job-test.sh Resources/Skills/swarmhub-coding/scripts/code-job` run by `/bin/sh`, `/bin/dash` and `/bin/bash`: **23 passed, 0 failed** each. The script's label reads "under /bin/sh" each time because `$SH` is the shell it runs code-job with, not the outer shell.
+- After wrapping two long lines: `sim.test_macsmoke2` alone, 16 OK.
+
+Not run: the Mac, Swift, the `scripts/` suite. No temp files left; nothing committed or sent; no real Codex or provider.
+
+**MacBook: one command.** It runs from `/tmp/qm6` on a quiet box, since the smoke tests assert that `/tmp` gains no `code-job*`/`macsmoke1*` entries. For both the PATH `python3` and `/usr/bin/python3`, it prints `sys.pycache_prefix` and what `import json` leaves in a fresh HOME with and without `PYTHONDONTWRITEBYTECODE=1`. That confirms or refutes the cause and the fix. Then it runs the full sim suite.
+
+```sh
+cd /tmp/qm6 && for p in "$(command -v python3)" /usr/bin/python3; do h=$(mktemp -d "$HOME/mactest2.XXXXXX") && echo "$p prefix=$("$p" -c 'import sys; print(sys.pycache_prefix)')" && HOME=$h PYTHONDONTWRITEBYTECODE=1 "$p" -c 'import json' && echo "  with env: [$(ls -A "$h")]" && HOME=$h "$p" -c 'import json' && echo "  without:  [$(ls -A "$h")]"; rm -rf "$h"; done; PYTHONPATH=sim /usr/bin/python3 -B -m unittest discover -s sim -p 'test_*.py' -v
+```
+
+Pass criteria:
+- Expected probe output: prefix `…/Library/Caches/com.apple.python`, `with env: []` and `without: [Library]`, which confirms the cause and that the env var stops it.
+- The suite is green, and `test_macsmoke2` shows no `outside dir left in HOME`.
+- If `smoke files in HOME/Library` appears, macOS made something outside the two allowed shapes, and the listed paths name it. Do not widen the allowlist without seeing them.
+- If `without:` is also `[]`, the bytecode cause is refuted for that interpreter.
