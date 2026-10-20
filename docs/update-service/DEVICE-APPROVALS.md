@@ -85,6 +85,14 @@ even a correct HMAC. This persistent mode survives restarts and flag changes;
 recovery requires an explicit local operator action. iOS offers managed approvals
 only on device-required boxes and has no shared-key decision path.
 
+Device-required mode also refuses unsigned local gateway decisions, including
+`swarmctl decide` and the local client's `swarmctl control decide` path. These
+paths check the device list and persistent mode under the decision transaction
+lock; they cannot fall back to gateway identity, v1, or an environment flag.
+Use a valid device signature through the v2 verifier to decide on such boxes.
+Unenrolled and explicitly legacy boxes retain their existing local gateway and
+v1 behavior, provided their local device state is valid.
+
 First failure wins: trusted snapshot validity → strict JSON/envelope/field shape
 (`schema_invalid`) → version/domain (`protocol_unsupported`) → local device
 (`device_unknown`, `device_revoked`) → signature (`signature_invalid`) → exact
@@ -105,3 +113,62 @@ expiry/boundary/future/unknown/binding mismatch, revoked/unauthorized/unknown
 devices, wrong key/domain/version, final/corrupt operation, and both v1 modes.
 Seeds are public TEST-only material under `Tests/Fixtures/release-bundles/`,
 separate from all release keys. Regeneration must be byte-identical.
+
+## P5b box implementation
+
+Box code is in `Resources/Skills/swarmhub-messages/scripts/`: `swarm_device_state.py` (shapes, Ed25519/JCS
+checks, local state), `swarm_device_approvals.py` (challenge/decide/receipt), `swarm_devices.py` (operator CLI),
+and `swarm_jcs.py`/`swarm_ed25519.py`, byte-identical copies of the updater's modules (a test enforces it).
+`swarm_remote.py` keeps v1 and routes v2. Nothing on these paths opens a network connection or reads the
+update host; the device list, mode and nonces are local tables in `~/.hermes/swarmhub/control.sqlite`.
+
+**Endpoints** (POST, same loopback listener as v1, no shared key read): `/swarmhub/control/v2/<profile>/<verb>`.
+
+| Verb | Body | Result |
+| --- | --- | --- |
+| `challenge` | signed read request | `{request, challenge, record}`: a fresh nonce binding (all signed fields except `approved`) and the full stored operation |
+| `decide` | the P5a envelope | `{request, receipt}` |
+| `receipt` | signed read request | `{request, receipt}` or `{request, receipt: null, status}`; never authorizes |
+
+`request` is SHA-256 of the raw body. Refusals are HTTP 403 `{"error":"control request refused","reason":<code>}`.
+Responses are authenticated by TLS to the operator-configured origin (the client keeps v1's no-redirect rule);
+the box holds no signing key.
+
+A **read request** is `{"signed":{...},"signature":...}` signed over ASCII `swarmhub-device-request/2` + LF +
+`JCS(signed)`, with exactly `version` 2, `domain` `swarmhub/device-request/2`, `verb` (`challenge`/`receipt`,
+equal to the path), `key_id`, `origin`, `profile` (equal to the path), `task`, `issued` (client Unix seconds,
+accepted within `[now-60, now+5]`). It must come from an active device enrolled for that profile. A challenge
+also needs the profile to be the operation's current decider and the operation to be pending. Each device may
+hold 8 unused live challenges (`challenge_limited`); the box refuses to issue while its clock is behind an
+already issued challenge. New reason codes on reads only: `request_expired`, `challenge_limited`.
+
+**Decide** runs the documented order in one `BEGIN IMMEDIATE` transaction, reads the box time after the lock,
+then marks the nonce used, records the decision (`decide_in_transaction`) and the receipt, and commits; the
+worker wakes after commit. A retransmission rejects (`operation_not_pending` once decided, else
+`nonce_replayed`); clients query `receipt`. The receipt is the v1 record plus `remoteReceipt` with `protocol` 2,
+`device`, `nonce`, the v2 `fingerprint` and `message` (SHA-256 of the signed message); its `remoteBinding` has
+v1's shape, so a legacy v1 `get` reads the same receipt. A v1 body on a v2 path is refused (`legacy_v1` is
+dispatch advice, never approval).
+
+**Fail closed.** Every call re-validates every device, mode and challenge row and the runtime. A malformed
+row, a mode row missing while devices exist, a non-finite or out-of-range clock, or a spec that fails its
+stored digest is `state_invalid`. v1 checks the mode (and that the device list is valid) before any v1
+authentication and again under its transaction lock, so a corrupt store or a cutover mid-request refuses v1.
+Every stored public key must decode canonically to a nonidentity prime-order Ed25519 point, using the
+same check as enrollment. An invalid key anywhere, including a revoked device, makes the whole list
+corrupt and refuses v2, unsigned local decisions, and v1 even in legacy mode.
+
+**Operator CLI** (`python3 swarm_devices.py list|enroll|revoke|mode`). Changes refuse when any `HERMES_*`
+variable is set or any ancestor process is Hermes, and need a fresh code typed on `/dev/tty`; `swarmctl` and
+SKILL.md expose none of it. `enroll <key-id> <pub-hex> --profile P...` checks the key is a prime-order point
+and that neither the ID nor the key was ever enrolled. `revoke` is permanent and immediate. `mode required`
+needs an active device; `mode legacy` is the only way back (explicit local recovery). No policy key,
+environment variable or file re-enables v1. Bot profiles share the Unix account that owns `control.sqlite`
+and the skill files, so this keeps model turns away from the tool and leaves an audit trail; it is not a
+boundary against a hostile shell on the box. The operator CLI refuses key IDs starting with `TEST-`
+because their fixture seeds are public. No CLI flag or environment variable bypasses this refusal;
+tests enroll those keys only through the library function.
+
+Tests: `sim/test_device_approvals.py` (every P5a vector through the real box, replay across restart, kill
+mid-transaction, concurrent consume, revoke, cutover, host unreachable, Hermes byte-identical) and
+`sim/test_device_enrollment.py` (operator guard, enrollment rules, corrupt state, read/challenge rules).
