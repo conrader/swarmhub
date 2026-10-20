@@ -10,9 +10,9 @@
 # Cleanup removes only those directories, by exact path. Codex is asked to run one local script, no network.
 # The oracle is host-side file state (sentinel hashes, directory listings), never the model's prose.
 # Output goes to stdout and to $SMOKE_LOG (default ./macsmoke1-<UTC>.log; SMOKE_LOG=- for none). The last line is
-#   smoke: result=PASS|FAIL|INCONCLUSIVE enforced=<list> writable=<list> unexpected=<list> codex=<version> ...
-# Exit 1 whenever a path the settings should protect was writable (FAIL wins over INCONCLUSIVE, early stops
-# included); INCONCLUSIVE and PASS exit 0; 64 usage.
+#   smoke: result=PASS|FAIL|REPORT_FAILURE|INCONCLUSIVE enforced=<list> writable=<list> unexpected=<list> codex=<version> ...
+# Exit 1 whenever a path the settings should protect was writable (FAIL wins over all other results, early stops
+# included); REPORT_FAILURE also exits 1 (completed CLI with invalid report); INCONCLUSIVE and PASS exit 0; 64 usage.
 
 if [ -z "${SMOKE_TEED:-}" ] && [ "${SMOKE_LOG:-}" != - ]; then
   SMOKE_TEED=1; export SMOKE_TEED
@@ -22,7 +22,7 @@ if [ -z "${SMOKE_TEED:-}" ] && [ "${SMOKE_LOG:-}" != - ]; then
   rc=$(cat "$rcf"); rm -f "$rcf"; exit "${rc:-1}"
 fi
 
-usage() { echo "usage: sh $0 [--model <id>] [--effort low|medium|high|xhigh] [--timeout <s>] [--outside-dir <dir>] [--code-job <path>] [--stub [enforce|leaky|timeout|leaky-timeout|incomplete|stderr-only|missing-report|unchanged-report|emptied-report|cj-fail|cj-timeout]]" >&2; exit 64; }
+usage() { echo "usage: sh $0 [--model <id>] [--effort low|medium|high|xhigh] [--timeout <s>] [--outside-dir <dir>] [--code-job <path>] [--stub [enforce|leaky|timeout|leaky-timeout|incomplete|stderr-only|missing-report|unchanged-report|emptied-report|existing-report-denied|rewrite-denied|cj-fail|cj-timeout]]" >&2; exit 64; }
 HERE=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 MODEL= EFFORT=high TIMEOUT=300 OUTSIDE= STUB= CODEJOB=$HERE/../Resources/Skills/swarmhub-coding/scripts/code-job
 while [ $# -gt 0 ]; do
@@ -31,7 +31,7 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || usage
       case $1 in --model) MODEL=$2 ;; --effort) EFFORT=$2 ;; --timeout) TIMEOUT=$2 ;; --outside-dir) OUTSIDE=$2 ;; --code-job) CODEJOB=$2 ;; esac
       shift 2 ;;
-    --stub) STUB=enforce; case ${2:-} in enforce|leaky|timeout|leaky-timeout|incomplete|stderr-only|missing-report|unchanged-report|emptied-report|cj-fail|cj-timeout) STUB=$2; shift ;; esac; shift ;;
+    --stub) STUB=enforce; case ${2:-} in enforce|leaky|timeout|leaky-timeout|incomplete|stderr-only|missing-report|unchanged-report|emptied-report|existing-report-denied|rewrite-denied|cj-fail|cj-timeout) STUB=$2; shift ;; esac; shift ;;
     *) usage ;;
   esac
 done
@@ -67,6 +67,7 @@ sys.exit(rc if rc >= 0 else 128 - rc)' "$@"
 NL='
 '
 CLEAN= ENFORCED= WRITABLE= UNEXPECTED= INCONC= NOTES= CODEXV=unknown TMP_PHYS= TD_PHYS= OUT_PHYS= OUT_MADE=
+REPORT_FAILURES=
 # One mktemp result per line, exactly as created; paths with a newline never get here (refused up front).
 register() { CLEAN="$CLEAN$NL$1"; }
 add() { eval "_v=\$$1"; eval "$1=\"\${_v:+\$_v,}\$2\""; }
@@ -108,8 +109,8 @@ trap 'interrupted 143' TERM
 summary() {  # $1 result, $2 reason. A detected unexpected write is FAIL whatever stopped the run.
   res=$1; [ -n "$UNEXPECTED" ] && res=FAIL
   cleanup; trap - EXIT
-  say "smoke: result=$res${2:+ reason=$2} enforced=${ENFORCED:-none} writable=${WRITABLE:-none} unexpected=${UNEXPECTED:-none} codex=$CODEXV${INCONC:+ inconclusive=$INCONC}"
-  [ "$res" = FAIL ] && exit 1
+  say "smoke: result=$res${2:+ reason=$2} enforced=${ENFORCED:-none} writable=${WRITABLE:-none} unexpected=${UNEXPECTED:-none} codex=$CODEXV${INCONC:+ inconclusive=$INCONC}${REPORT_FAILURES:+ report-failures=$REPORT_FAILURES}"
+  case $res in FAIL|REPORT_FAILURE) exit 1 ;; esac
   exit 0
 }
 
@@ -198,7 +199,7 @@ fi
 say "model: ${MODEL:-<none: the codex configured default>} effort: $EFFORT timeout: ${TIMEOUT}s"
 
 PROMPT='Run this exact command once with your shell tool, then reply DONE: sh ./smoke-probe.sh
-It only touches disposable test files. Do not retry or work around refused operations. Use no network.'
+It only touches disposable test files. The script writes and verifies the completion report requested below; retain that report without rewriting it. If the report write fails, describe the failure and stop. Do not retry or work around refused operations. Use no network.'
 PLACEHOLDER=macsmoke1-codex-default
 
 # The probe runs inside Codex's sandbox and reports each attempt; the host decides from file state afterwards.
@@ -210,7 +211,14 @@ cd "$(dirname "$0")" || exit 1
 log=./smoke-probe.log
 : > "$log"
 say() { printf '%s\n' "$*"; printf '%s\n' "$*" >> "$log"; }
-put() { printf '%s\n' "$1" > "$2"; }
+put() {
+  printf '%s\n' "$1" > "$2" || return 1
+  # Success means exact persisted bytes, including the final newline, not just open/truncate or printf status.
+  if ! printf '%s\n' "$1" | cmp -s - "$2"; then
+    echo 'write verification failed: bytes differ or cannot be read' >&2
+    return 1
+  fi
+}
 try() { what=$1; shift; if err=$( ("$@") 2>&1 ); then say "$what: WROTE"; else say "$what: refused: $(printf '%s' "$err" | tr '\n' ' ')"; fi; }
 nonce= report=
 while IFS= read -r line; do
@@ -323,7 +331,8 @@ cj_run() {  # name home dir fallback(yes|no) with-sentinels(yes|no)
   { echo "nonce $NONCE"; echo "report $(phys "$D")/REPORT.txt"; } > "$D/smoke-targets"
   if [ "$ab" = yes ]; then make_locations; { target_lines tmp "$A" "$LK/a"; target_lines tmpdir "$B" "$LK/b"; } >> "$D/smoke-targets"; fi
   write_probe "$D"
-  # Negative fixture only: the stub restores these exact bytes after running the probe.
+  # Negative fixtures only: pre-existing empty report, or stale bytes restored by the stub after the probe.
+  [ "$STUB" = existing-report-denied ] && : > "$D/REPORT.txt"
   [ "$STUB" = unchanged-report ] && printf 'stale smoke report\n' > "$D/REPORT.txt"
   ls -d /tmp/code-job.* > "$BASE/pre-$run" 2>/dev/null
   say ""; say "== run $run: code-job, HOME=$H, --dir $D (expect fallback=$fb) =="
@@ -349,7 +358,7 @@ cj_run() {  # name home dir fallback(yes|no) with-sentinels(yes|no)
   for job in "$H"/.hermes/swarmhub/job-completions/job.*; do
     [ -d "$job" ] || continue
     say "  --- launcher completion record ---"
-    for field in report report-before report-sha256 report-valid report-state report-bytes report-exists report-final \
+    for field in sandbox-warning status report report-before-state report-before report-sha256 report-valid report-state report-bytes report-exists report-final \
       cli-exit exit verify-exit; do
       say "  | $field=$(cat "$job/$field" 2>/dev/null || echo unavailable)"
     done
@@ -381,9 +390,14 @@ cj_run() {  # name home dir fallback(yes|no) with-sentinels(yes|no)
   fi
   crc=$(sed -n 's/^codex-exit=//p' "$rec"); case $crc in ''|*[!0-9]*) crc=255 ;; esac
   [ "$rc" -eq 0 ] && [ "$crc" -ne 0 ] && rc=$crc
-  # A launcher 65 with a failed report check names the report's state at the check (missing, empty, unchanged,
-  # unreadable-<ERRNO>); still inconclusive, never PASS.
-  completed "$rc" "$D" code-job "$BASE/out-$run" || { [ "$WHY" = code-job-exit-65 ] && [ -n "$vstate" ] && WHY=$WHY-report-$vstate
+  # A completed CLI with a failed completion contract is a named job failure, not uncertain isolation evidence.
+  if [ "$rc" -eq 65 ] && [ "$crc" -eq 0 ] && [ -n "$vstate" ] && [ "$vstate" != ok ]; then
+    label=report; [ "$fb" = yes ] && label=fallback-report
+    add REPORT_FAILURES "$run:$label-$vstate"
+    say "  report contract: REPORT_FAILURE ($label-$vstate); launcher exit 65"
+    return 1
+  fi
+  completed "$rc" "$D" code-job "$BASE/out-$run" || {
     add INCONC "$run:$WHY"; return 1; }
   [ "$UNEXPECTED" = "$u0" ] || return 1
   if [ "$ok" = yes ]; then add ENFORCED "$run"; else add INCONC "$run:launcher-layout"; fi
@@ -474,5 +488,6 @@ fi
 
 say ""; [ -n "$NOTES" ] && say "notes: $NOTES"
 [ -n "$UNEXPECTED" ] && summary FAIL
+[ -n "$REPORT_FAILURES" ] && summary REPORT_FAILURE
 [ -n "$INCONC" ] && summary INCONCLUSIVE
 summary PASS

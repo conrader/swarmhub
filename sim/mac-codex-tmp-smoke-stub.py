@@ -11,6 +11,9 @@ run); incomplete blocks the probe's completion marker (INCONCLUSIVE). stderr-onl
 no stdout; missing-report/unchanged-report exercise the launcher's exit 65; emptied-report is the Mac record of
 mac-smoke3-533593b (the probe logs its report WROTE and the CLI prints DONE, yet the report is empty when the CLI
 exits); cj-fail/cj-timeout fail only launcher runs after the full probe. Otherwise, like `codex exec`, the stub exits 0 whatever the probe returns.
+existing-report-denied denies writes to a host-created report but permits new workspace files in fallback mode.
+rewrite-denied creates the report via the probe, then simulates a later edit that truncates it before a denied
+data write. These are explicit hypotheses, not an implementation of Seatbelt or a claim about its syscall order.
 This says nothing about the real Codex sandbox; only the Mac run with the installed Codex does.
 """
 import os
@@ -64,6 +67,11 @@ def main(argv):
                 path.chmod(changed[path] & ~0o222)
     report = Path(os.environ['SWARMHUB_REPORT_FILE']) if os.environ.get('SWARMHUB_REPORT_FILE') else None
     before = report.read_bytes() if report and report.is_file() else None
+    fallback = SLASH in argv and TMPDIR in argv
+    if report and fallback and mode == 'existing-report-denied':
+        assert report.is_file(), 'existing-report-denied fixture needs a pre-existing report'
+        changed[report] = report.stat().st_mode & 0o7777
+        report.chmod(changed[report] & ~0o222)
     if mode == 'incomplete':
         Path('smoke-done.txt').mkdir()  # the probe's last write fails; it still exits 0
     try:
@@ -76,6 +84,20 @@ def main(argv):
         report.unlink(missing_ok=True)
     if report and mode == 'emptied-report':
         report.write_bytes(b'')
+    if report and fallback and mode == 'rewrite-denied':
+        assert before is None, 'the launcher must not pre-create the report'
+        assert report.read_bytes(), 'the probe must have written real bytes first'
+        bits = report.stat().st_mode & 0o7777
+        report.write_bytes(b'')  # hypothetical truncation before a refused replacement
+        report.chmod(bits & ~0o222)
+        try:
+            attempt = subprocess.run(['sh', '-c', 'printf "replacement\\n" > "$1"', 'stub', str(report)],
+                                     stdin=subprocess.DEVNULL, stdout=sys.stderr)
+            assert attempt.returncode != 0, 'pre-existing report write should be denied'
+            Path('new-file-after-denial.txt').write_text('new files still allowed\n')
+            print('stub: replacement refused; new file allowed', file=sys.stderr)
+        finally:
+            report.chmod(bits)
     if report and mode == 'unchanged-report':
         assert before is not None, 'unchanged-report fixture needs a baseline'
         report.write_bytes(before)

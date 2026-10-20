@@ -257,3 +257,20 @@ The `ls:` lines in the shim record show the macOS flags and xattrs (for example 
 ```sh
 cd /tmp/qm6 && sh sim/mac-codex-tmp-smoke.sh
 ```
+
+
+## macsmoke5 (6d1c346 + uncommitted)
+
+**Cause / limit of the evidence.** `mac-smoke4-6d1c346.log` proves the fallback reports are empty at CLI exit, before verification. Source inspection disproves launcher pre-creation: baseline only reads the report; the probe creates it, and Codex subsequently attempts replacement. Mode 600 follows `umask 077`; the provenance xattr does not identify the writer or denial. Old `WROTE` means `printf > file` returned zero, without readback. The failed replacement could have emptied a successfully written report, but there is no intermediate byte count or syscall trace to prove that mechanism. This is a harness ambiguity around an unnecessary second write in a Mac layout with observed failures, **not a demonstrated launcher pre-creation bug or proof that fallback reports are impossible**.
+
+**Fix.** The probe compares exact persisted bytes, including the newline, before `WROTE`; its prompt tells Codex to retain that report. code-job warns before launch on Darwin when fallback exclusions overlap the physical workdir (`macos-excluded-tmp-workspace`), suggests HOME/workdir outside temporary roots, and records a specific failure status if the report fails. Both exclusions and completion requirements remain. A completed CLI with an invalid report yields **`REPORT_FAILURE`, exit 1**, with named details such as `cj-home:fallback-report-empty`; isolation violations still win as FAIL. Unreadable/nonregular baselines fail before launch, record an invalid baseline, and cannot pass later verification. Empty baselines must also be readable.
+
+**Regressions.** `existing-report-denied` permits new files while denying writes to a pre-existing report; `rewrite-denied` writes a verified report, then simulates truncation plus denied replacement. Both fail the fallback jobs while `cj-outside` succeeds. These are hypotheses, not Seatbelt emulation. Further tests cover successful redirects with discarded data, stat/open EACCES (including empty files), unchanged contents after readability returns, invalid baselines, no baseline report creation, and warning-before-launch ordering.
+
+**Validation from the repo root (Linux).** Focused `python3 -B -m unittest sim.test_macsmoke2 sim.test_macsmoke5 -v`: **16/16 pass** (11 smoke, 5 completion). Code-job shell suite: **23/23 each** under sh/dash/bash. All seven shell files (including embedded scripts) pass dash/bash/bash-POSIX syntax and shellcheck with existing exclusions; raw diagnostic codes/counts match HEAD. Python syntax and `git diff --check` pass. `PYTHONPATH=sim python3 -B -m unittest discover -s sim -v`: **376 tests, 8 failure records, 8 skips** (236 s); failures match the recorded macsmoke3 categories: fallback directory creation, Node EPERM, namespace expectations, SIGIO EPERM and four namespaced-signal variants. `python3 -B -m unittest discover -s scripts -p 'test_*.py' -v`: **56 tests, 5 errors** (four denied loopback fixtures, unavailable CommonCrypto). Neither full suite is green here. An initial concurrent smoke/shell run invalidated cleanup assertions by counting the other suite's active directories; the isolated rerun above passed. Diagnostic logs and disposable fixtures were removed.
+
+**Still needs the Mac.** The exact denied syscall, whether retaining the probe report resolves both fallback runs, Seatbelt, physical Mac aliases and bash 3.2 remain unverified. No Hermes changes, commits, outbound messages or real Codex/provider calls here. Run:
+
+```sh
+cd /tmp/qm6 && sh sim/mac-codex-tmp-smoke.sh
+```

@@ -142,11 +142,12 @@ class SmokeStubTests(unittest.TestCase):
         self.assertEqual(out.count('  report timeline: cli-exit python:bytes-44 sh:nonempty; verify ok (44 bytes); '
                                    'finish nonempty; host now python:bytes-44 sh:nonempty\n'), 3)
         rc, last, out = self.run_smoke(alias, '--stub', 'emptied-report')
-        self.assertEqual(rc, 0, out[-3000:])
-        self.assertTrue(last.startswith('smoke: result=INCONCLUSIVE '), last)
+        self.assertEqual(rc, 1, out[-3000:])
+        self.assertTrue(last.startswith('smoke: result=REPORT_FAILURE '), last)
         self.assertIn(' unexpected=none ', last)
         for run in ('cj-home', 'cj-sibling', 'cj-outside'):
-            self.assertIn(f'{run}:code-job-exit-65-report-empty', last)
+            label = 'report' if run == 'cj-outside' else 'fallback-report'
+            self.assertIn(f'{run}:{label}-empty', last)
         self.assertEqual(len(re.findall(r'\| report /[^\n]+/REPORT\.txt: WROTE\n', out)), 6)  # transcript + probe log
         for line in ('  | codex-stdout-bytes=5\n', '  | report-exists=true\n', '  | report-sha256=missing-or-empty\n',
                      '  | report-valid=false\n', '  | report-final=empty\n',
@@ -158,12 +159,33 @@ class SmokeStubTests(unittest.TestCase):
         for mode in ('missing-report', 'unchanged-report'):
             with self.subTest(mode=mode):
                 rc, last, out = self.run_smoke(self.shm / 'td', '--stub', mode)
-                self.assertEqual(rc, 0, out[-3000:])
-                self.assertTrue(last.startswith('smoke: result=INCONCLUSIVE '), last)
+                self.assertEqual(rc, 1, out[-3000:])
+                self.assertTrue(last.startswith('smoke: result=REPORT_FAILURE '), last)
                 for run in ('cj-home', 'cj-sibling', 'cj-outside'):
-                    self.assertIn(f'{run}:code-job-exit-65', last)
+                    label = 'report' if run == 'cj-outside' else 'fallback-report'
+                    state = 'missing' if mode == 'missing-report' else 'unchanged'
+                    self.assertIn(f'{run}:{label}-{state}', last)
                 self.assertEqual(out.count('  | report-valid=false\n'), 3)
-                self.assertEqual(out.count('completion marker: written; exit: 65'), 3)
+                self.assertEqual(out.count('launcher exit 65'), 3)
+
+    def test_existing_report_denied_and_failed_replacement_are_named_failures(self):
+        for mode in ('existing-report-denied', 'rewrite-denied'):
+            with self.subTest(mode=mode):
+                rc, last, out = self.run_smoke(self.shm / 'td', '--stub', mode)
+                self.assertEqual(rc, 1, out[-3000:])
+                self.assertTrue(last.startswith('smoke: result=REPORT_FAILURE '), last)
+                self.assertIn(' unexpected=none ', last)
+                self.assertIn('cj-outside', last.split(' enforced=')[1].split(' ')[0])
+                for run in ('cj-home', 'cj-sibling'):
+                    self.assertIn(f'{run}:fallback-report-empty', last)
+                self.assertEqual(out.count('  | report-valid=false\n'), 2)
+                self.assertEqual(out.count('  | report-valid=true\n'), 1)
+                self.assertEqual(out.count('  | control ./smoke-control.txt: WROTE\n'), 14)
+                if mode == 'existing-report-denied':
+                    self.assertEqual(len(re.findall(r'\| report /[^\n]+/REPORT\.txt: refused:', out)), 4)
+                else:
+                    self.assertEqual(out.count('stub: replacement refused; new file allowed'), 2)
+                    self.assertEqual(len(re.findall(r'\| report /[^\n]+/REPORT\.txt: WROTE\n', out)), 6)
 
     def test_completed_launcher_probe_with_nonzero_or_timeout_never_passes(self):
         for mode, reason, code in (('cj-fail', 'code-job-exit-7', 7), ('cj-timeout', 'timeout', 124)):

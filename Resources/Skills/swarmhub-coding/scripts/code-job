@@ -382,6 +382,19 @@ for a in $(echo "$ORDER" | tr ',' ' '); do
   fi
   AGENT=$a
   [ -n "$MODEL" ] && [ -n "$REPORT" ] || { echo "code-job: explicit --model and --report are required" >&2; finish 65 failed; }
+  # macsmoke4: a report created by the tool was empty after a refused replacement on macOS.
+  # Do not pre-create/remove a report or weaken exclusions: the latter protect launcher evidence.
+  # This is a known-risk layout, not proof that every tool/write in it fails.
+  if [ "$a" = codex ] && [ "$NOTMP" = true ] && [ "$(uname -s)" = Darwin ]; then
+    for root in /tmp "${TMPDIR:-/tmp}"; do
+      root=$(cd "$root" 2>/dev/null && pwd -P) || continue
+      if under "$root" "$DIR"; then
+        printf '%s\n' macos-excluded-tmp-workspace > "$JOB/sandbox-warning"
+        echo "code-job: warning [macos-excluded-tmp-workspace]: --dir is under an excluded temporary root. Reports have been empty after refused Codex replacements here; completion will fail closed. Use HOME and --dir outside /tmp and \$TMPDIR to avoid this fallback." >&2
+        break
+      fi
+    done
+  fi
   # A pre-existing report cannot certify this run. Preserve it but require the CLI
   # to replace/change it; completion-contract.py hashes the baseline privately.
   python3 "$(dirname "$0")/completion-contract.py" baseline "$REPORT" "$JOB" || finish 65 failed
@@ -398,6 +411,10 @@ for a in $(echo "$ORDER" | tr ',' ' '); do
       finish 66 unverified
     fi
     echo "code-job: empty job or missing/empty/unchanged report" >&2
+    if [ -f "$JOB/sandbox-warning" ] && [ "$(cat "$JOB/report-valid" 2>/dev/null)" = false ]; then
+      echo 'code-job: report failure [macos-excluded-tmp-workspace]: see report-state; move HOME and --dir outside temporary roots and rerun.' >&2
+      finish 65 report-failed-macos-excluded-tmp-workspace
+    fi
     finish 65 failed
   fi
   [ "$RC" -eq 125 ] && finish 125 cancelled
