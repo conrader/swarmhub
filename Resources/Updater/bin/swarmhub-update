@@ -1,0 +1,20 @@
+#!/usr/bin/env -S python3 -I -B
+"""Swarm Hub box updater launcher (CORE-PHASES.md P2b). Installed with its package at an admin-owned prefix:
+<prefix>/bin/swarmhub-update, <prefix>/swarmhub_update/, <prefix>/pins.json.
+
+Runs in isolated mode (-I: no PYTHONPATH, user site or script folder on sys.path; -B: no bytecode), so only the
+package beside this launcher is imported; started another way, it re-runs itself so before importing anything.
+"""
+import os
+import sys
+
+if not (sys.flags.isolated and sys.flags.dont_write_bytecode):
+    os.execv(sys.executable, [sys.executable, "-I", "-B", os.path.realpath(__file__)] + sys.argv[1:])
+
+PREFIX = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, PREFIX)
+
+from swarmhub_update import cli  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(cli.main(sys.argv[1:], os.path.join(PREFIX, "pins.json")))

@@ -27,7 +27,7 @@ import shutil
 import sys
 import time
 
-from . import idle, render, stage
+from . import bundle, idle, render, stage
 
 Result = namedtuple("Result", "profile status detail versions reload_pending")  # status: see STATUSES
 STATUSES = ("applied", "reverted", "unchanged", "deferred", "failed", "recovery_pending")
@@ -163,11 +163,12 @@ def _undo_entry(category, txn, entry, swapped=None):
     exact inverse runs (even if something wrote into the new tree meanwhile). None (recovery after a crash): decide
     from the digests on disk."""
     live, slot, spare = _paths(category, txn, entry["skill"])
-    if os.path.lexists(spare):  # the rename fallback stopped part way: spare holds the old tree
-        if os.path.lexists(live):
-            _swap(spare, live, slot)
-        else:
-            os.rename(spare, live)
+    if os.path.lexists(spare):  # an old three-rename fallback stopped part way: spare holds the old tree
+        if os.path.lexists(live):  # plain renames: that fallback only ran where atomic exchange is unavailable
+            if os.path.lexists(slot):
+                raise OSError(errno.EIO, "live %s, its slot and its spare all exist" % entry["skill"])
+            os.rename(live, slot)
+        os.rename(spare, live)
         return
     if swapped is not None:
         if swapped and entry["action"] == "replace":
@@ -252,6 +253,10 @@ def recover(category, state_dir=None, profile=None):
             try:
                 for entry in reversed(journal["entries"]):
                     _undo_entry(category, txn, entry)
+                # The new plugin may have been live (and loaded) before the rollback: keep asking for a reload.
+                if journal.get("reload_pending") and state_dir is not None and profile is not None \
+                        and not _persist_reload(state_dir, profile):
+                    raise OSError(errno.EIO, "reload_pending could not be saved")
             except OSError as error:
                 raise RecoveryPending("rollback awaits recovery on the next run: %s" % error,
                                       reload_pending=True) from error
@@ -266,11 +271,11 @@ def record_path(state_dir, profile):
 
 
 def read_record(state_dir, profile):
-    try:
-        with open(record_path(state_dir, profile), "rb") as handle:
-            return json.loads(handle.read().decode("utf-8"))
-    except (OSError, ValueError):
+    try:  # bot-writable: a FIFO, a huge or a deeply nested record reads as empty, never a hang or a crash
+        record = json.loads(bundle.read_file(record_path(state_dir, profile), 1 << 20).decode("utf-8"))
+    except (OSError, ValueError, RecursionError):
         return {}
+    return record if isinstance(record, dict) else {}
 
 
 def _record(state_dir, profile, status, detail, versions=None, reload_pending=False):
@@ -289,6 +294,18 @@ def _record(state_dir, profile, status, detail, versions=None, reload_pending=Fa
     os.makedirs(os.path.dirname(record_path(state_dir, profile)), 0o700, exist_ok=True)
     _write_json(record_path(state_dir, profile), record, 0o600)
     return Result(profile, status, detail, skills, pending)
+
+
+def _persist_reload(state_dir, profile):
+    """Set reload_pending in the profile record, nothing else; False when it cannot be saved."""
+    try:
+        record = read_record(state_dir, profile)
+        record["reload_pending"] = True
+        os.makedirs(os.path.dirname(record_path(state_dir, profile)), 0o700, exist_ok=True)
+        _write_json(record_path(state_dir, profile), record, 0o600)
+        return True
+    except OSError:
+        return False
 
 
 def clear_reload_pending(state_dir, profile):
@@ -312,7 +329,10 @@ def _swap_in(hermes_home, state_dir, category, txn, entries, profile, deadline, 
         return _record(state_dir, profile, "deferred", "live %s changed while waiting" % ", ".join(moved))
     messages = os.path.join(category, MESSAGES_SKILL)
     plugin_before = stage.plugin_digest(messages)
-    _write_json(os.path.join(txn, JOURNAL), {"state": "open", "entries": entries}, 0o600)
+    staged_reload = any(e["skill"] == MESSAGES_SKILL for e in entries) and \
+        stage.plugin_digest(os.path.join(txn, "swap", MESSAGES_SKILL)) != plugin_before
+    _write_json(os.path.join(txn, JOURNAL), {"state": "open", "entries": entries, "reload_pending": staged_reload},
+                0o600)
     swapped = []
     try:
         for entry in entries:
@@ -337,9 +357,11 @@ def _swap_in(hermes_home, state_dir, category, txn, entries, profile, deadline, 
                                                "status": done, "reload_pending": reload}, 0o600)
         _rotate(category, txn, entries)
         result = _record(state_dir, profile, done, "%d skill(s) swapped" % len(entries), versions, reload)
-    except OSError as error:
-        raise RecoveryPending("new trees live; journal retained for the next run to recover: %s" % error,
-                              versions, reload) from error
+    except OSError as error:  # report reload_pending only once it is saved (recovery also saves it)
+        saved = reload and _persist_reload(state_dir, profile)
+        raise RecoveryPending("new trees live; journal retained for the next run to recover: %s%s" %
+                              (error, "" if saved or not reload else "; reload_pending not saved yet"),
+                              versions, saved) from error
     _discard(txn)
     return result
 

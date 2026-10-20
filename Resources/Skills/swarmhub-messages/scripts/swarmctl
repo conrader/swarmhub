@@ -131,6 +131,14 @@ def main(args):
         from pathlib import Path
         runpy.run_path(str(Path(__file__).with_name("peer-runtime.py")))["worker"](once=True)
         return None
+    if command == "update-status":
+        # Read-only print of the box updater's status file (swarmhub-update); never runs or changes the updater.
+        base = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+        try:
+            with open(os.path.join(base, "swarmhub-update", "status.json"), "rb") as handle:
+                return json.loads(handle.read().decode("utf-8"))
+        except FileNotFoundError:
+            return {"state": "unknown", "detail": "no updater status on this box (swarmhub-update not bootstrapped)"}
     raise ValueError("unknown command")
 
 

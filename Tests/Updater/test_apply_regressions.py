@@ -1,6 +1,8 @@
 """Independent-review regressions: transaction scope, commit errors, reload recovery and atomic swaps."""
 
 import errno
+import json
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -146,6 +148,73 @@ class ReviewRegressions(BoxCase):
         self.assertIn("atomic", result.detail)
         self.assert_live(v1)
         self.assert_no_transactions()
+
+
+    # ---- P2a2 review: old fallback clean-up without exchange; a reported reload flag is a saved one ----------
+
+    def test_old_fallback_after_second_rename_recovers_without_exchange(self):
+        self._old_fallback(after_second_rename=True)
+
+    def test_old_fallback_after_first_rename_recovers_without_exchange(self):
+        self._old_fallback(after_second_rename=False)
+
+    def _old_fallback(self, after_second_rename):
+        v1, v2 = self.source("v1"), self.source("v2", version="1.1.0", note="v2")
+        self.apply(v1, PROFILES[:1])
+        live = self.live(CODING)
+        old = stage.tree_digest(str(live))
+        # What the removed three-rename fallback left behind: live renamed to spare/, the new tree in slot or live.
+        txn = Path(apply._new_txn(str(self.category())))
+        os.rename(str(live), str(txn / "spare" / CODING))
+        target = live if after_second_rename else txn / "swap" / CODING
+        stage.write_tree(str(target), stage.render_profile(v2[0], v2[1], PROFILES[0])[CODING])
+        entry = {"skill": CODING, "action": "replace", "new": stage.tree_digest(str(target)), "old": old}
+        (txn / apply.JOURNAL).write_text(json.dumps({"state": "open", "entries": [entry]}))
+        with mock.patch.object(apply, "ATOMIC_EXCHANGE", False):
+            result = self.apply(v1, PROFILES[:1])[0]
+        self.assertEqual(result.status, "unchanged", result.detail)
+        self.assert_live(v1)
+        self.assert_no_transactions()
+
+    def _fail_commit_journal(self, also_record=False):
+        real = apply._write_json
+
+        def write(path, value, mode):
+            if value.get("state") == "committed" or (also_record and path.endswith("default.json")):
+                raise OSError(errno.ENOSPC, "injected write failure")
+            return real(path, value, mode)
+        return mock.patch.object(apply, "_write_json", side_effect=write)
+
+    def test_commit_journal_failure_saves_the_reload_flag_it_reports(self):
+        v1, v2 = self.source("v1"), self.source("v2", version="1.1.0", plugin="p2")
+        self.apply(v1, PROFILES[:1])
+        apply.clear_reload_pending(str(self.state), "default")
+        with self._fail_commit_journal():
+            result = self.apply(v2, PROFILES[:1])[0]
+        self.assertEqual(result.status, "recovery_pending")
+        self.assertTrue(result.reload_pending)
+        self.assertTrue(apply.read_record(str(self.state), "default")["reload_pending"])
+        # The next run rolls the open journal back; the new plugin was live meanwhile, so the flag stays.
+        retry = self.apply(v1, PROFILES[:1])[0]
+        self.assertEqual(retry.status, "unchanged")
+        self.assertTrue(retry.reload_pending)
+        self.assert_live(v1)
+        self.assert_no_transactions()
+
+    def test_an_unsaved_reload_flag_is_not_reported_and_recovery_saves_it(self):
+        v1, v2 = self.source("v1"), self.source("v2", version="1.1.0", plugin="p2")
+        self.apply(v1, PROFILES[:1])
+        apply.clear_reload_pending(str(self.state), "default")
+        with self._fail_commit_journal(also_record=True):
+            result = self.apply(v2, PROFILES[:1])[0]
+        self.assertEqual(result.status, "recovery_pending")
+        self.assertFalse(result.reload_pending)
+        self.assertIn("reload_pending not saved", result.detail)
+        self.assertFalse(apply.read_record(str(self.state), "default").get("reload_pending"))
+        retry = self.apply(v1, PROFILES[:1])[0]  # rollback of the open journal saves the flag
+        self.assertTrue(retry.reload_pending)
+        self.assertTrue(apply.read_record(str(self.state), "default")["reload_pending"])
+        self.assert_live(v1)
 
 
 if __name__ == "__main__":
