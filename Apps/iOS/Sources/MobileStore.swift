@@ -31,7 +31,7 @@ final class MobileStore {
             repository = try SQLiteRepository(url: directory.appendingPathComponent("mobile.sqlite"))
             try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: directory.path)
             do { botPromptSync = try BotPromptSyncStore(fileURL: directory.appendingPathComponent("bot-prompt-sync.json")) }
-            catch { self.error = "Saved bot prompt settings could not be loaded. The sync file was kept unchanged." }
+            catch { notice = "Saved bot prompt settings could not be loaded. Chat is using local settings; the sync file was kept unchanged." }
         } catch { repository = nil; self.error = "Local storage is unavailable. Setup and chat are disabled until it is available." }
     }
 
@@ -88,8 +88,8 @@ final class MobileStore {
     func client(_ id: String) throws -> any AgentClient {
         if let existing = clients[id] { return existing }
         guard let profile = profiles.first(where: { $0.id == id }), let key = try credentials.read(id), !key.isEmpty else { throw CoreError.missingKey }
-        guard let botPromptSync else { throw CoreError.storage }
-        let context = botPromptSync.context(for: BotPromptDocument.botKey(profile.address), fallback: BotPromptContext(name: profile.name))
+        let local = BotPromptContext(name: profile.name)
+        let context = botPromptSync?.context(for: BotPromptDocument.botKey(profile.address), fallback: local) ?? local
         let client = HermesClient(address: profile.address, key: key, promptContext: context); clients[id] = client; return client
     }
 

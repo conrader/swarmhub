@@ -20,13 +20,19 @@ extension AppStore {
             approvalRules: routes, quietHours: quietHours.label)
         // Only Hermes profiles have a cross-device identity. Keep OpenClaw's local context as before.
         guard bot.backend == .hermes else { return try BotSystemPrompt.render(local) }
-        // Preserve Mac-only endpoints/profiles that mobile's connection policy cannot represent.
+        // Use mobile's HTTPS-only policy: even Mac loopback HTTP (the default) cannot be paired.
         guard let address = try? ConnectionAddress(
             bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL,
-            profile: bot.hermesProfile ?? "default", allowLoopbackHTTP: true) else { return try BotSystemPrompt.render(local) }
-        guard let botPromptSync else { throw CoreError.storage }
+            profile: bot.hermesProfile ?? "default") else { return try BotSystemPrompt.render(local) }
+        // Sync is optional. A load failure leaves the file untouched and chat uses local settings.
+        guard let botPromptSync else { return try BotSystemPrompt.render(local) }
         let key = BotPromptDocument.botKey(address)
-        try botPromptSync.observe(local, key: key, now: Int64(Date().timeIntervalSince1970 * 1_000))
+        do {
+            try botPromptSync.observe(local, key: key, now: Int64(Date().timeIntervalSince1970 * 1_000))
+        } catch {
+            botPromptSyncWarning = "Bot prompt sync could not be saved. Chat is using local settings; the saved sync file was kept unchanged."
+            return try BotSystemPrompt.render(local)
+        }
         return try BotSystemPrompt.render(botPromptSync.context(for: key, fallback: local))
     }
 

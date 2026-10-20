@@ -111,6 +111,7 @@ import SwarmHubCoordination
     @Published var projectFacts: [ProjectFact] = []
     let fileURL: URL
     var botPromptSync: BotPromptSyncStore?
+    @Published var botPromptSyncWarning: String?
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     var historyLoadTokens: [UUID: UUID] = [:]
     /// Prepended to every session id the app creates (chat, thread, group); `--e2e` sets `AppConstants.selfTestPrefix`.
@@ -170,7 +171,7 @@ import SwarmHubCoordination
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true); fileURL = storeURL ?? directory.appending(path: "store.json")
         do {
             botPromptSync = try BotPromptSyncStore(fileURL: demoMode ? nil : directory.appending(path: "bot-prompt-sync.json"))
-        } catch { errorMessage = "Saved bot prompt settings could not be loaded. The sync file was kept unchanged." }
+        } catch { botPromptSyncWarning = "Saved bot prompt settings could not be loaded. Chat is using local settings; the sync file was kept unchanged." }
         if demoMode {
             persistenceEnabled = false
             loadDemoData(includeActivity: true)

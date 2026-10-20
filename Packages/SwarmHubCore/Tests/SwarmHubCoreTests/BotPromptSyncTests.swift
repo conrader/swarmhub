@@ -8,21 +8,55 @@ private let vectorsURL = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent().deletingLastPathComponent()
     .appendingPathComponent("Tests/Fixtures/prompt_sync/index.json")
 
-private func vectors() throws -> [String: Any] {
-    let object = try JSONSerialization.jsonObject(with: try Data(contentsOf: vectorsURL))
-    var root = try #require(object as? [String: Any])
-    let files = try #require(root["scenarioFiles"] as? [String])
-    root["scenarios"] = try files.flatMap { name -> [[String: Any]] in
-        let url = vectorsURL.deletingLastPathComponent().appendingPathComponent(name)
-        let scenarios = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
-        return try #require(scenarios as? [[String: Any]])
-    }
-    return root
+// Decode directly from source bytes. JSONSerialization/NSNumber can round Int64.max through Double.
+private struct FixtureManifest: Decodable {
+    var contexts: [String: BotPromptContext]
+    var botKeys: [BotKeyVector]
+    var scenarioFiles: [String]
 }
 
-private func decode<T: Decodable>(_ type: T.Type, _ object: Any?) throws -> T {
-    let present = try #require(object)
-    return try JSONDecoder().decode(T.self, from: try JSONSerialization.data(withJSONObject: present, options: [.fragmentsAllowed]))
+private struct BotKeyVector: Decodable {
+    var address, profile, key: String
+}
+
+private struct Scenario: Decodable {
+    var name: String
+    var ops: [Operation]
+}
+
+private struct ContextReference: Decodable {
+    var base: String
+    var with: PartialContext?
+}
+
+private enum StampValue: Decodable, Equatable {
+    case text(String), rules([String])
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer()
+        if let text = try? value.decode(String.self) { self = .text(text) }
+        else { self = .rules(try value.decode([String].self)) }
+    }
+}
+
+private struct Operation: Decodable {
+    var op: String
+    var device, bot, from, to, field, origin: String?
+    var now, at: Int64?
+    var context, fallback: ContextReference?
+    var set: PartialContext?
+    var document: BotPromptDocument?
+    var merged: Bool?
+    var value: StampValue?
+}
+
+private func vectors() throws -> (root: FixtureManifest, scenarios: [Scenario]) {
+    let decoder = JSONDecoder()
+    let root = try decoder.decode(FixtureManifest.self, from: Data(contentsOf: vectorsURL))
+    let scenarios = try root.scenarioFiles.flatMap { name in
+        try decoder.decode([Scenario].self, from: Data(contentsOf: vectorsURL.deletingLastPathComponent().appendingPathComponent(name)))
+    }
+    return (root, scenarios)
 }
 
 /// A vector's `with`/`set` overrides; coordinator "" means no coordinator, as in the synced document.
@@ -42,61 +76,58 @@ private struct PartialContext: Decodable {
     }
 }
 
-private func resolve(_ reference: Any?, in root: [String: Any]) throws -> BotPromptContext {
-    let reference = try #require(reference as? [String: Any])
-    let contexts = try #require(root["contexts"] as? [String: Any])
-    var context = try decode(BotPromptContext.self, contexts[try #require(reference["base"] as? String)])
-    if let overrides = reference["with"] { try decode(PartialContext.self, overrides).apply(to: &context) }
+private func resolve(_ reference: ContextReference?, in root: FixtureManifest) throws -> BotPromptContext {
+    let reference = try #require(reference)
+    var context = try #require(root.contexts[reference.base])
+    reference.with?.apply(to: &context)
     return context
 }
 
-private func stamp(_ settings: BotPromptSettings?, _ field: String) -> (at: Int64, origin: String, value: Any)? {
-    if field == "approvalRules" { return settings?.approvalRules.map { ($0.at, $0.origin, $0.value) } }
+private func stamp(_ settings: BotPromptSettings?, _ field: String) -> (at: Int64, origin: String, value: StampValue)? {
+    if field == "approvalRules" { return settings?.approvalRules.map { ($0.at, $0.origin, .rules($0.value)) } }
     let paths: [String: KeyPath<BotPromptSettings, PromptStamp<String>?>] = [
         "name": \.name, "role": \.role, "owner": \.owner, "coordinator": \.coordinator,
         "timeZone": \.timeZone, "language": \.language, "quietHours": \.quietHours,
     ]
     guard let path = paths[field] else { return nil }
-    return settings?[keyPath: path].map { ($0.at, $0.origin, $0.value) }
+    return settings?[keyPath: path].map { ($0.at, $0.origin, .text($0.value)) }
 }
 
-private func run(_ scenario: [String: Any], root: [String: Any]) throws {
-    let name = scenario["name"] as? String ?? "?"
+private func run(_ scenario: Scenario, root: FixtureManifest) throws {
+    let name = scenario.name
     var devices: [String: BotPromptSyncState] = [:]
-    for case let op as [String: Any] in try #require(scenario["ops"] as? [Any]) {
-        let device = op["device"] as? String ?? ""
-        let bot = op["bot"] as? String ?? ""
-        let now = (op["now"] as? NSNumber)?.int64Value ?? 0
-        switch op["op"] as? String {
+    for op in scenario.ops {
+        let device = op.device ?? ""
+        let bot = op.bot ?? ""
+        switch op.op {
         case "observe":
-            devices[device, default: .init()].observe(try resolve(op["context"], in: root), key: bot, origin: device, now: now)
+            devices[device, default: .init()].observe(try resolve(op.context, in: root), key: bot, origin: device, now: try #require(op.now))
         case "edit":
-            let changes = try decode(PartialContext.self, op["set"])
-            devices[device, default: .init()].edit(key: bot, origin: device, now: now,
-                                                   fallback: try resolve(op["fallback"], in: root)) { changes.apply(to: &$0) }
+            let changes = try #require(op.set)
+            devices[device, default: .init()].edit(key: bot, origin: device, now: try #require(op.now),
+                                                   fallback: try resolve(op.fallback, in: root)) { changes.apply(to: &$0) }
         case "sync":
             // Through the wire format, as a transport would carry it.
-            let from = try #require(op["from"] as? String), to = try #require(op["to"] as? String)
+            let from = try #require(op.from), to = try #require(op.to)
             let wire = try JSONEncoder().encode(devices[from, default: .init()].document)
             let carried = try JSONDecoder().decode(BotPromptDocument.self, from: wire)
             devices[to, default: .init()].merge(carried)
         case "receive":
-            let document = try decode(BotPromptDocument.self, op["document"])
+            let document = try #require(op.document)
             let merged = devices[device, default: .init()].merge(document)
-            #expect(merged == (op["merged"] as? Bool), "\(name)")
+            #expect(merged == op.merged, "\(name)")
         case "expect":
-            let expected = try resolve(op["context"], in: root)
-            let got = devices[device, default: .init()].context(for: bot, fallback: try resolve(op["fallback"], in: root))
+            let expected = try resolve(op.context, in: root)
+            let got = devices[device, default: .init()].context(for: bot, fallback: try resolve(op.fallback, in: root))
             #expect(got == expected, "\(name)")
         case "stamp":
-            let field = try #require(op["field"] as? String)
+            let field = try #require(op.field)
             let got = stamp(devices[device]?.document.bots[bot], field)
-            if op["at"] is NSNull {
-                #expect(got == nil, "\(name)")
+            if let at = op.at {
+                #expect(got?.at == at && got?.origin == op.origin, "\(name)")
+                if let value = op.value { #expect(got?.value == value, "\(name)") }
             } else {
-                #expect(got?.at == (op["at"] as? NSNumber)?.int64Value && got?.origin == op["origin"] as? String, "\(name)")
-                if let value = op["value"] as? String { #expect(got?.value as? String == value, "\(name)") }
-                if let value = op["value"] as? [String] { #expect(got?.value as? [String] == value, "\(name)") }
+                #expect(got == nil, "\(name)")
             }
         default:
             Issue.record("unknown op in \(name)")
@@ -105,18 +136,29 @@ private func run(_ scenario: [String: Any], root: [String: Any]) throws {
 }
 
 @Test func sharedPromptSyncVectorsMatchThePythonSimulation() throws {
-    let root = try vectors()
-    let scenarios = try #require(root["scenarios"] as? [[String: Any]])
-    #expect(scenarios.count >= 10)
+    let (root, scenarios) = try vectors()
+    #expect(scenarios.count == 19)
     for scenario in scenarios { try run(scenario, root: root) }
 }
 
+@Test func sharedPromptSyncCeilingFixturesDecodeAsExactIntegers() throws {
+    let scenarios = try vectors().scenarios
+    let owner = try #require(scenarios.first { $0.name.hasPrefix("owner: edits saturate") })
+    #expect(owner.ops.first?.document?.bots["k"]?.owner?.at == Int64.max - 1)
+    #expect(owner.ops.first { $0.op == "stamp" }?.at == Int64.max)
+    #expect(owner.ops.first { $0.now == Int64.max } != nil)
+    let rules = try #require(scenarios.first { $0.name.hasPrefix("approvalRules: edits saturate") })
+    #expect(rules.ops.first?.document?.bots["k"]?.approvalRules?.at == Int64.max - 1)
+    #expect(rules.ops.first { $0.op == "stamp" }?.at == Int64.max)
+    let received = try #require(scenarios.first { $0.name.hasPrefix("received Int64.max") })
+    #expect(received.ops.first?.document?.bots["k"]?.owner?.at == Int64.max)
+}
+
 @Test func macAndPhoneDeriveTheSameBotKey() throws {
-    let items = try #require(try vectors()["botKeys"] as? [[String: String]])
+    let items = try vectors().root.botKeys
     #expect(!items.isEmpty)
     for item in items {
-        let text = try #require(item["address"]), profile = try #require(item["profile"])
-        #expect(BotPromptDocument.botKey(try ConnectionAddress(text, profile: profile)) == item["key"])
+        #expect(BotPromptDocument.botKey(try ConnectionAddress(item.address, profile: item.profile)) == item.key)
     }
 }
 

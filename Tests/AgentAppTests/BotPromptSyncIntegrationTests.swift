@@ -38,34 +38,81 @@ private struct ReceivedPromptTransport: BotPromptSyncTransport {
 @MainActor @Test func macPromptSyncDemoNeverWritesAStateFile() throws {
     let url = temporaryStore()
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let defaults = isolatedDefaults()
+    defaults.set("https://box.example", forKey: "hermesBaseURL")
     let store = AppStore(demoMode: true, storeURL: url, autoConfigureHermes: false,
-                         keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+                         keyStore: InMemoryKeyStore(), defaults: defaults)
     let bot = Bot(name: "Scout", backend: .hermes, hermesProfile: "scout")
     _ = try store.defaultBotInstructions(for: bot)
+    #expect(store.botPromptSync?.state.document.bots.isEmpty == false)
     #expect(!FileManager.default.fileExists(atPath: url.deletingLastPathComponent().appendingPathComponent("bot-prompt-sync.json").path))
 }
 
-@MainActor @Test func macPromptSyncCorruptFileIsSurfacedAndNeverOverwritten() throws {
+@MainActor @Test(arguments: ["invalid state", "{\"origin\":\"device\",\"state\":{\"document\":{\"schema\":99,\"bots\":{}},\"observed\":{}}}"])
+func macPromptSyncCorruptFileWarnsButKeepsChatWorkingWithoutOverwriting(saved: String) throws {
     let url = temporaryStore()
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     let syncURL = url.deletingLastPathComponent().appendingPathComponent("bot-prompt-sync.json")
-    let bytes = Data("invalid state".utf8)
+    let bytes = Data(saved.utf8)
     try bytes.write(to: syncURL)
-    let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let defaults = isolatedDefaults()
+    defaults.set("https://box.example", forKey: "hermesBaseURL")
+    let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: defaults)
     #expect(store.botPromptSync == nil)
-    #expect(store.errorMessage?.contains("sync file was kept unchanged") == true)
+    #expect(store.botPromptSyncWarning?.contains("sync file was kept unchanged") == true)
+    #expect(store.errorMessage == nil)
     let bot = Bot(name: "Scout", backend: .hermes)
-    #expect(throws: CoreError.storage) { _ = try store.defaultBotInstructions(for: bot) }
+    #expect(try store.defaultBotInstructions(for: bot).contains("Scout"))
+    store.userName = "Local owner after sync failure"
+    let backend = try #require(try store.backend(for: bot) as? HermesBackend)
+    #expect(backend.defaultInstructions?.contains(store.userName) == true)
+    #expect(store.errorMessage == nil)
+    #expect(store.persistenceEnabled)
     #expect(try Data(contentsOf: syncURL) == bytes)
 }
 
-@MainActor @Test func macOnlyHTTPConnectionsKeepTheirExistingLocalPromptBehavior() throws {
+@MainActor @Test func macPromptSyncFailedObservationWarnsAndUsesLocalSettingsInsteadOfSyncedValues() throws {
+    let url = temporaryStore()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let defaults = isolatedDefaults()
+    defaults.set("https://box.example", forKey: "hermesBaseURL")
+    let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: defaults)
+    let bot = Bot(name: "Scout", backend: .hermes)
+    _ = try store.defaultBotInstructions(for: bot)
+    let sync = try #require(store.botPromptSync)
+    let key = BotPromptDocument.botKey(try ConnectionAddress("https://box.example"))
+    try sync.edit(key: key, now: 100, fallback: BotPromptContext(name: "Scout")) { $0.owner = "Remote owner" }
+    let before = sync.state
+    let syncURL = url.deletingLastPathComponent().appendingPathComponent("bot-prompt-sync.json")
+    // A nonempty directory at the destination forces an atomic save failure, even as root.
+    try FileManager.default.removeItem(at: syncURL)
+    try FileManager.default.createDirectory(at: syncURL, withIntermediateDirectories: true)
+    let marker = syncURL.appendingPathComponent("keep")
+    let bytes = Data("saved state must remain untouched".utf8)
+    try bytes.write(to: marker)
+    store.userName = "Changed local owner"
+    let backend = try #require(try store.backend(for: bot) as? HermesBackend)
+    #expect(backend.defaultInstructions?.contains("Changed local owner") == true)
+    #expect(backend.defaultInstructions?.contains("Remote owner") == false)
+    #expect(store.botPromptSyncWarning?.contains("Chat is using local settings") == true)
+    #expect(store.errorMessage == nil)
+    #expect(sync.state == before)
+    #expect(try Data(contentsOf: marker) == bytes)
+    #expect(store.persistenceEnabled)
+}
+
+// nil exercises the app's default URL rather than a per-bot override.
+@MainActor @Test(arguments: [nil, "http://localhost:18000", "http://127.0.0.1:18000",
+                            "http://[::1]:18000", "http://desktop-only.example"] as [String?])
+func macOnlyHTTPConnectionsKeepTheirExistingLocalPromptBehavior(address: String?) throws {
     let url = temporaryStore()
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
     let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let bot = Bot(name: "Scout", backend: .hermes)
-    bot.hermesBaseURL = "http://desktop-only.example"
+    bot.hermesBaseURL = address
     #expect(try store.defaultBotInstructions(for: bot).contains("Scout"))
     #expect(store.botPromptSync?.state.document.bots.isEmpty == true)
+    #expect(store.botPromptSync?.state.observed.isEmpty == true)
+    #expect(!FileManager.default.fileExists(atPath: url.deletingLastPathComponent().appendingPathComponent("bot-prompt-sync.json").path))
 }
