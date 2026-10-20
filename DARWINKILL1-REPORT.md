@@ -232,3 +232,35 @@ cd /tmp/qm6 && PYTHONPATH=sim /usr/bin/python3 -B -m unittest -v test_darwinkill
 The five `DarwinNativeTests` and all `RealGroupTests` must execute without skips. The new fake-clock tests must
 pass unchanged on Python 3.9, and Swift's coding-skill expectations must pass at 1.3.11. Native Darwin tests,
 actual Xcode Python 3.9 execution, `swift build`, and `swift test` cannot be run on this Linux host.
+
+## darwinkill3
+
+Base: `swarmhub/peer-delivery` @ `a4e3660`. A TERM/INT/HUP arriving while a wait exception was being handled
+could replace that exception with `Interrupted`, escaping as exit 1 instead of 77. Inside the handler body,
+Python still ran its `finally`; at the first instruction of that `finally`, the signal could instead skip
+drain/deadline initialization and prevent even the bounded reap. Replacing `ChildProcessError` before ownership
+was revoked also risked signalling an already-reaped leader's group ID.
+
+Each wait handler now clears `waiting` first. The signal handler additionally records, without raising over,
+an exception already leaving the wait, protecting handler dispatch and entry before that assignment executes.
+It compares against the caller's original exception context so calling from an unrelated `except` still allows
+signals to interrupt the wait. Kill-before-reap ordering, the unreaped-leader ownership rule, bounded `ps`, the
+single reap attempt, the 5.25 s ceiling, and refusal precedence over `128+signal` remain intact. Coding skill
+and Swift/Python current-version pins are **1.3.12**; outdated-install fixtures now use 1.3.11.
+
+The Linux regression in `test_darwinkill2` injects all three signals at dispatch, handler entry, exception
+formatting, and finally entry for both wait-error handlers. All **24 cases fail on a4e3660** and pass after
+the fix. An in-memory mutation retaining only the first-statement clears still fails **12 cases**. Assertions
+cover ownership, kill-before-reap, one bounded reap, status 77, and restored handlers; another test preserves
+`128+signal` when the caller itself is handling an exception. No mutation files were written.
+
+Ran `PYTHONPATH=sim python3 -B -m unittest -v test_darwinkill1 test_darwinkill2 test_fixes18 test_fixes8_skills`:
+**58 tests, 53 passed, 5 native-Darwin skips**. In-memory compilation and Python 3.9 grammar checks passed for
+all seven coding-skill Python scripts and both changed Python tests. Shell syntax checks under sh/dash/bash
+and `git diff --check` passed. Native Darwin execution and Swift tests remain unrun on this Linux host.
+
+`Tests/Scripts/code-job-test.sh Resources/Skills/swarmhub-coding/scripts/code-job`, with both suite interpreter
+and `CODE_JOB_SH` set to sh/dash/bash, passed **23/23 under each shell** using provider fixtures. Its isolated
+temporary directory, including three leftover verification directories from deliberately killed cases, was
+removed. No task-created temporary files remain. No Hermes changes, real provider calls, outbound messages,
+or commits; pre-existing untracked briefs were left untouched.

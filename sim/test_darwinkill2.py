@@ -3,10 +3,13 @@
 All tests run on Linux and stock macOS Python 3.9; native kqueue/Seatbelt coverage stays in test_darwinkill1.
 No providers, outbound messages, or real signals to fixture PIDs.
 """
+import ast
 import contextlib
+import inspect
 import io
 import signal
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -30,6 +33,108 @@ class Clock:
 
 
 class BoundTests(unittest.TestCase):
+    def test_signals_at_wait_handler_boundaries_cannot_escape_or_lose_ownership(self):
+        # Trace before the first statement as well as inside str(exc): merely moving
+        # waiting=False into each handler leaves its entry bytecodes interruptible.
+        source = ast.parse(inspect.getsource(DARWIN.run_grouped))
+        wait_try = next(node for node in ast.walk(source) if isinstance(node, ast.Try)
+                        and any(isinstance(handler.type, ast.Name) and handler.type.id == 'ChildProcessError'
+                                for handler in node.handlers))
+        for error_type in (OSError, ChildProcessError):
+            handler_name = 'ChildProcessError' if error_type is ChildProcessError else 'Exception'
+            handler = next(handler for handler in wait_try.handlers if handler.type.id == handler_name)
+            for boundary in ('dispatch', 'entry', 'format', 'finally'):
+                for signum in DARWIN.TEARDOWN_SIGNALS:
+                    with self.subTest(error=error_type.__name__, boundary=boundary, signum=signum):
+                        clock, log, delivered, stderr = Clock(), [], [], io.StringIO()
+                        signals = (*DARWIN.TEARDOWN_SIGNALS, signal.SIGCHLD)
+                        before = {sig: signal.getsignal(sig) for sig in signals}
+
+                        def interrupt():
+                            delivered.append(signum)
+                            signal.getsignal(signum)(signum, None)
+
+                        class WaitError(error_type):
+                            def __str__(self):
+                                if boundary == 'format':
+                                    interrupt()
+                                return 'wait failed'
+
+                        class Leader:
+                            pid, returncode = 4242, None
+
+                            def wait(self, timeout=None):
+                                log.append(('reap', timeout))
+                                clock.sleep(timeout)
+                                raise subprocess.TimeoutExpired('verifier', timeout)
+
+                        def wait_exit(pid):
+                            raise WaitError()
+
+                        def killpg(pid, sig):
+                            self.assertFalse(any(item[0] == 'reap' for item in log))
+                            log.append(('kill', pid, sig))
+
+                        def drain(pid):
+                            return DARWIN.drain(pid, killpg=killpg, members=lambda pid, timeout: [],
+                                                clock=clock, sleep=clock.sleep)
+
+                        target = (handler if boundary == 'dispatch' else
+                                  handler.body[0] if boundary == 'entry' else wait_try.finalbody[0]).lineno
+                        target += DARWIN.run_grouped.__code__.co_firstlineno - 1
+
+                        def trace(frame, event, arg):
+                            if (boundary != 'format' and not delivered and event == 'line'
+                                    and frame.f_code is DARWIN.run_grouped.__code__ and frame.f_lineno == target):
+                                interrupt()
+                            return trace
+
+                        previous_trace = sys.gettrace()
+                        with patch.object(DARWIN.subprocess, 'Popen', return_value=Leader()), \
+                             patch.object(DARWIN.os, 'killpg', killpg), \
+                             patch.object(DARWIN.os, 'kill', lambda *args: log.append(('kill-leader',))), \
+                             contextlib.redirect_stderr(stderr):
+                            try:
+                                sys.settrace(trace)
+                                result = DARWIN.run_grouped(['verifier'], {}, '/', wait_exit=wait_exit,
+                                                            drain_group=drain, clock=clock)
+                            finally:
+                                sys.settrace(previous_trace)
+                                self.assertEqual({sig: signal.getsignal(sig) for sig in signals}, before)
+                        self.assertEqual(delivered, [signum])
+                        self.assertEqual(result, 77)
+                        self.assertIn('wait failed', stderr.getvalue())
+                        self.assertEqual([item for item in log if item[0] == 'reap'], [('reap', 0.25)])
+                        self.assertEqual(log[-1], ('reap', 0.25))
+                        self.assertEqual(any(item[0] == 'kill' for item in log), error_type is OSError)
+                        self.assertLessEqual(clock(), 5.25)
+
+    def test_launcher_signal_interrupts_wait_even_in_a_callers_exception_handler(self):
+        for signum in DARWIN.TEARDOWN_SIGNALS:
+            with self.subTest(signum=signum):
+                log, stderr = [], io.StringIO()
+
+                class Leader:
+                    pid, returncode = 4242, None
+
+                    def wait(self, timeout=None):
+                        log.append(('reap', timeout))
+                        return -signal.SIGKILL
+
+                def wait_exit(pid):
+                    signal.getsignal(signum)(signum, None)
+                    self.fail('launcher signal did not interrupt the wait')
+
+                with patch.object(DARWIN.subprocess, 'Popen', return_value=Leader()), \
+                     contextlib.redirect_stderr(stderr):
+                    try:
+                        raise ValueError('unrelated caller error')
+                    except ValueError:
+                        result = DARWIN.run_grouped(['verifier'], {}, '/', wait_exit=wait_exit,
+                                                    drain_group=lambda pid: log.append(('drain',)) or [], clock=Clock())
+                self.assertEqual(result, 128 + signum)
+                self.assertEqual(log, [('drain',), ('reap', 0.25)])
+
     def test_reap_uses_only_the_budget_left_after_a_delayed_drain(self):
         for drain_time in (5.2, 5.25, 5.3):
             with self.subTest(drain_time=drain_time):

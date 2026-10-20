@@ -237,12 +237,17 @@ def run_grouped(argv, env, cwd, wait_exit=wait_exited, drain_group=drain, clock=
     A descendant that calls setsid() or setpgid() (or is spawned with POSIX_SPAWN_SETSID/SETPGROUP) leaves the group
     and is not reached: Seatbelt has no pidfd/subreaper equivalent."""
     state = {'waiting': False, 'signals': []}
+    wait_context = sys.exc_info()[1]  # A caller may itself be handling an unrelated exception.
 
     def interrupt(signum, _frame):
         state['signals'].append(signum)
         if state['waiting']:
             state['waiting'] = False
-            raise Interrupted()
+            # An exception already leaving the wait will take us to teardown. Do not
+            # replace it, even before the first instruction of its except handler:
+            # ChildProcessError must still revoke ownership before any group signal.
+            if sys.exc_info()[1] is wait_context:
+                raise Interrupted()
 
     main = threading.current_thread() is threading.main_thread()
     previous = {}
@@ -264,12 +269,14 @@ def run_grouped(argv, env, cwd, wait_exit=wait_exited, drain_group=drain, clock=
                     wait_exit(process.pid)
                 state['waiting'] = False
             except Interrupted:
-                pass
+                state['waiting'] = False
             except ChildProcessError as exc:
+                state['waiting'] = False
                 # Someone else reaped it. Its group ID is no longer pinned; never signal it.
                 owned = False
                 failure = str(exc)
             except Exception as exc:
+                state['waiting'] = False
                 failure = str(exc)
             finally:
                 state['waiting'] = False
