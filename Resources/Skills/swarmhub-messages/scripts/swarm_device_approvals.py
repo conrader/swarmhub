@@ -229,8 +229,11 @@ class DeviceApprovals:
             if not found:
                 return {"receipt": None, "status": "gone"}
             record = found[0]
-            require(destination in (policy(db).get(record["gate"]), record["spec"].get("bot")), "profile_mismatch")
-            return {"receipt": None, "status": record["status"]}
+            decider = policy(db).get(record["gate"])
+            require(destination in (decider, record["spec"].get("bot")), "profile_mismatch")
+            binding = {"origin": state["origin"], "runtime": state["runtime"], "profile": decider}
+            return {"receipt": None, "status": record["status"],
+                    "record": {**record, "decider": decider, "remoteBinding": binding}}
 
     # HTTP boundary ------------------------------------------------------------------------------
 

@@ -123,7 +123,7 @@ enum ManagedRemoteControl {
         return record
     }
 
-    private final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         private let lock = NSLock()
         private var sawRedirect = false
         var rejected: Bool { lock.withLock { sawRedirect } }

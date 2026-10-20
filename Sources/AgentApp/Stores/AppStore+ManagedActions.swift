@@ -30,7 +30,7 @@ extension AppStore {
         }
     }
 
-    func managedRuntime(_ bot: Bot, verb: String, task: String, input: Data? = nil) async throws -> ManagedRecord {
+    func managedRuntime(_ bot: Bot, verb: String, task: String, input: Data? = nil, reviewed: ManagedRecord? = nil) async throws -> ManagedRecord {
         #if DEBUG
         if UIAcceptanceMode.requested {
             guard let uiAcceptance else { throw UIAcceptanceError.unsafeDependency }
@@ -40,6 +40,12 @@ extension AppStore {
         if let managedControl { return try await managedControl(bot, verb, task, input) }
         let address = bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL
         let profile = bot.hermesProfile ?? "default"
+        let approvalSettings = DeviceApprovalSettings(defaults: defaults)
+        if let box = try? ManagedRemoteControl.origin(address: address), approvalSettings.isRequired(box) {
+            return try await ManagedRemoteControl.requestForBox(address: address, profile: profile, key: "", verb: verb,
+                task: task, input: input, settings: approvalSettings, approvalKeys: approvalKeys, reviewed: reviewed,
+                session: hermesSession === HermesURLSession.shared ? nil : hermesSession)
+        }
         if let host = URL(string: address)?.host, !["localhost", "127.0.0.1", "::1"].contains(host) {
             guard !prefixIgnoredHermesProfiles.contains(profile) else { throw ManagedControlError.unsent("This profile is unavailable.") }
             let account = Self.keyAccount(forProfile: profile)
@@ -96,7 +102,7 @@ extension AppStore {
                     // Persist immediately before dispatch. A crash or lost reply from this point is uncertain.
                     guard let index = approvals.firstIndex(where: { $0.id == approval.id }) else { return }
                     approvals[index].managedDecision = approved; save()
-                    receipt = try await managedRuntime(bot, verb: "decide", task: original.id, input: input)
+                    receipt = try await managedRuntime(bot, verb: "decide", task: original.id, input: input, reviewed: original)
                 }
             }
             guard receipt.confirms(approved, original: original) else { throw ManagedControlError.rejected }
@@ -116,8 +122,12 @@ extension AppStore {
         } catch {
             if let index = approvals.firstIndex(where: { $0.id == approval.id }) {
                 approvals[index].decisionPending = false
-                if let controlError = error as? ManagedControlError, case .unsent = controlError {
-                    approvals[index].managedDecision = earlierChoice
+                if let controlError = error as? ManagedControlError {
+                    switch controlError {
+                    case .unsent: approvals[index].managedDecision = earlierChoice
+                    case .refused: approvals[index].managedDecision = nil
+                    default: break
+                    }
                 }
             }
             errorMessage = error.localizedDescription

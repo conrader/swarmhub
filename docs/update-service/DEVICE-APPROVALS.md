@@ -128,11 +128,25 @@ update host; the device list, mode and nonces are local tables in `~/.hermes/swa
 | --- | --- | --- |
 | `challenge` | signed read request | `{request, challenge, record}`: a fresh nonce binding (all signed fields except `approved`) and the full stored operation |
 | `decide` | the P5a envelope | `{request, receipt}` |
-| `receipt` | signed read request | `{request, receipt}` or `{request, receipt: null, status}`; never authorizes |
+| `receipt` | signed read request | `{request, receipt}` or `{request, receipt: null, status, record}`; `record` is omitted when gone; never authorizes |
 
 `request` is SHA-256 of the raw body. Refusals are HTTP 403 `{"error":"control request refused","reason":<code>}`.
 Responses are authenticated by TLS to the operator-configured origin (the client keeps v1's no-redirect rule);
 the box holds no signing key.
+
+Pending receipt reads include the full stored operation, current decider and `remoteBinding`
+(origin/runtime/decider profile). The Mac uses these reads to display pending cards without creating
+nonces. Only a decision asks for a fresh challenge, then checks it against the reviewed operation.
+The Mac persists its exact signed attempt before dispatch. A recognized HTTP 403 box refusal clears
+that attempt and the card's saved choice, allowing another explicit retry or deny. Timeouts, unknown
+results, redirects, invalid receipts and server errors retain the attempt; only receipt reconciliation
+may resolve them, with no automatic resending or changed decision.
+
+The Mac fixture stores canonical payload/message bytes, public keys, and signatures. Ed25519 signatures
+from CryptoKit may be randomized: both Swift and Python verify stored signatures instead of comparing
+fresh signatures. On the Mac, run `SWARMHUB_WRITE_DEVICE_FIXTURE=1 swift test --filter DeviceApprovalIdentityTests`,
+then plain `swift test`, then `PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_mac_device_approvals.py -v`.
+The Python check verifies the stored fixture through P5b without regenerating expected signatures.
 
 A **read request** is `{"signed":{...},"signature":...}` signed over ASCII `swarmhub-device-request/2` + LF +
 `JCS(signed)`, with exactly `version` 2, `domain` `swarmhub/device-request/2`, `verb` (`challenge`/`receipt`,
