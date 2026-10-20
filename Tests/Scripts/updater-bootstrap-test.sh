@@ -5,7 +5,7 @@
 #   sh Tests/Scripts/updater-bootstrap-test.sh
 #       BOOTSTRAP_SH        the shell that runs the installer (default /bin/sh)
 #       BOOTSTRAP_TEST_MODE docker | fallback (default: docker when it works, else fallback)
-#       BOOTSTRAP_TEST_IMAGE (default python:3.12-slim, pulled once if absent; the container runs with --network none)
+#       BOOTSTRAP_TEST_IMAGE (default python:3.12, pulled once if absent; the container runs with --network none)
 #
 # docker: the installer runs as root in a container with a separate unprivileged `bot` account, which then uses the
 # updater. Only host() starts that mode (--inside-container plus the BOOTSTRAP_TEST_CONTAINER launch marker); anywhere
@@ -14,6 +14,7 @@
 # --unprivileged-test and a private prefix under $HOME; it never creates an account or uses a real path; the cases that
 # need a second account are reported as skipped. Exit 0 all passed, 1 a failure, 77 nothing could run.
 
+umask 022
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 REPO=$(cd "$HERE/../.." && pwd -P)
 SELF=$HERE/$(basename "$0")
@@ -33,6 +34,7 @@ skip() { echo "skip: $1 ($2)"; SKIPPED=$((SKIPPED + 1)); }
 has() { grep -q -- "$1" "$2"; }
 absent() { [ ! -e "$1" ] && [ ! -L "$1" ]; }
 fails() { ! "$@"; }
+. "$HERE/updater-bootstrap-linkage.sh"
 . "$HERE/updater-bootstrap-interp.sh"  # fakepy, interpreter_refusals
 
 # ======================================== host: build the TEST packages, pick a mode ===============================
@@ -45,6 +47,7 @@ host() {
     > "$T/embed.log" 2>&1 || { cat "$T/embed.log"; echo "SKIP: cannot build the TEST bootstrap package"; exit 77; }
   mkdir "$T/pkg" && cp "$T"/res/Bootstrap/* "$T/pkg/" && cp -R "$T/res/Baseline" "$T/pkg/Baseline" || exit 1
   MARK=/tmp/swarmhub-p2d-executed.$$
+  build_linkage "$T/pkg" "$MARK" || { echo "FAIL: cannot compile TEST linkage fixtures"; exit 1; }
   # bitflip.tar: one byte changed. tampered.tar: code that leaves $MARK when run, with a matching .sha256 beside it.
   python3 -I -B - "$T/pkg" "$MARK" <<'EOF' || exit 1
 import glob, hashlib, io, os, sys, tarfile
@@ -73,7 +76,7 @@ EOF
   MODE=${BOOTSTRAP_TEST_MODE:-}
   DOCKER=$(command -v docker 2>/dev/null || { [ -x /snap/bin/docker ] && echo /snap/bin/docker; })
   if [ "$MODE" != fallback ] && [ -n "$DOCKER" ] && "$DOCKER" info > /dev/null 2>&1; then
-    IMAGE=${BOOTSTRAP_TEST_IMAGE:-python:3.12-slim}
+    IMAGE=${BOOTSTRAP_TEST_IMAGE:-python:3.12}
     "$DOCKER" image inspect "$IMAGE" > /dev/null 2>&1 || "$DOCKER" pull -q "$IMAGE" > /dev/null 2>&1 \
       || { [ "$MODE" = docker ] && { echo "SKIP: cannot pull $IMAGE"; exit 77; }; DOCKER=; }
   else

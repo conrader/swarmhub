@@ -93,6 +93,9 @@ interpreter_refusals() {
   else PROBLEMS="; cannot build the fake interpreter"; fi
   done_case
 
+  link_target_refusals
+  linked_library_refusals
+
   # $SAFE/fpy-via is a protected link to a link in a folder the bot can write, which points back at the protected
   # copy: every named folder and the final folder are protected, only the middle hop is not (the bot could retarget it)
   begin "an interpreter reached through a link hop the bot controls is refused before it runs; so is a link loop"
@@ -113,4 +116,53 @@ interpreter_refusals() {
   else PROBLEMS="; cannot build the fake interpreter or its links"; fi
   done_case
   rm -rf "$MARK" "$PREFIX" "$FP" "$SAFE/fpy-evil.py" "$SAFE/fpy-evil" "$SAFE/fpy-via" "$SAFE/fpy-loop1" "$SAFE/fpy-loop2" "$HOP"
+}
+
+# These cases also run in the focused preflight suite, without installing a package.
+link_target_refusals() {
+  begin "a link to python3 with a trailing newline is refused without executing its real target"
+  if fakepy clean; then
+    NL=$(printf '\n.'); NL=${NL%.}
+    printf '#!/bin/sh\necho newline-target >> %s\nexit 0\n' "$MARK" > "$FP/bin/python3$NL"
+    chmod 0777 "$FP/bin/python3$NL"
+    ln -s "python3$NL" "$FP/bin/via"
+    "$FP/bin/via"; expect "control: real link target did not run" has newline-target "$MARK"
+    rm -f "$MARK"
+    expect "accepted a newline link target" fails inst install --prefix "$PREFIX" --package "$PACKAGE" --sha256 "$GOOD" --python "$FP/bin/via"
+    expect "executed the real target or left a prefix" no_trace
+    expect "no control-character refusal" has 'control character' "$W/out"
+  else PROBLEMS="; cannot build newline fixture"; fi
+  done_case
+  rm -rf "$FP" "$MARK" "$PREFIX"
+}
+
+# host() builds native fixtures before Docker starts: no compiler or network is needed in the container.
+linked_library_refusals() {
+  for variant in pth lib writable outside missing ambiguous search; do
+    begin "actual linked libpython in a custom folder: $variant"
+    if fakepy clean && mkdir -p "$FP/private/deep" && cp "$PKG/linkage/python3" "$FP/bin/python3" \
+        && cp "$PKG/linkage/libpython3.bootstrap.so" "$FP/private/deep/"; then
+      case $variant in
+        pth) : > "$FP/private/deep/libpython3.bootstrap._pth" ;;
+        lib) mkdir "$FP/private/deep/lib" ;;
+        writable) chmod 0666 "$FP/private/deep/libpython3.bootstrap.so" ;;
+        outside) mkdir -p "$SAFE/external"; mv "$FP/private/deep/libpython3.bootstrap.so" "$SAFE/external/"
+          ln -s "$SAFE/external/libpython3.bootstrap.so" "$FP/private/deep/libpython3.bootstrap.so" ;;
+        search) mkdir -p "$FP/open"; chmod 0777 "$FP/open"; cp "$PKG/linkage/search" "$FP/bin/python3" ;;
+        missing) rm "$FP/private/deep/libpython3.bootstrap.so" ;;
+        ambiguous) cp "$PKG/linkage/libpython3.other.so" "$FP/private/deep/"; cp "$PKG/linkage/ambiguous" "$FP/bin/python3" ;;
+      esac
+      rm -f "$MARK"
+      if [ "$variant" != missing ]; then
+        "$FP/bin/python3" > /dev/null 2>&1
+        expect "control: linked fixture did not execute" has linkage-target "$MARK"
+        rm -f "$MARK"
+      fi
+        expect "accepted $variant libpython" fails inst install --prefix "$PREFIX" --package "$PACKAGE" --sha256 "$GOOD" --python "$FP/bin/python3"
+        expect "ran the interpreter or left a prefix" no_trace
+        expect "no libpython refusal" has libpython "$W/out"
+    else PROBLEMS="; cannot build linkage fixture"; fi
+    done_case
+    rm -rf "$FP" "$MARK" "$PREFIX" "$SAFE/external"
+  done
 }

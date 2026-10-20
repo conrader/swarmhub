@@ -55,158 +55,7 @@ else SHA_CMD=; fi
 sha256_of() { (clean $SHA_CMD "$1") | { read -r h _ && printf '%s\n' "$h"; }; }
 
 # ---- trust checks: owner root (or the test user), not writable by group/other, no ACL that grants writing ----------
-acl_ok() {
-  if [ "$OS" = Darwin ]; then
-    ! ls -lde "$1" 2>/dev/null | sed 1d | grep -Eq ' allow .*(write|append|add_file|add_subdirectory|delete|chown)'
-  else
-    command -v getfacl >/dev/null 2>&1 || return 1
-    ! getfacl -cp "$1" 2>/dev/null | grep -Eq '^(user|group):[^:]+:.w'
-  fi
-}
-node_ok() {
-  _l=$(ls -ldn "$1" 2>/dev/null) || return 1
-  set -f; set -- "$1" $_l; set +f
-  _p=$2 _u=$4 _g=$5
-  [ "$_u" = 0 ] || [ "$_u" = "$TRUST_UID" ] || return 1
-  case $_p in l*) return 0 ;; esac
-  case $_p in ?????w*) [ "$_g" = 0 ] || return 1 ;; esac
-  case $_p in ????????w*) return 1 ;; esac
-  case $_p in *+) acl_ok "$1" || return 1 ;; *) [ "$OS" != Darwin ] || acl_ok "$1" || return 1 ;; esac
-  return 0
-}
-trusted() {  # $1 absolute, walked one name at a time from /: every folder entered, every link (each hop of each link,
-             # also links inside a link's target, at most 40 in all) and the last entry must pass node_ok. Refuses
-             # loops, too many hops, anything it cannot read and a non-folder in the middle; sets RESOLVED (physical)
-  case $1 in /*) ;; *) BAD="$1 (not an absolute path)"; return 1 ;; esac
-  node_ok / || { BAD=/; return 1; }
-  _kc= _kr=${1#/} _kn=0
-  while [ -n "$_kr" ]; do
-    case $_kr in */*) _kp=${_kr%%/*} _kr=${_kr#*/} ;; *) _kp=$_kr _kr= ;; esac
-    case $_kp in ''|.) continue ;; ..) _kc=${_kc%/*}; continue ;; esac
-    _kx=$_kc/$_kp
-    [ -e "$_kx" ] || [ -L "$_kx" ] || { BAD="$_kx (missing)"; return 1; }
-    node_ok "$_kx" || { BAD=$_kx; return 1; }
-    if [ -L "$_kx" ]; then
-      _kn=$((_kn + 1)); [ "$_kn" -le 40 ] || { BAD="$1 (a link loop, or more than 40 link hops)"; return 1; }
-      _kl=$(readlink "$_kx") && [ -n "$_kl" ] || { BAD="$_kx (its link cannot be read)"; return 1; }
-      case $_kl in /*) _kc= ;; esac
-      _kr=${_kl#/}${_kr:+/$_kr}
-    elif [ -d "$_kx" ] || [ -z "$_kr" ]; then _kc=$_kx
-    else BAD="$_kx (not a folder, but a path goes through it)"; return 1; fi
-  done
-  RESOLVED=${_kc:-/}
-}
-reachable() {  # other accounts can traverse every ancestor (root installs only)
-  [ -n "$TEST_MODE" ] && return 0
-  _c=$1
-  while [ "$_c" != / ]; do
-    case $(ls -ldnL "$_c") in d????????[xt]*) ;; *) BAD=$_c; return 1 ;; esac
-    _c=$(dirname "$_c")
-  done
-}
-
-# ---- the interpreter: checked on disk BEFORE it runs at all, then run isolated (-I -S -B, empty env, cwd /) ---------
-# Python reads its library (encodings, ...) while starting, before any -c code, and -I -S do not stop the start-up
-# overrides in getpath (3.8-3.14). So first, for the bin folder as named and as resolved: none of pyvenv.cfg, a ._pth
-# file, pybuilddir.txt, Modules/ (a build tree) or bin/lib* (they move or replace where the library is looked up), in
-# the bin folder, the prefix or a framework's Resources/Python.app/Contents/MacOS (whose whole Resources tree must be
-# trusted: a framework's bin/python3.N only starts the binary there); a trusted prefix, trusted lib/lib64
-# folders, libpython and pythonNN.zip, whole trusted lib*/python3.N trees (links followed), and the binary's own stdlib
-# beside it: lib*/python3.N/os.py for the N in its name (python3.N), or the only one there when the name has none. A
-# libpython in lib*/ or lib*/*/ must be trusted, with no ._pth or lib* folder beside it (a libpython elsewhere is not
-# located: Linux reads one only from 3.14, for shared builds). No
-# folder above the prefix may hold lib*/python3NN.zip, nor lib*/python3.N/lib-dynload when the prefix has none (Python
-# searches upward for both). Otherwise Python would look elsewhere, which nothing here checked. Only then is it run,
-# and its -I -S sys.path checked again.
-prefix_ok() {  # $1 a bin folder Python may start from; $2 the resolved binary's name: its prefix must hold its stdlib
-  _pb=$1 _pp=$(dirname "$1") _pf= _pn=0
-  case ${2:-} in python3.[0-9]*) _pw=python${2#python} ;; *) _pw= ;; esac
-  _pm=$_pp/Resources/Python.app/Contents/MacOS  # a framework's bin/python3.N execs the Python in this app bundle
-  for _pv in "$_pb/pyvenv.cfg" "$_pp/pyvenv.cfg" "$_pb/lib" "$_pb/lib64" "$_pb/pybuilddir.txt" "$_pb/Modules" \
-      "$_pp/pybuilddir.txt" "$_pp/Modules" "$_pm/pyvenv.cfg" "$_pm/pybuilddir.txt" "$_pm/Modules" "$_pm/lib" \
-      "$_pb"/*._pth "$_pb"/.*._pth "$_pp"/*._pth "$_pp"/.*._pth "$_pm"/*._pth "$_pm"/.*._pth; do
-    [ ! -e "$_pv" ] && [ ! -L "$_pv" ] || { BAD="$_pv (it changes where Python loads its library from)"; return 1; }
-  done
-  trusted "$_pp" || return 1
-  if [ -e "$_pp/Resources" ] || [ -L "$_pp/Resources" ]; then  # the app bundle holds the binary that really runs
-    trusted "$_pp/Resources" && tree_ok "$RESOLVED" || { BAD="$BAD (in $_pp/Resources, where a framework Python runs from)"; return 1; }
-  fi
-  for _pv in "$_pp"/lib/libpython3* "$_pp"/lib64/libpython3* "$_pp"/lib/*/libpython3* "$_pp"/lib64/*/libpython3*; do
-    [ -e "$_pv" ] || [ -L "$_pv" ] || continue  # 3.14+ reads <libpython>._pth and searches upward from its folder
-    _pl=$(dirname "$_pv")
-    for _pq in "$_pl"/*._pth "$_pl"/.*._pth "$_pl/lib" "$_pl/lib64" "$_pp/lib/lib" "$_pp/lib/lib64" "$_pp/lib64/lib" "$_pp/lib64/lib64"; do
-      [ ! -e "$_pq" ] && [ ! -L "$_pq" ] || { BAD="$_pq (beside a libpython: it changes where Python loads its library from)"; return 1; }
-    done
-  done
-  for _pv in "$_pp/lib" "$_pp/lib64" "$_pp/Python" "$_pp/Python3" "$_pp"/lib/libpython3* "$_pp"/lib64/libpython3* "$_pp"/lib/*/libpython3* \
-      "$_pp"/lib/python3[0-9]*.zip "$_pp"/lib64/python3[0-9]*.zip "$_pp"/lib/python3.[0-9]* "$_pp"/lib64/python3.[0-9]*; do
-    [ -e "$_pv" ] || [ -L "$_pv" ] || continue
-    trusted "$_pv" || return 1
-    case $_pv in */python3.[0-9]*) [ -d "$_pv" ] || continue
-      tree_ok "$RESOLVED" || { BAD="$BAD (in $_pv, the library the interpreter loads)"; return 1; }
-      if [ -f "$_pv/os.py" ]; then _pn=$((_pn + 1)); [ "${_pv##*/}" != "$_pw" ] || _pf=1; fi ;;
-    esac
-  done
-  [ -n "${2:-}" ] || return 0
-  [ -n "$_pw" ] || [ "$_pn" != 1 ] || _pf=1
-  [ -n "$_pf" ] || { BAD="$_pp holds no lib/${_pw:-python3.N}/os.py (or several): cannot tell where $PYC loads its library from"; return 1; }
-  _pd=
-  for _pv in "$_pp"/lib/${_pw:-python3.[0-9]*}/lib-dynload "$_pp"/lib64/${_pw:-python3.[0-9]*}/lib-dynload; do
-    [ -d "$_pv" ] && _pd=1
-  done
-  _pa=$_pp
-  while [ "$_pa" != / ]; do
-    _pa=$(dirname "$_pa")
-    for _pv in "${_pa%/}"/lib/python3[0-9]*.zip "${_pa%/}"/lib64/python3[0-9]*.zip; do
-      [ -e "$_pv" ] || [ -L "$_pv" ] || continue
-      BAD="$_pv (above $_pp: Python would take its library from there)"; return 1
-    done
-    [ -z "$_pd" ] || continue
-    for _pv in "${_pa%/}"/lib/python3.[0-9]*/lib-dynload "${_pa%/}"/lib64/python3.[0-9]*/lib-dynload; do
-      [ -e "$_pv" ] || [ -L "$_pv" ] || continue
-      BAD="$_pv (above $_pp, which has no lib-dynload: Python would load modules from there)"; return 1
-    done
-  done
-}
-python_ok() {
-  case $1 in /*) ;; *) return 1 ;; esac
-  case $1 in *[!A-Za-z0-9._/+-]*) return 1 ;; esac
-  trusted "$1" || return 1
-  [ -f "$RESOLVED" ] && [ -x "$RESOLVED" ] || { BAD="$1 (not an executable file)"; return 1; }
-  PYC=$1 _real=$RESOLVED
-  prefix_ok "$(dirname "$_real")" "$(basename "$_real")" || return 1
-  _named=$(cd -P "$(dirname "$1")" && pwd -P) || { BAD=$1; return 1; }
-  [ "$_named" = "$(dirname "$_real")" ] || prefix_ok "$_named" || return 1
-  (cd / && clean "$1" -I -S -B -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 3)') 2>/dev/null \
-    || { BAD="$1 (needs Python 3.8 or later)"; return 1; }
-  _paths=$(cd / && clean "$1" -I -S -B -c 'import sys; print("\n".join(p for p in sys.path if p))') || return 1
-  _old=$IFS; IFS='
-'
-  set -f
-  for _e in $_paths; do
-    IFS=$_old; set +f
-    case $_e in /*) ;; *) BAD="$1: relative sys.path entry $_e"; return 1 ;; esac
-    _x=$_e
-    while [ ! -e "$_x" ] && [ ! -L "$_x" ]; do _x=$(dirname "$_x"); done
-    trusted "$_x" || return 1  # a missing entry: its nearest folder must be trusted, so nobody else can create it
-    if [ "$_x" = "$_e" ] && [ -d "$_x" ] && ! tree_ok "$RESOLVED"; then BAD="$BAD (in $_x, which the bot account could change)"; return 1; fi
-  done
-  IFS=$_old; set +f
-}
-pick_python() {
-  if [ -n "$PY_ARG" ]; then set -- "$PY_ARG"
-  elif [ "$OS" = Darwin ]; then
-    set -- "$(clean /usr/bin/xcrun -f python3 2>/dev/null)" /Library/Developer/CommandLineTools/usr/bin/python3 \
-      /Library/Frameworks/Python.framework/Versions/Current/bin/python3 /usr/local/bin/python3 /opt/homebrew/bin/python3
-  else set -- /usr/bin/python3 /usr/local/bin/python3; fi
-  for _cand do
-    [ -n "$_cand" ] || continue
-    BAD=
-    if python_ok "$_cand"; then PY=$_cand; return 0; fi
-    note "not using $_cand: untrusted ${BAD:-or missing}" >&2
-  done
-  die "no trusted python3 >= 3.8 (root-owned, not writable by others); name one with --python"
-}
+. "$(dirname "$0")/bootstrap-preflight.sh" || die "cannot load bootstrap-preflight.sh (keep it beside this script)"
 
 # ---- small Python helpers (stdlib only, isolated, run from /) -------------------------------------------------------
 MERGE_PY='
@@ -254,7 +103,7 @@ relink() {  # atomically point PREFIX/$1 at releases/$2
   ln -s "releases/$2" "$PREFIX/.$1.new" || die "cannot create the $1 link"
   pyrun "$REPLACE_PY" "$PREFIX/.$1.new" "$PREFIX/$1" || { rm -f "$PREFIX/.$1.new"; die "cannot switch $1"; }
 }
-link_id() { [ -L "$PREFIX/$1" ] || return 1; _r=$(readlink "$PREFIX/$1") && printf '%s\n' "${_r#releases/}"; }
+link_id() { [ -L "$PREFIX/$1" ] || return 1; link_target "$PREFIX/$1" && printf '%s\n' "${LINK_TARGET#releases/}"; }
 interpreter_of() { IFS= read -r _line < "$1/bin/swarmhub-update" || return 1; _line=${_line#\#!}; printf '%s\n' "${_line% -IBS}"; }
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$PREFIX/bootstrap.log"; }
 
@@ -306,33 +155,6 @@ installed() {  # PREFIX is our install and trusted; sets CUR
   [ -d "$PREFIX" ] && [ ! -L "$PREFIX" ] || die "$PREFIX is not installed"
   trusted "$PREFIX" || die "$PREFIX is not protected: $BAD is writable by or owned by another account"
   CUR=$(link_id current) && [ -d "$PREFIX/releases/$CUR" ] || die "$PREFIX has no current release"
-}
-tree_ok() {  # $1 folder: nothing in it is owned by or writable for another account, and every link resolves (each hop
-             # and its folders) to a trusted file, or to a folder inside $1; $2 = inside: every link stays inside $1
-  _bad=$(find "$1" \( ! -user 0 ! -user "$TRUST_UID" \) -print -o \( ! -type l -perm -0002 \) -print \
-         -o \( ! -type l -perm -0020 ! -group 0 \) -print 2>/dev/null | sed -n 1p)
-  [ -z "$_bad" ] || { BAD=$_bad; return 1; }
-  if [ "$OS" = Darwin ]; then  # ACLs (also inherited ones) that grant writing
-    ! ls -leAR "$1" 2>/dev/null | grep -Eq ' allow .*(write|append|add_file|add_subdirectory|delete|chown)' \
-      || { BAD="$1 (an ACL grants writing)"; return 1; }
-  else  # any POSIX ACL entry fails closed
-    ! ls -lAR "$1" 2>/dev/null | grep -q '^[-dlpcbs][-rwxsStT]\{9\}+' || { BAD="$1 (an entry has an ACL)"; return 1; }
-  fi
-  _troot=$(cd -P "$1" 2>/dev/null && pwd -P) && _tlinks=$(find "$1" -type l -print) || { BAD="$1 (cannot list its links)"; return 1; }
-  _tifs=$IFS; IFS='
-'
-  set -f
-  for _tl in $_tlinks; do
-    IFS=$_tifs; set +f
-    trusted "$_tl" || { BAD="$_tl links through $BAD, which is not protected"; return 1; }
-    if [ -d "$RESOLVED" ]; then
-      _tt=$(cd -P "$RESOLVED" 2>/dev/null && pwd -P) || { BAD="$_tl (its target cannot be resolved)"; return 1; }
-      case $_tt/ in "$_troot"/*) ;; *) BAD="$_tl links to the folder $_tt, outside $1"; return 1 ;; esac
-    elif [ -f "$RESOLVED" ]; then
-      [ "${2:-}" != inside ] || case $RESOLVED in "$_troot"/*) ;; *) BAD="$_tl links to $RESOLVED, outside $1"; return 1 ;; esac
-    else BAD="$_tl links to $RESOLVED, which is not a plain file or folder"; return 1; fi
-  done
-  IFS=$_tifs; set +f
 }
 finish_release() {  # $1 release folder: modes, owner, pin file and import check
   find "$1" -type d -exec chmod 0755 {} + && find "$1" -type f -exec chmod 0644 {} + \
@@ -462,7 +284,7 @@ cmd_verify() {
   tree_ok "$PREFIX" inside || die "NOT PROTECTED: $BAD"
   reachable "$PREFIX" || die "$BAD is not reachable by the bot account"
   REL=$PREFIX/releases/$CUR
-  [ "$(readlink "$PREFIX/bin/swarmhub-update")" = ../current/bin/swarmhub-update ] || die "the launcher link is wrong"
+  link_target "$PREFIX/bin/swarmhub-update" && [ "$LINK_TARGET" = ../current/bin/swarmhub-update ] || die "the launcher link is wrong"
   (cd "$REL" && clean $SHA_CMD -c files.sha256 > /dev/null) || die "installed files differ from files.sha256"
   PY=$(interpreter_of "$REL") && python_ok "$PY" || die "the interpreter is not trusted: $BAD"
   pyrun "$LOAD_PY" "$REL" "$REL/pins.json" || die "pins.json does not load"
