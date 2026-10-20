@@ -100,6 +100,10 @@ The state directory holds `floors.json`, `config.json` (`channel`, random `insta
 effective), `pins` (path, sha256, `protected`, roots, checkpoint, revoked IDs), `pin`, `stale`, `last` (this
 command's verdict) and `updater`. `swarmctl update-status` prints the same file read-only.
 
+P4b adds `profiles.<name>.variants`, the coding-order variants recorded after successful rendering, bound to the
+live skill tree's digest. A revert or manual edit invalidates that variant reading. See `STAGED-INSTALL.md` for the
+Mac transport, fixed updater path, operator record, and terminal-status read-back rules.
+
 ## Pull (P3a)
 
 `swarmhub-update pull` is what the timer runs. It never confirms: code components still stop at `pending_confirm`.

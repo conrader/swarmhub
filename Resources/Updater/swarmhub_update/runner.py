@@ -145,6 +145,9 @@ def _apply_now(box, verified, now, waiting, comps):
         for result in apply.apply(box.hermes_home, box.state.root, [loaded[n] for n in sorted(loaded)], template,
                                   targets, max_wait=box.max_wait, poll=box.poll):
             results[result.profile] = result
+            if result.status in GOOD:
+                target = next(p for p in targets if p.name == result.profile)
+                _record_variants(box, target, loaded)
     succeeded = set()
     for component in now:
         name = component["name"]
@@ -163,7 +166,7 @@ def is_confirmed(record, verified):
         and record.get("confirmed_manifest_sha256") == verified.manifest_sha256
 
 
-def apply_bundle(box, verified, confirm=False):
+def apply_bundle(box, verified, confirm=False, rerender=False):
     """Apply what decision 2 allows of `verified` now (all of it once confirmed). Returns the run summary."""
     record = box.state.applied()
     comps = record["components"]
@@ -172,6 +175,12 @@ def apply_bundle(box, verified, confirm=False):
         box.state.save_applied(record)
     confirmed = is_confirmed(record, verified)
     now, waiting = policy.split(verified.apply, comps, confirmed)
+    if rerender:
+        # P4b: new profiles and changed coding orders must render even when this box already applied the archive.
+        # Only previously applied bytes qualify; new code and its waiting dependencies still need confirmation.
+        names = {c["name"] for c in now}
+        now += [c for c in verified.apply if c["kind"] == "skill" and c["name"] not in names
+                and c["name"] not in waiting and policy.same_content(c, comps)]
     if record.get("pin"):
         return {"state": "pinned", "detail": "local pin (%s): nothing applies" % record["pin"].get("mode"),
                 "waiting": waiting, "not_applied": [c["name"] for c in now], "report": Report(set(), {}, {}, {})}
@@ -215,6 +224,29 @@ def _detail(report, not_applied, waiting):
 
 # ---- status file -------------------------------------------------------------------------------------------------
 
+def _record_variants(box, profile, loaded):
+    """Bind each applied variant to its live tree, so a revert or manual change cannot advertise the old variant."""
+    record = apply.read_record(box.state.root, profile.name)
+    variants = record.get("variants")
+    if not isinstance(variants, dict):
+        variants = record["variants"] = {}
+    category = stage.category_dir(box.hermes_home, profile.name)
+    for name in profile.skills:
+        variants[name] = {"value": render.variant(loaded[name], profile.coding_order),
+                          "tree": stage.tree_digest(os.path.join(category, name))}
+    box.state.write_json(record, "profiles", profile.name + ".json")
+
+
+def _live_variants(record, category):
+    variants = record.get("variants")
+    if not isinstance(variants, dict):
+        return {}
+    return {name: row["value"] for name, row in variants.items()
+            if render.is_valid_profile_name(name) and isinstance(row, dict)
+            and row.get("value") in render.CODING_ORDERS and isinstance(row.get("tree"), str)
+            and row["tree"] == stage.tree_digest(os.path.join(category, name))}
+
+
 def pending_confirm(verified, waiting):
     if not waiting:
         return None
@@ -242,6 +274,7 @@ def _profiles_view(box):
         present = sorted(n for n in os.listdir(category) if not n.startswith(".")) if os.path.isdir(category) else []
         view[entry["name"]] = {"status": record.get("status"), "detail": record.get("detail"),
                                "reload_pending": bool(record.get("reload_pending")),
+                               "variants": _live_variants(record, category),
                                "advertised": {n: bundle.live_advertised(category, n) for n in present
                                               if os.path.isdir(os.path.join(category, n))}}
     return view

@@ -167,4 +167,14 @@ enum SkillLibrary {
         guard let range = description.range(of: #"SwarmHub, v\d+\.\d+\.\d+"#, options: .regularExpression) else { return nil }
         return String(description[range].dropFirst("SwarmHub, v".count))
     }
+
+    /// Staged installs read actual box versions, including releases newer than this app's bundled fallback.
+    /// Missing or unreadable advertised versions stay missing; no model-provided version fills the gap.
+    static func updaterVersions(_ advertised: [String: String?], names: Set<String>) -> [String: String] {
+        var result: [String: String] = [:]
+        for name in names {
+            if let text = advertised[name] ?? nil, let version = SkillVersion(text) { result[name] = version.description }
+        }
+        return result
+    }
 }

@@ -55,6 +55,7 @@ extension AppStore {
             case .replace(let text): row.content = text; row.lastTextAt = text.isEmpty ? nil : now(); objectWillChange.send(); autosaveIfDue()
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
+                if conversation?.id == bot.id { noteStagedSkillTool(tool, manager: bot) }
                 if tool.name == "_thinking", tool.phase == .progress { row.lastTextAt = nil }
                 if row.content.isEmpty, ToolActivity.isShown(tool.name) { row.metadata["status"] = tool.name }
                 let before = row.activity
@@ -183,6 +184,7 @@ extension AppStore {
             if !isTeamThread(conversation) { handleManagerReply(assistant, from: bot, in: conversation); handleReportOps(assistant, from: bot); refreshModelsAfterRecipe(assistant, from: bot, in: conversation) }
             startReviewIfNeeded(assistant, from: bot, in: conversation)
         }
+        if conversation.id == bot.id { finishStagedSkillInstall(manager: bot) }
         if outcome.state == .finished && hasText && !SilentReply.isSilent(SwarmhubBlock.visibleText(assistant.finalText)) {
             AvatarReactions.shared.completed(bot)
             if !isTeamThread(conversation) { notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.finalText)) }

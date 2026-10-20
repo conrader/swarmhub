@@ -39,15 +39,24 @@ extension AppStore {
         guard !gaps.isEmpty, isIdle(manager) else { return false }
         let instructions: String
         do {
-            guard let text = try allBotsSkillInstructions(gaps) else { return false }
-            instructions = text
+            if usesStagedSkills(on: connection(of: manager)) {
+                guard let text = try stagedSkillInstructions(manager: manager, profiles: gaps.map { gap in
+                    .init(name: profile(of: gap.bot), coding_order: codingOrder(for: gap.bot).argument, skills: gap.skills.map(\.name))
+                }) else { return false }
+                instructions = text
+            } else {
+                guard let text = try allBotsSkillInstructions(gaps) else { return false }
+                instructions = text
+            }
         } catch {
             errorMessage = error.localizedDescription; return false
         }
         pendingSkillInstalls[manager.id] = SkillInstallTurn(profile: profile(of: manager), instructions: instructions)
         managementExchanges[manager.id] = nil
         open(manager); openThreadID = nil
-        guard send(text: AllBotsSkillCopy.request(gaps.count)) else { pendingSkillInstalls[manager.id] = nil; return false }
+        guard send(text: AllBotsSkillCopy.request(gaps.count)) else {
+            pendingSkillInstalls[manager.id] = nil; boxInstallTransport.attempts[manager.id] = nil; return false
+        }
         return true
     }
 
