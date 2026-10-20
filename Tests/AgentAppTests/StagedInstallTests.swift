@@ -201,7 +201,7 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     #expect(!store.installSkills(for: bot), "losing the bootstrap record cannot downgrade to raw installation")
     let (old, legacyBot, _) = stagedStore(source: source, status: nil)
     old.boxInstallTransport.boxes = [:]
-    let legacy = try #require(old.skillInstallInstructions([stagedManager], profile: "default", botName: legacyBot.name))
+    let legacy = try #require(try old.skillInstallInstructions([stagedManager], profile: "default", botName: legacyBot.name))
     #expect(legacy.contains("legacy template") && !legacy.contains("verified"))
     old.recordInstalled([.init(name: "swarmhub-manager", version: "1.0.0")], profile: "default", manager: legacyBot)
     #expect(legacyBot.installedSkills == ["swarmhub-manager": "1.0.0"])

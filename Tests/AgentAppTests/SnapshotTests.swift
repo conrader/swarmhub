@@ -21,7 +21,7 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     try store.importGrokExport(at: exportFolder)
     let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppSnapshots-\(UUID().uuidString)")
     #expect(await HeadlessSnapshot.render(store: store, to: directory, botNames: [], output: { _ in }) == 0)
-    let main = try #require(NSBitmapImageRep(data: Data(contentsOf: directory.appending(path: "main.png"))))
+    let main = try #require(NSBitmapImageRep(data: try Data(contentsOf: directory.appending(path: "main.png"))))
     #expect(main.pixelsWide == 2560 && main.pixelsHigh == 1600 && distinctColours(main) > 8)
     try? FileManager.default.removeItem(at: directory)
 }
@@ -46,7 +46,7 @@ private func distinctColours(_ image: NSBitmapImageRep) -> Int {
     }
     #expect(lines.count == expected.count)
     // The sidebar (glass column) must be the dark sidebar with rows, not a blank sheet.
-    let main = try #require(NSBitmapImageRep(data: Data(contentsOf: directory.appending(path: "main.png"))))
+    let main = try #require(NSBitmapImageRep(data: try Data(contentsOf: directory.appending(path: "main.png"))))
     let sidebarBackground = try #require(main.colorAt(x: 200, y: 1200)?.usingColorSpace(.sRGB))
     #expect(sidebarBackground.brightnessComponent < 0.2)
     let sidebar = try #require(main.cgImage?.cropping(to: CGRect(x: 0, y: 0, width: 400, height: 1600)))

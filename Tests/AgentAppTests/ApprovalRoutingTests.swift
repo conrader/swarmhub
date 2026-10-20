@@ -18,7 +18,7 @@ private func request(_ command: String?, bot: Bot, action: String = "command") -
 private func legacyBot(_ mode: ApprovalMode, rules: [ApprovalRule], reviewer: UUID?) throws -> Bot {
     let bot = Bot(name: "Legacy", backend: .hermes, approvalMode: mode, approvalRules: rules, reviewerBotID: reviewer)
     // A store written before P37: no approvalRouting key at all.
-    var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(bot)) as? [String: Any])
+    var json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(bot)) as? [String: Any])
     #expect(json["approvalRouting"] == nil && json["reviewAfter"] == nil, "an untouched bot encodes as before")
     json["approvalRouting"] = nil
     return try JSONDecoder().decode(Bot.self, from: JSONSerialization.data(withJSONObject: json))

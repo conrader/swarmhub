@@ -61,7 +61,7 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
 @Test @MainActor func pendingCodeOnlyAppliesAfterThePerBoxClick() async throws {
     let applied = try boxStatus(pending: false, command: "apply")
     let (store, bot, host) = try boxStore(applyStatus: applied, readStatus: applied)
-    let pending = try #require(BoxUpdaterStatus.decode(boxStatus()))
+    let pending = try #require(BoxUpdaterStatus.decode(try boxStatus()))
     store.noteBoxUpdaterStatus(pending, on: store.connection(of: bot))
     #expect(pending.pending_confirm?.code.map(\.name) == ["swarmhub-coding"])
     #expect(pending.pending_confirm?.data.first?.waits_for == ["swarmhub-coding"])
@@ -93,15 +93,15 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
 @Test @MainActor func staleOrOtherBoxClickNeverSendsAnApply() async throws {
     let (store, bot, host) = try boxStore()
     let target = store.connection(of: bot)
-    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus())), on: target)
+    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus())), on: target)
     let click = try #require(store.boxCodeConfirmation(for: bot))
     let other = Bot(name: "Other box", backend: .hermes, hermesProfile: "default")
     other.canManageBots = true; other.hermesBaseURL = "https://other-box.test/v1"; store.bots.append(other)
-    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus())), on: store.connection(of: other))
+    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus())), on: store.connection(of: other))
     await store.confirmBoxCode(click, for: other)
-    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus(12))), on: target)
+    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus(12))), on: target)
     await store.confirmBoxCode(click, for: bot)
-    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus(manifest: String(repeating: "b", count: 64)))), on: target)
+    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus(manifest: String(repeating: "b", count: 64)))), on: target)
     await store.confirmBoxCode(click, for: bot)
     #expect(ChatParityServer.requests(host).isEmpty)
     #expect(store.boxCodeConfirmation(for: other)?.version == 11)
@@ -109,7 +109,7 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
 }
 
 @Test func confirmationNeedsMatchedApplyAndSubsequentStatus() throws {
-    let pending = try #require(BoxUpdaterStatus.decode(boxStatus()))
+    let pending = try #require(BoxUpdaterStatus.decode(try boxStatus()))
     let click = try #require(BoxUpdateState.Confirmation(connection: "https://box.test/v1", status: pending))
     let output = try boxStatus(pending: false, command: "apply")
     var call = BoxUpdateConfirmCall(click)
@@ -124,7 +124,7 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
     #expect(call.consume(boxTool(.completed, id: "wrong", output: output), previous: pending) == nil)
     #expect(call.consume(boxTool(.completed, id: "status", output: output), previous: pending) != nil)
     #expect(call.succeeded)
-    #expect(!click.accepted(try #require(BoxUpdaterStatus.decode(boxStatus(12, pending: false, command: "apply")))))
+    #expect(!click.accepted(try #require(BoxUpdaterStatus.decode(try boxStatus(12, pending: false, command: "apply")))))
 }
 
 @Test @MainActor func modelClaimsWrongCommandsAndStaleStatusCannotConfirm() async throws {
@@ -133,7 +133,7 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
         let (store, bot, _) = try boxStore(applyStatus: mode == 0 ? nil : applied,
             readStatus: mode == 3 ? try boxStatus(12, pending: false, command: "apply") : applied,
             applyExit: mode == 1 ? 75 : 0, wrongCommand: mode == 2)
-        store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus())), on: store.connection(of: bot))
+        store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus())), on: store.connection(of: bot))
         let click = try #require(store.boxCodeConfirmation(for: bot))
         await store.confirmBoxCode(click, for: bot)
         #expect(store.errorMessage != nil)
@@ -145,7 +145,7 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
     let applied = try boxStatus(pending: false, command: "apply")
     let (store, bot, host) = try boxStore(applyStatus: applied, readStatus: applied, hold: true)
     store.sessionNamespace = "QA-"
-    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus())), on: store.connection(of: bot))
+    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus())), on: store.connection(of: bot))
     let click = try #require(store.boxCodeConfirmation(for: bot))
     let task = Task { await store.confirmBoxCode(click, for: bot) }
     try await waitUntil { ChatParityServer.requests(host).contains { $0.path.hasSuffix("/chat/stream") } }
@@ -161,7 +161,7 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
     let newer = try boxStatus(12, command: "apply", verdict: "reject")
     let (store, bot, _) = try boxStore(applyStatus: newer, readStatus: newer, applyExit: 65)
     let target = store.connection(of: bot)
-    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus())), on: target)
+    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus())), on: target)
     await store.confirmBoxCode(try #require(store.boxCodeConfirmation(for: bot)), for: bot)
     #expect(store.boxUpdateState(on: target).highestBundleVersion == 12)
     #expect(bot.installedSkills.isEmpty)
@@ -172,7 +172,7 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
     let (store, bot, _) = try boxStore()
     let target = store.connection(of: bot)
     for version in [Int64(12), 11] {
-        store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus(version))), on: target)
+        store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus(version))), on: target)
     }
     let record = store.boxUpdateState(on: target)
     #expect(record.highestBundleVersion == 12 && record.reportedBundleVersion == 11 && record.regression)
@@ -181,15 +181,15 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
         backendFactory: { _ in ChatParityBackend(flags: []) }, keyStore: InMemoryKeyStore([:]), defaults: store.defaults)
     #expect(reloaded.boxUpdateState(on: target) == record)
     #expect(reloaded.boxInstallTransport.status[target] == nil, "offline relaunch keeps the regression without inventing status")
-    reloaded.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus(12))), on: target)
+    reloaded.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus(12))), on: target)
     #expect(!reloaded.boxUpdateState(on: target).regression)
 }
 
 @Test @MainActor func unreachableBoxKeepsRegressionAndInstalledVersions() async throws {
     let (store, bot, host) = try boxStore(down: true)
     let target = store.connection(of: bot)
-    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus(12))), on: target)
-    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus())), on: target)
+    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus(12))), on: target)
+    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus())), on: target)
     bot.installedSkills = ["swarmhub-coding": "1.0.0"]
     let record = store.boxUpdateState(on: target)
     await store.confirmBoxCode(try #require(store.boxCodeConfirmation(for: bot)), for: bot)
@@ -201,7 +201,7 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
 
 @Test @MainActor func absentBootstrapRecordCannotAuthorizeCode() async throws {
     let (store, bot, host) = try boxStore()
-    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(boxStatus())), on: store.connection(of: bot))
+    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus())), on: store.connection(of: bot))
     let click = try #require(store.boxCodeConfirmation(for: bot))
     store.boxInstallTransport.boxes = [:]
     await store.confirmBoxCode(click, for: bot)
@@ -222,7 +222,7 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
 }
 
 @Test func nativeParserRetainsOnlyBoundedVersionConfirmCommands() throws {
-    let status = try #require(BoxUpdaterStatus.decode(boxStatus()))
+    let status = try #require(BoxUpdaterStatus.decode(try boxStatus()))
     let click = try #require(BoxUpdateState.Confirmation(connection: "box", status: status))
     #expect(HermesBackend.updaterStatusCommand(["command": click.command]) == click.command)
     for suffix in ["; echo bad", "\n", " --staged /tmp/x"] {
