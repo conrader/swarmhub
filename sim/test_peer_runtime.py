@@ -26,12 +26,18 @@ spec.loader.exec_module(peer)
 
 
 def children_by_home(home):
-    """Pids of every other process whose environment HOME is ``home``.
+    """Pids matching HOME, plus conservative descendant candidates on macOS.
 
     Linux reads ``/proc/<pid>/environ``. macOS has no /proc: one ``ps -E``
     listing carries the environment after each command. The BSD ``e`` spelling
-    is a fallback for ps variants that reject -E or omit the environment.
-    Discovery failures must not masquerade as successful cleanup.
+    is a fallback for procps, which rejects -E. Dashless ``axeww`` also requests
+    the environment on macOS: it selects legacy BSD option parsing.
+    With SIP, macOS withholds the environment of restricted platform binaries
+    (/bin/sleep, /bin/sh) from other processes. Include live descendants seen in
+    both the plain and environment listings regardless of command or HOME:
+    exec between snapshots must not produce false clean results. A withheld
+    orphan is invisible. Discovery failures, including the plain listing,
+    must not masquerade as successful cleanup.
     """
     marker = "HOME=" + str(home)
     if Path("/proc/self/environ").exists():
@@ -40,6 +46,7 @@ def children_by_home(home):
 
 
 def _children_by_home_ps(marker, me):
+    plain = _plain_ps_rows()
     readable = False
     for flags in ("-axEww", "axeww"):
         try:
@@ -51,12 +58,57 @@ def _children_by_home_ps(marker, me):
             continue
         readable = True
         found = _pids_by_home_ps(result.stdout, marker, me)
+        found += [pid for pid in _live_descendants(result.stdout, plain, me) if pid not in found]
         if found:
             return found
     if not readable:
         # Never include ps output: it contains other processes' environments.
         raise RuntimeError("process discovery failed: neither ps -E nor its BSD e fallback returned a listing")
     return []
+
+
+def _plain_ps_rows():
+    """{pid: (ppid, command)} for live (non-zombie) processes, without environments."""
+    try:
+        result = subprocess.run(["/bin/ps", "axww", "-o", "pid=,ppid=,stat=,command="], capture_output=True,
+                                text=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        result = None
+    rows = {}
+    for line in result.stdout.splitlines() if result is not None and result.returncode == 0 else ():
+        fields = line.split(None, 3)
+        if len(fields) < 3 or not (fields[0].isdigit() and fields[1].isdigit()):
+            rows = {}  # Unparseable: unknown, not empty.
+            break
+        if not fields[2].startswith("Z"):
+            rows[int(fields[0])] = (int(fields[1]), fields[3].rstrip() if len(fields) > 3 else "")
+    if not rows:
+        raise RuntimeError("process discovery failed: the plain ps listing was unavailable or unparseable")
+    return rows
+
+
+def _live_descendants(listing, plain, me):
+    """Descendants seen in both snapshots, using plain ps for liveness/ancestry.
+
+    Commands and environments can change during exec; neither can exclude a
+    descendant. Requiring its PID in both listings excludes the short-lived ps
+    probes themselves, which would otherwise make cleanup always look dirty.
+    """
+    found = []
+    for line in listing.splitlines():
+        fields = line.split(None, 1)
+        if not fields or not fields[0].isdigit():
+            continue
+        pid = int(fields[0])
+        if pid == me or pid not in plain:
+            continue
+        parent, seen = plain[pid][0], {pid}
+        while parent != me and parent in plain and parent not in seen:
+            seen.add(parent)
+            parent = plain[parent][0]
+        if parent == me:
+            found.append(pid)
+    return found
 
 
 def _pids_by_home_proc(marker, me):
