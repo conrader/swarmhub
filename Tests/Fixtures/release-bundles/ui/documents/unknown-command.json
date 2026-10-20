@@ -1,0 +1,142 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "routine_result_card",
+  "root": {
+    "type": "card",
+    "title": {
+      "bind": "routine.name"
+    },
+    "subtitle": {
+      "bind": "result.finished_at"
+    },
+    "children": [
+      {
+        "type": "badge",
+        "text": "Done",
+        "tone": "success",
+        "visible_if": {
+          "equals": {
+            "bind": "result.status",
+            "value": "ok"
+          }
+        }
+      },
+      {
+        "type": "badge",
+        "text": "Needs attention",
+        "tone": "warning",
+        "visible_if": {
+          "equals": {
+            "bind": "result.status",
+            "value": "error"
+          }
+        }
+      },
+      {
+        "type": "text",
+        "text": {
+          "bind": "result.summary"
+        },
+        "style": "markdown",
+        "role": "body"
+      },
+      {
+        "type": "key_value",
+        "items": [
+          {
+            "key": "Schedule",
+            "value": {
+              "bind": "routine.schedule_text"
+            }
+          },
+          {
+            "key": "Box",
+            "value": {
+              "bind": "box.name"
+            }
+          },
+          {
+            "key": "Duration",
+            "value": {
+              "bind": "result.duration_text"
+            }
+          }
+        ]
+      },
+      {
+        "type": "progress",
+        "total": 10,
+        "value": {
+          "bind": "result.steps_done"
+        },
+        "label": "Steps",
+        "visible_if": {
+          "exists": {
+            "bind": "result.steps_done"
+          }
+        }
+      },
+      {
+        "type": "diff_preview",
+        "title": "Changes",
+        "text": {
+          "bind": "result.diff"
+        },
+        "max_lines": 40,
+        "visible_if": {
+          "exists": {
+            "bind": "result.diff"
+          }
+        }
+      },
+      {
+        "type": "list",
+        "style": "plain",
+        "children": [
+          {
+            "type": "button",
+            "label": "Run now",
+            "action": {
+              "command": "shell.run"
+            },
+            "style": "primary"
+          },
+          {
+            "type": "button",
+            "label": "Pause",
+            "action": {
+              "command": "routine.pause",
+              "routine": {
+                "bind": "routine.id"
+              }
+            },
+            "style": "secondary",
+            "visible_if": {
+              "missing": {
+                "bind": "routine.paused_at"
+              }
+            }
+          },
+          {
+            "type": "button",
+            "label": "Copy summary",
+            "action": {
+              "command": "copy_text",
+              "text": {
+                "bind": "result.summary"
+              }
+            }
+          },
+          {
+            "type": "button",
+            "label": "Routine help",
+            "action": {
+              "command": "open_url",
+              "url": "https://docs.swarmhub.test/routines?from=card"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

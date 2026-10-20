@@ -1,0 +1,18 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "help_card",
+  "root": {
+    "type": "card",
+    "children": [
+      {
+        "type": "button",
+        "label": "Read the guide",
+        "action": {
+          "command": "open_url",
+          "url": "https://docs.swarmhub.test/guide",
+          "confirm": false
+        }
+      }
+    ]
+  }
+}

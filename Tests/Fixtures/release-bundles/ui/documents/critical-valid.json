@@ -1,0 +1,32 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "settings_pane",
+  "critical": true,
+  "root": {
+    "type": "card",
+    "title": "Updates",
+    "children": [
+      {
+        "type": "text",
+        "text": {
+          "bind": "app.update_status_text"
+        }
+      },
+      {
+        "type": "button",
+        "label": "Check now",
+        "action": {
+          "command": "refresh"
+        }
+      },
+      {
+        "type": "button",
+        "label": "Open updates",
+        "action": {
+          "command": "navigate",
+          "screen": "updates"
+        }
+      }
+    ]
+  }
+}

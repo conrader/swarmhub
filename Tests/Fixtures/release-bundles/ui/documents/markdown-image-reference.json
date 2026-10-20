@@ -1,0 +1,9 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "m",
+  "root": {
+    "type": "text",
+    "text": "![x][r]\n\n[r]: https://evil.example/image.png",
+    "style": "markdown"
+  }
+}
