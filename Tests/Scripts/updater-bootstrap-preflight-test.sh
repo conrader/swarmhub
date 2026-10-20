@@ -5,17 +5,19 @@
 # This harness checks real fixture ownership, but exempts ancestors/system files from node_ok: sandbox mounts can
 # remap root to nobody and make HOME read-only. It never runs an install or weakens the shipped owner checks.
 set -u
-umask 022
-HERE=$(cd "$(dirname "$0")" && pwd -P)
-REPO=$(cd "$HERE/../.." && pwd -P)
-W=$(mktemp -d /tmp/updater-preflight.XXXXXX) || exit 1
-W=$(cd "$W" && pwd -P)
-FINISHED=
+exec 3>&2  # Preserve real stderr even when exit runs inside a function redirected to W/out.
+FINISHED= W=
 # A stop before the summary (an unset variable, exit in a sourced helper, a setup failure) must never be silent.
-trap '_rc=$?; if [ -z "$FINISHED" ]; then
+trap '_rc=$?; { if [ -z "$FINISHED" ]; then
     echo "FAIL: updater-bootstrap-preflight stopped before its summary (status $_rc), last case: ${NAME:-setup}" >&2
-    [ ! -s "$W/out" ] || cat "$W/out" >&2; fi
-  chmod -R u+w "$W"; rm -rf "$W"; [ -n "$FINISHED" ] || exit 1' EXIT
+    [ -z "$W" ] || [ ! -s "$W/out" ] || cat "$W/out" >&2; fi
+  if [ -n "$W" ]; then chmod -R u+w "$W"; rm -rf "$W"; fi
+  [ -n "$FINISHED" ] || exit 1; } >&3 2>&3' EXIT
+umask 022
+HERE=$(cd "$(dirname "$0")" && pwd -P) || exit 1
+REPO=$(cd "$HERE/../.." && pwd -P) || exit 1
+W=$(mktemp -d /tmp/updater-preflight.XXXXXX) || exit 1
+W=$(cd "$W" && pwd -P) || exit 1
 SAFE=$W PKG=$W/pkg MARK=$W/executed PREFIX=$W/prefix PRIV= PACKAGE=unused GOOD=unused
 PASSED=0 FAILED=0 SKIPPED=0 OS=$(uname -s) TRUST_UID=$(id -u) TEST_MODE=1
 PATH=/usr/bin:/bin:/usr/sbin:/sbin LC_ALL=C
@@ -30,6 +32,8 @@ if [ "${1:-}" = --before ]; then
 else
   . "$REPO/Resources/Updater/bootstrap-preflight.sh"
 fi
+# The preflight's zsh `emulate sh` resets options; the harness still requires unset variables to fail.
+set -u
 # Preserve the shipped node check for every node of each test fixture.
 # POSIX sh has no function printing: read the small definition from the same source instead.
 if [ "${1:-}" = --before ]; then _source=$W/functions; else _source=$REPO/Resources/Updater/bootstrap-preflight.sh; fi
