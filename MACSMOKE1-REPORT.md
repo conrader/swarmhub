@@ -209,3 +209,51 @@ Exit 65 additionally covers **empty CLI stdout**, even with a fresh valid report
 ```sh
 cd /tmp/qm6 && sh sim/mac-codex-tmp-smoke.sh
 ```
+
+## macsmoke4 (533593b + uncommitted)
+
+**Cause: what the Mac log proves and what it does not.** Source: `/home/ubuntu/work/swarmhub/mac-smoke3-533593b.log` (Codex 0.162.1, Python 3.14.2, macOS 26.6.2). In `cj-home` and `cj-sibling` the probe logged `report …: WROTE`, Codex exited 0 with 5 stdout bytes, every isolation write was denied, and the launcher recorded `report-exists=true report-sha256=missing-or-empty report-valid=false exit=65`.
+
+- **Not a path bug.** The record's `report=` is byte-identical to the path the probe wrote and the path in the prompt. code-job derives it from `pwd -P` before anything else runs. On HEAD, the new shell case 23 (`--dir` is HOME through a symlinked parent, fallback scratch in `/tmp`, both exclusions, report written at the physical path) exits 0 with `report-valid=true`. The same layout passed with the stub on that Mac, in the same session, on the same Python (`test_macsmoke2` 9/9 in the log header).
+- **Not a rule the probe trips.** The contract asks for a report that is non-empty and different from the pre-run baseline. It does not ask whether the model wrote it. A probe-written report passes.
+- **What the two fields actually measure.** `report-exists` is the shell's `[ -f ]` at finish, which is true for an empty file. `report-sha256=missing-or-empty` came from the check right after Codex exited. It covers a missing, empty or non-regular file, and on Python 3.14 any stat error at all: 3.14's `Path.is_file()` returns False for EACCES where 3.12 raises (checked here: 3.14.4 vs 3.12.13). So the record fits two cases: the report was **empty** at the check, or **python3 could not stat it**. It cannot tell them apart. The 44-byte size in the macsmoke3 notes comes from `cj-outside`'s `ls -la`, before Codex rewrote that report. There is no size evidence for the two failing cases.
+
+**Verdict:** this log shows neither a code-job path bug nor a harness rule. The Mac mechanism is still unproven. The code-job defect that *is* real is that its record cannot say why the report check failed, and what that record means depends on the Python version. That defect is what this pass fixes, along with making the next Mac run decisive.
+
+**Fix.**
+- `completion-contract.py` stats the file explicitly (no `Path.is_file()`) and records `report-state` (`ok`, `unchanged`, `missing`, `empty`, `not-regular`, `unreadable-<ERRNO>`) and `report-bytes`. `report-sha256` and `report-valid` keep their meaning. It still fails closed: a missing, empty, unchanged or unreadable report is 65. An unreadable report used to exit 65 with no record on Python ≤3.13. It now records why.
+- `code-job` finish also records `report-final`, the shell's view (`missing`, `empty`, `nonempty`, `not-regular`), next to the contract's view at the check.
+- Smoke: the host shim records `report-at-cli-exit` as soon as Codex exits. That covers python3 and `sh`, plus `ls -lndO@e` (flags, xattrs, ACL) on macOS. Each launcher run prints `report timeline: cli-exit …; verify …; finish …; host now …`. A launcher 65 whose report check failed is now reported as `code-job-exit-65-report-<state>`. It is still INCONCLUSIVE and never PASS. Unexpected writes still FAIL, and timeouts and non-zero exits still never count.
+- Smoke flake found while testing: the login heuristic matched `401` anywhere in the last 20 transcript lines, so a random `job.x401…` or mktemp name turned a 65 into `codex-login`. It now matches `401` only as a word.
+- Stub mode `emptied-report` reproduces the Mac record exactly: stdout `DONE`, probe `WROTE`, symlinked TMPDIR, then `report-exists=true`, `report-sha256=missing-or-empty`, exit 65 in all three launcher layouts.
+
+**Reading the next Mac run** (`report timeline` line of `cj-home`/`cj-sibling`):
+
+| cli-exit | verify | finish | Meaning |
+|---|---|---|---|
+| `python:empty sh:empty` | `empty` | `empty` | The report was already empty when Codex exited. The cause is on the Codex/Seatbelt/probe side, not code-job. |
+| `python:unreadable-<ERRNO> sh:nonempty` | `unreadable-<ERRNO>` | `nonempty` | python3 cannot read a file the shell sees. This is code-job's problem: fix the contract's read path. |
+| `python:bytes-<n> sh:nonempty` | `missing`, `empty` or `unreadable-…` | any | The report changed between the CLI exiting and the check. This is a code-job timing problem. |
+| `… sh:missing` | `missing` | `nonempty` | The report appeared after the check (a late writer). |
+| anything | `ok` | `nonempty` | The case no longer reproduces. The fallback runs reach PASS or FAIL on isolation. |
+
+The `ls:` lines in the shim record show the macOS flags and xattrs (for example `com.apple.provenance`) on the report at that moment.
+
+**Tests added.** Shell case 23 (`Tests/Scripts/code-job-test.sh`) covers the `cj-home` layout on Linux: a symlinked parent, fallback scratch in `/tmp`, both exclusions, and a report at the physical path. It checks that this exits 0 with `report-state=ok`. An emptied report must give exactly the Mac record plus `report-state=empty report-bytes=0 report-final=empty`. A report python3 cannot read must give `unreadable-EACCES` while the shell sees it as `nonempty` (skipped as root). On HEAD, case 23 already passes the layout and the Mac-record checks and fails only on the new fields. The Swift shard list and comment now include case 23 (`CodingSkillTests.swift`). The case stub moved to `Tests/Scripts/code-job-stub.sh` to keep the suite under 500 lines; its content is unchanged apart from two new modes. `test_macsmoke2` adds `test_mac_fallback_record_is_reproduced_and_located`: a symlinked TMPDIR with stdout `DONE` passes with a 44-byte report at every step, and `emptied-report` is INCONCLUSIVE `code-job-exit-65-report-empty` in all three layouts, with `unexpected=none`.
+
+**Validation (Linux, no real Codex, no provider calls, no commits, Hermes untouched).**
+- shellcheck: the smoke script and its three embedded scripts (probe, shim, report-state) are clean with the existing `SC1007,SC2010,SC2012,SC2015,SC2154` exclusions. The new `code-job-stub.sh` is clean. code-job and the suite report the same codes and counts as HEAD (SC1007×17, SC2009×2, SC2012×5, SC2015×2, SC2086×3, SC2317×9).
+- `dash -n`, `bash -n` and `bash --posix -n` pass for the smoke script, the embedded scripts, code-job, the suite and the stub. `py_compile` passes. `completion-contract.py` gives identical states and exit codes on Python 3.9.25, 3.12.3 and 3.14.4 (missing, empty, ok, unchanged, unreadable file, directory, unsearchable parent). `git diff --check` passes.
+- Code-job shell suite, run from the repo root: **23 passed, 0 failed** under `/bin/sh`, `/bin/dash` and `/bin/bash`. A first run with cwd `/tmp` failed case 12 (75 expected, 77 got) on HEAD as well. The cause is a stray empty `/tmp/.git` on this box (dated 2026-10-19 11:48, not created by this pass, left in place): `--capture-git` refuses it, and case 12 calls code-job without `--dir`.
+- `test_macsmoke2`: **10/10 OK** (99 s).
+- `PYTHONPATH=sim python3 -B -m unittest discover -s sim -v`: **370 tests OK, 7 skipped** (233 s).
+- `python3 -B -m unittest discover -s scripts -p 'test_*.py'`: 56 tests, **1 error**: `test_grokbot_server…test_safe_storage_vector_from_openssl`. It is unrelated, and the macsmoke3 baseline already had the CommonCrypto error.
+- Leftovers: no `code-job.*` or `macsmoke1*` entries in `/tmp`, `/dev/shm` or `~`. Diagnostic files from this pass were removed.
+
+**Not run or not changed.** Swift is not built or run here, so the shard edit is unexecuted. Skill versions are **not bumped** (still 1.3.9). Installed boxes keep the old `completion-contract.py` and `code-job` until a bump ships them, though the smoke copies code-job from this checkout, so the Mac run uses the new one. Nothing here exercises Seatbelt, `/private/tmp`, `/private/var`, macOS `ls -O@e`, or bash 3.2.
+
+**Still needs the Mac:** one run of the unchanged command, then read the `report timeline` lines of `cj-home` and `cj-sibling` against the table above:
+
+```sh
+cd /tmp/qm6 && sh sim/mac-codex-tmp-smoke.sh
+```

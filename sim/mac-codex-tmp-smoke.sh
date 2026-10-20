@@ -22,7 +22,7 @@ if [ -z "${SMOKE_TEED:-}" ] && [ "${SMOKE_LOG:-}" != - ]; then
   rc=$(cat "$rcf"); rm -f "$rcf"; exit "${rc:-1}"
 fi
 
-usage() { echo "usage: sh $0 [--model <id>] [--effort low|medium|high|xhigh] [--timeout <s>] [--outside-dir <dir>] [--code-job <path>] [--stub [enforce|leaky|timeout|leaky-timeout|incomplete|stderr-only|missing-report|unchanged-report|cj-fail|cj-timeout]]" >&2; exit 64; }
+usage() { echo "usage: sh $0 [--model <id>] [--effort low|medium|high|xhigh] [--timeout <s>] [--outside-dir <dir>] [--code-job <path>] [--stub [enforce|leaky|timeout|leaky-timeout|incomplete|stderr-only|missing-report|unchanged-report|emptied-report|cj-fail|cj-timeout]]" >&2; exit 64; }
 HERE=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 MODEL= EFFORT=high TIMEOUT=300 OUTSIDE= STUB= CODEJOB=$HERE/../Resources/Skills/swarmhub-coding/scripts/code-job
 while [ $# -gt 0 ]; do
@@ -31,7 +31,7 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || usage
       case $1 in --model) MODEL=$2 ;; --effort) EFFORT=$2 ;; --timeout) TIMEOUT=$2 ;; --outside-dir) OUTSIDE=$2 ;; --code-job) CODEJOB=$2 ;; esac
       shift 2 ;;
-    --stub) STUB=enforce; case ${2:-} in enforce|leaky|timeout|leaky-timeout|incomplete|stderr-only|missing-report|unchanged-report|cj-fail|cj-timeout) STUB=$2; shift ;; esac; shift ;;
+    --stub) STUB=enforce; case ${2:-} in enforce|leaky|timeout|leaky-timeout|incomplete|stderr-only|missing-report|unchanged-report|emptied-report|cj-fail|cj-timeout) STUB=$2; shift ;; esac; shift ;;
     *) usage ;;
   esac
 done
@@ -145,6 +145,32 @@ BASE=$(mktemp -d /tmp/macsmoke1.XXXXXX) || summary INCONCLUSIVE mktemp; register
 mkdir "$BASE/bin" "$BASE/skill" "$BASE/skill/swarmhub-coding" || summary INCONCLUSIVE mkdir
 # code-job from a copy without swarmhub-messages: no policy lookups and no wake messages leave the box.
 cp -R "$(dirname "$CODEJOB")" "$BASE/skill/swarmhub-coding/scripts" || summary INCONCLUSIVE copy
+# The report as python3 (the launcher contract's states) and the shell see it; on macOS also its flags, xattrs and ACL.
+# Run by the shim when the CLI exits and by the host after code-job, so a failed report check is placed in time.
+cat > "$BASE/report-state" <<'EOF'
+#!/bin/sh
+[ -n "${1:-}" ] || { echo none; exit 0; }
+py=$(python3 -c 'import errno, os, stat, sys
+try:
+    info = os.stat(sys.argv[1])
+    if not stat.S_ISREG(info.st_mode):
+        print("not-regular")
+    elif info.st_size == 0:
+        print("empty")
+    else:
+        open(sys.argv[1], "rb").close()
+        print("bytes-%d" % info.st_size)
+except (FileNotFoundError, NotADirectoryError):
+    print("missing")
+except OSError as error:
+    print("unreadable-" + errno.errorcode.get(error.errno, str(error.errno)))' "$1" 2>/dev/null) || py=python-failed
+sh=missing
+if [ -f "$1" ]; then sh=empty; [ -s "$1" ] && sh=nonempty; elif [ -e "$1" ]; then sh=not-regular; fi
+printf 'python:%s sh:%s\n' "$py" "$sh"
+[ "$sh" = missing ] && exit 0
+case $(uname -s) in Darwin) ls -lndO@e "$1" ;; *) ls -lnd "$1" ;; esac 2>&1 | sed 's/^/ls: /'
+EOF
+chmod 755 "$BASE/report-state"
 CH=${CODEX_HOME:-$HOME/.codex}
 if [ -n "$STUB" ]; then
   say "STUB MODE ($STUB): argv-recording stand-in, permission-bit sandbox emulation; says nothing about real Codex"
@@ -258,7 +284,8 @@ completed() {  # rc dir exit-label transcript
   [ -z "$WHY" ] && [ "$m" != written ] && WHY=probe-incomplete
   [ "$1" -ne 0 ] && WHY=$3-exit-$1
   [ "$1" -eq 124 ] && WHY=timeout
-  [ -n "$WHY" ] && tail -n 20 "$4" | grep -Eiq 'not logged in|codex login|401|unauthorized' && WHY=codex-login
+  # 401 as a word only: random mktemp/job names in the transcript (job.x401AbCd) are not a login failure.
+  [ -n "$WHY" ] && tail -n 20 "$4" | grep -Eiq 'not logged in|codex login|(^|[^[:alnum:]])401([^[:alnum:]]|$)|unauthorized' && WHY=codex-login
   say "  positive control: $c; completion marker: $m; exit: $1${WHY:+ -> inconclusive ($WHY)}"
   [ -z "$WHY" ]
 }
@@ -308,7 +335,8 @@ cj_run() {  # name home dir fallback(yes|no) with-sentinels(yes|no)
   (unset ANTHROPIC_API_KEY CODE_JOB_VERIFY CODE_JOB_MODEL CODE_JOB_REPORT
    HOME=$H CODEX_HOME=$CH PATH=$BASE/bin:$PATH SMOKE_REAL_CODEX=$CODEX SMOKE_PRE=$BASE/pre-$run \
    SMOKE_SHIM_RECORD=$BASE/shim-$run SMOKE_PLACEHOLDER=$PLACEHOLDER SWARMHUB_VERIFY_NAMESPACES=${ns:-${SWARMHUB_VERIFY_NAMESPACES:-}}
-   export HOME CODEX_HOME PATH SMOKE_REAL_CODEX SMOKE_PRE SMOKE_SHIM_RECORD SMOKE_PLACEHOLDER SWARMHUB_VERIFY_NAMESPACES
+   SMOKE_REPORT_STATE=$BASE/report-state
+   export HOME CODEX_HOME PATH SMOKE_REAL_CODEX SMOKE_PRE SMOKE_SHIM_RECORD SMOKE_PLACEHOLDER SWARMHUB_VERIFY_NAMESPACES SMOKE_REPORT_STATE
    [ -n "$SWARMHUB_VERIFY_NAMESPACES" ] || unset SWARMHUB_VERIFY_NAMESPACES
    cap $((TIMEOUT + 120)) "$@") < /dev/null > "$BASE/out-$run" 2>&1; rc=$?
   say "  code-job exit: $rc"
@@ -317,12 +345,19 @@ cj_run() {  # name home dir fallback(yes|no) with-sentinels(yes|no)
   show "host shim record" "$BASE/shim-$run"
   # Preserve the launcher's actual contract results before cleanup. The old merged transcript hid which
   # half of exit 65 failed (report freshness or stdout); never infer it from the model's prose.
+  vstate=
   for job in "$H"/.hermes/swarmhub/job-completions/job.*; do
     [ -d "$job" ] || continue
     say "  --- launcher completion record ---"
-    for field in report report-before report-sha256 report-valid report-exists cli-exit exit verify-exit; do
+    for field in report report-before report-sha256 report-valid report-state report-bytes report-exists report-final \
+      cli-exit exit verify-exit; do
       say "  | $field=$(cat "$job/$field" 2>/dev/null || echo unavailable)"
     done
+    [ "$(cat "$job/report-valid" 2>/dev/null)" = false ] && vstate=$(cat "$job/report-state" 2>/dev/null)
+    # Where the report went wrong: probe (log above), CLI exit (shim), launcher check, launcher finish, host now.
+    say "  report timeline: cli-exit $(sed -n 's/^report-at-cli-exit=//p' "$BASE/shim-$run" 2>/dev/null);" \
+      "verify $(cat "$job/report-state" 2>/dev/null || echo unavailable) ($(cat "$job/report-bytes" 2>/dev/null || echo -) bytes);" \
+      "finish $(cat "$job/report-final" 2>/dev/null || echo unavailable); host now $("$BASE/report-state" "$(cat "$job/report")" | head -n 1)"
   done
   ok=yes rec=$BASE/shim-$run u0=$UNEXPECTED
   [ "$ab" = yes ] && { judge "$run" tmp "$A" "$HA" "$A_TMP" "$A_TD" yes yes; judge "$run" tmpdir "$B" "$HB" "$B_TMP" "$B_TD" yes yes; }
@@ -346,7 +381,10 @@ cj_run() {  # name home dir fallback(yes|no) with-sentinels(yes|no)
   fi
   crc=$(sed -n 's/^codex-exit=//p' "$rec"); case $crc in ''|*[!0-9]*) crc=255 ;; esac
   [ "$rc" -eq 0 ] && [ "$crc" -ne 0 ] && rc=$crc
-  completed "$rc" "$D" code-job "$BASE/out-$run" || { add INCONC "$run:$WHY"; return 1; }
+  # A launcher 65 with a failed report check names the report's state at the check (missing, empty, unchanged,
+  # unreadable-<ERRNO>); still inconclusive, never PASS.
+  completed "$rc" "$D" code-job "$BASE/out-$run" || { [ "$WHY" = code-job-exit-65 ] && [ -n "$vstate" ] && WHY=$WHY-report-$vstate
+    add INCONC "$run:$WHY"; return 1; }
   [ "$UNEXPECTED" = "$u0" ] || return 1
   if [ "$ok" = yes ]; then add ENFORCED "$run"; else add INCONC "$run:launcher-layout"; fi
 }
@@ -384,10 +422,13 @@ done
 "$SMOKE_REAL_CODEX" "$@" > "$SMOKE_SHIM_RECORD.stdout"; rc=$?
 cat "$SMOKE_SHIM_RECORD.stdout"
 stdout_bytes=$(wc -c < "$SMOKE_SHIM_RECORD.stdout" | tr -d ' ')
+# The report (code-job exports its path) as soon as the CLI exits, before the launcher checks it.
+rstate=$("$SMOKE_REPORT_STATE" "${SWARMHUB_REPORT_FILE:-}")
 post=$(h "$snap/git-trust.json")
 markers=$(ls -A "$snap" 2>/dev/null | grep -E '^smoke-|\.renamed-' | tr '\n' ' ')
 rm -f "$SMOKE_SHIM_RECORD"
-printf 'snapshot=%s\nphys=%s\npre=%s\npost=%s\nmarkers=%s\ncodex-exit=%s\ncodex-stdout-bytes=%s\n%s\n' "${snap:-none}" "$sp" "$pre" "$post" "$markers" "$rc" "$stdout_bytes" "$args" > "$SMOKE_SHIM_RECORD"
+printf 'snapshot=%s\nphys=%s\npre=%s\npost=%s\nmarkers=%s\ncodex-exit=%s\ncodex-stdout-bytes=%s\nreport=%s\nreport-at-cli-exit=%s\n%s\n' \
+  "${snap:-none}" "$sp" "$pre" "$post" "$markers" "$rc" "$stdout_bytes" "${SWARMHUB_REPORT_FILE:-}" "$rstate" "$args" > "$SMOKE_SHIM_RECORD"
 # Harness output, not completion evidence: code-job still checks the report, and the host still requires
 # both nonce files, both exit statuses, the exclusion argv and every unchanged protected target.
 printf 'smoke shim: codex exited %s\n' "$rc"

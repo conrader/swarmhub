@@ -8,8 +8,9 @@ roots (cwd; /tmp unless exclude_slash_tmp; $TMPDIR unless exclude_tmpdir_env_var
 exercise: leaky ignores both exclusions (FAIL); timeout runs the whole probe, then hangs until the host's timeout
 kills it (INCONCLUSIVE, though the control and completion files exist); leaky-timeout is both (FAIL, on the first
 run); incomplete blocks the probe's completion marker (INCONCLUSIVE). stderr-only runs the full probe and emits
-no stdout; missing-report/unchanged-report exercise the launcher's exit 65; cj-fail/cj-timeout fail only launcher
-runs after the full probe. Otherwise, like `codex exec`, the stub exits 0 whatever the probe returns.
+no stdout; missing-report/unchanged-report exercise the launcher's exit 65; emptied-report is the Mac record of
+mac-smoke3-533593b (the probe logs its report WROTE and the CLI prints DONE, yet the report is empty when the CLI
+exits); cj-fail/cj-timeout fail only launcher runs after the full probe. Otherwise, like `codex exec`, the stub exits 0 whatever the probe returns.
 This says nothing about the real Codex sandbox; only the Mac run with the installed Codex does.
 """
 import os
@@ -73,6 +74,8 @@ def main(argv):
     print(f'stub: probe exit {rc}', file=sys.stderr, flush=True)
     if report and mode == 'missing-report':
         report.unlink(missing_ok=True)
+    if report and mode == 'emptied-report':
+        report.write_bytes(b'')
     if report and mode == 'unchanged-report':
         assert before is not None, 'unchanged-report fixture needs a baseline'
         report.write_bytes(before)

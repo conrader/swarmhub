@@ -126,6 +126,34 @@ class SmokeStubTests(unittest.TestCase):
         self.assertEqual(out.count('  | report-before=missing-or-empty\n'), 3)
         self.assertEqual(out.count('  | report-valid=true\n'), 3)
 
+    def test_mac_fallback_record_is_reproduced_and_located(self):
+        # mac-smoke3-533593b: stdout DONE (5 bytes), the probe logs its report WROTE, symlinked TMPDIR, yet the
+        # launcher records report-exists=true and report-sha256=missing-or-empty. The same layout with the probe's
+        # 44-byte report intact passes; an emptied one is named at every step and never passes.
+        real = self.shm / 'td real'
+        real.mkdir()
+        alias = self.shm / 'td alias'
+        alias.symlink_to(real, target_is_directory=True)
+        rc, last, out = self.run_smoke(alias, '--stub')
+        self.assertEqual(rc, 0, out[-3000:])
+        self.assertTrue(last.startswith('smoke: result=PASS '), last)
+        self.assertEqual(out.count('  | codex-stdout-bytes=5\n'), 3)
+        self.assertEqual(out.count('  | report-state=ok\n'), 3)
+        self.assertEqual(out.count('  report timeline: cli-exit python:bytes-44 sh:nonempty; verify ok (44 bytes); '
+                                   'finish nonempty; host now python:bytes-44 sh:nonempty\n'), 3)
+        rc, last, out = self.run_smoke(alias, '--stub', 'emptied-report')
+        self.assertEqual(rc, 0, out[-3000:])
+        self.assertTrue(last.startswith('smoke: result=INCONCLUSIVE '), last)
+        self.assertIn(' unexpected=none ', last)
+        for run in ('cj-home', 'cj-sibling', 'cj-outside'):
+            self.assertIn(f'{run}:code-job-exit-65-report-empty', last)
+        self.assertEqual(len(re.findall(r'\| report /[^\n]+/REPORT\.txt: WROTE\n', out)), 6)  # transcript + probe log
+        for line in ('  | codex-stdout-bytes=5\n', '  | report-exists=true\n', '  | report-sha256=missing-or-empty\n',
+                     '  | report-valid=false\n', '  | report-final=empty\n',
+                     '  report timeline: cli-exit python:empty sh:empty; verify empty (0 bytes); finish empty; '
+                     'host now python:empty sh:empty\n'):
+            self.assertEqual(out.count(line), 3, line)
+
     def test_missing_and_unchanged_reports_still_exit_65(self):
         for mode in ('missing-report', 'unchanged-report'):
             with self.subTest(mode=mode):

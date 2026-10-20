@@ -211,6 +211,12 @@ finish() {
   printf '%s\n' "$RAN" > "$JOB/ran"
   exists=false; [ -n "$REPORT" ] && [ -f "$REPORT" ] && exists=true
   printf '%s\n' "$exists" > "$JOB/report-exists"
+  # The shell's view at finish, next to the contract's report-state at verify: tells an empty report from one
+  # python3 could not stat, or one that appeared only after the check.
+  final=missing
+  if [ -n "$REPORT" ] && [ -f "$REPORT" ]; then final=empty; [ -s "$REPORT" ] && final=nonempty
+  elif [ -n "$REPORT" ] && [ -e "$REPORT" ]; then final=not-regular; fi
+  printf '%s\n' "$final" > "$JOB/report-final"
   printf '%s\n' "${HEAD_BEFORE:--}" > "$JOB/head-before"
   printf '%s\n' "$HEAD_AFTER" > "$JOB/head-after"
   printf '%s\n' "$COMMIT" > "$JOB/commit-evidence"

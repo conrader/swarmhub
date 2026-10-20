@@ -44,32 +44,7 @@ export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
 export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 
-cat > "$ROOT/stub" <<'STUB'
-#!/bin/sh
-me=$(basename "$0") d=$STUB_STATE
-echo $$ > "$d/$me.pid"
-printf '%s\n' "$@" > "$d/$me.args"
-pwd -P > "$d/$me.pwd"
-{ echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY-unset}"; echo "TOKEN=${CLAUDE_CODE_OAUTH_TOKEN-unset}"; } > "$d/$me.env"
-echo x >> "$d/$me.calls"
-# The stub writes a fresh report for each invocation, like a real contracted CLI.
-if [ -n "${SWARMHUB_REPORT_FILE:-}" ]; then printf '%s\n' "$$" > "$SWARMHUB_REPORT_FILE"; fi
-case $(cat "$d/$me.mode" 2>/dev/null) in
-  ok) echo "$me did the work"; echo "$me note on stderr" >&2; exit 0 ;;
-  limit) if [ "$me" = claude ]; then echo "Claude AI usage limit reached|1760000000" >&2; else echo "ERROR: usage_limit_reached" >&2; fi; exit 1 ;;
-  login) if [ "$me" = claude ]; then echo "Invalid API key · Please run /login"; else echo "Not logged in. Please run codex login"; fi; exit 1 ;;
-  fail) echo "$me: SyntaxError in calc.py line 3" >&2; exit 3 ;;
-  taskwords) echo "test_auth.py: authentication failed for user bob"; echo "GET /api -> 429 Too Many Requests" >&2; exit 2 ;;
-  early) if [ "$me" = claude ]; then echo "Claude AI usage limit reached"; else echo "You've hit your usage limit"; fi
-    i=0; while [ $i -lt 25 ]; do echo "build line $i"; i=$((i + 1)); done; exit 4 ;;
-  limitok) echo "note: rate_limit_error and usage_limit_reached are handled in retry.py"; exit 0 ;;
-  quiet) echo "$me: warning on stderr only" >&2; exit 0 ;;
-  slow) : > "$d/$me.slow"; while [ ! -f "$d/release" ]; do sleep 0.05; done; echo "$me slow done"; exit 0 ;;
-  tree) sleep 60 & echo $! > "$d/$me.child"; sleep 60; exit 0 ;;
-  commit) git add -A && git commit -qm "stub work" || exit 3; echo "$me committed"; exit 0 ;;
-  *) echo "stub $me: no mode" >&2; exit 99 ;;
-esac
-STUB
+cp "$(dirname "$0")/code-job-stub.sh" "$ROOT/stub" || exit 1
 
 # A fresh case: its own HOME, stub bin and work dir; $1 is the case name, then the stubs to put on PATH.
 new_case() {
@@ -470,6 +445,37 @@ expect "job interrupted" [ "$(rec status)" = interrupted ]
 done_case
 }
 
-for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22}; do "case_$n"; done
+# 23
+case_23() {
+new_case "fallback through a symlinked parent: the physical report counts; an empty or unreadable one is 65, named" codex
+# The Mac cj-home layout: --dir is HOME reached through a symlink, so launcher scratch falls back to /tmp and codex
+# gets both tmp exclusions; the CLI writes the report at the physical path code-job hands it.
+ln -s "$C/home" "$C/homelink"; P=$(cd "$C/home" && pwd -P)
+mode codex ok
+job --bot jarvis --order codex --dir "$C/homelink" --report REPORT.txt -- "$TASK"; RC=$?
+expect "ok: exit 0 (got $RC)" [ "$RC" -eq 0 ]
+expect "ok: report at the physical path" [ "$(rec report)" = "$P/REPORT.txt" ]
+expect "ok: codex ran in the physical dir" [ "$(cat "$C/state/codex.pwd")" = "$P" ]
+expect "ok: fallback /tmp exclusion" has "$C/state/codex.args" "sandbox_workspace_write.exclude_slash_tmp=true"
+expect "ok: fallback TMPDIR exclusion" has "$C/state/codex.args" "sandbox_workspace_write.exclude_tmpdir_env_var=true"
+expect "ok: report checked and kept" [ "$(rec report-valid)|$(rec report-state)|$(rec report-final)" = "true|ok|nonempty" ]
+# mac-smoke3-533593b recorded exactly this: report-exists=true, report-sha256=missing-or-empty, exit 65.
+mode codex emptyreport
+job --bot jarvis --order codex --dir "$C/homelink" --report REPORT.txt -- "$TASK"; RC=$?
+expect "empty: exit 65 (got $RC)" [ "$RC" -eq 65 ]
+expect "empty: the Mac record" [ "$(rec report-exists)|$(rec report-sha256)|$(rec report-valid)" = "true|missing-or-empty|false" ]
+expect "empty: named at check and finish" [ "$(rec report-state)|$(rec report-bytes)|$(rec report-final)" = "empty|0|empty" ]
+# A report python3 cannot read is not "missing" (Python 3.14 folded such stat errors into is_file() == False).
+if [ "$(id -u)" -ne 0 ]; then
+  mode codex lockedreport
+  job --bot jarvis --order codex --dir "$C/homelink" --report REPORT.txt -- "$TASK"; RC=$?
+  chmod 600 "$C/home/REPORT.txt"
+  expect "unreadable: exit 65 (got $RC)" [ "$RC" -eq 65 ]
+  expect "unreadable: named, the shell still sees it" [ "$(rec report-state)|$(rec report-valid)|$(rec report-final)" = "unreadable-EACCES|false|nonempty" ]
+fi
+done_case
+}
+
+for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23}; do "case_$n"; done
 echo "code-job tests under $SH: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
