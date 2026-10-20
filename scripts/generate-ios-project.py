@@ -23,7 +23,7 @@ def obj(name, body):
 
 source_refs = []
 source_builds = []
-for source in sorted((APP / 'Sources').glob('*.swift')):
+for source in sorted((APP / 'Sources').rglob('*.swift')):
     relative = source.relative_to(APP).as_posix()
     ref = obj('ref:' + relative, f'isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {quote(relative)}; sourceTree = SOURCE_ROOT;')
     build = obj('build:' + relative, f'isa = PBXBuildFile; fileRef = {ref};')

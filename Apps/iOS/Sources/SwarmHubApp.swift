@@ -9,6 +9,7 @@ struct SwarmHubApp: App {
     var body: some Scene {
         WindowGroup {
             RootView().environment(store).environment(managed)
+                .environment(\.sduiViewSource, SDUIiOS.installed)
                 .preferredColorScheme((CaptureConfiguration.appearance ?? appearance) == "System" ? nil : (CaptureConfiguration.appearance ?? appearance) == "Light" ? .light : .dark)
                 .tint(.primary)
                 .task { await store.load() }

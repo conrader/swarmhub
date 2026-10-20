@@ -176,20 +176,23 @@ class SwiftSourceTests(unittest.TestCase):
             self.assertIn("@Test func " + regression, tests)
 
     def test_confirmation_keeps_the_flow_context_until_accept_or_decline(self):
-        view = MAC_SOURCES["SDUIDocumentView.swift"]
-        self.assertIn("confirmation = PendingConfirmation(request: pending, flow: flow)", view)
-        self.assertIn("handle(pending.request.resolve(accepted: accepted), flow: pending.flow)", view)
-        self.assertIn("Button { resolve(pending, accepted: true) }", view)
-        self.assertIn("Button(role: .cancel) { resolve(pending, accepted: false) }", view)
-        available = re.search(r"private func available\(.*?\n    \}", view, re.S).group(0)
+        # P7c moved this from the Mac view into the shared SDUIInteraction; the Mac and iOS views only call it.
+        state = CORE_SOURCES["SDUIInteraction.swift"]
+        self.assertIn("confirmation = Pending(request: pending, flow: flow)", state)
+        self.assertIn("return handle(pending.request.resolve(accepted: accepted), flow: pending.flow)", state)
+        available = re.search(r"public static func isAvailable\(.*?\n    \}", state, re.S).group(0)
         self.assertIn("switch pending.action", available)
         self.assertEqual(available.count("case .moveFlow: return flow != nil"), 2)
         self.assertIn("case .perform(let command): return actions.isAvailable(command)", available)
+        view = MAC_SOURCES["SDUIDocumentView.swift"]
+        self.assertIn("Button { resolve(pending, accepted: true) }", view)
+        self.assertIn("Button(role: .cancel) { resolve(pending, accepted: false) }", view)
+        self.assertIn("run(interaction.resolve(pending, accepted: accepted))", view)
 
     def test_form_submit_availability_asks_the_routine_path_not_route(self):
         # route() refuses routine.create/routine.save outside a form; the submit button must not go through it.
-        view = MAC_SOURCES["SDUIDocumentView.swift"]
-        available = re.search(r"private func available\(.*?\n    \}", view, re.S).group(0)
+        state = CORE_SOURCES["SDUIInteraction.swift"]
+        available = re.search(r"public static func isAvailable\(.*?\n    \}", state, re.S).group(0)
         self.assertLess(available.index("case .routineCreate: return actions.isAvailable(.routineCreate("),
                         available.index("actions.router.route(action"))
         self.assertIn("case .routineSave: return actions.isAvailable(.routineSave(action.argument", available)
@@ -231,11 +234,34 @@ class SwiftSourceTests(unittest.TestCase):
         for case in ('"no bundle"', '"decoder fallback"', '"killed view"', "update == updateView"):
             self.assertIn(case, app_tests)
 
+    def test_fallback_hosts_return_the_compiled_views_unwrapped(self):
+        # The whole host body: the compiled branch is the bare compiled view (no container, frame, padding,
+        # background, id or environment), and nothing is applied to the switch.
+        hosts = MAC_SOURCES["RoutineSDUIHosts.swift"]
+        for host, compiled in (("RoutineResultCardHost", "RoutineResultCard(message: message)"),
+                               ("RoutineEditorHost", "RoutineEditorSheet(bot: bot, job: job)")):
+            body = re.search(r"struct %s: View \{\n(?:(?:    [^\n]*)?\n)*?    var body: some View \{\n"
+                             r"        switch SDUIRoutineTarget\.\w+\(source[^\n]*\) \{\n"
+                             r"        case \.compiled: (?P<compiled>[^\n]*)\n"
+                             r"        case \.updateRequired: SDUIUpdateRequiredView\(inSheet: (?:true|false)\)\n"
+                             r"        case \.document\(let document\): [^\n]*\n"
+                             r"        \}\n    \}\n\}\n" % host, hosts)
+            self.assertIsNotNone(body, host)
+            self.assertEqual(body.group("compiled"), compiled, host)
+        # The pixel check draws with AppKit and a pinned appearance, and proves its baseline is stable.
+        app_tests = (ROOT / "Tests/AgentAppTests/RoutineSDUITests.swift").read_text(encoding="utf-8")
+        self.assertNotIn("ImageRenderer(", app_tests)
+        self.assertIn("await SnapshotRenderer.png(", app_tests)
+        self.assertIn("must draw the same pixels every time", app_tests)
+        self.assertEqual(app_tests.count("#expect(hosted == compiled"), 2)
+
     def test_sources_under_500_lines_and_schemas_note(self):
         files = list(RENDER.glob("*.swift")) + list(MAC.glob("*.swift"))
-        files += [TESTS / n for n in ("SDUIRenderTreeTests.swift", "SDUIActionRouterTests.swift", "SDUIViewSourceTests.swift")]
+        files += [TESTS / n for n in ("SDUIRenderTreeTests.swift", "SDUIActionRouterTests.swift", "SDUIViewSourceTests.swift",
+                                      "SDUIActionGoldenTests.swift", "SDUIInteractionTests.swift")]
         files += [ROOT / "Tests/AgentAppTests/RoutineSDUITests.swift", Path(__file__),
-                  ROOT / "scripts/release/ui_render.py", ROOT / "scripts/release/make_ui_renders.py"]
+                  ROOT / "scripts/release/ui_render.py", ROOT / "scripts/release/make_ui_renders.py",
+                  ROOT / "scripts/release/ui_actions.py"]
         for path in files:
             self.assertLessEqual(len(path.read_text(encoding="utf-8").splitlines()), 500, path.name)
         schemas = (ROOT / "docs/update-service/SCHEMAS.md").read_text(encoding="utf-8")

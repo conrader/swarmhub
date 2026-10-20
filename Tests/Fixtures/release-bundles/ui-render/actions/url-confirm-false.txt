@@ -1,0 +1,1 @@
+0.0 button "Read the guide" available=yes press: confirm title="Open this link?" button="Open" message="https://docs.swarmhub.test/guide" accept: perform open_url "https://docs.swarmhub.test/guide" decline: refused confirmation_declined

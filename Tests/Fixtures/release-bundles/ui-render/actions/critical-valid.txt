@@ -1,0 +1,2 @@
+0.1 button "Check now" available=yes press: perform refresh
+0.2 button "Open updates" available=yes press: perform navigate updates

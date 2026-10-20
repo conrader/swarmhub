@@ -267,3 +267,13 @@ python3 scripts/release/make_ui_renders.py            # rewrite ui-render/ only
 python3 scripts/release/make_ui_renders.py --check    # byte-identical regeneration
 python3 scripts/test_swift_ui_render.py               # goldens, targets, Swift renderer source rules
 ```
+
+### P7c iOS renderer
+
+`Apps/iOS/Sources/SDUI/` draws the same render tree as the Mac with iOS views only. Renderer state and behaviour (form values, flow steps, the pending confirmation, busy, availability) live in `SDUIInteraction` in SwarmHubCore and are used unchanged by both apps; routine binding data comes from `SDUIRoutineTarget.editorData` / `cardData`. iOS has no compiled routine screens yet, so no iOS screen mounts the routine hosts, and its command sink offers only `dismiss`, `copy_text` and `open_url` (allowlist empty).
+
+**Action goldens.** `ui-render/actions/` holds, for every render case, every target (`actions/targets/`) and one edge document (`actions/cases/edges.json`), what each button and form submit does: `<key> button "<label>" available=yes|no press: <step>` and `<key> submit form=<id> "<label>" available=yes|no initial: <step>` / `blank: <step>`, where a step is `move_flow ±1`, `perform <command>`, `refused <reason>` or `confirm title=… button=… message=… accept: <step> decline: <step>`. Python statement: `scripts/release/ui_actions.py`; Swift: `SDUIActionGoldenTests`, which runs on macOS (`swift test`) and on the iOS simulator (`scripts/test-ios-sdui.sh`).
+
+```
+python3 scripts/test_swift_ui_ios.py                  # action goldens, Mac/iOS view parity, iOS wiring and text rules
+```

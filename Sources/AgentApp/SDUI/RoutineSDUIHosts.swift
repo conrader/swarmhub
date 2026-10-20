@@ -94,38 +94,26 @@ private struct RoutineEditorDocument: View {
         return store.routines.state(for: bot.id).jobs.value?.first { $0.id == id }
     }
 
-    static func routine(_ job: HermesJob) -> [String: SDUIDataValue] {
-        var values: [String: SDUIDataValue] = [
-            "routine.id": .string(job.id), "routine.name": .string(job.name), "routine.prompt": .string(job.prompt),
-            "routine.schedule": .string(job.schedule), "routine.schedule_text": .string(RoutineScheduleDraft.describe(job.schedule)),
-            "routine.enabled": .bool(!job.isPaused), "routine.state": .string(job.state)
-        ]
-        if let status = job.lastStatus { values["routine.last_status"] = .string(status) }
-        return values
+    static func routine(_ job: HermesJob) -> SDUIRoutineFields {
+        SDUIRoutineFields(id: job.id, name: job.name, prompt: job.prompt, schedule: job.schedule,
+                          scheduleText: RoutineScheduleDraft.describe(job.schedule), enabled: !job.isPaused, state: job.state,
+                          lastStatus: job.lastStatus)
     }
 
     static func editor(bot: Bot, job: HermesJob?) -> SDUIData {
-        var values = job.map(routine) ?? [:]
-        values["profile.name"] = .string(bot.name)
-        return SDUIData(values)
+        SDUIRoutineTarget.editorData(profile: bot.name, routine: job.map(routine))
     }
 
     /// The card's own fields (as `RoutineResultCard` shows them), plus the routine when it is loaded.
     static func card(_ message: ChatMessage, bot: Bot?, job: HermesJob?) -> SDUIData {
-        var values = job.map(routine) ?? [:]
-        values["routine.name"] = .string(message.metadata["routine"] ?? "Routine")
-        if let id = message.metadata["jobID"] { values["routine.id"] = .string(id) }
-        values["result.status"] = .string(message.metadata["status"] ?? "ok")
-        values["result.failed"] = .bool(RoutineResultCopy.failed(message))
-        values["result.title"] = .string(RoutineResultCopy.title(message))
-        values["result.ran_text"] = .string(RoutineResultCopy.ranAt(message))
-        values["result.finished_at"] = .string(message.createdAt.formatted(date: .abbreviated, time: .shortened))
-        values["result.has_output"] = .bool(message.metadata["sessionID"] != nil)
-        if !message.content.isEmpty { values["result.summary"] = .string(message.content) }
-        if let error = message.metadata["error"] { values["result.error"] = .string(error) }
-        if let note = message.metadata["note"] { values["result.note"] = .string(note) }
-        if let bot { values["profile.name"] = .string(bot.name) }
-        return SDUIData(values)
+        let result = SDUIRoutineResultFields(
+            routineName: message.metadata["routine"] ?? "Routine", routineID: message.metadata["jobID"],
+            status: message.metadata["status"] ?? "ok", failed: RoutineResultCopy.failed(message),
+            title: RoutineResultCopy.title(message), ranText: RoutineResultCopy.ranAt(message),
+            finishedAt: message.createdAt.formatted(date: .abbreviated, time: .shortened),
+            hasOutput: message.metadata["sessionID"] != nil, summary: message.content, error: message.metadata["error"],
+            note: message.metadata["note"])
+        return SDUIRoutineTarget.cardData(result, profile: bot?.name, routine: job.map(routine))
     }
 }
 
@@ -140,8 +128,8 @@ private struct RoutineEditorDocument: View {
     /// Runs an existing menu command (`AppCommand.perform`), which needs the window's settings and window actions.
     let open: @MainActor (AppCommand) -> Void
 
-    func actions(_ policy: SDUIPolicy) -> SDUIMacActions {
-        SDUIMacActions(router: SDUIActionRouter(urlHosts: policy.urlHosts), isAvailable: { isAvailable($0) },
+    func actions(_ policy: SDUIPolicy) -> SDUIActions {
+        SDUIActions(router: SDUIActionRouter(urlHosts: policy.urlHosts), isAvailable: { isAvailable($0) },
                        perform: { await perform($0) })
     }
 

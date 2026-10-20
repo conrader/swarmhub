@@ -1,0 +1,166 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "p7c_action_edges",
+  "root": {
+    "type": "card",
+    "children": [
+      {
+        "type": "flow",
+        "id": "steps",
+        "steps": [
+          {
+            "id": "one",
+            "title": "One",
+            "children": [
+              {
+                "type": "button",
+                "label": "Next",
+                "action": {
+                  "command": "flow_next",
+                  "confirm": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "two",
+            "title": "Two",
+            "children": [
+              {
+                "type": "button",
+                "label": "Back",
+                "action": {
+                  "command": "flow_back",
+                  "confirm": true
+                }
+              },
+              {
+                "type": "button",
+                "label": "Open",
+                "action": {
+                  "command": "routine.open",
+                  "routine": {
+                    "bind": "routine.missing"
+                  }
+                }
+              },
+              {
+                "type": "button",
+                "label": "Settings",
+                "action": {
+                  "command": "navigate",
+                  "screen": "settings",
+                  "confirm": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "form",
+        "id": "edge_long",
+        "fields": [
+          {
+            "id": "name",
+            "kind": "text",
+            "label": "Name",
+            "max_length": 5,
+            "value": {
+              "bind": "routine.name"
+            }
+          },
+          {
+            "id": "schedule",
+            "kind": "schedule",
+            "label": "Schedule",
+            "required": true,
+            "value": {
+              "bind": "routine.schedule"
+            }
+          }
+        ],
+        "submit": {
+          "label": "Save",
+          "action": {
+            "command": "routine.save",
+            "routine": {
+              "bind": "routine.id"
+            }
+          }
+        }
+      },
+      {
+        "type": "form",
+        "id": "edge_ok",
+        "fields": [
+          {
+            "id": "name",
+            "kind": "text",
+            "label": "Name",
+            "value": {
+              "bind": "routine.name"
+            }
+          },
+          {
+            "id": "schedule",
+            "kind": "text",
+            "label": "Schedule",
+            "value": {
+              "bind": "routine.schedule"
+            }
+          },
+          {
+            "id": "notify",
+            "kind": "toggle",
+            "label": "Notify",
+            "value": {
+              "bind": "routine.enabled"
+            }
+          }
+        ],
+        "submit": {
+          "label": "Save",
+          "action": {
+            "command": "routine.save",
+            "routine": {
+              "bind": "routine.id"
+            },
+            "confirm": true
+          }
+        }
+      },
+      {
+        "type": "form",
+        "id": "edge_unbound",
+        "fields": [
+          {
+            "id": "name",
+            "kind": "text",
+            "label": "Name",
+            "value": {
+              "bind": "routine.name"
+            }
+          },
+          {
+            "id": "schedule",
+            "kind": "text",
+            "label": "Schedule",
+            "value": {
+              "bind": "routine.schedule"
+            }
+          }
+        ],
+        "submit": {
+          "label": "Save",
+          "action": {
+            "command": "routine.save",
+            "routine": {
+              "bind": "routine.missing"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
