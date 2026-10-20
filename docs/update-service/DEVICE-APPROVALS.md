@@ -200,3 +200,29 @@ tests enroll those keys only through the library function.
 Tests: `sim/test_device_approvals.py` (every P5a vector through the real box, replay across restart, kill
 mid-transaction, concurrent consume, revoke, cutover, host unreachable, Hermes byte-identical) and
 `sim/test_device_enrollment.py` (operator guard, enrollment rules, corrupt state, read/challenge rules).
+
+## P5d iOS managed approvals (device-signed only)
+
+The P5c client now lives in SwarmHubCore (`Sources/SwarmHubCore/Approvals/`): `JSONValue`, `ManagedRecord`,
+`ManagedControlError`, `DeviceApprovalJSON`, `DeviceApprovalWire`, `DeviceApprovalIdentity` (+ `DeviceApprovalKeychain`),
+`DeviceApprovalSettings` and `DeviceSignedApprovalClient`. The Mac keeps its names through typealiases in
+`Sources/AgentApp/Approvals/DeviceApprovalCore.swift`; its QA boundary and test-run guard are passed in as
+`DeviceApprovalEnvironment.mac`, and v1 (`ManagedRemoteControl`) stays in the Mac app only. Wire bytes, key IDs
+(`mac-` prefix), Keychain service, defaults keys and fixtures are unchanged.
+
+iOS adds `ManagedApprovalStore`, `ManagedApprovalViews` and `DeviceApprovalSetupView` in `Apps/iOS/Sources/`. Each
+phone/box pair gets its own key (`ios-` prefix) enrolled by the operator as above. The Settings row shows the key and the
+enroll command; after `mode required` on the box, the user confirms the cutover on the phone (sticky, no way back in
+the app). `ManagedApprovalScope` then reads approval fences (notifications only) from assistant messages of profiles on
+device-required boxes and routes each to the connected decider profile; a card appears only for a pending record the
+box returns over the signed `receipt` read. Boxes without a confirmed cutover show no managed section at all. Decisions
+use `ManagedApprovalFlow.decide`: re-read, adopt any committed receipt, else challenge → sign → decide → receipt; a lost
+acknowledgement keeps the attempt locked until a receipt or box-observed expiry settles it. Native Hermes approvals
+(`MobileStore.resolve`) are unchanged.
+
+No shared-key path reaches the iOS target. `scripts/check-ios-approvals.py` runs as the first build phase of the
+generated Xcode project and fails on HMAC/SymmetricKey, the v1 domain, endpoint or header, the Mac v1/local clients,
+`swarmctl`, Hermes key-store use in approval files, project files outside `Apps/iOS/Sources`, or a stale project.
+`--binary <app executable>` scans a built binary. Tests: `scripts/test_ios_approval_boundary.py` (Linux) and the
+SwarmHubCore suites `DeviceApprovalCoreTests`, `ManagedApprovalFlowTests`, `ManagedApprovalScopeTests`,
+`IOSApprovalBoundaryTests` (Mac).

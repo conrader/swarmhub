@@ -3,11 +3,12 @@ import SwiftUI
 @main
 struct SwarmHubApp: App {
     @State private var store = MobileStore()
+    @State private var managed = ManagedApprovalStore()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("appearance") private var appearance = "Dark"
     var body: some Scene {
         WindowGroup {
-            RootView().environment(store)
+            RootView().environment(store).environment(managed)
                 .preferredColorScheme((CaptureConfiguration.appearance ?? appearance) == "System" ? nil : (CaptureConfiguration.appearance ?? appearance) == "Light" ? .light : .dark)
                 .tint(.primary)
                 .task { await store.load() }

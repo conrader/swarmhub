@@ -19,6 +19,8 @@ struct ApprovalsView: View {
                         }.padding(.vertical, 6)
                     }
                 }
+                // Device-signed managed approvals; renders nothing unless a connected box is device-required.
+                ManagedApprovalsSection()
             }.navigationTitle("Approvals")
         }
     }

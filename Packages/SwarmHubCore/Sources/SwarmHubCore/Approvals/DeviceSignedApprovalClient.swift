@@ -1,20 +1,33 @@
 import Foundation
 
-/// Direct app → box v2 only. TLS authenticates responses; reads and decisions use separate domains.
-enum DeviceApprovalClient {
+/// Host hooks around the shared client. iOS uses `.standard`; the Mac passes its QA boundary and test-run guard.
+public struct DeviceApprovalEnvironment: Sendable {
+    public var prepare: @Sendable (URLRequest) throws -> URLRequest
+    public var configure: @Sendable (URLSessionConfiguration) -> URLSessionConfiguration
+    public init(prepare: @escaping @Sendable (URLRequest) throws -> URLRequest = { $0 },
+                configure: @escaping @Sendable (URLSessionConfiguration) -> URLSessionConfiguration = { $0 }) {
+        self.prepare = prepare; self.configure = configure
+    }
+    public static let standard = DeviceApprovalEnvironment()
+}
+
+/// Direct app → box v2 only, shared by Mac and iOS (P5d). TLS authenticates responses; reads and decisions use
+/// separate domains. There is no shared-key path here: no Bearer key, no HMAC, no v1 endpoint.
+public enum DeviceSignedApprovalClient {
     private struct Refusal: Error { let reason: String }
-    static func request(address: String, profile: String, verb: String, task: String, input: Data?,
-                        identity: DeviceApprovalIdentity, settings: DeviceApprovalSettings, reviewed: ManagedRecord? = nil,
-                        session: URLSession? = nil, timeout: TimeInterval = 15) async throws -> ManagedRecord {
+    public static func request(address: String, profile: String, verb: String, task: String, input: Data?,
+                               identity: DeviceApprovalIdentity, settings: DeviceApprovalSettings, reviewed: ManagedRecord? = nil,
+                               session: URLSession? = nil, timeout: TimeInterval = 15,
+                               environment: DeviceApprovalEnvironment = .standard) async throws -> ManagedRecord {
         var dispatched = false
         do {
             let origin = try DeviceApprovalWire.origin(address: address)
-            guard ManagedApproval.profileName(profile) != nil, ManagedApproval.validTask(task) != nil,
+            guard DeviceApprovalWire.validProfile(profile), DeviceApprovalWire.validTask(task),
                   ["get", "decide"].contains(verb) else { throw ManagedControlError.unavailable }
             let pending = try settings.attempt(origin: origin, task: task)
             if verb == "get" {
                 let response = try await read("receipt", origin: origin, profile: profile, task: task,
-                                              identity: identity, session: session, timeout: timeout)
+                                              identity: identity, session: session, timeout: timeout, environment: environment)
                 if let value = response["receipt"], !value.isNull {
                     let record = try decodeRecord(value)
                     try validateReceipt(record, origin: origin, profile: profile, task: task, identity: identity, expected: pending)
@@ -58,7 +71,7 @@ enum DeviceApprovalClient {
             if pending != nil { throw ManagedControlError.rejected }
             // Each decide obtains a new box-owned binding. No nonce or times are constructed locally.
             let response = try await read("challenge", origin: origin, profile: profile, task: task,
-                                          identity: identity, session: session, timeout: timeout)
+                                          identity: identity, session: session, timeout: timeout, environment: environment)
             guard var signed = response["challenge"]?.objectValue, let value = response["record"] else { throw ManagedControlError.invalidRecord }
             var record = try decodeRecord(value)
             try DeviceApprovalWire.validateChallenge(signed, identity: identity, origin: origin, profile: profile, task: task, record: record)
@@ -77,7 +90,8 @@ enum DeviceApprovalClient {
             dispatched = true
             let result: [String: JSONValue]
             do {
-                result = try await post(raw, origin: origin, profile: profile, verb: "decide", session: session, timeout: timeout)
+                result = try await post(raw, origin: origin, profile: profile, verb: "decide", session: session, timeout: timeout,
+                                       environment: environment)
             } catch let refusal as Refusal {
                 // Only an authenticated, explicit box refusal proves this dispatch did not commit.
                 try settings.clearRefusedAttempt(origin: origin, task: task)
@@ -99,28 +113,29 @@ enum DeviceApprovalClient {
         }
     }
 
-    static func read(_ verb: String, origin: String, profile: String, task: String, identity: DeviceApprovalIdentity,
-                     session: URLSession?, timeout: TimeInterval) async throws -> [String: JSONValue] {
+    public static func read(_ verb: String, origin: String, profile: String, task: String, identity: DeviceApprovalIdentity,
+                            session: URLSession?, timeout: TimeInterval,
+                            environment: DeviceApprovalEnvironment = .standard) async throws -> [String: JSONValue] {
         let body: [String: JSONValue] = ["version": .int(2), "domain": .string(DeviceApprovalWire.readDomain), "verb": .string(verb),
             "key_id": .string(identity.keyID), "origin": .string(origin), "profile": .string(profile), "task": .string(task),
             "issued": .int(Int64(Date().timeIntervalSince1970))]
         do {
             return try await post(DeviceApprovalWire.envelope(body, identity: identity, read: true), origin: origin,
-                                  profile: profile, verb: verb, session: session, timeout: timeout)
+                                  profile: profile, verb: verb, session: session, timeout: timeout, environment: environment)
         } catch is Refusal {
             throw ManagedControlError.rejected
         }
     }
 
-    static func decodeRecord(_ value: JSONValue) throws -> ManagedRecord {
+    public static func decodeRecord(_ value: JSONValue) throws -> ManagedRecord {
         // Validate the original spec before Codable can normalize a float such as 1.0 to an integer.
         guard let spec = value["spec"], spec.objectValue != nil else { throw ManagedControlError.invalidRecord }
         _ = try DeviceApprovalWire.canonical(spec)
         return try JSONDecoder().decode(ManagedRecord.self, from: JSONEncoder().encode(value))
     }
 
-    static func validateReceipt(_ record: ManagedRecord, origin: String, profile: String, task: String,
-                                identity: DeviceApprovalIdentity, expected: [String: JSONValue]?) throws {
+    public static func validateReceipt(_ record: ManagedRecord, origin: String, profile: String, task: String,
+                                       identity: DeviceApprovalIdentity, expected: [String: JSONValue]?) throws {
         guard record.id == task, record.decider == profile, ["owner", "coordinator"].contains(record.gate), let binding = record.remoteBinding,
               binding.origin == origin, binding.profile == profile, DeviceApprovalWire.matches(binding.runtime, "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"),
               let receipt = record.remoteReceipt, receipt.`protocol` == 2, receipt.device == identity.keyID,
@@ -140,26 +155,24 @@ enum DeviceApprovalClient {
     }
 
     static func post(_ raw: Data, origin: String, profile: String, verb: String, session: URLSession?,
-                     timeout: TimeInterval) async throws -> [String: JSONValue] {
+                     timeout: TimeInterval, environment: DeviceApprovalEnvironment) async throws -> [String: JSONValue] {
         guard let url = URL(string: origin + "/swarmhub/control/v2/" + profile + "/" + verb) else { throw ManagedControlError.unavailable }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"; request.httpBody = raw; request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.cachePolicy = .reloadIgnoringLocalCacheData; request.httpShouldHandleCookies = false
-        #if DEBUG
-        if QAMode.enabled { request = try QAMode.boundary.native(request) }
-        #endif
+        request = try environment.prepare(request)
         let client: URLSession
         if let session { client = session }
         else {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.httpCookieStorage = nil; configuration.urlCredentialStorage = nil; configuration.urlCache = nil
             configuration.timeoutIntervalForResource = 20
-            client = URLSession(configuration: TestRunGuard.guarded(configuration))
+            client = URLSession(configuration: environment.configure(configuration))
         }
         defer { if session == nil { client.finishTasksAndInvalidate() } }
-        let outbound = request, redirects = ManagedRemoteControl.NoRedirect()
+        let outbound = request, redirects = NoRedirect()
         let (data, response) = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
             defer { group.cancelAll() }
             group.addTask {
@@ -189,5 +202,21 @@ enum DeviceApprovalClient {
             throw ManagedControlError.rejected
         }
         return result
+    }
+
+    /// Declines redirects and cancels the task, so a redirect can never carry a signed request elsewhere.
+    final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        private let lock = NSLock()
+        private var sawRedirect = false
+        var rejected: Bool { lock.withLock { sawRedirect } }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+            lock.withLock { sawRedirect = true }
+            // Declining alone can wait for the original response body indefinitely. Cancel this
+            // task as well, recording the policy error first so cancellation cannot mask it.
+            task.cancel()
+            completionHandler(nil)
+        }
     }
 }

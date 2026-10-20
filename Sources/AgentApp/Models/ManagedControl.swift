@@ -1,73 +1,8 @@
 import Foundation
+import SwarmHubCore
 
-/// Immutable runtime data, decoded directly from swarmctl, never from a reply fence.
-struct ManagedRecord: Codable, Equatable, Sendable {
-    /// The complete admitted spec exactly as the runtime fingerprints it. Every field is kept and rendered, so the
-    /// card shows what `control get` returned (cross-review finding 7), not a lossy subset of known keys.
-    struct Spec: Codable, Equatable, Sendable {
-        var fields: [String: JSONValue]
-
-        init(fields: [String: JSONValue]) { self.fields = fields }
-
-        init(kind: String, bot: String, intent: String, risks: [String]? = nil, argv: [String]? = nil, to: String? = nil,
-             text: String? = nil, task: String? = nil, directory: String? = nil, report: String? = nil, verify: String? = nil,
-             model: String? = nil, effort: String? = nil, order: String? = nil, fake: Bool? = nil) {
-            var fields: [String: JSONValue] = ["kind": .string(kind), "bot": .string(bot), "intent": .string(intent)]
-            if let risks { fields["risks"] = .array(risks.map { .string($0) }) }
-            if let argv { fields["argv"] = .array(argv.map { .string($0) }) }
-            let strings: [(String, String?)] = [("to", to), ("text", text), ("task", task), ("directory", directory), ("report", report),
-                                                ("verify", verify), ("model", model), ("effort", effort), ("order", order)]
-            for (key, value) in strings {
-                if let value { fields[key] = .string(value) }
-            }
-            if let fake { fields["fake"] = .bool(fake) }
-            self.fields = fields
-        }
-
-        init(from decoder: Decoder) throws {
-            fields = try decoder.singleValueContainer().decode([String: JSONValue].self)
-        }
-
-        func encode(to encoder: Encoder) throws {
-            var container = encoder.singleValueContainer()
-            try container.encode(fields)
-        }
-
-        var kind: String { fields["kind"]?.stringValue ?? "" }
-        var bot: String { fields["bot"]?.stringValue ?? "" }
-        var intent: String { fields["intent"]?.stringValue ?? "" }
-        var risks: [String]? { fields["risks"]?.arrayValue?.compactMap(\.stringValue) }
-        var argv: [String]? { fields["argv"]?.arrayValue?.compactMap(\.stringValue) }
-        var to: String? { fields["to"]?.stringValue }
-        var text: String? { fields["text"]?.stringValue }
-        var fake: Bool? { fields["fake"]?.boolValue }
-    }
-    let id: String
-    let fingerprint: String
-    let gate: String
-    let status: String
-    let decider: String?
-    let spec: Spec
-    var decided_by: String? = nil
-    var decided_at: Double? = nil
-    struct RemoteBinding: Codable, Equatable, Sendable {
-        let origin: String
-        let runtime: String
-        let profile: String
-    }
-    struct RemoteReceipt: Codable, Equatable, Sendable {
-        let id: String
-        let approved: Bool
-        var `protocol`: Int? = nil
-        var device: String? = nil
-        var nonce: String? = nil
-        var fingerprint: String? = nil
-        var message: String? = nil
-    }
-    var remoteBinding: RemoteBinding? = nil
-    var remoteReceipt: RemoteReceipt? = nil
-
-    var awaiting: Bool { status == "awaiting-" + gate }
+/// The record type and its errors live in SwarmHubCore (P5d); a card for the Mac is built here.
+extension ManagedRecord {
     func request(botID: UUID) throws -> ApprovalRequest {
         guard awaiting, ManagedApproval.validTask(id) != nil,
               ["owner", "coordinator"].contains(gate), let decider,
@@ -83,60 +18,6 @@ struct ManagedRecord: Codable, Equatable, Sendable {
         request.managedRecord = self
         request.routeNote = "Runtime operation verified\(remoteBinding.map { " at " + $0.origin } ?? " locally"). Decision binds fingerprint \(fingerprint) and gate \(gate)."
         return request
-    }
-    func sameOperation(as original: ManagedRecord) -> Bool {
-        id == original.id && fingerprint == original.fingerprint && gate == original.gate &&
-        spec == original.spec && decider == original.decider && remoteBinding == original.remoteBinding
-    }
-    func confirms(_ approved: Bool, original: ManagedRecord) -> Bool {
-        guard sameOperation(as: original), decided_by == original.decider, decided_at != nil else { return false }
-        if remoteBinding != nil {
-            guard let remoteReceipt, UUID(uuidString: remoteReceipt.id) != nil else { return false }
-            return remoteReceipt.approved == approved
-        }
-        return approved ? ["queued", "running", "done", "failed"].contains(status) : status == "denied"
-    }
-}
-
-extension JSONValue: Decodable {
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if container.decodeNil() {
-            self = .null
-        } else if let value = try? container.decode(Bool.self) {
-            self = .bool(value)
-        } else if let value = try? container.decode(Int64.self) {
-            self = .int(value)
-        } else if let value = try? container.decode(Double.self) {
-            self = .double(value)
-        } else if let value = try? container.decode(String.self) {
-            self = .string(value)
-        } else if let value = try? container.decode([JSONValue].self) {
-            self = .array(value)
-        } else if let value = try? container.decode([String: JSONValue].self) {
-            self = .object(value)
-        } else {
-            throw DecodingError.dataCorruptedError(in: container, debugDescription: "unsupported JSON value")
-        }
-    }
-}
-
-enum ManagedControlError: LocalizedError {
-    case unavailable, invalidRecord, rejected, attemptExpired, operationGone
-    case unsent(String)
-    case refused(String)
-    case retired(task: String, origin: String, runtime: String, reason: String)
-    var errorDescription: String? {
-        switch self {
-        case .unsent(let reason): reason
-        case .refused(let reason): "The box refused the decision (\(reason)). You can retry or deny."
-        case .retired(_, _, _, let reason): "The runtime retired this approval: \(reason)."
-        case .unavailable: "Managed approval requires an authenticated SwarmHub control service at this Hermes connection. The operation remains pending."
-        case .invalidRecord: "The runtime record is stale or does not match this approval."
-        case .rejected: "The runtime did not confirm the decision. Refresh status before retrying."
-        case .attemptExpired: "The earlier attempt expired without a recorded decision. Review the operation and choose again."
-        case .operationGone: "The box no longer has this operation, so no decision was recorded. Any saved choice on this card was cleared."
-        }
     }
 }
 

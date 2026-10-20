@@ -1,30 +1,10 @@
 import Foundation
+import SwarmHubCore
 
-/// A parsed JSON value that keeps bool, integer and double apart (Grok Bot's cache and the bundle oracle both rely on
-/// `isinstance(x, int)`, which `NSNumber` and `as? Int` blur). Objects ignore key order; a repeated key keeps the
-/// last value, as Python's `json` does.
-enum JSONValue: Sendable, Equatable {
-    case null
-    case bool(Bool)
-    case int(Int64)
-    case double(Double)
-    case string(String)
-    case array([JSONValue])
-    case object([String: JSONValue])
-
-    subscript(key: String) -> JSONValue? {
-        if case .object(let object) = self { return object[key] }
-        return nil
-    }
-
-    var stringValue: String? { if case .string(let value) = self { return value }; return nil }
-    /// Only an integer JSON token: never `1.0`, never `true`.
-    var intValue: Int64? { if case .int(let value) = self { return value }; return nil }
-    var boolValue: Bool? { if case .bool(let value) = self { return value }; return nil }
-    var arrayValue: [JSONValue]? { if case .array(let value) = self { return value }; return nil }
-    var objectValue: [String: JSONValue]? { if case .object(let value) = self { return value }; return nil }
-    var isNull: Bool { self == .null }
-
+/// `JSONValue` itself lives in SwarmHubCore (P5d, shared with the iOS approval client); see DeviceApprovalCore.swift.
+/// It keeps bool, integer and double apart (Grok Bot's cache and the bundle oracle rely on `isinstance(x, int)`).
+/// Objects ignore key order; a repeated key keeps the last value, as Python's `json` does.
+extension JSONValue {
     /// Python truthiness, for the few places `map_entries` uses `x or default`.
     var isTruthy: Bool {
         switch self {
@@ -35,21 +15,6 @@ enum JSONValue: Sendable, Equatable {
         case .string(let value): !value.isEmpty
         case .array(let value): !value.isEmpty
         case .object(let value): !value.isEmpty
-        }
-    }
-}
-
-extension JSONValue: Encodable {
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .null: try container.encodeNil()
-        case .bool(let value): try container.encode(value)
-        case .int(let value): try container.encode(value)
-        case .double(let value): try container.encode(value)
-        case .string(let value): try container.encode(value)
-        case .array(let value): try container.encode(value)
-        case .object(let value): try container.encode(value)
         }
     }
 }

@@ -35,6 +35,9 @@ product = obj('product', 'isa = PBXFileReference; explicitFileType = wrapper.app
 package = obj('core-package', 'isa = XCLocalSwiftPackageReference; relativePath = ../../Packages/SwarmHubCore;')
 core_product = obj('core-product', f'isa = XCSwiftPackageProductDependency; package = {package}; productName = SwarmHubCore;')
 core_build = obj('core-build', f'isa = PBXBuildFile; productRef = {core_product};')
+# P5d: fail the build if shared-key approval code reaches this target (scripts/check-ios-approvals.py).
+boundary_script = 'python3 "$SRCROOT/../../scripts/check-ios-approvals.py" --root "$SRCROOT/../.."\n'
+boundary = obj('approval-boundary-phase', f'isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Check device-signed approvals"; outputPaths = (); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = {quote(boundary_script)};')
 sources = obj('sources-phase', f'isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ({",".join(source_builds)}); runOnlyForDeploymentPostprocessing = 0;')
 resources = obj('resources-phase', f'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({asset_build}); runOnlyForDeploymentPostprocessing = 0;')
 frameworks = obj('frameworks-phase', f'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ({core_build}); runOnlyForDeploymentPostprocessing = 0;')
@@ -50,7 +53,9 @@ for name in ['Debug', 'Release']:
               'INFOPLIST_KEY_UIApplicationSceneManifest_Generation':'YES', 'INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents':'YES',
               'INFOPLIST_KEY_UISupportedInterfaceOrientations':'UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight',
               'MARKETING_VERSION':'0.1.0', 'CURRENT_PROJECT_VERSION':'1', 'CODE_SIGN_STYLE':'Automatic',
-              'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon', 'SWIFT_STRICT_CONCURRENCY':'complete'}
+              'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon', 'SWIFT_STRICT_CONCURRENCY':'complete',
+              # The boundary phase reads repository sources outside the declared inputs.
+              'ENABLE_USER_SCRIPT_SANDBOXING':'NO'}
     if name == 'Debug':
         target.update(SWIFT_OPTIMIZATION_LEVEL='-Onone', SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG', ENABLE_TESTABILITY='YES')
     else:
@@ -61,7 +66,7 @@ for name in ['Debug', 'Release']:
     target_configurations.append(obj('target-' + name, f'isa = XCBuildConfiguration; name = {name}; buildSettings = {{ {settings(target)} }};'))
 pc = obj('project-configs', f'isa = XCConfigurationList; buildConfigurations = ({",".join(project_configurations)}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
 tc = obj('target-configs', f'isa = XCConfigurationList; buildConfigurations = ({",".join(target_configurations)}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
-target = obj('app-target', f'isa = PBXNativeTarget; name = SwarmHub; productName = SwarmHub; productType = "com.apple.product-type.application"; productReference = {product}; buildConfigurationList = {tc}; buildPhases = ({sources},{frameworks},{resources}); buildRules = (); dependencies = (); packageProductDependencies = ({core_product});')
+target = obj('app-target', f'isa = PBXNativeTarget; name = SwarmHub; productName = SwarmHub; productType = "com.apple.product-type.application"; productReference = {product}; buildConfigurationList = {tc}; buildPhases = ({boundary},{sources},{frameworks},{resources}); buildRules = (); dependencies = (); packageProductDependencies = ({core_product});')
 project = obj('project', f'isa = PBXProject; attributes = {{ LastUpgradeCheck = 1600; }}; buildConfigurationList = {pc}; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en,Base); mainGroup = {group}; productRefGroup = {products_group}; projectDirPath = ""; projectRoot = ""; packageReferences = ({package}); targets = ({target});')
 (PROJECT / 'project.pbxproj').write_text('// !$*UTF8*$!\n{\n\tarchiveVersion = 1;\n\tclasses = {};\n\tobjectVersion = 56;\n\tobjects = {\n' + '\n'.join(objects) + '\n\t};\n\trootObject = ' + project + ';\n}\n')
 scheme_dir = PROJECT / 'xcshareddata/xcschemes'

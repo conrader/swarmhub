@@ -2,10 +2,10 @@ import Foundation
 
 /// Strict response parser: unique ASCII keys, valid UTF-8, no BOM or lone surrogates.
 /// Receipts may contain null and floating timestamps; signed objects use Wire.canonical.
-enum DeviceApprovalJSON {
-    static let maximumDepth = 33
+public enum DeviceApprovalJSON {
+    public static let maximumDepth = 33
 
-    static func parse(_ data: Data) throws -> JSONValue {
+    public static func parse(_ data: Data) throws -> JSONValue {
         var parser = Parser(bytes: [UInt8](data))
         parser.skipWhitespace()
         let value = try parser.value(depth: 0)

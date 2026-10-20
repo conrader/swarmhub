@@ -17,6 +17,7 @@ struct SettingsView: View {
                     }
                     Button("Connect another profile", systemImage: "plus") { showSetup = true }
                 }
+                DeviceApprovalSetupSection()
                 Section("Preferences") {
                     TextField("Your name", text: $displayName)
                     Picker("Appearance", selection: Binding(get: { CaptureConfiguration.appearance ?? appearance }, set: { if CaptureConfiguration.screen == nil { appearance = $0 } })) { Text("Dark").tag("Dark"); Text("Light").tag("Light"); Text("System").tag("System") }
