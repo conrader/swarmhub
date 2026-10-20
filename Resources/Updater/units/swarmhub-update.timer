@@ -1,0 +1,14 @@
+# Swarm Hub box updater timer (CORE-PLAN.md §3.4: every 6 h; phase P3a). Template, DISABLED by default: copying it to
+# ~/.config/systemd/user/ does not start it. Enabling (`systemctl --user enable --now swarmhub-update.timer`) is P3b.
+[Unit]
+Description=Swarm Hub update pull every 6 hours
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+RandomizedDelaySec=30min
+Persistent=true
+Unit=swarmhub-update.service
+
+[Install]
+WantedBy=timers.target

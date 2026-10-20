@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Swarm Hub box updater, launchd agent (CORE-PLAN.md §3.4: every 6 h; phase P3a). Template, DISABLED by default
+  (Disabled = true): the operator bootstrap (P2d) replaces @PREFIX@ with the admin-owned install prefix and copies it
+  to ~/Library/LaunchAgents/. Turning it on (`launchctl enable gui/<uid>/com.konrad.swarmhub.update` plus removing
+  Disabled) is P3b, Konrad's call. It runs `pull` only: code components still wait for the local confirm, and the
+  updater never restarts Hermes.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.konrad.swarmhub.update</string>
+	<key>Disabled</key>
+	<true/>
+	<key>ProgramArguments</key>
+	<array>
+		<string>@PREFIX@/bin/swarmhub-update</string>
+		<string>pull</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PYTHONDONTWRITEBYTECODE</key>
+		<string>1</string>
+	</dict>
+	<key>StartInterval</key>
+	<integer>21600</integer>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>LowPriorityIO</key>
+	<true/>
+	<key>Nice</key>
+	<integer>10</integer>
+</dict>
+</plist>
