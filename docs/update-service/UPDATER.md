@@ -111,11 +111,16 @@ command's verdict) and `updater`. `swarmctl update-status` prints the same file 
 - **Transport** (`fetch.py`, the only module that opens a connection): HTTPS only, certificate and host name verified
   against the system trust store, TLS 1.2+. Every request sends `Cache-Control: no-store` and `Pragma: no-cache`, no
   credentials or cookies. Redirects are followed only to an allowlisted origin, at most 3 hops; otherwise
-  `redirect_refused` and nothing is fetched from the target. Signed files are capped at `max_signed_bytes`, a blob at
+  `redirect_refused` and nothing is fetched from the target. The `Location` is normalised before that check: control
+  characters are refused, bytes outside RFC 3986's unreserved and reserved sets (and a `%` that starts no escape) are
+  percent-encoded, a relative value is resolved against the current URL, and the result must be https without
+  userinfo. Signed files are capped at `max_signed_bytes`, a blob at
   its declared size (+1 byte, so a longer body is `blob_size_mismatch`); a larger `Content-Length` is refused before
-  reading. Redirect bodies are closed without reading, so they spend none of that byte budget. Each underlying read
-  times out after at most 30 s or the remaining file deadline, whichever is smaller; the 300 s deadline is shared
-  across redirects, response headers and body reads (including chunk framing).
+  reading. Redirect bodies are closed without reading, so they spend none of that byte budget. The response stream
+  never reads ahead (`peek` and unbounded reads are refused). One 300 s deadline per file covers every step of every
+  hop: DNS lookup, TCP connect (each address), proxy `CONNECT`, TLS handshake, response headers and body reads
+  (including chunk framing). Each step times out after at most 30 s or what is left of the deadline, so a file ends
+  within the deadline plus 1 s (`DEADLINE_SLACK`, scheduling slack); then it is `timeout` and the next origin is tried.
 - **Order:** `keys.json`, `channels/<channel>.json`, then only the selected line's `bundles/<version>.json` and the blobs
   of components targeted at the box and compatible with it. What the box already holds verified is not fetched again
   (the stored manifest for a refresh; blobs in the state's blob store, hash-checked when read).

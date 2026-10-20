@@ -190,5 +190,83 @@ class FetchLimits(unittest.TestCase):
         self.assertTrue(wire.timeouts)
 
 
+class StreamGuard(unittest.TestCase):
+    """HTTPResponse.readinto/peek/read() go through the same guard as read1, or are refused."""
+
+    def guarded(self, body, headers, deadline=300):
+        clock = [0]
+        reply, wire, head_size = response(body, clock, headers=headers)
+        self.addCleanup(reply.close)
+        fetcher = fetch.Fetcher([BASE], proxies={}, clock=lambda: clock[0])
+        reply.fp = fetch._DeadlineStream(reply.fp, wire, lambda: fetcher._remaining(BASE + "file", deadline))
+        return reply, wire, head_size, clock
+
+    def test_readinto_reads_only_what_fits_and_keeps_the_deadline(self):
+        for chunked in (False, True):
+            with self.subTest(chunked=chunked):
+                body = b"8\r\n12345678\r\n0\r\n\r\n" if chunked else b"12345678"
+                headers = [("Transfer-Encoding", "chunked")] if chunked else [("Content-Length", "8")]
+                reply, wire, head_size, _ = self.guarded(body, headers)
+                buffer = bytearray(5)
+                self.assertEqual(reply.readinto(buffer), 5)
+                self.assertEqual(bytes(buffer), b"12345")
+                if not chunked:
+                    self.assertEqual(wire.offset - head_size, 5)  # nothing read ahead
+                slow = b"3e8\r\n" + b"x" * 1000 + b"\r\n0\r\n\r\n" if chunked else b"x" * 1000
+                headers = [("Transfer-Encoding", "chunked")] if chunked else [("Content-Length", "1000")]
+                reply, wire, _, clock = self.guarded(slow, headers, deadline=3)
+                wire.drip = True
+                with self.assertRaises(fetch.FetchError) as caught:
+                    reply.readinto(bytearray(1000))
+                self.assertEqual(caught.exception.reason, "timeout")
+                self.assertLessEqual(clock[0], 3)
+
+    def test_peek_and_unbounded_read_are_refused(self):
+        reply, wire, _, _ = self.guarded(b"x" * 1000, [])
+        before = wire.offset
+        with self.assertRaises(io.UnsupportedOperation):
+            reply.peek(1)
+        with self.assertRaises(io.UnsupportedOperation):
+            reply.read()  # no Content-Length: http.client would read to EOF
+        self.assertEqual(wire.offset, before)
+
+
+class RedirectLocation(unittest.TestCase):
+    """Location is normalised (control characters refused, unsafe bytes escaped, resolved) before the allowlist."""
+
+    def follow(self, location, start=BASE + "dir/file"):
+        clock = [0]
+        redirect, _, _ = response(b"", clock, 302, [("Location", location), ("Content-Length", "0")])
+        final, _, _ = response(b"ok", clock, headers=[("Content-Length", "2")])
+        self.addCleanup(redirect.close)
+        self.addCleanup(final.close)
+        fetcher = fetch.Fetcher([BASE], proxies={})
+        handler = MemoryHandler([redirect, final])
+        fetcher.opener.add_handler(handler)
+        try:
+            self.assertEqual(fetcher.get(start, 100), b"ok")
+        except fetch.FetchError as error:
+            return error.reason
+        return handler.paths[-1]
+
+    def test_unsafe_bytes_are_percent_encoded_and_relative_urls_resolved(self):
+        # response() writes headers as UTF-8: the two bytes of "\xfc" come back as their own escapes.
+        cases = {"/a b/\xfc\"<>`{|}^\\x": BASE + "a%20b/%C3%BC%22%3C%3E%60%7B%7C%7D%5E%5Cx",
+                 "/50%off/%2Fkept%2f": BASE + "50%25off/%2Fkept%2f",
+                 "next?v=1": BASE + "dir/next?v=1", "../up": BASE + "up", " /padded\t": BASE + "padded",
+                 "https://updates.invalid/abs": BASE + "abs", "//updates.invalid/net": BASE + "net"}
+        for location, expected in cases.items():
+            with self.subTest(location=location):
+                self.assertEqual(self.follow(location), expected)
+
+    def test_refused_locations_fetch_nothing(self):
+        for location in ("/x\x00y", "/x\x01", "/x\x7f", "/a\tb", "http://updates.invalid/x", "ftp://updates.invalid/x",
+                         "https://user@updates.invalid/x", "https://u:p@updates.invalid/x", "//evil.invalid/x",
+                         "https://updates.invalid\\@evil.invalid/", "https://updates%2Einvalid/x",
+                         "https://\xfcpdates.invalid/x", "javascript:alert(1)", "data:text/plain,x"):
+            with self.subTest(location=location):
+                self.assertEqual(self.follow(location), "redirect_refused")
+
+
 if __name__ == "__main__":
     unittest.main()
