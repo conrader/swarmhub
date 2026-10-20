@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import SwiftUI
+import SwarmHubCore
 
 private struct FixtureReviewerBackend: AgentBackend {
     let kind = BackendKind.mock
@@ -123,6 +124,8 @@ struct AgentAppMain: App {
         WindowGroup(AppConstants.name, id: ContentView.windowID) {
             ContentView()
                 .environmentObject(store)
+                // P7b: view documents of the installed update bundle; none installed → every view is compiled.
+                .environment(\.sduiViewSource, SDUIMac.installed)
                 .defaultAppStorage(store.defaults)
                 .preferredColorScheme(AppTheme.colorScheme(for: snapshotAppearance ?? appearance))
                 .frame(minWidth: 980, minHeight: 620)

@@ -76,7 +76,7 @@ struct MessageView: View {
     @ViewBuilder private var content: some View {
         switch message.presentation {
         case .delegation: DelegationCard(message: message)
-        case .routineResult: RoutineResultCard(message: message)
+        case .routineResult: RoutineResultCardHost(message: message)
         case .botMessage: BotArrivalLine(message: message)
         case .approvalDecision: ApprovalDecisionLine(message: message)
         case .review: ReviewCard(message: message)

@@ -1,0 +1,17 @@
+{
+  "box.name": "Studio box",
+  "profile.name": "Grok Bot",
+  "result.api_key": "TEST-never-rendered",
+  "result.diff": "--- a/report.md\n+++ b/report.md\n@@ -1,2 +1,2 @@\n-old line\n+new line\r\n context",
+  "result.duration_text": "2 min",
+  "result.finished_at": "Oct 20, 2026 at 9:02 AM",
+  "result.status": "ok",
+  "result.steps_done": 12,
+  "result.summary": "All **3** checks passed. See [docs](https://example.com) <https://example.com> \"q\" \u001b",
+  "routine.enabled": true,
+  "routine.id": "job-42",
+  "routine.name": "Morning report",
+  "routine.prompt": "Summarise yesterday's commits.\nKeep it short.",
+  "routine.schedule": "0 9 * * 1-5",
+  "routine.schedule_text": "Weekdays at 09:00"
+}

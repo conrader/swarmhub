@@ -1,0 +1,56 @@
+{
+  "schema": "swarmhub/ui/1",
+  "view": "routine_create_form",
+  "root": {
+    "type": "card",
+    "title": "New routine",
+    "children": [
+      {
+        "type": "form",
+        "id": "routine_create",
+        "fields": [
+          {
+            "id": "name",
+            "kind": "text",
+            "label": "Name",
+            "required": true,
+            "max_length": 200,
+            "value": {
+              "bind": "routine.name"
+            }
+          },
+          {
+            "id": "schedule",
+            "kind": "schedule",
+            "label": "Schedule",
+            "required": true,
+            "value": {
+              "bind": "routine.schedule"
+            }
+          },
+          {
+            "id": "prompt",
+            "kind": "multiline",
+            "label": "What should it do?",
+            "value": {
+              "bind": "routine.prompt"
+            }
+          }
+        ],
+        "submit": {
+          "label": "Create",
+          "action": {
+            "command": "routine.create"
+          }
+        }
+      },
+      {
+        "type": "button",
+        "label": "Cancel",
+        "action": {
+          "command": "dismiss"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+flow id=connect_box
+  step id=welcome title="Connect a box"
+    text style=plain role=headline "Swarm Hub talks to each box directly."
+    button style=primary "Next" -> flow_next
+  step id=connect title="Add the box"
+    text style=markdown role=body "You need **SSH access** and the box address. Values like `a > b` stay plain text."
+    list style=numbered
+      text style=plain role=body "Open Boxes"
+      text style=plain role=body "Choose Add box"
+      text style=plain role=body "Paste the address"
+    button style=secondary "Back" -> flow_back
+    button style=secondary "Open Boxes" -> navigate screen="boxes"
+  step id=done title="Done"
+    badge tone=info "Ready"
+    button style=secondary "Close" -> dismiss

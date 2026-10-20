@@ -52,7 +52,7 @@ struct RoutinesView: View {
             if bot.backend != .hermes && bot.routines.isEmpty { Text("No routines yet.").foregroundStyle(.secondary) }
         }
         .transaction { $0.animation = nil }
-        .sheet(item: $editor) { target in RoutineEditorSheet(bot: bot, job: target.job) }
+        .sheet(item: $editor) { target in RoutineEditorHost(bot: bot, job: target.job) }
         .task(id: bot.id) { if cache.autoLoad, bot.backend == .hermes { await store.refreshRoutines(for: bot) } }
     }
 }

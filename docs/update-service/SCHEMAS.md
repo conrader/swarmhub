@@ -243,3 +243,27 @@ python3 scripts/release/make_ui_vectors.py            # rewrite ui/ only
 python3 scripts/release/make_ui_vectors.py --check    # byte-identical regeneration
 python3 scripts/test_swift_ui_vectors.py              # reference vs every case, fuzz replay, Swift source parity
 ```
+
+### P7b renderer
+
+Implemented by `Packages/SwarmHubCore/Sources/SwarmHubCore/SDUIRender/` (platform-neutral, shared with iOS in P7c) and `Sources/AgentApp/SDUI/` (Mac views); the Python statement of the render tree is `scripts/release/ui_render.py`.
+
+**What the app shows** for a view (`SDUIViewSource.presentation`, first match wins): `kill.view.<view>` → compiled; no document for the view → compiled; decoder `render` → the document; decoder `fallback` → compiled; decoder `update_required` → the compiled "update required" view. Then the target check below; a document that does not fit its target → compiled. With no bundle, nothing installed, or an unreachable host every view is compiled, exactly as before P7b.
+
+**Bundle layout.** A `ui` component (class `data`) carries one document per view as `<view>.json` at the archive root; other paths are ignored. A view present in two components is compiled. The snapshot is all-or-nothing: an unreadable store, a stored component that no longer matches its record, fails the §9 rules or is not data, or a config snapshot (kill flags) from another bundle version makes every view compiled.
+
+**Render tree** (`SDUIRenderer.tree`): text literals as written; a binding reads the app's local data (path → string, integer or boolean; paths with a denied segment are dropped on the way in); absent → empty text; integers in decimal, booleans `true`/`false`. `exists` = present and, for a string, not empty; `missing` its negation; `equals` needs the literal's type and value (strings byte for byte). A node or form field whose `visible_if` fails is left out; a hidden root renders nothing. Defaults: text `plain`/`body`, badge `neutral`, list `plain`, button `secondary`, progress total 100; a bound progress value that is an integer is clamped to 0…total, anything else is indeterminate; `diff_preview` splits at LF only and shows the first `max_lines` (default 2000). Inside a form, `form.<field id>` reads that form's current values; each field starts from its `value` binding (choice only when the value is one of its options, toggle only from a boolean, file_pick always empty).
+
+**Text.** Every string is drawn as plain text (`Text(verbatim:)`); a `markdown` text is parsed inline-only (whitespace preserved) and every `link` and `imageURL` attribute is removed, for literals and bound values alike. SDUI text is not selectable.
+
+**Actions** (`SDUIActionRouter`): `open_url` is checked again against the app's compiled allowlist (the Mac's is empty) and always asks first; `confirm: true` asks first for any command; `routine.*` buttons need a non-empty bound routine id; `flow_next`/`flow_back` move the enclosing flow; a form submit applies `required` and `max_length` (characters), then the compiled routine editor's limits (name 1–200 characters after trimming, non-empty schedule, prompt ≤ 5000), and maps only to the existing `routine.create` / `routine.save` paths. `navigate` reaches `routines`, `skills` and `settings` on the Mac; the others are not offered.
+
+**Routine targets** (`SDUIRoutineTarget`): `routine_result_card` (no forms), `routine_form` (edit: exactly one form submitting `routine.save` bound to the edited routine's id) and `routine_create_form` (exactly one form submitting `routine.create`). Their form fields are `name` (`text`), `schedule` (`schedule` or `text`) and `prompt` (`multiline` or `text`), with `name` and `schedule` required; any other field means the compiled editor. The shared golden `routine-form.json` therefore renders in the decoder but not as the Mac editor.
+
+**Goldens.** `Tests/Fixtures/release-bundles/ui-render/` holds, for every `render` case in `ui/vectors.json`, the render tree text against `context.json` (`SDUIRenderText.describe`: one line per element, two spaces per level, strings quoted with `\\`, `\"`, `\n`, `\t`, `\r` and other controls below U+0020 as `\u00xx`), plus `targets/` with the three routine documents and their text. `SDUIRenderTreeTests` asserts the same bytes on macOS, and on iOS in P7c.
+
+```
+python3 scripts/release/make_ui_renders.py            # rewrite ui-render/ only
+python3 scripts/release/make_ui_renders.py --check    # byte-identical regeneration
+python3 scripts/test_swift_ui_render.py               # goldens, targets, Swift renderer source rules
+```
