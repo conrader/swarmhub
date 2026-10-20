@@ -1280,6 +1280,396 @@
       }
     },
     {
+      "description": "full reference link with definition",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-reference-full",
+      "inputs": {
+        "document": "documents/markdown-reference-full.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "collapsed reference link",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-reference-collapsed",
+      "inputs": {
+        "document": "documents/markdown-reference-collapsed.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "shortcut reference link",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-reference-shortcut",
+      "inputs": {
+        "document": "documents/markdown-reference-shortcut.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "bare reference definition",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-reference-definition",
+      "inputs": {
+        "document": "documents/markdown-reference-definition.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "URI autolink",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-autolink",
+      "inputs": {
+        "document": "documents/markdown-autolink.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "email autolink with nonletter local part",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-autolink-email",
+      "inputs": {
+        "document": "documents/markdown-autolink-email.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "arbitrary URI scheme autolink",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-autolink-scheme",
+      "inputs": {
+        "document": "documents/markdown-autolink-scheme.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "inline image",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-image",
+      "inputs": {
+        "document": "documents/markdown-image.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "reference image",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-image-reference",
+      "inputs": {
+        "document": "documents/markdown-image-reference.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "escaped syntax is refused too",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-escaped-bracket",
+      "inputs": {
+        "document": "documents/markdown-escaped-bracket.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "syntax in code is refused too",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-code-bracket",
+      "inputs": {
+        "document": "documents/markdown-code-bracket.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "even an unmatched opening bracket is refused",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-open-bracket",
+      "inputs": {
+        "document": "documents/markdown-open-bracket.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "even an unmatched closing bracket is refused",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-close-bracket",
+      "inputs": {
+        "document": "documents/markdown-close-bracket.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "even an unmatched less-than byte is refused",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-less-than",
+      "inputs": {
+        "document": "documents/markdown-less-than.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "syntax bytes are refused inside grapheme clusters",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "fallback"
+      },
+      "id": "markdown-combining-bracket",
+      "inputs": {
+        "document": "documents/markdown-combining-bracket.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "reference syntax in a critical document requires an update",
+      "expect": {
+        "reason": "markup_not_allowed",
+        "verdict": "update_required"
+      },
+      "id": "markdown-reference-critical",
+      "inputs": {
+        "document": "documents/markdown-reference-critical.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
+      "description": "plain text keeps syntax as literal text",
+      "expect": {
+        "verdict": "render"
+      },
+      "id": "plain-link-syntax",
+      "inputs": {
+        "document": "documents/plain-link-syntax.json",
+        "killed": [],
+        "limits": {
+          "max_children": 64,
+          "max_depth": 12,
+          "max_document_bytes": 65536,
+          "max_nodes": 256,
+          "max_string_bytes": 4096
+        },
+        "url_hosts": [
+          "docs.swarmhub.test"
+        ],
+        "view": "m"
+      }
+    },
+    {
       "description": "no HTML in markdown",
       "expect": {
         "reason": "markup_not_allowed",

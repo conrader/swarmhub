@@ -173,7 +173,9 @@ A kill switch always selects the compiled view, never `update_required`. A docum
 
 Every array (`children`, `items`, `fields`, `options`, `steps`) holds at most `max_children` entries (`too_many_children`), checked before its entries.
 
-**Texts** are a literal string or `{"bind": <path>}`. A literal is at most `max_string_bytes` UTF-8 bytes (`string_too_long`) and has no control character other than tab and LF (`invalid_text`). Strings are shown as text, never markup. `text` with style `markdown` and a literal is the inline markdown subset only: no `](`, `![` or `<` followed by a letter, `/`, `!` or `?` (`markup_not_allowed`); links reach the user only through `open_url`.
+**Texts** are a literal string or `{"bind": <path>}`. A literal is at most `max_string_bytes` UTF-8 bytes (`string_too_long`) and has no control character other than tab and LF (`invalid_text`). Strings are shown as text, never markup. `text` with style `markdown` and a literal is the inline markdown subset only: any literal UTF-8 byte `[` (0x5B), `]` (0x5D) or `<` (0x3C) is refused (`markup_not_allowed`), including escaped syntax and code spans/blocks. Both decoders apply this byte rule without parsing Markdown; it blocks inline, full/collapsed/shortcut reference links, reference definitions, images, URI/email autolinks and HTML. Links reach the user only through the allowlisted, confirmed `open_url` action.
+
+P7b renderer: render all text (including resolved bindings and plain text) with link interpretation and automatic link detection off as defence in depth.
 
 **Bindings** name local data the app already holds; they are paths, not expressions. Path `[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,5}` whose first segment is `app`, `box`, `form`, `profile`, `record`, `result` or `routine` (else `invalid_binding`). A segment is `denied_binding` when, with `_` removed, it contains `approv secret token password passphrase credential keychain apikey privatekey signingkey hmac nonce signature authent authoriz cookie session`, or one of its `_` words is `auth key keys pin pins device devices gate gates otp`. A malformed `{"bind"}` object is `schema_invalid`.
 

@@ -16,6 +16,7 @@ MAX_URL_BYTES = 2048
 MAX_TOTAL = 1_000_000
 MAX_LINES = 2000
 MAX_FILE_TYPES = 16
+MARKUP_FORBIDDEN = "[]<"
 
 NAME = r"[a-z][a-z0-9_]{0,63}"
 BINDING = r"[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,5}"
@@ -372,6 +373,5 @@ def _literal(text, s):
 
 
 def _markup(text):
-    # Markdown subset only: no links, images or HTML tags (strings are text, never markup; URLs go through open_url).
-    _require("](" not in text and "![" not in text and re.search(r"<[A-Za-z/!?]", text) is None,
-             "markup_not_allowed")
+    # Refuse syntax bytes even when escaped or in code: all links, references, images, autolinks and HTML.
+    _require(not any(byte in MARKUP_FORBIDDEN.encode("utf-8") for byte in text.encode("utf-8")), "markup_not_allowed")

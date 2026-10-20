@@ -30,7 +30,7 @@
         "children": [
           {
             "type": "text",
-            "text": "You need **SSH access** and the box address. Values like `a < b` stay plain text.",
+            "text": "You need **SSH access** and the box address. Values like `a > b` stay plain text.",
             "style": "markdown"
           },
           {

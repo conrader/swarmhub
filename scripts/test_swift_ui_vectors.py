@@ -124,6 +124,12 @@ class FixtureTests(unittest.TestCase):
 
 
 class SwiftParityTests(unittest.TestCase):
+    def test_markup_bytes_match_the_reference(self):
+        self.assertEqual(swift_static("markupForbidden"), ref.MARKUP_FORBIDDEN)
+        source = SOURCES["SDUIDecoder+Values.swift"]
+        self.assertIn('try sduiRequire(!text.utf8.contains { SDUICatalog.markupForbidden.utf8.contains($0) }, '
+                      '"markup_not_allowed")', source)
+
     def test_vocabulary_matches_the_reference(self):
         self.assertEqual(set(swift_enum("SDUIComponentType")), ref.COMPONENTS)
         self.assertEqual(set(swift_enum("SDUITextStyle")), ref.TEXT_STYLES)

@@ -37,19 +37,9 @@ extension SDUIReader {
         }, "invalid_text")
     }
 
-    /// Markdown subset only: no links, images or HTML tags. URLs reach the user only through `open_url`.
+    /// Refuse syntax bytes even when escaped or in code: all links, references, images, autolinks and HTML.
     func markup(_ text: String) throws {
-        let bytes = Array(text.utf8)
-        var tag = false
-        for index in bytes.indices.dropLast() where bytes[index] == 0x3C {
-            let next = bytes[index + 1]
-            if (0x41...0x5A).contains(next) || (0x61...0x7A).contains(next) || [0x2F, 0x21, 0x3F].contains(next) {
-                tag = true
-                break
-            }
-        }
-        try sduiRequire(!SDUICatalog.containsBytes(bytes, Array("](".utf8))
-                        && !SDUICatalog.containsBytes(bytes, Array("![".utf8)) && !tag, "markup_not_allowed")
+        try sduiRequire(!text.utf8.contains { SDUICatalog.markupForbidden.utf8.contains($0) }, "markup_not_allowed")
     }
 
     func predicate(_ value: JCS.Value?) throws -> SDUIPredicate {

@@ -17,6 +17,7 @@ public enum SDUICatalog {
     static let maxTotal: Int64 = 1_000_000
     static let maxLines: Int64 = 2000
     static let maxFileTypes = 16
+    static let markupForbidden = "[]<"
 
     static let commonMembers: Set<String> = ["type", "id", "visible_if"]
     static let fieldMembers: Set<String> = ["id", "kind", "label", "required", "placeholder", "options", "max_length",
