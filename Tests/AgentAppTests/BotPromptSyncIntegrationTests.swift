@@ -64,7 +64,7 @@ func macPromptSyncCorruptFileWarnsButKeepsChatWorkingWithoutOverwriting(saved: S
     #expect(store.errorMessage == nil)
     let bot = Bot(name: "Scout", backend: .hermes)
     #expect(try store.defaultBotInstructions(for: bot).contains("Scout"))
-    store.userName = "Local owner after sync failure"
+    defaults.set("Local owner after sync failure", forKey: UserIdentity.key)
     let backend = try #require(try store.backend(for: bot) as? HermesBackend)
     #expect(backend.defaultInstructions?.contains(store.userName) == true)
     #expect(store.errorMessage == nil)
@@ -93,7 +93,7 @@ func macPromptSyncCorruptFileWarnsButKeepsChatWorkingWithoutOverwriting(saved: S
     })
     store.botPromptSync = sync
     let before = sync.state
-    store.userName = "Changed local owner"
+    defaults.set("Changed local owner", forKey: UserIdentity.key)
     let backend = try #require(try store.backend(for: bot) as? HermesBackend)
     #expect(backend.defaultInstructions?.contains("Changed local owner") == true)
     #expect(backend.defaultInstructions?.contains("Remote owner") == false)

@@ -101,7 +101,9 @@ public struct BotPromptDocument: Codable, Equatable, Sendable {
     /// The same bot on Mac and iPhone: its normalized server address plus its Hermes profile.
     public static func botKey(_ address: ConnectionAddress) -> String {
         var components = URLComponents(url: address.baseURL, resolvingAgainstBaseURL: false)
-        components?.host = components?.host?.lowercased()
+        // Read the host before writing it: `components?.host = components?.host?...` is an overlapping
+        // access to `components` that Swift 6 rejects.
+        if let host = components?.host { components?.host = host.lowercased() }
         return (components?.url?.absoluteString ?? address.baseURL.absoluteString) + "#" + address.profile
     }
 
