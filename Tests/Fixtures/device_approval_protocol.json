@@ -1,0 +1,587 @@
+{
+  "cases": [
+    {
+      "expect": {
+        "reason": "ok",
+        "verdict": "accept"
+      },
+      "id": "valid",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "ok",
+        "verdict": "accept"
+      },
+      "id": "valid-deny",
+      "now": 1020,
+      "request": "{\"signature\":\"e8a92ad039a9dbd7599f04c59a768525ca210018e1ee1b695cd386548e733967461e4fccb83d8f99435c675f93d3bd392b2d65c8c5f6f294a71e7a4c44ab780b\",\"signed\":{\"approved\":false,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "ok",
+        "verdict": "accept"
+      },
+      "id": "valid-before-expiry",
+      "now": 1059,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "ok",
+        "verdict": "accept"
+      },
+      "id": "valid-at-issue",
+      "now": 1000,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "ok",
+        "verdict": "accept"
+      },
+      "id": "valid-before-cutover",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {
+        "device_required": false
+      }
+    },
+    {
+      "expect": {
+        "reason": "protocol_unsupported",
+        "verdict": "reject"
+      },
+      "id": "tampered-version",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":3}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "protocol_unsupported",
+        "verdict": "reject"
+      },
+      "id": "tampered-domain",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/3\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "tampered-key_id",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-2\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "tampered-origin",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://other.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "tampered-runtime",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "tampered-profile",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"other\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "tampered-task",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "tampered-fingerprint",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "tampered-gate",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"coordinator\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "tampered-approved",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":false,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "tampered-nonce",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "tampered-issued",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1001,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "tampered-expires",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1059,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "box_mismatch",
+        "verdict": "reject"
+      },
+      "id": "wrong-box-origin",
+      "now": 1020,
+      "request": "{\"signature\":\"d70b988a115ce3f608f2e4dc49c7782a66e405861f08ccbadd1f1cb77017effb065d1dcd3e4075b90cf591ef2683d60eb705b76fdf583256cefe0465a9c01f0b\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://other.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "box_mismatch",
+        "verdict": "reject"
+      },
+      "id": "wrong-box-runtime",
+      "now": 1020,
+      "request": "{\"signature\":\"c12e4d4a1f9436542ef79e2c23f8316a78a9991e1cd2212cd2bf2ef74d393c4568cfeb3101c960a9aeff9a73e2e0febc99f5e61b5d7079ebe67410292406350a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "profile_mismatch",
+        "verdict": "reject"
+      },
+      "id": "wrong-profile",
+      "now": 1020,
+      "request": "{\"signature\":\"3411ec540e009522f228dee177a5bf1c9b12d65ff1edab28beb0c6952d7011cbc37befa2b4ac58f1b8d0c94ecaef3d1204d493e22bbd67b0f4c1e1e2abc1a104\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"other\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "task_mismatch",
+        "verdict": "reject"
+      },
+      "id": "wrong-task",
+      "now": 1020,
+      "request": "{\"signature\":\"c2118f31db9cb902d2f241c2f97c17817a78ce726148422f98c5b5f7c099c9868d8b989c6586a27aba543915bb715a6f9ac22adcb75ee180245d664f39a92005\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "fingerprint_mismatch",
+        "verdict": "reject"
+      },
+      "id": "wrong-fingerprint",
+      "now": 1020,
+      "request": "{\"signature\":\"944b292e20da1cef1f8b9445382c66729d602f60fe7b59ee5be84f93412922f1cb60e86a4c7866592605be66eaf5c63362f8ee0768d7bac188e9e8cb9b3c4906\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "gate_mismatch",
+        "verdict": "reject"
+      },
+      "id": "wrong-gate",
+      "now": 1020,
+      "request": "{\"signature\":\"e8a6ffe8f5229ae0b741f719e32e7e85883af4f52d37da2a979340bd3540acd16f587ef510286f605e4c9068fe609671d80837cadedd8d8fa9efd8e92c1e710c\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"coordinator\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "nonce_replayed",
+        "verdict": "reject"
+      },
+      "id": "replayed-nonce",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {
+        "nonces": {
+          "1111111111111111111111111111111111111111111111111111111111111111": {
+            "binding": {
+              "domain": "swarmhub/device-approval/2",
+              "expires": 1060,
+              "fingerprint": "d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4",
+              "gate": "owner",
+              "issued": 1000,
+              "key_id": "TEST-device-1",
+              "nonce": "1111111111111111111111111111111111111111111111111111111111111111",
+              "origin": "https://box.example.invalid",
+              "profile": "owner",
+              "runtime": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+              "task": "task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "version": 2
+            },
+            "used": true
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "reason": "nonce_expired",
+        "verdict": "reject"
+      },
+      "id": "expired-nonce",
+      "now": 1061,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "nonce_expired",
+        "verdict": "reject"
+      },
+      "id": "expiry-boundary",
+      "now": 1060,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "nonce_not_yet_valid",
+        "verdict": "reject"
+      },
+      "id": "future-nonce",
+      "now": 999,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "nonce_unknown",
+        "verdict": "reject"
+      },
+      "id": "unknown-nonce",
+      "now": 1020,
+      "request": "{\"signature\":\"16b8b5d9859c1ab419f946bfef5d38bbefaf9026fc00709abb128671cf5f0d7e3bb20c4f9b15e8d9385192110f5905f6059f1f2373ce5a13c7572b459a0a3003\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "nonce_mismatch",
+        "verdict": "reject"
+      },
+      "id": "nonce-binding-mismatch",
+      "now": 1020,
+      "request": "{\"signature\":\"855eab38506ae964b664cb5d3b3768387044e7f147bc1c8222490a3c1b6a534ec2b1724bc7576abf350e83265017985fb600b496c6741d684ef5fa93bf9caa08\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1001,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "device_revoked",
+        "verdict": "reject"
+      },
+      "id": "revoked-device",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {
+        "devices": {
+          "TEST-device-1": {
+            "ed25519_pub": "5f5d136918c19c5cac8b2a8ac2fd847d0ca925d96d3e821e2c2646b5ecc0e7f9",
+            "profiles": [
+              "owner"
+            ],
+            "revoked": true
+          },
+          "TEST-device-2": {
+            "ed25519_pub": "51bf433a338ef2c8329201a3b4e7aaea77b732277c064aeb03fa7072c0269eb9",
+            "profiles": [
+              "owner"
+            ],
+            "revoked": false
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "reason": "device_unauthorized",
+        "verdict": "reject"
+      },
+      "id": "device-wrong-profile",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {
+        "devices": {
+          "TEST-device-1": {
+            "ed25519_pub": "5f5d136918c19c5cac8b2a8ac2fd847d0ca925d96d3e821e2c2646b5ecc0e7f9",
+            "profiles": [
+              "other"
+            ],
+            "revoked": false
+          },
+          "TEST-device-2": {
+            "ed25519_pub": "51bf433a338ef2c8329201a3b4e7aaea77b732277c064aeb03fa7072c0269eb9",
+            "profiles": [
+              "owner"
+            ],
+            "revoked": false
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "reason": "device_unknown",
+        "verdict": "reject"
+      },
+      "id": "unknown-device",
+      "now": 1020,
+      "request": "{\"signature\":\"91b71abd59fc2a7b61eccff6ce28b3432b50b9da6ad1260fd436cffac00339c3bd73393ca99c2249488e1e383b74cd46637f3988bea67183336b759d6b42a709\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-unknown\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "wrong-signing-key",
+      "now": 1020,
+      "request": "{\"signature\":\"b45c06d1ac2c70a0390dccd52ea57fc7b5826d3ce9853a73194d9ac2453f148d62035a03accca37eb90005cec49219b3e480923946391e0caec089c2037b1604\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "signature_invalid",
+        "verdict": "reject"
+      },
+      "id": "wrong-signature-domain",
+      "now": 1020,
+      "request": "{\"signature\":\"09e8346203cacbe4ac111940af5bb161014a13dab32c4db24733ef07025cb8eca611efbbc8cda8183706e05e9b286a979f36a29547a3de3381cb4e8bf1dd9502\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": false,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "protocol_unsupported",
+        "verdict": "reject"
+      },
+      "id": "unsupported-version",
+      "now": 1020,
+      "request": "{\"signature\":\"ee58221fffd44574efb5ffe50c276fc92e5288b70c8c8df71281fc3f7f9891a1dbae3d70ba4dfc4a319c3328219856a5b61773f943c73321a1825b50f3896b0b\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":3}}",
+      "signature_valid": true,
+      "state_overrides": {}
+    },
+    {
+      "expect": {
+        "reason": "operation_not_pending",
+        "verdict": "reject"
+      },
+      "id": "operation-final",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {
+        "status": "queued"
+      }
+    },
+    {
+      "expect": {
+        "reason": "state_invalid",
+        "verdict": "reject"
+      },
+      "id": "operation-corrupt",
+      "now": 1020,
+      "request": "{\"signature\":\"a39bdce819a971c196d4281299f24a53db961751e566808622fb4b7974516ffa9750ea3905c9f0fee43d8dd46848d1d21138160614d2d88f8fd8774393d09a0a\",\"signed\":{\"approved\":true,\"domain\":\"swarmhub/device-approval/2\",\"expires\":1060,\"fingerprint\":\"d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4\",\"gate\":\"owner\",\"issued\":1000,\"key_id\":\"TEST-device-1\",\"nonce\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"version\":2}}",
+      "signature_valid": true,
+      "state_overrides": {
+        "spec": {
+          "argv": [
+            "/bin/true",
+            "café"
+          ],
+          "bot": "worker",
+          "fake": true,
+          "intent": "TEST full operation",
+          "kind": "outbound",
+          "risks": [
+            "money"
+          ],
+          "text": "TEST never sent ☃ changed",
+          "to": "nobody@example.invalid"
+        }
+      }
+    },
+    {
+      "expect": {
+        "reason": "device_required",
+        "verdict": "reject"
+      },
+      "id": "v1-device-required",
+      "now": 1020,
+      "request": "{\"approved\":true,\"binding\":{\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\"},\"expires\":1060,\"fingerprint\":\"1e7790c84935d34cdcb15088e69dc9b16a9ef32d95da8a85b5e88e131e51c83a\",\"gate\":\"owner\",\"issued\":1000,\"nonce\":\"11111111-2222-3333-4444-555555555555\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"verb\":\"decide\",\"version\":1}",
+      "state_overrides": {
+        "device_required": true
+      },
+      "v1_hmac": "4f0d9b34c010c0bc69785016aabfa3bfa98915f3f25a332bf59a66b353c7082a",
+      "v1_hmac_key_id": "TEST-device-1"
+    },
+    {
+      "expect": {
+        "reason": "legacy_v1",
+        "verdict": "defer"
+      },
+      "id": "v1-before-cutover",
+      "now": 1020,
+      "request": "{\"approved\":true,\"binding\":{\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"runtime\":\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\"},\"expires\":1060,\"fingerprint\":\"1e7790c84935d34cdcb15088e69dc9b16a9ef32d95da8a85b5e88e131e51c83a\",\"gate\":\"owner\",\"issued\":1000,\"nonce\":\"11111111-2222-3333-4444-555555555555\",\"origin\":\"https://box.example.invalid\",\"profile\":\"owner\",\"task\":\"task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"verb\":\"decide\",\"version\":1}",
+      "state_overrides": {
+        "device_required": false
+      },
+      "v1_hmac": "4f0d9b34c010c0bc69785016aabfa3bfa98915f3f25a332bf59a66b353c7082a",
+      "v1_hmac_key_id": "TEST-device-1"
+    }
+  ],
+  "note": "Offline reference only. Each case starts from state plus shallow state_overrides.",
+  "schema": "swarmhub/device-approval-vectors/2",
+  "state": {
+    "device_required": true,
+    "devices": {
+      "TEST-device-1": {
+        "ed25519_pub": "5f5d136918c19c5cac8b2a8ac2fd847d0ca925d96d3e821e2c2646b5ecc0e7f9",
+        "profiles": [
+          "owner"
+        ],
+        "revoked": false
+      },
+      "TEST-device-2": {
+        "ed25519_pub": "51bf433a338ef2c8329201a3b4e7aaea77b732277c064aeb03fa7072c0269eb9",
+        "profiles": [
+          "owner"
+        ],
+        "revoked": false
+      }
+    },
+    "fingerprint": "d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4",
+    "gate": "owner",
+    "nonces": {
+      "1111111111111111111111111111111111111111111111111111111111111111": {
+        "binding": {
+          "domain": "swarmhub/device-approval/2",
+          "expires": 1060,
+          "fingerprint": "d9e17e6c356a56b814ea333acf7a0a70b3f5407e4f4e15c4818837c73fdbacb4",
+          "gate": "owner",
+          "issued": 1000,
+          "key_id": "TEST-device-1",
+          "nonce": "1111111111111111111111111111111111111111111111111111111111111111",
+          "origin": "https://box.example.invalid",
+          "profile": "owner",
+          "runtime": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+          "task": "task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "version": 2
+        },
+        "used": false
+      }
+    },
+    "origin": "https://box.example.invalid",
+    "profile": "owner",
+    "runtime": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "spec": {
+      "argv": [
+        "/bin/true",
+        "café"
+      ],
+      "bot": "worker",
+      "fake": true,
+      "intent": "TEST full operation",
+      "kind": "outbound",
+      "risks": [
+        "money"
+      ],
+      "text": "TEST never sent ☃",
+      "to": "nobody@example.invalid"
+    },
+    "status": "awaiting-owner",
+    "task": "task.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "test_keys": "release-bundles/TEST-device-keys.json"
+}
