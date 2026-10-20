@@ -115,7 +115,7 @@ private struct DraftCardView: View {
             Text(draft.body).font(.callout).lineSpacing(2).textSelection(.enabled).fixedSize(horizontal: false, vertical: true).padding(12)
             Divider()
             HStack {
-                if sent { Text("Sent “Send it”").font(.caption).foregroundStyle(.secondary) }
+                if sent { Text(message.metadata["draftSimulation.\(index)"] ?? "Sent “Send it”").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 Button("Copy") { copyToPasteboard(draftText) }
                 Button("Send") { if let target { store.performCardAction(target: target, sourceID: message.id, index: index, expected: .draft(draft)) } }

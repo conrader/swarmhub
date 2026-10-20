@@ -46,6 +46,18 @@ extension AppStore {
         guard blocks.indices.contains(index), blocks[index] == expected else {
             errorMessage = "This card changed. Review the current version before answering it."; return false
         }
+        #if DEBUG
+        if let uiAcceptance {
+            guard case .draft(let draft) = expected, source.metadata["draftSent.\(index)"] == nil else { return false }
+            do {
+                let receipt = try uiAcceptance.recordSend(sourceID: sourceID, conversationID: conversation.id, index: index, draft: draft)
+                source.metadata["draftSent.\(index)"] = receipt.id.uuidString
+                source.metadata["draftSimulation.\(index)"] = "simulated:true, delivered:false"
+                save(); return true
+            } catch { errorMessage = error.localizedDescription; return false }
+        }
+        if UIAcceptanceMode.requested { errorMessage = UIAcceptanceError.unsafeDependency.localizedDescription; return false }
+        #endif
         let key: String, text: String, value: String
         switch expected {
         case .choices(_, let options):

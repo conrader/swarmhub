@@ -31,6 +31,12 @@ extension AppStore {
     }
 
     func managedRuntime(_ bot: Bot, verb: String, task: String, input: Data? = nil) async throws -> ManagedRecord {
+        #if DEBUG
+        if UIAcceptanceMode.requested {
+            guard let uiAcceptance else { throw UIAcceptanceError.unsafeDependency }
+            return try uiAcceptance.control(bot: bot, verb: verb, task: task, input: input)
+        }
+        #endif
         if let managedControl { return try await managedControl(bot, verb, task, input) }
         let address = bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL
         let profile = bot.hermesProfile ?? "default"
@@ -129,6 +135,13 @@ extension AppStore {
     /// Writes the typed value to a 0600 file and tells the bot the path. Returns false (with `errorMessage`) when the
     /// file could not be written or the chat is busy; the value is dropped either way.
     @discardableResult func provideSecret(_ prompt: SecretRequestPrompt, value: String) -> Bool {
+        #if DEBUG
+        if let uiAcceptance {
+            do { try uiAcceptance.saveSecret(prompt, value: value); return true }
+            catch { errorMessage = error.localizedDescription; return false }
+        }
+        if UIAcceptanceMode.requested { errorMessage = UIAcceptanceError.unsafeDependency.localizedDescription; return false }
+        #endif
         let threadID: UUID? = prompt.conversationID == prompt.botID ? nil : prompt.conversationID
         guard let (bot, conversation) = actionConversation(.bot(botID: prompt.botID, threadID: threadID)) else {
             errorMessage = "The chat that asked for the secret is gone."; return false

@@ -10,7 +10,7 @@ extension AppStore {
 
     func makeConnectedApps() -> ConnectedAppsStore {
         #if DEBUG
-        if QAMode.enabled { return ConnectedAppsStore(directory: fileURL.deletingLastPathComponent(), keyStore: QAKeyStore(), provisioner: nil, persistenceEnabled: persistenceEnabled) }
+        if QAMode.enabled || UIAcceptanceMode.requested { return ConnectedAppsStore(directory: fileURL.deletingLastPathComponent(), keyStore: QAKeyStore(), provisioner: nil, persistenceEnabled: persistenceEnabled) }
         #endif
         let provisioner = connectedAppsServiceURL.map { ComposioProvisioningClient(baseURL: $0, credential: connectedAppsInstall()) }
         return ConnectedAppsStore(directory: fileURL.deletingLastPathComponent(), keyStore: keyStore, provisioner: provisioner, persistenceEnabled: persistenceEnabled)

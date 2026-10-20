@@ -12,7 +12,12 @@ private struct FixtureReviewerBackend: AgentBackend {
 }
 
 #if !DEBUG
-@main
+@main @MainActor enum AgentAppReleaseLauncher {
+    static func main() {
+        if UIAcceptanceMode.requested { UIAcceptanceMode.refuse("Acceptance UI requires a debug build.") }
+        AgentAppMain.main()
+    }
+}
 #endif
 struct AgentAppMain: App {
     @StateObject private var store: AppStore
@@ -22,6 +27,7 @@ struct AgentAppMain: App {
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
     private let snapshotAppearance: String?
     init() {
+        if UIAcceptanceMode.requested { UIAcceptanceMode.refuse("Use the debug acceptance launcher; normal startup is forbidden.") }
         if let code = HeadlessCommands.runIfRequested() { exit(code) }
         SidebarWidth.dropStaleSavedWidths()
         snapshotAppearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"]

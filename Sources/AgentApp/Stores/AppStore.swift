@@ -7,6 +7,7 @@ import SwarmHubCoordination
 
 @MainActor final class AppStore: ObservableObject {
     #if DEBUG
+    var uiAcceptance: UIAcceptanceBackend?
     var qaEventRecorder: ((UUID, AgentEvent) -> Void)?
     #endif
     @Published var bots: [Bot] = []
@@ -142,6 +143,16 @@ import SwarmHubCoordination
     var botWorkSleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     init(demoMode: Bool = false, storeURL: URL? = nil, autoConfigureHermes: Bool = true, backendFactory: ((Bot) throws -> any AgentBackend)? = nil, didCancelLocalStream: (() -> Void)? = nil, reviewerTimeout: Duration = .seconds(15), keyStore: any HermesKeyStore = KeychainHermesKeyStore(), defaults: UserDefaults = .standard, hermesSession: URLSession = HermesURLSession.shared, connectivity: (any ConnectivitySource)? = nil, openClawHub: OpenClawHub? = nil) {
+        #if DEBUG
+        if UIAcceptanceMode.requested {
+            do {
+                guard let backendFactory, !demoMode, connectivity == nil, openClawHub == nil else { throw UIAcceptanceError.unsafeDependency }
+                try UIAcceptanceIsolation.validate(backend: backendFactory(Bot(name: "Acceptance dependency probe", backend: .mock)),
+                    keys: keyStore, autoConfigure: autoConfigureHermes, storeURL: storeURL, root: UIAcceptanceIsolation.directory,
+                    isolatedDefaults: defaults !== UserDefaults.standard, hermesURL: defaults.string(forKey: "hermesBaseURL"), connectors: [])
+            } catch { UIAcceptanceMode.refuse(error.localizedDescription) }
+        }
+        #endif
         // P28: a test run never opens the real store.json or the standard defaults; either is reported and replaced.
         var storeURL = storeURL, defaults = defaults
         if storeURL == nil, TestRunGuard.refuses("AppStore without storeURL (the real store.json)") {
@@ -301,13 +312,19 @@ import SwarmHubCoordination
     }
     func notifyIfNeeded(bot: Bot, message: String) {
         #if DEBUG
-        if QAMode.enabled { return }
+        if QAMode.enabled || UIAcceptanceMode.requested { return }
         #endif
         guard !SilentReply.isSilent(message), Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
         let content = UNMutableNotificationContent(); content.title = bot.name; content.body = String(message.prefix(140)); content.sound = .default
         UNUserNotificationCenter.current().add(.init(identifier: UUID().uuidString, content: content, trigger: nil))
     }
     func backend(for bot: Bot) throws -> any AgentBackend {
+        #if DEBUG
+        if UIAcceptanceMode.requested {
+            guard uiAcceptance != nil else { throw UIAcceptanceError.unsafeDependency }
+            return UIAcceptanceChatBackend()
+        }
+        #endif
         #if DEBUG
         if QAMode.enabled {
             guard bot.backend == .hermes, QAPolicy.name(bot.name), bot.hermesProfile == "default",
