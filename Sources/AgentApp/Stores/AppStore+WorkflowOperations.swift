@@ -97,7 +97,7 @@ extension AppStore {
             if workflow.reviewPolicy.completion(hasStructuredVerdict: false) == .awaitingUserAcceptance {
                 workflow.tasks[index].state = .awaitingUserAcceptance
                 if workflow.state != .cancelled { workflow.state = .paused; workflow.error = nil }
-                workflow.coordination?.resumeAfterRecovery = false
+                // Recovery intent belongs to blocked siblings; acceptance guards still prevent any resume.
                 return
             }
             workflow.tasks[index].reviewBlock = "The reviewer finished without a structured verdict. Read the findings, then accept the review with its noted limitations or cancel this workflow."

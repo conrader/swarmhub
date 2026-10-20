@@ -126,6 +126,22 @@ class SourceParityTests(unittest.TestCase):
         recovery = (ROOT / "Sources/AgentApp/Stores/AppStore+TeamRecovery.swift").read_text()
         self.assertEqual(recovery.count("!workflow.awaitsUserAcceptance"), 2)
 
+    def test_waiting_review_persistence_and_recovery_match_the_mirror(self):
+        codec = (ROOT / "Sources/AgentApp/Models/WorkflowTask+Codable.swift").read_text()
+        self.assertIn(ref.ACCEPTANCE_BLOCK, codec)
+        self.assertIn('waiting ? State.blocked : state', codec)
+        self.assertIn('values.encode(true, forKey: .awaitingUserAcceptance)', codec)
+        self.assertIn('state = .awaitingUserAcceptance', codec)
+        operations = (ROOT / "Sources/AgentApp/Stores/AppStore+WorkflowOperations.swift").read_text()
+        completion = operations.split('func applyWorkflowCompletion(', 1)[1].split('func canAcceptWorkflowReview(', 1)[0]
+        self.assertNotRegex(completion, r'resumeAfterRecovery\s*=')
+        # Every stored field still has both coding paths after replacing synthesized Codable.
+        model = (ROOT / "Sources/AgentApp/Models/Workflow.swift").read_text().split('struct WorkflowTask:', 1)[1]
+        model = model.split('var stateLabel:', 1)[0]
+        for field in re.findall(r'^    var (\w+)', model, re.M):
+            self.assertRegex(codec, rf'{field} = try values.decode(?:IfPresent)?\(')
+            self.assertRegex(codec, rf'try values.encode(?:IfPresent)?\([^\n]+forKey: \.{field}\)')
+
     def test_swift_compiled_defaults_match_the_reference(self):
         for name, key in (("codingOrder", ("policy", "codingOrder")), ("owner", ("prompts", "botPrompt.owner")),
                           ("role", ("prompts", "botPrompt.role")), ("language", ("prompts", "botPrompt.language")),
@@ -179,6 +195,39 @@ class SourceParityTests(unittest.TestCase):
                     "scripts/release/app_config_reference.py", "scripts/release/app_config_cases.py",
                     "scripts/release/make_config_vectors.py", "scripts/test_app_config.py"):
             self.assertLessEqual(len((ROOT / rel).read_text(encoding="utf-8").splitlines()), 500, rel)
+
+
+class ReviewPersistenceTests(unittest.TestCase):
+    def test_p6b3_waiting_state_migrates_and_round_trips_for_new_and_old_readers(self):
+        p6b3 = dict(state="awaitingUserAcceptance", result="TEST findings", completionConfirmed=True,
+                    reviewTargetID="work", chargedTokens=42)
+        old_states = {"queued", "running", "completed", "blocked", "cancelled"}
+        self.assertNotIn(p6b3["state"], old_states)
+        self.assertEqual(ref.loaded_workflow_task(p6b3), p6b3)
+        saved = json.loads(json.dumps(ref.saved_workflow_task(p6b3)))
+        self.assertIn(saved["state"], old_states)
+        self.assertEqual(saved["state"], "blocked")
+        self.assertTrue(saved["completionConfirmed"])
+        self.assertEqual(saved["reviewBlock"], ref.ACCEPTANCE_BLOCK)
+        self.assertEqual(ref.loaded_workflow_task(saved), p6b3)
+        del saved["awaitingUserAcceptance"]  # An old build saves only the fields it knows.
+        reloaded = ref.loaded_workflow_task(saved)
+        self.assertEqual(reloaded["state"], "blocked")
+        self.assertTrue(reloaded["reviewBlock"])
+        self.assertFalse(ref.can_resume_after_recovery(dict(resumeAfterRecovery=True, tasks=[reloaded])))
+
+    def test_review_completion_retains_sibling_recovery_intent_and_blocks_resume(self):
+        for intent in (False, True):
+            workflow = dict(state="paused", actions=["assign", "requestReview"], resumeAfterRecovery=intent,
+                            tasks=[dict(state="running", reviewTargetID="work"), dict(state="blocked")])
+            ref.complete_workflow_task(workflow, 0, "TEST findings")
+            self.assertEqual(workflow["resumeAfterRecovery"], intent)
+            self.assertEqual(workflow["tasks"][0]["state"], "awaitingUserAcceptance")
+            self.assertFalse(ref.can_resume_after_recovery(workflow))
+            workflow["tasks"][1]["state"] = "completed"
+            self.assertFalse(ref.can_resume_after_recovery(workflow))
+            workflow["tasks"][0].update(state="completed", reviewAcceptedByUser=True)
+            self.assertEqual(ref.can_resume_after_recovery(workflow), intent)
 
 
 if __name__ == "__main__":

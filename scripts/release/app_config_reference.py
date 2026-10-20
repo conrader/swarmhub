@@ -8,6 +8,7 @@ from the snapshot, because the shared JSON profile has no null.
 """
 
 import config_reference
+from copy import deepcopy
 
 CODING_ORDERS = ("claude,codex,hermes", "codex,claude,hermes", "claude", "codex", "hermes")
 MODEL_MEMBERS = ("codingModel", "codingProvider", "conversationModel", "conversationProvider")
@@ -118,3 +119,51 @@ def review_policy(actions=None, has_structured_verdict=False):
     completion = ("reported" if has_structured_verdict else
                   "missingVerdict" if reporting else "awaitingUserAcceptance")
     return dict(instructions=instructions, completion=completion)
+
+
+ACCEPTANCE_BLOCK = ("The review is waiting for user acceptance. Read the findings, then accept the review "
+                    "with its noted limitations or cancel this workflow.")
+
+
+def saved_workflow_task(task):
+    """WorkflowTask's rollback-compatible ledger shape; old builds retain their existing review guard."""
+    saved = deepcopy(task)
+    if task["state"] == "awaitingUserAcceptance":
+        saved.update(state="blocked", awaitingUserAcceptance=True, completionConfirmed=True)
+        saved["reviewBlock"] = task.get("reviewBlock") or ACCEPTANCE_BLOCK
+        saved["error"] = task.get("error") or ACCEPTANCE_BLOCK
+    return saved
+
+
+def loaded_workflow_task(saved):
+    task = deepcopy(saved)
+    if task.pop("awaitingUserAcceptance", False):
+        task["state"] = "awaitingUserAcceptance"
+        for field in ("reviewBlock", "error"):
+            if task.get(field) == ACCEPTANCE_BLOCK:
+                task.pop(field)
+    return task
+
+
+def complete_workflow_task(workflow, index, reply):
+    """Mirror applyWorkflowCompletion: a task completion never owns siblings' recovery intent."""
+    task = workflow["tasks"][index]
+    task.update(completionConfirmed=True, result=task.get("reportedResult", reply), state="completed")
+    task.pop("error", None)
+    if task.get("reviewTargetID") and not task.get("reviewVerdict"):
+        if review_policy(workflow.get("actions"))["completion"] == "awaitingUserAcceptance":
+            task["state"] = "awaitingUserAcceptance"
+            if workflow["state"] != "cancelled":
+                workflow["state"] = "paused"
+                workflow.pop("error", None)
+            return
+        task["reviewBlock"] = "Missing structured verdict"
+    if task.get("reviewBlock") and not task.get("reviewAcceptedByUser"):
+        task.update(state="blocked", error=task["reviewBlock"])
+        if workflow["state"] != "cancelled":
+            workflow.update(state="paused", error=task["reviewBlock"])
+
+
+def can_resume_after_recovery(workflow):
+    return (workflow.get("resumeAfterRecovery", False)
+            and not any(t["state"] in ("blocked", "awaitingUserAcceptance") for t in workflow["tasks"]))

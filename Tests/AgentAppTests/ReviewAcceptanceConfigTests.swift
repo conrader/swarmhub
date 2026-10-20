@@ -57,6 +57,41 @@ import SwarmHubCoordination
         #expect((workflow.error != nil) == !structured)
     }
 
+    @Test func reviewCompletionPreservesParallelRecoveryIntentButStillBlocksResume() async throws {
+        let backend = ScriptedTurnBackend()
+        let (store, author, peer) = TeamRecoveryTests().fixture(backend)
+        store.turns.pathDown = true
+        #expect(store.startTeamRequest("Review TEST work", origin: author, coordinator: author, recipient: peer, roster: [author, peer]))
+        var workflow = try #require(store.workflows.values.first)
+        workflow.coordination?.policy.actions = ["assign", "requestReview"]
+        workflow.coordination?.limits.parallelTasks = 2
+        workflow.tasks[0].reviewTargetID = "source"; workflow.tasks[0].state = .running
+        workflow.tasks[1].dependencies = []; workflow.tasks[1].state = .running
+        workflow.state = .running
+        let sibling = ChatThread(id: workflow.tasks[1].threadID, parentMessageID: workflow.id, parentSessionID: nil, hermesSessionID: nil)
+        let unfinished = ChatMessage(role: .assistant, content: "", turnState: .incomplete)
+        sibling.messages = [unfinished]; author.threads.append(sibling)
+        workflow.tasks[1].replyID = unfinished.id
+        try store.saveWorkflow(workflow)
+        store.settleWorkflows() // The parallel sibling blocks first and owns the recovery intent.
+        workflow = try #require(store.workflows[workflow.id])
+        #expect(workflow.tasks[1].state == .blocked && workflow.coordination?.resumeAfterRecovery == true)
+        store.applyWorkflowCompletion(&workflow, index: 0,
+            reply: ChatMessage(role: .assistant, content: "Review findings", turnState: .finished))
+        #expect(workflow.coordination?.resumeAfterRecovery == true)
+        try store.saveWorkflow(workflow)
+        store.turns.pathDown = false
+        await store.recoverTeams()
+        #expect(store.workflows[workflow.id]?.state == .paused)
+        unfinished.content = "Recovered sibling result"; unfinished.turnState = .finished
+        store.settleWorkflows()
+        await store.recoverTeams(); store.reconcileTeamOutcome(sibling); store.resumeWorkflow(workflow.id)
+        let waiting = try #require(store.workflows[workflow.id])
+        #expect(waiting.tasks[1].state == .completed && waiting.awaitsUserAcceptance)
+        #expect(waiting.coordination?.resumeAfterRecovery == true && waiting.state == .paused)
+        #expect(backend.calls.all.isEmpty)
+    }
+
     @Test(arguments: [["assign", "requestReview"], ["assign"]])
     func reviewsWaitForAcceptanceBeforeSynthesis(actions: [String]) async throws {
         let backend = ScriptedTurnBackend()
