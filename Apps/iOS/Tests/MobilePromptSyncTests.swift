@@ -70,3 +70,48 @@ func mobilePromptLoadWarningSurvivesStatusNoticesAndFailedRetryUntilDismissed(sa
     #expect(context.owner == "Recovered owner")
     #expect(context.role == "Recovered role")
 }
+
+@MainActor @Test func mobilePromptRetryPreservesSampleChats() async throws {
+    let directory = try mobilePromptDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("bot-prompt-sync.json")
+    let broken = Data("broken json".utf8)
+    try broken.write(to: url)
+    let store = MobileStore(storageDirectory: directory)
+    #expect(store.botPromptSyncWarning != nil)
+    await store.load()
+    store.useSamples()
+    #expect(store.demo)
+    #expect(store.profiles.count == 4)
+
+    // Retry while still unreadable, then simulate recovery without changing app mode.
+    store.retryBotPromptSyncLoad()
+    #expect(store.botPromptSyncWarning != nil)
+    #expect(try Data(contentsOf: url) == broken)
+    try FileManager.default.removeItem(at: url)
+    let repairedStore = try BotPromptSyncStore(fileURL: url)
+    let sample = try #require(store.profiles.first)
+    try repairedStore.edit(key: BotPromptDocument.botKey(sample.address), now: 100,
+                           fallback: BotPromptContext(name: sample.name)) { $0.owner = "Recovered owner" }
+    let repaired = try Data(contentsOf: url)
+    store.retryBotPromptSyncLoad()
+    #expect(store.botPromptSyncWarning == nil)
+    #expect(store.demo)
+    #expect(try Data(contentsOf: url) == repaired)
+
+    for profile in store.profiles {
+        let client = try store.client(profile.id)
+        #expect(client is DemoClient)
+        await store.refresh(profile.id)
+        #expect(store.error == nil)
+        #expect(store.capabilities[profile.id]?.sessions == true)
+        #expect(store.caches[profile.id]?.messages.isEmpty == false)
+        var completed = false
+        for try await event in client.stream(sessionID: "sample-session", text: "Still working?") {
+            if case .terminal(.completed) = event { completed = true }
+        }
+        #expect(completed)
+        let history = try await client.messages(sessionID: "sample-session")
+        #expect(history.contains { $0.role == .user && $0.text == "Still working?" })
+    }
+}

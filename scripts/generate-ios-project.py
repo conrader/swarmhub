@@ -42,13 +42,12 @@ test_product = obj('test-product', 'isa = PBXFileReference; explicitFileType = w
 package = obj('core-package', 'isa = XCLocalSwiftPackageReference; relativePath = ../../Packages/SwarmHubCore;')
 core_product = obj('core-product', f'isa = XCSwiftPackageProductDependency; package = {package}; productName = SwarmHubCore;')
 core_build = obj('core-build', f'isa = PBXBuildFile; productRef = {core_product};')
-test_core_product = obj('test-core-product', f'isa = XCSwiftPackageProductDependency; package = {package}; productName = SwarmHubCore;')
-test_core_build = obj('test-core-build', f'isa = PBXBuildFile; productRef = {test_core_product};')
 sources = obj('sources-phase', f'isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ({",".join(source_builds)}); runOnlyForDeploymentPostprocessing = 0;')
 resources = obj('resources-phase', f'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({asset_build}); runOnlyForDeploymentPostprocessing = 0;')
 frameworks = obj('frameworks-phase', f'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ({core_build}); runOnlyForDeploymentPostprocessing = 0;')
 test_sources = obj('test-sources-phase', f'isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ({",".join(test_builds)}); runOnlyForDeploymentPostprocessing = 0;')
-test_frameworks = obj('test-frameworks-phase', f'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ({test_core_build}); runOnlyForDeploymentPostprocessing = 0;')
+# Hosted tests resolve core symbols through BUNDLE_LOADER, avoiding a second static copy.
+test_frameworks = obj('test-frameworks-phase', 'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;')
 products_group = obj('products-group', f'isa = PBXGroup; children = ({product},{test_product}); name = Products; sourceTree = "<group>";')
 group = obj('main-group', f'isa = PBXGroup; children = ({",".join(source_refs + test_refs + [asset,products_group])}); sourceTree = "<group>";')
 project_configurations = []
@@ -75,6 +74,8 @@ for name in ['Debug', 'Release']:
                      'TARGETED_DEVICE_FAMILY':'1', 'SUPPORTED_PLATFORMS':'iphoneos iphonesimulator',
                      'GENERATE_INFOPLIST_FILE':'YES', 'CODE_SIGN_STYLE':'Automatic', 'SWIFT_STRICT_CONCURRENCY':'complete',
                      'TEST_HOST':'$(BUILT_PRODUCTS_DIR)/SwarmHub.app/SwarmHub', 'BUNDLE_LOADER':'$(TEST_HOST)',
+                     # Compile against the host's built module and its C system module.
+                     'SWIFT_INCLUDE_PATHS':'$(inherited) "$(BUILT_PRODUCTS_DIR)" "$(SRCROOT)/../../Packages/SwarmHubCore/Sources/CSQLite"',
                      'SWIFT_OPTIMIZATION_LEVEL':'-Onone' if name == 'Debug' else '-O'}
     test_configurations.append(obj('test-' + name, f'isa = XCBuildConfiguration; name = {name}; buildSettings = {{ {settings(test_settings)} }};'))
 pc = obj('project-configs', f'isa = XCConfigurationList; buildConfigurations = ({",".join(project_configurations)}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
@@ -83,7 +84,7 @@ target = obj('app-target', f'isa = PBXNativeTarget; name = SwarmHub; productName
 test_configs = obj('test-configs', f'isa = XCConfigurationList; buildConfigurations = ({",".join(test_configurations)}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
 test_proxy = obj('test-host-proxy', f'isa = PBXContainerItemProxy; containerPortal = {uid("project")}; proxyType = 1; remoteGlobalIDString = {target}; remoteInfo = SwarmHub;')
 test_dependency = obj('test-host-dependency', f'isa = PBXTargetDependency; target = {target}; targetProxy = {test_proxy};')
-test_target = obj('test-target', f'isa = PBXNativeTarget; name = SwarmHubTests; productName = SwarmHubTests; productType = "com.apple.product-type.bundle.unit-test"; productReference = {test_product}; buildConfigurationList = {test_configs}; buildPhases = ({test_sources},{test_frameworks}); buildRules = (); dependencies = ({test_dependency}); packageProductDependencies = ({test_core_product});')
+test_target = obj('test-target', f'isa = PBXNativeTarget; name = SwarmHubTests; productName = SwarmHubTests; productType = "com.apple.product-type.bundle.unit-test"; productReference = {test_product}; buildConfigurationList = {test_configs}; buildPhases = ({test_sources},{test_frameworks}); buildRules = (); dependencies = ({test_dependency}); packageProductDependencies = ();')
 project = obj('project', f'isa = PBXProject; attributes = {{ LastUpgradeCheck = 1600; }}; buildConfigurationList = {pc}; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en,Base); mainGroup = {group}; productRefGroup = {products_group}; projectDirPath = ""; projectRoot = ""; packageReferences = ({package}); targets = ({target},{test_target});')
 (PROJECT / 'project.pbxproj').write_text('// !$*UTF8*$!\n{\n\tarchiveVersion = 1;\n\tclasses = {};\n\tobjectVersion = 56;\n\tobjects = {\n' + '\n'.join(objects) + '\n\t};\n\trootObject = ' + project + ';\n}\n')
 scheme_dir = PROJECT / 'xcshareddata/xcschemes'

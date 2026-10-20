@@ -42,7 +42,8 @@ final class MobileStore {
         guard let botPromptSyncURL else { return }
         do {
             botPromptSync = try BotPromptSyncStore(fileURL: botPromptSyncURL)
-            clients = [:]
+            // Sample clients have no saved credentials from which to recreate them.
+            if !demo { clients = [:] }
             botPromptSyncWarning = nil
         } catch {
             botPromptSyncWarning = "Saved bot prompt settings could not be loaded. Chat is using local settings; the sync file was kept unchanged."

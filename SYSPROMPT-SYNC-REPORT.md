@@ -1,8 +1,29 @@
 # Bot prompt sync follow-up, 2026-10-20
 
-Branch `swarmhub/sysprompt1`, follow-up to `e65ba5b` and the sysprompt6 review.
+Branch `swarmhub/sysprompt1`, follow-up to `85b972c` and the sysprompt7 review.
 
 ## Current review follow-up
+
+- Successful iOS prompt-load retry now preserves sample clients in demo mode; real clients are
+  still invalidated so recovered prompts take effect. Added a regression covering failed retry,
+  repaired-file retry with preserved bytes, and refresh/streaming for all four sample bots.
+  iOS Swift coverage is now 3 functions / 4 cases, written but unrun.
+- Removed the hosted test target's separate SwarmHubCore product dependency and framework link
+  in the generator and regenerated the project. The app owns the core copy; tests resolve symbols
+  through the existing host dependency, TEST_HOST and BUNDLE_LOADER. Explicit Swift search paths
+  expose the built core module and CSQLite module map without linking another static core copy.
+- Ran `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest sim.test_prompt_sync -v`:
+  **9 tests passed, 0 failures, 0 skips** (0.660s), including all 19 shared vectors.
+  Regeneration succeeded twice: **2/2 generated files byte-identical** on the second run.
+  Static wiring checks passed: 1 app core link, 0 test core links, 2 hosted configurations,
+  and 1 scheme test target. `git diff --check` passed; all 5 changed files are below 500 lines
+  (maximum 306). Hermes is untouched; no transport or Mac settings write-back was added.
+- **Swift is unbuilt and unrun**: no Swift/Xcode toolchain here. The new sample regression,
+  module discovery, native symbol resolution and absence of duplicate-link warnings need Xcode.
+- Commit attempted; `git add` failed creating the worktree's `index.lock` on a read-only filesystem.
+  All 5 changed files remain unstaged on `swarmhub/sysprompt1` at `85b972c`.
+
+## Prior sysprompt7 validation (historical)
 
 - iOS now keeps load failures in `botPromptSyncWarning`, independent of transient status `notice`.
   A non-blocking root banner appears across welcome, chats and other tabs. Dismiss clears only the
