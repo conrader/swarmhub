@@ -11,6 +11,10 @@ Status: contract for plan B (`CORE-PLAN.md` §2.1, §3.1, §6; phase P0a in `COR
 | Bundle manifest | `bundles/<version>.json` | release key with role `bundle` | `swarmhub/bundle/1` |
 | Blob (component archive) | `blobs/sha256/<sha256>` | none; pinned by the manifest's `sha256` and `size` | n/a |
 
+Paths are relative to an origin's base URL. Consumers fetch with `Cache-Control: no-store`, over HTTPS, and follow a
+redirect only to an allowlisted origin; freshness never depends on caches, only on the signed `expires` and the
+persisted floors (box transport rules: `UPDATER.md`, "Pull").
+
 Consumers also hold a local **pin file** (`swarmhub/pins/1`), compiled into the apps and installed on boxes by the operator bootstrap (§3.5 of the plan). It is never fetched.
 
 ## 2. Canonical JSON (JCS profile)
@@ -98,7 +102,7 @@ A requires map is an object from axis name (`[a-z_]{1,32}`) to a constraint: one
 | `box` | `updater`, `hermes` |
 | `mac`, `ios` | `app`, `ui_catalog`, `config_schema` |
 
-A consumer evaluates only the axes of its platform and ignores the others, so one map can serve both. An axis no platform knows is unsatisfiable (fail closed). An axis of the consumer's platform with no known value (for example Hermes version unreadable) is unsatisfied, so the component is skipped (P3a).
+A consumer evaluates only the axes of its platform and ignores the others, so one map can serve both. An axis no platform knows is unsatisfiable (fail closed). An axis of the consumer's platform with no known value (for example Hermes version unreadable) is unsatisfied, so the component is skipped (P3a). The box reads `hermes` from the installed Hermes' `hermes_cli/__init__.py` `__version__` literal, as text (`UPDATER.md`, "Pull"); the skip reason stays `incompatible`, and the box's status adds the unmet axes (`incompatible: hermes`).
 
 ## 9. Archives
 

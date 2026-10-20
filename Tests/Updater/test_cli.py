@@ -4,6 +4,7 @@
 """
 
 import ast
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -181,6 +182,8 @@ class DecisionTwo(Flow):
 
 class Commands(Flow):
     def test_status_is_readable_by_swarmctl(self):
+        if importlib.util.find_spec("zoneinfo") is None:  # swarmctl (messages skill) needs it, the updater does not
+            self.skipTest("swarmctl imports zoneinfo, which needs Python 3.9+; updater status is checked without it")
         env = dict(os.environ, HOME=str(self.home), PYTHONDONTWRITEBYTECODE="1")
         env.pop("XDG_STATE_HOME", None)
 
@@ -229,16 +232,17 @@ class Commands(Flow):
 
     def test_nothing_to_fetch_changes_nothing(self):
         before = box_snapshot(str(self.hermes))
-        code, out = self.update("check")  # no stored bundle and no network: runtime as it was
+        code, out = self.update("check")  # no stored bundle; check never fetches: runtime as it was
         self.assertEqual((code, out["last"]["verdict"]), (0, "none"))
-        self.assertIn("no network", out["last"]["detail"])
+        self.assertIn("no stored bundle", out["last"]["detail"])
         self.start()
         before = box_snapshot(str(self.hermes))
         self.assertEqual(self.update("check")[1]["state"], "current")
         self.assertEqual(changed(before, box_snapshot(str(self.hermes))), [])
 
     def test_no_network_code(self):
-        sources = sorted(PACKAGE.glob("*.py")) + [LAUNCHER]
+        """Only fetch.py (P3a pull) opens connections; every other module and the launcher stay network-free."""
+        sources = sorted(p for p in PACKAGE.glob("*.py") if p.name != "fetch.py") + [LAUNCHER]
         for path in sources:
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):

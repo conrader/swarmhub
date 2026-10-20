@@ -1,0 +1,19 @@
+# Swarm Hub box updater: one pull (CORE-PLAN.md §3.4; phase P3a). Template: the operator bootstrap (P2d) replaces
+# @PREFIX@ with the admin-owned install prefix and copies this file to ~/.config/systemd/user/. Started only by
+# swarmhub-update.timer, which is not enabled by installing it (enabling it is P3b, Konrad's call).
+# The updater never restarts Hermes and runs `pull` only: code components still wait for the local confirm.
+[Unit]
+Description=Swarm Hub update pull (signed bundles; data applies, code waits for confirm)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=@PREFIX@/bin/swarmhub-update pull
+Environment=PYTHONDONTWRITEBYTECODE=1
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+TimeoutStartSec=30min
+# 75 = every origin unreachable or the box busy: the next timer run retries
+SuccessExitStatus=75

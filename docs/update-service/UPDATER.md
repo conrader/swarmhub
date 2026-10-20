@@ -1,10 +1,11 @@
-# Box updater command line (P2b)
+# Box updater command line (P2b, P3a)
 
-Status: phase P2b of plan B (`CORE-PLAN.md` §3.2, §3.4, decision 2; `CORE-PHASES.md`). Code:
+Status: phases P2b and P3a of plan B (`CORE-PLAN.md` §3.2, §3.4, §6, decision 2; `CORE-PHASES.md`). Code:
 `Resources/Updater/bin/swarmhub-update` and `Resources/Updater/swarmhub_update/{cli,state,pins,bundle,policy,runner}.py`
-on top of the P2a engine (`APPLY.md`). Tests: `Tests/Updater/test_cli.py`, `test_floors.py`. There is no network code:
-bundles arrive as a staged folder. Pull (P3a) and the Mac transport (P4b) will fill the same layout. Nothing here has
-run on a real box. All keys in the tests are TEST keys.
+on top of the P2a engine (`APPLY.md`); pull adds `{fetch,channel,compat}.py` and the timer templates in
+`Resources/Updater/units/`. Tests: `Tests/Updater/test_cli.py`, `test_floors.py`, `test_pull.py`, `test_fetch.py`.
+Bundles arrive by `pull` or as a staged folder (the Mac transport, P4b). Pull has run only against local `http.server`
+fixtures; nothing here has run on a real box or against a real update host. All keys in the tests are TEST keys.
 
 ## Commands
 
@@ -15,12 +16,13 @@ run on a real box. All keys in the tests are TEST keys.
 | `apply --staged DIR` | verifies the folder, raises floors, stores the bundle, applies data, parks code in `pending_confirm` | state, `skills/swarmhub/` |
 | `apply [--version N]` | the local confirm: re-verifies the stored bundle and applies its waiting code and data together. With `--version`, it refuses if the stored bundle is another version | same |
 | `check` | re-verifies the stored bundle and applies what is due, such as a run deferred by a busy box. It never confirms | same |
+| `pull [--origin URL ...]` | fetches the key manifest, the channel index, then the selected bundle manifest and the blobs it does not hold, over HTTPS, and continues as `apply --staged` | same as `apply --staged` |
 | `pin previous\|current\|clear` | `previous` reverts each profile's last transaction and holds; `current` holds; `clear` releases the hold and runs `check` | same |
 
 Options: `--state-dir` (default `$XDG_STATE_HOME/swarmhub-update`, else `~/.local/state/swarmhub-update`),
 `--hermes-home` (default `~/.hermes`), `--max-wait SECONDS` (idle wait bound, default 600). Output is one JSON object.
 Exit codes: 0 done (also `pending_confirm`, `pinned`, `held`, `no_update`), 64 usage, 65 refused, 70 an apply failed or
-awaits recovery, 75 deferred (busy box or another run holds `cli.lock`), 78 pin file unusable.
+awaits recovery, 75 deferred (busy box or another run holds `cli.lock`) or no origin reachable, 78 pin file unusable.
 
 The pin file path is not an option. The launcher reads `<prefix>/pins.json` beside `<prefix>/bin/swarmhub-update` and
 imports only `<prefix>/swarmhub_update/`. It runs `python3 -I -B` and re-executes itself that way if started otherwise.
@@ -97,3 +99,50 @@ The state directory holds `floors.json`, `config.json` (`channel`, random `insta
 `reload_pending`, the version each live SKILL.md advertises), `reload_pending`, `floors` (state, checkpoint,
 effective), `pins` (path, sha256, `protected`, roots, checkpoint, revoked IDs), `pin`, `stale`, `last` (this
 command's verdict) and `updater`. `swarmctl update-status` prints the same file read-only.
+
+## Pull (P3a)
+
+`swarmhub-update pull` is what the timer runs. It never confirms: code components still stop at `pending_confirm`.
+
+- **Origins** come from `config.json` `origins` (primary first, then mirrors), or `--origin`. Each is a base URL with
+  the service layout (`SCHEMAS.md` §1). None configured → verdict `none`, nothing changes. They are not a trust anchor:
+  everything fetched is verified against the admin-owned pins, floors and checkpoint. `allow_hosts` lists extra https
+  hosts a redirect may reach (a mirror's download host).
+- **Transport** (`fetch.py`, the only module that opens a connection): HTTPS only, certificate and host name verified
+  against the system trust store, TLS 1.2+. Every request sends `Cache-Control: no-store` and `Pragma: no-cache`, no
+  credentials or cookies. Redirects are followed only to an allowlisted origin, at most 3 hops; otherwise
+  `redirect_refused` and nothing is fetched from the target. The `Location` is normalised before that check: control
+  characters (tab, CR and LF included) are refused in the raw value, before anything is stripped; bytes outside
+  RFC 3986's unreserved and reserved sets (and a `%` that starts no escape) are percent-encoded, a relative value is
+  resolved against the current URL, and the result must be https without userinfo.
+  Signed files are capped at `max_signed_bytes`, a blob at
+  its declared size (+1 byte, so a longer body is `blob_size_mismatch`); a larger `Content-Length` is refused before
+  reading. Redirect bodies are closed without reading, so they spend none of that byte budget. The response stream
+  never reads ahead (`peek` and unbounded reads are refused). One 300 s deadline per file covers every step of every
+  hop: DNS lookup, TCP connect (each address), proxy `CONNECT`, TLS handshake, response headers and body reads
+  (including chunk framing). Each step times out after at most 30 s or what is left of the deadline, so a file ends
+  within the deadline plus 1 s (`DEADLINE_SLACK`, scheduling slack); then it is `timeout` and the next origin is tried.
+- **Order:** `keys.json`, `channels/<channel>.json`, then only the selected line's `bundles/<version>.json` and the blobs
+  of components targeted at the box and compatible with it. What the box already holds verified is not fetched again
+  (the stored manifest for a refresh; blobs in the state's blob store, hash-checked when read).
+- **Line selection and rollout** are `verify.select_line` and `verify.rollout_bucket`, the implementation the signed
+  vectors pin (`SCHEMAS.md` §6): `bucket = uint64_be(SHA-256(install_id + "\n" + bundle_version)[0:8]) mod 100`,
+  included when `bucket < rollout_percent`. `install_id` is the random local one in `config.json`, so a box decides the
+  same way on every run. The verdict's `lines` shows each line's `bucket`, `in_rollout`, `compatible` and unmet axes.
+- **Failures keep the runtime:** host down, a refused redirect or an oversize answer is `stage: fetch` (exit 75, retried
+  on the next run); a bad signature, an old index (`index_rollback`), a tampered blob and the rest of `SCHEMAS.md` §10
+  are refused as with `apply --staged` (exit 65). An origin that fails is reported in `attempts` and the next one is
+  tried; floors only rise, so a mirror replaying an old index is refused. A verified `no_update` ends the pull. An
+  expired index sets `stale: true` (exit 65) and changes nothing else; the next current index sets it back to false.
+- **Hermes version** (`compat.py`, read-only): Hermes' own source of truth is `hermes_cli.__version__` (its `/health`
+  returns it). The updater reads `<install>/hermes_cli/__init__.py` as text (at most 256 KiB) and takes the single
+  `__version__ = "<version>"` literal; it never imports Hermes, runs it or calls it. Install folders, in order:
+  `config.json` `hermes_install_dir`, `$HERMES_INSTALL_DIR`, `<hermes home>/hermes-agent`,
+  `/usr/local/lib/hermes-agent` (the Hermes installer's layouts). Then `config.json` `hermes_version` (operator-set).
+  Otherwise Hermes is unknown: a line or component that declares a `hermes` range is unsatisfied. A skipped component
+  reads `{"name", "reason": "incompatible", "axes": ["hermes"], "detail": "incompatible: hermes"}`; the rest apply.
+  `status.json` `hermes` records `{version, source}` of the last run.
+- **Timers** (`Resources/Updater/units/`), both disabled by default and templates (`@PREFIX@` is the admin-owned install
+  prefix, filled by the operator bootstrap, P2d): `swarmhub-update.service` + `swarmhub-update.timer` (systemd `--user`,
+  every 6 h with up to 30 min random delay, 15 min after boot) and `com.konrad.swarmhub.update.plist` (launchd agent,
+  `Disabled` true, every 6 h, not at load). Copying them in place does not start anything; enabling them is P3b.
