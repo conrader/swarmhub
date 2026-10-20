@@ -69,6 +69,29 @@ class VectorTests(unittest.TestCase):
             self.assertEqual(config_reference.name_problem(name), "denied_key", name)
         self.assertNotIn("deploy", ref.TEAM_ACTIONS)  # actions can only narrow (out-of-range case widens and fails)
 
+    def test_narrowed_actions_need_neither_help_nor_reporting(self):
+        case = next(c for c in VECTORS["cases"] if c["id"] == "bundle")
+        components = [(c["name"], (FIXTURES / c["archive"]).read_bytes()) for c in case["components"]]
+        snapshot, reports = ref.resolve(config_reference.decode(components))
+        self.assertEqual(reports, [])
+        self.assertEqual(snapshot["policy.teamActions"], ["assign", "requestReview"])
+        self.assertNotIn("requestHelp", snapshot["policy.teamActions"])
+        self.assertNotIn("reportResult", snapshot["policy.teamActions"])
+
+    def test_explicit_model_fallback_beats_bundle_and_unset_inherits(self):
+        bundled = next(c["snapshot"] for c in VECTORS["cases"] if c["id"] == "bundle")
+        local = dict(provider="TEST-local", model="TEST-choice")
+        for role in ("conversation", "coding"):
+            with self.subTest(role=role):
+                self.assertIsNone(ref.model_default(ref.compiled(), role))
+                self.assertIsNone(ref.model_default(ref.compiled(), role, agent_default=True))
+                self.assertEqual(ref.model_default(ref.compiled(), role, choice=local), local)
+                self.assertIsNone(ref.model_default(bundled, role, agent_default=True))
+                self.assertEqual(ref.model_default(bundled, role, choice=local), local)
+                models = bundled["policy.modelDefaults"]
+                self.assertEqual(ref.model_default(bundled, role),
+                                 dict(provider=models[role + "Provider"], model=models[role + "Model"]))
+
 
 class SourceParityTests(unittest.TestCase):
     def test_swift_compiled_defaults_match_the_reference(self):
@@ -113,6 +136,9 @@ class SourceParityTests(unittest.TestCase):
             for path in folder.rglob("*.swift"):
                 source = path.read_text(encoding="utf-8")
                 self.assertNotRegex(source, r"\bConfigKey\b|AppConfig\(\s*ConfigStore", str(path.relative_to(ROOT)))
+        models = (ROOT / "Sources/AgentApp/Models/ModelPolicy.swift").read_text(encoding="utf-8")
+        self.assertIn("config.modelDefault(for: role, preference: preference)", models)
+        self.assertIn("case .agentDefault: return nil", SWIFT)
 
     def test_new_sources_are_under_500_lines(self):
         for rel in ("Packages/SwarmHubCore/Sources/SwarmHubCore/Updates/AppConfig.swift",

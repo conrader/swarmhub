@@ -17,6 +17,27 @@ public struct AppConfig: Equatable, Sendable {
         public init(provider: String, model: String) { self.provider = provider; self.model = model }
     }
 
+    public enum ModelRole: Sendable { case conversation, coding }
+
+    /// An install's explicit opt-out is different from a role it has never configured.
+    public enum ModelPreference: Equatable, Sendable {
+        case unset, agentDefault, choice(ModelPair)
+    }
+
+    /// Shared Mac/iOS precedence: an explicit local choice (including agent default), then the bundle.
+    /// A nil coding default retains the app's existing "same as conversation" behaviour.
+    public func modelDefault(for role: ModelRole, preference: ModelPreference = .unset) -> ModelPair? {
+        switch preference {
+        case .agentDefault: return nil
+        case .choice(let pair): return pair
+        case .unset:
+            switch role {
+            case .conversation: return conversationModel
+            case .coding: return codingModel
+            }
+        }
+    }
+
     /// New teams' limits (`policy.teamLimits`); each member stays inside the range `TeamLimits.isValid` accepts.
     public struct TeamLimits: Equatable, Sendable {
         public var tasks = 12

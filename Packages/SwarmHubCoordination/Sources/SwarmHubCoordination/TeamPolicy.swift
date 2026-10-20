@@ -24,7 +24,11 @@ public struct TeamPolicy: Codable, Equatable, Sendable {
         self.originID = originID; self.decision = decision; self.members = members; self.ownerDeviceID = ownerDeviceID
     }
     public func allows(_ action: String, identity: TeamIdentity, at date: Date) -> Bool {
-        revokedAt == nil && (expiresAt.map { $0 > date } ?? true) && actions.contains(action) && members.contains(identity)
+        isValid(identity: identity, at: date) && actions.contains(action)
+    }
+    /// Dispatch and submission validate the delegation independently of any optional workflow operation.
+    public func isValid(identity: TeamIdentity, at date: Date) -> Bool {
+        revokedAt == nil && (expiresAt.map { $0 > date } ?? true) && members.contains(identity)
     }
 }
 

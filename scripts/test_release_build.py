@@ -152,7 +152,11 @@ class RealResourcesTests(unittest.TestCase):
         self.assertEqual(policy["teamActions"], sorted(re.findall(r'"(\w+)"', actions)))
         model = (ROOT / "Sources/AgentApp/Models/ModelPolicy.swift").read_text(encoding="utf-8")
         defaults = re.search(r"struct ModelDefaults[^{]*\{(.*?)var isEmpty", model, re.S).group(1)
-        self.assertNotIn("=", re.sub(r"///.*", "", defaults))  # every ModelDefaults member is unset by default
+        # Pairs and coding order remain unset; the new explicit fallback flags default to false.
+        self.assertEqual(re.findall(r"var (\w+) = (\w+)", defaults),
+                         [("conversationAgentDefault", "false"), ("codingAgentDefault", "false")])
+        pairs = re.sub(r"var \w+AgentDefault = false", "", re.sub(r"///.*", "", defaults))
+        self.assertNotIn("=", pairs)
         self.assertEqual(policy["modelDefaults"], {})
         blob = self.blobs[self.components["policy"]["sha256"]]
         with tarfile.open(fileobj=io.BytesIO(blob)) as archive:

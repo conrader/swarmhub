@@ -95,3 +95,15 @@ def resolve(result):
 def compiled():
     """The snapshot with no bundle: every key's compiled default."""
     return resolve(config_reference.decode([]))[0]
+
+
+def model_default(snapshot, role, choice=None, agent_default=False):
+    """AppConfig.modelDefault: an explicit local pair or fallback wins over an unset role's bundle value."""
+    if agent_default:
+        return None
+    if choice is not None:
+        return choice
+    models = snapshot["policy.modelDefaults"]
+    if role + "Provider" in models:
+        return dict(provider=models[role + "Provider"], model=models[role + "Model"])
+    return None

@@ -61,12 +61,12 @@ struct SettingsModelsPane: View {
             }
         }
         let picker = reference.map { store.modelPicker(for: $0) }, enabled = reference == nil || permanent
-        defaultMenu("Conversation model", \.conversation, fallback: "Agent default", picker: picker, enabled: enabled)
+        defaultMenu("Conversation model", .conversation, fallback: "Agent default", picker: picker, enabled: enabled)
         if let offered = model.offerSummary(store.effectiveModelDefaults.conversation) { Text(offered).font(.caption).foregroundStyle(.secondary) }
         if referenceRow != nil, !permanent { Text(ModelCatalog.switchingLater).font(.caption).foregroundStyle(.secondary) }
         Text(ModelRolesModel.conversationHelp + (loaded.isEmpty ? " Press Load to list each agent's models." : "") + (permanent ? " " + ModelRoleReason.permanent.text : ""))
             .font(.caption).foregroundStyle(.secondary)
-        defaultMenu("Coding threads model", \.coding, fallback: RoleModelEditorModel.sameAsConversation, picker: picker, enabled: enabled)
+        defaultMenu("Coding threads model", .coding, fallback: RoleModelEditorModel.sameAsConversation, picker: picker, enabled: enabled)
         if let offered = model.offerSummary(store.effectiveModelDefaults.coding) { Text(offered).font(.caption).foregroundStyle(.secondary) }
         Text(ModelRolesModel.codingHelp + " " + ModelRolesModel.codingNote).font(.caption).foregroundStyle(.secondary)
         if let hint = ModelRolesModel.sharedSupplierHint(conversation: store.effectiveModelDefaults.conversation, coding: store.effectiveModelDefaults.coding, catalog: referenceRow?.catalog) {
@@ -80,12 +80,13 @@ struct SettingsModelsPane: View {
         Text(store.appConfig.codingOrderHelp + " A bot can choose its own in its settings.").font(.caption).foregroundStyle(.secondary)
     }
 
-    private func defaultMenu(_ title: String, _ role: WritableKeyPath<ModelDefaults, ModelChoice?>, fallback: String, picker: ModelPickerModel?, enabled: Bool) -> some View {
-        HStack {
+    private func defaultMenu(_ title: String, _ role: ModelRole, fallback: String, picker: ModelPickerModel?, enabled: Bool) -> some View {
+        let choice = role == .conversation ? store.effectiveModelDefaults.conversation : store.effectiveModelDefaults.coding
+        return HStack {
             Text(title)
             Spacer()
-            RoleModelMenu(label: store.effectiveModelDefaults[keyPath: role]?.model ?? fallback, leading: [(fallback, .box)], picker: picker, enabled: enabled) { setting in
-                if case .choice(let choice) = setting { store.modelDefaults[keyPath: role] = choice } else { store.modelDefaults[keyPath: role] = nil }
+            RoleModelMenu(label: choice?.model ?? fallback, leading: [(fallback, .box)], picker: picker, enabled: enabled) { setting in
+                store.modelDefaults.set(setting, for: role)
                 store.save()
             }
         }

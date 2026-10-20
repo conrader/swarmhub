@@ -69,15 +69,18 @@ struct BotModelSettings: Codable, Sendable, Equatable {
     }
 }
 
-/// The app-wide defaults, local to this install. Empty (inert) until Konrad sets them.
+/// The app-wide defaults, local to this install. Unset roles can inherit a bundle default.
 struct ModelDefaults: Codable, Sendable, Equatable {
     var conversation: ModelChoice?
     var coding: ModelChoice?
+    /// Persist explicit opt-outs separately; old pairs and missing/null values keep their original meaning.
+    var conversationAgentDefault = false
+    var codingAgentDefault = false
     /// P31: the SwarmHub-wide coding agent order; nil = Claude Code → Codex → Hermes sub-agent.
     var codingAgent: CodingOrder?
-    var isEmpty: Bool { conversation == nil && coding == nil && codingAgent == nil }
+    var isEmpty: Bool { conversation == nil && coding == nil && codingAgent == nil && !conversationAgentDefault && !codingAgentDefault }
 
-    enum CodingKeys: CodingKey { case conversation, coding, codingAgent }
+    enum CodingKeys: CodingKey { case conversation, coding, codingAgent, conversationAgentDefault, codingAgentDefault }
     init(conversation: ModelChoice? = nil, coding: ModelChoice? = nil, codingAgent: CodingOrder? = nil) {
         self.conversation = conversation; self.coding = coding; self.codingAgent = codingAgent
     }
@@ -86,17 +89,43 @@ struct ModelDefaults: Codable, Sendable, Equatable {
         conversation = try? c.decodeIfPresent(ModelChoice.self, forKey: .conversation)
         coding = try? c.decodeIfPresent(ModelChoice.self, forKey: .coding)
         codingAgent = CodingOrder.decode(c, .codingAgent)
+        conversationAgentDefault = (try? c.decode(Bool.self, forKey: .conversationAgentDefault)) ?? false
+        codingAgentDefault = (try? c.decode(Bool.self, forKey: .codingAgentDefault)) ?? false
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(conversation, forKey: .conversation)
+        try c.encodeIfPresent(coding, forKey: .coding)
+        try c.encodeIfPresent(codingAgent, forKey: .codingAgent)
+        if conversationAgentDefault { try c.encode(true, forKey: .conversationAgentDefault) }
+        if codingAgentDefault { try c.encode(true, forKey: .codingAgentDefault) }
+    }
+
+    /// The Settings menu records an explicit fallback even when it resolves to nil today.
+    mutating func set(_ setting: ModelSetting, for role: ModelRole) {
+        let choice: ModelChoice?
+        if case .choice(let value) = setting { choice = value } else { choice = nil }
+        switch role {
+        case .conversation: conversation = choice; conversationAgentDefault = setting == .box
+        case .coding: coding = choice; codingAgentDefault = setting == .box
+        }
     }
 }
 
 extension ModelDefaults {
-    /// P6b: each role this install left unset takes the bundle's `policy.modelDefaults` pair (compiled: none), so
-    /// `ModelPolicy.resolve` reads one set of defaults. A pair `ModelChoice` refuses stays unset. `codingAgent` is
-    /// this install's own; its unset value already means the SwarmHub-wide order (`AppStore.configuredCodingOrder`).
+    /// P6b: bundle/local precedence lives in shared core; the Mac only adapts its stored pairs and opt-out flags.
     func filled(from config: AppConfig) -> ModelDefaults {
-        ModelDefaults(conversation: conversation ?? config.conversationModel.flatMap { ModelChoice(provider: $0.provider, model: $0.model) },
-                      coding: coding ?? config.codingModel.flatMap { ModelChoice(provider: $0.provider, model: $0.model) },
-                      codingAgent: codingAgent)
+        func resolved(_ role: AppConfig.ModelRole, _ choice: ModelChoice?, _ agentDefault: Bool) -> ModelChoice? {
+            let preference: AppConfig.ModelPreference
+            if agentDefault { preference = .agentDefault }
+            else if let choice { preference = .choice(.init(provider: choice.provider, model: choice.model)) }
+            else { preference = .unset }
+            return config.modelDefault(for: role, preference: preference).flatMap { ModelChoice(provider: $0.provider, model: $0.model) }
+        }
+        var result = self
+        result.conversation = resolved(.conversation, conversation, conversationAgentDefault)
+        result.coding = resolved(.coding, coding, codingAgentDefault)
+        return result
     }
 }
 

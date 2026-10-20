@@ -7,7 +7,7 @@ extension AppStore {
     func teamAppReview(_ approval: ApprovalRequest, bot: Bot) -> (Workflow, TeamAppReviewScope, String)? {
         guard isAppAction(approval), case .chat = connectedApps.localApprovals[approval.id],
               let turn = runningTurns.values.first(where: { $0.botID == bot.id && $0.conversation.hermesSessionID == approval.sessionID }),
-              let workflow = teamWorkflow(in: turn.conversation), teamPolicyProblem(workflow, action: "reportResult", botID: bot.id) == nil,
+              let workflow = teamWorkflow(in: turn.conversation), teamPolicyProblem(workflow, botID: bot.id) == nil,
               let command = approval.command, let payload = try? JSONDecoder().decode(ComposioValue.self, from: Data(command.utf8)),
               let fields = payload.object, Set(fields.keys) == ["app", "account", "tool", "arguments"], fields["arguments"]?.object != nil,
               let scope = workflow.coordination?.appReviews?.first(where: { $0.tool == payload["tool"].string && $0.account == payload["account"].string }),

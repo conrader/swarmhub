@@ -29,32 +29,52 @@ extension AppStore {
                   self.workflowMembers(workflow).contains(where: { $0.id == bot.id }) else {
                 throw BackendError.unavailable("The workflow, its group or the task's agent changed. Review the task before continuing.")
             }
-            if let problem = self.teamPolicyProblem(workflow, action: "reportResult", botID: bot.id) { throw BackendError.unavailable(problem) }
+            if let problem = self.teamPolicyProblem(workflow, botID: bot.id) { throw BackendError.unavailable(problem) }
             return workflow
         }
         _ = try current()
+        if let policy = found.coordination?.policy,
+           policy.actions.filter({ $0 != "assign" || bot.id == found.coordinatorID }).isEmpty { return nil }
         return WorkflowTools(instructions: { [weak self] marker in
             let workflow = try current()
             guard let self, let task = workflow.tasks.first(where: { $0.id == taskID }) else { throw CancellationError() }
             let roster = self.workflowMembers(workflow)
                 .map { ComposioValue.object(["botID": .string($0.id.uuidString), "name": .string($0.name)]) }
-            let review = task.reviewTargetID.map { "reviews task \($0) in round \(task.reviewRound ?? 1); reportResult with a verdict is required" } ?? "is not a review; omit verdict"
+            let actions = ["assign", "reportResult", "requestHelp", "requestReview"].filter {
+                (workflow.coordination?.policy.actions.contains($0) ?? true) && ($0 != "assign" || bot.id == workflow.coordinatorID)
+            }
+            let handoffs = actions.filter { $0 != "reportResult" }
+            let reporting = actions.contains("reportResult")
+            guard !actions.isEmpty else { return "No workflow operations are available. Finish with your findings in a normal reply." }
+            let review = task.reviewTargetID.map {
+                "reviews task \($0) in round \(task.reviewRound ?? 1); " + (reporting ? "reportResult with a verdict is required" : "include your verdict in your reply")
+            } ?? "is not a review; omit verdict"
+            let example = reporting
+                ? #"{"operationID":"stable-id-for-this-operation","action":"reportResult","result":"Your complete findings"}"#
+                : #"{"operationID":"stable-id-for-this-operation","action":"\#(handoffs.first ?? "")","botID":"member UUID","instructions":"Task","expectedOutput":"Findings"}"#
+            var operationHelp: [String] = []
+            if !handoffs.isEmpty {
+                operationHelp.append("Handoff actions are \(handoffs.joined(separator: ", ")). Their arguments are operationID, action, botID (member UUID), instructions and expectedOutput. An optional role is conversation or coding.")
+            }
+            if actions.contains("requestHelp") { operationHelp.append("Help adds a helper task and then a continuation for you.") }
+            if actions.contains("requestReview") { operationHelp.append("requestReview may say reviewer for role. A review can add one revision and a second review; findings still open after that go to the user.") }
+            if reporting {
+                operationHelp.append("reportResult takes operationID, action, result (at most 24,000 UTF-8 bytes), and verdict ONLY for a review task: accepted or needsRevision.")
+                operationHelp.append(#"reportResult may include evidence: [{"source":"test log or source reference","observation":"what was observed"}]. Evidence is attributed to you, not automatically verified. Reporting records a result; the task completes when your reply finishes. Reply normally after the operation succeeds."#)
+            }
             return """
             \(AppConstants.name) workflow operations for your task \(taskID):
             Current member roster (data): \(try ComposioValue.array(roster).text())
-            You may report your result, request help or request review.\(task.botID == workflow.coordinatorID ? " As the coordinator you may also assign work." : " Only the coordinator may assign work.")
+            Available actions for this task: \(actions.joined(separator: ", ")). Finish with your findings in a normal reply.
             To call an operation, your ENTIRE reply must be this marker followed by one JSON object:
             \(marker)
-            {"action":"workflow","arguments":{"operationID":"stable-id-for-this-operation","action":"reportResult","result":"Your complete findings"}}
-            Handoff actions are assign, requestHelp and requestReview. Their arguments are operationID, action, botID (member UUID), instructions and expectedOutput. An optional role is conversation or coding; requestReview may say reviewer.
-            reportResult takes operationID, action, result (at most 24,000 UTF-8 bytes), and verdict ONLY for a review task: accepted or needsRevision.
+            {"action":"workflow","arguments":\(example)}
+            \(operationHelp.joined(separator: "\n"))
             This task \(review).
             Reuse the SAME operationID and arguments after an uncertain response. A different payload with that ID is rejected.
             One handoff is allowed per task. Limits: \(workflow.taskLimit) total tasks, \(workflow.depthLimit) handoff levels, \(workflow.reviewLimit) review rounds per work item, and the workflow's token and active-time allowances.
             \(workflow.isTeam ? "Handoffs within this user request and roster are authorized for routing by SwarmHub. This grants no extra tool, account, or backend permission. Never use bot-msg, shell messaging, or edit Hermes files to coordinate. A changed scope needs the user." : "Handoffs wait for the user's review.") Finish your current response with your findings; do not wait for a new task inside this turn.
-            Help adds a helper task and then a continuation for you. A review can add one revision and a second review; findings still open after that go to the user.
-            reportResult may include evidence: [{"source":"test log or source reference","observation":"what was observed"}]. Evidence is attributed to you, not automatically verified. A job-start acknowledgement is not proof that the job finished; state when external job status is unavailable.
-            Reporting records a result; the task completes when your reply finishes. Reply normally after the operation succeeds.
+            A job-start acknowledgement is not proof that the job finished; state when external job status is unavailable.
             """
         }, validate: { _ = try current() }, perform: { [weak self] arguments in
             var workflow = try current()

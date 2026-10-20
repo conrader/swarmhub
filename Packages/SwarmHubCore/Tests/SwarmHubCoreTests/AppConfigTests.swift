@@ -104,4 +104,22 @@ struct AppConfigTests {
         #expect(ranges["tasks"]!.contains(Int64(limits.tasks)) && ranges["activeSeconds"]!.contains(Int64(limits.activeSeconds)))
         #expect(AppConfigKeys.usableID("TEST-model/v1:free") && !AppConfigKeys.usableID("two words") && !AppConfigKeys.usableID(""))
     }
+
+    @Test func explicitModelPreferencesBeatBundleDefaultsForBothRoles() throws {
+        let vector = try #require(Self.cases.first { $0["id"] == .string("bundle") })
+        let store = try ConfigVectors.store(for: ConfigVectors.objects(vector["components"]))
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        let bundled = AppConfig.load(root: store.root, log: { _ in })
+        let local = AppConfig.ModelPair(provider: "TEST-local", model: "TEST-choice")
+        for role in [AppConfig.ModelRole.conversation, .coding] {
+            #expect(AppConfig.compiled.modelDefault(for: role) == nil)
+            #expect(AppConfig.compiled.modelDefault(for: role, preference: .agentDefault) == nil)
+            #expect(AppConfig.compiled.modelDefault(for: role, preference: .choice(local)) == local)
+            #expect(bundled.modelDefault(for: role, preference: .agentDefault) == nil)
+            #expect(bundled.modelDefault(for: role, preference: .choice(local)) == local)
+        }
+        #expect(bundled.modelDefault(for: .conversation) == bundled.conversationModel)
+        #expect(bundled.modelDefault(for: .coding) == bundled.codingModel)
+        #expect(bundled.conversationModel != nil && bundled.codingModel != nil)
+    }
 }

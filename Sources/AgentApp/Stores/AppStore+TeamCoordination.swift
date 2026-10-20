@@ -34,13 +34,14 @@ extension AppStore {
     }
     func workflowSessionID(_ threadID: UUID) -> String { sessionNamespace + "agentapp_workflow_" + threadID.uuidString.lowercased() }
 
-    func teamPolicyProblem(_ workflow: Workflow, action: String = "requestHelp", botID: UUID? = nil) -> String? {
+    func teamPolicyProblem(_ workflow: Workflow, action: String? = nil, botID: UUID? = nil) -> String? {
         guard let team = workflow.coordination else { return nil }
         guard workflowDestination(workflow) != nil else { return "The originating conversation was removed. New work is paused." }
         guard ownsTeamDispatcher() else { return "Another SwarmHub window or process owns coordination. Reopen this instance after it closes." }
         guard team.policy.ownerDeviceID == teamDeviceID else { return "Waiting for the coordinating device. This device can inspect the saved results." }
         guard let identity = workflowMembers(workflow).first(where: { $0.id == (botID ?? workflow.coordinatorID) }).map(teamIdentity),
-              team.policy.allows(action, identity: identity, at: now()) else { return "The delegation permission expired, was revoked, or an agent connection changed. Review the team before continuing." }
+              team.policy.isValid(identity: identity, at: now()),
+              action.map({ team.policy.actions.contains($0) }) ?? true else { return "The delegation permission expired, was revoked, or an agent connection changed. Review the team before continuing." }
         guard team.limits.isValid else { return "Review the team's limits before continuing." }
         return nil
     }
