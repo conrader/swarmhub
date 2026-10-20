@@ -20,7 +20,8 @@ struct SettingsConnectedAppsPane: View {
     var body: some View {
         ChatGPTConnectedAppSection(account: chatGPT, checksOnAppear: checksOnAppear)
         Section("Apps") {
-            Text("Connect your apps once, then choose which agents can use each account. Every app action asks you first.").font(.callout).foregroundStyle(.secondary)
+            Text("Connect your apps once, then choose which agents can use each account.").font(.callout).foregroundStyle(.secondary)
+            Label(ConnectedAppsCopy.approvalRule, systemImage: "hand.raised").font(.callout)
             if !apps.hasKey { serviceLine }
             if apps.busy && !apps.hasKey {
                 HStack { ProgressView().controlSize(.small); Text("Preparing your app connection…").font(.caption).foregroundStyle(.secondary) }
@@ -84,7 +85,7 @@ struct SettingsConnectedAppsPane: View {
                         }
                     }
                 }
-                Text("An agent can use several accounts of one app (up to \(ConnectedAppsStore.accountsPerApp)); it names the account for each action. App actions appear for your approval in that agent's chat.").font(.caption).foregroundStyle(.secondary)
+                Text("An agent can use several accounts of one app (up to \(ConnectedAppsStore.accountsPerApp)); it names the account for each action. App changes appear for your approval in that agent's chat.").font(.caption).foregroundStyle(.secondary)
             }
         }
         if apps.isAvailable {

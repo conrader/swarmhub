@@ -10,6 +10,12 @@ import Foundation
     func stop()
 }
 
+/// P55: why the audio engine did not start, for "The audio device could not start: <reason>".
+struct VoiceAudioStartError: LocalizedError, Equatable {
+    let reason: String
+    var errorDescription: String? { reason }
+}
+
 /// Input and output share a voice-processing engine, so speaker output can be cancelled from mic input.
 /// A test run never reaches the microphone (P28 `TestRunGuard`).
 @MainActor final class CodexVoiceAudio: CodexVoiceAudioDevice {
@@ -34,7 +40,7 @@ import Foundation
             try engine.inputNode.setVoiceProcessingEnabled(true)
             engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: playbackFormat)
             let format = engine.inputNode.outputFormat(forBus: 0)
-            guard format.sampleRate > 0, format.channelCount > 0 else { throw LiveVoiceError.audioUnavailable }
+            guard format.sampleRate > 0, format.channelCount > 0 else { throw VoiceAudioStartError(reason: "the input device has no audio format (is a microphone connected?)") }
             let (stream, continuation) = AsyncThrowingStream<CodexVoiceAudioChunk, Error>.makeStream(bufferingPolicy: .bufferingOldest(25))
             let capture = try Capture(inputFormat: format, continuation: continuation)
             self.capture = capture
@@ -42,7 +48,8 @@ import Foundation
             hasTap = true
             engine.prepare(); try engine.start(); player.play()
             return stream
-        } catch { stop(); throw LiveVoiceError.audioUnavailable }
+        } catch let error as VoiceAudioStartError { stop(); throw error }
+        catch { stop(); let error = error as NSError; throw VoiceAudioStartError(reason: "\(error.localizedDescription) (\(error.domain) \(error.code))") }
     }
 
     func play(_ chunk: CodexVoiceAudioChunk) throws {

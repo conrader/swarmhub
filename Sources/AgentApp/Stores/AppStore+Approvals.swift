@@ -46,7 +46,7 @@ extension AppStore {
                 askUser(approval, bot: bot, reason: (skipped + [reason]).joined(separator: " "), decidedBy: candidate.scope == .otherwise ? "system" : decidedBy, rule: rule)
             case .approve:
                 guard approval.hasKnownCommand else { askUser(approval, bot: bot, reason: "Rule matched, but command text is unavailable.", decidedBy: decidedBy, rule: rule); return }
-                guard !ApprovalRule.commandRequiresUserReview(facts.command) else { askUser(approval, bot: bot, reason: "Rule matched, but shell control, substitution, redirection, or newline syntax requires user review.", decidedBy: decidedBy, rule: rule); return }
+                guard !ApprovalRule.commandRequiresUserReview(facts.command), !ApprovalRule.reviewerMustEscalate(action: facts.action, command: facts.command) else { askUser(approval, bot: bot, reason: "Rule matched, but shell control, substitution, redirection, or newline syntax requires user review.", decidedBy: decidedBy, rule: rule); return }
                 await resolveAutomatically(approval, for: bot, backend: backend, approved: true, decidedBy: decidedBy, reason: "Matched rule \(ruleName).", rule: rule)
             case .deny:
                 await resolveAutomatically(approval, for: bot, backend: backend, approved: false, decidedBy: decidedBy, reason: "Matched rule \(ruleName).", rule: rule)
@@ -140,11 +140,12 @@ extension AppStore {
         else { return }
         _ = try? await backend.requestStop(target)
     }
-    /// P38 B: an app action always asks you, whatever the bot's lines say (no rule, no reviewer, no bot server).
+    /// P38 B: an app action that may change something always asks you, whatever the bot's lines say (no rule, no reviewer,
+    /// no bot server). P52: reads never get here (`ConnectedAppsChat` runs them without a card).
     func routeAppApproval(_ approval: ApprovalRequest, for bot: Bot) {
         appendAudit(to: bot, approval: approval, outcome: .requested, decidedBy: "system", reason: "App action requested.")
         if routeTeamAppApproval(approval, for: bot) { return }
-        askUser(approval, bot: bot, reason: "App actions always ask you.")
+        askUser(approval, bot: bot, reason: ConnectedAppsCopy.approvalRule)
     }
     /// P12: an approval this app did not start (another client's run, the Gateway's automations): always asks, never
     /// automatic, whatever the bot's policy.

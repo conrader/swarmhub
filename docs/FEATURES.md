@@ -7,9 +7,9 @@ What SwarmHub does today, and what is still being built. [Back to the overview](
 Each feature carries one of these labels:
 
 - **Released**: present in SwarmHub 0.5.6 unless a later version is named. Additions from 0.5.7, 0.5.8 and 0.5.9 are labelled with their release version.
-- **In development**: implemented on this development branch, absent from the checked releases through 0.5.9 and fetched `main`. The Swift code builds and its automated tests pass on a Mac. The native approval cards, remote-approval cards, secure key sheet and Draft Send have not yet been hand-tested on a Mac; the remote approval service has not been deployed.
+- **In development**: implemented on this development branch, absent from the checked releases through 0.5.9 and fetched `main`. Before the merge of `main`, the development Swift code built and its automated tests passed on a Mac; the merged code has not yet been built on a Mac. The native approval cards, remote-approval cards, secure key sheet and Draft Send have not yet been hand-tested on a Mac; the remote approval service has not been deployed.
 
-This page covers releases through **0.5.9**, the latest release in the fetched refs, plus development work at `843024b` (the code base of this documentation branch). Release additions were checked against tags `v0.5.7`–`v0.5.9` and fetched `main` at `5dba61a`; see the [release notes](https://github.com/conrader/swarmhub/releases). This branch split from 0.5.6 and does not contain those later release changes. In particular, connected-app reads here still go through the older approval path, and Draft Send here records a test action while released builds ask the agent to send it. The labels describe each version, not everything available when building this branch.
+This page covers releases through **0.5.9**, the latest release in the fetched refs, plus development work at `843024b` (the code base of this documentation branch). Release additions were checked against tags `v0.5.7`–`v0.5.9` and fetched `main` at `5dba61a`; see the [release notes](https://github.com/conrader/swarmhub/releases). This branch split from 0.5.6; `main` at `5dba61a` (0.5.7–0.5.9) has since been merged into it, so connected-app reads here follow the 0.5.8 path. Draft Send here still records a test action while released builds ask the agent to send it. The labels describe each version, not everything available when building this branch.
 
 Which features are available also depends on what your connected server supports. See the [Hermes versions SwarmHub works with](hermes-versions.md).
 
@@ -25,7 +25,7 @@ Which features are available also depends on what your connected server supports
 - **Group chats:** several agents in one conversation. Use `@Name` to choose who answers; otherwise every member answers in turn.
 - **Bot-to-bot messages:** agents can message each other with the bundled `bot-msg` skill script. The conversation shows who the message is for and when it arrives.
 - **Images and files:** share images, text files, PDFs and Word/RTF documents. They are read on your Mac, with on-device OCR for scans. Chat images and links are collected in Media.
-- **No reply is lost:** every reply says whether it finished, is incomplete or was not sent. A cut-off reply completes itself from your server, and Retry checks the server before sending anything again ([how it works](reference.md#never-losing-a-reply)).
+- **Reply recovery:** every reply says whether it finished, is incomplete or was not sent. A cut-off reply can recover the history available on your server, and Retry checks the server before sending anything again ([how it works](reference.md#never-losing-a-reply)).
 - **Sidebar and shortcuts:** each chat shows its latest message or your unsent draft. The Navigate and Chat menus have keyboard shortcuts (Help → Keyboard Shortcuts), and ⌘K opens a quick switcher.
 - **Sample agents:** before you connect a box, "Look around with sample agents" shows five labelled sample agents.
 

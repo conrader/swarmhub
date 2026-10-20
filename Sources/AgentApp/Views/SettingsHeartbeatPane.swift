@@ -78,6 +78,13 @@ struct HeartbeatBotRow: View {
                     Text("\(plan.wakesPerDay(stagger: store.heartbeatStagger(for: bot))) wakes a day · \(plan.prompt == HeartbeatPlan.defaultPrompt ? "default prompt" : "own prompt")")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                if let changed = store.heartbeatBoxChangeNotice(for: bot) {
+                    HStack {
+                        Text(changed).font(.caption).foregroundStyle(.orange)
+                        Button(HeartbeatContextCopy.useBox) { store.useBoxHeartbeatSchedule(bot) }
+                        Button(HeartbeatContextCopy.putBack) { Task { store.heartbeatBatch.problems[bot.id] = await store.putBackHeartbeatSchedule(bot) } }
+                    }.controlSize(.small).accessibilityIdentifier("heartbeat.changedOnBox")
+                }
                 if let problem = store.heartbeatBatch.problems[bot.id] { Text(problem).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
                 if store.botChatConflict(bot) != nil {
                     HStack {

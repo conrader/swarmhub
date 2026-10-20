@@ -48,7 +48,7 @@ extension AppStore {
         }
         let workflow = try workflowTools(for: request, bot: bot), appsAllowed = connectionBot(id: bot.id) != nil
         guard appsAllowed || workflow != nil else { return try await backend.send(request) }
-        return try await ConnectedAppsChat.stream(request, botID: bot.id, backend: backend, apps: connectedApps, appsAllowed: appsAllowed, workflow: workflow,
+        return try await ConnectedAppsChat.stream(request, botID: bot.id, backend: backend, apps: connectedApps, appsAllowed: appsAllowed, workflow: workflow, botName: bot.name,
             willSend: { [weak self] request in try self?.recordTeamSubmission(request, bot: bot) })
     }
 

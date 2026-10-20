@@ -61,11 +61,11 @@ import Testing
     #expect(bot.messages.filter { $0.role == .user }.count == 1 && bot.messages.filter { $0.role == .assistant }.count == 1)
 }
 
-@MainActor @Test func aChatWithoutASessionCountsAsTheBoxLackingTheTurn() async throws {
+@MainActor @Test func aChatWithoutASessionCannotAuthorizeRetry() async throws {
     let (store, bot, box, row) = unsentChat(boxSession: false)
     store.retry(row)
-    try await waitUntil { !store.anyTurnRunning && row.turnState == .finished }
-    #expect(box.chatPosts.count == 1 && bot.hermesSessionID != nil)
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(box.chatPosts.isEmpty && bot.hermesSessionID == nil && row.turnState == .notSent)
 }
 
 @MainActor @Test func aStopDuringTheReadSendsNothing() async throws {
@@ -140,4 +140,25 @@ import Testing
     relaunched.startLaunchWork(makeConnectivity: { ManualConnectivity() })
     try await waitUntil { states[0].log.all.filter { $0.method == "GET" && $0.path.hasSuffix("/messages") }.count >= 2 }
     #expect(states[0].posts.count == posts, "only GETs after a cut stream and a relaunch")
+}
+
+@MainActor @Test func aCleanThreadCannotClearAnUnreadMainChat() async throws {
+    let (store, bot, box, row) = unsentChat(boxSession: false)
+    let thread = ChatThread(parentMessageID: UUID(), parentSessionID: nil, hermesSessionID: "clean-thread")
+    thread.hermesSessionID = "clean-thread"
+    bot.threads.append(thread)
+    box.with { $0.sessions["clean-thread"] = [] }
+    store.retry(row)
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(box.chatPosts.isEmpty && row.turnState == .notSent)
+}
+
+@MainActor @Test func aTrulyDivergedHistoryStillRefuses() async throws {
+    let (store, bot, box, row) = unsentChat()
+    bot.messages.insert(contentsOf: [ChatMessage(role: .user, content: "earlier question"), ChatMessage(role: .assistant, content: "earlier answer", turnState: .finished)], at: 0)
+    box.add("s-alpha", "user", "something else entirely"); box.add("s-alpha", "assistant", "a different history", finish: "stop")
+    store.retry(row, sendAnyway: true)
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(box.chatPosts.isEmpty && row.turnState == .notSent)
+    #expect(bot.messages.contains { $0.content == "Alpha: Can't reach the box; nothing was sent." })
 }

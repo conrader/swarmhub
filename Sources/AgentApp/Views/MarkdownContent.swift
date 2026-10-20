@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Assistant Markdown with inline cards: choices, drafts, link pills and images (see `ChatCardParser`); swarmhub blocks stay hidden.
+/// Assistant Markdown with inline cards: choices, drafts, link pills and images (see `ChatCardParser`); swarmhub blocks read
+/// as one folded line each (P51).
 struct MarkdownContent: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var message: ChatMessage
@@ -21,6 +22,10 @@ struct MarkdownContent: View {
                 case .image(let alt, let url): InlineImage(alt: alt, url: url)
                 case .connectApp(let request): ConnectAppCard(message: message, request: request, apps: store.connectedApps)
                 }
+            }
+            // P51: each ```swarmhub fence as one line from its ops; unfold shows the block.
+            ForEach(Array(SwarmhubSummary.lines(in: text ?? message.content).enumerated()), id: \.offset) { offset, line in
+                FoldedBlockLine(folds: store.technicalFolds, key: TechnicalFolds.key(message.id, "fence\(indexBase).\(offset)"), line: line)
             }
         }
     }

@@ -55,7 +55,7 @@ extension AppStore {
             if !replies.isEmpty, replies.allSatisfy(\.isSilent) {
                 row.metadata[AutomationKey.silent] = "1"; replies.forEach { $0.metadata[AutomationKey.silent] = "1" }
             } else if let reply = replies.last(where: { !$0.isSilent }), now().timeIntervalSince(reply.createdAt) < 600 {
-                notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(reply.finalText))
+                notifyIfNeeded(bot: bot, message: technicalLine(reply, botName: bot.name))
             }
             changed = true
         }

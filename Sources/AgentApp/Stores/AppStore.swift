@@ -103,6 +103,10 @@ import SwarmHubCore
     lazy var boxInstallTransport = BoxInstallTransport(configurationURL: fileURL.deletingLastPathComponent().appending(path: "Updates/box-transport.json"))
     /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()
+    /// P50: where each chat was left and whether it is away from the newest message.
+    let chatScroll = ChatScrollModel()
+    /// P51: folded technical rows the user opened (memory only).
+    let technicalFolds = TechnicalFolds()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let approvalKeys: any DeviceApprovalKeyStore
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
@@ -190,7 +194,7 @@ import SwarmHubCore
                 globalApprovalRoutes = file.approvalRoutes ?? []; globalReviewAfter = file.reviewAfter ?? []
                 boxReadings = file.boxReadings ?? [:]; botMessages.marks = file.botMessageMarks ?? [:]
                 approvals = file.managedApprovals ?? []
-                restoreAutomations(file.automations); heartbeatSettings = file.heartbeat ?? .init()
+                restoreAutomations(file.automations); heartbeatSettings = file.heartbeat ?? .init(); chatScroll.restore(file.scrollPositions)
                 turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
                 if !migrateArchivedGroups().isEmpty { save() }
                 var migratedLegacyApprovalRules = false

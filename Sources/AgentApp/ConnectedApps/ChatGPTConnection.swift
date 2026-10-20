@@ -188,6 +188,6 @@ import Foundation
     }
     private func fail(_ error: Error) {
         close(); state = .idle; plan = nil; email = nil
-        errorMessage = (error as? CodexVoiceError ?? .unavailable).localizedDescription
+        errorMessage = (error as? CodexVoiceError ?? (error as? CodexRPCError)?.fallback ?? .unavailable).localizedDescription
     }
 }

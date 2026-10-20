@@ -3,11 +3,20 @@ import SwiftUI
 struct ChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft = ""
     @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
-    @State private var showProjectContext = false
+    @State private var showProjectContext = false; @State private var viewport = ChatViewport()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     var body: some View {
         let thread = store.openThread(in: bot), coding = store.codingThreadChoice(for: bot)
         let incoming = store.isWorking(bot) ? nil : store.workingForOthersLine(for: bot)
+        // P51: technical rows read as one folded line; an app request's result row is part of its line.
+        let all = bot.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }, layout = store.technicalLayout(all, botName: bot.name)
+        let shown = layout.visible(all), conversationID = thread?.id ?? bot.id
+        let threadShown = thread.map { thread in
+            let rows = thread.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }
+            return store.technicalLayout(rows, botName: bot.name).visible(rows)
+        }
+        let order = threadShown.map { store.arrivalsAboveThread(in: bot).map(\.id) + $0.map(\.id) } ?? shown.map(\.id)
+        let _ = viewport.show(conversationID, order: order)
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
@@ -34,33 +43,39 @@ struct ChatView: View {
                         Color.clear.frame(height: 20)
                         if let thread {
                             // P41: an arrival shows here too, whatever thread is open.
-                            ForEach(store.arrivalsAboveThread(in: bot)) { MessageView(message: $0).id($0.id) }
-                            ThreadTranscript(thread: thread, parent: bot.messages.first { $0.id == thread.parentMessageID }, botID: bot.id) { proxy.scrollTo("bottom", anchor: .bottom) }
+                            ForEach(store.arrivalsAboveThread(in: bot)) { MessageView(message: $0, fold: layout.folds[$0.id]).id($0.id).chatRow($0.id, in: viewport) }
+                            ThreadTranscript(thread: thread, parent: bot.messages.first { $0.id == thread.parentMessageID }, botID: bot.id, botName: bot.name, viewport: viewport) { count in
+                                if count > 0 { viewport.arrived(count, proxy: proxy) } else { viewport.grew(proxy: proxy) }
+                            }
                         } else {
                             if GrokServerArchive.choice(hasLocalArchive: bot.grokSourceID != nil) == .local { GrokHistoryView(bot: bot, expanded: historyExpanded) }
                             if bot.messages.isEmpty && bot.grokSourceID == nil { ChatWelcome(bot: bot) }
-                            ForEach(bot.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }) { message in
+                            ForEach(shown) { message in
                                 MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in bot.messages.first { $0.id == id } },
                                             thread: bot.thread(for: message.id), canThread: store.canFork(bot), codingModel: coding?.model,
-                                            actionTarget: .bot(botID: bot.id, threadID: nil), reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) },
-                                            codeInThread: { store.codeInThread(to: message, in: bot) }).id(message.id)
+                                            actionTarget: .bot(botID: bot.id, threadID: nil), fold: layout.folds[message.id], partner: layout.folds[message.id]?.partnerID.flatMap { id in all.first { $0.id == id } },
+                                            reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) },
+                                            codeInThread: { store.codeInThread(to: message, in: bot) }).id(message.id).chatRow(message.id, in: viewport)
                             }
                         }
                         TeamWorkView(conversationID: thread?.id ?? bot.id)
                         ForEach(store.approvals.filter { $0.botID == bot.id && !($0.sessionID?.hasPrefix("group-") ?? false) }) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
-                        Color.clear.frame(height: 1).id("bottom")
+                        ChatBottomMarker(viewport: viewport, conversationID: conversationID)
                     }.frame(maxWidth: 720).frame(maxWidth: .infinity)
                     // P38 B: an app connection card grants access to the bot of this chat only.
                     .environment(\.connectAppBotID, bot.id)
-                }.background(AppColor.chat)
-                .onChange(of: bot.messages.last?.content) { _, _ in if thread == nil { proxy.scrollTo("bottom", anchor: .bottom) } }
-                .onChange(of: bot.messages.count) { _, _ in if thread == nil { proxy.scrollTo("bottom", anchor: .bottom) } }
+                }.id(conversationID).background(AppColor.chat)
+                // P50: opens where it was left; new rows and streaming text follow only at the bottom.
+                .overlay(alignment: .bottom) { JumpToLatestButton(scroll: store.chatScroll, conversationID: conversationID, proxy: proxy) }
+                .task(id: conversationID) { await viewport.open(conversationID, model: store.chatScroll, proxy: proxy) }
+                .onChange(of: shown.last?.content) { _, _ in if thread == nil { viewport.grew(proxy: proxy) } }
+                .onChange(of: shown.count) { old, new in if thread == nil { viewport.arrived(new - old, proxy: proxy) } }
                 .onChange(of: store.scrollTarget) { _, target in
                     guard let target else { return }
                     DispatchQueue.main.async { proxy.scrollTo(target, anchor: .center); store.scrollTarget = nil }
                 }
             }
-            if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(reply.content)").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
+            if let reply = store.replyTo { HStack { Image(systemName: "arrowshape.turn.up.left"); Text("Replying to \(reply.role == .user ? "you" : bot.name): \(store.technicalLine(reply, botName: bot.name))").lineLimit(1); Spacer(); Button { store.replyTo = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.top, 8).frame(maxWidth: 768) }
             if bot.isReadOnlyArchive {
                 Text("Read-only archive imported from Grok Bot.").font(.system(size: 12)).foregroundStyle(.secondary).padding(14).frame(maxWidth: .infinity).background(AppColor.chat)
             } else if bot.isGrokHistoryOnly {
@@ -116,6 +131,8 @@ struct ChatView: View {
     private func send() {
         let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
         let steering = !store.isIdle(store.currentConversation(of: bot))
+        // P50: sending always goes to the bottom.
+        store.chatScroll.toBottom(store.currentConversation(of: bot).id)
         if store.submitComposer(text: value, attachments: steering ? [] : intake.items) { draft = ""; if !steering { intake.items = [] } }
     }
 }
@@ -123,17 +140,21 @@ struct ChatView: View {
 /// An open thread: the message it branched from, then the thread's own replies.
 private struct ThreadTranscript: View {
     @EnvironmentObject private var store: AppStore
-    @ObservedObject var thread: ChatThread; let parent: ChatMessage?; var botID: UUID? = nil; let scrollToBottom: () -> Void
+    @ObservedObject var thread: ChatThread; let parent: ChatMessage?; var botID: UUID? = nil; var botName = ""; let viewport: ChatViewport
+    /// Rows that arrived (0: the newest row's text grew).
+    let changed: (Int) -> Void
     var body: some View {
-        if let parent { MessageView(message: parent).opacity(0.85) }
+        let rows = thread.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }, layout = store.technicalLayout(rows, botName: botName)
+        if let parent { MessageView(message: parent, fold: store.technicalLayout([parent], botName: botName).folds[parent.id]).opacity(0.85) }
         HStack { Rectangle().fill(AppColor.separator).frame(height: 0.5); Text(thread.replyCount == 1 ? "1 reply" : "\(thread.replyCount) replies").font(.caption).foregroundStyle(.secondary).fixedSize(); Rectangle().fill(AppColor.separator).frame(height: 0.5) }
             .padding(.horizontal, 28).padding(.vertical, 6)
-        ForEach(thread.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }) { message in
+        ForEach(layout.visible(rows)) { message in
             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in thread.messages.first { $0.id == id } },
-                        actionTarget: botID.map { .bot(botID: $0, threadID: thread.id) }, reply: { store.replyTo = message }).id(message.id)
+                        actionTarget: botID.map { .bot(botID: $0, threadID: thread.id) }, fold: layout.folds[message.id],
+                        partner: layout.folds[message.id]?.partnerID.flatMap { id in rows.first { $0.id == id } }, reply: { store.replyTo = message }).id(message.id).chatRow(message.id, in: viewport)
         }
         Color.clear.frame(height: 0)
-            .onChange(of: thread.messages.last?.content) { _, _ in scrollToBottom() }
-            .onChange(of: thread.messages.count) { _, _ in scrollToBottom() }
+            .onChange(of: thread.messages.last?.content) { _, _ in changed(0) }
+            .onChange(of: thread.messages.count) { old, new in changed(max(new - old, 0)) }
     }
 }

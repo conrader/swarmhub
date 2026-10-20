@@ -77,7 +77,7 @@ struct AgentAppMain: App {
             for try await event in stream { switch event {
             case .token(let token): kinds.append("token"); reply += token
             case .replace(let text): kinds.append("replace"); reply = text
-            case .status, .tool, .steer, .hiddenTokens, .appError: kinds.append("status")
+            case .status, .tool, .steer, .hiddenTokens, .appError, .appUsed, .appNotice: kinds.append("status")
             case .subAgent: kinds.append("subagent")
             case .approval(let request):
                 kinds.append("approval"); approvalCount += 1

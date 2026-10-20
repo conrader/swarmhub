@@ -26,6 +26,23 @@ import Testing
         return (store, bot)
     }
 
+    @Test func interruptedDispatchRetainsTextWithoutReplay() async throws {
+        let url = temporaryStore()
+        let (original, first, _) = try await queuedBehindARunningTurn(url: url)
+        let next = try #require(original.turns.nextMessages.first)
+        #expect(original.recordNextMessage(next, .submitting))
+        let backend = ScriptedTurnBackend()
+        let (store, bot) = reopen(url, backend)
+        #expect(!store.turns.nextMessages.contains { $0.id == next.id })
+        #expect(bot.messages.contains { $0.content.contains("delivery is uncertain") && $0.content.contains(next.bubble.content) })
+        let records = try store.journal().records(NextMessageRecord.self, kind: AppStore.nextMessageKind)
+        #expect(records.contains { $0.id == next.id && $0.state == .uncertain && $0.text == next.bubble.content })
+        #expect(backend.calls.all.isEmpty)
+        original.turns.nextMessages = []
+        await first.end()
+        try await waitUntil { !original.anyTurnRunning }
+    }
+
     @Test func theQueueResumesInOrderAfterTheEarlierReplyIsConfirmed() async throws {
         let url = temporaryStore()
         let (original, first, _) = try await queuedBehindARunningTurn(url: url)

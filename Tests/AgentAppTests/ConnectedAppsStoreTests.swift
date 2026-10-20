@@ -16,15 +16,15 @@ import Testing
     #expect(store.send(text: "Read my inbox"))
     try await waitUntil { !store.approvals.isEmpty }
     let card = store.approvals[0]
-    #expect(store.isAppAction(card) && card.botID == bot.id && card.routeNote == "App actions always ask you.")
+    #expect(store.isAppAction(card) && card.botID == bot.id && card.routeNote == ConnectedAppsCopy.approvalRule)
     #expect(MockHermesProtocol.recorded(host).allSatisfy { !$0.url!.path.hasSuffix("/execute") }, "nothing runs before the card is answered")
     store.decide(card, approved: true)
     try await waitUntil { !store.anyTurnRunning }
     #expect(bot.messages.last { $0.role == .assistant }?.content == "Your inbox contains one message.")
-    #expect(bot.messages.contains { $0.role == .system && $0.content == "Approved: Fetch emails" })
+    #expect(bot.messages.contains { $0.role == .system && $0.content == "Approved: Send email" })
     #expect(bot.approvalAudit.map(\.outcome).suffix(2) == [.asked, .approved])
     let receipt = try #require(apps.receipts.last)
-    #expect(receipt.state == .succeeded && receipt.botID == bot.id && receipt.tool == "GMAIL_FETCH_EMAILS")
+    #expect(receipt.state == .succeeded && receipt.botID == bot.id && receipt.tool == "GMAIL_SEND_EMAIL")
     let resultID = try #require(receipt.resultID)
     let saved = String(decoding: try apps.results().read(resultID, botID: bot.id), as: UTF8.self)
     #expect(saved.contains("synthetic inbox") && !saved.contains("never-copy-provider-token"))

@@ -30,6 +30,7 @@ struct ReconcileReport: Sendable {
     var problems: [String] = []
     var changed = false, unreachable = false, skipped = false, activeRun = false
     var changedRows: Set<UUID> = []
+    var diverged = false
     /// Per the last unit read: box time of its oldest row (nil = whole session), the box clock minus the Mac's, whether
     /// an unpaired box turn is newer than the last paired one.
     var coversFrom: Date?; var skew: TimeInterval = 0; var newerUnmatched = false
@@ -87,7 +88,7 @@ extension AppStore {
     @discardableResult func reconcile(_ conversation: any Conversation, reason: ReconcileReason, full: Bool = false, ignoringStream: Bool = false, member: UUID? = nil) async -> ReconcileReport {
         var report = ReconcileReport()
         guard ignoringStream || !isStreamingIn(conversation) else { report.skipped = true; return report }
-        for unit in reconcileUnits(for: conversation) where member == nil || unit.bot.id == member {
+        for unit in reconcileUnits(for: conversation) where (member == nil || unit.bot.id == member) && (reason != .retry || unit.conversation === conversation) {
             report.total += 1
             // P39: a thread can stream while its bot's chat is read; its own turn is never adopted mid-stream.
             if !ignoringStream, unit.conversation !== conversation, isStreamingIn(unit.conversation) { report.skipped = true; continue }
@@ -127,6 +128,9 @@ extension AppStore {
         guard ignoringStream || !isStreamingIn(unit.conversation) else { report.skipped = true; return }
         let isBotChat: Bool; if case .chat(true) = unit.mode { isBotChat = true } else { isBotChat = false }
         if isBotChat, !read.missing, plan.diverged || (read.rows.isEmpty && snapshot.contains { $0.role != .system && !$0.isEmpty }) {
+            // Real divergence only: the box holds turns and none match a reply this chat already has. An empty box session
+            // (it lacks the turn) or unmatched box turns against only unsent rows (newerUnmatched) leave retry to decide.
+            report.diverged = plan.diverged && snapshot.contains { $0.role == .assistant && !$0.isEmpty }
             let note = "Hermes history was not merged because it diverges from this local conversation."
             if unit.conversation.messages.last?.content != note { unit.conversation.messages.append(ChatMessage(role: .system, content: note)); report.changed = true }
             return
@@ -157,7 +161,8 @@ extension AppStore {
                 row.activity = new.activity
                 return row
             }
-            added += rows.filter { $0.role == .assistant && !$0.isSilent }.count
+            // P51: an app request (its result is a user row) counts as no unread by itself.
+            added += rows.filter { $0.role == .assistant && !$0.isSilent && !TechnicalRow.isAppRequest($0.content) }.count
             if let after = addition.after {
                 guard let index = conversation.messages.firstIndex(where: { $0.id == after }) else { continue }
                 conversation.messages.insert(contentsOf: rows, at: index + 1)

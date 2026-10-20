@@ -36,7 +36,7 @@ Hermes is supported; OpenClaw agents connect through their Gateway (built agains
 
 In development, not released: managed approvals for agents on this Mac and on remote boxes (the remote service is not deployed yet), a secure key sheet that gives an agent a file path instead of the key, and Draft Send (it records drafts but does not send them yet).
 
-The development Swift code builds and its automated tests pass on a Mac; these native UI flows have not yet been hand-tested. The full feature page covers releases through 0.5.9, though this development branch does not contain the 0.5.7–0.5.9 code changes.
+This development branch now includes the 0.5.7–0.5.9 code changes (merged from `main` at `5dba61a`). The merged Swift code has not yet been built or tested on a Mac, and these native UI flows have not yet been hand-tested. The full feature page covers releases through 0.5.9.
 
 **[All features, with what is released and what is in development →](docs/FEATURES.md)**
 
@@ -75,6 +75,6 @@ Bot avatars use [BotAvatarsKit](https://github.com/Jakubantalik/Libraries.dev/tr
 
 [Third-party notices](THIRD-PARTY-NOTICES.md) · [Project license](LICENSE)
 
-### Team coordination (development branch)
+### Team coordination
 
-App-mediated peer handoffs, directed group work, recovery, task permissions and shared context are implemented on `codex/swarmhub-team-coordination`. [Usage and boundaries](docs/team-coordination.md). New work waits when SwarmHub cannot dispatch; no additional server runtime or Hermes configuration is required.
+App-mediated peer handoffs, directed group work, recovery, task permissions and shared context are implemented in the current source tree. [Usage and boundaries](docs/team-coordination.md). New work waits when SwarmHub cannot dispatch; no additional server runtime or Hermes configuration is required.

@@ -71,6 +71,12 @@ extension AppStore {
                 await routeApproval(request, for: bot, backend: activeBackend)
             case .steer: break
             case .appError(let text): if let conversation { addWarning("\(bot.name): \(text)", in: conversation, after: row) }
+            case .appNotice(let text): if let conversation { addWarning(text, in: conversation, after: row) }
+            case .appUsed(let request, let result):
+                if let conversation {
+                    let line = ChatMessage(role: .system, content: request, metadata: [TechnicalKey.appRequest: request, TechnicalKey.appResult: result])
+                    conversation.messages.insert(line, at: systemIndex(after: row, in: conversation)); objectWillChange.send()
+                }
             case .hiddenTokens(let count): assistant.metadata[TurnKey.toolTokens] = String((Int(assistant.metadata[TurnKey.toolTokens] ?? "") ?? 0) + max(0, count))
             case .completed: completed = true
             case .failed(let value): boxFailure = value
@@ -113,13 +119,21 @@ extension AppStore {
         return outcome
     }
 
-    /// A `.system` warning row after `row` (or at the end); an identical line is not repeated back to back.
+    /// A `.system` warning row after `row` and the system lines already below it (or at the end); an identical line is not
+    /// repeated back to back. P52: after those lines, so a failure never reads as earlier than the approval before it.
     func addWarning(_ text: String, in conversation: any Conversation, after row: ChatMessage?) {
-        let index = row.flatMap { row in conversation.messages.firstIndex { $0.id == row.id } }.map { $0 + 1 } ?? conversation.messages.endIndex
+        let index = systemIndex(after: row, in: conversation)
         if index > 0, conversation.messages[index - 1].role == .system, conversation.messages[index - 1].content == text { return }
         if index < conversation.messages.endIndex, conversation.messages[index].role == .system, conversation.messages[index].content == text { return }
         conversation.messages.insert(ChatMessage(role: .system, content: text, metadata: [TurnKey.tone: "warning"]), at: index)
         objectWillChange.send()
+    }
+
+    /// Where a line about `row`'s turn goes: below `row` and the system lines that follow it (the end without a row).
+    func systemIndex(after row: ChatMessage?, in conversation: any Conversation) -> Int {
+        guard var index = row.flatMap({ row in conversation.messages.firstIndex { $0.id == row.id } }).map({ $0 + 1 }) else { return conversation.messages.endIndex }
+        while index < conversation.messages.endIndex, conversation.messages[index].role == .system { index += 1 }
+        return index
     }
 
     /// The 1:1 and thread turn behind `send(text:)` and Retry: session setup, the stream, `finishTurn`, approvals, release.
@@ -143,7 +157,7 @@ extension AppStore {
                 save()
             }
             let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
-            let stream = try await conversationStream(.init(sessionID: sessionID, systemPrompt: systemPrompt, messages: history, images: images, managementText: managementText),
+            let stream = try await conversationStream(.init(sessionID: sessionID, systemPrompt: withHeartbeatContext(systemPrompt, bot: bot), messages: history, images: images, managementText: managementText),
                                                       bot: bot, backend: activeBackend)
             if isCurrent(token) {
                 let flags = try? await activeBackend.features()
@@ -169,6 +183,8 @@ extension AppStore {
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
         let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation, backend: activeBackend)
+        // P54: a turn that still ends with an app request shows it folded (P51) with this line: never raw, never silent.
+        if TechnicalRow.isAppRequest(assistant.content) { addWarning(AppRequestMarker.notRun, in: conversation, after: assistant) }
         let abandoned = approvals.filter { !$0.isManaged && $0.botID == bot.id && ($0.sessionID == nil || $0.sessionID == (conversation.hermesSessionID ?? sessionID)) }
         for approval in abandoned {
             appendAudit(to: bot, approval: approval, outcome: .denied, decidedBy: "system", reason: cancelled ? "Run stopped; pending approval was cancelled." : "Run ended; pending approval was cancelled.")
@@ -187,7 +203,7 @@ extension AppStore {
         if conversation.id == bot.id { finishStagedSkillInstall(manager: bot) }
         if outcome.state == .finished && hasText && !SilentReply.isSilent(SwarmhubBlock.visibleText(assistant.finalText)) {
             AvatarReactions.shared.completed(bot)
-            if !isTeamThread(conversation) { notifyIfNeeded(bot: bot, message: SwarmhubBlock.visibleText(assistant.finalText)) }
+            if !isTeamThread(conversation) { notifyIfNeeded(bot: bot, message: technicalLine(assistant, botName: bot.name)) }
         }
         // P45: a stop for a typed correction (P28) is not the user stopping the goal; the correction's own turn continues it.
         let corrected = turns.correcting.contains(token)
@@ -205,7 +221,7 @@ extension AppStore {
     func chatHistory(_ conversation: any Conversation, upTo last: ChatMessage? = nil, excluding reply: ChatMessage) -> [(role: String, content: String)] {
         var rows = owner(of: conversation).map { readableMessages(conversation.messages, for: $0.id) } ?? conversation.messages
         if let last, let index = rows.firstIndex(where: { $0.id == last.id }) { rows = Array(rows[...index]) }
-        return rows.filter { $0.id != reply.id && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && $0.metadata[SlashKey.line] == nil && $0.presentation != .automation && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
+        return rows.filter { $0.id != reply.id && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && $0.metadata[SlashKey.line] == nil && $0.metadata[TechnicalKey.appRequest] == nil && $0.presentation != .automation && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
             .map { (role: $0.role.rawValue, content: $0.outgoingText) }
     }
 

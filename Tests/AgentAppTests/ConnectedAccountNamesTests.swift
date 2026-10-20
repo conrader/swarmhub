@@ -72,12 +72,20 @@ private final class NamingComposio: @unchecked Sendable {
     #expect(apps.accounts.first?.label == "konrad@example.com (2)")
 }
 
-@MainActor @Test func existingAccountsWithoutANameAreNamedOnceOnRefresh() async throws {
+@MainActor @Test func aFailedNamingIsRetriedOnALaterRefreshAfterTheBackOff() async throws {
     let (apps, fake, _) = fixture([("ca_mail", "gmail", "2026-10-15T08:00:00Z"), ("ca_slack", "slack", "2026-10-15T09:00:00Z")])
+    var clock = Date(timeIntervalSince1970: 1_800_000_000); apps.now = { clock }
     fake.taken = Set((1...9).map { $0 == 1 ? "konrad@example.com" : "konrad@example.com (\($0))" })
     await apps.refresh(); await apps.refresh(); await apps.refresh()
-    #expect(fake.profileCalls == ["GMAIL_GET_PROFILE"], "tried once per launch, even when saving failed; Slack has no profile call")
+    #expect(fake.profileCalls == ["GMAIL_GET_PROFILE", "SLACK_TEST_AUTH"], "a failure waits for the back-off, not for the next launch")
     #expect(apps.accounts.first { $0.id == "ca_slack" }?.label.hasPrefix("Slack account 1") == true)
+    clock += ConnectedAppsStore.namingBackoff - 1; await apps.refresh()
+    #expect(fake.profileCalls.count == 2)
+    clock += 2; fake.taken = []; await apps.refresh()
+    #expect(fake.profileCalls == ["GMAIL_GET_PROFILE", "SLACK_TEST_AUTH", "GMAIL_GET_PROFILE", "SLACK_TEST_AUTH"])
+    #expect(apps.accounts.first { $0.id == "ca_mail" }?.label == "konrad@example.com" && apps.namingRetryAfter["ca_mail"] == nil)
+    await apps.refresh()
+    #expect(fake.profileCalls.count == 4, "a named account is not read again; the unnamed one still waits")
 }
 
 @MainActor @Test func renameSavesTheAliasAndEmptyPutsBackTheAutomaticName() async throws {
@@ -109,10 +117,10 @@ private final class NamingComposio: @unchecked Sendable {
     #expect(!named.contains { $0.label.contains("brave-tiger") || $0.label.contains("_") })
 }
 
-@Test func profileNamesAreReadFromTheNameFieldOnly() {
-    let result = ComposioValue.object(["successful": .bool(true), "data": .object(["response_data": .object(["login": .string(" octo ")]), "token": .string("x")])])
-    #expect(AccountProfileName.read(result, field: "login") == "octo")
-    #expect(AccountProfileName.read(.object(["successful": .bool(false), "data": .object(["login": .string("octo")])]), field: "login") == nil)
-    #expect(AccountProfileName.read(.object(["data": .object(["login": .string("two\nlines")])]), field: "login") == nil)
-    #expect(AccountProfileName.table["gmail"]?.tool == "GMAIL_GET_PROFILE" && AccountProfileName.table["github"]?.field == "login")
+@Test func profileNamesAreReadFromNameKeysOnly() {
+    let result = ComposioValue.object(["successful": .bool(true), "data": .object(["login": .string(" octo "), "token": .string("x")])])
+    #expect(AccountProfileName.read(result, toolkit: "github") == .init(name: "octo", path: "data.login"))
+    #expect(AccountProfileName.read(.object(["successful": .bool(false), "data": .object(["login": .string("octo")])]), toolkit: "github") == nil)
+    #expect(AccountProfileName.read(.object(["data": .object(["login": .string("two\nlines")])]), toolkit: "github") == nil)
+    #expect(AccountProfileName.known["gmail"]?.first?.tool == "GMAIL_GET_PROFILE" && AccountProfileName.known["github"]?.first?.tool == "GITHUB_GET_THE_AUTHENTICATED_USER")
 }

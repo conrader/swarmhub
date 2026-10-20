@@ -28,6 +28,8 @@ private func render(_ events: [AgentEvent]) -> [String] {
         case .steer: "steer"
         case .hiddenTokens(let count): "hidden:\(count)"
         case .appError(let text): "appError:\(text)"
+        case .appUsed: "appUsed"
+        case .appNotice(let text): "appNotice:\(text)"
         }
     }
 }

@@ -50,9 +50,13 @@ extension AppStore {
             guard !held.contains(key), !next.restored, isIdle(next.conversation), turnCapacityProblem(for: waitingBots(next)) == nil else {
                 held.insert(key); index += 1; continue
             }
-            guard recordNextMessage(next, .sent) else { break }
+            guard recordNextMessage(next, .submitting) else { break }
             turns.nextMessages.remove(at: index)
             if startNextMessage(next) {
+                // Local rows are saved before dispatch is retired. A crash before this save
+                // leaves a submitting record which recovery exposes as uncertain.
+                save()
+                guard recordNextMessage(next, .sent) else { continue }
                 if next.kind != .turn { next.bubble.metadata[SteerKey.steer] = "sentNext" }
                 held.insert(key); objectWillChange.send(); save(); continue
             }
