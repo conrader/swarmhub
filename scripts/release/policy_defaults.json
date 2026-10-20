@@ -1,0 +1,8 @@
+{
+  "schema": "swarmhub/policy-defaults/1",
+  "note": "Today's compiled policy defaults as typed values (CORE-PLAN.md 1.2 config.policy). Sources: CodingOrder.standard (Sources/AgentApp/Models/CodingOrder.swift), ModelDefaults (Sources/AgentApp/Models/ModelPolicy.swift, all unset), TeamPolicy.actions and TeamLimits (Packages/SwarmHubCoordination/Sources/SwarmHubCoordination/TeamPolicy.swift). scripts/test_release_build.py checks these against the Swift sources.",
+  "codingOrder": "claude,codex,hermes",
+  "modelDefaults": {},
+  "teamActions": ["assign", "reportResult", "requestHelp", "requestReview"],
+  "teamLimits": {"activeSeconds": 1800, "handoffDepth": 3, "operations": 48, "parallelTasks": 1, "reviewRounds": 2, "tasks": 12}
+}
