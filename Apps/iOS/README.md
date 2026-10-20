@@ -65,8 +65,8 @@ Run these commands from the repository root:
 # Unsigned Debug simulator app
 ./scripts/build-ios.sh
 
-# Unsigned Release simulator app
-SWARMHUB_IOS_CONFIGURATION=Release ./scripts/build-ios.sh
+# Unsigned Release simulator app (needs a baseline signed with real keys, docs/update-service/BASELINE.md)
+SWARMHUB_IOS_CONFIGURATION=Release SWARMHUB_BASELINE_DIR=/path/to/baseline ./scripts/build-ios.sh
 
 # Unsigned device build; install on a real iPhone through Xcode with signing
 SWARMHUB_IOS_SDK=iphoneos \

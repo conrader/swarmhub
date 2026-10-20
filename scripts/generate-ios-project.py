@@ -37,6 +37,16 @@ core_product = obj('core-product', f'isa = XCSwiftPackageProductDependency; pack
 core_build = obj('core-build', f'isa = PBXBuildFile; productRef = {core_product};')
 sources = obj('sources-phase', f'isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ({",".join(source_builds)}); runOnlyForDeploymentPostprocessing = 0;')
 resources = obj('resources-phase', f'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({asset_build}); runOnlyForDeploymentPostprocessing = 0;')
+# P2c: the signed baseline bundle (no updater on iOS) into the app's resources, checked; Debug signs a TEST baseline,
+# any other configuration needs SWARMHUB_BASELINE_DIR (real keys) and fails on TEST keys. Runs before signing.
+EMBED_BASELINE = '''set -eu
+CFG=release
+[ "$CONFIGURATION" != Debug ] || CFG=debug
+set -- --configuration "$CFG" --ios --out "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+[ -z "${SWARMHUB_BASELINE_DIR:-}" ] || set -- "$@" --baseline-dir "$SWARMHUB_BASELINE_DIR"
+exec python3 -B "$SRCROOT/../../scripts/release/baseline.py" embed "$@"
+'''
+baseline = obj('baseline-phase', f'isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Embed baseline"; outputPaths = (); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = {quote(EMBED_BASELINE)};')
 frameworks = obj('frameworks-phase', f'isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = ({core_build}); runOnlyForDeploymentPostprocessing = 0;')
 products_group = obj('products-group', f'isa = PBXGroup; children = ({product}); name = Products; sourceTree = "<group>";')
 group = obj('main-group', f'isa = PBXGroup; children = ({",".join(source_refs + [asset,products_group])}); sourceTree = "<group>";')
@@ -50,7 +60,8 @@ for name in ['Debug', 'Release']:
               'INFOPLIST_KEY_UIApplicationSceneManifest_Generation':'YES', 'INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents':'YES',
               'INFOPLIST_KEY_UISupportedInterfaceOrientations':'UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight',
               'MARKETING_VERSION':'0.1.0', 'CURRENT_PROJECT_VERSION':'1', 'CODE_SIGN_STYLE':'Automatic',
-              'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon', 'SWIFT_STRICT_CONCURRENCY':'complete'}
+              'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon', 'SWIFT_STRICT_CONCURRENCY':'complete',
+              'ENABLE_USER_SCRIPT_SANDBOXING':'NO'}
     if name == 'Debug':
         target.update(SWIFT_OPTIMIZATION_LEVEL='-Onone', SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG', ENABLE_TESTABILITY='YES')
     else:
@@ -61,7 +72,7 @@ for name in ['Debug', 'Release']:
     target_configurations.append(obj('target-' + name, f'isa = XCBuildConfiguration; name = {name}; buildSettings = {{ {settings(target)} }};'))
 pc = obj('project-configs', f'isa = XCConfigurationList; buildConfigurations = ({",".join(project_configurations)}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
 tc = obj('target-configs', f'isa = XCConfigurationList; buildConfigurations = ({",".join(target_configurations)}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
-target = obj('app-target', f'isa = PBXNativeTarget; name = SwarmHub; productName = SwarmHub; productType = "com.apple.product-type.application"; productReference = {product}; buildConfigurationList = {tc}; buildPhases = ({sources},{frameworks},{resources}); buildRules = (); dependencies = (); packageProductDependencies = ({core_product});')
+target = obj('app-target', f'isa = PBXNativeTarget; name = SwarmHub; productName = SwarmHub; productType = "com.apple.product-type.application"; productReference = {product}; buildConfigurationList = {tc}; buildPhases = ({sources},{frameworks},{resources},{baseline}); buildRules = (); dependencies = (); packageProductDependencies = ({core_product});')
 project = obj('project', f'isa = PBXProject; attributes = {{ LastUpgradeCheck = 1600; }}; buildConfigurationList = {pc}; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en,Base); mainGroup = {group}; productRefGroup = {products_group}; projectDirPath = ""; projectRoot = ""; packageReferences = ({package}); targets = ({target});')
 (PROJECT / 'project.pbxproj').write_text('// !$*UTF8*$!\n{\n\tarchiveVersion = 1;\n\tclasses = {};\n\tobjectVersion = 56;\n\tobjects = {\n' + '\n'.join(objects) + '\n\t};\n\trootObject = ' + project + ';\n}\n')
 scheme_dir = PROJECT / 'xcshareddata/xcschemes'
