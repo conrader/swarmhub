@@ -121,6 +121,7 @@ extension AppStore {
               canAcceptWorkflowReview(workflow, task: workflow.tasks[index]) else { return }
         workflow.tasks[index].reviewAcceptedByUser = true; workflow.tasks[index].state = .completed
         workflow.tasks[index].error = nil; workflow.error = nil
+        workflow.coordination?.resumeAfterRecovery = false
         do { try saveTaskArtifact(&workflow, index: index); try saveWorkflow(workflow) }
         catch { errorMessage = error.localizedDescription }
     }

@@ -92,6 +92,52 @@ import SwarmHubCoordination
         #expect(backend.calls.all.isEmpty)
     }
 
+    @Test(arguments: [false, true], [["assign", "requestReview"], ["assign", "reportResult", "requestReview"]])
+    func acceptedReviewRequiresResumeAfterSiblingRecovery(recoveryFirst: Bool, actions: [String]) async throws {
+        let backend = ScriptedTurnBackend()
+        let (store, author, peer) = TeamRecoveryTests().fixture(backend)
+        store.turns.pathDown = true
+        #expect(store.startTeamRequest("Review TEST work", origin: author, coordinator: author, recipient: peer, roster: [author, peer]))
+        var workflow = try #require(store.workflows.values.first)
+        workflow.coordination?.policy.actions = Set(actions)
+        workflow.coordination?.limits.parallelTasks = 2
+        workflow.tasks[0].reviewTargetID = "source"; workflow.tasks[0].state = .running
+        workflow.tasks[1].id = "sibling"; workflow.tasks[1].dependencies = []; workflow.tasks[1].state = .running
+        workflow.tasks.append(.init(id: "final", botID: author.id, instructions: "Summarize", expectedOutput: "Answer",
+                                    dependencies: [workflow.tasks[0].id, "sibling"]))
+        let sibling = ChatThread(id: workflow.tasks[1].threadID, parentMessageID: workflow.id, parentSessionID: nil, hermesSessionID: nil)
+        let reply = ChatMessage(role: .assistant, content: "", turnState: .incomplete)
+        sibling.messages = [reply]; author.threads.append(sibling)
+        workflow.tasks[1].replyID = reply.id
+        try store.saveWorkflow(workflow)
+        store.settleWorkflows()
+        workflow = try #require(store.workflows[workflow.id])
+        #expect(workflow.tasks[1].state == .blocked && workflow.coordination?.resumeAfterRecovery == true)
+        store.applyWorkflowCompletion(&workflow, index: 0,
+            reply: ChatMessage(role: .assistant, content: "Review findings", turnState: .finished))
+        try store.saveWorkflow(workflow)
+        store.turns.pathDown = false
+        if recoveryFirst {
+            reply.content = "Recovered sibling result"; reply.turnState = .finished
+            await store.recoverTeams()
+        }
+        store.acceptWorkflowReview(workflow.id, taskID: workflow.tasks[0].id)
+        let accepted = try #require(store.workflows[workflow.id])
+        #expect(accepted.state == .paused && accepted.coordination?.resumeAfterRecovery == false)
+        #expect(accepted.tasks[0].state == .completed && accepted.tasks[0].reviewAcceptedByUser == true)
+        let saved = try #require(try store.journal().records(Workflow.self, kind: AppStore.workflowKind).first)
+        #expect(saved.coordination?.resumeAfterRecovery == false)
+        reply.content = "Recovered sibling result"; reply.turnState = .finished
+        await store.recoverTeams(); store.reconcileTeamOutcome(sibling); store.dispatchWorkflows()
+        let recovered = try #require(store.workflows[workflow.id])
+        #expect(recovered.tasks[1].state == .completed && recovered.tasks[2].state == .queued)
+        #expect(recovered.state == .paused && backend.calls.all.isEmpty)
+        store.resumeWorkflow(workflow.id)
+        try await backend.calls.wait { $0.filter { $0.hasPrefix("send:") }.count == 1 }
+        await backend.emit(.token("Consolidated findings"), .completed); await backend.end()
+        try await waitUntil { store.workflows[workflow.id]?.state == .completed }
+    }
+
     @Test(arguments: [["assign", "requestReview"], ["assign"]])
     func reviewsWaitForAcceptanceBeforeSynthesis(actions: [String]) async throws {
         let backend = ScriptedTurnBackend()

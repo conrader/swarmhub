@@ -135,6 +135,8 @@ class SourceParityTests(unittest.TestCase):
         operations = (ROOT / "Sources/AgentApp/Stores/AppStore+WorkflowOperations.swift").read_text()
         completion = operations.split('func applyWorkflowCompletion(', 1)[1].split('func canAcceptWorkflowReview(', 1)[0]
         self.assertNotRegex(completion, r'resumeAfterRecovery\s*=')
+        acceptance = operations.split('func acceptWorkflowReview(', 1)[1]
+        self.assertIn('workflow.coordination?.resumeAfterRecovery = false', acceptance)
         # Every stored field still has both coding paths after replacing synthesized Codable.
         model = (ROOT / "Sources/AgentApp/Models/Workflow.swift").read_text().split('struct WorkflowTask:', 1)[1]
         model = model.split('var stateLabel:', 1)[0]
@@ -218,16 +220,24 @@ class ReviewPersistenceTests(unittest.TestCase):
 
     def test_review_completion_retains_sibling_recovery_intent_and_blocks_resume(self):
         for intent in (False, True):
-            workflow = dict(state="paused", actions=["assign", "requestReview"], resumeAfterRecovery=intent,
-                            tasks=[dict(state="running", reviewTargetID="work"), dict(state="blocked")])
-            ref.complete_workflow_task(workflow, 0, "TEST findings")
-            self.assertEqual(workflow["resumeAfterRecovery"], intent)
-            self.assertEqual(workflow["tasks"][0]["state"], "awaitingUserAcceptance")
-            self.assertFalse(ref.can_resume_after_recovery(workflow))
-            workflow["tasks"][1]["state"] = "completed"
-            self.assertFalse(ref.can_resume_after_recovery(workflow))
-            workflow["tasks"][0].update(state="completed", reviewAcceptedByUser=True)
-            self.assertEqual(ref.can_resume_after_recovery(workflow), intent)
+            for recovery_first in (False, True):
+                for actions in (["assign", "requestReview"], ref.TEAM_ACTIONS):
+                    with self.subTest(intent=intent, recovery_first=recovery_first, actions=actions):
+                        workflow = dict(state="paused", actions=actions, resumeAfterRecovery=intent,
+                                        tasks=[dict(state="running", reviewTargetID="work"), dict(state="blocked")])
+                        ref.complete_workflow_task(workflow, 0, "TEST findings")
+                        self.assertEqual(workflow["resumeAfterRecovery"], intent)
+                        self.assertFalse(ref.can_resume_after_recovery(workflow))
+                        if recovery_first:
+                            workflow["tasks"][1]["state"] = "completed"
+                            self.assertFalse(ref.can_resume_after_recovery(workflow))
+                        ref.accept_workflow_review(workflow, 0)
+                        self.assertFalse(workflow["resumeAfterRecovery"])
+                        self.assertEqual(workflow["state"], "paused")
+                        self.assertEqual(workflow["tasks"][0]["state"], "completed")
+                        self.assertTrue(workflow["tasks"][0]["reviewAcceptedByUser"])
+                        workflow["tasks"][1]["state"] = "completed"
+                        self.assertFalse(ref.can_resume_after_recovery(workflow))
 
 
 if __name__ == "__main__":

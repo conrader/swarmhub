@@ -164,6 +164,19 @@ def complete_workflow_task(workflow, index, reply):
             workflow.update(state="paused", error=task["reviewBlock"])
 
 
+def accept_workflow_review(workflow, index):
+    """Mirror acceptWorkflowReview: acceptance leaves the workflow paused until Resume."""
+    task = workflow["tasks"][index]
+    if (workflow["state"] != "paused" or not task.get("completionConfirmed")
+            or not (task["state"] == "awaitingUserAcceptance"
+                    or (task["state"] == "blocked" and task.get("reviewBlock")))):
+        return
+    task.update(reviewAcceptedByUser=True, state="completed")
+    task.pop("error", None)
+    workflow.pop("error", None)
+    workflow["resumeAfterRecovery"] = False
+
+
 def can_resume_after_recovery(workflow):
     return (workflow.get("resumeAfterRecovery", False)
             and not any(t["state"] in ("blocked", "awaitingUserAcceptance") for t in workflow["tasks"]))
