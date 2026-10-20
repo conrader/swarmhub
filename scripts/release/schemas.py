@@ -1,22 +1,25 @@
 """Structural checks for the signed update-service objects (docs/update-service/SCHEMAS.md §3–§7). Stdlib only.
 
-Each check raises Reject(stage, reason). Unknown members inside `signed` are ignored (schema /1 grows additively);
-unknown envelope members are rejected because the envelope is not signed.
+Each check raises Reject(stage, reason) and nothing else: any malformed shape (wrong type, unhashable item, missing
+member) is schema_invalid. Patterns are matched with fullmatch, so a trailing newline never passes. Unknown members
+inside `signed` are ignored (schema /1 grows additively); unknown envelope members are rejected because the
+envelope is not signed.
 """
 
 import re
 from datetime import datetime
 
-HEX64 = re.compile(r"^[0-9a-f]{64}$")
-HEX128 = re.compile(r"^[0-9a-f]{128}$")
-KEY_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
-NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-CHANNEL = re.compile(r"^[a-z0-9-]{1,32}$")
-AXIS = re.compile(r"^[a-z_]{1,32}$")
-VERSION = re.compile(r"^(0|[1-9][0-9]{0,8})(\.(0|[1-9][0-9]{0,8})){0,3}$")
-CLAUSE = re.compile(r"^(>=|<|==)(.+)$")
-SAFE_PART = re.compile(r"^[A-Za-z0-9._-]+$")
-TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+# All patterns are used with fullmatch (never match/search): `$` would accept a trailing newline.
+HEX64 = re.compile(r"[0-9a-f]{64}")
+HEX128 = re.compile(r"[0-9a-f]{128}")
+KEY_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
+NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+CHANNEL = re.compile(r"[a-z0-9-]{1,32}")
+AXIS = re.compile(r"[a-z_]{1,32}")
+VERSION = re.compile(r"(0|[1-9][0-9]{0,8})(\.(0|[1-9][0-9]{0,8})){0,3}")
+CLAUSE = re.compile(r"(>=|<|==)(.+)")
+SAFE_PART = re.compile(r"[A-Za-z0-9._-]+")
+TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 AXES = {"box": {"updater", "hermes"}, "mac": {"app", "ui_catalog", "config_schema"},
         "ios": {"app", "ui_catalog", "config_schema"}}
 KINDS = {"skill", "tool", "config", "ui"}
@@ -38,7 +41,7 @@ def _is_int(value, low=0, high=2**53 - 1):
 
 
 def _is_str(value, pattern):
-    return isinstance(value, str) and pattern.match(value) is not None
+    return isinstance(value, str) and pattern.fullmatch(value) is not None
 
 
 def _is_time(value):
@@ -52,8 +55,19 @@ def _is_time(value):
 
 
 def _string_set(value, allowed):
-    return (isinstance(value, list) and value and len(set(value)) == len(value)
-            and all(isinstance(item, str) and item in allowed for item in value))
+    """A non-empty list of distinct strings from allowed. Items are type-checked before hashing ([{}] is invalid)."""
+    return (isinstance(value, list) and bool(value) and all(isinstance(item, str) and item in allowed for item in value)
+            and len(set(value)) == len(value))
+
+
+def _one_of(value, allowed):
+    return isinstance(value, str) and value in allowed
+
+
+def safe_relative(path):
+    """Relative path of `[A-Za-z0-9._-]+` segments, none `.` or `..` (SCHEMAS.md §7 path, §9 archive paths)."""
+    parts = path.split("/") if isinstance(path, str) else []
+    return bool(parts) and all(SAFE_PART.fullmatch(p) and p not in (".", "..") for p in parts)
 
 
 def version_tuple(text):
@@ -65,8 +79,8 @@ def _check_constraint(text):
     if not isinstance(text, str) or not text:
         return False
     for clause in text.split(","):
-        match = CLAUSE.match(clause)
-        if not match or not VERSION.match(match.group(2)):
+        match = CLAUSE.fullmatch(clause)
+        if not match or not VERSION.fullmatch(match.group(2)):
             return False
     return True
 
@@ -74,7 +88,7 @@ def _check_constraint(text):
 def check_requires(value, stage):
     _require(isinstance(value, dict), stage)
     for axis, constraint in value.items():
-        _require(AXIS.match(axis) and _check_constraint(constraint), stage)
+        _require(_is_str(axis, AXIS) and _check_constraint(constraint), stage)
 
 
 def satisfies(requires, consumer):
@@ -89,7 +103,7 @@ def satisfies(requires, consumer):
         if have is None:
             return False
         for clause in constraint.split(","):
-            op, want = CLAUSE.match(clause).groups()
+            op, want = CLAUSE.fullmatch(clause).groups()
             a, b = version_tuple(have), version_tuple(want)
             if (op == ">=" and a < b) or (op == "<" and a >= b) or (op == "==" and a != b):
                 return False
@@ -144,11 +158,6 @@ def check_index(signed):
         _require(_is_int(line.get("rollout_percent"), 0, 100), stage)
 
 
-def _safe_relative(path):
-    parts = path.split("/") if isinstance(path, str) else []
-    return bool(parts) and all(SAFE_PART.match(p) and p not in (".", "..") for p in parts)
-
-
 def check_bundle(signed):
     stage = "manifest"
     _require(signed.get("schema") == "swarmhub/bundle/1", stage)
@@ -158,10 +167,11 @@ def check_bundle(signed):
     components = signed.get("components")
     _require(isinstance(components, list) and components, stage)
     for c in components:
-        _require(isinstance(c, dict) and c.get("kind") in KINDS and c.get("class") in ("data", "code"), stage)
+        _require(isinstance(c, dict) and _one_of(c.get("kind"), KINDS)
+                 and _one_of(c.get("class"), {"data", "code"}), stage)
         _require(_is_str(c.get("name"), NAME) and _is_str(c.get("version"), VERSION), stage)
         _require(_string_set(c.get("targets"), set(AXES)), stage)
-        _require(_is_str(c.get("sha256"), HEX64) and _is_int(c.get("size")) and _safe_relative(c.get("path")), stage)
+        _require(_is_str(c.get("sha256"), HEX64) and _is_int(c.get("size")) and safe_relative(c.get("path")), stage)
         check_requires(c.get("requires"), stage)
         deps = c.get("requires_component")
         _require(isinstance(deps, list), stage)

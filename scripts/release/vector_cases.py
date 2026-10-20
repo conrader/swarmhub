@@ -132,6 +132,20 @@ def build_cases():
          **w.variant("dependency", lambda s, c: c[3].update(
              requires_component=[{"name": "missing-tool", "min_version": "1.0.0"}])))
 
+    # Malformed shapes and path grammar: schema_invalid / archive_unsafe_path, never a crash or a pass.
+    roles_object = w.key_manifest()
+    roles_object["keys"][0]["roles"] = [{}]
+    case("keys-roles-object", "A key's roles is [{}] (an object, not a role name).", reject("keys", "schema_invalid"),
+         keys=w.signed_file("keys/keys-2--roles-object.json", roles_object, [ROOT_1]))
+    case("index-key-id-newline", "The index signature's key_id ends in a newline.", reject("index", "schema_invalid"),
+         index=index_signed_by("key-id-newline", (RELEASE + "\n", RELEASE)))
+    case("manifest-targets-object", "A component's targets is [{}].", reject("manifest", "schema_invalid"),
+         **w.variant("targets-object", lambda s, c: c[0].update(targets=[{}])))
+    case("manifest-kind-array", "A component's kind is [] instead of a string.", reject("manifest", "schema_invalid"),
+         **w.variant("kind-array", lambda s, c: c[0].update(kind=[])))
+    case("manifest-path-newline", "A component's install path ends in a newline.", reject("manifest", "schema_invalid"),
+         **w.variant("path-newline", lambda s, c: c[1].update(path="swarmhub-feedback\n")))
+
     # Components: compatibility.
     skipped = [{"name": "swarm-tools", "reason": "incompatible"}, {"name": "box-prompts", "reason": "dependency_skipped"}]
     kept = ["swarmhub-manager", "swarmhub-feedback", "policy"]
@@ -172,6 +186,8 @@ def build_cases():
         ("archive-bad-mode-writable", "World-writable file (0666).", "archive_bad_mode",
          [f("SKILL.md", b"---\nname: swarmhub-feedback\n---\n", 0o666), script]),
         ("archive-duplicate-path", "SKILL.md appears twice.", "archive_duplicate_path", [skill, skill, script]),
+        ("archive-path-newline", "Entry path ends in a newline.", "archive_unsafe_path",
+         [skill, f("scripts/swarmhub-report\n", b"#!/bin/sh\n", 0o755)]),
         ("archive-path-conflict", "scripts is a file and also a parent directory.", "archive_path_conflict",
          [skill, f("scripts", b"x\n"), script]),
     ]

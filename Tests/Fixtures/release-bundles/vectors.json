@@ -1195,6 +1195,206 @@
       }
     },
     {
+      "description": "A key's roles is [{}] (an object, not a role name).",
+      "expect": {
+        "reason": "schema_invalid",
+        "stage": "keys",
+        "verdict": "reject"
+      },
+      "id": "keys-roles-object",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2--roles-object.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "The index signature's key_id ends in a newline.",
+      "expect": {
+        "reason": "schema_invalid",
+        "stage": "index",
+        "verdict": "reject"
+      },
+      "id": "index-key-id-newline",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--key-id-newline.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A component's targets is [{}].",
+      "expect": {
+        "reason": "schema_invalid",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "manifest-targets-object",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--targets-object.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--targets-object.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A component's kind is [] instead of a string.",
+      "expect": {
+        "reason": "schema_invalid",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "manifest-kind-array",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--kind-array.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--kind-array.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "A component's install path ends in a newline.",
+      "expect": {
+        "reason": "schema_invalid",
+        "stage": "manifest",
+        "verdict": "reject"
+      },
+      "id": "manifest-path-newline",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--path-newline.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--path-newline.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
       "description": "swarm-tools needs hermes>=0.30; it and box-prompts (requires it) are skipped.",
       "expect": {
         "apply": [
@@ -1700,6 +1900,46 @@
           "max_total_size": 67108864
         },
         "manifest": "bundles/11--archive-duplicate-path.json",
+        "now": "2026-10-20T12:00:00Z",
+        "pins": "keys/pins.json",
+        "revoked_key_ids": []
+      }
+    },
+    {
+      "description": "Entry path ends in a newline.",
+      "expect": {
+        "reason": "archive_unsafe_path",
+        "stage": "component",
+        "verdict": "reject"
+      },
+      "id": "archive-path-newline",
+      "inputs": {
+        "channel": "stable",
+        "consumer": {
+          "platform": "box",
+          "versions": {
+            "hermes": "0.21.7",
+            "updater": "1.0.0"
+          }
+        },
+        "floors": {
+          "bundle_version": 10,
+          "index_seq": 4,
+          "keys_version": 1
+        },
+        "index": "channels/stable--archive-path-newline.json",
+        "install_id": "TEST-install-0001",
+        "keys": "keys/keys-2.json",
+        "limits": {
+          "max_blob_size": 67108864,
+          "max_depth": 16,
+          "max_entries": 4096,
+          "max_file_size": 8388608,
+          "max_path_bytes": 255,
+          "max_signed_bytes": 1048576,
+          "max_total_size": 67108864
+        },
+        "manifest": "bundles/11--archive-path-newline.json",
         "now": "2026-10-20T12:00:00Z",
         "pins": "keys/pins.json",
         "revoked_key_ids": []

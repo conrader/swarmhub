@@ -37,7 +37,8 @@ Every signed file on the service is written as the canonical bytes of its whole 
 - Message signed: the ASCII bytes `swarmhub-signature/1` followed by one LF (`0x0A`), then `JCS(signed)`. Algorithm: Ed25519 (RFC 8032, pure, no prehash). Verifiers reject S ≥ L and points that do not decode.
 - Hex is lowercase everywhere: public keys (64), signatures (128), SHA-256 digests (64).
 - Timestamps are UTC strings `YYYY-MM-DDTHH:MM:SSZ` (exactly this form, no fractions or offsets). Because the form is fixed, string order equals time order. Expiry comparisons are strict: a key or index is valid while `now < not_after` / `now < expires`.
-- Unknown members inside `signed` are ignored by `/1` verifiers (they are covered by the signature, and schema `/1` grows additively). Missing or mistyped known members are `schema_invalid`.
+- Unknown members inside `signed` are ignored by `/1` verifiers (they are covered by the signature, and schema `/1` grows additively). Missing or mistyped known members are `schema_invalid`, whatever their shape (for example `roles: [{}]`, `targets: [{}]`, `kind: []`): a verifier returns the verdict and never crashes.
+- Every pattern in this document (`[A-Za-z0-9._-]{1,64}`, path segments, versions, timestamps, …) must match the **whole** string. A value with a trailing newline or any other control character does not match.
 
 ## 4. Pins (local, unsigned)
 
@@ -125,7 +126,7 @@ Verdicts: `accept` (with `bundle_version`, `apply` = component names in manifest
 
 ## 11. Test vectors
 
-`Tests/Fixtures/release-bundles/` mirrors the service layout: `keys/` (key manifests, `pins.json`, `pins--threshold-2.json`, and `TEST-keys.json` listing each TEST key's public seed), `channels/`, `bundles/`, `blobs/sha256/`. Variant files carry a `--<case>` suffix. `vectors.json` holds `jcs` (canonicalization vectors) and `cases`; each case has `id`, `description`, fully explicit `inputs` (`pins`, `keys`, `index`, `manifest` paths, `channel`, `now`, `floors`, `consumer` `{platform, versions}`, `install_id`, `revoked_key_ids`, `limits`) and `expect` (the verdict above).
+`Tests/Fixtures/release-bundles/` mirrors the service layout: `keys/` (key manifests, `pins.json`, `pins--threshold-2.json`, and `TEST-keys.json` listing each TEST key's public seed), `channels/`, `bundles/`, `blobs/sha256/`. Variant files carry a `--<case>` suffix. `vectors.json` holds `jcs` (canonicalization vectors) and `cases` (currently 54 cases: 6 `accept`, 2 `no_update`, 46 `reject`; 16 JCS vectors); each case has `id`, `description`, fully explicit `inputs` (`pins`, `keys`, `index`, `manifest` paths, `channel`, `now`, `floors`, `consumer` `{platform, versions}`, `install_id`, `revoked_key_ids`, `limits`) and `expect` (the verdict above).
 
 Keys come from public fixed seeds: `seed = SHA-256(UTF-8("swarmhub-release-vectors/TEST-seed/" + key_id))`. Every `key_id` starts with `TEST-`; release builds must reject them (P2c).
 

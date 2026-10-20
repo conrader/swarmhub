@@ -6,18 +6,16 @@ extraction, no state. P0b/P0c implement the production verifiers against the sam
 """
 
 import hashlib
-import re
 from pathlib import Path
 
 import ed25519_ref
 import jcs
 import ustar
-from schemas import (Reject, check_bundle, check_envelope, check_index, check_key_manifest, check_pins, satisfies,
-                     version_tuple)
+from schemas import (Reject, check_bundle, check_envelope, check_index, check_key_manifest, check_pins, safe_relative,
+                     satisfies, version_tuple)
 
 SIG_CONTEXT = b"swarmhub-signature/1\n"
 DATA_EXTENSIONS = {"skill": {".md"}, "config": {".json", ".md", ".txt"}, "ui": {".json"}}
-SAFE_PART = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def signing_message(signed):
@@ -104,10 +102,8 @@ def check_archive(data, kind, limits):
         name = entry["name"]
         if flag == "5" and name.endswith("/"):
             name = name[:-1]
-        parts = name.split("/")
-        if (name.startswith("/") or len(name.encode("utf-8")) > limits["max_path_bytes"]
-                or len(parts) > limits["max_depth"]
-                or not all(SAFE_PART.match(p) and p not in (".", "..") for p in parts)):
+        if (len(name.encode("utf-8")) > limits["max_path_bytes"] or name.count("/") + 1 > limits["max_depth"]
+                or not safe_relative(name)):
             raise Reject("component", "archive_unsafe_path")
         if name in paths:
             raise Reject("component", "archive_duplicate_path")

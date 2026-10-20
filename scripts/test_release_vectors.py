@@ -13,7 +13,9 @@ sys.path.insert(0, str(ROOT / "scripts/release"))
 import ed25519_ref  # noqa: E402
 import jcs  # noqa: E402
 import make_vectors  # noqa: E402
-from reference_verify import evaluate, signing_message  # noqa: E402
+import schemas  # noqa: E402
+import ustar  # noqa: E402
+from reference_verify import check_archive, evaluate, signing_message  # noqa: E402
 
 FIXTURES = ROOT / "Tests/Fixtures/release-bundles"
 VECTORS = json.loads((FIXTURES / "vectors.json").read_text(encoding="utf-8"))
@@ -38,7 +40,12 @@ REQUIRED = {
     "archive bad mode": ["archive-bad-mode-setuid", "archive-bad-mode-writable"],
     "data component holding code": ["class-mismatch-skill", "class-mismatch-exec-data"],
     "incompatible requires": ["incompatible-bundle-requires", "no-compatible-line", "incompatible-component"],
+    "malformed shapes": ["keys-roles-object", "manifest-targets-object", "manifest-kind-array"],
+    "path grammar": ["index-key-id-newline", "manifest-path-newline", "archive-path-newline"],
 }
+# Values that must never crash a structural check: unhashable, wrong type, trailing newline, out of range.
+BAD_VALUES = [[{}], [[]], {}, [], "", "\n", "box\n", "TEST-release-1\n", 0, -1, True, 2**60, [1], ["box", "box"]]
+CONTROL_CHARS = [chr(c) for c in list(range(1, 32)) + [127]]
 
 
 class RegenerationTests(unittest.TestCase):
@@ -82,6 +89,13 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(CASES["valid-box"]["expect"]["verdict"], "accept")
         rejected = [c for c in CASES.values() if c["expect"]["verdict"] == "reject"]
         self.assertGreaterEqual(len(rejected), 35)
+
+    def test_schemas_doc_states_the_vector_counts(self):
+        verdicts = [c["expect"]["verdict"] for c in CASES.values()]
+        text = (ROOT / "docs/update-service/SCHEMAS.md").read_text(encoding="utf-8")
+        stated = f"{len(verdicts)} cases: {verdicts.count('accept')} `accept`, {verdicts.count('no_update')} " \
+                 f"`no_update`, {verdicts.count('reject')} `reject`; {len(VECTORS['jcs'])} JCS vectors"
+        self.assertIn(stated, text)
 
     def test_tampered_files_differ_by_one_byte_from_their_originals(self):
         pairs = [("keys/keys-2.json", CASES["tampered-keys"]["inputs"]["keys"]),
@@ -137,6 +151,8 @@ class KeyAndEncodingTests(unittest.TestCase):
             except jcs.JCSError:
                 continue  # the float vector is not valid profile JSON by design
             entry = envelope["signatures"][0]
+            if entry["key_id"] not in seeds:
+                continue  # malformed key_id vector: schema_invalid before any signature check
             ours = ed25519_ref.sign(seeds[entry["key_id"]], signing_message(envelope["signed"]))
             theirs = Ed25519PrivateKey.from_private_bytes(seeds[entry["key_id"]]).sign(
                 signing_message(envelope["signed"]))
@@ -178,6 +194,69 @@ class KeyAndEncodingTests(unittest.TestCase):
     def test_release_sources_stay_under_500_lines(self):
         for path in (ROOT / "scripts/release").glob("*.py"):
             self.assertLessEqual(len(path.read_text().splitlines()), 500, path.name)
+
+
+class MalformedShapeTests(unittest.TestCase):
+    """Every malformed shape is a Reject (schema_invalid or a later verdict), never another exception."""
+
+    def _objects(self):
+        def signed(rel):
+            return jcs.loads((FIXTURES / rel).read_bytes())
+        return [(schemas.check_pins, jcs.loads((FIXTURES / "keys/pins.json").read_bytes())),
+                (schemas.check_key_manifest, signed("keys/keys-2.json")["signed"]),
+                (schemas.check_index, signed("channels/stable.json")["signed"]),
+                (schemas.check_bundle, signed("bundles/11.json")["signed"]),
+                (lambda e: schemas.check_envelope(e, "keys"), signed("keys/keys-2--two-roots.json")),
+                (lambda e: schemas.check_envelope(e, "index"), signed("channels/stable.json"))]
+
+    def test_every_single_member_mutation_is_rejected_or_valid(self):
+        checked = 0
+        for check, valid in self._objects():
+            check(valid)
+            for mutated in _mutations(valid):
+                try:
+                    check(mutated)
+                except schemas.Reject:
+                    pass
+                checked += 1
+        self.assertGreater(checked, 1000)
+
+    def test_component_paths_with_control_characters_are_schema_invalid(self):
+        bundle = jcs.loads((FIXTURES / "bundles/11.json").read_bytes())["signed"]
+        for char in CONTROL_CHARS:
+            for path in (f"swarmhub-feedback{char}", f"swarm{char}hub", f"{char}x", f"a/b{char}"):
+                with self.subTest(path=path):
+                    bundle["components"][1]["path"] = path
+                    with self.assertRaises(schemas.Reject) as caught:
+                        schemas.check_bundle(bundle)
+                    self.assertEqual(caught.exception.reason, "schema_invalid")
+
+    def test_archive_paths_with_control_characters_are_unsafe(self):
+        limits = CASES["valid-box"]["inputs"]["limits"]
+        for char in CONTROL_CHARS:
+            for name in (f"SKILL.md{char}", f"scripts/re{char}port", f"{char}a.md"):
+                with self.subTest(name=name):
+                    data = ustar.build([{"name": name, "type": "file", "mode": 0o644, "data": b"x"}])
+                    with self.assertRaises(schemas.Reject) as caught:
+                        check_archive(data, "skill", limits)
+                    self.assertEqual(caught.exception.reason, "archive_unsafe_path")
+
+
+def _mutations(value):
+    """Copies of value with one member or element replaced by each BAD_VALUES entry or removed, at any depth."""
+    if isinstance(value, dict):
+        for key in value:
+            yield {k: v for k, v in value.items() if k != key}
+            for bad in BAD_VALUES:
+                yield {**value, key: bad}
+            for inner in _mutations(value[key]):
+                yield {**value, key: inner}
+    elif isinstance(value, list):
+        for i, item in enumerate(value):
+            for bad in BAD_VALUES:
+                yield value[:i] + [bad] + value[i + 1:]
+            for inner in _mutations(item):
+                yield value[:i] + [inner] + value[i + 1:]
 
 
 def _key_ids(value):

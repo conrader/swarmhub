@@ -1,4 +1,4 @@
-"""Deterministic POSIX ustar writer and strict reader for component archives (SCHEMAS.md §8). Stdlib only.
+"""Deterministic POSIX ustar writer and strict reader for component archives (SCHEMAS.md §9). Stdlib only.
 
 The writer emits exactly what it is given (including unsafe entries, for negative test vectors): fixed mtime 0,
 uid/gid 0, empty owner names, no padding beyond the two zero end blocks. The reader parses headers without
