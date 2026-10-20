@@ -53,7 +53,7 @@ matches the package bytes, and the package is this checkout's updater with `Base
   Checkout resources, working-directory packages, loose SwiftPM/executable sibling resources and symlinks outside the
   sealed directory are refused. A bare development executable therefore shows "No verified package in this build."
   On the box, check with `sha256sum -c swarmhub-updater-<VERSION>.tar.sha256` (or `shasum -a 256`)
-  against the value the app shows, then extract. The admin-owned install is P2d.
+  against the value the app shows. The admin-owned install is `Resources/Updater/install-bootstrap.sh` (P2d, `BOOTSTRAP.md`).
 - **Box**: the extracted launcher takes `Baseline/` plus a `profiles.json` as `apply --staged DIR`. This is tested
   offline inside an empty network namespace.
 
