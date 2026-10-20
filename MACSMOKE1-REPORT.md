@@ -422,3 +422,83 @@ code-job tests under /bin/bash: 23 passed, 0 failed
 ```
 
 Python syntax and `git diff --check` pass. No temporary fixtures or diagnostic logs remain. The two untracked fixes8 briefs are untouched. Nothing committed, no Hermes changes, no outbound messages or real Codex/provider calls. Native macOS behavior remains untested here.
+
+## mactest4 (843024b + uncommitted)
+
+Verified both reported failures against `843024b` before editing. Forcing `os.walk` to visit `Preferences` before `Caches` reproduces the Mac's exact truncated assertion: `['Preferences/com.apple.python3.plist: unre[80 chars]ile'] != ['Caches/locked/com.apple.x.plist: not an O[80 chars]ed)']`. Both required errors are present, merely reversed; mactest3's plist parsing does not change this because chmod prevents the read. The permitted SSH log read failed with `Could not resolve hostname ovh: Temporary failure in name resolution`, so this is a Linux reproduction of the supplied Mac excerpt, not a new native run.
+
+The unreadable test now uses `assertCountEqual`: it still requires exactly both findings, including duplicates, regardless of enumeration order. It exercises `Preferences/com.apple.python3.plist` as readable and mode-0 XML/binary preferences in both traversal orders. Preference values are representative (`AppleLanguages`, `AppleLocale`), not captured Mac contents. Unreadable directories and failed Library scans still fail closed.
+
+The fixture-symlink test also failed on `843024b` when its temporary root was aliased: the source resolved physically but the fixture boundary remained lexical. Its setup now includes lexical and realpath spellings, matching `os_library_problems`, and always creates a miniature `tmp -> private/tmp` layout on Linux and Darwin. The assertion requires the specific fixture-source rejection, so another parsing error cannot mask the bypass.
+
+The original file was 529 lines. Split into `sim/test_macsmoke2.py` (215 lines, smoke integration), `sim/test_macsmoke_library.py` (250, Library regressions), and `sim/macsmoke_library.py` (120, classifier). All 20 original tests remain, discovered once. The three classifier functions are AST-identical to `843024b`; Darwin-only gating and all unexpected/unreadable/unparsable rejection rules are unchanged. Python 3.9 syntax parsing and the 500-line checks pass (runtime here is Python 3.12).
+
+Mutation checks, applied only in memory: restoring `assertEqual` fails both Preferences-first encodings; removing the normalized fixture spelling fails the symlinked-root fixture case. Raw results:
+
+```text
+843024b reproduction:
+Ran 2 tests in 0.180s
+FAILED (failures=2)
+Order-assertion mutation:
+Ran 1 test in 0.319s
+FAILED (failures=2)
+Fixture-normalization mutation:
+Ran 1 test in 0.002s
+FAILED (failures=1)
+Fixed direct Library regressions:
+Ran 5 tests in 0.315s
+OK
+```
+
+Validation commands (sequential, `PYTHONDONTWRITEBYTECODE=1` throughout):
+
+```sh
+PYTHONPATH=sim python3 -B -m unittest -v test_macsmoke2 test_macsmoke_library test_darwinkill1 test_darwinkill2
+PYTHONPATH=sim python3 -B -m unittest discover -s sim -p 'test_*.py' -v
+PYTHONPATH=sim python3 -B -m unittest -v test_macsmoke2 test_macsmoke_library
+for shell in sh dash bash; do CODE_JOB_SH=/bin/$shell /bin/$shell Tests/Scripts/code-job-test.sh Resources/Skills/swarmhub-coding/scripts/code-job; done
+```
+
+Initial focused run: all 41 Darwin-kill records passed or were native skips (36 OK, 5 skipped); all 16 failure records were the unchanged host-global `/tmp` assertion. Full discovery had those same 16 `/tmp` records plus the eight sandbox-related fixes6/7/8 failures listed under mactest3 (fallback namespace mode, denied workspace creation, Node `EPERM`, SIGIO `EPERM`). The full suite is **not green**. Sampled transient directories disappeared afterward, and `/tmp` had no smoke/job entries before a standalone retry. Concurrent activity is consistent with the procdisc1 warning; the owning job was not identified. An unchanged smoke case then passed alone, followed by the complete standalone rerun below. No `/tmp` checks were relaxed.
+
+Raw initial results:
+
+```text
+Focused:
+Ran 61 tests in 251.929s
+FAILED (failures=16, skipped=5)
+Full discovery:
+Ran 426 tests in 373.803s
+FAILED (failures=24, skipped=13)
+Single smoke diagnostic retry:
+Ran 1 test in 13.345s
+OK
+```
+
+Standalone rerun (no overlapping validation batches):
+
+```text
+Ran 20 tests in 286.091s
+OK
+```
+
+Mac confirmation, after copying all three Python modules to `/tmp/qm6`, on a quiet box. The PATH prefix keeps subprocess `python3` aligned with the test interpreter's bytecode version. Native macOS/Python 3.9 runtime remains untested here:
+
+```sh
+cd /tmp/qm6 && (
+  export PATH="/usr/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=sim
+  /usr/bin/python3 -B -m unittest -v test_macsmoke2 test_macsmoke_library test_darwinkill1 test_darwinkill2 &&
+  /usr/bin/python3 -B -m unittest discover -s sim -p 'test_*.py' -v
+)
+```
+
+Raw shell results (outer shell and CODE_JOB_SH both use the named shell):
+
+```text
+code-job tests under /bin/sh: 23 passed, 0 failed
+code-job tests under /bin/dash: 23 passed, 0 failed
+code-job tests under /bin/bash: 23 passed, 0 failed
+```
+
+Final checks: Python 3.9 syntax, preserved test inventory, classifier/smoke-class AST comparison, module line limits and git diff --check pass. Temporary fixtures and validation logs removed. The two fixes8 briefs, process-discovery files and PROCDISC1-REPORT.md are untouched; no commits, Hermes changes, outbound messages or real Codex/provider calls.
+Host-global smoke/job directories appeared again after our validation batches had exited; those unidentified concurrent-run paths were left untouched. Our `msk2*`, `mactest4-*`, temporary smoke scripts and validation-log directory are gone.
