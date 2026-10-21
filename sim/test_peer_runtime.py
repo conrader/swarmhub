@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import tempfile
 import time
@@ -395,6 +396,52 @@ class PeerTests(unittest.TestCase):
             self.assertEqual(field.stat().st_mode & 0o777, 0o600)
         self.assertIn("exit: 7", self.turns()[0][1]["input"])
 
+    def test_shutdown_during_delivery_retains_pending_completion_without_orphans(self):
+        job = self.completion()
+        self.release.unlink()
+        child = subprocess.Popen([sys.executable, str(RUNTIME), "supervise"], env=self.env,
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        self.addCleanup(lambda: child.poll() is None and child.kill())
+        self.addCleanup(child.stderr.close)
+        self.eventually(lambda: len(self.turns()) == 1)
+        worker = int((peer.state() / "job-wake.pid").read_text())
+        child.send_signal(signal.SIGTERM)
+        self.assertEqual(child.wait(timeout=5), 0, child.stderr.read().decode())
+        self.assertTrue((job / "ready").exists())
+        self.assertFalse((job / "delivered").exists())
+        self.assertFalse(peer.control.process_alive(worker))
+        self.eventually(lambda: children_by_home(self.home) == [])
+        self.release.touch()
+        self.assertEqual(len(self.turns()), 1)
+
+    def test_shutdown_retains_inflight_and_queued_durable_deliveries_for_retry(self):
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=sig):
+                ids = [peer.control.enqueue("sender", "recipient", f"pending {n}") for n in range(2)]
+                self.release.unlink(missing_ok=True)
+                turns = len(self.turns())
+                child = subprocess.Popen([sys.executable, str(RUNTIME), "supervise"], env=self.env,
+                                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                self.addCleanup(lambda child=child: child.poll() is None and child.kill())
+                self.addCleanup(child.stderr.close)
+                self.eventually(lambda: len(self.turns()) == turns + 1)
+                child.send_signal(sig)
+                self.assertEqual(child.wait(timeout=5), 0, child.stderr.read().decode())
+                self.eventually(lambda: children_by_home(self.home) == [])
+                with peer.control.database() as db:
+                    rows = [db.execute("SELECT status,attempts FROM deliveries WHERE id=?", (ident,)).fetchone()
+                            for ident in ids]
+                    self.assertEqual([tuple(row) for row in rows], [("pending", 1), ("pending", 1)])
+                    self.assertEqual([db.execute("SELECT status FROM receipts WHERE target='recipient' AND id=?",
+                                                 (ident,)).fetchone()[0] for ident in ids], ["pending", "pending"])
+                    db.execute("UPDATE deliveries SET due=0")
+                self.release.touch()
+                peer.control.retry_deliveries()
+                with peer.control.database() as db:
+                    self.assertEqual([db.execute("SELECT status FROM deliveries WHERE id=?", (ident,)).fetchone()[0]
+                                      for ident in ids], ["delivered", "delivered"])
+                self.assertEqual(len(self.turns()), turns + 3)
+
     def test_install_writes_loadable_profile_plugin_without_keys(self):
         peer.install("recipient")
         folder = self.home / ".hermes/profiles/recipient/plugins/swarmhub-peer"
@@ -407,7 +454,10 @@ class PeerTests(unittest.TestCase):
                 hooks[name] = callback
         import types
         constants = types.SimpleNamespace(get_hermes_home=lambda: folder.parents[1])
-        with patch.dict("sys.modules", {"hermes_constants": constants}), patch.object(subprocess, "Popen"):
+        registry = types.SimpleNamespace(adopt_local=lambda *a, **kw: types.SimpleNamespace())
+        modules = {"hermes_constants": constants, "tools": types.ModuleType("tools"),
+                   "tools.process_registry": types.SimpleNamespace(process_registry=registry)}
+        with patch.dict("sys.modules", modules), patch.object(subprocess, "Popen"):
             namespace["register"](Context())
         peer.hold("sender", "recipient", "app next turn")
         self.assertIn("app next turn", hooks["pre_llm_call"](session_id="app", turn_id="1")["context"])

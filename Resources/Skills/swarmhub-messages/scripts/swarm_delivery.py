@@ -6,6 +6,7 @@ the same session cannot acknowledge a delivery that was never seen.
 """
 import re
 import subprocess
+import swarm_lifecycle as lifecycle
 from pathlib import Path
 import time
 import uuid
@@ -106,9 +107,7 @@ def deliver(sender, target, text, ident, task=""):
     if task:
         command += ["--task-id", task]
     try:
-        result = subprocess.run(command + ["--", tagged(ident, text)], stdin=subprocess.DEVNULL,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3700)
-        rc = result.returncode
+        rc = lifecycle.call(command + ["--", tagged(ident, text)], timeout=3700)
     except (OSError, subprocess.TimeoutExpired):
         rc = 3
     with database() as db:

@@ -19,6 +19,7 @@ import threading
 import uuid
 sys.dont_write_bytecode = True
 import swarm_control as control
+import swarm_lifecycle as lifecycle
 
 
 NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\Z", re.ASCII)
@@ -304,12 +305,13 @@ def existing_state():
     return folder if folder.is_dir() else None
 
 
-def worker(once=False):
+def worker(once=False, stopped=None):
     """Recovery loop. Returns WORKER_BUSY when another worker holds the lock, else 0.
 
     flock is released by the OS even if the worker is killed; no stale PID lock.
     In once mode (``swarmctl tick``) an error propagates to the caller instead.
     """
+    stopped = stopped or threading.Event()
     folder = state() if once else existing_state()
     if folder is None:
         return 0
@@ -322,25 +324,29 @@ def worker(once=False):
         # Stay alive to notice jobs published just after an otherwise empty sweep.
         def schedule():
             failures = 0
-            while existing_state() is not None:
-                failures = guarded(control.tick, folder, failures)  # Durable actions recover next sweep.
-                time.sleep(2)
+            while not stopped.is_set() and existing_state() is not None:
+                failures = guarded(control.tick, folder, failures, sleep=stopped.wait)
+                stopped.wait(2)
         if once:
             control.tick()
             sweep()
             return 0
         # A slow gateway acknowledgement must not hold the standing queue.
-        threading.Thread(target=schedule, daemon=True).start()
+        scheduler = threading.Thread(target=schedule, daemon=True)
+        scheduler.start()
         failures = 0
-        while folder.exists():
-            failures = guarded(sweep, folder, failures)
-            time.sleep(2)
+        try:
+            while not stopped.is_set() and folder.exists():
+                failures = guarded(sweep, folder, failures, sleep=stopped.wait)
+                stopped.wait(2)
+        finally:
+            stopped.set()
+            scheduler.join(timeout=lifecycle.STOP_GRACE + .1)
     return 0
 
 
 def run_worker():
-    return subprocess.call([sys.executable, str(Path(__file__).resolve()), "worker"], stdin=subprocess.DEVNULL,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+    return lifecycle.run_child([sys.executable, str(Path(__file__).resolve()), "worker"])
 
 
 def supervise(run=run_worker, sleep=time.sleep):
@@ -360,10 +366,10 @@ def supervise(run=run_worker, sleep=time.sleep):
             return
         (folder / "job-wake.supervisor.pid").write_text(str(os.getpid()))
         failures = 0
-        while folder.exists():
+        while not lifecycle.is_stopping() and folder.exists():
             started = time.monotonic()
             rc = run()
-            if not folder.exists():
+            if lifecycle.is_stopping() or not folder.exists():
                 return
             if rc == WORKER_BUSY:
                 failures, delay = 0, 5
@@ -374,8 +380,28 @@ def supervise(run=run_worker, sleep=time.sleep):
             sleep(delay)
 
 
-def start_worker():
-    control.spawn([sys.executable, str(Path(__file__).resolve()), "supervise"])
+def start_worker(managed=False):
+    command = [sys.executable, str(Path(__file__).resolve()), "supervise"]
+    if not managed:
+        return control.spawn(command)  # CLI recovery survives its short-lived launcher.
+    # Hermes uses KillMode=mixed and exits with os._exit, bypassing atexit.
+    # Its registry sends SIGTERM and waits BEFORE the gateway exits.
+    try:
+        from tools.process_registry import process_registry
+    except ImportError:
+        return control.spawn(command)  # A gateway without the registry keeps the detached recovery.
+    child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
+    try:
+        session = process_registry.adopt_local(child, command="SwarmHub peer recovery", cwd=None,
+                                               notify_on_complete=False)
+        session.persist_on_release = True  # Survive turn cleanup; gateway_shutdown still stops it.
+    except BaseException:
+        lifecycle.stop_child(child)
+        if child.stdout:
+            child.stdout.close()
+        raise
+    return child.pid
 
 
 def register(ctx):
@@ -388,7 +414,7 @@ def register(ctx):
                       before_turn(profile, session_id, turn_id, user_message))
     ctx.register_hook("post_llm_call", lambda session_id, turn_id, assistant_response, **kw:
                       after_turn(profile, session_id, turn_id, assistant_response))
-    start_worker()  # Also recovers pending completions after a gateway restart.
+    start_worker(managed=True)  # The gateway owns shutdown of plugin recovery.
 
 
 def install(profile):
@@ -417,9 +443,14 @@ if __name__ == "__main__":
         if command == "hold":
             print("held:" + hold(*sys.argv[2:]))
         elif command == "worker":
-            sys.exit(worker())
+            # Direct CLI workers also need a private group for delivery children.
+            if os.getpgrp() != os.getpid():
+                os.setpgid(0, 0)
+            with lifecycle.termination(forward_group=True) as stopped:
+                sys.exit(worker(stopped=stopped))
         elif command == "supervise":
-            supervise()
+            with lifecycle.termination():
+                supervise()
         elif command == "start":
             start_worker()
         elif command == "retry-once":
