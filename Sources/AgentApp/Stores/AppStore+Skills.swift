@@ -80,7 +80,8 @@ extension AppStore {
     /// Install pressed (banner or editor): the bot's connection manager gets one management turn that writes the skills
     /// meant for `bot` that need it (one whose installed version and variant match is skipped; one whose install failed
     /// waits out its backoff). A staged install hands every skill to the box updater, whose signed bundle (not this
-    /// build's fallback copy) decides the versions and skips what is already applied. False when there is no
+    /// build's fallback copy) decides the versions and skips what is already applied; it sends nothing while every skill
+    /// it would hand over failed at the bundle's version and backs off (`stagedSkillInstructions`). False when there is no
     /// manager, nothing to install, or another turn is still running; a skill whose content cannot travel in the heredoc
     /// also says so in `errorMessage`.
     @discardableResult func installSkills(for bot: Bot) -> Bool {

@@ -7,30 +7,45 @@ import Foundation
 extension AppStore {
     static let messagingSkills: Set<String> = ["swarmhub-messages", "swarmhub-feedback"]
 
-    /// One bot on the manager's connection and the messaging skills it still needs.
+    /// One bot on the manager's connection, the messaging skills it still needs, and those a press sends now.
     struct SkillGap: Identifiable, Equatable {
         let bot: Bot; let skills: [BundledSkill]
+        /// `skills` without those whose failed install waits out its backoff (still missing, never counted as done).
+        let installable: [BundledSkill]
         var id: UUID { bot.id }
-        static func == (a: SkillGap, b: SkillGap) -> Bool { a.bot.id == b.bot.id && a.skills.map(\.name) == b.skills.map(\.name) }
+        static func == (a: SkillGap, b: SkillGap) -> Bool {
+            a.bot.id == b.bot.id && a.skills.map(\.name) == b.skills.map(\.name) && a.installable.map(\.name) == b.installable.map(\.name)
+        }
     }
 
-    /// The messaging skills `bot` lacks or has older than this build ships (one whose install failed waits out its backoff).
+    /// The messaging skills `bot` lacks or has older than this build ships, including one whose install failed.
     func missingMessagingSkills(for bot: Bot) -> [BundledSkill] {
-        skillsToInstall(for: bot, among: skills(for: bot).filter { Self.messagingSkills.contains($0.name) })
+        skills(for: bot).filter { Self.messagingSkills.contains($0.name) && skillState($0, for: bot).needsAction }
     }
 
-    /// Every Hermes bot on `manager`'s connection (the manager too) that needs one of them, in sidebar order.
+    /// Every Hermes bot on `manager`'s connection (the manager too) that needs one of them, in sidebar order. A bot whose
+    /// install failed stays listed while it backs off; it only has nothing to send yet.
     func messagingSkillGaps(manager: Bot) -> [SkillGap] {
         guard isManager(manager), manager.backend == .hermes else { return [] }
         let target = connection(of: manager)
         return bots.filter { $0.backend == .hermes && !$0.isReadOnlyArchive && connection(of: $0) == target }.compactMap { bot in
             let missing = missingMessagingSkills(for: bot)
-            return missing.isEmpty ? nil : SkillGap(bot: bot, skills: missing)
+            return missing.isEmpty ? nil : SkillGap(bot: bot, skills: missing, installable: skillsToInstall(for: bot, among: missing))
         }
     }
 
     /// Every connection's manager with gaps (Settings lists them all).
     var managersWithSkillGaps: [Bot] { bots.filter { isManager($0) && !messagingSkillGaps(manager: $0).isEmpty } }
+
+    /// The all-bots button works: the manager is idle and some gap is not backing off.
+    func canInstallSkillsOnAllBots(manager: Bot) -> Bool {
+        isIdle(manager) && messagingSkillGaps(manager: manager).contains { !$0.installable.isEmpty }
+    }
+
+    /// When a backoff on `manager`'s connection ends, so the all-bots views redraw and offer the press again.
+    func messagingRetryDates(manager: Bot) -> [Date] {
+        messagingSkillGaps(manager: manager).flatMap { skillRetryDates($0.skills, for: $0.bot) }.sorted()
+    }
 
     /// One bot and the messaging skills it needs whose install failed and waits out its backoff: why, and when Retry is back.
     struct SkillWait: Identifiable {
@@ -59,10 +74,10 @@ extension AppStore {
         return unmanaged ? AllBotsSkillCopy.needsManager : AllBotsSkillCopy.allSet
     }
 
-    /// The confirmed press: one management turn for every gap. False when there is nothing to install, the manager is
-    /// busy, or a file cannot travel in the heredoc (said in `errorMessage`).
+    /// The confirmed press: one management turn for every gap that is not backing off. False when there is nothing to
+    /// install, the manager is busy, or a file cannot travel in the heredoc (said in `errorMessage`).
     @discardableResult func installSkillsOnAllBots(manager: Bot) -> Bool {
-        let gaps = messagingSkillGaps(manager: manager)
+        let gaps = messagingSkillGaps(manager: manager).filter { !$0.installable.isEmpty }
         guard !gaps.isEmpty, isIdle(manager) else { return false }
         let instructions: String
         do {
@@ -74,7 +89,7 @@ extension AppStore {
             } else {
                 guard let text = try allBotsSkillInstructions(gaps) else { return false }
                 instructions = text
-                noteSkillInstallChecks(gaps.map { ($0.bot, $0.skills) }, manager: manager)
+                noteSkillInstallChecks(gaps.map { ($0.bot, $0.installable) }, manager: manager)
             }
         } catch {
             errorMessage = error.localizedDescription; return false
@@ -93,7 +108,7 @@ extension AppStore {
     func allBotsSkillInstructions(_ gaps: [SkillGap]) throws -> String? {
         var commands: [String] = [], ops: [String] = []
         for gap in gaps {
-            guard let part = try skillInstallCommands(gap.skills, profile: profile(of: gap.bot), codingOrder: codingOrder(for: gap.bot)) else { return nil }
+            guard let part = try skillInstallCommands(gap.installable, profile: profile(of: gap.bot), codingOrder: codingOrder(for: gap.bot)) else { return nil }
             commands += part.commands; ops.append(part.op)
         }
         guard !ops.isEmpty else { return nil }
@@ -120,6 +135,8 @@ enum AllBotsSkillCopy {
         count == 1 ? "1 bot is missing SwarmHub’s messaging skills" : "\(count) bots are missing SwarmHub’s messaging skills"
     }
     static func request(_ count: Int) -> String { "Install SwarmHub skills on \(count == 1 ? "1 bot" : "all \(count) bots")." }
+    /// After the bot names while every gap's install failed and backs off.
+    static func retry(_ date: Date?) -> String? { date.map { " · install failed, retry after \($0.formatted(date: .omitted, time: .shortened))" } }
     static func missing(_ skills: [BundledSkill]) -> String { "Missing: " + skills.map(\.name).joined(separator: ", ") }
     static func waiting(_ skills: [BundledSkill], retryAt: Date) -> String {
         "Install failed: " + skills.map(\.name).joined(separator: ", ") + " · retry after \(retryAt.formatted(date: .omitted, time: .shortened))"

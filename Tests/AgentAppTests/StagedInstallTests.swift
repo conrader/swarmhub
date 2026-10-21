@@ -315,6 +315,44 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     #expect(store.boxInstallTransport.status[store.connection(of: bot)]?.state == "failed")
 }
 
+private final class StagedClock { var date = Date(timeIntervalSince1970: 1_792_497_600) }
+
+@Test @MainActor func aFailedStagedInstallBacksOffAtTheSignedVersion() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let (store, bot, host) = stagedStore(source: source, status: try stagedStatus(package), stageOK: false)
+    let clock = StagedClock(); store.now = { clock.date }
+    let turns = { ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count }
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning && !bot.skillInstallFailures.isEmpty }
+    let failure = try #require(store.skillInstallFailure(stagedManager, for: bot))
+    #expect(failure.count == 1 && failure.version == "1.2.0" && failure.version == package.versions["swarmhub-manager"],
+            "recorded at the signed bundle's version, not the 1.0.0 fallback")
+    #expect(failure.reason.contains("unconfirmed") && store.skillInstallBackingOff(stagedManager, for: bot))
+    // Backing off: a press sends nothing.
+    #expect(!store.installSkills(for: bot) && turns() == 1)
+    // After 15 minutes one retry, which goes out unchanged; failing again doubles the wait.
+    clock.date += 15 * 60
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning && bot.skillInstallFailures["swarmhub-manager"]?.count == 2 }
+    #expect(turns() == 2 && store.skillInstallFailure(stagedManager, for: bot)?.retryAt == clock.date + 30 * 60)
+    // A failure at another version does not hold back this bundle: the signed bundle still decides.
+    bot.skillInstallFailures["swarmhub-manager"]?.version = "1.1.0"
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning && turns() == 3 }
+}
+
+@Test @MainActor func aConfirmedStagedInstallClearsItsFailure() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let (store, bot, _) = stagedStore(source: source, status: try stagedStatus(package))
+    bot.skillInstallFailures["swarmhub-manager"] = SkillInstallFailure(version: "1.2.0", variant: nil, count: 1,
+        lastAt: Date(timeIntervalSince1970: 1_792_497_600 - 86_400), reason: "Earlier refusal.")
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(bot.installedSkills == ["swarmhub-manager": "1.2.0"] && bot.skillInstallFailures.isEmpty)
+}
+
 @Test func stagingDiagnosticsRequireThisTransfersPrefixAndNeverEstablishAcceptance() throws {
     let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
     let package = try stagedPackage(source)

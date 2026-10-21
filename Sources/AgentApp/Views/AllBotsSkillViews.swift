@@ -6,26 +6,36 @@ struct AllBotsSkillConfirmation: ViewModifier {
     @EnvironmentObject private var store: AppStore
     @Binding var manager: Bot?
     func body(content: Content) -> some View {
-        let gaps = manager.map { store.messagingSkillGaps(manager: $0) } ?? []
+        let gaps = (manager.map { store.messagingSkillGaps(manager: $0) } ?? []).filter { !$0.installable.isEmpty }
         content.confirmationDialog(AllBotsSkillCopy.button + "?", isPresented: Binding(get: { manager != nil }, set: { if !$0 { manager = nil } })) {
             Button(gaps.count == 1 ? "Install on 1 bot" : "Install on \(gaps.count) bots") { if let manager { store.installSkillsOnAllBots(manager: manager) }; manager = nil }
             Button("Cancel", role: .cancel) { manager = nil }
         } message: {
-            Text(gaps.map { "\($0.bot.name): \($0.skills.map(\.name).joined(separator: ", "))" }.joined(separator: "\n") + "\n\n" + AllBotsSkillCopy.confirm)
+            Text(gaps.map { "\($0.bot.name): \($0.installable.map(\.name).joined(separator: ", "))" }.joined(separator: "\n") + "\n\n" + AllBotsSkillCopy.confirm)
         }
     }
 }
 
-/// Each bot of a connection and the messaging skills it is missing.
+/// Each bot of a connection and the messaging skills it is missing; a failed install also says why and when to retry.
 struct SkillGapRows: View {
+    @EnvironmentObject private var store: AppStore
     let gaps: [AppStore.SkillGap]
     var body: some View {
         ForEach(gaps) { gap in
-            HStack(spacing: 8) {
-                BotAvatar(bot: gap.bot, size: 18)
-                Text(gap.bot.name).font(.system(size: 12, weight: .medium))
-                Spacer()
-                Text(AllBotsSkillCopy.missing(gap.skills)).font(.caption).foregroundStyle(.secondary)
+            SkillRetryRefresh(dates: store.skillRetryDates(gap.skills, for: gap.bot)) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        BotAvatar(bot: gap.bot, size: 18)
+                        Text(gap.bot.name).font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        Text(AllBotsSkillCopy.missing(gap.skills)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(gap.skills, id: \.name) { skill in
+                        if let failure = store.skillInstallFailure(skill, for: gap.bot) {
+                            Text(store.skillFailureText(failure, skill: skill)).font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                }
             }
         }
     }
@@ -60,9 +70,11 @@ struct AllBotsSkillsSection: View {
             SkillWaitRows(waits: store.messagingSkillWaits())
             ForEach(managers) { manager in
                 SkillGapRows(gaps: store.messagingSkillGaps(manager: manager))
-                HStack {
-                    Button(AllBotsSkillCopy.button) { confirming = manager }.disabled(!store.isIdle(manager))
-                    Text("through \(manager.name)").font(.caption).foregroundStyle(.secondary)
+                SkillRetryRefresh(dates: store.messagingRetryDates(manager: manager)) {
+                    HStack {
+                        Button(AllBotsSkillCopy.button) { confirming = manager }.disabled(!store.canInstallSkillsOnAllBots(manager: manager))
+                        Text("through \(manager.name)").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
         }.modifier(AllBotsSkillConfirmation(manager: $confirming))
@@ -76,17 +88,22 @@ struct AllBotsSkillsBanner: View {
     @State private var confirming: Bot?
     @State private var hidden = false
     var body: some View {
+        SkillRetryRefresh(dates: store.messagingRetryDates(manager: manager)) { banner }
+    }
+
+    @ViewBuilder private var banner: some View {
         let gaps = store.messagingSkillGaps(manager: manager)
         if !gaps.isEmpty && !hidden {
             HStack(spacing: 10) {
                 Image(systemName: "bubble.left.and.bubble.right").foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(AllBotsSkillCopy.banner(gaps.count)).font(.system(size: 12))
-                    Text(gaps.map(\.bot.name).joined(separator: ", ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(gaps.map(\.bot.name).joined(separator: ", ") + (AllBotsSkillCopy.retry(gaps.contains { !$0.installable.isEmpty } ? nil
+                         : store.messagingRetryDates(manager: manager).first) ?? "")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 Button("Not now") { hidden = true }
-                Button(AllBotsSkillCopy.button) { confirming = manager }.buttonStyle(.borderedProminent).disabled(!store.isIdle(manager))
+                Button(AllBotsSkillCopy.button) { confirming = manager }.buttonStyle(.borderedProminent).disabled(!store.canInstallSkillsOnAllBots(manager: manager))
             }
             .controlSize(.small).padding(.horizontal, 14).padding(.vertical, 9)
             .background(AppColor.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -103,8 +120,12 @@ struct MentionSkillOffer: View {
     @ObservedObject var bot: Bot
     @State private var confirming: Bot?
     var body: some View {
+        SkillRetryRefresh(dates: store.manager(for: bot).map { store.messagingRetryDates(manager: $0) } ?? []) { offer }
+    }
+
+    private var offer: some View {
         let manager = store.manager(for: bot)
-        HStack(spacing: 10) {
+        return HStack(spacing: 10) {
             Image(systemName: "at").foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 1) {
                 Text("\(bot.name) can't message other bots yet: it needs the swarmhub-messages skill.").font(.system(size: 12))
@@ -112,7 +133,7 @@ struct MentionSkillOffer: View {
             }
             Spacer()
             Button("Not now") { store.mentionSkillOffer = nil }
-            if let manager { Button(AllBotsSkillCopy.button) { confirming = manager }.buttonStyle(.borderedProminent).disabled(!store.isIdle(manager)) }
+            if let manager { Button(AllBotsSkillCopy.button) { confirming = manager }.buttonStyle(.borderedProminent).disabled(!store.canInstallSkillsOnAllBots(manager: manager)) }
         }
         .controlSize(.small).padding(.horizontal, 14).padding(.vertical, 9)
         .background(AppColor.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))

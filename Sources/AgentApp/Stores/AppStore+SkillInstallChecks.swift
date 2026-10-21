@@ -20,16 +20,24 @@ struct SkillInstallCheck: Equatable {
 }
 
 extension AppStore {
-    /// The failure recorded for this skill's bundled version and this bot's variant; nil when there is none.
+    /// The failure recorded for this skill's bundled version and this bot's variant; nil when there is none. On a staged
+    /// connection the signed bundle decides the version and only its send verifies it, so any version's failure counts here;
+    /// the send itself holds back by the bundle's version (`stagedSkillBackingOff`).
     func skillInstallFailure(_ skill: BundledSkill, for bot: Bot) -> SkillInstallFailure? {
-        guard let failure = bot.skillInstallFailures[skill.name], failure.version == skill.version.description,
-              failure.variant == SkillLibrary.variant(of: skill, codingOrder: codingOrder(for: bot)) else { return nil }
+        guard let failure = bot.skillInstallFailures[skill.name],
+              failure.variant == SkillLibrary.variant(of: skill, codingOrder: codingOrder(for: bot)),
+              failure.version == skill.version.description || usesStagedSkills(on: connection(of: bot)) else { return nil }
         return failure
     }
 
     /// True while a failed install of this version waits out its backoff: it is neither sent again nor offered.
     func skillInstallBackingOff(_ skill: BundledSkill, for bot: Bot) -> Bool {
         skillInstallFailure(skill, for: bot).map { now() < $0.retryAt } ?? false
+    }
+
+    /// When the backoff of a failed install of one of `skills` ends, so an idle view redraws then and offers Retry again.
+    func skillRetryDates(_ skills: [BundledSkill], for bot: Bot) -> [Date] {
+        skills.compactMap { skillInstallFailure($0, for: bot)?.retryAt }.filter { $0 > now() }.sorted()
     }
 
     /// The skills an install press may send for `bot`: those that need it and are not backing off. A skill whose
@@ -95,6 +103,40 @@ extension AppStore {
             self.skillRetryRedraw = nil
             self.objectWillChange.send(); self.scheduleSkillRetryRedraw(after: next)
         }
+    }
+
+    /// A staged install of `name` failed at the version the signed bundle about to be sent carries, for this bot's variant,
+    /// and still waits out its backoff.
+    func stagedSkillBackingOff(_ name: String, version: String?, bot: Bot) -> Bool {
+        guard let failure = bot.skillInstallFailures[name], failure.version == (version ?? ""),
+              failure.variant == stagedVariant(name, for: bot) else { return false }
+        return now() < failure.retryAt
+    }
+
+    /// The staged install turn ended: each requested skill the updater's accepted status advertises at the bundle's version
+    /// (and, for the coding skill, the profile's coding order) clears its failure; every other one is a failure of that
+    /// signed version with `reason`. Versions are the bundle's, never this build's fallback copy.
+    func noteStagedSkillResults(_ package: StagedInstall.Package, status: BoxUpdaterStatus?, reason: String, manager: Bot) {
+        for profile in package.profiles {
+            guard let bot = boundBot(profile.name, manager: manager) else { continue }
+            for name in profile.skills {
+                if status.map({ Self.stagedSkillLanded(name, profile: profile, package: package, status: $0) }) ?? false {
+                    bot.skillInstallFailures[name] = nil; continue
+                }
+                noteSkillInstallFailure(name, version: package.versions[name] ?? "", variant: stagedVariant(name, for: bot), reason: reason, on: bot)
+            }
+        }
+        objectWillChange.send(); save()
+    }
+
+    /// The updater advertises `name` in `profile` at the bundle's version (the coding skill also in the profile's order).
+    static func stagedSkillLanded(_ name: String, profile: StagedInstall.Profile, package: StagedInstall.Package, status: BoxUpdaterStatus) -> Bool {
+        guard let live = status.profiles[profile.name], let version = package.versions[name] else { return false }
+        return (live.advertised[name] ?? nil) == version && (name != "swarmhub-coding" || live.variants?[name] == profile.coding_order)
+    }
+
+    private func stagedVariant(_ name: String, for bot: Bot) -> String? {
+        skillLibrary.first { $0.name == name }.flatMap { SkillLibrary.variant(of: $0, codingOrder: codingOrder(for: bot)) }
     }
 
     /// Why the turn did not confirm the install, in one line: the turn's own failure, else the start of the reply.

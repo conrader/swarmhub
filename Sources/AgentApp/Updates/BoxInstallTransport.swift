@@ -45,6 +45,14 @@ extension AppStore {
         let key = "updates.transport.floor." + target
         let saved = try defaults.data(forKey: key).map { try JSONDecoder().decode(StagedInstall.Floor.self, from: $0) } ?? .init()
         let package = try StagedInstall.prepare(box: box, saved: saved, profiles: profiles, now: ISO8601DateFormatter().string(from: now()))
+        // While every skill this request hands over failed at the version this signed bundle carries and is backing off,
+        // nothing is sent. Otherwise the request goes out unchanged: the updater keeps profiles.json, so none is dropped.
+        let pending = package.profiles.contains { profile in
+            profile.skills.contains { name in
+                !(boundBot(profile.name, manager: manager).map { stagedSkillBackingOff(name, version: package.versions[name], bot: $0) } ?? false)
+            }
+        }
+        guard pending else { return nil }
         let transfer = try StagedTransfer(package, namespace: sessionNamespace)
         let profile = manager.hermesProfile ?? "default"
         let instructions = try StagedInstall.instructions(transfer, profile: profile)
@@ -85,16 +93,15 @@ extension AppStore {
     func finishStagedSkillInstall(manager: Bot) {
         guard let attempt = boxInstallTransport.attempts.removeValue(forKey: manager.id) else { return }
         guard attempt.staged, let status = attempt.status, status.accepted(attempt.package) else {
-            errorMessage = attempt.status?.detail ?? "No matching updater status received; skill installation is unconfirmed."
+            let reason = attempt.status?.detail ?? "No matching updater status received; skill installation is unconfirmed."
+            errorMessage = reason
+            noteStagedSkillResults(attempt.package, status: nil, reason: reason, manager: manager)
             return
         }
         let installed = attempt.package.profiles.allSatisfy { profile in
-            guard let live = status.profiles[profile.name] else { return false }
-            return profile.skills.allSatisfy {
-                (live.advertised[$0] ?? nil) == attempt.package.versions[$0] &&
-                ($0 != "swarmhub-coding" || live.variants?[$0] == profile.coding_order)
-            }
+            profile.skills.allSatisfy { Self.stagedSkillLanded($0, profile: profile, package: attempt.package, status: status) }
         }
+        noteStagedSkillResults(attempt.package, status: status, reason: "Updater: \(status.state). \(status.detail) Requested skills are not yet confirmed.", manager: manager)
         if !installed || status.state != "current" || status.reload_pending {
             errorMessage = "Updater: \(status.state). \(status.detail)" +
                 (!installed ? " Requested skills are not yet confirmed." : "") + (status.reload_pending ? " Reload pending." : "")
