@@ -32,8 +32,12 @@ CATALOG_UNRECOGNISED = "This bot's latest tool catalog has an unrecognised forma
 
 
 def read_config(path):
-    if path.suffix == ".json":
-        return json.loads(path.read_text())
+    if path.suffix in (".json", ".jsonc", ".json5"):
+        try:
+            return json.loads(path.read_text())
+        except json.JSONDecodeError:
+            import json5  # OpenClaw permits JSON5. Missing optional support fails closed in the CLI.
+            return json5.loads(path.read_text())
     import yaml
     return yaml.safe_load(path.read_text()) or {}
 
@@ -92,12 +96,53 @@ def reference(entry, root):
             entry["_source"], entry["_server"], json.dumps(entry["_tools"])]}, None
 
 
+def openclaw_workspaces(home):
+    """Read both current and legacy local inventories; never query or edit the Gateway."""
+    state = home / ".openclaw"
+    result = {p.name[len("workspace-"):]: p for p in state.glob("workspace-*")
+              if p.is_dir() and SLUG.fullmatch(p.name[len("workspace-"):])}
+    path = state / "openclaw.json"
+    agents = read_config(path).get("agents", {}) if path.exists() else {}
+    defaults_config = agents.get("defaults", {})
+    entries = dict(agents.get("entries", {}))
+    for item in agents.get("list", []):
+        entries.setdefault(item["id"], item)
+    if any(not isinstance(name, str) or not SLUG.fullmatch(name) or not isinstance(item, dict)
+           for name, item in entries.items()):
+        raise ValueError("Invalid agent inventory")
+
+    def workspace(raw):
+        if not isinstance(raw, str):
+            raise ValueError("Invalid workspace path")
+        value = home / raw[2:] if raw.startswith("~/") else Path(raw)
+        if not value.is_absolute():
+            raise ValueError("Workspace paths must be absolute or home-relative")
+        return value
+
+    default_workspace = workspace(defaults_config["workspace"]) if "workspace" in defaults_config else state / "workspace"
+    marked = [name for name, item in entries.items() if item.get("default") is True]
+    if "entries" in agents:
+        # Current keyed inventories have no implicit first/main owner when several agents exist.
+        owner = (marked[0] if agents.get("ownership") != "explicit" and len(marked) == 1 else
+                 next(iter(entries)) if len(entries) == 1 else None)
+    else:
+        # Older list inventories used the marked, main, or first agent as their default owner.
+        owner = marked[0] if len(marked) == 1 else "main" if "main" in entries else next(iter(entries), "main")
+    for name, item in entries.items():
+        result[name] = (workspace(item["workspace"]) if "workspace" in item else
+                        default_workspace if name == owner else
+                        default_workspace / name if "workspace" in defaults_config else state / ("workspace-" + name))
+    if not entries and "entries" not in agents and "list" not in agents and default_workspace.is_dir():
+        result.setdefault("main", default_workspace)
+    return result
+
+
 def location(home, backend, bot):
     if not SLUG.fullmatch(bot):
         raise ValueError("Invalid bot name")
     if backend == "hermes":
         return home / ".hermes" if bot == "default" else home / ".hermes/profiles" / bot
-    return home / (".openclaw/workspace-" + bot)
+    return openclaw_workspaces(home).get(bot, home / (".openclaw/workspace-" + bot))
 
 
 def config_path(home, backend, bot):
@@ -109,6 +154,9 @@ def writable_root(home, backend, bot):
     # A bot/workspace symlink must not redirect a one-bot write into another bot's directory.
     if root.is_symlink() or (backend == "openclaw" and (root / "config").is_symlink()):
         raise ValueError("Bot directory must not redirect to another workspace")
+    if backend == "openclaw" and any(name != bot and other.resolve() == root.resolve()
+                                     for name, other in openclaw_workspaces(home).items()):
+        raise ValueError("Shared workspaces cannot be modified for only one bot")
     return root
 
 
@@ -163,7 +211,7 @@ def provision(home, backend, bot):
     if backend == "hermes":
         import yaml
         path = root / "config.yaml"
-        config = read_config(path)
+        config = read_config(path) if path.exists() else {}
         servers = config.setdefault("mcp_servers", {})
     else:
         # OpenClaw's MCPorter skill resolves config relative to the agent's workspace.
@@ -190,7 +238,7 @@ def provision(home, backend, bot):
         atomic_write(path, yaml.safe_dump(config, sort_keys=False, allow_unicode=True))
     else:
         atomic_write(path, json.dumps(config, indent=2) + "\n")
-    report = {"op": "connectors", "name": bot, "list": [
+    report = {"op": "connectors", "name": bot, "policy": "defaults-only-v1", "isolated_config": backend == "openclaw", "list": [
         {"name": name, "state": "never_attempted", "detail": "Configured; awaiting the bot's first tool load."}
         if name not in skipped else {"name": name, "state": "failed", "detail": skipped[name]}
         for name in entries]}
@@ -231,7 +279,7 @@ def environment_values(paths):
 
 def connector_copy(entry, values):
     """Materialize only variables named by the selected connector. Never expand shell commands."""
-    variable = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+    variable = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}|\$env:([A-Za-z_][A-Za-z0-9_]*)|\$([A-Za-z_][A-Za-z0-9_]*)")
 
     def expand(value):
         if isinstance(value, dict):
@@ -240,7 +288,9 @@ def connector_copy(entry, values):
             return [expand(item) for item in value]
         if isinstance(value, str):
             def replace(match):
-                name = match[1] or match[2]
+                name = match[1] or match[3] or match[4]
+                if match[2] is not None and not values.get(name):
+                    return match[2]
                 if name not in values:
                     raise ValueError("Selected connector references an unavailable variable")
                 return values[name]
@@ -249,12 +299,15 @@ def connector_copy(entry, values):
     return expand(copy.deepcopy(entry))
 
 
-def opt_in(home, backend, bot, manager, connector):
+def opt_in(home, backend, bot, manager, connector, source_path=None):
     """Copy exactly one explicitly selected manager connector, including its own credentials."""
     if bot in ("default", manager) or not connector or not isinstance(connector, str):
         raise ValueError("Select one other bot and one connector")
     root = writable_root(home, backend, bot)
     path, source = config_path(home, backend, bot), config_path(home, backend, manager)
+    if source_path is not None:
+        raw = str(source_path)
+        source = home / raw[2:] if raw.startswith("~/") else Path(raw)
     if not path.is_file() or path.resolve() == source.resolve():
         raise ValueError("Target bot configuration must already exist and differ from the manager")
     entries = defaults(home)
@@ -262,11 +315,13 @@ def opt_in(home, backend, bot, manager, connector):
                                    entry.get("_server") == connector for entry in entries.values()):
         raise ValueError("Defaults must retain their read-only policy, including source aliases")
     key = "mcp_servers" if backend == "hermes" else "mcpServers"
-    entry = read_config(source)[key][connector]
-    if not isinstance(entry, dict) or not (entry.get("command") or entry.get("url")):
+    source_config = read_config(source)
+    entry = source_config.get("mcp_servers", source_config.get("mcpServers", {}))[connector]
+    endpoints = ("command", "url") if backend == "hermes" else ("command", "url", "baseUrl", "serverUrl")
+    if not isinstance(entry, dict) or not any(entry.get(field) for field in endpoints):
         raise ValueError("Selected manager connector is not supported")
     values = environment_values([home / (".hermes/.env" if backend == "hermes" else ".openclaw/.env"),
-                                 location(home, backend, manager) / ".env"])
+                                 location(home, backend, manager) / ".env", source.parent / ".env"])
     selected = connector_copy(entry, values)
     config = read_config(path)
     servers = config.setdefault(key, {})
@@ -293,25 +348,44 @@ def audit(home, backend):
     entries = defaults(home)
     bots = (["default"] + sorted(p.name for p in (home / ".hermes/profiles").glob("*") if SLUG.fullmatch(p.name))
             if backend == "hermes" else
-            sorted(p.name[len("workspace-"):] for p in (home / ".openclaw").glob("workspace-*")
-                   if SLUG.fullmatch(p.name[len("workspace-"):])) )
-    rows = []
+            sorted(openclaw_workspaces(home)))
+    rows, unresolved = [], []
+    home_path = None
+    if backend == "openclaw":
+        directories = [home / ".mcporter"]
+        xdg = os.environ.get("XDG_CONFIG_HOME", "")
+        if xdg and Path(xdg).is_absolute():
+            directories.insert(0, Path(xdg) / "mcporter")
+        home_path = next((directory / file for directory in directories for file in ("mcporter.json", "mcporter.jsonc")
+                          if (directory / file).is_file()), None)
+    home_config = read_config(home_path) if home_path else {}
     for bot in bots:
         path = config_path(home, backend, bot)
-        if not path.is_file():
+        if not path.is_file() and backend == "hermes":
             continue
-        config = read_config(path)
-        provenance = path.parent.parent / ".swarmhub-connector-sources.json" if backend == "openclaw" else path.parent / ".swarmhub-connector-sources.json"
+        config = read_config(path) if path.is_file() else {}
+        root = location(home, backend, bot)
+        provenance = root / ".swarmhub-connector-sources.json"
         origins = json.loads(provenance.read_text()) if provenance.exists() else {}
         servers = config.get("mcp_servers" if backend == "hermes" else "mcpServers", {})
+        marker = root / ".swarmhub-connectors.json"
+        isolated = (json.loads(marker.read_text()).get("isolated_config") is True) if marker.exists() else False
+        if backend == "openclaw" and not isolated:
+            for name in sorted(set(home_config.get("mcpServers", {})) - set(servers) - set(entries)):
+                rows.append({"bot": bot, "connector": name, "source": str(home_path),
+                             "config": str(path), "origin_known": False})
         for name in sorted(set(servers) - set(entries)):
             rows.append({"bot": bot, "connector": name, "source": origins.get(name, str(path)),
                          "config": str(path), "origin_known": name in origins})
-        # An imported catalog can grant additional connectors without a local server entry.
-        for _ in config.get("imports", []) if backend == "openclaw" else []:
-            rows.append({"bot": bot, "connector": "(imported catalog)", "source": str(path),
-                         "config": str(path), "origin_known": False})
-    return {"backend": backend, "bots_with_non_defaults": rows}
+        # Imported editor catalogs may contain secrets in their paths. Flag unresolved layers without echoing them.
+        if backend == "openclaw":
+            layers = [(path, config)] + ([(home_path, home_config)] if home_path and not isolated else [])
+            for source, layer in layers:
+                if layer.get("imports", ["defaults"]):
+                    unresolved.append({"bot": bot, "source": str(source), "reason": "Imported editor catalogs were not expanded; review their connector holdings separately."})
+            if not isolated:
+                unresolved.append({"bot": bot, "source": str(path), "reason": "Legacy MCPorter invocation may use other environment-selected catalogs; only local and home files were inventoried."})
+    return {"backend": backend, "bots_with_non_defaults": rows, "unresolved_catalogs": unresolved}
 
 
 def catalog_tools(payload):
@@ -533,13 +607,14 @@ def main():
     parser.add_argument("bot", nargs="?")
     parser.add_argument("--manager")
     parser.add_argument("--connector")
+    parser.add_argument("--source", type=Path, help="Explicit manager source config for a connector inherited from another catalog")
     parser.add_argument("--description", default="")
     args = parser.parse_args()
     try:
         if args.action == "audit":
             result = audit(args.home, args.backend)
         elif args.action == "opt-in":
-            result = opt_in(args.home, args.backend, args.bot, args.manager, args.connector)
+            result = opt_in(args.home, args.backend, args.bot, args.manager, args.connector, args.source)
         elif args.action == "create":
             result = create(args.home, args.backend, args.bot, args.description)
         else:

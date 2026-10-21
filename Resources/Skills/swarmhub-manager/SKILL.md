@@ -33,8 +33,8 @@ New bots get only the read-only defaults, including aliases in ~/.config/swarmhu
 
 Only after the user explicitly selects a connector and one target bot, run:
 ```sh
-python3 {{SKILL_DIR}}/scripts/default-connectors.py opt-in hermes <bot> --manager {{MANAGER}} --connector <connector>
+python3 {{SKILL_DIR}}/scripts/default-connectors.py opt-in hermes <bot> --manager {{BOT}} --connector <connector>
 ```
-For OpenClaw use `opt-in openclaw <bot> --manager <manager-agent-id> --connector <connector>` with the same helper. This copies just that connector, including its own credentials, to that bot. It never overwrites a connector or broadens an aliased default. Include the returned connectors JSON in the SwarmHub block. Never print the source config, .env, credentials or raw errors.
+For OpenClaw use `opt-in openclaw <bot> --manager <manager-agent-id> --connector <connector>` with the same helper. For an inherited connector, add `--source /path/to/its/source-config.json` and select just that entry. This copies just that connector, including its own credentials, to that bot. It never overwrites a connector or broadens an aliased default. Include the returned connectors JSON in the SwarmHub block. Never print the source config, .env, credentials or raw errors.
 
 Read-only inventory (no tool discovery or agent calls): `python3 {{SKILL_DIR}}/scripts/default-connectors.py audit hermes` (or `audit openclaw`). It lists bot, connector, source config and whether the original source is known; it never removes anything.

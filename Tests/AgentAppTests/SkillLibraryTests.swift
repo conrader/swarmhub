@@ -94,7 +94,7 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
         let folder = SkillLibrary.installPath(SkillLibrary.managerSkill, profile: profile)
         #expect(rendered.contains(manager + "\n\nWhen asked to list every bot, connect bots made before SwarmHub"))
         #expect(rendered.contains("first read `\(folder)/references/capacity.md` (`cat` it).\n\n## Heartbeat\n") && rendered.contains("first read `\(folder)/references/box.md`"))
-        #expect(rendered.hasSuffix("SwarmHub reads it back and asks Konrad whether to keep the box's schedule or put its own back.\n"), "P56: the Heartbeat section ends it")
+        #expect(rendered.contains("SwarmHub reads it back and asks Konrad whether to keep the box's schedule or put its own back.\n"), "the Heartbeat instructions remain alongside connector opt-in")
         #expect(rendered.contains("first read `\(folder)/references/accounts.md`") && rendered.contains("first read `\(folder)/references/models.md`"))
         #expect(rendered.contains("You are the profile `\(profile)`"))
     }

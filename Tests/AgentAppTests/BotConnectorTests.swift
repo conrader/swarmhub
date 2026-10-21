@@ -15,6 +15,14 @@ import Testing
     let rendered = try #require(SkillLibrary.render(skill, forProfile: "manager", managerTemplate: BotManagerText.template()))
     #expect(skill.files.contains { $0.path == "scripts/default-connectors.py" && $0.content.contains("def provision(home, backend, bot):") })
     #expect(rendered.contains("provision hermes"))
+    for profile in ["default", "named-manager"] {
+        let rendered = try #require(SkillLibrary.render(skill, forProfile: profile, managerTemplate: BotManagerText.template()))
+        #expect(!rendered.contains("{{"), "all opt-in recipe placeholders must be filled")
+        #expect(rendered.contains("--manager \(profile) --connector"))
+    }
+    let openClaw = try #require(BotManagerText.template(for: .openClaw))
+    #expect(openClaw.contains("mcporter --config ~/.openclaw/workspace-<id>/config/mcporter.json"))
+    #expect(openClaw.contains("for ALL connector listing and calls"))
     let custom = try #require(SkillLibrary.render(skill, forProfile: "manager", managerTemplate: BotManagerText.withConnectorDefaults("Custom instructions for {{MANAGER}}", backend: .hermes)))
     #expect(custom.contains("Custom instructions for manager") && custom.contains("provision hermes"), "older prompt overrides retain the app's defaults")
     let stock = try #require(BotManagerText.template())

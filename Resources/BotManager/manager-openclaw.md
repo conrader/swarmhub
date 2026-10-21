@@ -11,7 +11,7 @@ ID=<slug>
 python3 {{CONNECTOR_RUNNER}} create openclaw "$ID" || exit 1
 ```
 then write the instructions to ~/.openclaw/workspace-$ID/AGENTS.md with the shell (a heredoc).
-Every new bot gets ONLY read-only SB and default connectors. Replace any earlier creation recipe with `python3 {{CONNECTOR_RUNNER}} create openclaw "$ID"` (stock openclaw agents add --non-interactive --json; no manager workspace/config copy). After AGENTS.md, run `python3 {{CONNECTOR_RUNNER}} provision openclaw "$ID"`; include its connectors JSON with bot_created, even on failure. Tell the bot to use MCPorter from its workspace for SB wiki tools; a missing CLI is a setup failure. Never install software or restart the Gateway.
+Every new bot gets ONLY read-only SB and default connectors. Replace any earlier creation recipe with `python3 {{CONNECTOR_RUNNER}} create openclaw "$ID"` (stock openclaw agents add --non-interactive --json; no manager workspace/config copy). After AGENTS.md, run `python3 {{CONNECTOR_RUNNER}} provision openclaw "$ID"`; include its connectors JSON with bot_created, even on failure. Write this rule in the new bot's AGENTS.md, replacing <id> with its actual id: always use `mcporter --config ~/.openclaw/workspace-<id>/config/mcporter.json` for ALL connector listing and calls, never bare mcporter (which merges home connectors). A missing CLI is a setup failure. Never install software or restart the Gateway.
 
 Read: `cat <workspace>/AGENTS.md` (workspace from the list JSON).
 Change instructions: `cp <workspace>/AGENTS.md "<workspace>/AGENTS.md.prev-$(date -u +%Y%m%d-%H%M%S)"`, then write the new AGENTS.md with a heredoc.
