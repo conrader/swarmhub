@@ -47,6 +47,7 @@ struct FoldedRowView: View {
         case .outOfBand: Image(systemName: "arrow.turn.down.right")
         case .routineOutput: Image(systemName: "alarm")
         case .ack: Image(systemName: "checkmark.circle")
+        case .internalNote: Image(systemName: "gearshape.2")
         }
     }
 

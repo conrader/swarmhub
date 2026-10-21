@@ -5,7 +5,7 @@ import Foundation
 /// `Date` header; scripted chat streams (chunks then a terminal, a cut, EOF, a failure before the headers, a hang); a
 /// network-down switch; a request log; `run_status` on or off. Shapes follow `api_server.py` (v2026.8.19).
 final class SessionServer: URLProtocol, @unchecked Sendable {
-    struct Row { var id: Int; var role: String; var content: String; var finish: String?; var time: Double }
+    struct Row { var id: Int; var role: String; var content: String; var finish: String?; var time: Double; var displayKind: String? = nil }
     struct Logged: @unchecked Sendable { var method: String; var path: String; var rawPath = ""; var query: [String: String]; var headers: [String: String]; var body: [String: Any]? }
     /// How the box answers one chat POST. `persist`: what the box stores as the reply (nil = the chunks joined).
     enum Script {
@@ -34,10 +34,11 @@ final class SessionServer: URLProtocol, @unchecked Sendable {
         var extraRoute: ((_ method: String, _ parts: [String], _ query: [String: String], _ body: [String: Any]?) -> (Int, Any)?)?
         let log = AwaitableLog<Logged>()
         func with<T>(_ body: (State) -> T) -> T { lock.lock(); defer { lock.unlock() }; return body(self) }
-        func add(_ session: String, _ role: String, _ content: String, finish: String? = nil, time: Double? = nil) {
+        func add(_ session: String, _ role: String, _ content: String, finish: String? = nil, time: Double? = nil, displayKind: String? = nil) {
             with { state in
                 state.nextID += 1
-                state.sessions[session, default: []].append(.init(id: state.nextID, role: role, content: content, finish: finish, time: time ?? state.date.timeIntervalSince1970))
+                state.sessions[session, default: []].append(.init(id: state.nextID, role: role, content: content, finish: finish, time: time ?? state.date.timeIntervalSince1970,
+                                                                  displayKind: displayKind))
             }
         }
         var posts: [Logged] { log.all.filter { $0.method == "POST" } }
@@ -89,7 +90,7 @@ final class SessionServer: URLProtocol, @unchecked Sendable {
             let page = query["order"] == "latest" ? Array(rows[start..<end]) : Array(rows.dropFirst(offset).prefix(limit))
             return json(200, ["object": "list", "data": page.map { row -> [String: Any] in
                 var value: [String: Any] = ["id": row.id, "role": row.role, "content": row.content, "timestamp": row.time]
-                value["finish_reason"] = row.finish ?? NSNull(); return value
+                value["finish_reason"] = row.finish ?? NSNull(); if let kind = row.displayKind { value["display_kind"] = kind }; return value
             }], date: date)
         }
         if method == "GET", route == "api/sessions" {

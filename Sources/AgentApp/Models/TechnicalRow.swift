@@ -12,6 +12,8 @@ struct TechnicalFold: Equatable, Sendable {
         case botMessage, botReply
         /// `[OUT-OF-BAND USER MESSAGE …]` still wrapped, `[Cronjob "<name>" output …]`, and one-word acks.
         case outOfBand, routineOutput, ack
+        /// A row Hermes wrote itself (`HermesInternalNote`): an async delegation finishing, a process notification, ….
+        case internalNote
     }
     var kind: Kind; var summary: String
     /// The raw text unfold shows and "Copy original" copies (an app pair: request, blank line, result).
@@ -79,6 +81,7 @@ enum TechnicalRow {
         }
         if let ack = ack(text) { return TechnicalFold(kind: .ack, summary: ack, original: text) }
         guard message.role == .user else { return nil }
+        if let note = HermesInternalNote.summary(message) { return TechnicalFold(kind: .internalNote, summary: note, original: text) }
         if let skill = match(skillHeader, text) {
             let label = wokenLabel(message).map { $0 + " · uses skill " } ?? "Uses skill "
             return TechnicalFold(kind: .skill, summary: label + skill, original: text)

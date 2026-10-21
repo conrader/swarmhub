@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 /// P51 shots of `--render-setup` (alone with `--only p51`): a chat like Jarvis's with its technical rows folded (an app
-/// lookup and execute, a skills_installed reply, a heartbeat that loaded a skill, a bot-to-bot pair), and the same chat
-/// with one of each unfolded. All synthetic and in memory: nothing is sent or saved.
+/// lookup and execute, a skills_installed reply, a heartbeat that loaded a skill, a bot-to-bot pair, Hermes's own async
+/// delegation note), and the same chat with one of each unfolded. All synthetic and in memory: nothing is sent or saved.
 @MainActor enum HeadlessP51Shots {
     static let names = ["p51-folded", "p51-unfolded"]
 
@@ -29,9 +29,9 @@ import SwiftUI
         write(names[0], await png(chat(folded), store, folded))
 
         // One of each unfolded (taller, so all of them show): the app lookup, the swarmhub block, the skill text, the
-        // bot-to-bot message.
+        // bot-to-bot message, the delegation note.
         let rows = jarvis.messages
-        for index in [1, 6, 8] { store.technicalFolds.unfold(TechnicalFolds.key(rows[index].id)) }
+        for index in [1, 6, 8, 12] { store.technicalFolds.unfold(TechnicalFolds.key(rows[index].id)) }
         store.technicalFolds.unfold(TechnicalFolds.key(rows[5].id, "fence0.0"))
         write(names[1], await png(chat(tall), store, tall))
     }
@@ -73,7 +73,15 @@ import SwiftUI
                         metadata: [BotWorkKey.origin: "reply:grok-infra", BotMessageKey.from: "grok-infra", BotMessageKey.to: "grok-jarvis",
                                    BotWorkKey.request: "Done: 41 GB freed, disk at 63%.", BotWorkKey.reply: "Thanks, noted in the hourly report."]),
             ChatMessage(role: .user, content: "Anything else today?", createdAt: at(-2)),
-            ChatMessage(role: .assistant, content: "No: the disk is fixed and GitHub works. Next check at 10:00.", createdAt: at(-1.8), turnState: .finished)
+            ChatMessage(role: .assistant, content: "No: the disk is fixed and GitHub works. Next check at 10:00.", createdAt: at(-1.8), turnState: .finished),
+            ChatMessage(role: .user, content: """
+            [ASYNC DELEGATION BATCH COMPLETE — deleg_b801d015]
+            A background fan-out unit you dispatched earlier — 4 subagent(s) — has finished; its consolidated results are below.
+
+            [1/4] Check the backups on box 1 and box 2: completed (58s)
+            Both nightly backups finished; box 2 at 08:58.
+            """, createdAt: at(-1), metadata: [HermesDisplayKey.kind: "async_delegation_complete"]),
+            ChatMessage(role: .assistant, content: "All four checks are back: backups, disk and certificates are fine.", createdAt: at(-0.5), turnState: .finished)
         ]
     }
 }

@@ -280,6 +280,7 @@ enum HistoryReconciler {
             if case .chat = input.mode, let user = box.user {
                 var metadata = [TurnKey.restored: "added", TurnKey.box: ids(user.id.map { [$0] } ?? [])]
                 if user.outOfBand { metadata[SteerKey.outOfBand] = "1" }
+                if let kind = user.displayKind { metadata[HermesDisplayKey.kind] = kind }
                 rows.append(.init(role: .user, content: user.content, authorID: nil, state: nil, metadata: metadata, createdAt: localTime ?? input.now))
             }
             if !box.replyText.isEmpty { rows.append(newReply(box, author: memberID(input.mode), mode: input.mode, time: localTime ?? input.now)) }

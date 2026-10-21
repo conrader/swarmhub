@@ -365,6 +365,8 @@ struct BackendMessage: Sendable, Equatable {
     var toolPreviews: [String?] = []
     /// P44: a user row Hermes wrapped as an out-of-band steer; `content` holds the inner text only.
     var outOfBand = false
+    /// Hermes 0.22's `display_kind` (`async_delegation_complete`, …): how the box itself types the row; nil when untyped.
+    var displayKind: String? = nil
     init(id: Int? = nil, role: String, content: String, createdAt: Date? = nil, finishReason: String? = nil, tools: [String] = []) {
         let inner = role == "user" ? OutOfBandMessage.unwrap(content) : nil
         self.id = id; self.role = role; self.content = inner ?? content; self.createdAt = createdAt; self.finishReason = finishReason; self.tools = tools
