@@ -213,7 +213,9 @@ collect_evidence() {
 tree() {
   case $1 in ''|*[!0-9]*) return 0 ;; esac
   case $(uname -s 2>/dev/null) in Darwin|*BSD|DragonFly) _tree_nosess=1 ;; *) _tree_nosess= ;; esac
-  LC_ALL=C ps -A -o pid= -o ppid= -o pgid= -o sess= -o lstart= 2>/dev/null | awk -v root="$1" -v self="$$" -v previous="${2:-}" -v nosess="$_tree_nosess" '
+  # BSD awk rejects literal newlines in -v assignments; ENVIRON preserves the cached rows verbatim.
+  LC_ALL=C ps -A -o pid= -o ppid= -o pgid= -o sess= -o lstart= 2>/dev/null | CODE_JOB_TREE_PREVIOUS="${2:-}" awk -v root="$1" -v self="$$" -v nosess="$_tree_nosess" '
+    BEGIN { previous = ENVIRON["CODE_JOB_TREE_PREVIOUS"] }
     function same(p, a, n) {
       n = split(old[p], a, " ")
       if (n != 9 || group[p] != a[3] || session[p] != a[4] || start[p] != a[5] " " a[6] " " a[7] " " a[8] " " a[9]) return 0
