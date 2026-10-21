@@ -103,6 +103,24 @@ class RecordingGuard(sim_isolation.SignalGuard):
                          table=rows, getpid=lambda: pid, getpgrp=lambda: pgrp, log=lambda message: None)
 
 
+class DarwinProcessTableTests(unittest.TestCase):
+    def test_recorded_macos_ps_listing(self):
+        # Recorded on macOS with /bin/ps -p 1,$$ -o pid= -o ppid= -o pgid= -o lstart= (LC_ALL=C).
+        listing = ("    1     0     1 Fri Oct 16 06:11:44 2026    \n"
+                   "44210 44209 44210 Wed Oct 21 22:18:40 2026    \n")
+        child = mock.Mock()
+        child.communicate.return_value = (listing, None)
+        with mock.patch.object(sim_isolation.os.path, "isdir", return_value=False), \
+                mock.patch.object(sim_isolation.subprocess, "Popen", return_value=child) as popen:
+            table = sim_isolation.process_table()
+        self.assertEqual(table, {1: (0, 1, "Fri Oct 16 06:11:44 2026"),
+                                 44210: (44209, 44210, "Wed Oct 21 22:18:40 2026")})
+        self.assertEqual(popen.call_args[0][0], ["/bin/ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "pgid=",
+                                               "-o", "lstart="])
+        self.assertEqual(popen.call_args[1]["env"]["LC_ALL"], "C")
+        child.communicate.assert_called_once_with(timeout=10)
+
+
 class SignalGuardTests(unittest.TestCase):
     PARENTS = {1: 0, 400: 1, 500: 400, 600: 500, 601: 600, 602: 601, 900: 1}  # 600 spawned; 900 foreign
 

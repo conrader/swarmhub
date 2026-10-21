@@ -42,9 +42,12 @@ coverage. So on Darwin the harness runs in signal-guarded mode:
   process in one fresh snapshot of the process table (`/proc` on Linux, `ps -A -o pid,ppid,pgid,lstart` on macOS).
   A pid the harness once spawned counts for nothing by itself: once reaped, seen or not, its number may belong to
   an unrelated process, and so may that process's children. On Linux `kill` first pins the pid with `pidfd_open`
-  and signals through the pidfd, so a reuse between the check and the signal cannot receive it. A group is ours
-  when its live leader is ours, or, with the leader gone, when a member is our descendant or is one of the members
-  (pid + start time) recorded at the moment we reaped the leader. Signal 0, an existence probe that delivers
+  and signals through the pidfd, so a reuse between the check and the signal cannot receive it. Every visible
+  group member must be this process or its current descendant, including when this process leads the group.
+  Mixed groups are refused. No survivor list is captured after reaping: by then the leader's identity has been
+  released and the group number may already belong to someone else. Orphans adopted elsewhere are therefore
+  refused even when they used to be ours; a group whose remaining members are still our descendants is allowed.
+  Signal 0, an existence probe that delivers
   nothing, may still name any pid above 1. A refusal raises `PermissionError(EPERM)` and logs a line to stderr, as
   does an unreadable process table. A stale pid, or a child already reaped, raises `ProcessLookupError` without a
   signal. Every wait primitive reports reaping: `os.waitpid`, `wait`, `wait3`, `wait4`, `waitid`, and `Popen`'s

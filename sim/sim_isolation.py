@@ -153,34 +153,31 @@ class SignalGuard:
 
     Nothing historical makes a target ours: a number this process once spawned may have been reaped and reused by an
     unrelated process, whether or not the reaping was seen. `spawned`/`reaped` only report a known-reaped child as
-    gone (ESRCH), and for a group whose leader was reaped while members lived, `survivors` keeps exactly which
-    processes (pid + start) were members then: only they keep that group number ours."""
+    gone (ESRCH). Every group member must be a current descendant (or this process itself). An orphan adopted
+    elsewhere is unverifiable and refused: a snapshot taken after wait cannot establish group ownership."""
 
     def __init__(self, kill=os.kill, killpg=os.killpg, table=process_table, getpid=os.getpid, getpgrp=os.getpgrp,
                  log=sys.stderr.write):
-        self.spawned, self.reaped, self.leaders, self.survivors = set(), set(), set(), {}
+        self.spawned, self.reaped = set(), set()
         self._kill, self._killpg, self._table, self._getpid, self._getpgrp = kill, killpg, table, getpid, getpgrp
         self._log, self.pin = log, None  # pin: (pidfd_open, pidfd_send_signal) where the kernel has them
 
-    def record(self, pid, leader=False):
-        """A child this process just spawned; leader: it may lead its own process group (setsid/setpgid/fork)."""
+    def record(self, pid):
+        """A child this process just spawned; its number grants no ownership after reaping."""
         if _plain_int(pid) and pid > 1:
             self.spawned.add(pid)
             self.reaped.discard(pid)
-            self.survivors.pop(pid, None)
-            (self.leaders.add if leader else self.leaders.discard)(pid)
         return pid
 
     def reap(self, pid):
-        """Every wait primitive reports here: the child is gone and its number free for reuse."""
+        """Every wait primitive reports here: the child is gone and its number free for reuse.
+
+        Never capture members here: wait has already released the leader's identity, so even a group with
+        this number may now be foreign. Without a pre-reap pin, only fresh ancestry may authorize a signal.
+        """
         if pid not in self.spawned or pid in self.reaped:
             return
         self.reaped.add(pid)
-        if pid in self.leaders:
-            table = self.snapshot()
-            members = {(member, entry[2]) for member, entry in table.items() if entry[1] == pid}
-            if members:
-                self.survivors[pid] = members
 
     def snapshot(self):
         try:
@@ -208,10 +205,7 @@ class SignalGuard:
         members = [member for member, entry in table.items() if entry[1] == target]
         if not members:
             return None
-        if target in table and table[target][1] == target:
-            return self.descends(target, table)  # A live leader: the group is ours exactly when the leader is.
-        known = self.survivors.get(target, ())
-        return any(self.descends(member, table) or (member, table[member][2]) in known for member in members)
+        return all(member == self._getpid() or self.descends(member, table) for member in members)
 
     def problem(self, target, signum, group=False):
         what = "group" if group else "pid"
@@ -221,8 +215,8 @@ class SignalGuard:
             return None  # Itself, even as pid 1 of the namespace `unshare -f` made for it.
         if target <= 1:
             return "%s %d is broadcast, this group, init or negative" % (what, target)
-        if group and target == self._getpgrp():
-            return None if target == self._getpid() else "group %d is this process's own (not led by it)" % target
+        if group and target == self._getpgrp() and target != self._getpid():
+            return "group %d is this process's own (not led by it)" % target
         if signum == 0:
             return None
         if not group and target in self.reaped:
@@ -327,23 +321,20 @@ def install(guard):
         if real is not None:
             def spawn(real=real):
                 result = real()
-                guard.record(result[0] if isinstance(result, tuple) else result, leader=True)  # It may setsid().
+                guard.record(result[0] if isinstance(result, tuple) else result)
                 return result
             setattr(os, name, spawn)
     for name in ("posix_spawn", "posix_spawnp"):
         real = getattr(os, name, None)
         if real is not None:
             def posix_spawn(*args, real=real, **kwargs):
-                leader = kwargs.get("setsid") or kwargs.get("setpgroup") is not None
-                return guard.record(real(*args, **kwargs), leader=leader)
+                return guard.record(real(*args, **kwargs))
             setattr(os, name, posix_spawn)
     real_init = subprocess.Popen.__init__
 
     def popen_init(self, *args, **kwargs):
         real_init(self, *args, **kwargs)
-        leader = (kwargs.get("start_new_session") or kwargs.get("process_group") is not None
-                  or kwargs.get("preexec_fn") is not None)
-        guard.record(getattr(self, "pid", None), leader=leader)
+        guard.record(getattr(self, "pid", None))
     subprocess.Popen.__init__ = popen_init
     # Popen reaps through this method even after its object was discarded (subprocess._cleanup polls those).
     real_exitstatus = getattr(subprocess.Popen, "_handle_exitstatus", None)

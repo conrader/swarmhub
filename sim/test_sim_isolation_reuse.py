@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 from test_sim_isolation import RecordingGuard
 
@@ -38,7 +39,7 @@ class ReuseTests(unittest.TestCase):
         """700 was spawned and reaped unseen (a discarded Popen, a C-level wait); 900 now owns the number 700."""
         table = table_with({900: (1, 900, "b"), 700: (900, 700, "c"), 701: (700, 700, "c")})
         guard = RecordingGuard(table, pid=500)
-        guard.record(700, leader=True)
+        guard.record(700)
         self.assertNotIn(700, guard.reaped)
         for pid in (700, 701):
             self.assertRefused(guard.kill, pid, signal.SIGTERM)
@@ -48,28 +49,72 @@ class ReuseTests(unittest.TestCase):
     def test_a_reused_group_number_is_foreign_once_our_group_dissolved(self):
         table = table_with({700: (500, 700, "a")})
         guard = RecordingGuard(table, pid=500)
-        guard.record(700, leader=True)
+        guard.record(700)
         del table[700]
         guard.reap(700)  # No member left: the number is free.
         table.update({900: (1, 900, "b"), 702: (1, 700, "d")})  # A foreign group 700 whose own leader already exited.
         self.assertRefused(guard.killpg, 700, signal.SIGTERM)
         self.assertEqual(guard.sent, [])
 
-    def test_a_group_outlives_its_reaped_leader_only_through_the_members_seen_at_reaping(self):
+    def test_reuse_before_the_reaping_wrapper_returns_cannot_authorize_foreign_survivors(self):
+        """The real wait freed 700; its foreign replacement has already lost its own leader before reap()."""
+        table = table_with({700: (500, 700, "our-leader"), 900: (1, 900, "foreign-parent")})
+        guard = RecordingGuard(table, pid=500)
+        guard.record(700)
+
+        def real_wait(pid, options):
+            del table[700]
+            table[702] = (900, 700, "foreign-member")
+            return pid, 0
+
+        wait = sim_isolation._reaping(guard, real_wait, lambda result, *args: result[0])
+        self.assertEqual(wait(700, 0), (700, 0))
+        self.assertIn(700, guard.reaped)
+        for signum in (signal.SIGTERM, signal.SIGKILL):
+            self.assertRefused(guard.killpg, 700, signum)
+        self.assertEqual(guard.sent, [])
+
+    def test_reaping_does_not_read_a_process_table_that_can_already_describe_a_reused_group(self):
+        guard = RecordingGuard(table_with({702: (1, 700, "foreign-member")}), pid=500)
+        guard.record(700)
+        with mock.patch.object(guard, "_table", side_effect=AssertionError("post-reap capture")) as listing:
+            guard.reap(700)
+        listing.assert_not_called()
+        self.assertRefused(guard.killpg, 700, signal.SIGTERM)
+        self.assertEqual(guard.sent, [])
+
+    def test_an_orphaned_group_is_refused_even_if_the_members_really_were_ours(self):
         table = table_with({700: (500, 700, "a"), 701: (700, 700, "a")})
         guard = RecordingGuard(table, pid=500)
-        guard.record(700, leader=True)
+        guard.record(700)
         del table[700]
         table[701] = (1, 700, "a")  # The leader exited; launchd/init adopted its child, still in group 700.
         guard.reap(700)
-        guard.killpg(700, signal.SIGTERM)
+        self.assertRefused(guard.killpg, 700, signal.SIGTERM)
         table[701] = (1, 700, "later")  # Same number, a different process (another start): not a member we saw.
         self.assertRefused(guard.killpg, 700, signal.SIGKILL)
         table[701] = (1, 700, "a")
-        table[700] = (900, 700, "e")  # A live leader decides alone: this one is not ours.
+        table[700] = (900, 700, "e")
         table[900] = (1, 900, "b")
         self.assertRefused(guard.killpg, 700, signal.SIGKILL)
-        self.assertEqual(guard.sent, [("killpg", 700, signal.SIGTERM)])
+        self.assertEqual(guard.sent, [])
+
+    def test_a_mixed_group_is_refused_with_a_live_or_absent_leader(self):
+        for leader_present in (True, False):
+            with self.subTest(leader_present=leader_present):
+                table = table_with({700: (500, 700, "ours"), 701: (500, 700, "ours"),
+                                    702: (1, 700, "foreign")})
+                if not leader_present:
+                    del table[700]
+                guard = RecordingGuard(table, pid=500)
+                self.assertRefused(guard.killpg, 700, signal.SIGTERM)
+                self.assertEqual(guard.sent, [])
+
+    def test_a_mixed_group_is_refused_even_when_this_process_leads_it(self):
+        table = table_with({500: (400, 500, "self"), 701: (500, 500, "ours"), 702: (1, 500, "foreign")})
+        guard = RecordingGuard(table, pid=500, pgrp=500)
+        self.assertRefused(guard.killpg, 500, signal.SIGTERM)
+        self.assertEqual(guard.sent, [])
 
     def test_a_live_group_is_ours_through_a_live_leader_or_a_descendant_member(self):
         table = table_with({700: (500, 700, "a"), 800: (500, 800, "a"), 801: (800, 750, "a")})
@@ -80,7 +125,7 @@ class ReuseTests(unittest.TestCase):
 
     def test_an_unreadable_process_table_refuses_even_a_recorded_child(self):
         guard = RecordingGuard({}, pid=500)
-        guard.record(600, leader=True)
+        guard.record(600)
         self.assertRefused(guard.kill, 600, signal.SIGTERM)
         self.assertRefused(guard.killpg, 600, signal.SIGTERM)
 
