@@ -246,6 +246,74 @@ class Staged(DevCase):
         self.assertFalse(folder.exists())
         self.assertNotIn("pending_reset", json.loads((self.state / "applied.json").read_bytes()))
 
+    def defer_reset(self, profile, skill):
+        """Leave a pending reset of `skill` in `profile` behind (the box was busy), as a later check would find it."""
+        v1 = self.source("expected-v1")
+        _, comps = self.release("same-v1")
+        rows = [dict(row, reset=[skill]) if row["name"] == profile else row for row in PROFILES_DOC["profiles"]]
+        self.edit(skill, profile)  # something to install, so the busy box defers
+        sleeper = self.start_sleeper()
+        slot = self.code_job_slot(sleeper.pid)
+        code, out = self.update("apply", "--staged", str(self.stage(11, comps, profiles=dict(PROFILES_DOC,
+                                                                                            profiles=rows))))
+        self.assertEqual((code, out["state"]), (75, "deferred"), out["detail"])
+        sleeper.kill()
+        sleeper.wait()
+        shutil.rmtree(str(slot))
+        self.assertEqual(self.pending(), {profile: [skill]})
+        return v1, comps
+
+    def pending(self):
+        return json.loads((self.state / "applied.json").read_bytes()).get("pending_reset")
+
+    def test_a_reset_in_one_profile_never_reinstalls_the_skill_in_another(self):
+        self.start(PROFILES_DOC)
+        v1, _ = self.defer_reset("coder_2", CODING)
+        edited = self.edit(CODING)
+        code, out = self.update("check")
+        self.assertEqual((code, out["state"]), (0, "current"), out["detail"])
+        self.assertEqual(self.snapshot(CODING, "coder_2"), self.expected(v1, CODING, PROFILES[1]))
+        self.assertEqual((self.live(CODING) / "SKILL.md").read_text(), edited, "default has no reset: untouched")
+        self.assertIsNone(self.pending())
+
+    def test_a_reset_for_a_removed_profile_is_dropped(self):
+        self.start(PROFILES_DOC)
+        _, comps = self.defer_reset("coder_2", CODING)
+        only_default = dict(PROFILES_DOC, profiles=[PROFILES_DOC["profiles"][0]])
+        code, out = self.update("apply", "--staged", str(self.stage(11, comps, profiles=only_default)))
+        self.assertEqual((code, out["state"]), (0, "current"), out["detail"])
+        self.assertIsNone(self.pending())
+        edited = self.edit(CODING)
+        code, out = self.update("check")
+        self.assertEqual((code, out["state"]), (0, "current"), out["detail"])
+        self.assertEqual((self.live(CODING) / "SKILL.md").read_text(), edited)
+
+    def test_a_reset_of_a_skill_the_profile_does_not_target_is_dropped(self):
+        self.start(PROFILES_DOC)
+        _, comps = self.release("same-v1")
+        rows = [PROFILES_DOC["profiles"][0], dict(PROFILES_DOC["profiles"][1], reset=[FEEDBACK])]
+        code, out = self.update("apply", "--staged", str(self.stage(11, comps, profiles=dict(PROFILES_DOC,
+                                                                                            profiles=rows))))
+        self.assertEqual((code, out["state"]), (0, "current"), out["detail"])
+        self.assertIsNone(self.pending())
+        self.assertFalse(self.live(FEEDBACK, "coder_2").exists())
+        edited = self.edit(FEEDBACK)
+        code, out = self.update("check")
+        self.assertEqual((code, out["state"]), (0, "current"), out["detail"])
+        self.assertEqual((self.live(FEEDBACK) / "SKILL.md").read_text(), edited)
+
+    def test_a_reset_held_for_lacking_a_coding_order_is_dropped(self):
+        self.start(PROFILES_DOC)
+        self.defer_reset("coder_2", CODING)
+        (self.state / "profiles.json").unlink()  # discovered profiles: no coding order, so the coding skill is held
+        edited = self.edit(CODING)
+        code, out = self.update("check")
+        self.assertEqual(out["state"], "held", out["detail"])
+        self.assertIsNone(self.pending())
+        self.assertEqual((self.live(CODING) / "SKILL.md").read_text(), edited)
+        code, out = self.update("check")
+        self.assertEqual((code, out["state"]), (0, "current"), out["detail"])
+
     def test_kept_skills_are_reported_modified_and_the_run_stays_current(self):
         self.start(DEV_DOC)
         edited = self.edit(FEEDBACK)

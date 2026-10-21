@@ -57,6 +57,24 @@ def profiles_for(box, skill_names=None):
     return entries
 
 
+def _prune_resets(box):
+    """Drop pending resets no profile can consume (profile gone, or the skill not in its list); they would wait
+    forever. A malformed profiles.json keeps them: the run fails before anything applies."""
+    if not box.reset:
+        return
+    try:
+        entries = {e["name"]: e for e in profiles_for(box)}
+    except ValueError:
+        return
+    for name in list(box.reset):
+        entry = entries.get(name)
+        keep = [] if entry is None else [s for s in box.reset[name] if entry["skills"] is None or s in entry["skills"]]
+        if keep:
+            box.reset[name] = keep
+        else:
+            box.reset.pop(name)
+
+
 def _manager_text(box, verified, names_now, comps, errors):
     work = box.state.path("work")
     component = next((c for c in verified.apply if c["name"] == bundle.MANAGER_PROMPTS), None)
@@ -89,7 +107,8 @@ def _ready(now, names_now, loaded, targets, unavailable, comps):
         ready = policy.settle(now, ready - blocked, comps)
 
 
-def _apply_now(box, verified, now, waiting, comps):
+def _apply_now(box, verified, now, waiting, comps, reset_only=frozenset()):
+    """`reset_only`: skills in `now` only for a pending reset; they install in the profiles that reset them."""
     names_now = {c["name"] for c in now}
     errors, held, results = {}, {}, {}
     template = _manager_text(box, verified, names_now, comps, errors)
@@ -115,11 +134,16 @@ def _apply_now(box, verified, now, waiting, comps):
     if loaded:
         for entry in entries:
             wanted = set(loaded) if entry["skills"] is None else set(entry["skills"]) & set(loaded)
+            wanted -= set(reset_only) - set(entry.get("reset", ()))
             if entry["coding_order"] is None:
                 for name in sorted(wanted):
                     if render.variant(loaded[name], render.STANDARD_ORDER):
                         held.setdefault(name, []).append(entry["name"])
                         wanted.discard(name)
+                        if name in box.reset.get(entry["name"], ()):  # never targeted here: the reset cannot apply
+                            box.reset[entry["name"]] = [s for s in box.reset[entry["name"]] if s != name]
+                            if not box.reset[entry["name"]]:
+                                box.reset.pop(entry["name"])
             if wanted:
                 targets.append(stage.Profile(entry["name"], entry["coding_order"] or render.STANDARD_ORDER,
                                              tuple(sorted(wanted)), entry.get("dev_mode", False),
@@ -181,23 +205,27 @@ def apply_bundle(box, verified, confirm=False, rerender=False):
     """Apply what decision 2 allows of `verified` now (all of it once confirmed). Returns the run summary."""
     record = box.state.applied()
     box.reset = record.get("pending_reset", {})
+    _prune_resets(box)
     comps = record["components"]
     if confirm:
         record.update(confirmed_version=verified.version, confirmed_manifest_sha256=verified.manifest_sha256)
         box.state.save_applied(record)
     confirmed = is_confirmed(record, verified)
     now, waiting = policy.split(verified.apply, comps, confirmed)
+    reset_only = set()
     if rerender or box.reset:
         # P4b: new profiles and changed coding orders must render even when this box already applied the archive.
         # Only previously applied bytes qualify; new code and its waiting dependencies still need confirmation.
         names = {c["name"] for c in now}
-        now += [c for c in verified.apply if c["kind"] == "skill" and c["name"] not in names
-                and c["name"] not in waiting and policy.same_content(c, comps)
-                and (rerender or any(c["name"] in skills for skills in box.reset.values()))]
+        added = [c for c in verified.apply if c["kind"] == "skill" and c["name"] not in names
+                 and c["name"] not in waiting and policy.same_content(c, comps)
+                 and (rerender or any(c["name"] in skills for skills in box.reset.values()))]
+        now += added
+        reset_only = set() if rerender else {c["name"] for c in added}
     if record.get("pin"):
         return {"state": "pinned", "detail": "local pin (%s): nothing applies" % record["pin"].get("mode"),
                 "waiting": waiting, "not_applied": [c["name"] for c in now], "report": Report(set(), {}, {}, {})}
-    report = _apply_now(box, verified, now, waiting, comps)
+    report = _apply_now(box, verified, now, waiting, comps, reset_only)
     done = policy.settle(now, report.succeeded, comps)
     for component in now:
         if component["name"] in done:
