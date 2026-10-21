@@ -1,10 +1,16 @@
 """POSIX recovery-process shutdown. Signal handlers belong only to CLI processes."""
 from contextlib import contextmanager
+import fcntl
+import json
 import os
+from pathlib import Path
+import re
 import signal
 import subprocess
+import sys
 import threading
 import time
+import uuid
 
 STOP_GRACE = 2.0
 REAP_GRACE = 1.0
@@ -63,6 +69,19 @@ def termination(forward_group=False):
 
 def is_stopping():
     return _stopped is not None and _stopped.is_set()
+
+
+def request_stop():
+    """Cooperative shutdown of this instance; never signal a PID from disk."""
+    if _stopped is not None:
+        _stopped.set()
+
+
+def wait(delay):
+    if _stopped is None:
+        time.sleep(delay)
+    else:
+        _stopped.wait(delay)
 
 
 @contextmanager
@@ -161,3 +180,121 @@ def call(argv, timeout):
                 stop_child(child, _signum)
             finally:
                 _children.pop(child.pid, None)
+
+
+def request_supervisor_stop(lock, folder):
+    """Address the lock holder's instance, never its possibly recycled PID.
+
+    Only a supervisor holding this flock publishes an instance token and watches
+    its matching request. Stale metadata (including pre-token PID files) cannot
+    authorize an OS signal. Read through the same descriptor we tried to lock so
+    replacing the lock pathname cannot redirect a request to another instance.
+    """
+    try:
+        lock.seek(0)
+        owner = json.loads(lock.read())
+        token = owner["instance"]
+        if not isinstance(token, str) or re.fullmatch(r"[0-9a-f]{32}", token) is None:
+            return False
+        request = folder / ("job-wake.supervisor.stop-" + token)
+        try:
+            fd = os.open(request, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            os.close(fd)
+        except FileExistsError:
+            pass
+        return True
+    except (OSError, ValueError, KeyError, TypeError):
+        return False  # Owner not published yet, already stopping, or not one of ours.
+
+
+def stop_legacy_supervisor(lock, folder, runtime):
+    """Linux upgrade path for an already-running supervisor without a token.
+
+    Pin the process with pidfd BEFORE checking its identity. Even if it exits and
+    its PID is reused during these checks, the signal can reach only the pinned
+    instance. Require our exact script/operation, HOME, uid, private group and
+    kernel proof that this process holds this particular flock. Other platforms
+    use only the cooperative protocol; never fall back to kill(pid).
+    """
+    if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+        return False
+    try:
+        pid = int((folder / "job-wake.supervisor.pid").read_text())
+        if pid <= 1 or pid == os.getpid():
+            return False
+        fd = os.pidfd_open(pid)
+    except (OSError, ValueError):
+        return False
+    try:
+        proc = Path("/proc") / str(pid)
+        argv = (proc / "cmdline").read_bytes().split(b"\0")[:-1]
+        if len(argv) != 3 or argv[1:] != [os.fsencode(runtime), b"supervise"]:
+            return False
+        if not os.path.samefile(proc / "exe", sys.executable) or proc.stat().st_uid != os.getuid():
+            return False
+        if os.fsencode("HOME=" + str(Path.home())) not in (proc / "environ").read_bytes().split(b"\0"):
+            return False
+        inspected = subprocess.run(["ps", "-p", str(pid), "-o", "pid=,pgid=,cmd="],
+                                   capture_output=True, text=True, timeout=1)
+        fields = inspected.stdout.split(None, 2)
+        if inspected.returncode or len(fields) != 3 or fields[:2] != [str(pid), str(pid)]:
+            return False
+        info = os.fstat(lock.fileno())
+        inode = (os.major(info.st_dev), os.minor(info.st_dev), info.st_ino)
+        for line in Path("/proc/locks").read_text().splitlines():
+            row = line.split()
+            if len(row) < 6 or row[1:5] != ["FLOCK", "ADVISORY", "WRITE", str(pid)]:
+                continue
+            major, minor, number = row[5].split(":")
+            if (int(major, 16), int(minor, 16), int(number)) == inode:
+                signal.pidfd_send_signal(fd, signal.SIGTERM)
+                return True
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    finally:
+        os.close(fd)
+    return False
+
+
+def stop_supervisor_holder(lock, folder, runtime, note):
+    """Relay gateway shutdown until the actual holder has drained and unlocked."""
+    deadline = time.monotonic() + STOP_GRACE + REAP_GRACE + 1
+    legacy_sent = False
+    while folder.exists():
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return  # No holder remains. Do not launch recovery during shutdown.
+        except BlockingIOError:
+            if not request_supervisor_stop(lock, folder) and not legacy_sent:
+                legacy_sent = stop_legacy_supervisor(lock, folder, runtime)
+        if time.monotonic() >= deadline:
+            note(folder, "Recovery supervisor did not release its lock after shutdown request")
+            return  # Never escalate using an unverified/stale PID.
+        time.sleep(.02)
+
+
+@contextmanager
+def supervisor_identity(lock, folder):
+    """A fresh capability for this lock tenure; no PID can inherit it by reuse."""
+    token = uuid.uuid4().hex
+    request = folder / ("job-wake.supervisor.stop-" + token)
+    lock.seek(0)
+    lock.truncate()
+    json.dump({"pid": os.getpid(), "instance": token}, lock)
+    lock.flush()
+    done = threading.Event()
+
+    def watch():
+        while not done.wait(.02):
+            if request.exists():
+                request_stop()
+                return
+
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    try:
+        yield
+    finally:
+        done.set()
+        watcher.join()
+        request.unlink(missing_ok=True)

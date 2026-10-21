@@ -13,7 +13,7 @@ SKILLS = ROOT / 'Resources/Skills'
 TESTS = ROOT / 'Tests/AgentAppTests'
 # skill -> (version installed before this change, bundled now, the Swift test that pins it)
 BUMPS = {'swarmhub-coding': ('1.3.13', '1.3.14', 'CodingSkillTests.swift'),  # dash-safe code-job reads reach existing installs
-         'swarmhub-messages': ('1.4.7', '1.4.8', 'BotMessageSkillTests.swift')}  # gateway shutdown stops peer recovery
+         'swarmhub-messages': ('1.4.8', '1.4.9', 'BotMessageSkillTests.swift')}  # gateway shutdown also stops CLI-first peer recovery
 
 
 def semver(text):

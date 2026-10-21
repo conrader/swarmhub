@@ -457,7 +457,9 @@ class PeerTests(unittest.TestCase):
         registry = types.SimpleNamespace(adopt_local=lambda *a, **kw: types.SimpleNamespace())
         modules = {"hermes_constants": constants, "tools": types.ModuleType("tools"),
                    "tools.process_registry": types.SimpleNamespace(process_registry=registry)}
-        with patch.dict("sys.modules", modules), patch.object(subprocess, "Popen"):
+        with patch.dict("sys.modules", modules), patch.object(subprocess, "Popen") as popen, \
+                patch.object(peer.select, "select", return_value=([True], [], [])):
+            popen.return_value.stdout.readline.return_value = peer.SUPERVISOR_READY
             namespace["register"](Context())
         peer.hold("sender", "recipient", "app next turn")
         self.assertIn("app next turn", hooks["pre_llm_call"](session_id="app", turn_id="1")["context"])

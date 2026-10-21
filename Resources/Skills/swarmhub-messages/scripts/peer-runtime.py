@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import sqlite3
 import subprocess
 import sys
@@ -32,6 +33,7 @@ HELD_MAX = 8000  # One held message always fits a batch together with its prefix
 HEADER = ("Held peer messages delivered with this turn. Do not acknowledge FYIs. "
           "Use NO_REPLY only when the whole turn needs no answer.\n\n")
 WORKER_BUSY = 75  # Another worker already holds the recovery lock.
+SUPERVISOR_READY = b"swarmhub-peer-ready\n"
 
 
 def state():
@@ -349,35 +351,64 @@ def run_worker():
     return lifecycle.run_child([sys.executable, str(Path(__file__).resolve()), "worker"])
 
 
-def supervise(run=run_worker, sleep=time.sleep):
+def supervise(run=run_worker, sleep=lifecycle.wait, managed=False):
     """Keep one recovery worker alive: restart it after any exit, with backoff.
 
     A worker that ran for a minute resets the backoff. A worker that found the
     lock busy is not a crash; the supervisor just checks again later. Stops
-    when the state folder goes away.
+    when the state folder goes away. A gateway-managed contender stays registered
+    as a shutdown relay while another supervisor owns the lock; it can take over
+    if that holder exits. CLI contenders still exit immediately.
     """
     folder = existing_state()
     if folder is None:
+        if managed:
+            sys.stdout.buffer.write(SUPERVISOR_READY)
+            sys.stdout.buffer.flush()
         return
-    with (folder / "job-wake.supervisor.lock").open("a") as lock:
+    with (folder / "job-wake.supervisor.lock").open("a+") as lock:
+        owned = False
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return
-        (folder / "job-wake.supervisor.pid").write_text(str(os.getpid()))
-        failures = 0
-        while not lifecycle.is_stopping() and folder.exists():
-            started = time.monotonic()
-            rc = run()
-            if lifecycle.is_stopping() or not folder.exists():
+            if managed:
+                # Publish readiness only after the shutdown relay's finally is
+                # installed. The gateway must not register an unready process.
+                sys.stdout.buffer.write(SUPERVISOR_READY)
+                sys.stdout.buffer.flush()
+            while not lifecycle.is_stopping() and folder.exists():
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    owned = True
+                    break
+                except BlockingIOError:
+                    if not managed:
+                        return
+                    sleep(.05)
+            if not owned:
                 return
-            if rc == WORKER_BUSY:
-                failures, delay = 0, 5
-            else:
-                failures = 0 if time.monotonic() - started >= 60 else failures + 1
-                delay = backoff(failures)
-                note(folder, f"worker exited {rc}; restart in {delay}s")
-            sleep(delay)
+            with lifecycle.supervisor_identity(lock, folder):
+                (folder / "job-wake.supervisor.pid").write_text(str(os.getpid()))
+                failures = 0
+                while not lifecycle.is_stopping() and folder.exists():
+                    started = time.monotonic()
+                    rc = run()
+                    if lifecycle.is_stopping() or not folder.exists():
+                        return
+                    if rc == WORKER_BUSY:
+                        failures, delay = 0, 5
+                    else:
+                        failures = 0 if time.monotonic() - started >= 60 else failures + 1
+                        delay = backoff(failures)
+                        note(folder, f"worker exited {rc}; restart in {delay}s")
+                    sleep(delay)
+        finally:
+            if managed and not owned:
+                lifecycle.stop_supervisor_holder(lock, folder, Path(__file__).resolve(), note)
+
+
+def wait_supervisor_ready(child):
+    readable, _, _ = select.select([child.stdout], [], [], 5)
+    if not readable or child.stdout.readline() != SUPERVISOR_READY:
+        raise RuntimeError("Recovery supervisor did not initialize its shutdown relay")
 
 
 def start_worker(managed=False):
@@ -390,9 +421,11 @@ def start_worker(managed=False):
         from tools.process_registry import process_registry
     except ImportError:
         return control.spawn(command)  # A gateway without the registry keeps the detached recovery.
+    command.append("--managed")
     child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
     try:
+        wait_supervisor_ready(child)
         session = process_registry.adopt_local(child, command="SwarmHub peer recovery", cwd=None,
                                                notify_on_complete=False)
         session.persist_on_release = True  # Survive turn cleanup; gateway_shutdown still stops it.
@@ -450,7 +483,7 @@ if __name__ == "__main__":
                 sys.exit(worker(stopped=stopped))
         elif command == "supervise":
             with lifecycle.termination():
-                supervise()
+                supervise(managed="--managed" in sys.argv[2:])
         elif command == "start":
             start_worker()
         elif command == "retry-once":
