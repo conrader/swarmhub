@@ -94,7 +94,7 @@ class RealResourcesTests(unittest.TestCase):
 
     def test_every_component_is_classed_by_kind_and_content(self):
         expected = {"swarmhub-coding": "code", "swarmhub-feedback": "code", "swarmhub-messages": "code",
-                    "swarmhub-manager": "data", "manager-prompts": "data", "policy": "data"}
+                    "swarmhub-manager": "code", "manager-prompts": "data", "policy": "data"}
         self.assertEqual({n: c["class"] for n, c in self.components.items()}, expected)
         for component in self.body["components"]:
             blob = self.blobs[component["sha256"]]
@@ -125,7 +125,9 @@ class RealResourcesTests(unittest.TestCase):
             self.assertEqual(files, {p[len(prefix):]: mode for p, mode in tracked.items() if p.startswith(prefix)})
         manager = {n for n, m in members(self.blobs[self.components["swarmhub-manager"]["sha256"]]).items() if m.isfile()}
         recipes = {"references/" + p.rsplit("/", 1)[1] for p in tracked if p.startswith("Resources/BotManager/recipes/")}
-        self.assertEqual(manager, {"SKILL.md"} | recipes)
+        prefix = "Resources/Skills/swarmhub-manager/"
+        self.assertEqual(manager, {p[len(prefix):] for p in tracked if p.startswith(prefix)} | recipes)
+        self.assertIn("scripts/default-connectors.py", manager)
 
     def test_versions_targets_and_dependencies(self):
         for name in ("swarmhub-coding", "swarmhub-feedback", "swarmhub-manager", "swarmhub-messages"):

@@ -49,7 +49,8 @@ private func installedBlock(_ bot: String, _ version: String) -> String {
     #expect(store.installSkills(for: jarvis))
     try await waitUntil { !store.anyTurnRunning && jarvis.installedSkills["swarmhub-manager"] != nil }
     let sent = try #require(sentInstructions(host).first)
-    let rendered = try #require(SkillLibrary.render(skill, forProfile: "grok-jarvis", managerTemplate: store.managerTemplateOverride))
+    let template = try #require(store.managerTemplateOverride)
+    let rendered = try #require(SkillLibrary.render(skill, forProfile: "grok-jarvis", managerTemplate: BotManagerText.withConnectorDefaults(template, backend: .hermes)))
     let folder = "~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-manager"
     #expect(sent.hasPrefix("You are Jarvis.\n\n") && sent.contains("That press is his yes"))
     #expect(sent.contains("mkdir -p \(folder)\ncat > \(folder)/SKILL.md <<'SWARMHUB_EOF'\n\(rendered)SWARMHUB_EOF\n"))

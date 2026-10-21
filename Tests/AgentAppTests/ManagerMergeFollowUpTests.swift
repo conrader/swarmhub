@@ -23,7 +23,7 @@ private let managerSkill = BundledSkill(name: "swarmhub-manager", version: Skill
     let (store, alpha, _) = clawManagerWithSkill()
     let bundled = try #require(BotManagerText.template(for: .openClaw))
     let text = try #require(store.managementText(for: alpha, text: "Create a bot called rapper that raps", conversation: alpha))
-    #expect(text == BotManagerText.filled(bundled, managerAgent: "agent-alpha"), "the whole manager-openclaw.md, filled")
+    #expect(text == BotManagerText.filled(bundled, managerAgent: "agent-alpha") + "\n\n" + (BotManagerText.connectorBootstrap ?? ""), "the OpenClaw creation carries its connector bootstrap")
     #expect(text != AppStore.skillPointer && !text.contains("swarmhub-manager skill"))
     // A pending Install (Hermes-only) never replaces it either.
     store.pendingSkillInstalls[alpha.id] = SkillInstallTurn(profile: "agent-beta", instructions: "INSTALL-INSTRUCTIONS")
