@@ -133,13 +133,18 @@ def provision(home, backend, bot):
         path = root / "config/mcporter.json"
         config = read_config(path) if path.exists() else {"mcpServers": {}, "imports": []}
         servers = config.setdefault("mcpServers", {})
-    # A clone may contain a disabled or broader SB entry. The default is deliberately narrow.
-    servers.update(configured)
     for name in skipped:
         # A clone may also carry a full copy of a default we refused to reference, with its credentials and
-        # every tool. A failed default must not stay active, so the inherited copy is removed.
-        if servers.pop(name, None) is not None:
+        # every tool, under either the default's name or its source server's name. Remove both inherited
+        # entries before installing defaults: an alias may share its name with a successfully narrowed default.
+        removed = False
+        for inherited_name in (name, entries[name]["_server"]):
+            if isinstance(inherited_name, str) and servers.pop(inherited_name, None) is not None:
+                removed = True
+        if removed:
             skipped[name] += " The copy inherited from the manager was removed from this bot."
+    # A clone may contain a disabled or broader SB entry. The default is deliberately narrow.
+    servers.update(configured)
     if backend == "hermes":
         atomic_write(path, yaml.safe_dump(config, sort_keys=False, allow_unicode=True))
     else:

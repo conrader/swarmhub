@@ -268,6 +268,101 @@ class DefaultConnectorsTests(unittest.TestCase):
                     self.assertIn("inherited from the manager was removed", states[name]["detail"])
                     self.assertEqual(inspected[name]["state"], "failed")
 
+    def test_refused_defaults_remove_aliased_entries_from_the_manager_clone(self):
+        for backend in ("hermes", "openclaw"):
+            for refusal in ("http", "missing-source", "missing-server"):
+                with self.subTest(backend=backend, refusal=refusal), \
+                        patch.object(helper.shutil, "which", return_value="/usr/bin/mcporter"), \
+                        patch.object(helper, "mcporter_status", return_value={}):
+                    bot = backend + "-" + refusal
+                    root = helper.location(self.home, backend, bot)
+                    path = root / ("config.yaml" if backend == "hermes" else "config/mcporter.json")
+                    key = "mcp_servers" if backend == "hermes" else "mcpServers"
+                    inherited = {"knowledge": {
+                        "url": "https://docs.invalid/mcp", "headers": {"Authorization": "synthetic-alias-secret"}}
+                        if refusal == "http" else {
+                            "command": "docs-mcp", "env": {"DOCS_TOKEN": "synthetic-alias-secret"}},
+                        "unrelated": {"command": "keep-this-connector"}}
+                    source = self.home / (bot + "-source.json")
+                    if refusal != "missing-source":
+                        source.write_text(json.dumps({"mcpServers": inherited if refusal == "http" else {}}))
+                    policy = self.home / ".config/swarmhub/default-connectors.json"
+                    policy.parent.mkdir(parents=True, exist_ok=True)
+                    policy.write_text(json.dumps({"connectors": [{
+                        "name": "docs", "source": str(source), "server": "knowledge", "tools": ["search"]}]}))
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    config = {key: inherited, "unrelated_setting": "preserve"}
+                    path.write_text(yaml.safe_dump(config) if backend == "hermes" else json.dumps(config))
+                    source_before = source.read_bytes() if source.exists() else None
+                    report = helper.provision(self.home, backend, bot)
+                    written = helper.read_config(path)
+                    self.assertNotIn("synthetic-alias-secret", path.read_text())
+                    self.assertNotIn("DOCS_TOKEN", path.read_text())
+                    self.assertEqual(set(written[key]), {"sb", "unrelated"})
+                    self.assertEqual(written[key]["unrelated"], inherited["unrelated"])
+                    self.assertEqual(written["unrelated_setting"], "preserve")
+                    row = next(r for r in report["list"] if r["name"] == "docs")
+                    self.assertEqual(row["state"], "failed")
+                    self.assertIn("inherited from the manager was removed", row["detail"])
+                    inspected = {r["name"]: r for r in helper.inspect(self.home, backend, bot)["list"]}
+                    self.assertEqual(inspected["docs"]["state"], "failed")
+                    self.assertNotIn("knowledge", inspected)
+                    self.assertEqual(source.read_bytes() if source.exists() else None, source_before)
+
+    def test_refused_alias_preserves_successful_defaults_sharing_its_source_name(self):
+        source = self.home / "source.json"
+        source.write_text(json.dumps({"mcpServers": {
+            "knowledge": {"url": "https://docs.invalid/mcp", "headers": {"Authorization": "synthetic-alias-secret"}},
+            "readable": {"command": "docs-mcp"}}}))
+        policy = self.home / ".config/swarmhub/default-connectors.json"
+        policy.parent.mkdir(parents=True)
+        policy.write_text(json.dumps({"connectors": [
+            {"name": "docs", "source": str(source), "server": "knowledge", "tools": ["search"]},
+            {"name": "knowledge", "source": str(source), "server": "readable", "tools": ["search"]}]}))
+        for backend in ("hermes", "openclaw"):
+            with self.subTest(backend=backend), patch.object(helper.shutil, "which", return_value="/usr/bin/mcporter"):
+                root = helper.location(self.home, backend, "new-bot")
+                path = root / ("config.yaml" if backend == "hermes" else "config/mcporter.json")
+                key = "mcp_servers" if backend == "hermes" else "mcpServers"
+                path.parent.mkdir(parents=True)
+                config = {key: {"knowledge": json.loads(source.read_text())["mcpServers"]["knowledge"]}}
+                path.write_text(yaml.safe_dump(config) if backend == "hermes" else json.dumps(config))
+                report = helper.provision(self.home, backend, "new-bot")
+                servers = helper.read_config(path)[key]
+                self.assertEqual(set(servers), {"sb", "knowledge"})
+                self.assertEqual(servers["knowledge"]["command"], "python3")
+                self.assertEqual(servers["knowledge"]["args"][1:4], ["proxy", str(source.resolve()), "readable"])
+                self.assertNotIn("synthetic-alias-secret", path.read_text())
+                self.assertEqual({r["name"]: r["state"] for r in report["list"]}, {
+                    "sb": "never_attempted", "docs": "failed", "knowledge": "never_attempted"})
+
+    def test_invalid_source_server_does_not_abort_narrowing_other_defaults(self):
+        source = self.home / "source.json"
+        source.write_text('{"mcpServers": {}}')
+        policy = self.home / ".config/swarmhub/default-connectors.json"
+        policy.parent.mkdir(parents=True)
+        for backend in ("hermes", "openclaw"):
+            for index, server in enumerate((["knowledge"], {"name": "knowledge"})):
+                with self.subTest(backend=backend, server=server), \
+                        patch.object(helper.shutil, "which", return_value="/usr/bin/mcporter"):
+                    bot = backend + "-invalid-" + str(index)
+                    root = helper.location(self.home, backend, bot)
+                    path = root / ("config.yaml" if backend == "hermes" else "config/mcporter.json")
+                    key = "mcp_servers" if backend == "hermes" else "mcpServers"
+                    path.parent.mkdir(parents=True)
+                    config = {key: {name: {"command": "broad-mcp", "env": {"TOKEN": "synthetic-invalid-secret"}}
+                                    for name in ("sb", "docs")}}
+                    path.write_text(yaml.safe_dump(config) if backend == "hermes" else json.dumps(config))
+                    policy.write_text(json.dumps({"connectors": [{
+                        "name": "docs", "source": str(source), "server": server, "tools": ["search"]}]}))
+                    report = helper.provision(self.home, backend, bot)
+                    self.assertNotIn("synthetic-invalid-secret", path.read_text())
+                    servers = helper.read_config(path)[key]
+                    self.assertEqual(set(servers), {"sb"})
+                    self.assertEqual(servers["sb"]["command"], "ssh")
+                    self.assertEqual({r["name"]: r["state"] for r in report["list"]}, {
+                        "sb": "never_attempted", "docs": "failed"})
+
     def test_bad_names_cannot_touch_another_profile(self):
         for name in ("../default", "a; echo secret", "$(id)", "", "default"):
             with self.assertRaises(ValueError):
