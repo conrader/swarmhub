@@ -17,12 +17,15 @@ Output is one JSON line. Exit 0 ok, 2 refused, 3 rate limited, 1 route error.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
+import select
 import signal
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from jobroute_core import Refused, Route  # noqa: E402
@@ -31,6 +34,8 @@ CMD_RX = re.compile(r"[A-Za-z0-9 ._/=-]{0,512}")
 KEYS = {"submit": {"engine", "label", "workdir", "agent"}, "status": {"job", "limit"}, "list": {"job", "limit"}}
 CLI_TIMEOUT = 120
 MAX_LINE = 1 << 20
+HASH_CAP = 16 << 20        # an oversize CLI brief is hashed (not kept) up to this many bytes
+REFUSED_READ_SECS = 10     # how long a refused CLI submit waits for its brief, only to audit its sha
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 
@@ -54,21 +59,55 @@ def parse_cli(cmd: str) -> tuple[str, dict]:
     return op, kv
 
 
+def read_brief(keep: int, deadline: float | None = None) -> tuple[bytes, str, int]:
+    """Read stdin to EOF: keep the first `keep` bytes, hash up to HASH_CAP. -> (kept, sha256, bytes).
+    With a deadline, stop reading when it passes (the hash then covers what arrived)."""
+    fd, kept, h, total = sys.stdin.fileno(), bytearray(), hashlib.sha256(), 0
+    while total < HASH_CAP:
+        if deadline is not None:
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([fd], [], [], left)[0]:
+                break
+        chunk = os.read(fd, min(65536, HASH_CAP - total))
+        if not chunk:
+            break
+        h.update(chunk)
+        total += len(chunk)
+        if len(kept) < keep:
+            kept += chunk[:keep - len(kept)]
+    return bytes(kept), h.hexdigest(), total
+
+
+def audit_parse_refusal(route: Route, cmd: str, reason: str) -> None:
+    """A refused submit is still logged with what it asked for: label, workdir, brief sha256."""
+    fields = {"cmd_sha256": hashlib.sha256(cmd.encode("utf-8", "replace")).hexdigest()}
+    tokens = [t for t in cmd.split(" ") if t]
+    if tokens and tokens[0] == "submit":
+        for t in tokens[1:]:
+            key, _, value = t.partition("=")
+            if key in ("label", "workdir"):
+                fields.setdefault(key if key == "label" else "workdir_requested", value[:256])
+        with contextlib.suppress(OSError, ValueError):
+            _, digest, size = read_brief(0, time.monotonic() + REFUSED_READ_SECS)
+            fields.update(brief_sha256=digest, brief_bytes=size)
+    route.audit("parse", "cli", "refused", reason=reason, **fields)
+
+
 def run_cli(route: Route, cmd: str) -> int:
     signal.alarm(CLI_TIMEOUT)
     try:
         op, kv = parse_cli(cmd)
     except Refused as e:
-        route.audit("parse", "cli", "refused", reason=e.reason,
-                    cmd_sha256=hashlib.sha256(cmd.encode("utf-8", "replace")).hexdigest())
+        audit_parse_refusal(route, cmd, e.reason)
         raise
     if op == "help":
         emit({"ok": True, "profile": route.profile, "agent": route.agent, "engines": route.allowed_engines,
               "workdirs": route.workdirs, "usage": __doc__.split("\n\n")[2]})
         return 0
     if op == "submit":
-        brief = sys.stdin.buffer.read(route.max_brief + 1)
-        emit(route.submit("cli", kv.get("engine"), kv.get("label"), kv.get("workdir"), brief, kv.get("agent")))
+        brief, digest, size = read_brief(route.max_brief + 1)
+        emit(route.submit("cli", kv.get("engine"), kv.get("label"), kv.get("workdir"), brief, kv.get("agent"),
+                          brief_meta=(digest, size)))
         return 0
     limit = kv.get("limit", "10")
     emit(route.status("cli", kv.get("job"), int(limit) if limit.isdigit() else limit))
@@ -108,6 +147,8 @@ def call_tool(route: Route, name: str, args: dict) -> dict:
                 extra = {"brief_sha256": hashlib.sha256(b).hexdigest(), "brief_bytes": len(b)}
             if isinstance(args, dict) and isinstance(args.get("label"), str):
                 extra["label"] = args["label"][:64]
+            if isinstance(args, dict) and isinstance(args.get("workdir"), str):
+                extra["workdir_requested"] = args["workdir"][:256]
             route.audit("parse", "mcp", "refused", reason=e.reason, tool=str(name)[:40], **extra)
         raise
 

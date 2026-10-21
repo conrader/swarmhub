@@ -20,15 +20,17 @@ cat > allowlist.toml <<EOF
 state_dir = "$d/state"
 sb_codejob = "$stage/jobroute/tests/stub-sb-codejob"
 job_root = "$d/work"
+home = "$d"
 [route.env]
 STUB_RECORD = "$d/calls"
 STUB_WORKROOT = "$d/work"
 HOME = "$d/home"
 [engines]
-claude = ["claude", "-p"]
+claude = ["claude", "-p", "--permission-mode", "acceptEdits"]
 codex = ["codex", "exec", "--skip-git-repo-check", "-m", "gpt-6.1-sol", "-"]
 [profiles.grok-admin]
 agent = "Admin"
+bot = "Admin"
 workdirs = ["$d/work/Admin"]
 EOF
 chmod 644 allowlist.toml

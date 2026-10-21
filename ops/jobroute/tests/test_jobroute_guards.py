@@ -1,0 +1,170 @@
+"""jobroute guards (Jarvis 2026-10-21): per-bot workdir allowlist, production-path denylist,
+brief size limit, audit of every submission and refusal, fixed claude flags.
+
+Same harness as test_jobroute.py: the wrapper runs as sshd would run the forced command.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import pathlib
+import tomllib
+
+import pytest
+
+from test_jobroute import Env, mcp, submit
+
+SHIPPED = pathlib.Path(__file__).resolve().parent.parent / "allowlist.toml"
+
+
+@pytest.fixture
+def env(tmp_path):
+    e = Env(tmp_path)
+    for d in ("prodrepo", "work/Admin/denied"):
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+    (tmp_path / "work/Admin/to-prod").symlink_to(tmp_path / "prodrepo")
+    (tmp_path / "work/Admin/to-etc").symlink_to("/etc")
+    (tmp_path / "work/Admin/to-doc").symlink_to(tmp_path / "work/Doc")
+    return e
+
+
+def last_submit_row(env) -> dict:
+    return [r for r in env.audit() if r["op"] in ("submit", "parse")][-1]
+
+
+# ---------------------------------------------------------------- per-bot allowlist
+def test_own_bot_workdir_ok_and_audited_with_workdir(env):
+    rc, [out] = submit(env, args="engine=claude label=ok workdir=sub")
+    assert rc == 0 and out["workdir"] == os.path.realpath(env.tmp / "work/Admin/sub")
+    row = env.audit()[-1]
+    assert row["result"] == "ok" and row["workdir"] == out["workdir"] and row["workdir_requested"] == "sub"
+
+
+@pytest.mark.parametrize("wd", ["to-doc", "{tmp}/work/Doc", "{tmp}/work/Infra Caretaker"])
+def test_other_bots_workdir_refused(env, wd):
+    rc, [out] = env.run("submit engine=claude label=x workdir=" + wd.format(tmp=env.tmp).replace(" ", ""), b"b")
+    assert rc == 2 and out["error"] == "workdir not allowed" and env.calls() == []
+
+
+def test_mcp_other_bots_workdir_refused(env):
+    rc, r = mcp(env, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "submit_job",
+                      "arguments": {"engine": "claude", "label": "x", "brief": "b",
+                                    "workdir": f"{env.tmp}/work/Infra Caretaker"}}})
+    assert json.loads(r[1]["result"]["content"][0]["text"])["error"] == "workdir not allowed"
+    assert env.calls() == []
+
+
+def test_profile_workdirs_must_lie_under_its_bot_dir(env):
+    env.cfg.write_text(env.cfg.read_text().replace(f'workdirs = ["{env.tmp}/work/Admin"]',
+                                                   f'workdirs = ["{env.tmp}/work/Doc"]'))
+    rc, [out] = submit(env)
+    assert rc == 1 and "workdirs must be under" in out["error"] and env.calls() == []
+
+
+def test_profile_without_bot_is_misconfigured(env):
+    env.cfg.write_text(env.cfg.read_text().replace('bot = "Admin"\n', ""))
+    rc, [out] = submit(env)
+    assert rc == 1 and "needs bot" in out["error"]
+
+
+# ---------------------------------------------------------------- production paths
+@pytest.mark.parametrize("wd", ["/etc", "/etc/ssh", "/var/www", "/var/www/html", "to-etc", "to-prod",
+                                "escape", "{tmp}/prodrepo", "{tmp}/work/Admin/sub/../../../prodrepo"])
+def test_prod_paths_refused(env, wd):
+    rc, [out] = env.run("submit engine=claude label=x workdir=" + wd.format(tmp=env.tmp), b"b")
+    assert rc == 2 and out["error"].startswith("workdir refused: production path"), out
+    assert env.calls() == []
+
+
+def test_denylist_wins_over_allowlist(env):
+    rc, [out] = submit(env, args="engine=claude label=x workdir=denied")
+    assert rc == 2 and out["error"] == "workdir refused: production path (denylisted)"
+    assert last_submit_row(env)["workdir"] == os.path.realpath(env.tmp / "work/Admin/denied")
+
+
+def test_bot_dir_symlinked_to_prod_refused(env):
+    (env.tmp / "work/Doc").rmdir()
+    (env.tmp / "work/Doc").symlink_to("/etc")
+    rc, [out] = submit(env, profile="grok-doc")
+    assert rc == 2 and "production path" in out["error"] and env.calls() == []
+
+
+def test_home_outside_work_is_prod_by_default(env):
+    env.cfg.write_text(env.cfg.read_text().replace(f'home = "{env.tmp}"\n', ""))
+    rc, [out] = env.run("submit engine=claude label=x workdir=/home/ubuntu/thiswayup", b"b")
+    assert rc == 2 and out["error"].startswith("workdir refused: production path (outside")
+
+
+def test_mcp_nul_workdir_refused_not_crashed(env):
+    rc, r = mcp(env, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "submit_job",
+                      "arguments": {"engine": "claude", "label": "x", "brief": "b", "workdir": "/etc\u0000x"}}})
+    assert json.loads(r[1]["result"]["content"][0]["text"])["error"] == "workdir not allowed"
+
+
+# ---------------------------------------------------------------- brief size
+def test_oversize_brief_refused_clearly_and_audited_with_full_sha(env):
+    brief = b"a" * 5000
+    rc, [out] = submit(env, brief)
+    assert rc == 2 and "larger than the 1024-byte limit (max_brief_bytes)" in out["error"]
+    row = env.audit()[-1]
+    assert row["result"] == "refused" and row["brief_bytes"] == 5000
+    assert row["brief_sha256"] == hashlib.sha256(brief).hexdigest() and env.calls() == []
+
+
+def test_mcp_oversize_brief_refused(env):
+    rc, r = mcp(env, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "submit_job",
+                      "arguments": {"engine": "claude", "label": "big", "brief": "a" * 2000}}})
+    assert "1024-byte limit" in r[1]["result"]["content"][0]["text"] and env.calls() == []
+    assert env.audit()[-1]["brief_bytes"] == 2000
+
+
+def test_brief_at_limit_accepted(env):
+    assert submit(env, b"a" * 1024)[0] == 0
+
+
+# ---------------------------------------------------------------- audit of every refusal
+REFUSALS = [("engine=claude label=x workdir=/etc", "production path"),
+            ("engine=claude label=x workdir=to-doc", "workdir not allowed"),
+            ("engine=bash label=x workdir=sub", "engine must be"),
+            ("engine=claude label=x;id workdir=sub", "command refused"),
+            ("engine=claude label=x workdir=sub cmd=id", "argument refused")]
+
+
+@pytest.mark.parametrize("args,reason", REFUSALS)
+def test_every_refusal_logged_with_profile_ts_label_workdir_sha_outcome(env, args, reason):
+    brief = b"refused brief\n"
+    rc, [out] = submit(env, brief, args=args)
+    assert rc == 2 and reason in out["error"]
+    row = last_submit_row(env)
+    assert row["profile"] == "grok-admin" and row["ts"] and row["result"] == "refused"
+    assert row["label"].startswith("x") and row["workdir_requested"] in ("/etc", "to-doc", "sub")
+    assert row["brief_sha256"] == hashlib.sha256(brief).hexdigest() and reason in row["reason"]
+
+
+def test_refused_parse_with_empty_stdin_still_logged(env):
+    rc, _ = env.run("submit engine=claude label=x>y", b"")
+    row = last_submit_row(env)
+    assert rc == 2 and row["op"] == "parse" and row["label"] == "x>y"
+    assert row["brief_sha256"] == hashlib.sha256(b"").hexdigest()
+
+
+# ---------------------------------------------------------------- engines
+def test_shipped_engines_and_bot_map():
+    cfg = tomllib.loads(SHIPPED.read_text())
+    assert cfg["engines"]["claude"] == ["claude", "-p", "--permission-mode", "acceptEdits"]
+    assert cfg["engines"]["codex"] == ["codex", "exec", "--skip-git-repo-check", "-m", "gpt-6.1-sol", "-"]
+    assert not any("dangerously" in a for argv in cfg["engines"].values() for a in argv)
+    assert len(cfg["profiles"]) == 12
+    for name, prof in cfg["profiles"].items():
+        root = f"/home/ubuntu/work/{prof['bot']}"
+        assert all(w == root or w.startswith(root + "/") for w in prof["workdirs"]), name
+    assert {"/var/www", "/etc"} <= set(cfg["route"]["deny_paths"])
+
+
+def test_claude_argv_contains_accept_edits(env):
+    assert submit(env)[0] == 0
+    [call] = env.calls()
+    cmd = call["argv"][call["argv"].index("--") + 1:]
+    assert cmd == ["claude", "-p", "--permission-mode", "acceptEdits"]
+    assert "--dangerously-skip-permissions" not in call["argv"]

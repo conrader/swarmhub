@@ -38,10 +38,12 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
   fixed argv list.
 - **The brief is data.** It goes to the job on stdin, through `sb-codejob --stdin`. It is
   never placed in argv or a shell string. The limits: UTF-8, no NUL bytes, non-empty,
-  64 KiB at most.
+  and at most `max_brief_bytes` (default 64 KiB). A larger brief is refused with
+  "brief is larger than the 65536-byte limit (max_brief_bytes)…". It is still audited,
+  with the sha256 and size of the whole brief (hashed up to 16 MiB).
 - **The engine is fixed.** The caller picks a name, `claude` or `codex`. The argv comes
   from `[engines]`:
-  - `claude -p`;
+  - `claude -p --permission-mode acceptEdits` (never `--dangerously-skip-permissions`);
   - `codex exec --skip-git-repo-check -m gpt-6.1-sol -`.
 
   `ANTHROPIC_API_KEY` is removed from the environment, so jobs use the subscription.
@@ -49,9 +51,22 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
   - `agent` must match the profile's agent. Matching uses sb-codejob's own
     normalisation, which ignores case, spaces and hyphens.
   - `label` must match `[A-Za-z0-9][A-Za-z0-9_-]{0,39}`.
-  - `workdir` must be the profile's root or an existing subdirectory of it. Components
-    must match `[A-Za-z0-9][A-Za-z0-9._-]*`, and `..` is rejected. The `realpath` must
-    stay inside the root, so a symlink that escapes it is refused.
+  - `workdir`: each profile maps to a `bot` in `allowlist.toml`. Its `workdirs` must lie
+    under `<work_root>/<bot>` (`/home/ubuntu/work/<Bot>`), or the route refuses to load
+    that profile. A job may start in such a workdir or in an existing subdirectory of it.
+    Components must match `[A-Za-z0-9][A-Za-z0-9._-]*`, and `..` is rejected. The checks
+    run on the `realpath`, which is resolved first, so a symlink to another bot's
+    directory, or anywhere else, is refused.
+  - **Production paths are refused, and the denylist wins over the allowlist.** The
+    requested path and its realpath are both checked against these:
+    - `/var/www` and `/etc` (built in);
+    - anything under `home` (`/home/ubuntu`) that is outside `work_root`, which covers
+      every prod repo in `/home/ubuntu`;
+    - `[route] deny_paths`.
+
+    This applies even when the path is inside the profile's own `workdirs`, for example a
+    bot directory that is symlinked to `/etc`. The error is
+    "workdir refused: production path (…)".
 - **Rate limit (per profile).**
   - At most 4 accepted submissions per hour and 20 per day.
   - At most 2 route jobs running at once.
@@ -59,8 +74,11 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
   - Exceeding a limit exits with code 3 and is logged as `rate_limited`.
 - **Audit.** `~/.local/state/jobroute/audit.jsonl` (mode 600) gets one JSON line for every
   submit, status call, parse refusal and refused profile. Each line records `ts`,
-  `profile`, `op`, `mode`, `result`, `reason`, `peer`, `label`, `engine`, `workdir`,
-  `brief_sha256` and `brief_bytes`. The brief itself is never logged.
+  `profile`, `op`, `mode`, `result` (the outcome: `ok`, `refused`, `rate_limited` or
+  `error`), `reason` and `peer`. Every submit row, whether accepted or refused (including
+  a CLI or MCP parse refusal of a submit), also records `label`, `engine`,
+  `workdir_requested`, `workdir` (the resolved realpath, or `null` if it was never
+  resolved), `brief_sha256` and `brief_bytes`. The brief itself is never logged.
   `profiles/<profile>.jsonl` is the list of that profile's own jobs, which `status` reads.
 - **Defence in depth.**
   - The route refuses to run if `allowlist.toml` or the state directory is not owned by
@@ -72,16 +90,39 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
 - **What it does not limit.** A job is a full `claude`/`codex` run as `ubuntu` on ovh.
   On ovh, `~/.codex/config.toml` sets `sandbox_mode = "danger-full-access"`. So the
   route controls who can launch a job, how often, with which engine, and where it starts.
-  It does not control what the brief asks the job to do. Claude `-p` with no permission
-  flags gets ovh's default permissions. Edits and Bash then need a prompt that `-p`
-  mode cannot answer, unless ovh's `~/.claude/settings.json` allows them. Whether to add
-  `--permission-mode acceptEdits` to the claude engine is one line in
-  `allowlist.toml`; that is Jarvis's decision.
-- **Known limit: key binding.** All profiles run as unix user `hermes`. Each key file is
-  mode 600, but any `hermes` process could read another profile's key. Per-profile
-  identity holds as long as bots have no file-read or shell tool, which is the case
-  today. If they gain one, the route is still limited to the 12 allowlisted profiles,
-  still rate-limited, and still audited.
+  It does not control what the brief asks the job to do. Claude runs with
+  `--permission-mode acceptEdits`, so file edits go through without a prompt. Bash still
+  follows ovh's `~/.claude/settings.json`, and in `-p` mode a prompt cannot be answered.
+- **Key binding:** see Known limitations.
+
+## Known limitations
+
+- **One unix user for all 12 profiles.** Every Hermes profile runs as the unix user
+  `hermes`. Each key file is mode 600, but every `hermes` process can read every
+  profile's key. Per-profile key separation, where a profile can only submit as itself,
+  holds only while the profiles have **no file-read, terminal or shell tool**.
+- **Precondition:** the 12 profiles must keep no such tool. In Hermes 0.22 this means
+  each profile's `config.yaml` has `agent.disabled_toolsets` listing `terminal`, `file`
+  and `code_execution`. Hermes subtracts that list last, tool by tool, from every
+  platform bundle. Without it, a profile gets the platform default bundle, which
+  includes `terminal`, `read_file` and `execute_code`.
+  - `check-hermes-tools` checks this read-only and fails loudly (exit 1, stderr
+    "JOBROUTE PRECONDITION BROKEN").
+  - **On 2026-10-21 it failed for all 12 profiles: none sets `agent.disabled_toolsets`.**
+    Until it passes, do not add jobroute `authorized_keys` lines.
+  - Fixing this is a Hermes *config* change for each profile. It may take tools away
+    from bots that use them today, so it is a decision for Konrad or Jarvis, and it is
+    not part of this PR.
+  - If the precondition breaks, the route is still limited to the 12 allowlisted
+    profiles, still rate-limited and still audited. Any one of those bots could then
+    submit as any other.
+- **Follow-up:** give each profile its own unix user, with the key readable only by that
+  user. Do this only if our Hermes config (service units or profile settings) can do it
+  without changing Hermes code. It is not done here.
+- `check-hermes-tools` reads only the profile `config.yaml` files. It does not see tools
+  that a plugin adds (for example `web/fetch` or `swarmhub-peer`) or tools that a
+  `browser` might use on `file://` URLs. Its check of MCP servers is a heuristic: a shell
+  command, or a name, command or args mentioning filesystem, shell or terminal.
 
 ## Files
 
@@ -89,12 +130,19 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
 |---|---|
 | `jobroute` | entry point: forced-command args, strict CLI, MCP stdio server |
 | `jobroute_core.py` | allowlist loading, validation, rate limit, audit, submit, status |
-| `allowlist.toml` | the one config file (12 profiles) |
+| `allowlist.toml` | the one config file (12 profiles → bot dirs, engines, denylist, limits) |
+| `check-hermes-tools` | read-only heartbeat check: no allowlisted profile has a file-read, terminal or shell tool (not installed anywhere) |
 | `tests/test_jobroute.py` | pytest: wrapper called with `SSH_ORIGINAL_COMMAND` (stub sb-codejob), plus one run against a copy of the real sb-codejob with a stub engine |
+| `tests/test_jobroute_guards.py` | per-bot workdir allowlist, prod-path denylist, symlink escapes, brief size, refusal audit, claude flags |
+| `tests/test_check_hermes_tools.py` | the tool check, locally and through a fake `ssh` |
 | `tests/sandbox_ssh.sh` | throwaway sshd in the sandbox: real ssh client against the production options string |
 | `tests/run-sandbox.sh` | runs both, each as `sudo -u sbtest -- unshare -r -p -f --mount-proc …` |
 
 Run the tests on ovh as `ubuntu`: `ops/jobroute/tests/run-sandbox.sh`.
+
+Run the tool check from ovh as `ubuntu` with `ops/jobroute/check-hermes-tools`. It makes one
+`ssh … tar -cf -` of the 12 profile configs, writes nothing, and exits 0 ok, 1 FAIL or
+2 cannot check. To make it a heartbeat, wrap it in `sb-cronwatch`; that is not done yet.
 
 ## Keys (Infra): one ed25519 key per profile
 
@@ -163,7 +211,7 @@ REL=/home/ubuntu/.local/lib/jobroute/releases/$SHA
 tmp=$(mktemp -d); git clone -q git@github.com:conrader/swarmhub.git "$tmp/r"
 git -C "$tmp/r" cat-file -e "$SHA^{commit}"
 mkdir -p "$REL"; git -C "$tmp/r" archive "$SHA" ops/jobroute | tar -x -C "$REL" --strip-components=2
-(cd "$REL" && sha256sum jobroute jobroute_core.py allowlist.toml)   # compare with the pinned file hashes
+(cd "$REL" && sha256sum jobroute jobroute_core.py allowlist.toml check-hermes-tools)   # compare with the pinned file hashes
 chmod -R go-w "$REL"; rm -rf "$tmp"
 install -d -m 755 /home/ubuntu/.config/jobroute
 [ -e /home/ubuntu/.config/jobroute/allowlist.toml ] || install -m 644 "$REL/allowlist.toml" /home/ubuntu/.config/jobroute/allowlist.toml
@@ -189,6 +237,11 @@ install -m 600 ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys && rm ~/.ssh/au
 # (or restore ~/.ssh/authorized_keys.bak-jobroute-<ts> from Infra step 3)
 # 2. Hermes: sudo -u hermes -H hermes -p <profile> mcp remove jobs      (per profile that had it)
 # 3. optional: rm /home/ubuntu/.local/lib/jobroute/current
+# 4. full removal of the install (code + config; the audit log in ~/.local/state/jobroute stays):
+rm /home/ubuntu/.local/lib/jobroute/current
+rm -rf /home/ubuntu/.local/lib/jobroute/releases/<sha>      # each installed release
+rmdir /home/ubuntu/.local/lib/jobroute/releases /home/ubuntu/.local/lib/jobroute
+rm -rf /home/ubuntu/.config/jobroute
 ```
 
 Jobs that are already running are detached sb-codejob jobs. Rollback does not stop them,

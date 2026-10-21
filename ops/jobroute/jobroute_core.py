@@ -23,10 +23,15 @@ import tomllib
 PROFILE_RX = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 LABEL_RX = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,39}")
 COMPONENT_RX = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+BOT_RX = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}")
 JOB_ID_RX = re.compile(r"[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9_-]{1,40}(-[0-9]{1,2})?")
 MAX_DEPTH = 8
 LAUNCH_TIMEOUT = 60
 DEFAULTS = {"engines": ["claude", "codex"], "max_per_hour": 4, "max_per_day": 20, "max_running": 2}
+# Production paths a job may never start in, whatever the allowlist says. On top of these:
+# anything under [route] home that is not under work_root, and [route] deny_paths.
+BUILTIN_DENY = ("/var/www", "/etc")
+PROD_HOME = "/home/ubuntu"
 
 
 class Refused(Exception):
@@ -51,6 +56,19 @@ def norm_agent(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
+def _under(path: str, root: str) -> bool:
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def _forms(path: str) -> set[str]:
+    """The lexical and the resolved form of a configured path; a check must hit neither."""
+    return {os.path.normpath(path), os.path.realpath(path)}
+
+
+def _misconfigured(what: str) -> Refused:
+    return Refused(f"route misconfigured: {what}", 1)
+
+
 def _trusted(path: pathlib.Path) -> None:
     st = path.stat()
     if st.st_uid != os.geteuid() or st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
@@ -71,6 +89,9 @@ class Route:
         self.job_root = pathlib.Path(r["job_root"])
         self.path = r.get("path", "/usr/local/bin:/usr/bin:/bin")
         self.max_brief = int(r.get("max_brief_bytes", 65536))
+        self.work_root = os.path.normpath(r.get("work_root", r["job_root"]))
+        self.home = _forms(r.get("home", PROD_HOME))
+        self.deny = set().union(*(_forms(d) for d in (*BUILTIN_DENY, *r.get("deny_paths", []))))
         self.extra_env = {str(k): str(v) for k, v in r.get("env", {}).items()}
         self.engines = {k: [str(x) for x in v] for k, v in cfg.get("engines", {}).items()}
         defaults = {**DEFAULTS, **cfg.get("defaults", {})}
@@ -82,7 +103,14 @@ class Route:
             self.audit("connect", "-", "refused", reason="profile not allowlisted")
             raise Refused("profile not allowlisted")
         self.agent = prof["agent"]
-        self.workdirs = [os.path.realpath(w) for w in prof["workdirs"]]
+        bot = prof.get("bot")
+        if not isinstance(bot, str) or not BOT_RX.fullmatch(bot) or ".." in bot:
+            raise _misconfigured(f"profile {self.profile} needs bot = <directory name under {self.work_root}>")
+        self.bot_root = os.path.join(self.work_root, bot)
+        configured = prof.get("workdirs", [self.bot_root])
+        if not configured or any(not _under(os.path.normpath(w), self.bot_root) for w in configured):
+            raise _misconfigured(f"profile {self.profile} workdirs must be under {self.bot_root}")
+        self.workdirs = [os.path.realpath(w) for w in configured]
         self.allowed_engines = [e for e in prof.get("engines", defaults["engines"]) if e in self.engines]
         self.max_per_hour = int(prof.get("max_per_hour", defaults["max_per_hour"]))
         self.max_per_day = int(prof.get("max_per_day", defaults["max_per_day"]))
@@ -115,13 +143,30 @@ class Route:
             raise Refused("label must be 1-40 chars [A-Za-z0-9_-], starting alphanumeric")
         return label
 
-    def check_workdir(self, raw) -> str:
+    def prod_reason(self, path: str) -> str | None:
+        """Why `path` (lexical or resolved) is a production path, or None. Wins over the allowlist."""
+        if any(_under(path, d) for d in self.deny):
+            return "workdir refused: production path (denylisted)"
+        work = _forms(self.work_root)
+        if any(_under(path, h) for h in self.home) and not any(_under(path, w) for w in work):
+            return f"workdir refused: production path (outside {self.work_root})"
+        return None
+
+    def _refuse_prod(self, *paths: str) -> None:
+        for p in paths:
+            reason = self.prod_reason(p)
+            if reason:
+                raise Refused(reason)
+
+    def check_workdir(self, raw, logged: dict | None = None) -> str:
+        """Resolve the realpath first, then: denylist, then this profile's bot allowlist."""
         root = self.workdirs[0]
         if raw is None or raw in ("", "."):
             rel = ""
-        elif not isinstance(raw, str) or len(raw) > 512:
+        elif not isinstance(raw, str) or len(raw) > 512 or "\0" in raw:
             raise Refused("workdir not allowed")
         elif raw.startswith("/"):
+            self._refuse_prod(os.path.normpath(raw), os.path.realpath(raw))
             raw = raw.rstrip("/") or "/"
             match = [w for w in self.workdirs if raw == w or raw.startswith(w + "/")]
             if not match:
@@ -133,8 +178,13 @@ class Route:
         parts = rel.split("/") if rel else []
         if len(parts) > MAX_DEPTH or any(".." in p or not COMPONENT_RX.fullmatch(p) for p in parts):
             raise Refused("workdir not allowed")
-        real = os.path.realpath(os.path.join(root, *parts))
-        if not any(real == w or real.startswith(w + "/") for w in self.workdirs):
+        lexical = os.path.join(root, *parts)
+        real = os.path.realpath(lexical)
+        if logged is not None:
+            logged["workdir"] = real
+        self._refuse_prod(lexical, real)
+        bot_real = os.path.realpath(self.bot_root)
+        if not any(_under(real, w) for w in self.workdirs) or not _under(real, bot_real):
             raise Refused("workdir not allowed")
         if not os.path.isdir(real):
             raise Refused("workdir does not exist")
@@ -144,7 +194,8 @@ class Route:
         if not brief.strip():
             raise Refused("brief is empty (send it on stdin)")
         if len(brief) > self.max_brief:
-            raise Refused(f"brief is larger than {self.max_brief} bytes")
+            raise Refused(f"brief is larger than the {self.max_brief}-byte limit (max_brief_bytes); "
+                          "send a shorter brief, e.g. point to a file in the workdir")
         if b"\0" in brief:
             raise Refused("brief contains NUL bytes")
         try:
@@ -191,18 +242,19 @@ class Route:
             raise RateLimited(f"rate limit: {self.max_running} jobs already running")
 
     # ------------------------------------------------------------ operations
-    def submit(self, mode: str, engine, label, workdir, brief: bytes, agent=None) -> dict:
-        digest = hashlib.sha256(brief).hexdigest()
+    def submit(self, mode: str, engine, label, workdir, brief: bytes, agent=None, brief_meta=None) -> dict:
+        """brief_meta = (sha256, total bytes) when the caller read more than it kept (CLI oversize)."""
+        digest, size = brief_meta or (hashlib.sha256(brief).hexdigest(), len(brief))
         logged = {"label": label[:64] if isinstance(label, str) else None,
                   "engine": engine[:32] if isinstance(engine, str) else None,
-                  "brief_sha256": digest, "brief_bytes": len(brief)}
+                  "workdir_requested": workdir[:256] if isinstance(workdir, str) else None,
+                  "workdir": None, "brief_sha256": digest, "brief_bytes": size}
         try:
             self.check_agent(agent)
             engine = self.check_engine(engine)
             label = self.check_label(label)
-            wd = self.check_workdir(workdir)
+            wd = self.check_workdir(workdir, logged)
             self.check_brief(brief)
-            logged["workdir"] = wd
             with _locked(self.state_dir / ".lock"):
                 self.check_rate(self.own_jobs())
                 job_id = self._launch(engine, label, wd, brief)

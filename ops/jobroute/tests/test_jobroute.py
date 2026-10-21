@@ -26,6 +26,9 @@ CONFIG = """
 state_dir = "{tmp}/state"
 sb_codejob = "{sb_codejob}"
 job_root = "{tmp}/work"
+work_root = "{tmp}/work"
+home = "{tmp}"
+deny_paths = ["{tmp}/work/Admin/denied"]
 path = "/usr/local/bin:/usr/bin:/bin"
 max_brief_bytes = 1024
 [route.env]
@@ -34,7 +37,7 @@ STUB_WORKROOT = "{tmp}/work"
 HOME = "{tmp}/home"
 {extra_env}
 [engines]
-claude = ["claude", "-p"]
+claude = ["claude", "-p", "--permission-mode", "acceptEdits"]
 codex = ["codex", "exec", "--skip-git-repo-check", "-m", "gpt-6.1-sol", "-"]
 stub = ["{stub_engine}"]
 [defaults]
@@ -44,15 +47,19 @@ max_per_day = 20
 max_running = {running}
 [profiles.grok-admin]
 agent = "Admin"
+bot = "Admin"
 workdirs = ["{tmp}/work/Admin"]
 [profiles.grok-doc]
 agent = "Doc"
+bot = "Doc"
 workdirs = ["{tmp}/work/Doc"]
 [profiles.grok-infra]
 agent = "Infra Caretaker"
+bot = "Infra Caretaker"
 workdirs = ["{tmp}/work/Infra Caretaker"]
 [profiles.grok-stub]
 agent = "Stub"
+bot = "Stub"
 engines = ["stub"]
 workdirs = ["{tmp}/work/Stub"]
 """
@@ -109,7 +116,7 @@ def test_allowlisted_submit_runs_fixed_argv_with_brief_on_stdin(env):
     [call] = env.calls()
     wd = os.path.realpath(env.tmp / "work/Admin")
     assert call["argv"] == ["--agent", "Admin", "--workdir", wd, "--label", "fix-login", "--stdin",
-                            "--", "claude", "-p"]
+                            "--", "claude", "-p", "--permission-mode", "acceptEdits"]
     assert call["stdin"] == brief
     assert "ANTHROPIC_API_KEY" not in call["env"] and "SSH_ORIGINAL_COMMAND" not in call["env"]
     assert not pathlib.Path("/tmp/pwned").exists()

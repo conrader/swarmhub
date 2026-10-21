@@ -7,12 +7,17 @@
 state_dir = "/home/ubuntu/.local/state/jobroute"     # audit.jsonl + profiles/<profile>.jsonl
 sb_codejob = "/home/ubuntu/sb/bin/sb-codejob"
 job_root = "/home/ubuntu/work"                       # sb-codejob WORKROOT: <job_root>/<agent>/<job>.json
+work_root = "/home/ubuntu/work"                      # a profile's workdirs must be under <work_root>/<bot>
+home = "/home/ubuntu"                                # prod: anything under home but outside work_root is refused
+# Also refused, whatever a profile's workdirs say (the denylist wins over the allowlist). /var/www
+# and /etc are refused even if this list is emptied. Checked on the requested and the resolved path.
+deny_paths = ["/var/www", "/etc", "/srv", "/opt", "/root", "/usr", "/boot", "/var", "/home/hermes"]
 path = "/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin"
 max_brief_bytes = 65536
 
 # Fixed engines. The caller picks a name, never a command line; the brief arrives on stdin.
 [engines]
-claude = ["claude", "-p"]
+claude = ["claude", "-p", "--permission-mode", "acceptEdits"]
 codex = ["codex", "exec", "--skip-git-repo-check", "-m", "gpt-6.1-sol", "-"]
 
 [defaults]
@@ -22,51 +27,65 @@ max_per_day = 20       # accepted submissions in the last 24 h
 max_running = 2        # this profile's route jobs still running
 
 # The 12 profiles whose SOUL mentions launching jobs (sshovh-report.md).
-# agent = the sb-codejob --agent name (its wake route); workdirs = where a job may start.
+# agent = the sb-codejob --agent name (its wake route); bot = its directory under work_root.
+# workdirs (optional, default [<work_root>/<bot>]) must lie under <work_root>/<bot>; a job may start
+# there or in an existing subdirectory, checked on the realpath (symlink escapes are refused).
 [profiles.grok-achilles]
 agent = "Achilles"
+bot = "Achilles"
 workdirs = ["/home/ubuntu/work/Achilles"]
 
 [profiles.grok-admin]
 agent = "Admin"
+bot = "Admin"
 workdirs = ["/home/ubuntu/work/Admin"]
 
 [profiles.grok-boppy]
 agent = "Boppy"
+bot = "Boppy"
 workdirs = ["/home/ubuntu/work/Boppy"]
 
 [profiles.grok-botsilo]
 agent = "Botsilo"
+bot = "Botsilo"
 workdirs = ["/home/ubuntu/work/Botsilo"]
 
 [profiles.grok-dmt]
 agent = "DMT"
+bot = "DMT"
 workdirs = ["/home/ubuntu/work/DMT"]
 
 [profiles.grok-doc]
 agent = "Doc"
+bot = "Doc"
 workdirs = ["/home/ubuntu/work/Doc"]
 
 [profiles.grok-finance-controller]
 agent = "finance-controller"
+bot = "finance-controller"
 workdirs = ["/home/ubuntu/work/finance-controller"]
 
 [profiles.grok-infra]
 agent = "Infra Caretaker"
+bot = "Infra Caretaker"
 workdirs = ["/home/ubuntu/work/Infra Caretaker"]
 
 [profiles.grok-plainsay]
 agent = "Plainsay"
+bot = "Plainsay"
 workdirs = ["/home/ubuntu/work/Plainsay"]
 
 [profiles.grok-rapper]
 agent = "Rapper"
+bot = "Rapper"
 workdirs = ["/home/ubuntu/work/Rapper"]
 
 [profiles.grok-saldora]
 agent = "Saldora"
+bot = "Saldora"
 workdirs = ["/home/ubuntu/work/Saldora"]
 
 [profiles.grok-vised]
 agent = "Vised"
+bot = "Vised"
 workdirs = ["/home/ubuntu/work/Vised"]
