@@ -7,7 +7,11 @@ import Foundation
 enum BotManagerText {
     static let resourcePath = "BotManager/manager-hermes.md"
     static let openClawResourcePath = "BotManager/manager-openclaw.md"
-    static var connectorHelper: String? { template(candidates: candidates("Skills/swarmhub-manager/scripts/default-connectors.py")) }
+    /// The connector helper's files, entry point first. `connectors_core.py` alone is self-contained.
+    static let connectorHelperNames = ["default-connectors.py", "connectors_core.py", "connectors_files.py", "connectors_model_auth.py", "connectors_provision.py"]
+    /// The read-only part (audit, inspect, the OpenClaw proxy) that the connector check pipes into `python3 -`.
+    static var connectorHelper: String? { connectorHelperSource("connectors_core.py") }
+    static func connectorHelperSource(_ name: String) -> String? { template(candidates: candidates("Skills/swarmhub-manager/scripts/" + name)) }
 
     /// Bundle prompt overrides may predate connector defaults. Keep the app's provisioning requirement on those
     /// paths too; custom prose and the optional default connector policy still belong to the install.
@@ -26,15 +30,16 @@ enum BotManagerText {
 
     /// Only creation exchanges without the installed script carry executable source. Ordinary management stays small.
     static var connectorBootstrap: String? {
-        connectorHelper.map { """
+        let sources = connectorHelperNames.compactMap(connectorHelperSource)
+        guard sources.count == connectorHelperNames.count else { return nil }
+        let writes = zip(connectorHelperNames, sources).map { "cat > ~/.config/swarmhub/\($0) <<'SWARMHUB_CONNECTORS'\n\($1)\nSWARMHUB_CONNECTORS" }
+        return """
         As part of the approved new-bot action, install this helper BEFORE creating the bot. The defaults-only create command supersedes all older clone recipes:
         ```sh
         mkdir -p ~/.config/swarmhub
-        cat > ~/.config/swarmhub/default-connectors.py <<'SWARMHUB_CONNECTORS'
-        \($0)
-        SWARMHUB_CONNECTORS
+        \(writes.joined(separator: "\n"))
         ```
-        """ }
+        """
     }
 
     /// P31 C: the on-demand recipes split out of the core text (same placeholders). The `swarmhub-manager` skill ships

@@ -13,7 +13,9 @@ import Testing
     }
     let skill = try #require(SkillLibrary.bundled().first { $0.name == SkillLibrary.managerSkill })
     let rendered = try #require(SkillLibrary.render(skill, forProfile: "manager", managerTemplate: BotManagerText.template()))
-    #expect(skill.files.contains { $0.path == "scripts/default-connectors.py" && $0.content.contains("def provision(home, backend, bot):") })
+    #expect(skill.files.contains { $0.path == "scripts/connectors_provision.py" && $0.content.contains("def provision(home, backend, bot):") })
+    #expect(skill.files.filter { $0.path.hasPrefix("scripts/") }.map(\.path) == BotManagerText.connectorHelperNames.map { "scripts/" + $0 }.sorted(),
+            "the bootstrap writes every helper file the skill ships")
     #expect(rendered.contains("provision hermes"))
     for profile in ["default", "named-manager"] {
         let rendered = try #require(SkillLibrary.render(skill, forProfile: profile, managerTemplate: BotManagerText.template()))
@@ -70,6 +72,7 @@ import Testing
     let creation = try #require(store.managementText(for: bot, text: "create a bot for reports", conversation: bot))
     #expect(creation.contains("def provision(home, backend, bot):"))
     #expect(creation.contains("~/.config/swarmhub/default-connectors.py"))
+    for name in BotManagerText.connectorHelperNames { #expect(creation.contains("cat > ~/.config/swarmhub/\(name) <<'SWARMHUB_CONNECTORS'\n")) }
     #expect(store.managementText(for: bot, text: "yes", conversation: bot)?.contains("def provision(home, backend, bot):") == true)
     // An outdated skill keeps the cheap pointer; only its creation turns add the connector step and helper it predates.
     bot.installedSkills = [SkillLibrary.managerSkill: "1.5.0"]
