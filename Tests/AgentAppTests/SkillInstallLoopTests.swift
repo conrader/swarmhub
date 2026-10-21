@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import AgentApp
@@ -141,6 +142,53 @@ private func installed(_ rows: String) -> String {
     store.noteSkillInstallFailure("swarmhub-messages", version: "1.4.6", variant: nil, reason: "Refused.", on: jarvis)
     #expect(store.missingMessagingSkills(for: jarvis).map(\.name) == ["swarmhub-feedback"])
     #expect(store.messagingSkillGaps(manager: jarvis).first?.skills.map(\.name) == ["swarmhub-feedback"])
+}
+
+// MARK: The backoff ends by itself
+
+/// Views read the backoff only when they draw: the store redraws when each retry time passes (plus a second) and never
+/// installs on its own. The sleep here records its length and returns at once.
+@Test @MainActor func retryComesBackByItselfWhenTheBackoffEnds() async throws {
+    let (store, jarvis, host, clock) = loopStore(replies: ["ok"])
+    let slept = LockedTrace(), changes = LockedTrace()
+    store.skillRetrySleep = { try Task.checkCancellation(); slept.add("\($0.components.seconds)") }
+    let start = clock.date
+    store.noteSkillInstallFailure("swarmhub-manager", version: "1.2.0", variant: nil, reason: "Refused.", on: jarvis)
+    clock.date += 60
+    store.noteSkillInstallFailure("swarmhub-feedback", version: "1.0.0", variant: nil, reason: "Refused.", on: jarvis)
+    #expect(store.nextSkillRetry(after: clock.date) == start + 900 && store.skillRetryRedraw != nil)
+    let watching = store.objectWillChange.sink { changes.add("change") }
+    defer { watching.cancel() }
+    try await waitUntil { changes.read().count == 2 && store.skillRetryRedraw == nil }
+    // One redraw at each retry time (manager at +15 min, feedback a minute later), then nothing left to wait for.
+    #expect(slept.read() == ["841", "901"])
+    #expect(installTurns(host).isEmpty && jarvis.skillInstallFailures.count == 2, "a redraw never starts an install")
+    clock.date = start + 960
+    #expect(!store.skillInstallBackingOff(managerSkill, for: jarvis) && !store.skillInstallBackingOff(feedbackSkill, for: jarvis))
+}
+
+// MARK: All bots: a failed install is waiting, not done
+
+@Test @MainActor func allBotsSaysWhichInstallsAreWaitingInsteadOfAllSet() throws {
+    let (store, jarvis, _, clock) = loopStore(replies: ["ok"])
+    store.skillRetrySleep = { _ in throw CancellationError() }
+    let messages = BundledSkill(name: "swarmhub-messages", version: SkillVersion("1.4.6")!, template: "---\nname: swarmhub-messages\nversion: 1.4.6\n---\n\nSend.\n")
+    store.skillLibraryOverride = [feedbackSkill, managerSkill, messages]
+    jarvis.installedSkills = ["swarmhub-manager": "1.2.0", "swarmhub-feedback": "1.0.0", "swarmhub-messages": "1.4.6"]
+    #expect(store.allBotsSkillsSummary == AllBotsSkillCopy.allSet && store.messagingSkillWaits().isEmpty)
+    jarvis.installedSkills = ["swarmhub-manager": "1.2.0"]
+    for skill in [feedbackSkill, messages] {
+        store.noteSkillInstallFailure(skill.name, version: skill.version.description, variant: nil, reason: "Refused.", on: jarvis)
+    }
+    // Nothing is installable (both back off), but that is not "every bot has them".
+    #expect(store.managersWithSkillGaps.isEmpty && store.allBotsSkillsSummary == nil)
+    let wait = try #require(store.messagingSkillWaits(manager: jarvis).first)
+    #expect(store.messagingSkillWaits().count == 1 && wait.bot === jarvis && wait.reason == "Refused." && wait.retryAt == clock.date + 900)
+    #expect(wait.skills.map(\.name) == ["swarmhub-feedback", "swarmhub-messages"])
+    #expect(AllBotsSkillCopy.waiting(wait.skills, retryAt: wait.retryAt).hasPrefix("Install failed: swarmhub-feedback, swarmhub-messages · retry after "))
+    // The wait over: the gap is offered again and the wait row is gone.
+    clock.date += 15 * 60
+    #expect(store.messagingSkillWaits().isEmpty && store.managersWithSkillGaps == [jarvis] && store.allBotsSkillsSummary == nil)
 }
 
 // MARK: Hermes hardline guard

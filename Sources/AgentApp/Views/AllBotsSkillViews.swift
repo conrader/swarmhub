@@ -31,6 +31,22 @@ struct SkillGapRows: View {
     }
 }
 
+/// Bots whose messaging-skill install failed and waits out its backoff: which skills, and when it may be retried.
+struct SkillWaitRows: View {
+    let waits: [AppStore.SkillWait]
+    var body: some View {
+        ForEach(waits) { wait in
+            HStack(spacing: 8) {
+                BotAvatar(bot: wait.bot, size: 18)
+                Text(wait.bot.name).font(.system(size: 12, weight: .medium))
+                Spacer()
+                Text(AllBotsSkillCopy.waiting(wait.skills, retryAt: wait.retryAt)).font(.caption).foregroundStyle(.orange)
+            }
+            .help(wait.reason)
+        }
+    }
+}
+
 /// Settings → Servers and keys: per connection, the bots missing the messaging skills and the install button.
 struct AllBotsSkillsSection: View {
     @EnvironmentObject private var store: AppStore
@@ -38,10 +54,10 @@ struct AllBotsSkillsSection: View {
     var body: some View {
         Section(AllBotsSkillCopy.title) {
             let managers = store.managersWithSkillGaps
-            if managers.isEmpty {
-                let unmanaged = store.bots.contains { $0.backend == .hermes && store.manager(for: $0) == nil && !store.missingMessagingSkills(for: $0).isEmpty }
-                Text(unmanaged ? AllBotsSkillCopy.needsManager : AllBotsSkillCopy.allSet).font(.caption).foregroundStyle(.secondary)
+            if let summary = store.allBotsSkillsSummary {
+                Text(summary).font(.caption).foregroundStyle(.secondary)
             }
+            SkillWaitRows(waits: store.messagingSkillWaits())
             ForEach(managers) { manager in
                 SkillGapRows(gaps: store.messagingSkillGaps(manager: manager))
                 HStack {

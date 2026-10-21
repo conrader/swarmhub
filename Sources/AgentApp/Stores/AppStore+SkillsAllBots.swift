@@ -32,6 +32,33 @@ extension AppStore {
     /// Every connection's manager with gaps (Settings lists them all).
     var managersWithSkillGaps: [Bot] { bots.filter { isManager($0) && !messagingSkillGaps(manager: $0).isEmpty } }
 
+    /// One bot and the messaging skills it needs whose install failed and waits out its backoff: why, and when Retry is back.
+    struct SkillWait: Identifiable {
+        let bot: Bot; let skills: [BundledSkill]; let retryAt: Date; let reason: String
+        var id: UUID { bot.id }
+    }
+
+    /// Every Hermes bot (on `manager`'s connection, else on any) with a needed messaging skill whose failed install is
+    /// backing off; the gaps leave those out, so without this a failed bot would read as having the skills.
+    func messagingSkillWaits(manager: Bot? = nil) -> [SkillWait] {
+        let target = manager.map { connection(of: $0) }
+        return bots.filter { $0.backend == .hermes && !$0.isReadOnlyArchive && (target == nil || connection(of: $0) == target) }.compactMap { bot in
+            let waiting = skills(for: bot).filter {
+                Self.messagingSkills.contains($0.name) && skillState($0, for: bot).needsAction && skillInstallBackingOff($0, for: bot)
+            }
+            guard let first = waiting.compactMap({ skillInstallFailure($0, for: bot) }).min(by: { $0.retryAt < $1.retryAt }) else { return nil }
+            return SkillWait(bot: bot, skills: waiting, retryAt: first.retryAt, reason: first.reason)
+        }
+    }
+
+    /// Settings' line when there is nothing to install or wait for: "needs a manager" or "every bot has them"; nil while
+    /// a connection has gaps or a failed install is waiting (their rows say so).
+    var allBotsSkillsSummary: String? {
+        guard managersWithSkillGaps.isEmpty, messagingSkillWaits().isEmpty else { return nil }
+        let unmanaged = bots.contains { $0.backend == .hermes && manager(for: $0) == nil && !missingMessagingSkills(for: $0).isEmpty }
+        return unmanaged ? AllBotsSkillCopy.needsManager : AllBotsSkillCopy.allSet
+    }
+
     /// The confirmed press: one management turn for every gap. False when there is nothing to install, the manager is
     /// busy, or a file cannot travel in the heredoc (said in `errorMessage`).
     @discardableResult func installSkillsOnAllBots(manager: Bot) -> Bool {
@@ -94,6 +121,9 @@ enum AllBotsSkillCopy {
     }
     static func request(_ count: Int) -> String { "Install SwarmHub skills on \(count == 1 ? "1 bot" : "all \(count) bots")." }
     static func missing(_ skills: [BundledSkill]) -> String { "Missing: " + skills.map(\.name).joined(separator: ", ") }
+    static func waiting(_ skills: [BundledSkill], retryAt: Date) -> String {
+        "Install failed: " + skills.map(\.name).joined(separator: ", ") + " · retry after \(retryAt.formatted(date: .omitted, time: .shortened))"
+    }
     static let confirm = "The manager writes swarmhub-messages and swarmhub-feedback into each of these bots’ profiles. Hermes itself is not changed."
     static let allSet = "Every bot has SwarmHub’s messaging skills."
     static let needsManager = "Needs a manager bot on the connection to install."

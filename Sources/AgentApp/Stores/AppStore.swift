@@ -101,6 +101,8 @@ import SwarmHubCore
     /// P27: tests' skill library instead of the bundled one; an Install waiting for its manager turn (per manager bot); what
     /// that turn asked for, checked when it ends (`AppStore+SkillInstallChecks.swift`).
     var skillLibraryOverride: [BundledSkill]?; var pendingSkillInstalls: [UUID: SkillInstallTurn] = [:]; var pendingSkillChecks: [UUID: [SkillInstallCheck]] = [:]
+    /// The task that redraws when the next failed install's backoff ends, and its sleep (tests return at once).
+    var skillRetryRedraw: Task<Void, Never>?; var skillRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     lazy var boxInstallTransport = BoxInstallTransport(configurationURL: fileURL.deletingLastPathComponent().appending(path: "Updates/box-transport.json"))
     /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()
@@ -234,7 +236,7 @@ import SwarmHubCore
         }
         // P21 D3: a fresh install starts empty; the setup window or "Look around with sample agents" fills it.
         if !demoMode { migrateManagerRole(); migrateSampleBots(); loadOpenClawGateways() }
-        if !demoMode { restoreLedger() }
+        if !demoMode { restoreLedger(); scheduleSkillRetryRedraw() }
         if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys(); await discoverBoxesOnLaunch() } }
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }

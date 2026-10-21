@@ -75,6 +75,26 @@ extension AppStore {
         let previous = bot.skillInstallFailures[skill].flatMap { $0.version == version && $0.variant == variant ? $0.count : nil } ?? 0
         bot.skillInstallFailures[skill] = SkillInstallFailure(version: version, variant: variant, count: previous + 1, lastAt: now(), reason: reason)
         SwarmhubBlock.log.error("Skill install failed: \(skill, privacy: .public) \(version, privacy: .public) on \(bot.hermesProfile ?? "default", privacy: .public) (\(previous + 1)x)")
+        scheduleSkillRetryRedraw()
+    }
+
+    /// The earliest retry time after `date` of a failed install a bot still has (its bundled version and variant).
+    func nextSkillRetry(after date: Date) -> Date? {
+        bots.flatMap { bot in skills(for: bot).compactMap { skillInstallFailure($0, for: bot)?.retryAt } }.filter { $0 > date }.min()
+    }
+
+    /// Views read the backoff only when they draw, so nothing would bring Retry back when it ends: one task sleeps until
+    /// the next retry time (plus a second) and redraws, then waits for the one after. It only redraws; it never installs.
+    func scheduleSkillRetryRedraw(after floor: Date = .distantPast) {
+        skillRetryRedraw?.cancel(); skillRetryRedraw = nil
+        guard let next = nextSkillRetry(after: max(now(), floor)) else { return }
+        let wait = Duration.seconds(max(next.timeIntervalSince(now()), 0) + 1), sleep = skillRetrySleep
+        skillRetryRedraw = Task { [weak self] in
+            do { try await sleep(wait) } catch { return }
+            guard !Task.isCancelled, let self else { return }
+            self.skillRetryRedraw = nil
+            self.objectWillChange.send(); self.scheduleSkillRetryRedraw(after: next)
+        }
     }
 
     /// Why the turn did not confirm the install, in one line: the turn's own failure, else the start of the reply.
