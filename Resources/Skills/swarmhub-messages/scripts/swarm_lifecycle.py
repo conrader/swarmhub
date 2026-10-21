@@ -251,7 +251,7 @@ def stop_legacy_supervisor(lock, folder, runtime):
             if (int(major, 16), int(minor, 16), int(number)) == inode:
                 stop_legacy_group(fd, pid)
                 return True
-    except (OSError, ValueError, subprocess.SubprocessError):
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         pass
     finally:
         os.close(fd)
