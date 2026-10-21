@@ -6,6 +6,8 @@ tests never send a real signal: code-job's functions run with `kill`, `sleep` an
 that record or print, and the Python helpers run with os.kill/os.killpg patched. Each shell case first proves the
 `kill` it would call is the recorder, so a broken override fails the test instead of signalling.
 """
+import contextlib
+import io
 import os
 from pathlib import Path
 import re
@@ -27,6 +29,13 @@ import swarm_store  # noqa: E402
 import verify_darwin  # noqa: E402
 
 BAD_ROOTS = ("", "0", "1", "-1", "abc", "12 13", "1;2", " ", "007x", "99999999999999999999999")
+
+# Recorded 2026-10-21 on the MacBook (Darwin 25.6.0): `LC_ALL=C ps -A -o pid= -o ppid= -o pgid= -o sess= -o lstart=`.
+# BSD `sess` is a session pointer, printed 0 for every process; columns are right-aligned with trailing blanks.
+DARWIN_PS_SAMPLE = (
+    "    1     0     1      0 Fri Oct 16 06:11:44 2026    \n"
+    "  333     1   333      0 Fri Oct 16 06:13:36 2026    \n"
+    "  335     1   335      0 Fri Oct 16 06:13:36 2026    \n")
 
 
 def functions(*names):
@@ -154,6 +163,49 @@ class CodeJobKillTreeTests(unittest.TestCase):
         self.assertIn("done=0", proc.stdout, proc.stderr)
         self.assertEqual(set(kills.splitlines()[1].split()[2:]), {"1500000001", "1500000002"}, kills)
 
+    def darwin_ps(self):
+        # The fixture tree in the recorded Darwin layout (session 0 everywhere), plus two recorded foreign rows.
+        sample = "".join(line + "\\n" for line in DARWIN_PS_SAMPLE.splitlines()[1:])
+        return ('uname() { echo Darwin; }\n'
+                'ps() { listing | awk \'{ printf "%%5s %%5s %%5s %%6s Wed Oct 21 12:00:00 2026    \\n", $1, $2, "700", "0" }\'; '
+                'printf "%s"; }\n') % sample
+
+    def test_darwin_session_pointer_column_parses_and_the_tree_is_signalled(self):
+        proc, _ = run_shell(self.darwin_ps() + 'tree 1500000001')
+        rows = [line.split() for line in proc.stdout.splitlines() if line != "end"]
+        self.assertEqual({r[0] for r in rows}, {"1500000001", "1500000002", "1500000003"}, proc.stdout)
+        self.assertEqual({len(r) for r in rows} | {r[3] for r in rows}, {9, "-"}, proc.stdout)
+        proc, kills = run_shell(self.darwin_ps() + 'kill_tree 1500000001; echo done=$?')
+        self.assertIn("done=0", proc.stdout, proc.stderr)
+        lines = kills.splitlines()
+        self.assertEqual(lines[0].split(), ["kill", "-TERM", "1500000001", "1500000002", "1500000003"], kills)
+        self.assertEqual(set(lines[1].split()[2:]), {"1500000001", "1500000002", "1500000003"}, kills)
+
+    def test_darwin_still_refuses_foreign_roots_and_a_changed_group(self):
+        for root in ('"$$"', '"$PPID"', "1", "333", "1600000001"):
+            with self.subTest(root=root):
+                proc, kills = run_shell(self.darwin_ps() + "kill_tree %s" % root)
+                self.assertEqual(kills, "", proc.stderr)
+        proc, kills = run_shell(self.darwin_ps() + self.after_term('{ if ($1 == 1500000003) $3=701; print }'))
+        self.assertEqual(set(kills.splitlines()[1].split()[2:]), {"1500000001", "1500000002"}, kills)
+
+    def test_orphans_adopted_by_an_ancestor_subreaper_are_killed(self):
+        # $PPID and 1900000000 stand in for a systemd --user subreaper above this shell.
+        for adopter in ('ENVIRON["PP"]', '1900000000'):
+            with self.subTest(adopter=adopter):
+                proc, kills = run_shell('PP=$PPID; export PP\n' + self.after_term(
+                    '{ if ($1 == 1500000001) next; if ($1 == 1500000002) $2=%s; print }' % adopter))
+                self.assertIn("done=0", proc.stdout, proc.stderr)
+                self.assertEqual(set(kills.splitlines()[1].split()[2:]), {"1500000002", "1500000003"}, kills)
+                self.assertNotIn("leaving pid", proc.stderr)
+
+    def test_orphans_adopted_by_a_foreign_subreaper_are_left_and_named(self):
+        proc, kills = run_shell(self.after_term(
+            '{ if ($1 == 1500000001) next; if ($1 == 1500000002) $2=1600000001; print }'))
+        self.assertIn("done=0", proc.stdout, proc.stderr)
+        self.assertNotIn("1500000002", "\n".join(kills.splitlines()[1:]), kills)
+        self.assertIn("code-job: leaving pid 1500000002: adopted by 1600000001", proc.stderr)
+
 
 def process_listing(rows):
     return "".join(f"{pid} {parent} {group} {session} Wed Oct 21 12:00:00 2026\n"
@@ -228,6 +280,40 @@ class SwarmStoreTerminateTests(unittest.TestCase):
     def test_siblings_of_an_adopted_process_are_refused(self):
         listing = self.LISTING.replace("4000 3900", "4000 1").replace("5101 3900", "5101 1")
         self.assertEqual(self.run_terminate(5101, before=listing, parent=1), [])
+
+    def test_orphans_adopted_by_an_ancestor_subreaper_are_killed(self):
+        for adopter in (1, 3800, 3900):
+            with self.subTest(adopter=adopter):
+                calls = self.run_terminate(5001, after=self.LISTING.replace("5002 5001", "5002 %d" % adopter))
+                self.assertIn(mock.call(5002, signal.SIGKILL), calls)
+
+    def test_orphans_adopted_by_a_foreign_subreaper_are_left_and_named(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            calls = self.run_terminate(5001, after=self.LISTING.replace("5002 5001", "5002 6001"))
+        self.assertIn(mock.call(5002, signal.SIGTERM), calls)
+        self.assertNotIn(mock.call(5002, signal.SIGKILL), calls)
+        self.assertIn("swarm_store: leaving pid 5002: adopted by 6001", err.getvalue())
+
+    def test_darwin_session_pointer_is_recorded_as_unknown(self):
+        with mock.patch.object(swarm_store.subprocess, "check_output", return_value=DARWIN_PS_SAMPLE):
+            with mock.patch.object(swarm_store.sys, "platform", "darwin"):
+                darwin = swarm_store.process_snapshot()
+            with mock.patch.object(swarm_store.sys, "platform", "linux"):
+                linux = swarm_store.process_snapshot()
+        self.assertEqual(darwin, {1: (0, 1, "-", "Fri Oct 16 06:11:44 2026"),
+                                  333: (1, 333, "-", "Fri Oct 16 06:13:36 2026"),
+                                  335: (1, 335, "-", "Fri Oct 16 06:13:36 2026")})
+        self.assertEqual(linux[333], (1, 333, "0", "Fri Oct 16 06:13:36 2026"))
+
+    def test_darwin_child_and_sibling_trees_are_signalled_and_foreign_refused(self):
+        darwin = "".join("%5s %5s %5s %6s %s    \n" % (*row.split()[:3], "0", " ".join(row.split()[4:]))
+                         for row in self.LISTING.splitlines())
+        with mock.patch.object(swarm_store.sys, "platform", "darwin"):
+            for pid, tree in ((5001, {5001, 5002}), (5101, {5101, 5102}), (6001, set()), (6201, set())):
+                with self.subTest(pid=pid):
+                    calls = self.run_terminate(pid, before=darwin)
+                    self.assertEqual({c.args[0] for c in calls}, tree)
 
 
 class VerifierGuardTests(unittest.TestCase):

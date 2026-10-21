@@ -145,7 +145,12 @@ def invoking_profile(environ=None):
 
 
 def process_snapshot():
-    """One ps view: pid -> (parent, process group, session, start time). Unknown identity fails closed."""
+    """One ps view: pid -> (parent, process group, session, start time). Unknown identity fails closed.
+
+    On Darwin/BSD ``sess`` is a kernel session pointer (macOS prints 0 for every process) and there is no ``sid``,
+    so the session is recorded as ``-`` there; parent, process group and start time still identify a process.
+    """
+    no_session = sys.platform == "darwin" or "bsd" in sys.platform
     try:
         listing = subprocess.check_output(
             ["ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "pgid=", "-o", "sess=", "-o", "lstart="],
@@ -156,10 +161,19 @@ def process_snapshot():
             if len(fields) != 9:
                 return {}
             pid, parent, group = map(int, fields[:3])
-            result[pid] = (parent, group, fields[3], " ".join(fields[4:]))
+            result[pid] = (parent, group, "-" if no_session else fields[3], " ".join(fields[4:]))
         return result
     except (OSError, ValueError, subprocess.SubprocessError):
         return {}
+
+
+def ancestors_of(pid, parents):
+    """pid and every live ancestor above it in one snapshot; 0 (no parent) is never included."""
+    found = set()
+    while pid not in found and pid > 0:
+        found.add(pid)
+        pid = parents.get(pid, 0)
+    return found
 
 
 def same_process(before, after, adopters=()):
@@ -177,10 +191,7 @@ def terminate(pid):
     rows = process_snapshot()
     me, parent = os.getpid(), os.getppid()
     parents = {child: row[0] for child, row in rows.items()}
-    ancestors, up = set(), me
-    while up not in ancestors and up > 0:
-        ancestors.add(up)
-        up = parents.get(up, 0)
+    ancestors = ancestors_of(me, parents)
     up, seen = pid, set()
     while up > 1 and up not in seen and up != me:
         seen.add(up)
@@ -204,12 +215,19 @@ def terminate(pid):
             pass
     time.sleep(.1)
     current = process_snapshot()
+    # An orphan is reparented to its nearest subreaper ancestor (systemd --user, say) or else to pid 1, init of the
+    # pid namespace. Any other new parent means the pid is no longer ours, so it is left alone and named.
+    adopters = ancestors_of(me, {child: row[0] for child, row in current.items()}) | {1}
     for child in reversed(sorted(ids)):
-        if same_process(rows.get(child), current.get(child), adopters=(1, me) if child != pid else ()):
+        before, after = rows.get(child), current.get(child)
+        if same_process(before, after, adopters=adopters if child != pid else ()):
             try:
                 os.kill(child, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+        elif child != pid and after and same_process(before, after, adopters=(after[0],)):
+            print(f"swarm_store: leaving pid {child}: adopted by {after[0]}, not this process or one of its ancestors",
+                  file=sys.stderr)
 
 
 def process_alive(pid, start=None):
