@@ -1,0 +1,89 @@
+import Foundation
+import Testing
+@testable import AgentApp
+
+@Test func connectorDefaultsShipInBothManagerTemplatesAndTheInstalledSkill() throws {
+    for kind in [BackendKind.hermes, .openClaw] {
+        let template = try #require(BotManagerText.template(for: kind))
+        let filled = kind == .hermes ? BotManagerText.filled(template, managerProfile: "manager") : BotManagerText.filled(template, managerAgent: "manager")
+        #expect(!filled.contains("{{"))
+        #expect(filled.contains("def provision(home, backend, bot):"))
+        #expect(filled.contains(kind == .hermes ? "provision hermes" : "provision openclaw"))
+        #expect(filled.contains("existing restricted SSH key"))
+    }
+    let skill = try #require(SkillLibrary.bundled().first { $0.name == SkillLibrary.managerSkill })
+    let rendered = try #require(SkillLibrary.render(skill, forProfile: "manager", managerTemplate: BotManagerText.template()))
+    #expect(rendered.contains("def provision(home, backend, bot):"))
+    #expect(rendered.contains("provision hermes"))
+}
+
+@Test func connectorReportsValidateStatesCountsAndNames() throws {
+    let text = """
+    ```swarmhub
+    {"op":"connectors","name":"new-bot","list":[
+      {"name":"sb","state":"loaded","tool_count":5,"detail":"Last bot catalog (including deferred tools).","observed_at":1792000000},
+      {"name":"docs","state":"failed","detail":"Connector connection timed out."},
+      {"name":"other","state":"never_attempted","detail":"Awaiting first load."}]}
+    ```
+    """
+    guard case .connectors(let name, let rows) = try #require(SwarmhubBlock.ops(in: text)?.first) else { Issue.record("Missing report"); return }
+    #expect(name == "new-bot")
+    #expect(rows.map(\.status) == ["Loaded 5 tools", "Failed", "Never attempted"])
+    #expect(rows[0].observedAt == Date(timeIntervalSince1970: 1792000000))
+    for row: [String: Any] in [
+        ["name": "sb", "state": "loaded", "detail": "No count"],
+        ["name": "sb", "state": "loaded", "tool_count": -1, "detail": "Bad count"],
+        ["name": "../other", "state": "failed", "detail": "Bad name"],
+        ["name": "sb", "state": "healthy", "detail": "Unknown state"]
+    ] { #expect(SwarmhubOp(["op": "connectors", "name": "new-bot", "list": [row]]) == nil) }
+}
+
+@Test @MainActor func connectorFailuresPersistAndDoNotCrossBotBindings() throws {
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: isolatedDefaults())
+    let bot = Bot(name: "One", backend: .hermes, hermesProfile: "one")
+    store.bots = [bot]
+    store.recordConnectors([.init(name: "sb", state: .failed, detail: "SSH authentication was rejected.")], for: bot)
+    let decoded = try JSONDecoder().decode(Bot.self, from: JSONEncoder().encode(bot))
+    #expect(decoded.connectorReport == bot.connectorReport)
+    #expect(store.connectorReport(for: decoded)?.connectors.first?.status == "Failed")
+    decoded.hermesProfile = "two"
+    #expect(store.connectorReport(for: decoded) == nil)
+    decoded.hermesProfile = "one"; decoded.hermesBaseURL = "https://other.invalid/v1"
+    #expect(store.connectorReport(for: decoded) == nil)
+    let legacy = Bot(name: "Legacy", backend: .hermes)
+    #expect(try JSONDecoder().decode(Bot.self, from: JSONEncoder().encode(legacy)).connectorReport == nil)
+}
+
+@Test @MainActor func connectorCheckReadsTheBotsOwnBackendAndSurfacesAnUnreportedFailure() async throws {
+    let reply = "```swarmhub\n{\"op\":\"connectors\",\"name\":\"own-profile\",\"list\":[{\"name\":\"sb\",\"state\":\"loaded\",\"tool_count\":5,\"detail\":\"Last bot catalog (including deferred tools).\"}]}\n```"
+    let (host, backend) = ChatParityServer.serve(features: ["session_chat_streaming": true]) { request, _ in
+        if request.path.hasSuffix("/chat/stream") { return .sse([("assistant.delta", ["delta": reply]), ("run.completed", [:])]) }
+        if request.path == "/api/sessions" { return .json(200, ["session": ["id": "synthetic-check"]]) }
+        return .json(404, ["error": "no route"])
+    }
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore([:]), defaults: isolatedDefaults())
+    let bot = Bot(name: "Own", backend: .hermes, hermesProfile: "own-profile")
+    store.bots = [bot]
+    await store.checkConnectors(for: bot)
+    #expect(store.connectorReport(for: bot)?.connectors.first?.status == "Loaded 5 tools")
+    #expect(store.connectorChecks.isEmpty)
+    let sent = try #require(ChatParityServer.requests(host).first { $0.path.hasSuffix("/chat/stream") })
+    let instructions = sent.body?["instructions"] as? String ?? ""
+    #expect(instructions.contains("inspect hermes 'own-profile'"))
+    #expect(instructions.contains("Do not edit files"))
+    bot.hermesProfile = "different-profile"
+    await store.checkConnectors(for: bot)
+    #expect(store.connectorReport(for: bot)?.connectors.first?.state == .failed, "a report for another profile is rejected")
+}
+
+@Test @MainActor func managerRecordsConnectorFailuresOnlyForItsOwnBots() async {
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: isolatedDefaults())
+    let manager = Bot(name: "Manager", backend: .hermes, hermesProfile: "manager")
+    let bot = Bot(name: "New", backend: .hermes, hermesProfile: "new")
+    let other = Bot(name: "Elsewhere", backend: .hermes, hermesProfile: "new"); other.hermesBaseURL = "https://elsewhere.invalid/v1"
+    store.bots = [manager, bot, other]
+    let rows = [BotConnectorReport.Connector(name: "sb", state: .failed, detail: "Existing read-only SB SSH identity is missing on this computer.")]
+    await store.apply(.connectors(name: "new", rows: rows), manager: manager)
+    #expect(bot.connectorReport?.connectors == rows)
+    #expect(other.connectorReport == nil)
+}

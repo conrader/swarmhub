@@ -197,6 +197,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     @Published var memorySummary: String; @Published var skills: [String]
     @Published var importedMemories: [String]; @Published var importedSkills: [ImportedTemplateSkill]
     @Published var requestedConnectorIDs: [String]; @Published var gettingStartedSkill: ImportedTemplateSkill?
+    @Published var connectorReport: BotConnectorReport? = nil
     @Published var routines: [BotRoutine]
     /// Routine inbox: the last `last_run_at` seen per Hermes job id ("" = seen, never run), so a run gets one card.
     @Published var routineRunMarks: [String: String]
@@ -247,7 +248,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     static let defaultPersona = "You are a thoughtful, capable assistant."
     static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox, openClaw, installedSkills, skillBannerSnoozed, installedSkillVariants, skillInstallFailures, skillDevMode, skillsModifiedLocally, adoptedKeyBackup, approvalRouting, reviewAfter, orientedAt, orientationQueuedAt }
+    enum CodingKeys: CodingKey { case connectorReport, id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox, openClaw, installedSkills, skillBannerSnoozed, installedSkillVariants, skillInstallFailures, skillDevMode, skillsModifiedLocally, adoptedKeyBackup, approvalRouting, reviewAfter, orientedAt, orientationQueuedAt }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -258,6 +259,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         memorySummary = try c.decodeIfPresent(String.self, forKey: .memorySummary) ?? ""; skills = try c.decodeIfPresent([String].self, forKey: .skills) ?? []
         importedMemories = try c.decodeIfPresent([String].self, forKey: .importedMemories) ?? []
         importedSkills = try c.decodeIfPresent([ImportedTemplateSkill].self, forKey: .importedSkills) ?? []
+        connectorReport = try? c.decodeIfPresent(BotConnectorReport.self, forKey: .connectorReport)
         requestedConnectorIDs = try c.decodeIfPresent([String].self, forKey: .requestedConnectorIDs) ?? []
         gettingStartedSkill = try c.decodeIfPresent(ImportedTemplateSkill.self, forKey: .gettingStartedSkill)
         routines = try c.decodeIfPresent([BotRoutine].self, forKey: .routines) ?? []
@@ -301,6 +303,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         try c.encode(botDescription, forKey: .botDescription); try c.encode(persona, forKey: .persona); try c.encode(backend, forKey: .backend); try c.encode(avatarName, forKey: .avatarName)
         try c.encode(unreadCount, forKey: .unreadCount); try c.encode(createdAt, forKey: .createdAt); try c.encode(messages, forKey: .messages)
         try c.encode(isHidden, forKey: .isHidden); try c.encode(notificationsEnabled, forKey: .notificationsEnabled); try c.encode(memorySummary, forKey: .memorySummary); try c.encode(skills, forKey: .skills)
+        try c.encodeIfPresent(connectorReport, forKey: .connectorReport)
         try c.encode(importedMemories, forKey: .importedMemories); try c.encode(importedSkills, forKey: .importedSkills); try c.encode(requestedConnectorIDs, forKey: .requestedConnectorIDs); try c.encodeIfPresent(gettingStartedSkill, forKey: .gettingStartedSkill); try c.encode(routines, forKey: .routines)
         try c.encodeIfPresent(hermesProfile, forKey: .hermesProfile); try c.encodeIfPresent(hermesSessionID, forKey: .hermesSessionID); try c.encode(approvalMode, forKey: .approvalMode); try c.encode(approvalRules, forKey: .approvalRules); try c.encodeIfPresent(reviewerBotID, forKey: .reviewerBotID); try c.encode(approvalAudit, forKey: .approvalAudit); try c.encode(isDemo, forKey: .isDemo)
         try c.encodeIfPresent(hermesBaseURL, forKey: .hermesBaseURL); try c.encodeIfPresent(accentColor, forKey: .accentColor); try c.encodeIfPresent(grokSourceID, forKey: .grokSourceID)

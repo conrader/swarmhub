@@ -65,6 +65,7 @@ import SwarmHubCore
     var migratedGroupNames: [String] = []
     private(set) lazy var attachmentEncoder = AttachmentEncoder(directory: fileURL.deletingLastPathComponent().appending(path: "attachments", directoryHint: .isDirectory))
     let botInfo = BotInfoCache()
+    @Published var connectorChecks: Set<UUID> = []
     /// P34: bot-to-bot threads (session lists, arrivals, loaded lines) and the thread sheet open now.
     let botMessages = BotMessageCenter(); @Published var openBotThread: BotThreadKey?
     /// P42: live cards for work another bot, a routine or a late reply started.

@@ -88,8 +88,7 @@ extension AppStore {
     /// The manager text for this turn: only on a management turn of the manager's main chat (an intent match, a menu
     /// request, or a follow-up while the exchange is open); nil otherwise. The backend decides where it goes (P26 D3).
     /// P27 (Hermes managers only): an Install press sends its own instructions instead; once the manager's
-    /// `swarmhub-manager` skill is recorded at any version (P31 C: an outdated one too; its Update banner handles the
-    /// upgrade), a management turn carries a one-line pointer to it; only a manager without the skill gets the full text.
+    /// `swarmhub-manager` skill is recorded at the current version, a management turn carries a one-line pointer to it; only a manager without the skill gets the full text.
     /// OpenClaw managers keep the full text (P27 D8).
     func managementText(for bot: Bot, text: String, conversation: any Conversation) -> String? {
         guard isManager(bot), conversation === bot else { return nil }
@@ -101,7 +100,7 @@ extension AppStore {
         managementExchanges[bot.id] = decision.next
         guard decision.attach else { return nil }
         if bot.backend == .hermes, let recipe = decision.next?.recipe { return recipe }
-        if bot.backend == .hermes, let skill = skills(for: bot).first(where: { $0.name == SkillLibrary.managerSkill }), skillState(skill, for: bot) != .missing {
+        if bot.backend == .hermes, let skill = skills(for: bot).first(where: { $0.name == SkillLibrary.managerSkill }), skillState(skill, for: bot) == .current {
             return Self.skillPointer
         }
         return managerText(for: bot)
@@ -129,7 +128,8 @@ extension AppStore {
         managementExchanges[bot.id] = nil
         guard !ops.isEmpty else { return }
         // Now, not in the task: the turn's dev-mode outcomes are consumed as soon as this returns.
-        let applied = ops.map { withoutSkillDevOutcomes($0, manager: bot) }
+        let ordered = ops.filter { if case .connectors = $0 { return false }; return true } + ops.filter { if case .connectors = $0 { return true }; return false }
+        let applied = ordered.map { withoutSkillDevOutcomes($0, manager: bot) }
         Task { for op in applied { await apply(op, manager: bot) } }
     }
 
@@ -143,6 +143,9 @@ extension AppStore {
 
     func apply(_ op: SwarmhubOp, manager: Bot) async {
         switch op {
+        case .connectors(let name, let rows):
+            guard let bot = boundBot(name, manager: manager) else { return }
+            recordConnectors(rows, for: bot)
         case .botCreated(let name, let description, let avatar):
             await createBot(name: name, description: description, avatar: avatar, manager: manager, orient: true)
         case .avatar(let name, let mark):
@@ -215,7 +218,10 @@ extension AppStore {
             bots.append(bot); removeSampleBots()
             notice("\(manager.name) created \(bot.name)", in: manager)
             // P49: a bot the manager really created orients itself once.
-            if orient { queueOrientation(bot) }
+            if orient {
+                recordConnectors([.init(name: "defaults", state: .failed, detail: "The manager did not report connector setup. Check this bot's connections.")], for: bot)
+                queueOrientation(bot)
+            }
         case .rejected, .unreachable:
             notice("Couldn’t reach \(name) yet", in: manager)
         }

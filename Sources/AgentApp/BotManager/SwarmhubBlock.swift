@@ -21,6 +21,7 @@ enum SwarmhubOp: Equatable {
             (1...64).contains(text.count) && text.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber || ",._-".contains($0)) }
         }
     }
+    case connectors(name: String, rows: [BotConnectorReport.Connector])
     case botCreated(name: String, description: String, avatar: AvatarMark?)
     case avatar(name: String, mark: AvatarMark)
     case description(name: String, description: String)
@@ -54,6 +55,11 @@ enum SwarmhubOp: Equatable {
         func string(_ key: String) -> String? { (object[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
         let name = string("name").flatMap { HermesKeyPaste.isValidProfileName($0) ? $0 : nil }
         switch op {
+        case "connectors":
+            guard let name, let rows = object["list"] as? [[String: Any]], !rows.isEmpty, rows.count <= 200 else { return nil }
+            let parsed = rows.compactMap(BotConnectorReport.Connector.init)
+            guard parsed.count == rows.count, Set(parsed.map(\.name)).count == parsed.count else { return nil }
+            self = .connectors(name: name, rows: parsed)
         case "bot_created":
             guard let name else { return nil }
             let avatar = (object["avatar"] as? [String: Any]).flatMap { Self.mark(shape: $0["shape"], colour: $0["colour"] ?? $0["color"]) }

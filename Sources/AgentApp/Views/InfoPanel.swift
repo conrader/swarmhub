@@ -55,7 +55,7 @@ struct InfoPanel: View {
             HStack(spacing: 12) { BotAvatar(bot: bot, size: 52, motion: .focus, isWorking: store.isWorking(bot), probe: "overview", facing: .left,
                                           isWaiting: store.hasPendingApproval(bot)); VStack(alignment: .leading) { Text(bot.name).font(.headline); Text(bot.title).foregroundStyle(.secondary); HermesVersionCaption(bot: bot, cache: store.botInfo) } }
             Text(bot.botDescription.isEmpty ? "No description yet." : bot.botDescription).foregroundStyle(.secondary)
-            if hasModel { ModelSectionView(bot: bot, cache: store.botInfo, compact: true) }
+            if hasModel { ModelSectionView(bot: bot, cache: store.botInfo, compact: true); BotConnectorsSection(bot: bot) }
             if bot.backend == .openClaw {
                 OpenClawOverviewSection(status: store.openClawStatus, bot: bot)
             } else {

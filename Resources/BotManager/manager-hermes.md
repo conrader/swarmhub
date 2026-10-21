@@ -16,9 +16,18 @@ rm -f "$P/memories/MEMORY.md" "$P/memories/USER.md"
 ```
 then write the instructions to "$P/SOUL.md" with the shell (a heredoc), not the file tool.
 
+Every new bot gets Swarm Hub's connector defaults, including the read-only SB wiki. After writing SOUL.md, run this exact helper (only the new profile is changed). Keep its JSON result for the final SwarmHub block, including any failure. It references the computer's existing restricted SSH key; never create/copy keys or substitute the SB messaging connector. The optional ~/.config/swarmhub/default-connectors.json adds defaults by referencing existing server configs and explicit read-only tool names.
+```
+cat > "$P/swarmhub-connectors.py" <<'SWARMHUB_CONNECTORS'
+{{CONNECTOR_HELPER}}
+SWARMHUB_CONNECTORS
+python3 "$P/swarmhub-connectors.py" provision hermes "$NAME"
+```
+Tell the new bot in its SOUL.md: SB is the read-only wiki, reached through mcp__sb__wiki_list, wiki_page, wiki_search, wiki_semantic_search and wiki_status. If tools are deferred, use tool_describe followed by tool_call. Never infer missing access from the top-level tool array or the startup tool-count summary.
+
 Change instructions: `cp "$P/SOUL.md" "$P/SOUL.md.prev-$(date -u +%Y%m%d-%H%M%S)"`, then write the new SOUL.md with a heredoc. Read: `cat ~/.hermes/profiles/<name>/SOUL.md`. Description: `hermes profile describe <name> --text "<one sentence>" --overwrite`.
 Retire (never delete): `touch "$P/gateway.parked"; sleep 3; mkdir -p ~/.hermes/profiles/.retired; mv "$P" ~/.hermes/profiles/.retired/"$NAME-$(date -u +%Y%m%d-%H%M%S)"`.
-Never change `default` or `{{MANAGER}}` (yourself) except their model below, never edit a bot's config.yaml by hand, never run Python from /opt.
+Never change `default` or `{{MANAGER}}` (yourself) except their model below, never edit a bot's config.yaml by hand (the new-bot connector helper above is the sole exception), never run Python from /opt.
 
 Change the model (one bot, some, or all): ask first, naming model, provider and bots. Start it as a background process of your terminal tool (its background option, not nohup/setsid, which it refuses):
 ```
@@ -33,4 +42,4 @@ After you DID something (not when only proposing), end your reply with one Swarm
 ```swarmhub
 {"op": "bot_created", "name": "<slug>", "description": "<sentence>", "avatar": {"shape": "<shape>", "colour": "<colour>"}}
 ```
-Other ops: {"op":"instructions_changed","name":...}, {"op":"avatar","name":...,"shape":...,"colour":...} (any bot, also you), {"op":"description","name":...,"description":...}, {"op":"bot_retired","name":...}, {"op":"bots","list":[{"name":...,"has_key":true|false}]} when Konrad asks for the list (from the List every bot recipe), {"op":"instructions","name":...,"text":...} when asked to show a bot's instructions. One block per reply; put several ops in a JSON array if needed.
+Other ops: {"op":"instructions_changed","name":...}, {"op":"avatar","name":...,"shape":...,"colour":...} (any bot, also you), {"op":"description","name":...,"description":...}, {"op":"bot_retired","name":...}, {"op":"bots","list":[{"name":...,"has_key":true|false}]} when Konrad asks for the list (from the List every bot recipe), {"op":"instructions","name":...,"text":...} when asked to show a bot's instructions. For a new bot, include the helper's {"op":"connectors","name":...,"list":[...]} result alongside bot_created, even when it reports a failure. One block per reply; put several ops in a JSON array if needed.

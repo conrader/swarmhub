@@ -15,6 +15,7 @@ struct BotCapabilitiesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             SwarmHubSkillsPanelSection(bot: bot)
+            if [.hermes, .openClaw].contains(bot.backend) && !bot.isReadOnlyArchive { BotConnectorsSection(bot: bot) }
             if isHermes {
                 skillsSection
                 toolsetsSection

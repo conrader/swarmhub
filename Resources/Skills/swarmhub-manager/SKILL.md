@@ -1,7 +1,7 @@
 ---
 name: swarmhub-manager
 description: "Use when Konrad asks to create, change or retire bots (Hermes profiles), to read or change their instructions, avatars or descriptions, to change bots' models, to list or connect the bots already on the box, or to install, log in to or out of the coding tools (Claude Code, Codex CLI) and ChatGPT accounts, to report bots' models and sub-agent models, or to check this box's capacity or set its coding job limit, or to change a bot's heartbeat (how often or when it runs). Installed by SwarmHub, v{{VERSION}}."
-version: 1.3.0
+version: 1.4.0
 author: SwarmHub
 metadata:
   swarmhub:

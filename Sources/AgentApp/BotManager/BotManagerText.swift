@@ -7,6 +7,11 @@ import Foundation
 enum BotManagerText {
     static let resourcePath = "BotManager/manager-hermes.md"
     static let openClawResourcePath = "BotManager/manager-openclaw.md"
+    static var connectorHelper: String? { template(candidates: candidates("ConnectorDefaults/default-connectors.py")) }
+
+    static func expandingConnectorHelper(_ text: String) -> String {
+        text.replacingOccurrences(of: "{{CONNECTOR_HELPER}}", with: connectorHelper ?? "raise RuntimeError('Swarm Hub connector helper is missing')")
+    }
 
     /// P31 C: the on-demand recipes split out of the core text (same placeholders). The `swarmhub-manager` skill ships
     /// them as `references/<name>.md`; SwarmHub's own quiet turns carry only the recipe they need.
@@ -69,13 +74,13 @@ enum BotManagerText {
 
     /// The template with `{{MANAGER}}` and `{{MANAGER_ENV}}` filled for the manager's profile.
     static func filled(_ template: String, managerProfile profile: String) -> String {
-        template.replacingOccurrences(of: "{{MANAGER_ENV}}", with: envPath(forProfile: profile))
+        expandingConnectorHelper(template).replacingOccurrences(of: "{{MANAGER_ENV}}", with: envPath(forProfile: profile))
             .replacingOccurrences(of: "{{MANAGER}}", with: profile)
     }
 
     /// The OpenClaw template with `{{MANAGER}}` filled with the manager's agent id.
     static func filled(_ template: String, managerAgent agentID: String) -> String {
-        template.replacingOccurrences(of: "{{MANAGER}}", with: agentID)
+        expandingConnectorHelper(template).replacingOccurrences(of: "{{MANAGER}}", with: agentID)
     }
 
     /// A new bot's key: lowercase hex HMAC-SHA256(key = the manager's API key, message = `swarmhub-bot-key:v1:<name>`),
