@@ -21,7 +21,10 @@ private let scale: CGFloat = 2
     var controls: [String] { ["composer_attach", "composer_manage", "composer_dictation", "composer_send"] }
 
     /// The vertical middle (points) of the pixels in `rect` that differ from the composer's background.
-    func inkMidY(in rect: CGRect) -> CGFloat? {
+    func inkMidY(in rect: CGRect) -> CGFloat? { inkRows(in: rect).map { ($0.lowerBound + $0.upperBound) / 2 } }
+
+    /// The top and bottom edges (points) of the pixels in `rect` that differ from the composer's background.
+    func inkRows(in rect: CGRect) -> ClosedRange<CGFloat>? {
         // The composer's own padding, above the row's first slot: never drawn on.
         guard let input = slots["composer_input"], let attach = slots["composer_attach"],
               let background = color(at: CGPoint(x: attach.minX + 2, y: input.minY - 4)) else { return nil }
@@ -37,11 +40,12 @@ private let scale: CGFloat = 2
             }
         }
         guard let top, let bottom else { return nil }
-        return CGFloat(top + bottom + 1) / 2 / scale
+        return CGFloat(top) / scale...CGFloat(bottom + 1) / scale
     }
 
-    func controlInk() -> [String: CGFloat] {
-        controls.reduce(into: [:]) { result, id in if let rect = slots[id], let mid = inkMidY(in: rect) { result[id] = mid } }
+    /// Each control's drawn extent, read in its slot widened 6 pt up and down (short of the composer's border) so an overflowing control shows.
+    func controlInk() -> [String: ClosedRange<CGFloat>] {
+        controls.reduce(into: [:]) { result, id in if let rect = slots[id], let rows = inkRows(in: rect.insetBy(dx: 0, dy: -6)) { result[id] = rows } }
     }
 
     private func color(at point: CGPoint) -> NSColor? {
@@ -115,14 +119,16 @@ private let scale: CGFloat = 2
     #expect(gaps.allSatisfy { abs($0 - ComposerMetrics.spacing) < 0.5 }, "gaps \(gaps)")
 }
 
-/// Each control's pixels are centred on the last line's 28 pt band, within a point.
+/// Each control's pixels stay inside its slot and are centred on the last line's 28 pt band, within a point.
 @MainActor private func expectControlsCentred(_ composer: RenderedComposer) throws {
     let input = try #require(composer.slots["composer_input"])
     let band = input.maxY - ComposerMetrics.control / 2
     let ink = composer.controlInk()
     #expect(Set(ink.keys) == Set(composer.controls), "controls drawn: \(ink)")
-    for (id, mid) in ink.sorted(by: { $0.key < $1.key }) {
+    for (id, rows) in ink.sorted(by: { $0.key < $1.key }) {
+        let mid = (rows.lowerBound + rows.upperBound) / 2
         #expect(abs(mid - band) <= 1, "\(id) is drawn centred at \(mid), the row's centre is \(band) (all: \(ink))")
+        #expect(rows.upperBound - rows.lowerBound <= ComposerMetrics.control + 0.5, "\(id) is drawn \(rows.upperBound - rows.lowerBound) pt tall, over its slot")
     }
 }
 
@@ -164,9 +170,11 @@ private let textTolerance: CGFloat = 2
         #expect(input.height > ComposerMetrics.control + 2 * 14 && input.height < ComposerMetrics.maxInput, "four lines: \(input.height)")
         #expect(composer.textViewHeight.map { $0 <= (composer.visibleHeight ?? 0) + 0.5 } ?? false,
                 "four lines fit without scrolling: \(String(describing: composer.textViewHeight)) in \(String(describing: composer.visibleHeight))")
-        let firstLine = CGRect(x: input.minX, y: input.minY, width: input.width * 0.6, height: ComposerMetrics.control)
+        // The first line's box only (inset + one 16 pt line), so the second line's capitals stay out of it.
+        let firstLine = CGRect(x: input.minX, y: input.minY, width: input.width * 0.6, height: ComposerMetrics.textInset + 16)
         let first = try #require(composer.inkMidY(in: firstLine))
-        #expect(abs(first - firstLine.midY) <= textTolerance, "first line centred at \(first), its band at \(firstLine.midY)")
+        let band = input.minY + ComposerMetrics.control / 2
+        #expect(abs(first - band) <= textTolerance, "first line centred at \(first), its band at \(band)")
     }
 
     @Test func longDraftStopsGrowingAndScrolls() async throws {

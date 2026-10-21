@@ -55,8 +55,8 @@ struct ComposerView: View {
                 }
             }
             if dictationContext != nil, dictation.isBusy || dictation.errorMessage != nil { DictationStatusRow(dictation: dictation) }
-            // One row of 28 pt slots: each control is centred in its slot (AppKit-drawn ones, the `+` menu and the round
-            // buttons, ignore their label's frame), and the slots sit on the draft's last line as it grows.
+            // One row of 28 pt slots: each control is centred in its slot (the `+` menu is drawn by AppKit and ignores its
+            // label's frame), and the slots sit on the draft's last line as it grows.
             HStack(alignment: .bottom, spacing: ComposerMetrics.spacing) {
                 Button { importing = true } label: { Image(systemName: "paperclip").frame(width: ComposerMetrics.control, height: ComposerMetrics.control).contentShape(Rectangle()) }
                     .buttonStyle(.plain).foregroundStyle(.secondary).help("Attach PNG, JPEG, GIF, WebP, PDF, RTF, DOC, DOCX and text files")
@@ -65,17 +65,17 @@ struct ComposerView: View {
                 input.chromeProbe("composer_input")
                 if let dictationContext { DictationButton(dictation: dictation, context: dictationContext) { focused = true }.composerSlot("composer_dictation") }
                 if isStreaming && canSteer && hasContent {
-                    Button(action: send) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)).frame(width: 28, height: 28) }
-                        .buttonStyle(.bordered).buttonBorderShape(.circle).help("Add to this answer").disabled(dictationBusy)
+                    Button(action: send) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)) }
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help("Add to this answer").disabled(dictationBusy)
                         .composerSlot("composer_steer")
                 }
                 if isStreaming {
-                    Button(action: stop) { Image(systemName: "stop.fill").font(.system(size: 10, weight: .semibold)).frame(width: 28, height: 28) }
-                        .buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.primary).help("Stop response")
+                    Button(action: stop) { Image(systemName: "stop.fill").font(.system(size: 10, weight: .semibold)) }
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: true)).help("Stop response")
                         .composerSlot("composer_send")
                 } else {
-                    Button(action: send) { Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold)).frame(width: 28, height: 28) }
-                        .buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.primary).disabled(!hasContent || !reading.isEmpty || dictationBusy)
+                    Button(action: send) { Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold)) }
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: true)).disabled(!hasContent || !reading.isEmpty || dictationBusy)
                         .composerSlot("composer_send")
                 }
             }
@@ -109,13 +109,14 @@ struct ComposerView: View {
             .padding(.vertical, ComposerMetrics.textInset).hidden()
             .frame(minHeight: ComposerMetrics.control, maxHeight: ComposerMetrics.maxInput).fixedSize(horizontal: false, vertical: true)
             .overlay {
-                TextEditor(text: $text).font(.body).scrollContentBackground(.hidden).padding(.vertical, ComposerMetrics.textInset - ComposerMetrics.editorInset).focused($focused)
+                TextEditor(text: $text).font(.body).scrollContentBackground(.hidden)
                     .overlay(alignment: .topLeading) {
                         if text.isEmpty {
                             Text(isStreaming && canSteer ? SteerCopy.placeholder : "Message " + AppConstants.name + "…").font(.body).foregroundStyle(.tertiary).lineLimit(1)
                                 .allowsHitTesting(false).padding(.top, ComposerMetrics.editorInset).padding(.leading, ComposerMetrics.linePadding)
                         }
                     }
+                    .padding(.vertical, ComposerMetrics.textInset - ComposerMetrics.editorInset).focused($focused)
                     .onKeyPress(.return, phases: .down) { press in
                         if press.modifiers.contains(.shift) { return .ignored }
                         if slashOpen, let command = slash.current(in: slashMatches) { pickSlash(command); return .handled }
@@ -167,6 +168,21 @@ enum ComposerMetrics {
 
     /// What the hidden sizing text shows: an empty draft still takes one line, and a trailing newline its own line.
     static func sizingText(_ text: String) -> String { text.isEmpty || text.hasSuffix("\n") ? text + " " : text }
+}
+
+/// Send, Stop and Add to this answer: a 28 pt circle drawn here, so it fills its slot exactly (the AppKit round bezels
+/// size themselves and overflowed it). Prominent is solid primary with the composer's colour for the glyph.
+private struct ComposerRoundButtonStyle: ButtonStyle {
+    let prominent: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(prominent ? AnyShapeStyle(AppColor.raised) : AnyShapeStyle(.primary))
+            .frame(width: ComposerMetrics.control, height: ComposerMetrics.control)
+            .background(Circle().fill(prominent ? AnyShapeStyle(.primary) : AnyShapeStyle(.quaternary)))
+            .contentShape(Circle())
+            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.3)
+    }
 }
 
 /// A fixed control slot, reported to `--ui-smoke` and the layout tests as `probe`.
