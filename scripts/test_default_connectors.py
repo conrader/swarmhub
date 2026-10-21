@@ -12,7 +12,7 @@ from unittest.mock import patch
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("default_connectors", ROOT / "Resources/ConnectorDefaults/default-connectors.py")
+spec = importlib.util.spec_from_file_location("default_connectors", ROOT / "Resources/Skills/swarmhub-manager/scripts/default-connectors.py")
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
 

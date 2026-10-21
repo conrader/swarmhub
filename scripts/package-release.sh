@@ -34,11 +34,10 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$APP_DIR/Contents/Frameworks"
 cp "$BUILD_DIR/AgentApp" "$APP_DIR/Contents/MacOS/AgentApp"
 /usr/bin/ditto "$BUILD_DIR/Sparkle.framework" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
-rm -rf "$APP_DIR/Contents/MacOS/AgentApp.resources" "$APP_DIR/Contents/Resources/Avatars" "$APP_DIR/Contents/Resources/BotManager" "$APP_DIR/Contents/Resources/ConnectorDefaults" "$APP_DIR/Contents/Resources/Skills" "$APP_DIR/Contents/Resources/ThemeIcons"
+rm -rf "$APP_DIR/Contents/MacOS/AgentApp.resources" "$APP_DIR/Contents/Resources/Avatars" "$APP_DIR/Contents/Resources/BotManager" "$APP_DIR/Contents/Resources/Skills" "$APP_DIR/Contents/Resources/ThemeIcons"
 cp -R "$ROOT_DIR/Resources/Avatars" "$APP_DIR/Contents/Resources/Avatars"
 # P22: the bot-manager text SwarmHub sends the manager bot on demand.
 cp -R "$ROOT_DIR/Resources/BotManager" "$APP_DIR/Contents/Resources/BotManager"
-cp -R "$ROOT_DIR/Resources/ConnectorDefaults" "$APP_DIR/Contents/Resources/ConnectorDefaults"
 # P27: the skills SwarmHub installs into bots' own profiles.
 cp -R "$ROOT_DIR/Resources/Skills" "$APP_DIR/Contents/Resources/Skills"
 # P2c: the signed baseline bundle and the box updater's bootstrap package with its SHA-256 (made by build.sh).

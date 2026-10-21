@@ -10,6 +10,7 @@ struct ManagementExchange: Equatable {
     var awaitingOpening = false
     /// P31 D+E: a SwarmHub request that carries its own recipe (the opening turn and the follow-ups, e.g. Konrad's yes).
     var recipe: String? = nil
+    var provisioningConnectors = false
 
     static let maxFollowUps = 3
     static let window: TimeInterval = 10 * 60
@@ -22,7 +23,7 @@ struct ManagementExchange: Equatable {
             exchange.awaitingOpening = false; exchange.openedAt = now
             return (true, exchange)
         }
-        if ManagementIntent.matches(text) { return (true, ManagementExchange(openedAt: now)) }
+        if ManagementIntent.matches(text) { return (true, ManagementExchange(openedAt: now, provisioningConnectors: ManagementIntent.createsBot(text))) }
         guard var exchange, !exchange.awaitingOpening, exchange.isOpen(at: now) else { return (false, nil) }
         exchange.followUps += 1
         return (true, exchange)
@@ -58,6 +59,11 @@ enum ManagementIntent {
         if modelVerbs.contains(where: has), (botNouns + allWords).contains(where: has),
            modelWords.contains(where: has) || words.contains(where: isModelLike) { return true }
         return retireVerbs.contains(where: has) && retireNouns.contains(where: has)
+    }
+
+    static func createsBot(_ text: String) -> Bool {
+        let joined = " " + tokens(text).joined(separator: " ") + " "
+        return createVerbs.contains { joined.contains(" \($0) ") } && botNouns.contains { joined.contains(" \($0) ") }
     }
 
     /// A model-ish token: a version like `6.1`, a word containing gpt/claude/opus/sonnet, or `sol`/`terra`. `sol` and `terra` count only as a whole part of a

@@ -7,19 +7,28 @@ import Foundation
 enum BotManagerText {
     static let resourcePath = "BotManager/manager-hermes.md"
     static let openClawResourcePath = "BotManager/manager-openclaw.md"
-    static var connectorHelper: String? { template(candidates: candidates("ConnectorDefaults/default-connectors.py")) }
+    static var connectorHelper: String? { template(candidates: candidates("Skills/swarmhub-manager/scripts/default-connectors.py")) }
 
     /// Bundle prompt overrides may predate connector defaults. Keep the app's provisioning requirement on those
     /// paths too; custom prose and the optional default connector policy still belong to the install.
     static func withConnectorDefaults(_ text: String, backend: BackendKind) -> String {
-        guard !text.contains("{{CONNECTOR_HELPER}}"), !text.contains("def provision(home, backend, bot):"),
+        guard !text.contains("{{CONNECTOR_RUNNER}}"),
               let stock = template(for: backend), let start = stock.range(of: "Every new bot gets"),
               let end = stock.range(of: backend == .openClaw ? "\nRead:" : "\n\nChange instructions:", range: start.upperBound..<stock.endIndex) else { return text }
         return text + "\n\n" + stock[start.lowerBound..<end.lowerBound]
     }
 
-    static func expandingConnectorHelper(_ text: String) -> String {
-        text.replacingOccurrences(of: "{{CONNECTOR_HELPER}}", with: connectorHelper ?? "raise RuntimeError('Swarm Hub connector helper is missing')")
+    /// Only creation exchanges without the installed script carry executable source. Ordinary management stays small.
+    static var connectorBootstrap: String? {
+        connectorHelper.map { """
+        As part of the approved new-bot action, install this helper before provisioning connectors:
+        ```sh
+        mkdir -p ~/.config/swarmhub
+        cat > ~/.config/swarmhub/default-connectors.py <<'SWARMHUB_CONNECTORS'
+        \($0)
+        SWARMHUB_CONNECTORS
+        ```
+        """ }
     }
 
     /// P31 C: the on-demand recipes split out of the core text (same placeholders). The `swarmhub-manager` skill ships
@@ -83,13 +92,15 @@ enum BotManagerText {
 
     /// The template with `{{MANAGER}}` and `{{MANAGER_ENV}}` filled for the manager's profile.
     static func filled(_ template: String, managerProfile profile: String) -> String {
-        expandingConnectorHelper(template).replacingOccurrences(of: "{{MANAGER_ENV}}", with: envPath(forProfile: profile))
+        template.replacingOccurrences(of: "{{CONNECTOR_RUNNER}}", with: SkillLibrary.installPath(SkillLibrary.managerSkill, profile: profile) + "/scripts/default-connectors.py")
+            .replacingOccurrences(of: "{{MANAGER_ENV}}", with: envPath(forProfile: profile))
             .replacingOccurrences(of: "{{MANAGER}}", with: profile)
     }
 
     /// The OpenClaw template with `{{MANAGER}}` filled with the manager's agent id.
     static func filled(_ template: String, managerAgent agentID: String) -> String {
-        expandingConnectorHelper(template).replacingOccurrences(of: "{{MANAGER}}", with: agentID)
+        template.replacingOccurrences(of: "{{CONNECTOR_RUNNER}}", with: "~/.config/swarmhub/default-connectors.py")
+            .replacingOccurrences(of: "{{MANAGER}}", with: agentID)
     }
 
     /// A new bot's key: lowercase hex HMAC-SHA256(key = the manager's API key, message = `swarmhub-bot-key:v1:<name>`),

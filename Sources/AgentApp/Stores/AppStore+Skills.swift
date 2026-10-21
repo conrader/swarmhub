@@ -142,7 +142,8 @@ extension AppStore {
 
     /// The files of `skill` as the install writes them into `profile`: SKILL.md rendered for it, then its extra files.
     func renderedSkillFiles(_ skill: BundledSkill, profile: String, codingOrder: CodingOrder) -> [SkillFile]? {
-        guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: managerCoreTemplate, codingOrder: codingOrder) else { return nil }
+        let template = managerCoreTemplate.map { BotManagerText.withConnectorDefaults($0, backend: .hermes) }
+        guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: template, codingOrder: codingOrder) else { return nil }
         return [SkillFile(path: "SKILL.md", content: content)] + skill.files.map { SkillLibrary.render(configuredFile($0), forProfile: profile) }
     }
 

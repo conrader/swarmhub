@@ -102,10 +102,12 @@ extension AppStore {
         managementExchanges[bot.id] = decision.next
         guard decision.attach else { return nil }
         if bot.backend == .hermes, let recipe = decision.next?.recipe { return recipe }
-        if bot.backend == .hermes, let skill = skills(for: bot).first(where: { $0.name == SkillLibrary.managerSkill }), skillState(skill, for: bot) == .current {
-            return Self.skillPointer
+        let current = bot.backend == .hermes && skills(for: bot).contains { $0.name == SkillLibrary.managerSkill && skillState($0, for: bot) == .current }
+        let base = current ? Self.skillPointer : managerText(for: bot)
+        if !current, decision.next?.provisioningConnectors == true, let bootstrap = BotManagerText.connectorBootstrap {
+            return base.map { $0 + "\n\n" + bootstrap }
         }
-        return managerText(for: bot)
+        return base
     }
 
     /// Opens a management exchange in the manager's chat and fills its composer (or sends at once when `send`).
@@ -115,7 +117,7 @@ extension AppStore {
             guard manager.backend == .hermes else { return }
             subAgentModelRequest = SubAgentModelRequest(managerID: manager.id, profile: target); return
         }
-        managementExchanges[manager.id] = ManagementExchange(openedAt: now(), awaitingOpening: true)
+        managementExchanges[manager.id] = ManagementExchange(openedAt: now(), awaitingOpening: true, provisioningConnectors: action == .newBot)
         open(manager); openThreadID = nil
         let request = action.request(bot: target)
         if sendNow, isIdle(manager), send(text: request) { return }

@@ -27,7 +27,7 @@ STANDARD_ORDER = CODING_ORDERS[0]
 # BotManagerText.Recipe.allCases, in order: the manager skill's references/ files.
 RECIPES = ("box", "accounts", "models", "capacity")
 PLACEHOLDERS = ("{{VERSION}}", "{{MANAGER_TEXT}}", "{{CODING_ORDER}}", "{{SKILL_DIR}}", "{{BOT}}",
-                "{{MANAGER_ENV}}", "{{MANAGER}}")
+                "{{CONNECTOR_RUNNER}}", "{{MANAGER_ENV}}", "{{MANAGER}}")
 
 # Foundation CharacterSet.whitespaces (general category Zs plus tab) and .whitespacesAndNewlines (plus U+000A-U+000D,
 # U+0085, U+2028, U+2029). Spelled out: Python's isspace() also covers U+001C-U+001F, which Swift does not trim.
@@ -108,7 +108,8 @@ def _swift_has_newline_suffix(text):
 
 def filled(template, profile):
     """`BotManagerText.filled(_:managerProfile:)`: `{{MANAGER_ENV}}`, then `{{MANAGER}}`."""
-    return _replace(_replace(template, "{{MANAGER_ENV}}", env_path(profile)), "{{MANAGER}}", profile)
+    text = _replace(template, "{{CONNECTOR_RUNNER}}", install_path(MANAGER_SKILL, profile) + "/scripts/default-connectors.py")
+    return _replace(_replace(text, "{{MANAGER_ENV}}", env_path(profile)), "{{MANAGER}}", profile)
 
 
 def _check_args(skill, profile, coding_order):

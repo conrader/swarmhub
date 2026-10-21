@@ -7,15 +7,15 @@ import Testing
         let template = try #require(BotManagerText.template(for: kind))
         let filled = kind == .hermes ? BotManagerText.filled(template, managerProfile: "manager") : BotManagerText.filled(template, managerAgent: "manager")
         #expect(!filled.contains("{{"))
-        #expect(filled.contains("def provision(home, backend, bot):"))
+        #expect(filled.contains("default-connectors.py"))
         #expect(filled.contains(kind == .hermes ? "provision hermes" : "provision openclaw"))
-        #expect(filled.contains("existing restricted SSH key"))
+        #expect(!filled.contains("def provision(home, backend, bot):"), "ordinary manager text stays small")
     }
     let skill = try #require(SkillLibrary.bundled().first { $0.name == SkillLibrary.managerSkill })
     let rendered = try #require(SkillLibrary.render(skill, forProfile: "manager", managerTemplate: BotManagerText.template()))
-    #expect(rendered.contains("def provision(home, backend, bot):"))
+    #expect(skill.files.contains { $0.path == "scripts/default-connectors.py" && $0.content.contains("def provision(home, backend, bot):") })
     #expect(rendered.contains("provision hermes"))
-    let custom = try #require(SkillLibrary.render(skill, forProfile: "manager", managerTemplate: "Custom instructions for {{MANAGER}}"))
+    let custom = try #require(SkillLibrary.render(skill, forProfile: "manager", managerTemplate: BotManagerText.withConnectorDefaults("Custom instructions for {{MANAGER}}", backend: .hermes)))
     #expect(custom.contains("Custom instructions for manager") && custom.contains("provision hermes"), "older prompt overrides retain the app's defaults")
     let stock = try #require(BotManagerText.template())
     #expect(BotManagerText.withConnectorDefaults(stock, backend: .hermes) == stock)
@@ -40,6 +40,20 @@ import Testing
         ["name": "../other", "state": "failed", "detail": "Bad name"],
         ["name": "sb", "state": "healthy", "detail": "Unknown state"]
     ] { #expect(SwarmhubOp(["op": "connectors", "name": "new-bot", "list": [row]]) == nil) }
+}
+
+@Test @MainActor func onlyCreationWithoutTheCurrentSkillCarriesTheConnectorBootstrap() throws {
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: isolatedDefaults())
+    let bot = Bot(name: "Manager", backend: .hermes, hermesProfile: "manager"); bot.canManageBots = true
+    store.bots = [bot]
+    let ordinary = try #require(store.managementText(for: bot, text: "list bots", conversation: bot))
+    #expect(!ordinary.contains("def provision(home, backend, bot):"))
+    let creation = try #require(store.managementText(for: bot, text: "create a bot for reports", conversation: bot))
+    #expect(creation.contains("def provision(home, backend, bot):"))
+    #expect(creation.contains("~/.config/swarmhub/default-connectors.py"))
+    #expect(store.managementText(for: bot, text: "yes", conversation: bot)?.contains("def provision(home, backend, bot):") == true)
+    bot.installedSkills = [SkillLibrary.managerSkill: try #require(store.skillLibrary.first { $0.name == SkillLibrary.managerSkill }).version.description]
+    #expect(store.managementText(for: bot, text: "create a bot for reports", conversation: bot) == AppStore.skillPointer)
 }
 
 @Test @MainActor func connectorFailuresPersistAndDoNotCrossBotBindings() throws {
