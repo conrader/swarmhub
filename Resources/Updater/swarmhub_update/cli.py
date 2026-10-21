@@ -198,9 +198,15 @@ def _attempt(box, source, readers, consumer, config, progress=None):
 def _commit(box, command, verified, profiles, hermes, extra=None):
     """Store a verified bundle, raise the bundle floor and apply it (decision 2)."""
     st = box.state
-    if profiles is not None:  # a reset applies to this request only; dev_mode persists with the profile
-        profiles, box.reset = devmode.split_reset(profiles)
+    if profiles is not None:  # reset intent lives in applied.json until the skill actually applies
+        profiles, resets = devmode.split_reset(profiles)
         st.write_json(profiles, "profiles.json")
+        if any(resets.values()):
+            record = st.applied()
+            pending = record.setdefault("pending_reset", {})
+            for profile, skills in resets.items():
+                pending[profile] = sorted(set(pending.get(profile, ())) | set(skills))
+            st.save_applied(record)
     for data in verified.blobs.values():
         st.put_blob(data)
     if verified.refresh:

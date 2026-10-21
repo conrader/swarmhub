@@ -175,6 +175,19 @@ class Guard(BoxCase):
         self.run_install(V2, reset=True)
         self.assertTrue((elsewhere / SKILL).is_dir())
 
+    def test_reset_refuses_a_linked_backup_parent_even_when_the_destination_is_absent(self):
+        self.run_install(V1)
+        (self.folder() / "SKILL.md").write_text("bot edit\n")
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        parent = self.hermes / "swarmhub/dev-reset/default"
+        parent.parent.mkdir(parents=True)
+        parent.symlink_to(elsewhere)
+        self.assertEqual(self.run_install(V2, reset=True), "SWARMHUB_DEV_FAILED:default/%s\n" % SKILL)
+        self.assertEqual(self.text(), "bot edit\n")
+        self.assertEqual(list(elsewhere.iterdir()), [])
+        self.assertEqual(self.baseline(), devmode.files_digest(V1))
+
     def test_the_updater_honours_a_baseline_the_guard_recorded(self):
         """One rule on both paths: a box moved from the shell installer to the updater keeps its proof."""
         self.run_install(V1)

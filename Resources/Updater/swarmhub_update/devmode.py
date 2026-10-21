@@ -9,8 +9,8 @@ app's legacy install guard) or the tree the updater bound when it last applied t
 skill keeps its recorded version, is never a failure (the run stays applied/unchanged), and the status reports it in
 the profile's `modified` list.
 
-`reset` (the app's "Reset to bundled", one request only, never persisted) installs the bundled copy regardless, then
-removes the override folder and records a fresh baseline. Dev mode off and no reset: nothing here runs, reads or
+`reset` (the app's "Reset to bundled", pending in applied.json until installed) installs the bundled copy regardless,
+then removes the override folder and records a fresh baseline. Dev mode off and no reset: nothing here runs, reads or
 writes, and the engine behaves exactly as before.
 
 The content digest must match the app's (`SkillDevMode.contentDigest`) and the legacy guard's
@@ -193,8 +193,8 @@ def split_reset(doc):
 
 def check_row(entry):
     """Validate a profile row's dev-mode keys; returns {"dev_mode": True} for the checked row when it is on, else {}.
-    A `reset` is validated but never returned: it reaches the engine only from the request (`split_reset`), so a
-    persisted or hand-edited one can never reset a skill again on a later run."""
+    A `reset` is validated but never returned: requests (`split_reset`) queue it separately in applied.json, so a
+    stale or hand-edited profiles.json can never reset a skill again on a later run."""
     if "dev_mode" in entry and not isinstance(entry["dev_mode"], bool):
         raise ValueError("profiles.json: dev_mode of %s must be true or false" % entry["name"])
     reset = entry.get("reset")

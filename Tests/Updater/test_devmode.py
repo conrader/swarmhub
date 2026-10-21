@@ -2,7 +2,7 @@
 
 While a profile's dev mode is on, the updater keeps a skill the bot modified on its box, still updates the ones it did
 not, reports the kept ones as `modified`, and never counts them as failures. `reset` (Reset to bundled) overwrites one
-skill for one request and is never persisted. Dev mode off: a locally modified skill is overwritten exactly as before.
+skill once, retaining its pending intent until it applies. Dev mode off: a locally modified skill is overwritten as before.
 
     python3 -m unittest discover -s Tests/Updater
 """
@@ -11,6 +11,7 @@ from collections import namedtuple
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import unittest
 
@@ -179,6 +180,71 @@ class Staged(DevCase):
 
     def saved(self):
         return {p["name"]: p for p in json.loads((self.state / "profiles.json").read_bytes())["profiles"]}
+
+    def test_code_reset_survives_checks_and_deferred_confirmation_then_is_consumed(self):
+        self.start(DEV_DOC)
+        edited = self.edit(CODING)
+        folder = self.override(CODING)
+        v2, comps = self.release("v2", version="1.1.0", note="v2")
+        reset = {"schema": DEV_DOC["schema"],
+                 "profiles": [dict(DEV_DOC["profiles"][0], reset=[CODING, FEEDBACK])]}
+        code, out = self.update("apply", "--staged", str(self.stage(12, comps, profiles=reset)))
+        self.assertEqual((code, out["state"]), (0, "pending_confirm"), out["detail"])
+        self.assertEqual((self.live(CODING) / "SKILL.md").read_text(), edited)
+        self.assertEqual(self.snapshot(FEEDBACK), self.expected(v2, FEEDBACK))
+        self.assertTrue(folder.exists())
+        self.assertNotIn("reset", self.saved()["default"])
+        feedback_edit = self.edit(FEEDBACK)  # its data reset already applied; never replay it
+        self.assertEqual(self.update("check")[1]["state"], "pending_confirm")
+
+        sleeper = self.start_sleeper()
+        slot = self.code_job_slot(sleeper.pid)
+        code, out = self.update("apply", "--version", "12")
+        self.assertEqual((code, out["state"]), (75, "deferred"), out["detail"])
+        self.assertEqual((self.live(CODING) / "SKILL.md").read_text(), edited)
+        self.assertTrue(folder.exists())
+        sleeper.kill()
+        sleeper.wait()
+        shutil.rmtree(str(slot))
+
+        code, out = self.update("apply", "--version", "12")
+        self.assertEqual((code, out["state"]), (0, "current"), out["detail"])
+        self.assertEqual(self.snapshot(CODING), self.expected(v2, CODING))
+        self.assertFalse(folder.exists())
+        self.assertEqual(devmode.read_baseline(str(self.hermes), "default", CODING),
+                         devmode.content_digest(str(self.live(CODING))))
+        self.assertEqual((self.live(FEEDBACK) / "SKILL.md").read_text(), feedback_edit)
+        self.assertNotIn("pending_reset", json.loads((self.state / "applied.json").read_bytes()))
+        edited = self.edit(CODING)
+        self.update("check")
+        _, comps = self.release("v3", version="1.2.0", note="v3")
+        self.update("apply", "--staged", str(self.stage(13, comps, profiles=DEV_DOC)))
+        self.update("apply", "--version", "13")
+        self.assertEqual((self.live(CODING) / "SKILL.md").read_text(), edited)
+
+    def test_deferred_reset_of_an_already_applied_bundle_is_retried_by_check(self):
+        self.start(DEV_DOC)
+        edited = self.edit(CODING)
+        folder = self.override(CODING)
+        v1 = self.source("expected-v1")
+        _, comps = self.release("same-v1")
+        reset = {"schema": DEV_DOC["schema"],
+                 "profiles": [dict(DEV_DOC["profiles"][0], reset=[CODING])]}
+        sleeper = self.start_sleeper()
+        slot = self.code_job_slot(sleeper.pid)
+        code, out = self.update("apply", "--staged", str(self.stage(11, comps, profiles=reset)))
+        self.assertEqual((code, out["state"]), (75, "deferred"), out["detail"])
+        self.assertEqual((self.live(CODING) / "SKILL.md").read_text(), edited)
+        self.assertTrue(folder.exists())
+        sleeper.kill()
+        sleeper.wait()
+        shutil.rmtree(str(slot))
+
+        code, out = self.update("check")
+        self.assertEqual((code, out["state"]), (0, "current"), out["detail"])
+        self.assertEqual(self.snapshot(CODING), self.expected(v1, CODING))
+        self.assertFalse(folder.exists())
+        self.assertNotIn("pending_reset", json.loads((self.state / "applied.json").read_bytes()))
 
     def test_kept_skills_are_reported_modified_and_the_run_stays_current(self):
         self.start(DEV_DOC)

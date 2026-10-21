@@ -91,6 +91,8 @@ enum SkillDevMode {
         sys.exit(0 if now is not None and now in (sys.argv[4], recorded) else 3)
     if act == 'clear':
         if os.path.lexists(live):
+            if os.path.realpath(os.path.dirname(aside)) != os.path.join(os.path.realpath(root), 'swarmhub', 'dev-reset', profile):
+                sys.exit(4)
             os.makedirs(os.path.dirname(aside), 0o700, exist_ok=True)
             remove(aside, 'swarmhub', 'dev-reset', profile)
             if os.path.lexists(aside):

@@ -26,7 +26,7 @@ class Box:
     def __init__(self, hermes_home, state, pins, now, max_wait=idle.DEFAULT_MAX_WAIT, poll=idle.DEFAULT_POLL):
         self.hermes_home, self.state, self.pins, self.now = hermes_home, state, pins, now
         self.max_wait, self.poll = max_wait, poll
-        self.reset = {}  # this request's "Reset to bundled" skills per profile (devmode.split_reset), never persisted
+        self.reset = {}  # pending "Reset to bundled" skills per profile, consumed only after a successful apply
 
 
 def discover(hermes_home, skill_names=None):
@@ -154,6 +154,11 @@ def _apply_now(box, verified, now, waiting, comps):
             if result.status in GOOD:
                 target = next(p for p in targets if p.name == result.profile)
                 _record_variants(box, target, loaded)
+                remaining = sorted(set(box.reset.get(target.name, ())) - set(target.skills))
+                if remaining:
+                    box.reset[target.name] = remaining
+                else:
+                    box.reset.pop(target.name, None)
     succeeded = set()
     for component in now:
         name = component["name"]
@@ -175,18 +180,20 @@ def is_confirmed(record, verified):
 def apply_bundle(box, verified, confirm=False, rerender=False):
     """Apply what decision 2 allows of `verified` now (all of it once confirmed). Returns the run summary."""
     record = box.state.applied()
+    box.reset = record.get("pending_reset", {})
     comps = record["components"]
     if confirm:
         record.update(confirmed_version=verified.version, confirmed_manifest_sha256=verified.manifest_sha256)
         box.state.save_applied(record)
     confirmed = is_confirmed(record, verified)
     now, waiting = policy.split(verified.apply, comps, confirmed)
-    if rerender:
+    if rerender or box.reset:
         # P4b: new profiles and changed coding orders must render even when this box already applied the archive.
         # Only previously applied bytes qualify; new code and its waiting dependencies still need confirmation.
         names = {c["name"] for c in now}
         now += [c for c in verified.apply if c["kind"] == "skill" and c["name"] not in names
-                and c["name"] not in waiting and policy.same_content(c, comps)]
+                and c["name"] not in waiting and policy.same_content(c, comps)
+                and (rerender or any(c["name"] in skills for skills in box.reset.values()))]
     if record.get("pin"):
         return {"state": "pinned", "detail": "local pin (%s): nothing applies" % record["pin"].get("mode"),
                 "waiting": waiting, "not_applied": [c["name"] for c in now], "report": Report(set(), {}, {}, {})}
@@ -198,6 +205,8 @@ def apply_bundle(box, verified, confirm=False, rerender=False):
     not_applied = [c["name"] for c in now if c["name"] not in done]
     if not not_applied and not waiting:
         record["bundle_version"] = verified.version
+    if not box.reset:
+        record.pop("pending_reset", None)
     box.state.save_applied(record)
     keep = {r["sha256"] for r in comps.values() if isinstance(r, dict)} | {c["sha256"] for c in verified.apply}
     box.state.prune_blobs(keep)

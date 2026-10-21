@@ -53,7 +53,9 @@ SHA-256 of the bytes) and skips `__pycache__`, so umask and caches never read as
   the live folder to `~/.hermes/swarmhub/dev-reset/<profile>/<skill>` (replacing the previous reset's copy), so files
   the bot added do not survive; `reset` records the digest only when the live folder equals the bundled copy, else
   the skill is reported failed with no baseline. The updater swaps whole trees, so its reset was already exact, and it
-  strips `reset` before persisting profiles.json; a persisted one is ignored.
+  strips `reset` before persisting profiles.json; a persisted one is ignored. Pending resets are saved separately in
+  applied.json until each profile's requested skill applies, including across code confirmation and deferred retries.
+  The legacy move checks the resolved backup parent before creating or moving anything, even with no prior backup.
 - **Off:** legacy commands and instructions and the profiles.json rows sent are byte-identical to before; no marker is
   read; the updater neither reads nor writes anything under `~/.hermes/swarmhub/dev-*`. The staged command text does
   change: it always carries the `dev_modes` map (all `False` when off), which leaves the merged profiles.json as before.

@@ -107,6 +107,33 @@ private func devInstalled(_ rows: String) -> String {
 
 // MARK: Reset to bundled
 
+@Test func legacyResetRefusesASymlinkedBackupParentWithAnAbsentDestination() throws {
+    let fm = FileManager.default
+    let home = fm.temporaryDirectory.appendingPathComponent("skill-reset-\(UUID().uuidString)")
+    defer { try? fm.removeItem(at: home) }
+    let live = home.appendingPathComponent(".hermes/skills/swarmhub/swarmhub-feedback")
+    let backupParent = home.appendingPathComponent(".hermes/swarmhub/dev-reset/default")
+    let outside = home.appendingPathComponent("outside")
+    try fm.createDirectory(at: live, withIntermediateDirectories: true)
+    try fm.createDirectory(at: backupParent.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try fm.createDirectory(at: outside, withIntermediateDirectories: true)
+    try fm.createSymbolicLink(at: backupParent, withDestinationURL: outside)
+    let edited = live.appendingPathComponent("SKILL.md")
+    try Data("bot edit\n".utf8).write(to: edited)
+
+    let process = Process(), output = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["python3", "-I", "-B", "-c", SkillDevMode.guardScript, "clear", "default", "swarmhub-feedback"]
+    process.environment = ProcessInfo.processInfo.environment.merging(["HOME": home.path]) { _, value in value }
+    process.standardOutput = output; process.standardError = output
+    try process.run()
+    let diagnostic = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    process.waitUntilExit()
+    #expect(process.terminationStatus == 4, "\(diagnostic)")
+    #expect(try String(contentsOf: edited, encoding: .utf8) == "bot edit\n")
+    #expect(try fm.contentsOfDirectory(atPath: outside.path).isEmpty)
+}
+
 @Test @MainActor func resetToBundledSendsThatSkillAloneUnguardedAndClearsTheMark() async throws {
     let (store, jarvis, host, _) = devStore(replies: [devInstalled(devFeedbackRow)], outputs: [""])
     store.setSkillDevMode(true, for: jarvis)
