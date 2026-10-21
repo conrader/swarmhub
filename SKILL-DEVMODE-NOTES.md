@@ -82,5 +82,6 @@ Hermes itself is not touched; new box state lives under `~/.hermes/swarmhub/`.
   sh/dash/bash, and through the Hermes hardline-rule port), and `test_devmode_merge.py` (runs `profileMerge` taken
   verbatim from `StagedInstall.swift`, then the real `apply --staged`: a signed install for bot B keeps bot A's dev
   mode and A's edited skill; without the map it would be overwritten).
-- Mac (not run here, no Swift toolchain): `SkillDevModeTests`, `SkillDevModeStagedTests`, and the extended
+- Mac (MacBook, 2026-10-21, ec91002 on main cdcf712): `swift build` OK; full `swift test` 1600 tests in 40 suites
+  passed with the 20 known issues, including `SkillDevModeTests`, `SkillDevModeStagedTests` and the extended
   `noShippedSkillTextTripsHermesHardlineGuard`. The digest vector `643ff4d5…` is pinned on both sides.
