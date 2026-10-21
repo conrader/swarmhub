@@ -1,9 +1,12 @@
 """Private file writes and dotenv values for default-connectors.py."""
+import codecs
 import copy
-import json
 import os
 import re
 import tempfile
+
+# python-dotenv's quoted escapes, decoded in one pass: Hermes loads .env files with it at runtime.
+DOTENV_ESCAPES = {'"': re.compile(r"\\[\\'\"abfnrtv]"), "'": re.compile(r"\\[\\']")}
 
 
 def atomic_write(path, text):
@@ -35,13 +38,7 @@ def environment_values(paths):
             if value[:1] in ("'", '"'):
                 if len(value) < 2 or value[-1] != value[0]:
                     raise ValueError("Unsupported dotenv quoting")
-                if value.startswith('"'):
-                    try:
-                        value = json.loads(value)
-                    except json.JSONDecodeError:
-                        value = value[1:-1]
-                else:
-                    value = value[1:-1].replace("\\'", "'").replace("\\\\", "\\")
+                value = DOTENV_ESCAPES[value[0]].sub(lambda escape: codecs.decode(escape[0], "unicode-escape"), value[1:-1])
             else:
                 value = re.split(r"\s+#", value, maxsplit=1)[0]
             values[match[1]] = value

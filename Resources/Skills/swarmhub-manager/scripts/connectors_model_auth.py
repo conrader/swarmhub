@@ -162,7 +162,7 @@ def apply_hermes_model_auth(root, plan):
     config["model"] = model
     atomic_write(path, yaml.safe_dump(config, sort_keys=False, allow_unicode=True))
     # Replace even a stock-seeded env: upgrades must not turn this into an entire-root-env copy.
-    atomic_write(root / ".env", "".join(name + "=" + json.dumps(value) + "\n" for name, value in values.items()))
+    atomic_write(root / ".env", "".join(name + "=" + json.dumps(value, ensure_ascii=False) + "\n" for name, value in values.items()))
     if auth:
         atomic_write(root / "auth.json", json.dumps(auth) + "\n")
     elif (root / "auth.json").exists():
