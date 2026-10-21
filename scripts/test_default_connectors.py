@@ -1,4 +1,5 @@
 """Execute the shipped new-bot helper against synthetic homes, configs, logs and SQLite catalogs."""
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -12,6 +13,7 @@ from unittest.mock import patch
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+SCHEMAS = ROOT / "Tests/Fixtures/hermes-state"
 spec = importlib.util.spec_from_file_location("default_connectors", ROOT / "Resources/Skills/swarmhub-manager/scripts/default-connectors.py")
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
@@ -76,7 +78,8 @@ class DefaultConnectorsTests(unittest.TestCase):
         policy.write_text(json.dumps({"connectors": [{"name": "docs", "source": str(source), "server": "knowledge", "tools": ["read_page"]}]}))
         helper.provision(self.home, "hermes", "brand-new")
         entry = yaml.safe_load((root / "config.yaml").read_text())["mcp_servers"]["docs"]
-        self.assertEqual(entry, {"command": "docs-mcp", "args": ["--read-only"], "tools": {"include": ["read_page"]}})
+        self.assertEqual(entry, {"command": "python3", "args": [str(root / "swarmhub-connectors.py"), "proxy", str(source.resolve()),
+                                                               "knowledge", '["read_page"]'], "tools": {"include": ["read_page"]}})
         self.assertEqual(json.loads(source.read_text())["mcpServers"]["knowledge"], {"command": "docs-mcp", "args": ["--read-only"]})
         before = (root / "config.yaml").read_bytes()
         policy.write_text(json.dumps({"connectors": [{"name": "docs", "source": str(source), "server": "knowledge", "tools": ["*"]}]}))
@@ -146,6 +149,85 @@ class DefaultConnectorsTests(unittest.TestCase):
         self.assertEqual(helper.inspect(self.home, "hermes", "brand-new")["list"][0]["state"], "disabled")
         (root / "config.yaml").write_text("mcp_servers: {}\n")
         self.assertEqual(helper.inspect(self.home, "hermes", "brand-new")["list"][0]["state"], "failed")
+
+    def schema_database(self, root, version):
+        # The real Hermes DDL (copied read-only from installed state.db files); rows here are synthetic.
+        with sqlite3.connect(root / "state.db") as db:
+            db.executescript((SCHEMAS / ("schema-v%d.sql" % version)).read_text())
+            db.execute("INSERT INTO schema_version VALUES (?)", (version,))
+            db.execute("INSERT INTO sessions (id, source, started_at) VALUES ('no-pin', 'cli', 1)")
+        return root / "state.db"
+
+    def sb_row(self):
+        return next(r for r in helper.inspect(self.home, "hermes", "brand-new")["list"] if r["name"] == "sb")
+
+    def test_real_hermes_schemas_without_a_tool_catalog_report_a_specific_status(self):
+        root = self.profile()
+        helper.provision(self.home, "hermes", "brand-new")
+        for version in (14, 26):
+            with self.subTest(version=version):
+                self.schema_database(root, version)
+                before = (root / "state.db").read_bytes()
+                sb = self.sb_row()
+                self.assertEqual((sb["state"], sb["detail"]), ("unknown", helper.CATALOG_UNAVAILABLE))
+                self.assertEqual(before, (root / "state.db").read_bytes())
+                (root / "state.db").unlink()
+        (root / "state.db").write_bytes(b"not a database")
+        self.assertEqual(self.sb_row()["detail"], helper.CATALOG_UNREADABLE)
+
+    def test_real_hermes_schema_31_resolves_hashed_legacy_and_swept_tool_pins(self):
+        root = self.profile()
+        helper.provision(self.home, "hermes", "brand-new")
+        db = self.schema_database(root, 31)
+        deferred = "\n".join("- mcp__sb__" + n + ": Read" for n in helper.SB_TOOLS)
+        pin = json.dumps({"version": "synthetic", "tools": [{"type": "function", "function": {"name": "terminal"}},
+                          {"type": "function", "function": {"name": "tool_search", "description": deferred}}]})
+        digest = hashlib.sha256(pin.encode()).hexdigest()
+        with sqlite3.connect(db) as connection:
+            connection.execute("INSERT INTO system_prompts VALUES (?, ?)", (digest, pin))
+            connection.execute("INSERT INTO sessions (id, source, started_at, tool_names) VALUES ('hashed', 'cli', 10, ?)", (digest,))
+        self.assertEqual((self.sb_row()["state"], self.sb_row()["tool_count"]), ("loaded", 5))
+        with sqlite3.connect(db) as connection:
+            # Newer: an inline legacy name list (Hermes still resolves these).
+            connection.execute("INSERT INTO sessions (id, source, started_at, tool_names) VALUES ('legacy', 'cli', 20, ?)",
+                               (json.dumps(["mcp__sb__wiki_page", "mcp__sb__wiki_list"]),))
+        self.assertEqual(self.sb_row()["tool_count"], 2)
+        with sqlite3.connect(db) as connection:
+            # Newest: a pin hash whose system_prompts row was swept is skipped, not a generic failure.
+            connection.execute("INSERT INTO sessions (id, source, started_at, tool_names) VALUES ('swept', 'cli', 30, ?)", ("ab" * 32,))
+        self.assertEqual(self.sb_row()["tool_count"], 2)
+        with sqlite3.connect(db) as connection:
+            connection.execute("DELETE FROM sessions WHERE id IN ('hashed', 'legacy')")
+        sb = self.sb_row()
+        self.assertEqual((sb["state"], sb["detail"]), ("unknown", helper.CATALOG_UNRECOGNISED))
+
+    def test_hermes_additional_defaults_reference_secrets_instead_of_copying_them(self):
+        root = self.profile()
+        source = self.home / ".hermes/config.yaml"
+        source.write_text(yaml.safe_dump({"mcp_servers": {
+            "knowledge": {"command": "docs-mcp", "args": ["--read-only"], "env": {"DOCS_TOKEN": "synthetic-env-secret"}},
+            "remote": {"url": "https://docs.invalid/mcp", "headers": {"Authorization": "Bearer synthetic-header-secret"}}}}))
+        policy = self.home / ".config/swarmhub/default-connectors.json"
+        policy.parent.mkdir(parents=True)
+        policy.write_text(json.dumps({"connectors": [
+            {"name": "docs", "source": "~/.hermes/config.yaml", "server": "knowledge", "tools": ["read_page"]},
+            {"name": "remote", "source": "~/.hermes/config.yaml", "server": "remote", "tools": ["search"]},
+            {"name": "gone", "source": "~/.hermes/config.yaml", "server": "missing", "tools": ["search"]}]}))
+        report = helper.provision(self.home, "hermes", "brand-new")
+        written = (root / "config.yaml").read_text() + json.dumps(report) + (root / ".swarmhub-connectors.json").read_text()
+        for secret in ("synthetic-env-secret", "synthetic-header-secret", "DOCS_TOKEN", "docs.invalid"):
+            self.assertNotIn(secret, written)
+        servers = yaml.safe_load((root / "config.yaml").read_text())["mcp_servers"]
+        self.assertEqual(servers["docs"]["args"][1:4], ["proxy", str(source.resolve()), "knowledge"])
+        self.assertNotIn("env", servers["docs"])
+        self.assertNotIn("remote", servers)
+        self.assertEqual((root / "swarmhub-connectors.py").read_text(), Path(helper.__file__).read_text())
+        states = {row["name"]: (row["state"], row["detail"]) for row in report["list"]}
+        self.assertEqual(states["sb"][0], "never_attempted")
+        self.assertEqual(states["docs"][0], "never_attempted")
+        self.assertEqual(states["remote"][0], "failed")
+        self.assertIn("only stdio", states["remote"][1])
+        self.assertEqual(states["gone"], ("failed", "Default connector source or server cannot be read on this computer."))
 
     def test_bad_names_cannot_touch_another_profile(self):
         for name in ("../default", "a; echo secret", "$(id)", "", "default"):

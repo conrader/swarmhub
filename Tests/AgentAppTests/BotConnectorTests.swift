@@ -52,6 +52,15 @@ import Testing
     #expect(creation.contains("def provision(home, backend, bot):"))
     #expect(creation.contains("~/.config/swarmhub/default-connectors.py"))
     #expect(store.managementText(for: bot, text: "yes", conversation: bot)?.contains("def provision(home, backend, bot):") == true)
+    // An outdated skill keeps the cheap pointer; only its creation turns add the connector step and helper it predates.
+    bot.installedSkills = [SkillLibrary.managerSkill: "1.3.0"]
+    store.managementExchanges = [:]
+    #expect(store.managementText(for: bot, text: "list bots", conversation: bot) == AppStore.skillPointer)
+    store.managementExchanges = [:]
+    let outdated = try #require(store.managementText(for: bot, text: "create a bot for reports", conversation: bot))
+    #expect(outdated.hasPrefix(AppStore.skillPointer + "\n\nEvery new bot gets"))
+    #expect(outdated.contains("provision hermes") && outdated.contains("def provision(home, backend, bot):") && !outdated.contains("{{"))
+    #expect(!outdated.contains("hermes profile create"), "not the full manager text")
     bot.installedSkills = [SkillLibrary.managerSkill: try #require(store.skillLibrary.first { $0.name == SkillLibrary.managerSkill }).version.description]
     #expect(store.managementText(for: bot, text: "create a bot for reports", conversation: bot) == AppStore.skillPointer)
 }
@@ -101,7 +110,10 @@ import Testing
     let other = Bot(name: "Elsewhere", backend: .hermes, hermesProfile: "new"); other.hermesBaseURL = "https://elsewhere.invalid/v1"
     store.bots = [manager, bot, other]
     let rows = [BotConnectorReport.Connector(name: "sb", state: .failed, detail: "Existing read-only SB SSH identity is missing on this computer.")]
+    store.recordConnectors([.creationUnreported], for: bot)
+    #expect(store.connectorReport(for: bot)?.connectors.first?.status == "Failed")
+    #expect(BotConnectorReport.Connector.creationUnreported.detail.contains("Retry"), "names the button a failed report shows")
     await store.apply(.connectors(name: "new", rows: rows), manager: manager)
-    #expect(bot.connectorReport?.connectors == rows)
+    #expect(bot.connectorReport?.connectors == rows, "the manager's own report replaces the creation placeholder")
     #expect(other.connectorReport == nil)
 }

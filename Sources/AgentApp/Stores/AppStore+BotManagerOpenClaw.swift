@@ -32,7 +32,7 @@ extension AppStore {
         }
         if !description.isEmpty { bot.botDescription = description }
         if let avatar { bot.avatarMark = avatar }
-        recordConnectors([.init(name: "defaults", state: .failed, detail: "The manager did not report connector setup. Check this bot's connections.")], for: bot)
+        recordConnectors([.creationUnreported], for: bot)
         notice("\(manager.name) created \(bot.name)", in: manager)
     }
 

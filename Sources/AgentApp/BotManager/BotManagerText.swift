@@ -12,10 +12,15 @@ enum BotManagerText {
     /// Bundle prompt overrides may predate connector defaults. Keep the app's provisioning requirement on those
     /// paths too; custom prose and the optional default connector policy still belong to the install.
     static func withConnectorDefaults(_ text: String, backend: BackendKind) -> String {
-        guard !text.contains("{{CONNECTOR_RUNNER}}"),
-              let stock = template(for: backend), let start = stock.range(of: "Every new bot gets"),
-              let end = stock.range(of: backend == .openClaw ? "\nRead:" : "\n\nChange instructions:", range: start.upperBound..<stock.endIndex) else { return text }
-        return text + "\n\n" + stock[start.lowerBound..<end.lowerBound]
+        guard !text.contains("{{CONNECTOR_RUNNER}}"), let section = connectorDefaults(backend: backend) else { return text }
+        return text + "\n\n" + section
+    }
+
+    /// The stock template's new-bot connector step (unfilled), for texts that predate it.
+    static func connectorDefaults(backend: BackendKind) -> String? {
+        guard let stock = template(for: backend), let start = stock.range(of: "Every new bot gets"),
+              let end = stock.range(of: backend == .openClaw ? "\nRead:" : "\n\nChange instructions:", range: start.upperBound..<stock.endIndex) else { return nil }
+        return String(stock[start.lowerBound..<end.lowerBound])
     }
 
     /// Only creation exchanges without the installed script carry executable source. Ordinary management stays small.

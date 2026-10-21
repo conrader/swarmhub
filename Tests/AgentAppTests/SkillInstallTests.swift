@@ -135,19 +135,19 @@ private func installedBlock(_ bot: String, _ version: String) -> String {
 
 // MARK: Tokens
 
-@Test @MainActor func onlyTheCurrentSkillSendsThePointer() async throws {
+@Test @MainActor func installedAtAnyVersionSendsThePointerMissingTheFullText() async throws {
     let (store, jarvis, host) = skillStore()
     func turn(_ text: String) async throws { #expect(store.send(text: text)); try await waitUntil { !store.anyTurnRunning } }
     try await turn("list bots")                                   // missing → full text
     jarvis.installedSkills = ["swarmhub-manager": "1.1.0"]; store.managementExchanges = [:]
-    try await turn("list bots")                                   // outdated → full current provisioning text
+    try await turn("list bots")                                   // outdated → pointer (P31 C; the banner updates it)
     jarvis.installedSkills = ["swarmhub-manager": "1.2.0"]; store.managementExchanges = [:]
     try await turn("switch all agents to 6.1 sol")                // current → pointer only
     store.managementExchanges = [:]
     try await turn("good morning")                                // ordinary → nothing
     let sent = sentInstructions(host)
-    #expect(sent.map { $0.contains(marker) } == [true, true, false, false])
-    #expect(sent[1] == sent[0] && sent[2] == "You are Jarvis.\n\n" + AppStore.skillPointer)
+    #expect(sent.map { $0.contains(marker) } == [true, false, false, false])
+    #expect(sent[1] == "You are Jarvis.\n\n" + AppStore.skillPointer && sent[2] == sent[1])
     #expect(sent[3] == "You are Jarvis.")
 }
 

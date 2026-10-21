@@ -22,6 +22,10 @@ struct BotConnectorReport: Codable, Equatable, Sendable {
             }
         }
 
+        /// Recorded when a manager creates a bot; its own connectors report (applied after creation) replaces it.
+        static let creationUnreported = Connector(name: "defaults", state: .failed,
+            detail: "The manager did not confirm this new bot's read-only connector defaults. Press Retry to read its connections; if any are missing, ask the manager to set them up.")
+
         init(name: String, state: State, toolCount: Int? = nil, detail: String, observedAt: Date? = nil) {
             self.name = name; self.state = state; self.toolCount = toolCount; self.detail = detail; self.observedAt = observedAt
         }

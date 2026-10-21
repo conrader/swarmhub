@@ -90,7 +90,9 @@ extension AppStore {
     /// The manager text for this turn: only on a management turn of the manager's main chat (an intent match, a menu
     /// request, or a follow-up while the exchange is open); nil otherwise. The backend decides where it goes (P26 D3).
     /// P27 (Hermes managers only): an Install press sends its own instructions instead; once the manager's
-    /// `swarmhub-manager` skill is recorded at the current version, a management turn carries a one-line pointer to it; only a manager without the skill gets the full text.
+    /// `swarmhub-manager` skill is recorded at any version (P31 C: an outdated one too; its Update banner handles the
+    /// upgrade), a management turn carries a one-line pointer to it; only a manager without the skill gets the full text.
+    /// A bot-creation exchange without the current skill also carries the connector step and its helper.
     /// OpenClaw managers keep the full text (P27 D8).
     func managementText(for bot: Bot, text: String, conversation: any Conversation) -> String? {
         guard isManager(bot), conversation === bot else { return nil }
@@ -102,12 +104,14 @@ extension AppStore {
         managementExchanges[bot.id] = decision.next
         guard decision.attach else { return nil }
         if bot.backend == .hermes, let recipe = decision.next?.recipe { return recipe }
-        let current = bot.backend == .hermes && skills(for: bot).contains { $0.name == SkillLibrary.managerSkill && skillState($0, for: bot) == .current }
-        let base = current ? Self.skillPointer : managerText(for: bot)
-        if !current, decision.next?.provisioningConnectors == true, let bootstrap = BotManagerText.connectorBootstrap {
-            return base.map { $0 + "\n\n" + bootstrap }
-        }
-        return base
+        let state = bot.backend == .hermes ? skills(for: bot).first { $0.name == SkillLibrary.managerSkill }.map { skillState($0, for: bot) } : nil
+        let installed = state != nil && state != .missing, current = state == .current
+        // An outdated skill keeps the pointer (its Update banner offers the upgrade); only its creation turns add
+        // the connector step it predates and the helper it lacks.
+        guard !current, decision.next?.provisioningConnectors == true else { return installed ? Self.skillPointer : managerText(for: bot) }
+        let step = installed ? BotManagerText.connectorDefaults(backend: .hermes).map { BotManagerText.filled($0, managerProfile: bot.hermesProfile ?? "default") } : nil
+        let base = installed ? Self.skillPointer + (step.map { "\n\n" + $0 } ?? "") : managerText(for: bot)
+        return base.map { text in BotManagerText.connectorBootstrap.map { text + "\n\n" + $0 } ?? text }
     }
 
     /// Opens a management exchange in the manager's chat and fills its composer (or sends at once when `send`).
@@ -223,7 +227,7 @@ extension AppStore {
             notice("\(manager.name) created \(bot.name)", in: manager)
             // P49: a bot the manager really created orients itself once.
             if orient {
-                recordConnectors([.init(name: "defaults", state: .failed, detail: "The manager did not report connector setup. Check this bot's connections.")], for: bot)
+                recordConnectors([.creationUnreported], for: bot)
                 queueOrientation(bot)
             }
         case .rejected, .unreachable:

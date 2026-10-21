@@ -98,8 +98,8 @@ private func check(_ name: String, _ text: String?, carries wanted: Set<String>)
     #expect(store.managerRecipeTemplate(.box) == "override")
 }
 
-/// Only a current skill gets the pointer; older copies must receive the new provisioning defaults.
-@Test @MainActor func managementTurnSendsThePointerOnlyForTheCurrentSkill() throws {
+/// Hermes: the pointer for the skill at any version (current or outdated), core + both recipes only without it.
+@Test @MainActor func managementTurnSendsThePointerWheneverTheSkillIsInstalled() throws {
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: isolatedDefaults())
     let jarvis = Bot(name: "Jarvis", persona: "", backend: .hermes, hermesProfile: "grok-jarvis")
     store.bots = [jarvis]; store.setCanManageBots(jarvis, true)
@@ -111,7 +111,7 @@ private func check(_ name: String, _ text: String?, carries wanted: Set<String>)
     #expect(!full.contains("references/"), "the fallback has the recipes inline")
     for installed in ["1.0.0", "1.0.2", skill.version.description, "garbage"] {
         jarvis.installedSkills = [SkillLibrary.managerSkill: installed]
-        #expect(turn() == (installed == skill.version.description ? AppStore.skillPointer : full), "\(installed)")
+        #expect(turn() == AppStore.skillPointer, "\(installed)")
     }
     #expect(store.skillBanner(for: jarvis)?.state == .outdated(installed: "garbage"), "the Update banner still offers the upgrade")
 }

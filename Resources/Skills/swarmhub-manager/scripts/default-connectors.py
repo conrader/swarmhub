@@ -8,7 +8,7 @@ Sources may be Hermes YAML or MCPorter JSON. Only explicit tool names are accept
 SB always uses the existing forced-command wiki SSH identity, never the messaging MCP.
 """
 import argparse
-import copy
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -24,6 +24,10 @@ from datetime import datetime, timezone
 
 SB_TOOLS = ["wiki_list", "wiki_page", "wiki_search", "wiki_semantic_search", "wiki_status"]
 SLUG = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}\Z")
+# Hermes state.db drifts: schema 14 and 26 (0.20.x) have no sessions.tool_names; 31 stores a hash into system_prompts.
+CATALOG_UNAVAILABLE = "This Hermes version does not record tool catalogs; load state comes from its logs only."
+CATALOG_UNREADABLE = "This bot's session database could not be read (locked or changed format); load state comes from its logs only."
+CATALOG_UNRECOGNISED = "This bot's latest tool catalog has an unrecognised format; load state comes from its logs only."
 
 
 def read_config(path):
@@ -68,13 +72,23 @@ def defaults(home):
             raise ValueError("Default connectors require explicit read-only tool names")
         raw = item["source"]
         source = home / raw[2:] if raw.startswith("~/") else Path(raw)
-        config = read_config(source)
-        entry = copy.deepcopy(config.get("mcp_servers", config.get("mcpServers", {}))[item["server"]])
-        entry["tools"] = {"include": tools}
-        entry["_source"] = str(source.resolve())
-        entry["_server"] = item["server"]
-        result[name] = entry
+        # Only the reference: the upstream entry (env, headers, args) stays in its source file.
+        result[name] = {"_source": str(source.resolve()), "_server": item["server"], "_tools": tools}
     return result
+
+
+def reference(entry, root):
+    """The stdio adapter entry for an additional default, or (None, visible reason). Credentials are never copied."""
+    try:
+        config = read_config(Path(entry["_source"]))
+        upstream = config.get("mcp_servers", config.get("mcpServers", {}))[entry["_server"]]
+    except Exception:
+        # Source errors can echo secrets; report a fixed reason.
+        return None, "Default connector source or server cannot be read on this computer."
+    if not isinstance(upstream, dict) or not upstream.get("command") or upstream.get("url"):
+        return None, "Not copied: only stdio default connectors can be referenced without copying their credentials."
+    return {"command": "python3", "args": [str(root / "swarmhub-connectors.py"), "proxy",
+            entry["_source"], entry["_server"], json.dumps(entry["_tools"])]}, None
 
 
 def location(home, backend, bot):
@@ -92,37 +106,43 @@ def provision(home, backend, bot):
     if not root.is_dir():
         raise ValueError("New bot directory does not exist")
     entries = defaults(home)
+    # SB is enforced read-only by the remote forced command. Additional defaults run through our narrow stdio
+    # adapter, which reads the upstream entry from its source at launch and filters listing and calls.
+    configured, skipped = {}, {}
+    for name, entry in entries.items():
+        if name == "sb":
+            configured[name] = dict(entry) if backend == "hermes" else {k: v for k, v in entry.items() if k in ("command", "args")}
+            continue
+        server, reason = reference(entry, root)
+        if server is None:
+            skipped[name] = reason
+            continue
+        if backend == "hermes":
+            server["tools"] = {"include": entry["_tools"]}
+        configured[name] = server
+    if len(configured) > 1:
+        atomic_write(root / "swarmhub-connectors.py", Path(__file__).read_text())
     if backend == "hermes":
         import yaml
         path = root / "config.yaml"
         config = read_config(path)
-        servers = config.setdefault("mcp_servers", {})
         # A clone may contain a disabled or broader SB entry. The default is deliberately narrow.
-        servers.update({name: {k: v for k, v in entry.items() if not k.startswith("_")}
-                        for name, entry in entries.items()})
+        config.setdefault("mcp_servers", {}).update(configured)
         atomic_write(path, yaml.safe_dump(config, sort_keys=False, allow_unicode=True))
     else:
         # OpenClaw's MCPorter skill resolves config relative to the agent's workspace.
         # This does not touch the Gateway config, auth profiles, or another agent's workspace.
         path = root / "config/mcporter.json"
         config = read_config(path) if path.exists() else {"mcpServers": {}, "imports": []}
-        servers = config.setdefault("mcpServers", {})
-        for name, entry in entries.items():
-            # SB is enforced read-only by the remote forced command. MCPorter has no
-            # tool filter, so additional defaults use our narrow stdio adapter.
-            if name != "sb":
-                if not entry.get("command") or entry.get("url"):
-                    raise ValueError("OpenClaw default sources require a stdio adapter")
-                servers[name] = {"command": "python3", "args": [str(root / "swarmhub-connectors.py"),
-                    "proxy", entry["_source"], entry["_server"], json.dumps(entry["tools"]["include"])]}
-            else:
-                servers[name] = {k: v for k, v in entry.items() if k in ("command", "args", "env", "cwd")}
-        atomic_write(root / "swarmhub-connectors.py", Path(__file__).read_text())
+        config.setdefault("mcpServers", {}).update(configured)
         atomic_write(path, json.dumps(config, indent=2) + "\n")
     report = {"op": "connectors", "name": bot, "list": [
         {"name": name, "state": "never_attempted", "detail": "Configured; awaiting the bot's first tool load."}
+        if name not in skipped else {"name": name, "state": "failed", "detail": skipped[name]}
         for name in entries]}
     for row in report["list"]:
+        if row["name"] in skipped:
+            continue
         if row["name"] == "sb" and not (home / ".ssh/sb_mcp_ed25519").is_file():
             row.update(state="failed", detail="Existing read-only SB SSH identity is missing on this computer.")
         elif row["name"] == "sb" and not (home / ".ssh/known_hosts").is_file():
@@ -134,33 +154,63 @@ def provision(home, backend, bot):
 
 
 def catalog_tools(payload):
+    # Schema 31 pin: {"version", "tools": [definitions]}; legacy inline pin: a JSON list of names or definitions.
+    tools = payload.get("tools") if isinstance(payload, dict) else payload
+    if not isinstance(tools, list):
+        raise ValueError("Unrecognised tool catalog")
     names = set()
-    for tool in payload.get("tools", []):
+    for tool in tools:
+        if isinstance(tool, str):
+            tool = {"name": tool}
+        if not isinstance(tool, dict):
+            continue
         function = tool.get("function", tool)
+        if not isinstance(function, dict):
+            continue
         name = function.get("name", "")
+        if not isinstance(name, str):
+            continue
         if name.startswith("mcp__"):
             names.add(name)
-        if name == "tool_search":
+        if name == "tool_search" and isinstance(function.get("description"), str):
             # Deferred tools appear in this description, not in the top-level array.
-            names.update(re.findall(r"\bmcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+", function.get("description", "")))
+            names.update(re.findall(r"\bmcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+", function["description"]))
     return names
 
 
+def columns(connection, table):
+    return {row[1] for row in connection.execute("SELECT * FROM pragma_table_info(?)", (table,))}
+
+
 def catalog(root):
+    """(per-server tool counts, catalog time, note). The note explains a missing catalog; it never raises on drift."""
     db = root / "state.db"
     if not db.exists():
-        return {}, None
-    # Read-only URI; never create or modify a production database.
-    with sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True) as connection:
-        rows = connection.execute("SELECT s.tool_names, s.started_at, p.prompt "
-                                  "FROM sessions s LEFT JOIN system_prompts p ON p.hash=s.tool_names "
-                                  "WHERE s.tool_names IS NOT NULL ORDER BY s.started_at DESC LIMIT 1").fetchall()
-    if not rows:
-        return {}, None
-    names, timestamp, content = rows[0]
-    payload = json.loads(content if content is not None else names)
-    return {name: len([n for n in catalog_tools(payload) if n.startswith("mcp__" + name + "__")])
-            for name in {n.split("__")[1] for n in catalog_tools(payload)}}, float(timestamp)
+        return {}, None, None
+    try:
+        # Read-only URI; never create or modify a production database.
+        with closing(sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
+            if not {"tool_names", "started_at"} <= columns(connection, "sessions"):
+                return {}, None, CATALOG_UNAVAILABLE
+            # Schema 31 stores tool_names as the hash of a pin in system_prompts; older rows hold the list inline.
+            joined = {"hash", "prompt"} <= columns(connection, "system_prompts")
+            rows = connection.execute(
+                ("SELECT s.tool_names, s.started_at, p.prompt FROM sessions s "
+                 "LEFT JOIN system_prompts p ON p.hash = s.tool_names " if joined else
+                 "SELECT s.tool_names, s.started_at, NULL FROM sessions s ") +
+                "WHERE s.tool_names IS NOT NULL ORDER BY s.started_at DESC LIMIT 20").fetchall()
+    except sqlite3.Error:
+        return {}, None, CATALOG_UNREADABLE
+    for names, timestamp, content in rows:
+        # A pin hash whose row was swept resolves to itself and is skipped, as Hermes does.
+        try:
+            tools = catalog_tools(json.loads(content if content is not None else names))
+            at = float(timestamp)
+        except (TypeError, ValueError):
+            continue
+        servers = {n.split("__")[1] for n in tools}
+        return {name: len([n for n in tools if n.startswith("mcp__" + name + "__")]) for name in servers}, at, None
+    return {}, None, CATALOG_UNRECOGNISED if rows else None
 
 
 def failure_reason(line):
@@ -210,7 +260,7 @@ def inspect(home, backend, bot):
     config = read_config(path)
     servers = config.get("mcp_servers", config.get("mcpServers", {}))
     names = sorted(set(servers) | set(defaults(home)))
-    counts, at = catalog(root) if backend == "hermes" else ({}, None)
+    counts, at, note = catalog(root) if backend == "hermes" else ({}, None, None)
     events = log_events(root) if backend == "hermes" else {}
     initial = {}
     marker = root / ".swarmhub-connectors.json"
@@ -239,6 +289,8 @@ def inspect(home, backend, bot):
                     row.update(state="failed", detail="Existing read-only SB SSH identity is missing on this computer.")
                 elif not (home / ".ssh/known_hosts").is_file():
                     row.update(state="failed", detail="SB SSH known_hosts file is missing on this computer.")
+            if note and row["state"] == "unknown":
+                row["detail"] = note
         rows.append(row)
     return {"op": "connectors", "name": bot, "list": rows}
 
