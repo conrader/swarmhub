@@ -45,14 +45,17 @@ extension AppStore {
         let key = "updates.transport.floor." + target
         let saved = try defaults.data(forKey: key).map { try JSONDecoder().decode(StagedInstall.Floor.self, from: $0) } ?? .init()
         let package = try StagedInstall.prepare(box: box, saved: saved, profiles: profiles, now: ISO8601DateFormatter().string(from: now()))
-        // While every skill this request hands over failed at the version this signed bundle carries and is backing off,
-        // nothing is sent. Otherwise the request goes out unchanged: the updater keeps profiles.json, so none is dropped.
-        let pending = package.profiles.contains { profile in
-            profile.skills.contains { name in
-                !(boundBot(profile.name, manager: manager).map { stagedSkillBackingOff(name, version: package.versions[name], bot: $0) } ?? false)
+        // The destination merges profiles.json with saved selections and rerenders them together. Filtering the
+        // incoming skills would still reapply a saved skill in backoff. Defer the whole request if any is backing off;
+        // retain every selection and the signed bundle's version decisions when the request can go through.
+        for profile in package.profiles {
+            guard let bot = boundBot(profile.name, manager: manager) else { continue }
+            for name in profile.skills where stagedSkillBackingOff(name, version: package.versions[name], bot: bot) {
+                guard let failure = bot.skillInstallFailures[name] else { continue }
+                errorMessage = "Signed skill install deferred: \(profile.name)/\(name) is backing off until \(failure.retryAt.formatted()). The requested skills install together."
+                return nil
             }
         }
-        guard pending else { return nil }
         let transfer = try StagedTransfer(package, namespace: sessionNamespace)
         let profile = manager.hermesProfile ?? "default"
         let instructions = try StagedInstall.instructions(transfer, profile: profile)
