@@ -2,6 +2,7 @@
 
 No Codex, provider or network. Darwin Library regressions live in test_macsmoke_library.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import os
 from pathlib import Path
 import re

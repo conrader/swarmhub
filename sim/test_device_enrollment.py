@@ -1,4 +1,5 @@
 """P5b: operator-only enrollment, fail-closed local state, and challenge/read rules. TEST keys, temp HOME."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import os
 from pathlib import Path
 import sys

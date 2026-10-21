@@ -6,6 +6,7 @@ tests never send a real signal: code-job's functions run with `kill`, `sleep` an
 that record or print, and the Python helpers run with os.kill/os.killpg patched. Each shell case first proves the
 `kill` it would call is the recorder, so a broken override fails the test instead of signalling.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import contextlib
 import io
 import os

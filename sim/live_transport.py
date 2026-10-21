@@ -6,6 +6,7 @@ hosts, follows redirects, uses a proxy, changes server config, or prints auth.
 """
 from __future__ import annotations
 
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone

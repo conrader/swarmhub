@@ -2,6 +2,7 @@
 
 Pure classifier probes; compatible with the Mac's Python 3.9.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import unittest
 
 try:

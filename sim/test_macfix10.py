@@ -1,4 +1,5 @@
 """Python 3.9 config isolation coverage; synthetic files only, no CLI or network."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import builtins
 from pathlib import Path
 import runpy

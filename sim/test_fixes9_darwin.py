@@ -1,4 +1,5 @@
 """Seatbelt profile checks everywhere; real Xcode-shim and git probes only on macOS."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import json
 from pathlib import Path
 import runpy

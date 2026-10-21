@@ -1,4 +1,5 @@
 """Execute the app's generated peer installer with subprocesses stubbed: no Hermes or box access."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import contextlib
 import io
 import json

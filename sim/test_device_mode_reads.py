@@ -4,6 +4,7 @@ managed approvals the moment an operator returns a box to legacy mode.
 The mode is read under the same lock as the response. The exact `gone` receipt shape and the decide response
 are unchanged (the Mac matches the gone shape key-for-key). TEST keys only, no network.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 from pathlib import Path
 import sys
 import unittest

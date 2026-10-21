@@ -5,6 +5,8 @@
 #   sh Tests/Scripts/code-job-test.sh <path/to/code-job>     CODE_JOB_SH = the shell that runs code-job (default /bin/sh)
 #   CODE_JOB_CASES="1 2 3"   only these cases (the Swift test runs shards in parallel); code-job gets short poll/tick values.
 
+# Sends signals: run only inside an isolated PID namespace (Linux) or the macOS signal guard; see sim/ISOLATION.md.
+/usr/bin/python3 -I -B "$(dirname "$0")/../../sim/sim_isolation.py" --check > /dev/null || exit 78  # absolute: PATH cannot fake it
 JOB=${1:?usage: code-job-test.sh <path/to/code-job>}
 SH=${CODE_JOB_SH:-/bin/sh}
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/code-job-test.XXXXXX") || exit 1
@@ -37,6 +39,8 @@ CTL
 TASKID=task.0123456789abcdef0123456789abcdef
 with_control() { mkdir -p "$CTL_DIR" && cp "$ROOT/swarmctl-stub" "$CTL_DIR/swarmctl"; }
 PASSED=0 FAILED=0
+# Signals name only a plain pid above 1 other than this shell (an empty or garbage pid file must not broadcast).
+own_pid() { case $1 in ''|*[!0-9]*|0|1|0*) return 1 ;; esac; [ "$1" != $$ ]; }
 TASK='Fix the failing test in calc.py'
 # Synthetic identities must reach both setup git and the CLI subprocess, even on
 # a fresh Mac with no gitconfig. Ignore host signing/hooks/identity configuration.
@@ -224,7 +228,7 @@ mkdir -p "$C/home/.hermes/swarmhub/slots/1.lock"; echo "$dead" > "$C/home/.herme
 # Bounded: a lock that is never reclaimed would make the job wait forever.
 managed --bot jarvis --order claude --dir "$C/work" -- "$TASK" & P=$!
 n=0; while kill -0 $P 2>/dev/null && [ $n -lt 300 ]; do sleep 0.1; n=$((n + 1)); done
-if kill -0 $P 2>/dev/null; then pkill -P $P 2>/dev/null; kill $P 2>/dev/null; RC=timeout; else wait $P; RC=$?; fi
+if own_pid "$P" && kill -0 "$P" 2>/dev/null; then pkill -P "$P" 2>/dev/null; kill "$P" 2>/dev/null; RC=timeout; else wait $P; RC=$?; fi
 expect "exit 0 (got $RC)" [ "$RC" = 0 ]
 expect "did not wait" lacks "$C/err" "Waiting for a free coding slot"
 expect "logged wait 0" [ "$(field 4)" = 0 ]
@@ -436,7 +440,7 @@ runner=$!
 i=0; while [ "$(sleepers)" -eq 0 ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
 expect "verification started" [ "$(sleepers)" -gt 0 ]
 pid=$(cat "$C/home/.hermes/swarmhub/job-completions/"job.*/pid 2>/dev/null)
-[ -n "$pid" ] && kill -TERM "$pid"
+own_pid "$pid" && kill -TERM "$pid"
 wait "$runner"; RC=$?; unset CASE_VERIFY
 expect "exit 143 (got $RC)" [ "$RC" -eq 143 ]
 i=0; while [ "$(sleepers)" -gt 0 ] && [ "$i" -lt 40 ]; do sleep 0.05; i=$((i + 1)); done

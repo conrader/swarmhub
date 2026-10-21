@@ -2,6 +2,7 @@
 
 No provider, gateway deployment or Swift execution is claimed by these tests.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import concurrent.futures
 import importlib.util
 import json

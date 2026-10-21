@@ -7,6 +7,7 @@ escape probes only try to create marker files under the test's own temporary dir
 
 The sandbox tests are Linux-only (the limited mode does not exist on macOS); the job-result test runs everywhere.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import importlib.util
 import json
 import os

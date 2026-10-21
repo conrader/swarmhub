@@ -36,6 +36,7 @@ import Testing
 
 /// The same ten acceptance replays can run on macOS from `swift test` without
 /// network access or coding CLIs. Native parsing/state assertions are above.
+/// The harness refuses to start on Linux outside an isolated PID namespace; on macOS it runs signal-guarded.
 // Each replay starts Python/shell workers and a verifier. Running these in parallel competes with the full Mac suite
 // for process startup and CPU; these acceptance cases do not need to overlap to exercise their concurrency rules.
 @Test(.serialized, arguments: (1...10).map { String(format: "P%02d", $0) })
@@ -55,4 +56,6 @@ func observedPatternManagedRuntimeReplay(_ pattern: String) async throws {
     let rows = try #require(report["patterns"] as? [[String: Any]])
     #expect(rows.count == 1 && rows.first?["grade"] as? String == "matches")
     #expect(report["model_calls"] as? Int == 0)
+    // macOS has no PID namespaces: the harness ran only because its signal guard was installed (sim/ISOLATION.md).
+    #expect(report["isolation"] as? String == "darwin-guarded", "\(pattern): \(log)")
 }

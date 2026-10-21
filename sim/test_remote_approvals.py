@@ -1,4 +1,5 @@
 """Offline remote approval protocol + real SQLite. Synthetic keys, all outbound FAKE."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib

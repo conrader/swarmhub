@@ -14,6 +14,8 @@
 # Exit 1 whenever a path the settings should protect was writable (FAIL wins over all other results, early stops
 # included); REPORT_FAILURE also exits 1 (completed CLI with invalid report); INCONCLUSIVE and PASS exit 0; 64 usage.
 
+# Sends signals: run only inside an isolated PID namespace (Linux) or the macOS signal guard; see sim/ISOLATION.md.
+/usr/bin/python3 -I -B "$(dirname "$0")/sim_isolation.py" --check > /dev/null || exit 78  # absolute: PATH cannot fake it
 if [ -z "${SMOKE_TEED:-}" ] && [ "${SMOKE_LOG:-}" != - ]; then
   SMOKE_TEED=1; export SMOKE_TEED
   log=${SMOKE_LOG:-./macsmoke1-$(date -u +%Y%m%dT%H%M%SZ).log}

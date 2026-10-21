@@ -6,6 +6,7 @@ to create marker files under the test's own temporary directory.
 
 On the MacBook:  cd <repo> && python3 -B -m unittest sim.test_fixes6 -v
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import os
 from pathlib import Path
 import shlex

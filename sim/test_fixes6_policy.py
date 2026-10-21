@@ -2,6 +2,7 @@
 
 Synthetic CLIs and local records only; no gateway, provider or outbound operation.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import json
 import os
 from pathlib import Path

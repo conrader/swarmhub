@@ -1,4 +1,5 @@
 """Shell skip contracts, with synthetic interpreter failures and no network."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import os
 from pathlib import Path
 import shutil

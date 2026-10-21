@@ -4,6 +4,7 @@ There is no Swift toolchain on the Linux review host, so the classifier's rules 
 table. The word lists are read from the Swift source itself (sim/test_fixes8.py checks that every list exists there),
 so only the control flow below has to be kept in step with the Swift by hand.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 from pathlib import Path
 import re
 

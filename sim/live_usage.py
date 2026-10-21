@@ -4,6 +4,7 @@
 This sidecar does not load auth or send HTTP/model requests. Keep one maximum
 counter snapshot per session because cleanup deletes the authoritative row.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import argparse
 import json
 from pathlib import Path

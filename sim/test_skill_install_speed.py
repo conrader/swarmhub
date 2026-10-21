@@ -3,6 +3,7 @@
 The Swift literals are read from the sources and filled as the app fills them; Hermes and peer-runtime are stubs in a
 temporary HOME. SkillInstallSpeedTests.swift runs the same commands as the app renders them on the Mac.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import hashlib
 import json
 import os

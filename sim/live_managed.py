@@ -8,6 +8,7 @@ When an authenticated Codex CLI is available, P01/P04 use model-selected bounded
 local actions and real jobs in an environment-addressed throwaway git repository.
 Missing authentication marks those chains failed/untested, never successful.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 from contextlib import ExitStack
 import argparse
 import http.client

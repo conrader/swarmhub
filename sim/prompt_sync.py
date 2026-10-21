@@ -7,6 +7,7 @@ from the Swift source (sim/test_prompt_sync.py checks them), so only the control
 A context is a dict with BotPromptContext's keys; coordinator is None or a string. A document is
 {"schema": 1, "bots": {key: {field: {"value", "at", "origin"}}}}, the Swift JSON shape.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 from pathlib import Path
 import copy
 import re

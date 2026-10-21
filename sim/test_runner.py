@@ -1,4 +1,5 @@
 """Harness safety/receipt/oracle tests only; no simulated Hermes or app backend."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import copy
 import json
 from pathlib import Path

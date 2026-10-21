@@ -7,6 +7,7 @@ the descendants it snapshotted first, wait a second window, then SIGKILL the par
 and every descendant still alive. The registry here is that sequence without psutil;
 nothing is mocked between it and the relay.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import fcntl
 import os
 from pathlib import Path

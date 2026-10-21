@@ -1,4 +1,5 @@
 """Fixes17: platform modifiers and plural quantity subjects; phrases mirrored in GoalTests.swift."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import unittest
 
 try:

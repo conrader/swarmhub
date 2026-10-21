@@ -2,6 +2,7 @@
 
 Only public TEST seeds from Tests/Fixtures/release-bundles/TEST-device-keys.json are used. No network.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import copy
 import hashlib
 import os

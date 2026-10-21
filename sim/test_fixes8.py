@@ -6,6 +6,7 @@ signal it receives; the verifier aims each process-signalling or process-access 
 launcher and must be refused, then signals its own child through the same syscall where the call is routed (or
 through kill where it is denied outright). Nothing here contacts a network, a gateway or a provider.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import os
 from pathlib import Path
 import subprocess

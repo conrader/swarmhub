@@ -1,4 +1,5 @@
 """Offline isolation checks for the LIVE3 routing boundary; no Hermes/model calls."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import unittest
 
 from live_observed import route, mapped_id

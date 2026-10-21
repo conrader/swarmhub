@@ -3,6 +3,7 @@
 Nothing here stubs a CLI: `coding_cli` only reports an installed, authenticated Codex,
 and the harness falls back to the pass-4 behaviour (jobs fail 69) when it is absent.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import os
 import hashlib
 from pathlib import Path

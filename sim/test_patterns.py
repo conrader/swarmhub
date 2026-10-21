@@ -1,4 +1,5 @@
 """P01–P10 replay against shipped entrypoints; synthetic CLI/curl, no sockets/model calls."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 from datetime import datetime
 import json
 import os

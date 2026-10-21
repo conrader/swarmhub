@@ -6,6 +6,7 @@ as a command start, refused the whole command whatever the approval mode, and th
 are ported from Hermes 0.22.0 tools/approval_detection.py (plus 0.20.5's unanchored kill rule); `;`, `&` and `|` count
 as command starts because Hermes splits on them. SkillInstallLoopTests.swift checks the rendered commands on the Mac.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 from pathlib import Path
 import re
 import unittest

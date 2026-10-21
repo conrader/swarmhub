@@ -1,6 +1,8 @@
 # Swarm Hub real-app QA harness
 
-`python3 -B -m unittest discover -s sim -p 'test_*.py'` runs the offline suite. The gap regressions cover completion
+`sudo -u sbtest -- unshare -r -p -f --mount-proc python3 -B -m unittest discover -s sim -p 'test_*.py'` runs the
+offline suite. On Linux the harness refuses to start outside an isolated PID namespace; on macOS it runs
+signal-guarded. See [ISOLATION.md](ISOLATION.md). The gap regressions cover completion
 evidence, managed webhooks, private key intake, provisioner approval and CLI detection. HTTP handler validation also
 runs without sockets; the separate loopback test explicitly skips when the sandbox denies sockets.
 

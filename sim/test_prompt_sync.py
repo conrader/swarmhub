@@ -4,6 +4,7 @@ No Swift toolchain runs here, so the shared vectors (Tests/Fixtures/prompt_sync/
 BotPromptSyncTests.swift) run through the Python port (sim/prompt_sync.py), and randomized delivery orders check
 that devices converge. Pure data, no processes or network.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import copy
 import json
 from pathlib import Path

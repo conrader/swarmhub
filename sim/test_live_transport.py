@@ -1,4 +1,5 @@
 """QA transport harness safety and wire-framing tests; never contacts Hermes."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import os
 from pathlib import Path
 import tempfile

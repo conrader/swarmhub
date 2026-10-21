@@ -7,6 +7,7 @@ checkpointed after each request and all exactly registered sessions are removed.
 """
 from __future__ import annotations
 
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone

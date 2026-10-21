@@ -2,6 +2,7 @@
 
 Same synthetic boundary as test_peer_runtime: stub curl, stub CLIs, no sockets, no model calls.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import os
 import json
 from pathlib import Path

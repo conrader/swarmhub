@@ -1,5 +1,6 @@
 """Gap closures after live pass 4: the evidence gate and its wake wording (P01/P04), managed webhook routines (P02),
 the provisioning hook and secret intake (P06), and the live harness's real-CLI detection. Synthetic CLI/curl only."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import json
 import io
 import os

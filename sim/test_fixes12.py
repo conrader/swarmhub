@@ -3,6 +3,7 @@ outbound, in-memory HTTP handler. Nothing contacts a network, a gateway or a pro
 
 On the MacBook:  cd <repo> && python3 -B -m unittest sim.test_fixes12 -v
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import base64
 import http.client
 import io

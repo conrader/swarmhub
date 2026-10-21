@@ -8,6 +8,7 @@ This is protocol/session evidence, never native-app or autonomous peer-tool proo
 """
 from __future__ import annotations
 
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import argparse
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -311,7 +312,7 @@ def offline_replay(output, patterns=None):
                         "boundary": "offline managed runtime; synthetic CLI and curl; no model calls",
                         "test": name, "errors": [detail for _, detail in result.errors + result.failures]})
     output.mkdir(parents=True, exist_ok=True)
-    report = {"mode": "offline", "patterns": results, "model_calls": 0,
+    report = {"mode": "offline", "isolation": sim_isolation.MODE, "patterns": results, "model_calls": 0,
               "limitations": "No live Hermes, Swift, provisioning provider or external outbound certification"}
     (output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({r["pattern"]: r["grade"] for r in results}, sort_keys=True))

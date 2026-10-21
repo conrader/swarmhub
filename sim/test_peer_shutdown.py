@@ -1,4 +1,5 @@
 """Real POSIX signals/process trees in temporary homes; no Hermes or network."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import fcntl
 import json
 import os

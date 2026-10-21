@@ -3,6 +3,7 @@
 All tests run on Linux and stock macOS Python 3.9; native kqueue/Seatbelt coverage stays in test_darwinkill1.
 No providers, outbound messages, or real signals to fixture PIDs.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import ast
 import contextlib
 import inspect

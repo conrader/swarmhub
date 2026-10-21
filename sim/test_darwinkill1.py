@@ -5,6 +5,7 @@ macOS, waitid WNOWAIT on Linux), SIGKILL the group until it is empty, then reap.
 the leader still holds its PID, so the group ID cannot have been reused. Survivors fail closed (77).
 The mocked tests and RealGroupTests run on Linux; DarwinNativeTests run only on macOS (sandbox-exec, real kqueue).
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import contextlib
 import errno
 import io

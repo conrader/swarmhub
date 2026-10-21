@@ -1,4 +1,5 @@
 """Fail-closed HOME/Library classification for the Darwin smoke-test harness."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import importlib.util
 import io
 import marshal

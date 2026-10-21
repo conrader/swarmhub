@@ -1,4 +1,5 @@
 """Offline tests of the live runner's bridge and coding-job construction. No provider or socket calls."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import io
 import json
 from pathlib import Path

@@ -5,6 +5,7 @@ mode and user-facing text without changing the classifier or starting any turns.
 """
 from __future__ import annotations
 
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 from dataclasses import dataclass, field
 
 try:

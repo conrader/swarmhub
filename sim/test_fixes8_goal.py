@@ -4,6 +4,7 @@ No Swift toolchain runs here, so the Swift test table (Tests/AgentAppTests/GoalT
 plainGoalsAreClassifiedByTheRequestedAction) is read from the source and run through the Python port
 (sim/goal_classifier.py), whose word lists are read from ChatAutomation.swift itself. Pure text, no processes.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import json
 from pathlib import Path
 import re

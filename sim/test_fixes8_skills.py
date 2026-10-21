@@ -4,6 +4,7 @@ SkillLibrary.state (Sources/AgentApp/BotManager/SkillLibrary.swift) reports an i
 below the bundled SKILL.md version. No Swift toolchain here: this checks the bundled versions against the previous
 ones with the same numeric comparison, and that the Swift tests pin the same numbers (they run on the Mac).
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 from pathlib import Path
 import re
 import unittest

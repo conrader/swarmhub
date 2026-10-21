@@ -4,6 +4,7 @@ No test is skipped on a failed/empty ps listing. Children have only synthetic
 environment values and are reaped by their Popen handle, independently of the
 discovery helper under test.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import os
 from pathlib import Path
 import subprocess

@@ -5,6 +5,7 @@ Run this from the plain box shell when available. It never changes the shipped
 runner, disables its sandbox, supplies a CLI stub, or contacts Hermes. All
 credentials/config are disposable copies; source values never enter evidence.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import argparse
 import json
 import os

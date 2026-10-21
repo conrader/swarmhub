@@ -1,4 +1,5 @@
 """Review 3 regressions; synthetic credentials/CLI only, no live Hermes or outbound sends."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 from contextlib import ExitStack
 import io
 import json

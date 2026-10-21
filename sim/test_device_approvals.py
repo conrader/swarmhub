@@ -2,6 +2,7 @@
 
 Real SQLite in a temp HOME, public TEST keys only, all outbound FAKE, no network (loopback once).
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib

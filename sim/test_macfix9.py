@@ -1,4 +1,5 @@
 """Socket creation confinement; no addresses, listeners, connections or network sends."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import contextlib
 import errno
 import io

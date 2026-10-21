@@ -4,6 +4,7 @@ Models select actions in replies; the harness validates and executes only the
 fixed local QA operations below. Raw replies, bindings and command receipts are
 retained. NO_REPLY, prose, stale evidence and unknown actions fail closed.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import hashlib
 import json
 from pathlib import Path

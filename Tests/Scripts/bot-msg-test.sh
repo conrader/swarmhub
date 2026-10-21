@@ -9,6 +9,8 @@
 # gateway nor bot-msg's curl could run (a sandbox that denies socket(2) with EPERM; seen in a review sandbox,
 # 2026-10-19). That is the environment, not bot-msg; any other gateway start failure is still a FAIL.
 
+# Sends signals: run only inside an isolated PID namespace (Linux) or the macOS signal guard; see sim/ISOLATION.md.
+/usr/bin/python3 -I -B "$(dirname "$0")/../../sim/sim_isolation.py" --check > /dev/null || exit 78  # absolute: PATH cannot fake it
 MSG=${1:?usage: bot-msg-test.sh <path/to/bot-msg>}
 SH=${BOT_MSG_SH:-/bin/sh}
 HERE=$(cd "$(dirname "$0")" && pwd)

@@ -4,6 +4,7 @@ Every call is attempted against an out-of-tree helper and self. Self errno must
 match an unsandboxed control using the same arguments (kcmp/NUMA/madvise can need
 host capabilities). No skipped negative probes and no network or providers.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import errno
 import json
 import os

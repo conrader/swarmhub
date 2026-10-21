@@ -2,6 +2,7 @@
 
 These fixtures are never used by the live harness. No provider or socket calls.
 """
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import json
 from pathlib import Path
 import subprocess

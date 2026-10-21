@@ -1,4 +1,5 @@
 """QA launch-descriptor safety tests; no app or backend responses are simulated."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import json
 from pathlib import Path
 import tempfile

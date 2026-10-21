@@ -21,6 +21,11 @@ _children = {}
 _deferred = 0
 
 
+def private_group(pgid):
+    """A group this process may killpg(): a plain pid above 1, not its own group (which holds its parents)."""
+    return type(pgid) is int and pgid > 1 and pgid != os.getpgrp()
+
+
 class Stopping(BaseException):
     # Deliberately bypass guarded() and malformed-record retry handlers.
     def __init__(self, signum):
@@ -46,6 +51,8 @@ def termination(forward_group=False):
         for sig in signals:
             signal.signal(sig, signal.SIG_IGN)
         for child in _children.copy().values():
+            if not private_group(child.pid):
+                continue
             try:
                 os.killpg(child.pid, signum)
             except ProcessLookupError:
@@ -109,6 +116,17 @@ def stop_child(child, signum=signal.SIGTERM, grace=STOP_GRACE):
     The group can outlive its leader, so wait for it as well as the Popen handle.
     Only children launched with start_new_session=True may be passed here.
     """
+    if not private_group(child.pid):
+        # Never killpg() a number that is not a private child group: the Popen handle names only the child.
+        with deferred():
+            if child.poll() is None:
+                child.terminate()
+            try:
+                child.wait(timeout=grace)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=REAP_GRACE)
+        return
     with deferred():
         def send(sig):
             try:
@@ -361,7 +379,7 @@ def stop_legacy_group(fd, pid):
     group signal also reaches a child that is being forked at that moment. One
     budget bounds the freeze, the TERM drain and the KILL settle together.
     """
-    if pid <= 1:
+    if not private_group(pid):
         return
     signal.pidfd_send_signal(fd, signal.SIGSTOP)
     try:

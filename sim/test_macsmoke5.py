@@ -1,4 +1,5 @@
 """macsmoke5 completion regressions; local files and fake CLIs only."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import errno
 import importlib.util
 import os

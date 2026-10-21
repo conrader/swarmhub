@@ -2,6 +2,7 @@
 """Real-app QA runner. Offline by default; never launches or contacts a Mac remotely."""
 from __future__ import annotations
 
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import argparse
 from collections import Counter
 from datetime import datetime, timezone

@@ -1,4 +1,5 @@
 """Receipt rotation, signed retirement, and transactional cancellation; SQLite/stubs only."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import base64
 from contextlib import contextmanager
 import hashlib
