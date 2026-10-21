@@ -119,6 +119,7 @@ done
 
 # 3. authorized_keys on ovh (THE PROD STEP: parked for sb-approve, see Install)
 cp -p ~/.ssh/authorized_keys ~/.ssh/authorized_keys.bak-jobroute-$(date -u +%Y%m%dT%H%M%SZ)
+[ -z "$(tail -c1 ~/.ssh/authorized_keys)" ] || echo >> ~/.ssh/authorized_keys   # never fuse onto the last key
 for p in $PROFILES; do
   pub=$($HERMES cat "/home/hermes/.ssh/jobroute/${p}_ed25519.pub")
   case "$pub" in "ssh-ed25519 "*" jobroute:$p") ;; *) echo "unexpected pubkey for $p"; exit 1;; esac
@@ -169,7 +170,8 @@ install -d -m 755 /home/ubuntu/.config/jobroute
 ln -sfn "$REL" /home/ubuntu/.local/lib/jobroute/current
 # self-check (read-only apart from creating the state dir and one audit line)
 SSH_ORIGINAL_COMMAND=help /home/ubuntu/.local/lib/jobroute/current/jobroute --config /home/ubuntu/.config/jobroute/allowlist.toml --profile grok-admin
-SSH_ORIGINAL_COMMAND=help /home/ubuntu/.local/lib/jobroute/current/jobroute --config /home/ubuntu/.config/jobroute/allowlist.toml --profile grok-ermes; echo "exit $? (expect 2)"
+rc=0; SSH_ORIGINAL_COMMAND=help /home/ubuntu/.local/lib/jobroute/current/jobroute --config /home/ubuntu/.config/jobroute/allowlist.toml --profile grok-ermes || rc=$?
+[ "$rc" = 2 ] || { echo "expected refusal (2) for grok-ermes, got $rc"; exit 1; }
 # then Infra step 3 (authorized_keys), then the Hermes config for ONE profile, then the live test
 ```
 

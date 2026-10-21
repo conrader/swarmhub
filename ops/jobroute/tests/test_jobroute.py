@@ -323,6 +323,22 @@ def test_mcp_session(env):
     assert [a["mode"] for a in env.audit() if a["op"] == "submit"] == ["mcp", "mcp"]
 
 
+def test_mcp_lone_surrogate_brief_refused_and_audited(env):
+    rc, r = mcp(env, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "submit_job",
+                      "arguments": {"engine": "claude", "label": "sur", "brief": "x\ud800"}}})
+    assert rc == 0 and r[1]["result"]["isError"] is True and env.calls() == []
+    row = env.audit()[-1]
+    assert row["op"] == "submit" and row["result"] == "refused" and row["label"] == "sur" and row["brief_sha256"]
+
+
+def test_mcp_bad_arguments_audited_with_sha(env):
+    mcp(env, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "submit_job",
+              "arguments": {"engine": "claude", "label": "x", "brief": "b", "command": "id"}}})
+    row = env.audit()[-1]
+    assert row["result"] == "refused" and row["label"] == "x"
+    assert row["brief_sha256"] == hashlib.sha256(b"b").hexdigest()
+
+
 def test_mcp_also_via_explicit_command(env):
     rc, r = mcp(env, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, cmd="mcp")
     assert rc == 0 and len(r[1]["result"]["tools"]) == 2

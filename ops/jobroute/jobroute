@@ -102,7 +102,13 @@ def call_tool(route: Route, name: str, args: dict) -> dict:
         return _call_tool(route, name, args)
     except Refused as e:
         if not getattr(e, "audited", False):
-            route.audit("parse", "mcp", "refused", reason=e.reason, tool=str(name)[:40])
+            extra = {}
+            if isinstance(args, dict) and isinstance(args.get("brief"), str):
+                b = args["brief"].encode("utf-8", "surrogatepass")
+                extra = {"brief_sha256": hashlib.sha256(b).hexdigest(), "brief_bytes": len(b)}
+            if isinstance(args, dict) and isinstance(args.get("label"), str):
+                extra["label"] = args["label"][:64]
+            route.audit("parse", "mcp", "refused", reason=e.reason, tool=str(name)[:40], **extra)
         raise
 
 
@@ -119,7 +125,9 @@ def _call_tool(route: Route, name: str, args: dict) -> dict:
         brief = args.get("brief")
         if not isinstance(brief, str):
             raise Refused("brief must be a string")
-        return route.submit("mcp", args.get("engine"), args.get("label"), args.get("workdir"), brief.encode("utf-8"))
+        # surrogatepass: a lone surrogate reaches check_brief as invalid UTF-8 and is refused + audited
+        return route.submit("mcp", args.get("engine"), args.get("label"), args.get("workdir"),
+                            brief.encode("utf-8", "surrogatepass"))
     return route.status("mcp", args.get("job_id"), args.get("limit", 10))
 
 
