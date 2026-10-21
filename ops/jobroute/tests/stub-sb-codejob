@@ -7,7 +7,7 @@ STUB_PID      pid written into the status file (default: none -> job reads as "l
 STUB_FAIL     exit 1 without printing a status line
 STUB_SLEEP    seconds to hang after writing the status file, before printing it (a slow launch)
 """
-import datetime, json, os, pathlib, sys, time, uuid
+import datetime, json, os, pathlib, re, sys, time, uuid
 
 argv = sys.argv[1:]
 rec_dir = pathlib.Path(os.environ["STUB_RECORD"])
@@ -18,7 +18,8 @@ name = uuid.uuid4().hex
 if os.environ.get("STUB_FAIL"):
     sys.exit(1)
 agent = argv[argv.index("--agent") + 1]
-label = argv[argv.index("--label") + 1]
+# Same filename normalization as sb-codejob.slugify; retain the original argv above.
+label = re.sub(r"[^A-Za-z0-9._-]+", "-", argv[argv.index("--label") + 1]).strip("-._")[:40] or "job"
 d = pathlib.Path(os.environ["STUB_WORKROOT"]) / agent
 d.mkdir(parents=True, exist_ok=True)
 ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")

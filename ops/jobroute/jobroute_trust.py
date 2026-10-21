@@ -2,7 +2,7 @@
 
 The route execs sb-codejob, and sb-codejob execs the engine, as the route user with the bot's
 brief. Before each launch the route checks sb-codejob, the engine binary found on the route
-PATH, both their resolved real paths, every directory above them and every PATH directory.
+PATH, every symlink hop and its parent directories, and every PATH directory.
 Each must be owned by the route user or by the filesystem root's owner, and must not be
 group/world-writable. The one exception is a sticky directory owned by the root owner
 (like /tmp): others cannot rename or replace entries in it they do not own, and every entry
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import stat
+from collections import deque
 
 
 def owners() -> tuple[int, int]:
@@ -20,17 +21,11 @@ def owners() -> tuple[int, int]:
     return os.geteuid(), os.stat("/").st_uid
 
 
-def _prefixes(path: str) -> list[str]:
-    """'/a/b/c' -> ['/', '/a', '/a/b', '/a/b/c']"""
-    parts = [p for p in path.split("/") if p]
-    return ["/"] + ["/" + "/".join(parts[:i]) for i in range(1, len(parts) + 1)]
-
-
 def _entry_problem(path: str, st: os.stat_result, who: tuple[int, int]) -> str | None:
-    if stat.S_ISLNK(st.st_mode):
-        return None          # its own mode is meaningless: the directory holding it and its target are checked
     if st.st_uid not in who:
         return f"{path} is not owned by the route user or root"
+    if stat.S_ISLNK(st.st_mode):
+        return None          # its mode is meaningless; its owner, containing directory and target are checked
     if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         if stat.S_ISDIR(st.st_mode) and st.st_mode & stat.S_ISVTX and st.st_uid == who[1]:
             return None
@@ -39,22 +34,46 @@ def _entry_problem(path: str, st: os.stat_result, who: tuple[int, int]) -> str |
 
 
 def chain_problem(path: str, must_exist: bool = True, who: tuple[int, int] | None = None) -> str | None:
-    """Why `path` could be swapped by someone else, or None. Checks every component of its lexical
-    and of its resolved form. A missing tail is fine only when must_exist is false (a PATH entry)."""
+    """Why `path` could be swapped by someone else, or None. Expand symlinks one hop at a time
+    so no intermediate target or parent is skipped. A missing tail is fine only when
+    must_exist is false (a PATH entry)."""
     who = who or owners()
     if not os.path.isabs(path) or ".." in path.split("/"):
         return f"{path} must be an absolute path without '..'"
-    for form in dict.fromkeys((os.path.normpath(path), os.path.realpath(path))):
-        for comp in _prefixes(form):
-            try:
-                st = os.lstat(comp)
-            except FileNotFoundError:
-                if must_exist:
-                    return f"{comp} does not exist"
-                break
+    problem = _entry_problem("/", os.lstat("/"), who)
+    if problem:
+        return problem
+    pending = deque(path.split("/"))
+    current, hops = "/", 0
+    while pending:
+        part = pending.popleft()
+        if part in ("", "."):
+            continue
+        if part == "..":
+            current = os.path.dirname(current)
+            continue
+        comp = os.path.join(current, part)
+        try:
+            st = os.lstat(comp)
             problem = _entry_problem(comp, st, who)
             if problem:
                 return problem
+            if stat.S_ISLNK(st.st_mode):
+                hops += 1
+                if hops > 40:
+                    return f"{path} has too many symlink hops"
+                target = os.readlink(comp)
+                if os.path.isabs(target):
+                    current = "/"
+                # Do not normalize away '..': a directory traversed before it must be
+                # checked even if the final resolved path no longer contains it.
+                pending.extendleft(reversed(target.split("/")))
+            else:
+                current = comp
+        except FileNotFoundError:
+            return f"{comp} does not exist" if must_exist else None
+        except OSError as exc:
+            return f"{comp} cannot be inspected ({exc.strerror})"
     return None
 
 

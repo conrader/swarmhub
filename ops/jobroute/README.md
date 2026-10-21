@@ -77,7 +77,11 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
     `flock` (bounded 5 s wait), before the launch; the lock is not held during the launch.
     A launch that is killed or times out keeps its reservation: it counts toward the limits,
     and once its launcher is gone the route matches it to the job's sb-codejob status file
-    (same label, engine argv and workdir, named within 5 min) and audits a `recover` row.
+    (same sb-codejob-normalized label, engine argv and workdir, named within 5 min of
+    the reservation) and audits a `recover` row. Recovery has no age cutoff: a first
+    query days later still recovers the job and counts it against the running limit.
+    Trailing hyphens/underscores are stripped only for filename matching; status and
+    audit rows keep the submitted label.
   - Exceeding a limit exits with code 3 and is logged as `rate_limited`.
 - **Audit.** `~/.local/state/jobroute/audit.jsonl` (mode 600) gets one JSON line for every
   submit, status call, parse refusal and refused profile. Each line records `ts`,
@@ -98,7 +102,7 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
     `ubuntu`, or is group- or world-writable.
   - Before every launch the route checks what it would exec: `sb_codejob`, the engine
     binary found on the route `path` (passed to sb-codejob as that absolute path), the
-    resolved real path of each, every directory above them, and every `path` entry (which
+    every symlink hop and its parent directories, and every `path` entry (which
     must be absolute). Each must be owned by `ubuntu` or root and not group/world-writable;
     a root-owned sticky directory such as `/tmp` is accepted. Otherwise the submit is
     refused (`error`, "launch refused: untrusted …") and nothing runs. On ovh (2026-10-21)
@@ -162,6 +166,7 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
 | `tests/test_jobroute.py` | pytest: wrapper called with `SSH_ORIGINAL_COMMAND` (stub sb-codejob), plus one run against a copy of the real sb-codejob with a stub engine |
 | `tests/test_jobroute_guards.py` | per-bot workdir allowlist, prod-path denylist, symlink escapes, brief size, refusal audit, claude flags |
 | `tests/test_jobroute_p2.py` | pre-launch exec trust check, reservation before launch (killed/timed-out launch recovery), audited misconfigured profile |
+| `tests/test_jobroute_p3.py` | intermediate symlink targets and parent trust, audited refusals, relative targets, loops and missing targets |
 | `tests/test_installer_p2.py` | full undo after a real submit, stale `install-state.new` |
 | `tests/test_check_hermes_tools.py` | the tool check, locally and through a fake `ssh` |
 | `tests/sandbox_ssh.sh` | throwaway sshd in the sandbox: real ssh client against the production options string |

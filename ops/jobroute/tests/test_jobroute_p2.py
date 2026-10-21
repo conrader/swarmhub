@@ -5,6 +5,7 @@ Same harness as test_jobroute.py, run only inside tests/run-sandbox.sh.
 """
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import os
@@ -155,34 +156,54 @@ def test_trust_helper_owner_and_sticky_rules(tmp_path):
 
 
 # ---------------------------------------------------------------- 3. reservation before launch
-def test_killed_launch_keeps_reservation_and_is_recovered(tmp_path):
+@pytest.mark.parametrize("label", ["slow", "task_", "task-", "task_-_"])
+@pytest.mark.parametrize("age_days", [0, 2])
+@pytest.mark.parametrize("first_query", ["status", "submit"])
+def test_killed_launch_keeps_reservation_and_is_recovered(tmp_path, label, age_days, first_query):
     env = Env(tmp_path, running=1, extra_env=f'STUB_PID = "{os.getpid()}"\nSTUB_SLEEP = "20"')
-    penv = {"PATH": "/usr/bin:/bin", "SSH_ORIGINAL_COMMAND": "submit engine=claude label=slow",
+    penv = {"PATH": "/usr/bin:/bin", "SSH_ORIGINAL_COMMAND": f"submit engine=claude label={label}",
             "SSH_CONNECTION": "195.201.33.222 50000 145.239.94.119 49123"}
     p = subprocess.Popen([str(ROUTE), "--config", str(env.cfg), "--profile", "grok-admin"], env=penv,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     p.stdin.write(b"A slow launch.\n")
     p.stdin.close()
     deadline = time.monotonic() + 20
-    while not list((tmp_path / "work/Admin").glob("*-slow.json")) and time.monotonic() < deadline:
+    normalized = label.rstrip("-_")
+    while not list((tmp_path / "work/Admin").glob(f"*-{normalized}.json")) and time.monotonic() < deadline:
         time.sleep(0.05)
-    [record] = (tmp_path / "work/Admin").glob("*-slow.json")    # sb-codejob detached the job...
+    [record] = (tmp_path / "work/Admin").glob(f"*-{normalized}.json")  # sb-codejob detached the job...
     # ...and before the launch returned, the route had already reserved and audited it.
     [reserved] = index_rows(env)
-    assert reserved["label"] == "slow" and reserved["launcher"]["pid"] == p.pid
+    assert reserved["label"] == label and reserved["launcher"]["pid"] == p.pid
     assert [r["result"] for r in env.audit()] == ["launching"]
     # Kill exactly our own child, the route, mid-launch (as the CLI alarm would).
     cmdline = pathlib.Path(f"/proc/{p.pid}/cmdline").read_bytes().split(b"\0")
     assert p.poll() is None and str(ROUTE).encode() in cmdline
+    checked = subprocess.check_output(["ps", "-ww", "-o", "pid,pgid,cmd", "-p", str(p.pid)], text=True)
+    print(checked, end="")
+    assert checked.splitlines()[1].split()[0] == str(p.pid) and str(ROUTE) in checked
     p.send_signal(signal.SIGKILL)
     p.wait(timeout=10)
     p.stdout.close()
     p.stderr.close()
+    if age_days:
+        # First query is days later: age BOTH the reservation and the matching job's
+        # filename, while its pid remains alive. No earlier query can recover it.
+        reserved["t"] -= age_days * 86400
+        (tmp_path / "state/profiles/grok-admin.jsonl").write_text(json.dumps(reserved) + "\n")
+        ts = datetime.datetime.fromtimestamp(reserved["t"], datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        record = record.rename(record.with_name(f"{ts}-{normalized}.json"))
+    if first_query == "submit":
+        rc, [out] = submit(env, args="engine=claude label=next")
+        assert rc == 3 and "already running" in out["error"]  # submit itself must recover before rate checking
+        assert len(env.calls()) == 1
     rc, [st] = env.run("status")
     assert rc == 0 and [j["job_id"] for j in st["jobs"]] == [record.stem]
     assert st["jobs"][0]["state"] == "running"
+    assert st["jobs"][0]["label"] == label
     rec = [r for r in env.audit() if r["op"] == "recover"]
     assert len(rec) == 1 and rec[0]["job_id"] == record.stem and rec[0]["launch"] == reserved["launch"]
+    assert rec[0]["label"] == label
     assert index_rows(env)[-1] == {"launch": reserved["launch"], "id": record.stem, "recovered": True}
     rc, [out] = submit(env, args="engine=claude label=next")
     assert rc == 3 and "already running" in out["error"]           # the recovered job counts

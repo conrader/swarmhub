@@ -370,13 +370,15 @@ SB_COPY = os.environ.get("JOBROUTE_SB_COPY")   # dir with bin/sb-codejob(+watch)
 
 
 @pytest.mark.skipif(not SB_COPY, reason="set JOBROUTE_SB_COPY to a copy of ~/sb/{bin,lib/sbscan}")
-def test_real_sb_codejob_with_stub_engine(tmp_path):
+@pytest.mark.parametrize("label", ["integ", "task_", "task-", "task_-_"])
+def test_real_sb_codejob_with_stub_engine(tmp_path, label):
     extra = (f'SB_CODEJOB_WORKROOT = "{tmp_path}/work"\nSB_CODEJOB_MODELS_LOG = "{tmp_path}/models.log"\n'
              f'SB_CODEJOB_WAKE_ENV = "{tmp_path}/no-wake.env"\nSB_CODEJOB_STATE_DIR = "{tmp_path}/cj-state"')
     e = Env(tmp_path, extra_env=extra, sb_codejob=pathlib.Path(SB_COPY) / "bin/sb-codejob")
     brief = b"Integration brief $(id) ; `x`\n"
-    rc, [out] = e.run("submit engine=stub label=integ", brief, profile="grok-stub")
+    rc, [out] = e.run(f"submit engine=stub label={label}", brief, profile="grok-stub")
     assert rc == 0, out
+    assert out["label"] == label and out["job_id"].endswith("-" + label.rstrip("-_"))
     status = tmp_path / "work/Stub" / f"{out['job_id']}.json"
     for _ in range(100):
         rec = json.loads(status.read_text())
@@ -388,5 +390,6 @@ def test_real_sb_codejob_with_stub_engine(tmp_path):
     assert f"stub-engine brief sha256: {hashlib.sha256(brief).hexdigest()}" in log
     rc, [st] = e.run(f"status job={out['job_id']}", profile="grok-stub")
     assert rc == 0 and st["jobs"][0]["state"] == "done" and st["jobs"][0]["exit_code"] == 0
+    assert st["jobs"][0]["label"] == label
     assert e.audit()[0]["brief_sha256"] == hashlib.sha256(brief).hexdigest()
     shutil.rmtree(tmp_path / "work", ignore_errors=True)

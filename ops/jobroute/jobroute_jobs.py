@@ -64,7 +64,7 @@ class JobIndex:
         """Call with the lock held. Resolve reservations whose launcher died or gave up."""
         claimed = {j["id"] for j in jobs if j.get("id")}
         for j in jobs:
-            if (j.get("id") or "launch" not in j or time.time() - j.get("t", 0) > 86400
+            if (j.get("id") or "launch" not in j
                     or (not j.get("abandoned") and _launcher_alive(j.get("launcher")))):
                 continue
             job_id = self._find_record(j, claimed)
@@ -81,6 +81,11 @@ class JobIndex:
         label = j.get("label")
         if not isinstance(label, str) or not LABEL_RX.fullmatch(label):
             return None
+        # sb-codejob.slugify strips '-._' at both ends before truncating to 40 chars.
+        # Accepted route labels already start alphanumeric, contain no dots and fit in
+        # 40 chars, so only trailing hyphens/underscores can change. Keep the submitted
+        # label in the reservation/audit; match the filename using sb-codejob's label.
+        label = label.rstrip("-_")
         rx = re.compile(r"([0-9]{8}T[0-9]{6}Z)-" + re.escape(label) + r"(-[0-9]{1,2})?")
         best = None
         for f in (self.job_root / self.agent).glob(f"*Z-{label}*.json"):
