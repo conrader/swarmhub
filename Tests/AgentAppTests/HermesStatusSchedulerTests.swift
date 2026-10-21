@@ -125,7 +125,7 @@ private func statusRequest(_ path: String = "health", host: String = "status.tes
 }
 
 @Test @MainActor func cancelledQueuedStatusNeverReachesTheServer() async throws {
-    let scheduler = HermesStatusScheduler(timing: .init(tick: .milliseconds(1), spacing: 0, debounce: 1, jitter: { 0 }))
+    let scheduler = HermesStatusScheduler(timing: .init(tick: .milliseconds(1), spacing: 0, debounce: 1, jitter: { 0 }, now: { Date(timeIntervalSince1970: 0) }))
     let calls = AwaitableLog<Bool>()
     let reader = Task { try await scheduler.read(statusRequest(), scope: "key") { calls.append(true); return statusRead() } }
     try await waitUntil { await scheduler.pendingReadCount == 1 }
