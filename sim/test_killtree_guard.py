@@ -40,28 +40,38 @@ def functions(*names):
 
 
 # A synthetic host: init and kthreadd, this shell's parent and grandparent (ancestors), this shell, a child with a
-# grandchild (the job's own tree), and a foreign process. $$ and $PPID are the real ones of the `sh` running this.
+# grandchild (the job's own tree), and a foreign process. Synthetic PIDs exceed kernel limits so a busy PID
+# namespace cannot recycle one as the real $$ or $PPID of the shell running the fixture.
 HARNESS = r'''
 set -u
 : > "$LOG"
 kill() { printf 'kill %s\n' "$*" >> "$LOG"; }
 sleep() { :; }
-ps() { printf '%s\n' "1 0" "2 0" "900 1" "$PPID 900" "$$ $PPID" "5001 $$" "5002 5001" "5003 5002" "6001 1" "6002 6001" "33 2"; }
+listing() { printf '%s\n' "1 0" "2 0" "1900000000 1" "$PPID 1900000000" "$$ $PPID" "1500000001 $$" "1500000002 1500000001" "1500000003 1500000002" "1600000001 1" "1600000002 1600000001" "33 2"; }
+ps() { listing | awk '{print $0, "700 800 Wed Oct 21 12:00:00 2026"}'; }
 case $(command -V kill) in *function*) ;; *) echo "kill is not the recorder" >&2; exit 99 ;; esac
 '''
 
 
-def run_shell(body):
+def run_shell(body, shell="sh"):
     with tempfile.TemporaryDirectory() as d:
         logfile = Path(d) / "kills"
         script = HARNESS + functions("tree", "tree_pids", "signalable", "kill_tree") + body
-        proc = subprocess.run(["sh", "-c", script, "sh"], env=dict(os.environ, LOG=str(logfile)),
+        proc = subprocess.run([shell, "-c", script, shell], env=dict(os.environ, LOG=str(logfile)),
                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
         assert proc.returncode != 99, proc.stderr
         return proc, logfile.read_text() if logfile.exists() else ""
 
 
 class CodeJobKillTreeTests(unittest.TestCase):
+    def after_term(self, awk):
+        # Capture the mocked listing before overriding ps. sleep changes the fixture, never a real process.
+        return ('ps > "$LOG.before"\n'
+                'awk %s "$LOG.before" > "$LOG.after"\n'
+                'ps() { if [ -f "$LOG.next" ]; then cat "$LOG.next"; else cat "$LOG.before"; fi; }\n'
+                'sleep() { cp "$LOG.after" "$LOG.next"; }\n'
+                'kill_tree 1500000001; echo done=$?\n') % shlex.quote(awk)
+
     def test_bad_roots_signal_nothing_and_say_so(self):
         for root in BAD_ROOTS:
             with self.subTest(root=root):
@@ -72,7 +82,7 @@ class CodeJobKillTreeTests(unittest.TestCase):
                     self.assertIn("code-job: not signalling", proc.stderr)
 
     def test_this_shell_its_ancestors_and_foreign_processes_are_refused(self):
-        for root in ('"$$"', '"$PPID"', "900", "6001", "6002", "33", "2", "5002", "424242"):
+        for root in ('"$$"', '"$PPID"', "1900000000", "1600000001", "1600000002", "33", "2", "1500000002", "1424242424"):
             with self.subTest(root=root):
                 proc, kills = run_shell("kill_tree %s; echo done=$?" % root)
                 self.assertEqual(kills, "", proc.stderr)
@@ -80,55 +90,144 @@ class CodeJobKillTreeTests(unittest.TestCase):
                 self.assertIn("code-job: not signalling", proc.stderr)
 
     def test_tree_lists_nothing_for_bad_roots_and_never_an_ancestor(self):
-        for root in [shlex.quote(r) for r in BAD_ROOTS] + ['"$$"', '"$PPID"', "900", "6001", "5002"]:
+        for root in [shlex.quote(r) for r in BAD_ROOTS] + ['"$$"', '"$PPID"', "1900000000", "1600000001", "1500000002"]:
             with self.subTest(root=root):
                 proc, _ = run_shell("tree %s" % root)
                 self.assertEqual(set(proc.stdout.split()) - {"end"}, set(), proc.stdout)
 
     def test_own_child_tree_is_signalled_term_then_kill_and_nothing_else(self):
-        proc, kills = run_shell('kill_tree 5001; echo done=$?')
+        proc, kills = run_shell('kill_tree 1500000001; echo done=$?')
         self.assertIn("done=0", proc.stdout)
         lines = kills.splitlines()
-        self.assertEqual(lines[0].split(), ["kill", "-TERM", "5001", "5002", "5003"], kills)
+        self.assertEqual(lines[0].split(), ["kill", "-TERM", "1500000001", "1500000002", "1500000003"], kills)
         self.assertEqual(lines[1].split()[:2], ["kill", "-KILL"], kills)
-        self.assertEqual(set(lines[1].split()[2:]), {"5001", "5002", "5003"}, kills)
+        self.assertEqual(set(lines[1].split()[2:]), {"1500000001", "1500000002", "1500000003"}, kills)
         self.assertEqual(len(lines), 2, kills)
 
     def test_signalable_accepts_only_plain_pids_above_one_other_than_this_shell(self):
         proc, kills = run_shell(
-            'for p in "" 0 1 -1 abc "1 2" "$$" 5001 6001; do signalable "$p" && echo "yes:$p" || echo "no:$p"; done')
+            'for p in "" 0 1 -1 abc "1 2" "$$" 1500000001 1600000001; do signalable "$p" && echo "yes:$p" || echo "no:$p"; done')
         self.assertEqual(kills, "")
         got = proc.stdout.split()
-        self.assertEqual([g for g in got if g.startswith("yes:")], ["yes:5001", "yes:6001"], got)
+        self.assertEqual([g for g in got if g.startswith("yes:")], ["yes:1500000001", "yes:1600000001"], got)
 
     def test_code_job_never_falls_back_to_the_bare_root(self):
         """The old kill_tree killed `${READ_OUTPUT:-$1}`: an empty listing still signalled the root itself."""
         self.assertNotIn("${READ_OUTPUT:-$1}", CODE_JOB.read_text())
 
+    def test_delayed_kill_refuses_reused_pid_and_changed_boundaries(self):
+        for change in ('$8="12:00:01"', '$2=1600000001', '$3=701', '$4=801'):
+            with self.subTest(change=change):
+                proc, kills = run_shell(self.after_term('{ if ($1 == 1500000003) { %s }; print }' % change))
+                self.assertIn("done=0", proc.stdout, proc.stderr)
+                self.assertIn("1500000003", kills.splitlines()[0])
+                self.assertEqual(set(kills.splitlines()[1].split()[2:]), {"1500000001", "1500000002"}, kills)
+
+    def test_missing_or_incomplete_identity_never_uses_cached_pids(self):
+        for listing in ('{ if ($1 != 1500000003) print }', '{ print $1, $2 }', 'BEGIN { exit }'):
+            with self.subTest(listing=listing):
+                proc, kills = run_shell(self.after_term(listing))
+                self.assertIn("done=0", proc.stdout, proc.stderr)
+                self.assertNotIn("1500000003", "\n".join(kills.splitlines()[1:]))
+                if listing != '{ if ($1 != 1500000003) print }':
+                    self.assertEqual(len(kills.splitlines()), 1, kills)
+
+    def test_original_orphans_are_killed_after_the_root_exits(self):
+        proc, kills = run_shell(self.after_term('{ if ($1 == 1500000001) next; if ($1 == 1500000002) $2=1; print }'))
+        self.assertIn("done=0", proc.stdout, proc.stderr)
+        self.assertEqual(set(kills.splitlines()[1].split()[2:]), {"1500000002", "1500000003"}, kills)
+
+    def test_reused_root_cannot_admit_new_foreign_descendants(self):
+        proc, kills = run_shell(self.after_term(
+            '{ if ($1 == 1500000001) $8="12:00:01"; print } END { print "1500000004 1500000001 700 800 Wed Oct 21 12:00:01 2026" }'))
+        self.assertIn("done=0", proc.stdout, proc.stderr)
+        self.assertEqual(set(kills.splitlines()[1].split()[2:]), {"1500000002", "1500000003"}, kills)
+
+    def test_new_descendants_of_the_original_root_are_included(self):
+        proc, kills = run_shell(self.after_term(
+            '{ print } END { print "1500000004 1500000001 700 800 Wed Oct 21 12:00:01 2026" }'))
+        self.assertIn("done=0", proc.stdout, proc.stderr)
+        self.assertEqual(set(kills.splitlines()[1].split()[2:]), {"1500000001", "1500000002", "1500000003", "1500000004"}, kills)
+
+    def test_identity_checks_also_work_under_bash_posix_mode(self):
+        proc, kills = run_shell('set -o posix\n' + self.after_term('{ if ($1 == 1500000003) $8="12:00:01"; print }'), shell="bash")
+        self.assertIn("done=0", proc.stdout, proc.stderr)
+        self.assertEqual(set(kills.splitlines()[1].split()[2:]), {"1500000001", "1500000002"}, kills)
+
+
+def process_listing(rows):
+    return "".join(f"{pid} {parent} {group} {session} Wed Oct 21 12:00:00 2026\n"
+                   for pid, parent, group, session in rows)
+
 
 class SwarmStoreTerminateTests(unittest.TestCase):
-    LISTING = "1 0\n2 0\n900 1\n%d 900\n%d %d\n5001 %d\n5002 5001\n6001 1\n6002 6001\n" % (
-        os.getppid(), os.getpid(), os.getppid(), os.getpid())
+    LISTING = process_listing([
+        (1, 0, 1, 1), (3800, 1, 700, 800), (3900, 3800, 700, 800), (4000, 3900, 700, 800),
+        (5001, 4000, 700, 800), (5002, 5001, 700, 800),  # child tree
+        (5101, 3900, 700, 800), (5102, 5101, 700, 800),  # bot-msg STREAM_PID sibling tree
+        (6001, 1, 6001, 6001), (6002, 6001, 6001, 6001),  # foreign tree
+        (6101, 3800, 700, 800), (6201, 3900, 6201, 6201)])
 
-    def run_terminate(self, pid):
-        with mock.patch.object(swarm_store.subprocess, "check_output", return_value=self.LISTING), \
+    def run_terminate(self, pid, after=None, before=None, parent=3900):
+        listing = self.LISTING if before is None else before
+        snapshots = iter([listing, listing if after is None else after])
+
+        def ps(command, **kwargs):
+            snapshot = next(snapshots)
+            # Also exercise the old two-column implementation when demonstrating the regression.
+            if "lstart=" in command:
+                return snapshot
+            return "\n".join(" ".join(row.split()[:2]) for row in snapshot.splitlines())
+
+        with mock.patch.object(swarm_store.subprocess, "check_output", side_effect=ps), \
+             mock.patch.object(swarm_store.os, "getpid", return_value=4000), \
+             mock.patch.object(swarm_store.os, "getppid", return_value=parent), \
              mock.patch.object(swarm_store.os, "kill") as kill, \
-             mock.patch.object(swarm_store.time, "sleep"), \
-             mock.patch.object(swarm_store, "process_alive", return_value=True):
+             mock.patch.object(swarm_store, "process_alive", return_value=True), \
+             mock.patch.object(swarm_store.time, "sleep"):
             swarm_store.terminate(pid)
         return kill.call_args_list
 
     def test_bad_roots_signal_nothing(self):
-        for pid in (None, "", "abc", 0, 1, -1, -5001, "0", "1", "5001", 5001.0, True, os.getpid(), os.getppid(), 900):
+        for pid in (None, "", "abc", 0, 1, -1, -5001, "0", "1", "5001", 5001.0, True, 4000, 3900, 3800):
             with self.subTest(pid=pid):
                 self.assertEqual(self.run_terminate(pid), [])
 
-    def test_a_recorded_tree_is_signalled_without_this_process_or_its_ancestors(self):
-        for pid, tree in ((5001, {5001, 5002}), (6001, {6001, 6002})):
+    def test_child_and_bot_msg_sibling_trees_are_signalled(self):
+        for pid, tree in ((5001, {5001, 5002}), (5101, {5101, 5102})):
             with self.subTest(pid=pid):
                 calls = self.run_terminate(pid)
                 self.assertEqual({c.args[0] for c in calls}, tree)
                 self.assertEqual({c.args[1] for c in calls}, {signal.SIGTERM, signal.SIGKILL})
+
+    def test_foreign_cousin_and_different_session_siblings_are_refused(self):
+        for pid in (6001, 6002, 6101, 6201, 9999):
+            with self.subTest(pid=pid):
+                self.assertEqual(self.run_terminate(pid), [])
+
+    def test_reused_pid_and_changed_boundaries_are_not_killed(self):
+        original = "5002 5001 700 800 Wed Oct 21 12:00:00 2026"
+        for changed in ("5002 5001 700 800 Wed Oct 21 12:00:01 2026",
+                        "5002 6001 700 800 Wed Oct 21 12:00:00 2026",
+                        "5002 5001 701 800 Wed Oct 21 12:00:00 2026",
+                        "5002 5001 700 801 Wed Oct 21 12:00:00 2026", ""):
+            with self.subTest(changed=changed):
+                calls = self.run_terminate(5001, after=self.LISTING.replace(original, changed))
+                self.assertIn(mock.call(5002, signal.SIGTERM), calls)
+                self.assertNotIn(mock.call(5002, signal.SIGKILL), calls)
+
+    def test_same_orphan_is_still_killed(self):
+        calls = self.run_terminate(5001, after=self.LISTING.replace("5002 5001", "5002 1"))
+        self.assertIn(mock.call(5002, signal.SIGKILL), calls)
+
+    def test_unreadable_identity_fails_closed(self):
+        self.assertEqual(self.run_terminate(5001, before="5001 4000\n"), [])
+        calls = self.run_terminate(5001, after="")
+        self.assertEqual({c.args[1] for c in calls}, {signal.SIGTERM})
+
+    def test_siblings_of_an_adopted_process_are_refused(self):
+        listing = self.LISTING.replace("4000 3900", "4000 1").replace("5101 3900", "5101 1")
+        self.assertEqual(self.run_terminate(5101, before=listing, parent=1), [])
 
 
 class VerifierGuardTests(unittest.TestCase):
@@ -145,6 +244,82 @@ class VerifierGuardTests(unittest.TestCase):
         for root in (0, 1, -1, os.getpid()):
             with self.subTest(root=root), self.assertRaises(ValueError):
                 verify_signals.Supervisor(None, root, {})
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux only")
+    def test_linux_supervisor_refuses_ancestor_foreign_and_missing_roots(self):
+        import verify_signals
+        parents = {900: 1, 3900: 900, 4000: 3900, 5001: 4000, 5002: 5001, 6001: 3900}
+        with mock.patch.object(verify_signals.os, "getpid", return_value=4000), \
+             mock.patch.object(verify_signals, "status_field", side_effect=lambda pid, key: parents.get(pid)):
+            for root in (900, 3900, 6001, 5002, 9999):
+                with self.subTest(root=root), self.assertRaises(ValueError):
+                    verify_signals.Supervisor(None, root, {})
+            supervisor = verify_signals.Supervisor(None, 5001, {})
+            self.assertTrue(supervisor.descendant(5002))
+            self.assertFalse(supervisor.descendant(6001))
+
+
+class ManagedCleanupGuardTests(unittest.TestCase):
+    def test_real_home_is_refused_even_when_home_environment_was_replaced(self):
+        import live_managed
+        with tempfile.TemporaryDirectory(prefix="QA-LIVE9-") as directory:
+            suite = live_managed.ManagedSuite.__new__(live_managed.ManagedSuite)
+            suite.temp, suite.home = Path(directory), Path(directory) / "QA-home"
+            with mock.patch.dict(os.environ, {"HOME": str(suite.home)}), \
+                 mock.patch.object(live_managed.pwd, "getpwuid", return_value=mock.Mock(pw_dir=str(suite.home))), \
+                 mock.patch.object(live_managed, "children_by_home") as discover, \
+                 mock.patch.object(live_managed.os, "kill") as kill:
+                with self.assertRaises(ValueError):
+                    suite.stop_local_processes()
+                discover.assert_not_called()
+                kill.assert_not_called()
+
+    def test_only_a_system_temp_qa_home_can_be_swept(self):
+        sys.path.insert(0, str(ROOT / "sim"))
+        import live_managed
+        with tempfile.TemporaryDirectory(prefix="QA-LIVE9-") as directory:
+            temp = Path(directory)
+            (temp / "QA-home").mkdir()
+            (temp / "alias").symlink_to(Path.home(), target_is_directory=True)
+            suite = live_managed.ManagedSuite.__new__(live_managed.ManagedSuite)
+            suite.temp = temp
+            for home in (Path.home(), Path("/"), temp, temp / "home", temp / "alias"):
+                suite.home = home
+                with self.subTest(home=home), \
+                     mock.patch.object(live_managed, "children_by_home") as discover, \
+                     mock.patch.object(live_managed.os, "kill") as kill:
+                    with self.assertRaises(ValueError):
+                        suite.stop_local_processes()
+                    discover.assert_not_called()
+                    kill.assert_not_called()
+
+    def test_symlinked_qa_home_and_non_temp_qa_directory_are_refused(self):
+        import live_managed
+        with tempfile.TemporaryDirectory(prefix="QA-LIVE9-") as directory:
+            temp = Path(directory)
+            (temp / "QA-home").symlink_to(Path.home(), target_is_directory=True)
+            suite = live_managed.ManagedSuite.__new__(live_managed.ManagedSuite)
+            suite.temp, suite.home = temp, temp / "QA-home"
+            with mock.patch.object(live_managed.os, "kill") as kill:
+                with self.assertRaises(ValueError):
+                    suite.stop_local_processes()
+                suite.temp = temp / "nested" / "QA-LIVE9-fake"
+                suite.home = suite.temp / "QA-home"
+                with self.assertRaises(ValueError):
+                    suite.stop_local_processes()
+                kill.assert_not_called()
+
+    def test_valid_temporary_qa_home_still_gets_cleaned(self):
+        import live_managed
+        with tempfile.TemporaryDirectory(prefix="QA-LIVE9-") as directory:
+            suite = live_managed.ManagedSuite.__new__(live_managed.ManagedSuite)
+            suite.temp, suite.home = Path(directory), Path(directory) / "QA-home"
+            with mock.patch.object(live_managed, "children_by_home", return_value=[5001]), \
+                 mock.patch.object(live_managed.subprocess, "check_output", return_value="5001 1\n5002 5001\n"), \
+                 mock.patch.object(live_managed.time, "sleep"), \
+                 mock.patch.object(live_managed.os, "kill") as kill:
+                suite.stop_local_processes()
+            self.assertEqual(set(c.args for c in kill.call_args_list), {(pid, sig) for pid in (5001, 5002) for sig in (15, 9)})
 
 
 class TestsNeverBroadcast(unittest.TestCase):

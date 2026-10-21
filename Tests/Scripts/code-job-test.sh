@@ -478,9 +478,9 @@ done_case
 
 # 24
 case_24() {
-new_case "interrupted reads retry; exhausted process-tree reads still kill the root"
+new_case "interrupted reads retry; exhausted process identities signal nothing"
 # Exercise the shipped functions with deterministic empty reads, without sending real signals.
-sed -n '/^now() {/,/^}/p; /^read_output() {/,/^}/p; /^kill_tree() {/,/^}/p' "$JOB" > "$C/functions"
+sed -n '/^now() {/,/^}/p; /^read_output() {/,/^}/p; /^tree_pids() {/,/^}/p; /^signalable() {/,/^}/p; /^kill_tree() {/,/^}/p' "$JOB" > "$C/functions"
 cat > "$C/check-reads" <<'READS'
 . "$1/functions"
 C=$1
@@ -508,24 +508,32 @@ date() { return 0; }
 now; [ "$NOW" -eq 123 ] || exit 8
 kill() { printf '%s\n' "$*" >> "$C/kills"; }
 sleep() { :; }
-tree() { empty_then_value "$1" 456; }
+snapshot() { printf '%s\n' '1500000123 50 1500000123 1500000123 Wed Oct 21 12:00:00 2026' '1500000456 1500000123 1500000123 1500000123 Wed Oct 21 12:00:00 2026' end; }
+tree() {
+  IFS= read -r n < "$C/count"; n=$((n + 1)); echo "$n" > "$C/count"
+  if [ "$n" -lt 3 ]; then printf '%s\n' '1500000123 50 1500000123 1500000123 Wed Oct 21 12:00:00 2026'; else snapshot; fi
+  return 0
+}
 echo 0 > "$C/count"
-kill_tree 123
-grep -qx -- '-TERM 123 456' "$C/kills" || exit 9
-grep -qx -- '-KILL 123 456 123 456' "$C/kills" || exit 10
+kill_tree 1500000123
+grep -qx -- '-TERM 1500000123 1500000456' "$C/kills" || exit 9
+grep -qx -- '-KILL 1500000123 1500000456' "$C/kills" || exit 10
 : > "$C/kills"
 tree() { return 0; }
-kill_tree 123
-grep -qx -- '-TERM 123' "$C/kills" || exit 11
-grep -qx -- '-KILL 123 123' "$C/kills" || exit 12
-# Keep descendants from the first snapshot when the post-TERM read is empty.
+kill_tree 1500000123
+[ ! -s "$C/kills" ] || exit 11
+# A complete initial identity snapshot permits TERM; an empty post-TERM read must never use stale pids.
+tree() { [ -s "$C/kills" ] || snapshot; return 0; }
+kill_tree 1500000123
+grep -qx -- '-TERM 1500000123 1500000456' "$C/kills" || exit 12
+[ "$(wc -l < "$C/kills" | tr -d ' ')" -eq 1 ] || exit 13
 : > "$C/kills"
-tree() { [ -s "$C/kills" ] || echo '123 456'; return 0; }
-kill_tree 123
-grep -qx -- '-KILL 123 456 123' "$C/kills" || exit 13
+tree() { printf '%s\n' '1500000123 50 1500000123 1500000123 Wed Oct 21 12:00:00 2026'; }
+kill_tree 1500000123
+[ ! -s "$C/kills" ] || exit 14
 READS
 "$SH" "$C/check-reads" "$C" > "$C/out" 2> "$C/err"; RC=$?
-expect "read and kill fallbacks pass (got $RC)" [ "$RC" -eq 0 ]
+expect "read retries and identity refusal pass (got $RC)" [ "$RC" -eq 0 ]
 done_case
 }
 

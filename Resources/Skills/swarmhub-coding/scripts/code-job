@@ -200,29 +200,40 @@ collect_evidence() {
   else EVIDENCE=none; fi
 }
 
-# Every pid in the tree under $1 (itself included) from one ps listing, then `end` (a read cut short lacks it). Only a
+# Every process identity in the tree under $1, then `end` (a read cut short lacks it). Only a
 # live direct child of this shell is a root ($$ is the main shell in subshells too; APID, MPID and VPID are its
 # children): 0 and 1 parent every process on the host, and walking from them sent TERM, then KILL, to every process of
 # the user (2026-10-21). Any other root lists nothing; this shell and its ancestors are never listed.
 tree() {
   case $1 in ''|*[!0-9]*) return 0 ;; esac
-  ps -A -o pid= -o ppid= 2>/dev/null | awk -v root="$1" -v self="$$" '
-    { parent[$1] = $2; kids[$2] = kids[$2] " " $1 }
+  LC_ALL=C ps -A -o pid= -o ppid= -o pgid= -o sess= -o lstart= 2>/dev/null | awk -v root="$1" -v self="$$" -v previous="${2:-}" '
+    function same(p, a, n) {
+      n = split(old[p], a, " ")
+      return n == 9 && group[p] == a[3] && session[p] == a[4] && start[p] == a[5] " " a[6] " " a[7] " " a[8] " " a[9] &&
+        (parent[p] == a[2] || (p != root && (parent[p] == 1 || parent[p] == self)))
+    }
+    NF != 9 { bad = 1; next }
+    { parent[$1] = $2; kids[$2] = kids[$2] " " $1; group[$1] = $3; session[$1] = $4
+      start[$1] = $5 " " $6 " " $7 " " $8 " " $9; row[$1] = $0 }
     END {
-      if (root + 0 <= 1 || root + 0 == self + 0 || !(root in parent) || parent[root] + 0 != self + 0) { print "end"; exit }
+      if (bad || !(self in parent) || root + 0 <= 1 || root + 0 == self + 0) { print "end"; exit }
+      c = split(previous, records, "\n")
+      for (i = 1; i <= c; i++) { split(records[i], fields, " "); if (fields[1] + 0 > 1) old[fields[1]] = records[i] }
       for (p = self; p != "" && !(p in up); p = parent[p]) up[p] = 1
-      n = 1; q[1] = root; seen[root] = 1
+      n = 0
+      if (parent[root] == self && (previous == "" || same(root))) { n = 1; q[1] = root; seen[root] = 1 }
       for (i = 1; i <= n; i++) { c = split(kids[q[i]], k, " "); for (j = 1; j <= c; j++) if (!(k[j] in seen)) { seen[k[j]] = 1; q[++n] = k[j] } }
-      for (i = 1; i <= n; i++) if (q[i] + 0 > 1 && !(q[i] in up)) print q[i]
+      for (i = 1; i <= n; i++) if (q[i] + 0 > 1 && !(q[i] in up) && (!(q[i] in old) || same(q[i]))) print row[q[i]]
+      for (p in old) if (!(p in seen) && !(p in up) && p in parent && same(p)) print row[p]
       print "end"
     }'
 }
 
-# Sets TREE to the pids tree() lists for $1; fails when it lists none or every read was cut short.
+# Sets SNAPSHOT and TREE (exact positive pids); incomplete or empty identity reads fail closed.
 tree_pids() {
   for _tree_try in 1 2 3 4 5; do
-    TREE=$(tree "$1")
-    case $TREE in *end) TREE=${TREE%end}; case $TREE in *[0-9]*) return 0 ;; esac; break ;; '') break ;; esac
+    SNAPSHOT=$(tree "$1" "${2:-}")
+    case $SNAPSHOT in *end) SNAPSHOT=${SNAPSHOT%end}; TREE=$(printf '%s' "$SNAPSHOT" | awk 'NF == 9 { print $1 }'); [ -n "$TREE" ] && return 0; break ;; '') break ;; esac
   done
   TREE=; return 1
 }
@@ -241,18 +252,18 @@ tree_rss() {
 }
 
 # TERM, then KILL, the tree under $1. Anything but this job's own child tree is refused with a line on stderr and
-# nothing is signalled; the KILL pass covers the first listing too, so children orphaned meanwhile still go.
+# nothing is signalled. KILL rechecks start time, parent and PGID/session, including cached orphans. New descendants
+# are admitted only while the original root identity still matches; a missing identity never falls back to a pid.
 kill_tree() {
   [ -n "$1" ] || return 0
   if ! signalable "$1" || ! tree_pids "$1"; then
     echo "code-job: not signalling pid '$1': not a live child of this job" >&2
     return 0
   fi
-  pids=$TREE
-  kill -TERM $pids 2>/dev/null
+  snapshot=$SNAPSHOT
+  kill -TERM $TREE 2>/dev/null
   sleep 1
-  tree_pids "$1" && pids="$pids $TREE"
-  kill -KILL $pids 2>/dev/null
+  tree_pids "$1" "$snapshot" && kill -KILL $TREE 2>/dev/null
   return 0
 }
 

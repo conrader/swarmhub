@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import secrets
 import shutil
@@ -543,6 +544,13 @@ class ManagedSuite(ChainMixin, BehaviorSuite):
             return db.execute("SELECT COALESCE(max(attempts),0) FROM deliveries WHERE status='pending'").fetchone()[0]
 
     def stop_local_processes(self):
+        # HOME is an environment value, so Path.home() alone cannot identify the real user's home.
+        # Only the disposable QA-home under this suite's system-temp directory may be swept.
+        home, temp = self.home.resolve(), self.temp.resolve()
+        real_home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+        if (home == real_home or home != temp / "QA-home" or not temp.name.startswith("QA-LIVE9-")
+                or temp.parent != Path(tempfile.gettempdir()).resolve()):
+            raise ValueError("refusing process cleanup outside a temporary QA home")
         children = set(children_by_home(str(self.home)))
         # Include descendants whose sandbox correctly replaced HOME. Retain this
         # snapshot so an orphan cannot escape the final kill by being reparented.

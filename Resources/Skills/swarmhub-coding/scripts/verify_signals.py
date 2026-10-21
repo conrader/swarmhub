@@ -77,7 +77,8 @@ def process_group(pid):
 
 class Supervisor:
     def __init__(self, listener, root, syscall_names):
-        if type(root) is not int or root <= 1 or root == os.getpid():
+        if (type(root) is not int or root <= 1 or root == os.getpid()
+                or status_field(root, 'PPid') != os.getpid()):
             raise ValueError('the sandbox root must be a child pid above 1, not %r' % (root,))  # killpg(1)/descendant()
         self.listener, self.root, self.launcher = listener, root, os.getpid()
         self.names = syscall_names  # syscall number -> name, resolved by the caller through libseccomp

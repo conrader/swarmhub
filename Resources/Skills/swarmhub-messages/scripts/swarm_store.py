@@ -144,25 +144,55 @@ def invoking_profile(environ=None):
     return None
 
 
+def process_snapshot():
+    """One ps view: pid -> (parent, process group, session, start time). Unknown identity fails closed."""
+    try:
+        listing = subprocess.check_output(
+            ["ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "pgid=", "-o", "sess=", "-o", "lstart="],
+            text=True, env=dict(os.environ, LC_ALL="C"))
+        result = {}
+        for line in listing.splitlines():
+            fields = line.split()
+            if len(fields) != 9:
+                return {}
+            pid, parent, group = map(int, fields[:3])
+            result[pid] = (parent, group, fields[3], " ".join(fields[4:]))
+        return result
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {}
+
+
+def same_process(before, after, adopters=()):
+    """Same incarnation and PGID/session; only explicitly allowed reparenting is accepted."""
+    return bool(before and after and before[1:] == after[1:]
+                and (before[0] == after[0] or after[0] in adopters))
+
+
 def terminate(pid):
-    # Used only with child PIDs held by bot-msg, not caller-supplied task metadata. 0 and 1 parent every process on
-    # the host, and so does an ancestor of ours (2026-10-21, code-job's kill_tree): those are refused, and this process
-    # and its ancestors are never signalled.
+    # bot-msg invokes swarmctl for its STREAM_PID: that root is swarmctl's sibling, not its child.
+    # Admit our descendants, or siblings in our own parent/group/session; never a foreign or ancestor root.
     if type(pid) is not int or pid <= 1 or pid == os.getpid():
         print(f"swarm_store: not signalling pid {pid!r}", file=sys.stderr)
         return
-    pairs = subprocess.check_output(["ps", "-A", "-o", "pid=", "-o", "ppid="], text=True)
-    rows = [tuple(map(int, line.split())) for line in pairs.splitlines()]
-    parents, ancestors, up = dict(rows), set(), os.getpid()
+    rows = process_snapshot()
+    me, parent = os.getpid(), os.getppid()
+    parents = {child: row[0] for child, row in rows.items()}
+    ancestors, up = set(), me
     while up not in ancestors and up > 0:
         ancestors.add(up)
         up = parents.get(up, 0)
-    if pid in ancestors:
-        print(f"swarm_store: not signalling pid {pid}: an ancestor of this process", file=sys.stderr)
+    up, seen = pid, set()
+    while up > 1 and up not in seen and up != me:
+        seen.add(up)
+        up = parents.get(up, 0)
+    sibling = (parent > 1 and parents.get(me) == parent and parents.get(pid) == parent
+               and rows[pid][1:3] == rows[me][1:3])
+    if pid not in rows or pid in ancestors or not (up == me or sibling):
+        print(f"swarm_store: not signalling pid {pid}: outside this process's child/sibling trees", file=sys.stderr)
         return
     ids = {pid}
     while True:
-        expanded = ids | {child for child, parent in rows if parent in ids}
+        expanded = ids | {child for child, parent in parents.items() if parent in ids}
         if expanded == ids:
             break
         ids = expanded
@@ -173,8 +203,9 @@ def terminate(pid):
         except ProcessLookupError:
             pass
     time.sleep(.1)
+    current = process_snapshot()
     for child in reversed(sorted(ids)):
-        if process_alive(child):
+        if same_process(rows.get(child), current.get(child), adopters=(1, me) if child != pid else ()):
             try:
                 os.kill(child, signal.SIGKILL)
             except ProcessLookupError:
