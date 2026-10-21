@@ -39,7 +39,9 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(skill.files.map(\.path) == (["scripts/code-job", "scripts/completion-contract.py", "scripts/scratch.py", "scripts/swarmhub-claude-login", "scripts/verify-sandbox.py", "scripts/verify_darwin.py", "scripts/verify_git.py", "scripts/verify_processes.py", "scripts/verify_signals.py"] as [String]) && script.isExecutable && script.content.hasPrefix("#!/bin/sh\n"))
     // POSIX only: none of the tools the brief rules out, no bash-only syntax.
     #expect(script.content.range(of: #"(?m)(^|[;&|(]|then|do)\s*(timeout|flock|setsid|local)\s"#, options: .regularExpression) == nil)
-    for banned in ["[[ ", "function ", "<(", "$'", "pipefail", "#!/bin/bash", "declare ", "source "] {
+    // Bash function declarations have no parameters; the tree guard's AWK function takes parameters.
+    #expect(script.content.range(of: #"(?m)(^|[;&|]|then|do)\s*function\s+[A-Za-z_][A-Za-z0-9_]*\s*(\(\s*\)\s*)?\{"#, options: .regularExpression) == nil)
+    for banned in ["[[ ", "<(", "$'", "pipefail", "#!/bin/bash", "declare ", "source "] {
         #expect(!script.content.contains(banned), "\(banned)")
     }
     #expect(!script.content.contains("SWARMHUB_EOF") && !skill.template.contains("SWARMHUB_EOF"))
