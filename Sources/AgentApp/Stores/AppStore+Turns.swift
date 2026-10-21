@@ -55,7 +55,7 @@ extension AppStore {
             case .replace(let text): row.content = text; row.lastTextAt = text.isEmpty ? nil : now(); objectWillChange.send(); autosaveIfDue()
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
-                if conversation?.id == bot.id { noteStagedSkillTool(tool, manager: bot) }
+                if conversation?.id == bot.id { noteStagedSkillTool(tool, manager: bot); notePeerEnableTool(tool, manager: bot) }
                 if tool.name == "_thinking", tool.phase == .progress { row.lastTextAt = nil }
                 if row.content.isEmpty, ToolActivity.isShown(tool.name) { row.metadata["status"] = tool.name }
                 let before = row.activity
@@ -200,7 +200,7 @@ extension AppStore {
             if !isTeamThread(conversation) { handleManagerReply(assistant, from: bot, in: conversation); handleReportOps(assistant, from: bot); refreshModelsAfterRecipe(assistant, from: bot, in: conversation) }
             startReviewIfNeeded(assistant, from: bot, in: conversation)
         }
-        if conversation.id == bot.id { finishStagedSkillInstall(manager: bot); finishSkillInstallChecks(manager: bot, reply: assistant, end: end) }
+        if conversation.id == bot.id { finishStagedSkillInstall(manager: bot, end: end); finishSkillInstallChecks(manager: bot, reply: assistant, end: end) }
         if outcome.state == .finished && hasText && !SilentReply.isSilent(SwarmhubBlock.visibleText(assistant.finalText)) {
             AvatarReactions.shared.completed(bot)
             if !isTeamThread(conversation) { notifyIfNeeded(bot: bot, message: technicalLine(assistant, botName: bot.name)) }
@@ -215,6 +215,7 @@ extension AppStore {
             routeSecretRequests(in: assistant, bot: bot, conversation: conversation)
         }
         automationTurnEnded(in: conversation, bot: bot, reply: assistant, outcome: outcome, corrected: corrected)
+        if conversation.id == bot.id { continueAllBotsSkillInstall(manager: bot, end: end) }
     }
 
     /// History for a 1:1 turn: the transcript up to and including `last`, without steer bubbles, warning lines and empty replies.

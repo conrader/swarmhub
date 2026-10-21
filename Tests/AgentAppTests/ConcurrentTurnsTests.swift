@@ -99,7 +99,45 @@ private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1
         #expect(worker.messages.last?.content == "Hi." && store.isStreaming(in: manager), "the install turn is still running")
         await reply("Installed.", backends[0])
         try await waitUntil { !store.anyTurnRunning }
-        #expect(manager.messages.last?.content == "Installed.")
+        #expect(manager.messages.last(where: { $0.role == .assistant })?.content == "Installed.")
+    }
+
+    @Test func allBotsInstallResumesAfterAQueuedManagerMessage() async throws {
+        let (store, bots, backends) = concurrentStore(["Jarvis", "First", "Second", "Third"], boxes: 1)
+        let manager = bots[0], backend = backends[0], targets = Array(bots.dropFirst())
+        let feedback = BundledSkill(name: "swarmhub-feedback", version: SkillVersion("1.0.0")!,
+            template: "---\nname: swarmhub-feedback\nversion: 1.0.0\n---\nFeedback.\n")
+        manager.canManageBots = true; manager.installedSkills[feedback.name] = "1.0.0"
+        for bot in targets { bot.hermesProfile = bot.name.lowercased() }
+        store.skillLibraryOverride = [feedback]; store.managerTemplateOverride = "manager text"
+        store.boxInstallTransport.boxes = [:]
+        #expect(store.installSkillsOnAllBots(manager: manager))
+        try await backend.calls.wait { $0.contains("send:\(AllBotsSkillCopy.request(1))") }
+
+        let bubble = ChatMessage(role: .user, content: "How is the install going?", metadata: [SteerKey.steer: "failed"])
+        manager.messages.append(bubble)
+        #expect(store.sendAsNextMessage(bubble))
+        #expect(store.turns.nextMessages.count == 1)
+
+        func installed(_ bot: Bot) -> String {
+            "Installed.\n```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"\(bot.hermesProfile!)\",\"skills\":[{\"name\":\"swarmhub-feedback\",\"version\":\"1.0.0\"}]}\n```"
+        }
+        await reply(installed(targets[0]), backend)
+        try await backend.calls.wait { $0.contains("send:How is the install going?") }
+        #expect(store.allBotsSkillQueue[manager.id]?.map(\.bot.id) == targets.dropFirst().map(\.id))
+        #expect(targets.dropFirst().allSatisfy { store.skillInstallResults[$0.id] == nil && $0.skillInstallFailures.isEmpty })
+        #expect(store.pendingSkillChecks[manager.id] == nil && store.pendingSkillInstalls[manager.id] == nil)
+
+        await reply("One bot installed; two to go.", backend)
+        try await backend.calls.wait { $0.filter { $0 == "send:\(AllBotsSkillCopy.request(1))" }.count == 2 }
+        await reply(installed(targets[1]), backend)
+        try await backend.calls.wait { $0.filter { $0 == "send:\(AllBotsSkillCopy.request(1))" }.count == 3 }
+        await reply(installed(targets[2]), backend)
+        try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty }
+        #expect(targets.allSatisfy { $0.installedSkills[feedback.name] == "1.0.0" && $0.skillInstallFailures.isEmpty && store.skillInstallResults[$0.id]?.status == .installed })
+        #expect(manager.messages.filter { $0.metadata["skill-install-result"] != nil }.count == 3)
+        #expect(backend.calls.all.filter { $0.hasPrefix("send:") } == ["send:\(AllBotsSkillCopy.request(1))", "send:How is the install going?", "send:\(AllBotsSkillCopy.request(1))", "send:\(AllBotsSkillCopy.request(1))"])
+        #expect(bubble.metadata[SteerKey.steer] == "sentNext" && store.turns.nextMessages.isEmpty)
     }
 
     @Test func aGroupTurnAndADirectChatToAMemberRunAtOnce() async throws {
