@@ -5,7 +5,7 @@
 # only log in as sbtest), on 127.0.0.1, with throwaway host/client keys and an authorized_keys
 # file using the production options string. The server itself ALLOWS pty, forwarding, agent
 # and X11, so every refusal below comes from the key's options (restrict + command=).
-# Processes are stopped by exact PID at the end; the pid namespace reaps anything left.
+# Exiting the PID namespace reaps its sshd and ssh-agent; no kill command is used.
 set -u
 stage=$1
 d=$stage/ssh
@@ -115,7 +115,5 @@ check ssh-mcp-session 'MCP submit + status over ssh -T' "$( [ "$(has "$out" 'job
 n=$(grep -c '"op": "submit"' "$d/state/audit.jsonl")
 check ssh-audit 'every submit audited with sha' "$( [ "$n" = 2 ] && [ "$(grep -c brief_sha256 "$d/state/audit.jsonl")" -ge 2 ]; echo $?)" "submits=$n"
 
-[ -n "${SSH_AGENT_PID:-}" ] && kill "$SSH_AGENT_PID"
-[ -s "$d/sshd.pid" ] && kill "$(cat "$d/sshd.pid")"
 echo "ssh harness: $fails failure(s)"
 exit $((fails > 0))

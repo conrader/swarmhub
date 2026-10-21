@@ -78,7 +78,7 @@ def _trusted(path: pathlib.Path) -> None:
 class Route:
     """One loaded allowlist bound to one profile (the profile comes from the forced command)."""
 
-    def __init__(self, config_path: str, profile: str):
+    def __init__(self, config_path: str, profile: str, refused_connect=None):
         cfg_path = pathlib.Path(config_path)
         _trusted(cfg_path)
         with cfg_path.open("rb") as f:
@@ -92,6 +92,7 @@ class Route:
         # a CLI submit's stdin must reach EOF within this (+ 60 s launch stays under the 120 s alarm)
         self.brief_read_secs = min(float(r.get("brief_read_secs", 50)), 50.0)
         self.work_root = os.path.normpath(r.get("work_root", r["job_root"]))
+        self.canonical_work_root = os.path.realpath(self.work_root)
         self.home = _forms(r.get("home", PROD_HOME))
         self.deny = set().union(*(_forms(d) for d in (*BUILTIN_DENY, *r.get("deny_paths", []))))
         self.extra_env = {str(k): str(v) for k, v in r.get("env", {}).items()}
@@ -102,13 +103,16 @@ class Route:
         self.profile = profile if PROFILE_RX.fullmatch(profile or "") else "<invalid>"
         prof = cfg.get("profiles", {}).get(self.profile)
         if not isinstance(prof, dict):
-            self.audit("connect", "-", "refused", reason="profile not allowlisted")
+            fields = refused_connect() if refused_connect else {}
+            self.audit("connect", "-", "refused", reason="profile not allowlisted", **fields)
             raise Refused("profile not allowlisted")
         self.agent = prof["agent"]
         bot = prof.get("bot")
         if not isinstance(bot, str) or not BOT_RX.fullmatch(bot) or ".." in bot:
             raise _misconfigured(f"profile {self.profile} needs bot = <directory name under {self.work_root}>")
         self.bot_root = os.path.join(self.work_root, bot)
+        # The target of a bot-root symlink must never redefine this boundary.
+        self.bot_boundary = os.path.join(self.canonical_work_root, bot)
         configured = prof.get("workdirs", [self.bot_root])
         if not configured or any(not _under(os.path.normpath(w), self.bot_root) for w in configured):
             raise _misconfigured(f"profile {self.profile} workdirs must be under {self.bot_root}")
@@ -161,7 +165,19 @@ class Route:
                 raise Refused(reason)
 
     def check_workdir(self, raw, logged: dict | None = None) -> str:
+        try:
+            if isinstance(raw, str):
+                raw.encode("utf-8")   # realpath can otherwise raise on JSON lone surrogates
+            return self._check_workdir(raw, logged)
+        except (OSError, ValueError, UnicodeError):
+            raise Refused("workdir not allowed: malformed or inaccessible path") from None
+
+    def _check_workdir(self, raw, logged: dict | None = None) -> str:
         """Resolve the realpath first, then: denylist, then this profile's bot allowlist."""
+        bot_real = os.path.realpath(self.bot_root)
+        self._refuse_prod(self.bot_root, bot_real)
+        if os.path.islink(self.bot_root) or bot_real != self.bot_boundary:
+            raise Refused("workdir not allowed: bot root must be its own directory")
         root = self.workdirs[0]
         if raw is None or raw in ("", "."):
             rel = ""
@@ -185,8 +201,7 @@ class Route:
         if logged is not None:
             logged["workdir"] = real
         self._refuse_prod(lexical, real)
-        bot_real = os.path.realpath(self.bot_root)
-        if not any(_under(real, w) for w in self.workdirs) or not _under(real, bot_real):
+        if not any(_under(real, w) for w in self.workdirs) or not _under(real, self.bot_boundary):
             raise Refused("workdir not allowed")
         if not os.path.isdir(real):
             raise Refused("workdir does not exist")
@@ -239,8 +254,7 @@ class Route:
             raise RateLimited(f"rate limit: {self.max_per_hour} submissions per hour")
         if day >= self.max_per_day:
             raise RateLimited(f"rate limit: {self.max_per_day} submissions per day")
-        recent = [j for j in jobs if now - j.get("t", 0) < 7 * 86400]
-        if self._running(recent) >= self.max_running:
+        if self._running(jobs) >= self.max_running:
             raise RateLimited(f"rate limit: {self.max_running} jobs already running")
 
     # ------------------------------------------------------------ operations
@@ -273,6 +287,10 @@ class Route:
             raise
         except Refused as e:
             self.audit("submit", mode, "refused" if e.code == 2 else "error", reason=e.reason, **logged)
+            e.audited = True
+            raise
+        except Exception as e:
+            self.audit("submit", mode, "error", reason=f"route error: {type(e).__name__}", **logged)
             e.audited = True
             raise
         self.audit("submit", mode, "ok", job_id=job_id, **logged)

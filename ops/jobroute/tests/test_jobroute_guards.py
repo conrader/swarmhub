@@ -218,3 +218,125 @@ def test_cli_brief_over_hash_cap_marked_partial(env):
     rc, [out] = submit(env, b"a" * ((16 << 20) + 10))
     row = env.audit()[-1]
     assert rc == 2 and "larger" in out["error"] and row["brief_bytes"] == 16 << 20 and row["brief_hash_partial"] is True
+
+
+# ---------------------------------------------------------------- independent review regressions (fix2)
+@pytest.mark.parametrize("protocol", ["cli", "mcp"])
+@pytest.mark.parametrize("target", ["Doc", "Admin-real"])
+def test_bot_root_symlink_cannot_redefine_boundary(env, protocol, target):
+    # Reviewer's exact cross-bot repro: work/Admin -> work/Doc, unchanged allowlist.
+    import shutil
+    admin = env.tmp / "work/Admin"
+    shutil.rmtree(admin)
+    destination = env.tmp / "work" / target
+    destination.mkdir(exist_ok=True)
+    admin.symlink_to(destination, target_is_directory=True)
+    if protocol == "cli":
+        rc, [out] = submit(env, b"root link repro", args="engine=claude label=rootlink")
+        assert rc == 2
+    else:
+        rc, r = mcp(env, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": "submit_job", "arguments": {"engine": "claude", "label": "rootlink", "brief": "root link repro"}}})
+        assert r[1]["result"]["isError"] is True
+        out = json.loads(r[1]["result"]["content"][0]["text"])
+    assert "bot root" in out["error"] and env.calls() == []
+    row = env.audit()[-1]
+    assert row["label"] == "rootlink" and row["result"] == "refused"
+    assert row["brief_sha256"] == hashlib.sha256(b"root link repro").hexdigest()
+
+
+@pytest.mark.parametrize("wd", ["/\ud800", "sub/\udfff", "/etc\0bad"])
+def test_mcp_malformed_workdir_is_audited_refusal(env, wd):
+    rc, r = mcp(env, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": "submit_job", "arguments": {"engine": "claude", "label": "pathbad", "brief": "b", "workdir": wd}}})
+    assert rc == 0 and r[1]["result"]["isError"] is True and env.calls() == []
+    body = json.loads(r[1]["result"]["content"][0]["text"])
+    assert "workdir not allowed" in body["error"] and "route error" not in body["error"]
+    assert len(env.audit()) == 1
+    row = env.audit()[0]
+    assert row["result"] == "refused" and row["label"] == "pathbad" and row["workdir_requested"] == wd
+    assert row["brief_sha256"] == hashlib.sha256(b"b").hexdigest()
+
+
+@pytest.mark.parametrize("separator", ["\t", "\n", "\r", "\v"])
+def test_cli_parse_refusal_retains_metadata_across_whitespace(env, separator):
+    rc, _ = env.run(f"submit{separator}engine=claude label=tabbed workdir=sub", b"brief sha\n")
+    assert rc == 2 and env.calls() == []
+    row = env.audit()[-1]
+    assert row["result"] == "refused" and row["label"] == "tabbed" and row["engine"] == "claude"
+    assert row["workdir_requested"] == "sub" and row["workdir"] is None
+    assert row["brief_sha256"] == hashlib.sha256(b"brief sha\n").hexdigest()
+
+
+def test_parse_refusal_metadata_is_bounded(env):
+    rc, _ = env.run("submit\tlabel=" + "l" * 200 + " workdir=" + "w" * 400, b"bounded")
+    row = env.audit()[-1]
+    assert rc == 2 and len(row["label"]) == 64 and len(row["workdir_requested"]) == 256
+    assert row["brief_sha256"] == hashlib.sha256(b"bounded").hexdigest()
+
+
+@pytest.mark.parametrize("protocol", ["cli", "mcp"])
+def test_non_allowlisted_connect_keeps_supplied_metadata(env, protocol):
+    if protocol == "cli":
+        rc, _ = env.run("submit\tengine=claude label=unknown workdir=sub", b"denied", profile="grok-ermes")
+    else:
+        message = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": "submit_job", "arguments": {"engine": "claude", "label": "unknown", "brief": "denied",
+                                                   "workdir": "sub"}}}
+        rc, _ = env.run(None, json.dumps(message).encode() + b"\n", profile="grok-ermes")
+    assert rc == 2 and env.calls() == []
+    row = env.audit()[-1]
+    assert row["op"] == "connect" and row["result"] == "refused" and row["label"] == "unknown"
+    assert row["workdir_requested"] == "sub" and row["brief_sha256"] == hashlib.sha256(b"denied").hexdigest()
+
+
+@pytest.mark.parametrize("message,reason", [
+    (b'{broken JSON}\n', "invalid JSON"),
+    (b'"not an object"\n', "must be an object"),
+    (b'[]\n', "must be an object"),
+    (b'{"jsonrpc":"1.0","id":1,"method":"ping"}\n', "invalid MCP request"),
+    (b'{"jsonrpc":"2.0","id":[],"method":"ping"}\n', "invalid MCP request"),
+    (b'{"jsonrpc":"2.0","id":true,"method":"ping"}\n', "invalid MCP request"),
+    (b'{"jsonrpc":"2.0","id":1,"method":[]}\n', "invalid MCP request"),
+    (b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":[]}\n', "invalid MCP request"),
+    (b'{"jsonrpc":"2.0","id":1,"method":"unknown"}\n', "unknown method"),
+    (b'{"jsonrpc":"2.0","method":"notifications/unknown"}\n', "unknown method"),
+])
+def test_protocol_rejections_are_audited_and_session_continues(env, message, reason):
+    rc, out = env.run(None, message + b'{"jsonrpc":"2.0","id":2,"method":"ping"}\n')
+    assert rc == 0 and out[-1] == {"jsonrpc": "2.0", "id": 2, "result": {}}
+    assert env.calls() == [] and len(env.audit()) == 1
+    row = env.audit()[0]
+    assert row["result"] == "refused" and reason in row["reason"]
+    assert row["line_sha256"] == hashlib.sha256(message).hexdigest() and row["line_bytes"] == len(message)
+
+
+def test_protocol_rejection_retains_submit_metadata(env):
+    rc, _ = mcp(env, {"jsonrpc": "2.0", "id": 1, "method": "bogus", "params": {
+        "arguments": {"engine": "claude", "label": "proto", "brief": "b", "workdir": "sub"}}})
+    row = env.audit()[-1]
+    assert row["label"] == "proto" and row["workdir_requested"] == "sub"
+    assert row["brief_sha256"] == hashlib.sha256(b"b").hexdigest() and env.calls() == []
+
+
+def test_eight_day_old_live_job_still_counts_toward_running_limit(tmp_path):
+    import time
+    e = Env(tmp_path, running=1, extra_env=f'STUB_PID = "{os.getpid()}"')
+    assert submit(e)[0] == 0
+    index = tmp_path / "state/profiles/grok-admin.jsonl"
+    row = json.loads(index.read_text())
+    row["t"] = time.time() - 8 * 86400
+    index.write_text(json.dumps(row) + "\n")
+    rc, [out] = submit(e)
+    assert rc == 3 and "already running" in out["error"] and len(e.calls()) == 1
+    assert e.run("status")[1][0]["jobs"][0]["state"] == "running"
+    assert e.audit()[-2]["result"] == "rate_limited"
+
+
+@pytest.mark.parametrize("args", [None, [], "", False])
+def test_mcp_falsey_non_object_arguments_are_refused_and_audited(env, args):
+    rc, r = mcp(env, {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": "submit_job", "arguments": args}})
+    assert rc == 0 and r[1]["result"]["isError"] is True and env.calls() == []
+    row = env.audit()[-1]
+    assert row["result"] == "refused" and row["reason"] == "arguments must be an object"

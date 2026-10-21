@@ -85,20 +85,66 @@ def read_brief(keep: int, secs: float) -> tuple[bytes, dict]:
     return bytes(kept), meta
 
 
-def audit_parse_refusal(route: Route, cmd: str, reason: str) -> None:
-    """A refused submit is still logged with what it asked for: label, workdir, brief sha256."""
+def cli_refusal_fields(cmd: str) -> dict:
+    """Extract bounded metadata for audit only; this never accepts or executes a command."""
     fields = {"cmd_sha256": hashlib.sha256(cmd.encode("utf-8", "replace")).hexdigest()}
-    tokens = [t for t in cmd.split(" ") if t]
+    tokens = cmd.split()
     if tokens and tokens[0] == "submit":
+        fields.update(label=None, engine=None, workdir_requested=None, workdir=None)
         for t in tokens[1:]:
-            key, _, value = t.partition("=")
-            if key in ("label", "workdir"):
-                fields.setdefault(key if key == "label" else "workdir_requested", value[:256])
+            key, sep, value = t.partition("=")
+            if sep and key in ("label", "engine", "workdir"):
+                field = key if key != "workdir" else "workdir_requested"
+                if fields[field] is None:
+                    fields[field] = value[:{"label": 64, "engine": 32, "workdir": 256}[key]]
         _, meta = read_brief(0, REFUSED_READ_SECS)
         fields.update(brief_sha256=meta["sha256"], brief_bytes=meta["bytes"])
         if meta["end"] != "eof":
             fields["brief_hash_partial"] = True
-    route.audit("parse", "cli", "refused", reason=reason, **fields)
+    return fields
+
+
+def mcp_fields(args) -> dict:
+    fields = {"label": None, "engine": None, "workdir_requested": None, "workdir": None}
+    if isinstance(args, dict):
+        for key, field, cap in (("label", "label", 64), ("engine", "engine", 32),
+                                ("workdir", "workdir_requested", 256)):
+            if isinstance(args.get(key), str):
+                fields[field] = args[key][:cap]
+        if isinstance(args.get("brief"), str):
+            b = args["brief"].encode("utf-8", "surrogatepass")
+            fields.update(brief_sha256=hashlib.sha256(b).hexdigest(), brief_bytes=len(b))
+    return fields
+
+
+def connect_refusal_fields(cmd: str) -> dict:
+    if cmd.strip() not in ("", "mcp"):
+        return cli_refusal_fields(cmd)
+    # A refused MCP connection gets no server. Read at most its first bounded line,
+    # waiting at most 10 s, solely to retain supplied submit metadata.
+    raw = bytearray()
+    deadline = time.monotonic() + REFUSED_READ_SECS
+    while len(raw) <= MAX_LINE and b"\n" not in raw:
+        left = deadline - time.monotonic()
+        try:
+            if left <= 0 or not select.select([0], [], [], left)[0]:
+                break
+            chunk = os.read(0, min(65536, MAX_LINE + 1 - len(raw)))
+        except (OSError, ValueError):
+            break
+        if not chunk:
+            break
+        raw.extend(chunk)
+    line = bytes(raw).split(b"\n", 1)[0]
+    if len(line) <= MAX_LINE:
+        try:
+            msg = json.loads(line)
+            params = msg.get("params") if isinstance(msg, dict) else None
+            if isinstance(params, dict):
+                return mcp_fields(params.get("arguments"))
+        except (ValueError, RecursionError):
+            pass
+    return {"line_sha256": hashlib.sha256(line).hexdigest(), "line_bytes": len(line)}
 
 
 def run_cli(route: Route, cmd: str) -> int:
@@ -106,7 +152,7 @@ def run_cli(route: Route, cmd: str) -> int:
     try:
         op, kv = parse_cli(cmd)
     except Refused as e:
-        audit_parse_refusal(route, cmd, e.reason)
+        route.audit("parse", "cli", "refused", reason=e.reason, **cli_refusal_fields(cmd))
         raise
     if op == "help":
         emit({"ok": True, "profile": route.profile, "agent": route.agent, "engines": route.allowed_engines,
@@ -149,15 +195,7 @@ def call_tool(route: Route, name: str, args: dict) -> dict:
         return _call_tool(route, name, args)
     except Refused as e:
         if not getattr(e, "audited", False):
-            extra = {}
-            if isinstance(args, dict) and isinstance(args.get("brief"), str):
-                b = args["brief"].encode("utf-8", "surrogatepass")
-                extra = {"brief_sha256": hashlib.sha256(b).hexdigest(), "brief_bytes": len(b)}
-            if isinstance(args, dict) and isinstance(args.get("label"), str):
-                extra["label"] = args["label"][:64]
-            if isinstance(args, dict) and isinstance(args.get("workdir"), str):
-                extra["workdir_requested"] = args["workdir"][:256]
-            route.audit("parse", "mcp", "refused", reason=e.reason, tool=str(name)[:40], **extra)
+            route.audit("parse", "mcp", "refused", reason=e.reason, tool=str(name)[:40], **mcp_fields(args))
         raise
 
 
@@ -207,13 +245,26 @@ def serve_mcp(route: Route) -> int:
                     line_sha256=digest, line_bytes=size)
 
     for raw in read_lines(sys.stdin.buffer, dropped):
+        def rejected(reason: str, msg=None) -> None:
+            params = msg.get("params") if isinstance(msg, dict) else None
+            args = params.get("arguments") if isinstance(params, dict) else None
+            route.audit("parse", "mcp", "refused", reason=reason,
+                        line_sha256=hashlib.sha256(raw).hexdigest(), line_bytes=len(raw), **mcp_fields(args))
+
         try:
             msg = json.loads(raw)
-        except ValueError:
+        except (ValueError, RecursionError):
+            rejected("invalid JSON")
             continue
         if not isinstance(msg, dict):
+            rejected("MCP request must be an object")
             continue
-        mid, method, params = msg.get("id"), msg.get("method"), msg.get("params") or {}
+        mid, method, params = msg.get("id"), msg.get("method"), msg.get("params", {})
+        if (msg.get("jsonrpc") != "2.0" or not isinstance(method, str)
+                or not isinstance(params, dict) or isinstance(mid, bool)
+                or (mid is not None and not isinstance(mid, (str, int)))):
+            rejected("invalid MCP request", msg)
+            continue
         if method == "initialize":
             asked = params.get("protocolVersion") if isinstance(params, dict) else None
             result = {"protocolVersion": asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[-1],
@@ -226,17 +277,21 @@ def serve_mcp(route: Route) -> int:
         elif method == "tools/call":
             p = params if isinstance(params, dict) else {}
             try:
-                body, is_error = call_tool(route, p.get("name", ""), p.get("arguments") or {}), False
+                body, is_error = call_tool(route, p.get("name", ""), p.get("arguments", {})), False
             except Refused as e:
                 body, is_error = {"ok": False, "error": e.reason}, True
             except Exception as e:                 # never take the client down
+                if not getattr(e, "audited", False):
+                    route.audit("parse", "mcp", "error", reason=f"route error: {type(e).__name__}",
+                                **mcp_fields(p.get("arguments")))
                 body, is_error = {"ok": False, "error": f"route error: {type(e).__name__}"}, True
             result = {"content": [{"type": "text", "text": json.dumps(body)}], "isError": is_error}
         elif method == "ping":
             result = {}
-        elif isinstance(method, str) and method.startswith("notifications/"):
+        elif method in ("notifications/initialized", "notifications/cancelled") and mid is None:
             continue
         else:
+            rejected("unknown method", msg)
             if mid is not None:
                 emit({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "unknown method"}})
             continue
@@ -251,7 +306,7 @@ def main(argv: list[str]) -> int:
         return 1
     cmd = os.environ.get("SSH_ORIGINAL_COMMAND", "")
     try:
-        route = Route(argv[1], argv[3])
+        route = Route(argv[1], argv[3], refused_connect=lambda: connect_refusal_fields(cmd))
         if cmd.strip() in ("", "mcp"):
             return serve_mcp(route)
         return run_cli(route, cmd)

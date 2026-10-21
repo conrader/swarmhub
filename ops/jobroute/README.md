@@ -57,8 +57,9 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
     under `<work_root>/<bot>` (`/home/ubuntu/work/<Bot>`), or the route refuses to load
     that profile. A job may start in such a workdir or in an existing subdirectory of it.
     Components must match `[A-Za-z0-9][A-Za-z0-9._-]*`, and `..` is rejected. The checks
-    run on the `realpath`, which is resolved first, so a symlink to another bot's
-    directory, or anywhere else, is refused.
+    run on the `realpath`, anchored to the canonical work root plus the configured bot
+    name. The bot root itself must be an ordinary directory: even a symlink to the same
+    bot is refused. Symlinks cannot redefine the boundary or redirect it to another bot.
   - **Production paths are refused, and the denylist wins over the allowlist.** The
     requested path and its realpath are both checked against these:
     - `/var/www` and `/etc` (built in);
@@ -71,7 +72,7 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
     "workdir refused: production path (…)".
 - **Rate limit (per profile).**
   - At most 4 accepted submissions per hour and 20 per day.
-  - At most 2 route jobs running at once.
+  - At most 2 route jobs running at once, counting every live route job regardless of age.
   - The check and the launch run under one `flock`.
   - Exceeding a limit exits with code 3 and is logged as `rate_limited`.
 - **Audit.** `~/.local/state/jobroute/audit.jsonl` (mode 600) gets one JSON line for every
@@ -81,7 +82,10 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
   a CLI or MCP parse refusal of a submit), also records `label`, `engine`,
   `workdir_requested`, `workdir` (the resolved realpath, or `null` if it was never
   resolved), `brief_sha256` and `brief_bytes`. An MCP message over 1 MiB is dropped and
-  logged with `line_sha256` and `line_bytes`. The brief itself is never logged.
+  logged with `line_sha256` and `line_bytes`. Unknown MCP methods, malformed JSON and
+  invalid protocol envelopes are also audited, with bounded submit metadata when present.
+  Non-allowlisted connects retain supplied CLI metadata or metadata from the first bounded
+  MCP line (at most a 10 s read). The brief itself is never logged.
   `profiles/<profile>.jsonl` is the list of that profile's own jobs, which `status` reads.
 - **Defence in depth.**
   - The route refuses to run if `allowlist.toml` or the state directory is not owned by
@@ -135,13 +139,20 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
 | `jobroute_core.py` | allowlist loading, validation, rate limit, audit, submit, status |
 | `allowlist.toml` | the one config file (12 profiles → bot dirs, engines, denylist, limits) |
 | `check-hermes-tools` | read-only heartbeat check: no allowlisted profile has a file-read, terminal or shell tool (not installed anywhere) |
+| `install.sh.in`, `generate-installer.py` | pinned installer template and exact-commit renderer |
+| `uninstall.py` | provenance-aware rollback; removes only installer-created empty parents |
+| `tests/test_installer.py` | scratch-HOME install security, tampered releases, idempotence and rollback |
 | `tests/test_jobroute.py` | pytest: wrapper called with `SSH_ORIGINAL_COMMAND` (stub sb-codejob), plus one run against a copy of the real sb-codejob with a stub engine |
 | `tests/test_jobroute_guards.py` | per-bot workdir allowlist, prod-path denylist, symlink escapes, brief size, refusal audit, claude flags |
 | `tests/test_check_hermes_tools.py` | the tool check, locally and through a fake `ssh` |
 | `tests/sandbox_ssh.sh` | throwaway sshd in the sandbox: real ssh client against the production options string |
 | `tests/run-sandbox.sh` | runs both, each as `sudo -u sbtest -- unshare -r -p -f --mount-proc …` |
+| `tests/run-rollback-sandbox.sh`, `tests/rollback_sandbox.py` | exact generated installer, fresh and populated HOME baselines, documented undo and fake authorized_keys rollback |
 
 Run the tests on ovh as `ubuntu`: `ops/jobroute/tests/run-sandbox.sh`.
+Test a generated installer with `ops/jobroute/tests/run-rollback-sandbox.sh /path/to/installer.sh`.
+Both rollback scenarios start from a saved baseline and must end identical to it; the
+fresh HOME initially contains only a marker and a Git redirect to a staged GitHub mirror.
 
 Run the tool check from ovh as `ubuntu` with `ops/jobroute/check-hermes-tools`. It makes one
 `ssh … tar -cf -` of the 12 profile configs, writes nothing, and exits 0 ok, 1 FAIL or
@@ -207,24 +218,28 @@ The bot then sees two tools: `submit_job {engine, label, brief, workdir?}` and
 
 ## Install on ovh (prod: parked for Jarvis's sb-approve; pin `SHA`)
 
+Generate the review artifact from the exact PR head, then park that script for approval:
+
 ```bash
-set -euo pipefail
-SHA=<pinned commit>                       # the PR head commit
-REL=/home/ubuntu/.local/lib/jobroute/releases/$SHA
-tmp=$(mktemp -d); git clone -q git@github.com:conrader/swarmhub.git "$tmp/r"
-git -C "$tmp/r" cat-file -e "$SHA^{commit}"
-mkdir -p "$REL"; git -C "$tmp/r" archive "$SHA" ops/jobroute | tar -x -C "$REL" --strip-components=2
-(cd "$REL" && sha256sum jobroute jobroute_core.py allowlist.toml check-hermes-tools)   # compare with the pinned file hashes
-chmod -R go-w "$REL"; rm -rf "$tmp"
-install -d -m 755 /home/ubuntu/.config/jobroute
-[ -e /home/ubuntu/.config/jobroute/allowlist.toml ] || install -m 644 "$REL/allowlist.toml" /home/ubuntu/.config/jobroute/allowlist.toml
-ln -sfn "$REL" /home/ubuntu/.local/lib/jobroute/current
-# self-check (read-only apart from creating the state dir and one audit line)
-SSH_ORIGINAL_COMMAND=help /home/ubuntu/.local/lib/jobroute/current/jobroute --config /home/ubuntu/.config/jobroute/allowlist.toml --profile grok-admin
-rc=0; SSH_ORIGINAL_COMMAND=help /home/ubuntu/.local/lib/jobroute/current/jobroute --config /home/ubuntu/.config/jobroute/allowlist.toml --profile grok-ermes || rc=$?
-[ "$rc" = 2 ] || { echo "expected refusal (2) for grok-ermes, got $rc"; exit 1; }
-# then Infra step 3 (authorized_keys), then the Hermes config for ONE profile, then the live test
+SHA=<pinned-40-character-commit>
+python3 ops/jobroute/generate-installer.py . "$SHA" /home/ubuntu/work/Swarmhub/jobroute-install-${SHA:0:7}.sh
+sha256sum /home/ubuntu/work/Swarmhub/jobroute-install-${SHA:0:7}.sh
+# After approval only: bash /home/ubuntu/work/Swarmhub/jobroute-install-${SHA:0:7}.sh
 ```
+
+The generated script sets `umask 022` before creating anything. It refuses symlinks,
+foreign ownership or group/world write permission in HOME and every existing code,
+config and state parent below it, including `.local`, `.local/lib`, `jobroute` and
+`releases`. The system ancestors `/` and `/home` must have the filesystem root's owner
+and no group/world write permission. A pre-existing writable parent needs a separate,
+reviewed permission correction before install; this script refuses it without changing it.
+
+Before reusing or executing a release, the installer verifies its tree's ownership/modes
+and all four installed SHA-256 pins, rejecting a tampered copy. Existing config must be
+trusted and is retained. `install-state.json` records the paths and inode identities of
+directories created by the installer, plus the digest of a newly created config. A rerun
+preserves this provenance. The self-check creates audit rows; it launches no jobs.
+Do not add Infra step 3's keys until the Hermes prerequisite passes.
 
 No systemd unit, no sb service and no sshd config changes. `sshd` reads `authorized_keys`
 on each connection.
@@ -240,13 +255,17 @@ install -m 600 ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys && rm ~/.ssh/au
 # (or restore ~/.ssh/authorized_keys.bak-jobroute-<ts> from Infra step 3)
 # 2. Hermes: sudo -u hermes -H hermes -p <profile> mcp remove jobs      (per profile that had it)
 # 3. optional: rm /home/ubuntu/.local/lib/jobroute/current
-# 4. full removal of the install (code + config; the last line also drops the audit log):
-rm /home/ubuntu/.local/lib/jobroute/current
-rm -rf /home/ubuntu/.local/lib/jobroute/releases/<sha>      # each installed release
-rmdir /home/ubuntu/.local/lib/jobroute/releases /home/ubuntu/.local/lib/jobroute
-rm -rf /home/ubuntu/.config/jobroute
-rm -rf /home/ubuntu/.local/state/jobroute                    # optional: the audit log; keep it unless told otherwise
+# 4. full removal of the install (repeat for each installed SHA):
+python3 -IB /home/ubuntu/.local/lib/jobroute/releases/<sha>/uninstall.py --release <sha> --remove-audit
+# Omit --remove-audit to retain the audit log; discard it only when authorized.
 ```
+
+Step 4 removes the selected code release and its `current` link. After the last release,
+it removes only a config created by this installer whose digest is still unchanged.
+It prunes `.config`, `.local/lib`, `.local/state`, `.local` and the jobroute directories
+**only if recorded as installer-created, still the same inode, and empty**. Existing
+parents, changed config and user files survive. An older installation without the
+provenance manifest requires manual review; do not guess which parents it created.
 
 Jobs that are already running are detached sb-codejob jobs. Rollback does not stop them,
 and they still wake their agent when they end. Keys stay in sb-vault and on the Hermes box
