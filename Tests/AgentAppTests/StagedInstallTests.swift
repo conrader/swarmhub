@@ -179,6 +179,43 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     #expect(bot.installedSkills["swarmhub-manager"] == "1.2.0")
 }
 
+@Test @MainActor func allBotsPrefersSignedByteTransportAndRecordsEachProfileResult() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let raw = try stagedStatus(package)
+    var status = try #require(try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+    let live: [String: Any] = ["status": "applied", "advertised": ["swarmhub-feedback": "1.0.0"], "variants": [String: String]()]
+    status["profiles"] = ["default": live]
+    let output = String(decoding: try JSONSerialization.data(withJSONObject: status), as: UTF8.self)
+    let (store, manager, host) = stagedStore(source: source, status: output)
+    store.skillLibraryOverride = [stagedFeedback]
+    let worker = Bot(name: "Worker", backend: .hermes, hermesProfile: "worker")
+    store.bots.append(worker)
+    #expect(store.installSkillsOnAllBots(manager: manager))
+    try await waitUntil { !store.anyTurnRunning && store.skillInstallResults[worker.id] != nil }
+    let requests = ChatParityServer.requests(host)
+    let turns = requests.filter { $0.path.hasSuffix("/chat/stream") }
+    #expect(turns.count == 1, "the updater transfers every selection without embedding any skill bytes")
+    let instructions = try #require(turns.first?.body?["instructions"] as? String)
+    #expect(instructions.contains("apply', '--staged'"))
+    #expect(!instructions.contains("legacy feedback") && !instructions.contains("SWARMHUB_EOF"))
+    #expect(requests.contains { ($0.body?["id"] as? String)?.hasPrefix("agentapp_update_bytes_") == true && $0.body?["system_prompt"] != nil })
+    #expect(store.allBotsSkillQueue.isEmpty)
+    #expect(store.skillInstallResults[manager.id]?.status == .installed)
+    #expect(store.skillInstallResults[worker.id]?.status == .failed)
+    #expect(manager.skillInstallFailures.isEmpty && worker.skillInstallFailures["swarmhub-feedback"]?.count == 1)
+}
+
+@Test @MainActor func stagedProviderPayloadRejectionDoesNotBackOffSkills() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let (store, manager, host) = stagedStore(source: source, status: nil)
+    let profiles: [StagedInstall.Profile] = [.init(name: "default", coding_order: "codex", skills: ["swarmhub-manager"])]
+    _ = try #require(try store.stagedSkillInstructions(manager: manager, profiles: profiles))
+    store.finishStagedSkillInstall(manager: manager, end: .error(BackendError.http(400, "Invalid 'instructions': string too long")))
+    #expect(manager.skillInstallFailures.isEmpty && ChatParityServer.requests(host).isEmpty)
+    #expect(store.skillInstallResults[manager.id]?.status == .clientPayloadError)
+}
+
 @Test @MainActor func modelOnlyOrUnrelatedToolOutputCannotClaimStagedSuccess() async throws {
     let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
     let package = try stagedPackage(source)

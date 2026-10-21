@@ -1,7 +1,7 @@
 import Foundation
 
 /// P42 7: every bot gets the messaging skill. Settings and the manager's banner offer "Install SwarmHub skills on all
-/// bots": one confirmation, then one management turn in which the manager writes `swarmhub-messages` and
+/// bots": one confirmation, then bounded management turns in which the manager writes `swarmhub-messages` and
 /// `swarmhub-feedback` into each profile on its connection that lacks them (or has an older version). Bots that have
 /// it use bot-msg instead of `hermes -p … chat`.
 extension AppStore {
@@ -39,7 +39,7 @@ extension AppStore {
 
     /// The all-bots button works: the manager is idle and some gap is not backing off.
     func canInstallSkillsOnAllBots(manager: Bot) -> Bool {
-        isIdle(manager) && messagingSkillGaps(manager: manager).contains { !$0.installable.isEmpty }
+        isIdle(manager) && allBotsSkillQueue[manager.id] == nil && messagingSkillGaps(manager: manager).contains { !$0.installable.isEmpty }
     }
 
     /// When a backoff on `manager`'s connection ends, so the all-bots views redraw and offer the press again.
@@ -74,37 +74,76 @@ extension AppStore {
         return unmanaged ? AllBotsSkillCopy.needsManager : AllBotsSkillCopy.allSet
     }
 
-    /// The confirmed press: one management turn for every gap that is not backing off. False when there is nothing to
-    /// install, the manager is busy, or a file cannot travel in the heredoc (said in `errorMessage`).
+    /// Prefer the signed updater's byte transport. Legacy connections install one bot per turn, with a final encoded
+    /// instructions budget checked before sending. A refused bot does not prevent the remaining bots from installing.
     @discardableResult func installSkillsOnAllBots(manager: Bot) -> Bool {
         let gaps = messagingSkillGaps(manager: manager).filter { !$0.installable.isEmpty }
-        guard !gaps.isEmpty, isIdle(manager) else { return false }
-        let instructions: String
+        guard !gaps.isEmpty, isIdle(manager), allBotsSkillQueue[manager.id] == nil else { return false }
+        for gap in gaps { skillInstallResults[gap.bot.id] = nil }
+        if !usesStagedSkills(on: connection(of: manager)) {
+            allBotsSkillQueue[manager.id] = gaps
+            open(manager); openThreadID = nil
+            return sendNextAllBotsSkillInstall(manager: manager)
+        }
         do {
-            if usesStagedSkills(on: connection(of: manager)) {
-                guard let text = try stagedSkillInstructions(manager: manager, profiles: gaps.map { gap in
-                    .init(name: profile(of: gap.bot), coding_order: codingOrder(for: gap.bot).argument, skills: gap.skills.map(\.name))
-                }) else { return false }
-                instructions = text
-            } else {
-                guard let text = try allBotsSkillInstructions(gaps) else { return false }
-                instructions = text
-                noteSkillInstallChecks(gaps.map { ($0.bot, $0.installable) }, manager: manager)
-            }
+            guard let instructions = try stagedSkillInstructions(manager: manager, profiles: gaps.map { gap in
+                .init(name: profile(of: gap.bot), coding_order: codingOrder(for: gap.bot).argument, skills: gap.skills.map(\.name))
+            }) else { return false }
+            pendingSkillInstalls[manager.id] = SkillInstallTurn(profile: profile(of: manager), instructions: instructions)
         } catch {
+            for gap in gaps {
+                recordSkillInstallResult(.init(status: .notSent, detail: "Install not sent: \(error.localizedDescription)"), bot: gap.bot, manager: manager)
+            }
             errorMessage = error.localizedDescription; return false
         }
-        pendingSkillInstalls[manager.id] = SkillInstallTurn(profile: profile(of: manager), instructions: instructions)
         managementExchanges[manager.id] = nil
         open(manager); openThreadID = nil
         guard send(text: AllBotsSkillCopy.request(gaps.count)) else {
+            for gap in gaps {
+                recordSkillInstallResult(.init(status: .notSent, detail: "Install not sent: \(errorMessage ?? "the manager could not start the turn")."), bot: gap.bot, manager: manager)
+            }
             pendingSkillInstalls[manager.id] = nil; pendingSkillChecks[manager.id] = nil; boxInstallTransport.attempts[manager.id] = nil; return false
         }
         return true
     }
 
-    /// The turn: Konrad's one confirmation is the yes for every profile; each profile's commands in turn, and one block
-    /// listing a `skills_installed` op per profile.
+    @discardableResult func sendNextAllBotsSkillInstall(manager: Bot) -> Bool {
+        while var queue = allBotsSkillQueue[manager.id], !queue.isEmpty {
+            let gap = queue.removeFirst()
+            allBotsSkillQueue[manager.id] = queue
+            do {
+                guard let instructions = try allBotsSkillInstructions([gap]) else {
+                    throw BackendError.unavailable("Could not render this bot's skill files or validate its profile.")
+                }
+                noteSkillInstallChecks([(gap.bot, gap.installable)], manager: manager)
+                pendingSkillInstalls[manager.id] = .init(profile: profile(of: gap.bot), instructions: instructions)
+                managementExchanges[manager.id] = nil
+                // Explicit destination: switching chats during the batch must not redirect the next turn.
+                if send(text: AllBotsSkillCopy.request(1), bot: manager, conversation: manager, replyToID: nil) { return true }
+                throw BackendError.unavailable(errorMessage ?? "The manager could not start the install turn.")
+            } catch {
+                pendingSkillInstalls[manager.id] = nil; pendingSkillChecks[manager.id] = nil; peerEnableCalls[manager.id] = nil
+                recordSkillInstallResult(.init(status: .notSent, detail: "Install not sent: \(error.localizedDescription)"), bot: gap.bot, manager: manager)
+                errorMessage = error.localizedDescription
+            }
+        }
+        allBotsSkillQueue[manager.id] = nil
+        return false
+    }
+
+    func continueAllBotsSkillInstall(manager: Bot, end: TurnEnd) {
+        guard let queue = allBotsSkillQueue[manager.id] else { return }
+        if case .stoppedByUser = end {
+            allBotsSkillQueue[manager.id] = nil
+            for gap in queue {
+                recordSkillInstallResult(.init(status: .notSent, detail: "Install not sent: the batch was stopped."), bot: gap.bot, manager: manager)
+            }
+            return
+        }
+        sendNextAllBotsSkillInstall(manager: manager)
+    }
+
+    /// A legacy turn contains one profile; Konrad's original confirmation covers every queued turn.
     func allBotsSkillInstructions(_ gaps: [SkillGap]) throws -> String? {
         var commands: [String] = [], ops: [String] = []
         for gap in gaps {
@@ -117,7 +156,7 @@ extension AppStore {
         Konrad pressed “\(AllBotsSkillCopy.button)” in SwarmHub and confirmed it once for all of these profiles: \(names). \
         That confirmation is his yes for every one of them: do not ask again. Run exactly these commands in your terminal with \
         the shell (not the file tool), change nothing else, then reply in one short line and end with the block below. \
-        Report whether the peer plugins activated; if the gateway did not reload them, mention that a reload is needed for held delivery.
+        \(PeerPluginEnablement.installInstructions)
         ````sh
         \(commands.joined(separator: "\n"))
         ````

@@ -94,8 +94,17 @@ extension AppStore {
         boxInstallTransport.attempts[manager.id] = attempt
     }
 
-    func finishStagedSkillInstall(manager: Bot) {
+    func finishStagedSkillInstall(manager: Bot, end: TurnEnd) {
         guard let attempt = boxInstallTransport.attempts.removeValue(forKey: manager.id) else { return }
+        if SkillInstallPayloadError.isPayloadError(end) {
+            let reason = "Client-side install payload error; signed skill installation was not confirmed. Install backoff unchanged."
+            errorMessage = reason
+            for profile in attempt.package.profiles {
+                guard let bot = boundBot(profile.name, manager: manager) else { continue }
+                recordSkillInstallResult(.init(status: .clientPayloadError, detail: reason), bot: bot, manager: manager)
+            }
+            return
+        }
         guard attempt.staged, let status = attempt.status, status.accepted(attempt.package) else {
             let reason = attempt.status?.detail ?? "No matching updater status received; skill installation is unconfirmed."
             errorMessage = reason
