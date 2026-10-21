@@ -13,10 +13,12 @@ kill_tree() with a root of 0/1/empty sent SIGTERM and SIGKILL to every process o
 
 On both platforms os.kill/os.killpg (and so Popen.send_signal/terminate/kill), and signal.pidfd_send_signal where
 present, are wrapped: pid/group <= 1 (except this process itself), negative, non-int or empty targets are refused, as
-are this process's group
-(unless it leads it) and every process this process did not spawn, directly or through its children. Signal 0
-(an existence probe that delivers nothing) may still name any pid above 1. Refusal raises PermissionError(EPERM).
-Shell scripts started by the harness run their own guards (code-job's tree checks, Tests/Scripts validation).
+is this process's group (unless it leads it). Any other target must be a live descendant of this process in one fresh
+snapshot of the process table; no pid this process once spawned counts by itself, because once reaped its number may
+belong to anyone. On Linux the pid is pinned with a pidfd before the check, so a reuse cannot receive the signal.
+Signal 0 (an existence probe that delivers nothing) may still name any pid above 1. Refusal raises
+PermissionError(EPERM). Shell scripts started by the harness run their own guards (code-job's tree checks,
+Tests/Scripts/own-pid.sh).
 
 `python3 -I -B sim/sim_isolation.py --check` prints the mode and exits 0, or prints the refusal and exits 78: shell
 suites use it before they send any signal.
@@ -26,7 +28,6 @@ import os
 import signal
 import subprocess
 import sys
-import weakref
 
 INIT_PID_NS = "pid:[4026531836]"  # PROC_PID_INIT_INO: the host's initial PID namespace, fixed since Linux 3.8
 REFUSED = 78  # EX_CONFIG
@@ -105,23 +106,42 @@ def mode(platform=None, problem=linux_problem):
     return None, "unsupported platform %s" % platform
 
 
-def process_parents():
-    """{pid: ppid} for every visible process (/proc on Linux, ps elsewhere)."""
-    parents = {}
+def process_table():
+    """{pid: (ppid, pgid, start)} for every visible process, read in one pass (/proc on Linux, ps elsewhere).
+
+    `start` (clock ticks since boot on Linux, ps lstart on macOS) tells a process from a later one reusing its number.
+    Empty when the table cannot be read; the guard then refuses every signal it cannot prove is ours."""
+    table = {}
     if os.path.isdir("/proc/self"):
         for name in os.listdir("/proc"):
             if name.isdigit():
-                ppid = _ppid("/proc", int(name))
-                if ppid is not None:
-                    parents[int(name)] = ppid
-        return parents
-    listing = subprocess.run(["/bin/ps", "-A", "-o", "pid=", "-o", "ppid="], capture_output=True, text=True,
-                             timeout=10).stdout
+                try:
+                    with open("/proc/%s/stat" % name) as stat:
+                        fields = stat.read().rsplit(")", 1)[1].split()  # comm may hold spaces or parentheses
+                    table[int(name)] = (int(fields[1]), int(fields[2]), fields[19])
+                except (OSError, ValueError, IndexError):
+                    pass
+        return table
+    try:
+        ps = subprocess.Popen(["/bin/ps", "-A", "-o", "pid=", "-o", "ppid=", "-o", "pgid=", "-o", "lstart="],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                              env={"LC_ALL": "C", "PATH": "/usr/bin:/bin"})
+    except OSError:
+        return table
+    try:
+        listing = ps.communicate(timeout=10)[0]
+    except subprocess.TimeoutExpired:
+        _REAL_KILL(ps.pid, signal.SIGKILL)  # Our unreaped child: the guarded kill would read this table again.
+        ps.communicate()
+        return table
     for line in listing.splitlines():
         fields = line.split()
-        if len(fields) == 2 and fields[0].isdigit() and fields[1].isdigit():
-            parents[int(fields[0])] = int(fields[1])
-    return parents
+        if len(fields) > 3 and fields[0].isdigit() and fields[1].isdigit() and fields[2].isdigit():
+            table[int(fields[0])] = (int(fields[1]), int(fields[2]), " ".join(fields[3:]))
+    return table
+
+
+_REAL_KILL = os.kill
 
 
 def _plain_int(value):
@@ -129,47 +149,69 @@ def _plain_int(value):
 
 
 class SignalGuard:
-    """Lets this process signal only itself and the processes it spawned (and their descendants)."""
+    """Lets this process signal only itself and its live descendants, judged on one snapshot of the process table.
 
-    def __init__(self, kill=os.kill, killpg=os.killpg, parents=process_parents, getpid=os.getpid,
-                 getpgrp=os.getpgrp, log=sys.stderr.write):
-        self.spawned, self.reaped, self._popens = set(), set(), weakref.WeakValueDictionary()
-        self._kill, self._killpg, self._parents, self._getpid, self._getpgrp = kill, killpg, parents, getpid, getpgrp
-        self._log = log
+    Nothing historical makes a target ours: a number this process once spawned may have been reaped and reused by an
+    unrelated process, whether or not the reaping was seen. `spawned`/`reaped` only report a known-reaped child as
+    gone (ESRCH), and for a group whose leader was reaped while members lived, `survivors` keeps exactly which
+    processes (pid + start) were members then: only they keep that group number ours."""
 
-    def record(self, pid, popen=None):
+    def __init__(self, kill=os.kill, killpg=os.killpg, table=process_table, getpid=os.getpid, getpgrp=os.getpgrp,
+                 log=sys.stderr.write):
+        self.spawned, self.reaped, self.leaders, self.survivors = set(), set(), set(), {}
+        self._kill, self._killpg, self._table, self._getpid, self._getpgrp = kill, killpg, table, getpid, getpgrp
+        self._log, self.pin = log, None  # pin: (pidfd_open, pidfd_send_signal) where the kernel has them
+
+    def record(self, pid, leader=False):
+        """A child this process just spawned; leader: it may lead its own process group (setsid/setpgid/fork)."""
         if _plain_int(pid) and pid > 1:
             self.spawned.add(pid)
             self.reaped.discard(pid)
-            if popen is not None:
-                self._popens[pid] = popen
+            self.survivors.pop(pid, None)
+            (self.leaders.add if leader else self.leaders.discard)(pid)
         return pid
 
-    def live_child(self, pid):
-        """A spawned pid not yet reaped: once reaped, the number may belong to an unrelated process."""
-        popen = self._popens.get(pid)
-        if popen is not None and popen.returncode is not None:
-            self.reaped.add(pid)
-        return pid in self.spawned and pid not in self.reaped
+    def reap(self, pid):
+        """Every wait primitive reports here: the child is gone and its number free for reuse."""
+        if pid not in self.spawned or pid in self.reaped:
+            return
+        self.reaped.add(pid)
+        if pid in self.leaders:
+            table = self.snapshot()
+            members = {(member, entry[2]) for member, entry in table.items() if entry[1] == pid}
+            if members:
+                self.survivors[pid] = members
 
-    def owned(self, pid, group=False):
-        """True for spawned pids and their live descendants; None when no such process exists.
+    def snapshot(self):
+        try:
+            return self._table()
+        except Exception:  # noqa: BLE001  An unreadable table proves nothing: the caller refuses.
+            return {}
 
-        A group keeps its number while any member lives, so a reaped leader still names its own group."""
-        if (pid in self.spawned) if group else self.live_child(pid):
-            return True
-        parents, seen = self._parents(), set()
-        if pid not in parents:
-            return None
-        current = parents.get(pid)
-        while current is not None and current not in seen:
-            if current in self.spawned or current == self._getpid():
-                return True  # Includes orphans adopted by this process when it is pid 1 of its namespace.
-            if current <= 1:
-                return False
+    def descends(self, pid, table):
+        """pid's parent chain in this one table reaches this process."""
+        current, seen = pid, set()
+        while current in table and current not in seen:
             seen.add(current)
-            current = parents.get(current)
+            current = table[current][0]
+            if current == self._getpid():
+                return True  # Includes orphans adopted by this process when it is pid 1 of its namespace.
         return False
+
+    def owned(self, target, group=False):
+        """True when the pid or group is this process's own now, False when not, None when it does not exist."""
+        table = self.snapshot()
+        if not table:
+            return False
+        if not group:
+            return self.descends(target, table) if target in table else None
+        members = [member for member, entry in table.items() if entry[1] == target]
+        if not members:
+            return None
+        if target in table and table[target][1] == target:
+            return self.descends(target, table)  # A live leader: the group is ours exactly when the leader is.
+        known = self.survivors.get(target, ())
+        return any(self.descends(member, table) or (member, table[member][2]) in known for member in members)
 
     def problem(self, target, signum, group=False):
         what = "group" if group else "pid"
@@ -183,11 +225,14 @@ class SignalGuard:
             return None if target == self._getpid() else "group %d is this process's own (not led by it)" % target
         if signum == 0:
             return None
+        if not group and target in self.reaped:
+            raise ProcessLookupError(errno.ESRCH, "No such process")  # Our child, already reaped: never its reuse.
         owned = self.owned(target, group)
-        if owned is None and not group:
-            raise ProcessLookupError(errno.ESRCH, "No such process")  # Stale pid: nothing to signal, as the kernel says.
+        if owned is None:
+            raise ProcessLookupError(errno.ESRCH, "No such process")  # Nothing to signal, as the kernel would say.
         if not owned:
-            return "%s %d was not spawned by this process or its children" % (what, target)
+            return "%s %d is not a live descendant of this process (or the process table is unreadable)" % (
+                what, target)
         return None
 
     def refuse(self, reason, signum):
@@ -196,10 +241,22 @@ class SignalGuard:
         raise PermissionError(errno.EPERM, message)
 
     def kill(self, pid, signum):
-        reason = self.problem(pid, signum)
-        if reason:
-            self.refuse(reason, signum)
-        return self._kill(pid, signum)
+        fd = None
+        if self.pin is not None and _plain_int(pid) and pid > 1 and signum != 0 and pid != self._getpid():
+            try:
+                fd = self.pin[0](pid)  # Pins this very process: a reuse of its number cannot receive the signal.
+            except ProcessLookupError:
+                raise
+            except OSError:
+                fd = None  # No pidfd here (old kernel, fd limit): the table check alone decides.
+        try:
+            reason = self.problem(pid, signum)
+            if reason:
+                self.refuse(reason, signum)
+            return self._kill(pid, signum) if fd is None else self.pin[1](fd, signum)
+        finally:
+            if fd is not None:
+                os.close(fd)
 
     def killpg(self, pgid, signum):
         reason = self.problem(pgid, signum, group=True)
@@ -219,11 +276,36 @@ def _pidfd_target(fd):
     return None
 
 
+def _exited(status):
+    return os.WIFEXITED(status) or os.WIFSIGNALED(status)
+
+
+def _reaping(guard, real, pid_of):
+    """Wrap a wait primitive so the child it reaps is reported to the guard."""
+    def wait(*args, **kwargs):
+        result = real(*args, **kwargs)
+        pid = pid_of(result, *args, **kwargs)
+        if pid:
+            guard.reap(pid)
+        return result
+    return wait
+
+
+def _waitid_pid(result, idtype=None, ident=None, options=0):
+    done = {getattr(os, name, None) for name in ("CLD_EXITED", "CLD_KILLED", "CLD_DUMPED")} - {None}
+    if result is None or options & getattr(os, "WNOWAIT", 0) or result.si_code not in done:
+        return None
+    return result.si_pid
+
+
 def install(guard):
-    """Route this process's signal and spawn primitives through `guard`."""
+    """Route this process's signal, spawn and wait primitives through `guard`."""
     os.kill, os.killpg = guard.kill, guard.killpg
     real_pidfd_send = getattr(signal, "pidfd_send_signal", None)
     if real_pidfd_send is not None:
+        if hasattr(os, "pidfd_open"):
+            guard.pin = (os.pidfd_open, real_pidfd_send)
+
         def pidfd_send_signal(fd, signum, siginfo=None, flags=0):
             target = _pidfd_target(fd)
             if target == -1:
@@ -233,32 +315,45 @@ def install(guard):
                 guard.refuse(reason, signum)
             return real_pidfd_send(fd, signum, siginfo, flags)
         signal.pidfd_send_signal = pidfd_send_signal
-    real_waitpid = os.waitpid
-
-    def waitpid(pid, options):
-        result = real_waitpid(pid, options)
-        if result[0] > 0 and (os.WIFEXITED(result[1]) or os.WIFSIGNALED(result[1])):
-            guard.reaped.add(result[0])
-        return result
-    os.waitpid = waitpid
+    pid_status = lambda result, *args, **kwargs: result[0] if result[0] > 0 and _exited(result[1]) else None  # noqa
+    for name in ("waitpid", "wait", "wait3", "wait4"):
+        real = getattr(os, name, None)
+        if real is not None:
+            setattr(os, name, _reaping(guard, real, pid_status))
+    if hasattr(os, "waitid"):
+        os.waitid = _reaping(guard, os.waitid, _waitid_pid)
     for name in ("fork", "forkpty"):
         real = getattr(os, name, None)
         if real is not None:
             def spawn(real=real):
                 result = real()
-                guard.record(result[0] if isinstance(result, tuple) else result)
+                guard.record(result[0] if isinstance(result, tuple) else result, leader=True)  # It may setsid().
                 return result
             setattr(os, name, spawn)
     for name in ("posix_spawn", "posix_spawnp"):
         real = getattr(os, name, None)
         if real is not None:
-            setattr(os, name, lambda *args, real=real, **kwargs: guard.record(real(*args, **kwargs)))
+            def posix_spawn(*args, real=real, **kwargs):
+                leader = kwargs.get("setsid") or kwargs.get("setpgroup") is not None
+                return guard.record(real(*args, **kwargs), leader=leader)
+            setattr(os, name, posix_spawn)
     real_init = subprocess.Popen.__init__
 
     def popen_init(self, *args, **kwargs):
         real_init(self, *args, **kwargs)
-        guard.record(getattr(self, "pid", None), self)
+        leader = (kwargs.get("start_new_session") or kwargs.get("process_group") is not None
+                  or kwargs.get("preexec_fn") is not None)
+        guard.record(getattr(self, "pid", None), leader=leader)
     subprocess.Popen.__init__ = popen_init
+    # Popen reaps through this method even after its object was discarded (subprocess._cleanup polls those).
+    real_exitstatus = getattr(subprocess.Popen, "_handle_exitstatus", None)
+    if real_exitstatus is not None:
+        def handle_exitstatus(self, *args, **kwargs):
+            result = real_exitstatus(self, *args, **kwargs)
+            if self.returncode is not None:
+                guard.reap(self.pid)
+            return result
+        subprocess.Popen._handle_exitstatus = handle_exitstatus
     try:
         import multiprocessing.util as mp_util
         real_spawnv = mp_util.spawnv_passfds

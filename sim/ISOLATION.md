@@ -38,17 +38,25 @@ coverage. So on Darwin the harness runs in signal-guarded mode:
 
 - `os.kill` and `os.killpg` are wrapped, which also covers `Popen.send_signal`, `terminate` and `kill`. So is
   `signal.pidfd_send_signal` where it exists. A target that is <= 1 (other than the process itself), negative, empty or not an int is refused. So is
-  this process's own group, unless the process leads it. So is any process the harness did not spawn itself
-  (`Popen`, `os.fork`/`forkpty`, `posix_spawn[p]`, multiprocessing) or through its children. Signal 0, an existence
-  probe that delivers nothing, may still name any pid above 1. A refusal raises `PermissionError(EPERM)` and logs a
-  line to stderr. A stale pid raises `ProcessLookupError` without a signal. Once a child is reaped (`Popen` saw
-  its exit, or `os.waitpid` returned it) its pid no longer counts as owned, since another process may reuse the number.
-  Its group still counts, because a group keeps its number while any member lives.
+  this process's own group, unless the process leads it. Any other target must be a live descendant of the
+  process in one fresh snapshot of the process table (`/proc` on Linux, `ps -A -o pid,ppid,pgid,lstart` on macOS).
+  A pid the harness once spawned counts for nothing by itself: once reaped, seen or not, its number may belong to
+  an unrelated process, and so may that process's children. On Linux `kill` first pins the pid with `pidfd_open`
+  and signals through the pidfd, so a reuse between the check and the signal cannot receive it. A group is ours
+  when its live leader is ours, or, with the leader gone, when a member is our descendant or is one of the members
+  (pid + start time) recorded at the moment we reaped the leader. Signal 0, an existence probe that delivers
+  nothing, may still name any pid above 1. A refusal raises `PermissionError(EPERM)` and logs a line to stderr, as
+  does an unreadable process table. A stale pid, or a child already reaped, raises `ProcessLookupError` without a
+  signal. Every wait primitive reports reaping: `os.waitpid`, `wait`, `wait3`, `wait4`, `waitid`, and `Popen`'s
+  own exit handling, which also runs for a `Popen` that was discarded while its child ran.
 - `live_observed.py --offline` writes `"isolation": "darwin-guarded"` into `results.json`, and
   `ObservedPatternTests` requires it. A harness that started without the guard fails that Swift test.
 - Shell code started by the harness cannot be wrapped. It has its own guards: code-job's `kill_tree`/`tree` refuse
-  roots <= 1 and anything that is not a live direct child, and `code-job-test.sh` signals only `$!` children or pids
-  that pass `own_pid` (plain, above 1, not the shell itself).
+  roots <= 1 and anything that is not a live direct child. `code-job-test.sh` and `bot-msg-test.sh` signal only
+  pids that pass `own_pid` from `Tests/Scripts/own-pid.sh`: a plain number above 1, not the shell, a live
+  descendant of the shell by the parent chain `ps` reports at that moment, and, where the pid comes from disk, a
+  process whose command line names the expected program. `mac-codex-tmp-smoke.sh` signals its timed-out group
+  only while its leader is unreaped, which pins the group number.
 
 The Linux suites install the same signal guard inside the namespace, so every Linux run also exercises the guarded
 mode the Mac relies on. Any other platform is refused.
@@ -61,8 +69,8 @@ mode the Mac relies on. Any other platform is refused.
 | `swarm_store.terminate` | non-int, <= 1, self, ancestors (test_killtree_guard) |
 | `verify_signals.Supervisor`, `verify_darwin.signal_group` | root/group <= 1, own group (test_killtree_guard) |
 | `swarm_lifecycle.stop_child`, the termination forwarder, `stop_legacy_group` | any group that is not `private_group()`: <= 1, non-int, this process's group (test_signal_guards) |
-| `Tests/Scripts/code-job-test.sh` | pid-file kills go through `own_pid` (test_signal_guards) |
-| sim harness process | everything in the macOS list above, on both platforms (test_sim_isolation) |
+| `Tests/Scripts/code-job-test.sh`, `bot-msg-test.sh` | every pid kill goes through `own_pid`: live descendant, expected command (test_signal_guards) |
+| sim harness process | everything in the macOS list above, on both platforms (test_sim_isolation, test_sim_isolation_reuse) |
 
 `mac-codex-tmp-smoke-stub.py` is the only sim module without the import. It is a fake Codex CLI that runs inside
 code-job's own sandbox, under the guarded smoke script.

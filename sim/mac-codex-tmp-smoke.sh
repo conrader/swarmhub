@@ -58,6 +58,8 @@ try:
     rc = p.wait(timeout=float(sys.argv[1]))
 except BaseException:
     for sig in (signal.SIGTERM, signal.SIGKILL):
+        if p.returncode is not None:
+            break  # Reaped: the group number may be reused now. Unreaped, the leader pins it.
         try:
             os.killpg(p.pid, sig); p.wait(timeout=5); break
         except Exception:

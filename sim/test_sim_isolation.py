@@ -92,14 +92,15 @@ class LinuxDetectionTests(unittest.TestCase):
 
 
 class RecordingGuard(sim_isolation.SignalGuard):
-    """parents: {pid: ppid}. Nothing here can reach the kernel."""
+    """table: {pid: ppid} (each its own group) or {pid: (ppid, pgid, start)}, read live on every check. Nothing here
+    can reach the kernel."""
 
-    def __init__(self, parents, pid=500, pgrp=400):
+    def __init__(self, table, pid=500, pgrp=400):
         self.sent = []
+        rows = lambda: {p: v if isinstance(v, tuple) else (v, p, "t0") for p, v in table.items()}  # noqa: E731
         super().__init__(kill=lambda p, s: self.sent.append(("kill", p, s)),
                          killpg=lambda g, s: self.sent.append(("killpg", g, s)),
-                         parents=lambda: parents, getpid=lambda: pid, getpgrp=lambda: pgrp,
-                         log=lambda message: None)
+                         table=rows, getpid=lambda: pid, getpgrp=lambda: pgrp, log=lambda message: None)
 
 
 class SignalGuardTests(unittest.TestCase):
@@ -170,20 +171,13 @@ class SignalGuardTests(unittest.TestCase):
         guard.kill(600, signal.SIGTERM)  # An orphan it adopted as pid 1 is its own child.
         self.assertEqual(guard.sent, [("kill", 1, signal.SIGTERM), ("kill", 600, signal.SIGTERM)])
 
-    def test_a_reaped_child_pid_is_no_longer_ours_but_its_group_still_is(self):
-        """After reaping, the pid may be recycled by a foreign process (900's child here)."""
-        class Reaped:
-            returncode = 0
-        popen = Reaped()
-        guard = RecordingGuard({1: 0, 400: 1, 500: 400, 900: 1, 700: 900}, pid=500)
-        guard.record(700, popen)
-        self.assertRefused(guard.kill, 700, signal.SIGTERM)
-        guard.killpg(700, signal.SIGKILL)  # A group survives its leader; its number cannot be reused meanwhile.
+    def test_a_reaped_child_pid_is_reported_gone_even_if_its_number_is_ours_again(self):
+        guard = RecordingGuard({1: 0, 400: 1, 500: 400, 701: 500}, pid=500)
         guard.record(701)
-        guard.reaped.add(701)  # What the os.waitpid wrapper records for fork/posix_spawn children.
+        guard.reap(701)  # What every wait wrapper reports; the caller means the old child, which is gone.
         with self.assertRaises(ProcessLookupError):
             guard.kill(701, signal.SIGTERM)
-        self.assertEqual(guard.sent, [("killpg", 700, signal.SIGKILL)])
+        self.assertEqual(guard.sent, [])
 
     def test_record_ignores_fork_children_and_garbage(self):
         guard = RecordingGuard({})
@@ -208,6 +202,8 @@ class InstalledGuardTests(unittest.TestCase):
         if sys.platform.startswith("linux"):
             self.assertEqual(sim_isolation.MODE, "pid-namespace")
             self.assertIsNone(sim_isolation.linux_problem())
+        if hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal"):
+            self.assertIsNotNone(sim_isolation.GUARD.pin)  # kill() signals through a pidfd, never a bare number.
 
     def test_popen_and_posix_spawn_children_are_recorded_and_signallable(self):
         child = self.sleeper()
@@ -219,7 +215,7 @@ class InstalledGuardTests(unittest.TestCase):
         os.kill(pid, signal.SIGKILL)
         self.assertEqual(os.waitpid(pid, 0)[0], pid)
         self.assertIn(pid, sim_isolation.GUARD.reaped)
-        self.assertFalse(sim_isolation.GUARD.live_child(child.pid))  # Popen recorded its exit status.
+        self.assertIn(child.pid, sim_isolation.GUARD.reaped)  # Popen reported its exit status.
 
     def orphan(self):
         """Our own sleeper whose parent exited: no longer this process's descendant, so foreign to the guard."""

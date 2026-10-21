@@ -39,8 +39,8 @@ CTL
 TASKID=task.0123456789abcdef0123456789abcdef
 with_control() { mkdir -p "$CTL_DIR" && cp "$ROOT/swarmctl-stub" "$CTL_DIR/swarmctl"; }
 PASSED=0 FAILED=0
-# Signals name only a plain pid above 1 other than this shell (an empty or garbage pid file must not broadcast).
-own_pid() { case $1 in ''|*[!0-9]*|0|1|0*) return 1 ;; esac; [ "$1" != $$ ]; }
+# Signals name only a live descendant of this shell (an empty, garbage or recycled pid must not be signalled).
+. "$(dirname "$0")/own-pid.sh" || exit 1
 TASK='Fix the failing test in calc.py'
 # Synthetic identities must reach both setup git and the CLI subprocess, even on
 # a fresh Mac with no gitconfig. Ignore host signing/hooks/identity configuration.
@@ -440,7 +440,7 @@ runner=$!
 i=0; while [ "$(sleepers)" -eq 0 ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
 expect "verification started" [ "$(sleepers)" -gt 0 ]
 pid=$(cat "$C/home/.hermes/swarmhub/job-completions/"job.*/pid 2>/dev/null)
-own_pid "$pid" && kill -TERM "$pid"
+own_pid "$pid" "$JOB" && kill -TERM "$pid"
 wait "$runner"; RC=$?; unset CASE_VERIFY
 expect "exit 143 (got $RC)" [ "$RC" -eq 143 ]
 i=0; while [ "$(sleepers)" -gt 0 ] && [ "$i" -lt 40 ]; do sleep 0.05; i=$((i + 1)); done

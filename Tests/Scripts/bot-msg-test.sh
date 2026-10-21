@@ -16,7 +16,8 @@ SH=${BOT_MSG_SH:-/bin/sh}
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/bot-msg-test.XXXXXX") || exit 1
 GW=
-trap '[ -n "$GW" ] && kill "$GW" 2>/dev/null && wait "$GW" 2>/dev/null; rm -rf "$ROOT"' EXIT
+. "$(dirname "$0")/own-pid.sh" || exit 1
+trap 'own_pid "$GW" bot-msg-stub-gateway && kill "$GW" 2>/dev/null && wait "$GW" 2>/dev/null; rm -rf "$ROOT"' EXIT
 PASSED=0 FAILED=0
 KEY_INFRA=sk-infra-7f3a9c1e5b2d4086
 KEY_DEFAULT=sk-default-0c9e8d7f6a5b4c3d

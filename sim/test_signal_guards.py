@@ -1,4 +1,4 @@
-"""Defence in depth for the remaining signal helpers: swarm_lifecycle's group stops and code-job-test.sh's pid kills.
+"""Defence in depth for the remaining signal helpers: swarm_lifecycle's group stops and the shell suites' pid kills.
 
 A bad group (<= 1, negative, non-int or this process's own) is never passed to killpg/pidfd_send_signal; recorders
 stand in for both, so a broken guard records instead of signalling. Real signals go only to a private group this
@@ -8,9 +8,11 @@ import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -98,25 +100,73 @@ class LifecycleRealGroupTests(unittest.TestCase):
         self.assertTrue(not state.strip() or state.strip().startswith("Z"), state)
 
 
-class CodeJobTestPidGuardTests(unittest.TestCase):
-    def own_pid(self, value):
-        script = (ROOT / "Tests/Scripts/code-job-test.sh").read_text()
-        function = re.search(r"^own_pid\(\) \{.*\}$", script, re.M).group(0)
-        return subprocess.run(["sh", "-c", function + '\nown_pid "$1"', "sh", value]).returncode == 0
+class OwnPidTests(unittest.TestCase):
+    """Tests/Scripts/own-pid.sh, sourced by code-job-test.sh and bot-msg-test.sh: a pid is signalled only when it is a
+    live descendant of the shell (and, given one, runs the expected command). `kill` is a recorder here."""
+    HELPER = ROOT / "Tests/Scripts/own-pid.sh"
 
-    def test_only_plain_pids_above_one_other_than_the_shell_are_signalled(self):
+    def run_sh(self, body, *args):
+        script = '. "$0"\nkill() { echo "kill $*"; }\n' + body
+        return subprocess.run(["sh", "-c", script, str(self.HELPER)] + list(args), capture_output=True, text=True,
+                              timeout=30)
+
+    def own_pid(self, value, command=""):
+        return self.run_sh('own_pid "$1" "$2" && kill -TERM "$1"', value, command).stdout == "kill -TERM %s\n" % value
+
+    def foreign(self):
+        """A live process that is not the shell's descendant: this runner's own sleeper, the shell's sibling."""
+        child = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(lambda: child.poll() is None and (child.kill(), child.wait()))
+        return child.pid
+
+    def test_garbage_broadcast_and_the_shell_itself_are_refused(self):
         for value in ("", "0", "1", "-1", "abc", "12 13", "12\n13", "007", " 5", "5;6"):
             self.assertFalse(self.own_pid(value), repr(value))
-        self.assertTrue(self.own_pid("4242"))
+        self.assertEqual(self.run_sh('own_pid $$ && kill $$').stdout, "")
 
-    def test_every_kill_in_code_job_test_names_a_checked_or_spawned_pid(self):
-        script = (ROOT / "Tests/Scripts/code-job-test.sh").read_text()
-        for line in script.splitlines():
-            for match in re.finditer(r"(?<![\w-])kill +(?:-[A-Z]+ +)?(\"?\$\w+\"?|\$\(.*?\))", line):
-                target = match.group(1)
-                if "kill -0" in match.group(0) or line.lstrip().startswith("kill()"):
-                    continue
-                self.assertTrue("own_pid" in line or target.strip('"') in ("$P", "$runner"), line)
+    def test_a_live_process_that_is_not_a_descendant_is_refused(self):
+        for pid in (self.foreign(), os.getpid()):  # A sibling, and the shell's own parent.
+            self.assertFalse(self.own_pid(str(pid)), pid)
+
+    def test_children_and_grandchildren_are_ours_and_the_command_must_match_when_given(self):
+        out = self.run_sh("""
+sleep 30 & child=$!
+( sleep 31 & echo $! > "$1"; wait ) & sub=$!
+i=0; while [ ! -s "$1" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+grand=$(cat "$1")
+own_pid "$child" && echo child-ok
+own_pid "$grand" && echo grand-ok
+own_pid "$child" sleep && echo command-ok
+own_pid "$child" code-job || echo command-mismatch-refused
+command kill "$child" "$grand"; wait
+own_pid "$child" || echo reaped-refused
+""", str(Path(self.tmp()) / "grand"))
+        self.assertEqual(out.stdout.split(), ["child-ok", "grand-ok", "command-ok", "command-mismatch-refused",
+                                              "reaped-refused"], out.stderr)
+
+    def tmp(self):
+        path = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, path, True)
+        return path
+
+    def test_every_kill_in_the_shell_suites_names_a_checked_or_spawned_pid(self):
+        for name in ("code-job-test.sh", "bot-msg-test.sh"):
+            script = (ROOT / "Tests/Scripts" / name).read_text()
+            self.assertIn('. "$(dirname "$0")/own-pid.sh"', script, name)
+            self.assertNotRegex(script, r"(?m)^own_pid\(\)", name)  # One definition, in own-pid.sh.
+            for line in script.splitlines():
+                for match in re.finditer(r"(?<![\w-])kill +(?:-[A-Z]+ +)?(\"?\$\w+\"?|\$\(.*?\))", line):
+                    if "kill -0" in match.group(0) or line.lstrip().startswith("kill()"):
+                        continue
+                    self.assertTrue("own_pid" in line or match.group(1).strip('"') == "$runner", line)
+        code_job = (ROOT / "Tests/Scripts/code-job-test.sh").read_text()
+        self.assertIn('own_pid "$pid" "$JOB" && kill -TERM "$pid"', code_job)  # A pid read from disk: code-job's.
+        self.assertIn("own_pid \"$GW\" bot-msg-stub-gateway && kill", (ROOT / "Tests/Scripts/bot-msg-test.sh").read_text())
+
+    def test_the_smoke_cap_signals_its_group_only_while_the_leader_is_unreaped(self):
+        script = (ROOT / "sim/mac-codex-tmp-smoke.sh").read_text()
+        cap = script[script.index("cap() {"):]
+        self.assertLess(cap.index("if p.returncode is not None"), cap.index("os.killpg(p.pid"))
 
 
 if __name__ == "__main__":
