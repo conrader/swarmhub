@@ -9,11 +9,12 @@ import hashlib
 import json
 import os
 import pathlib
+import subprocess
 import tomllib
 
 import pytest
 
-from test_jobroute import Env, mcp, submit
+from test_jobroute import ROUTE, Env, mcp, submit
 
 SHIPPED = pathlib.Path(__file__).resolve().parent.parent / "allowlist.toml"
 
@@ -168,3 +169,52 @@ def test_claude_argv_contains_accept_edits(env):
     cmd = call["argv"][call["argv"].index("--") + 1:]
     assert cmd == ["claude", "-p", "--permission-mode", "acceptEdits"]
     assert "--dangerously-skip-permissions" not in call["argv"]
+
+
+# ---------------------------------------------------------------- audit gaps (verifier, 2026-10-21)
+def test_mcp_non_string_tool_name_refused_and_audited(env):
+    rc, r = mcp(env, {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                      "params": {"name": ["submit_job"], "arguments": {"label": "x"}}})
+    assert r[1]["result"]["isError"] is True and "unknown tool" in r[1]["result"]["content"][0]["text"]
+    row = env.audit()[-1]
+    assert row["op"] == "parse" and row["result"] == "refused" and row["label"] == "x"
+
+
+def test_mcp_oversized_line_audited(env):
+    big = b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"submit_job","arguments":{"brief":"' \
+        + b"a" * (2 << 20) + b'"}}}\n'
+    rc, out = env.run(None, big + b'{"jsonrpc":"2.0","id":2,"method":"ping"}\n')
+    assert rc == 0 and [o["id"] for o in out] == [2]
+    row = env.audit()[-1]
+    assert row["result"] == "refused" and "dropped" in row["reason"] and row["line_bytes"] == len(big)
+    assert row["line_sha256"] == hashlib.sha256(big).hexdigest()
+
+
+def test_cli_stdin_never_closed_refused_and_audited(env):
+    env.cfg.write_text(env.cfg.read_text().replace("max_brief_bytes = 1024", "max_brief_bytes = 1024\nbrief_read_secs = 1"))
+    p = subprocess.Popen([str(ROUTE), "--config", str(env.cfg), "--profile", "grok-admin"], stdin=subprocess.PIPE,
+                         stdout=subprocess.PIPE, env={"PATH": "/usr/bin:/bin",
+                                                      "SSH_ORIGINAL_COMMAND": "submit engine=claude label=open"})
+    p.stdin.write(b"partial brief")
+    p.stdin.flush()
+    out = json.loads(p.stdout.readline())
+    p.stdin.close()
+    assert p.wait(timeout=30) == 2 and "stdin not closed within 1 s" in out["error"] and env.calls() == []
+    row = env.audit()[-1]
+    assert row["result"] == "refused" and row["label"] == "open" and row["brief_hash_partial"] is True
+    assert row["brief_sha256"] == hashlib.sha256(b"partial brief").hexdigest()
+
+
+def test_cli_closed_stdin_refused_and_audited(env):
+    p = subprocess.run(["/bin/sh", "-c", 'exec "$0" --config "$1" --profile grok-admin <&-', str(ROUTE), str(env.cfg)],
+                       capture_output=True, timeout=30,
+                       env={"PATH": "/usr/bin:/bin", "SSH_ORIGINAL_COMMAND": "submit engine=claude label=closed"})
+    assert p.returncode == 2 and "empty" in json.loads(p.stdout)["error"]
+    row = env.audit()[-1]
+    assert row["result"] == "refused" and row["label"] == "closed" and row["brief_bytes"] == 0
+
+
+def test_cli_brief_over_hash_cap_marked_partial(env):
+    rc, [out] = submit(env, b"a" * ((16 << 20) + 10))
+    row = env.audit()[-1]
+    assert rc == 2 and "larger" in out["error"] and row["brief_bytes"] == 16 << 20 and row["brief_hash_partial"] is True

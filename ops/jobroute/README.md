@@ -40,7 +40,9 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
   never placed in argv or a shell string. The limits: UTF-8, no NUL bytes, non-empty,
   and at most `max_brief_bytes` (default 64 KiB). A larger brief is refused with
   "brief is larger than the 65536-byte limit (max_brief_bytes)…". It is still audited,
-  with the sha256 and size of the whole brief (hashed up to 16 MiB).
+  with the sha256 and size of the whole brief, hashed up to 16 MiB. Past that cap, or when
+  stdin is not closed within `brief_read_secs` (default and maximum 50 s, which also
+  refuses the submit), the row gets `brief_hash_partial: true`.
 - **The engine is fixed.** The caller picks a name, `claude` or `codex`. The argv comes
   from `[engines]`:
   - `claude -p --permission-mode acceptEdits` (never `--dangerously-skip-permissions`);
@@ -78,7 +80,8 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
   `error`), `reason` and `peer`. Every submit row, whether accepted or refused (including
   a CLI or MCP parse refusal of a submit), also records `label`, `engine`,
   `workdir_requested`, `workdir` (the resolved realpath, or `null` if it was never
-  resolved), `brief_sha256` and `brief_bytes`. The brief itself is never logged.
+  resolved), `brief_sha256` and `brief_bytes`. An MCP message over 1 MiB is dropped and
+  logged with `line_sha256` and `line_bytes`. The brief itself is never logged.
   `profiles/<profile>.jsonl` is the list of that profile's own jobs, which `status` reads.
 - **Defence in depth.**
   - The route refuses to run if `allowlist.toml` or the state directory is not owned by
@@ -237,11 +240,12 @@ install -m 600 ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys && rm ~/.ssh/au
 # (or restore ~/.ssh/authorized_keys.bak-jobroute-<ts> from Infra step 3)
 # 2. Hermes: sudo -u hermes -H hermes -p <profile> mcp remove jobs      (per profile that had it)
 # 3. optional: rm /home/ubuntu/.local/lib/jobroute/current
-# 4. full removal of the install (code + config; the audit log in ~/.local/state/jobroute stays):
+# 4. full removal of the install (code + config; the last line also drops the audit log):
 rm /home/ubuntu/.local/lib/jobroute/current
 rm -rf /home/ubuntu/.local/lib/jobroute/releases/<sha>      # each installed release
 rmdir /home/ubuntu/.local/lib/jobroute/releases /home/ubuntu/.local/lib/jobroute
 rm -rf /home/ubuntu/.config/jobroute
+rm -rf /home/ubuntu/.local/state/jobroute                    # optional: the audit log; keep it unless told otherwise
 ```
 
 Jobs that are already running are detached sb-codejob jobs. Rollback does not stop them,

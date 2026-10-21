@@ -89,6 +89,8 @@ class Route:
         self.job_root = pathlib.Path(r["job_root"])
         self.path = r.get("path", "/usr/local/bin:/usr/bin:/bin")
         self.max_brief = int(r.get("max_brief_bytes", 65536))
+        # a CLI submit's stdin must reach EOF within this (+ 60 s launch stays under the 120 s alarm)
+        self.brief_read_secs = min(float(r.get("brief_read_secs", 50)), 50.0)
         self.work_root = os.path.normpath(r.get("work_root", r["job_root"]))
         self.home = _forms(r.get("home", PROD_HOME))
         self.deny = set().union(*(_forms(d) for d in (*BUILTIN_DENY, *r.get("deny_paths", []))))
@@ -243,17 +245,23 @@ class Route:
 
     # ------------------------------------------------------------ operations
     def submit(self, mode: str, engine, label, workdir, brief: bytes, agent=None, brief_meta=None) -> dict:
-        """brief_meta = (sha256, total bytes) when the caller read more than it kept (CLI oversize)."""
-        digest, size = brief_meta or (hashlib.sha256(brief).hexdigest(), len(brief))
+        """brief_meta: the CLI reader's {"sha256", "bytes", "end", "problem"?} when it read more than it
+        kept (oversize) or stopped early (stdin never closed)."""
+        meta = brief_meta or {"sha256": hashlib.sha256(brief).hexdigest(), "bytes": len(brief), "end": "eof"}
+        digest = meta["sha256"]
         logged = {"label": label[:64] if isinstance(label, str) else None,
                   "engine": engine[:32] if isinstance(engine, str) else None,
                   "workdir_requested": workdir[:256] if isinstance(workdir, str) else None,
-                  "workdir": None, "brief_sha256": digest, "brief_bytes": size}
+                  "workdir": None, "brief_sha256": digest, "brief_bytes": meta["bytes"]}
+        if meta["end"] != "eof":
+            logged["brief_hash_partial"] = True      # the hash covers only the bytes that arrived
         try:
             self.check_agent(agent)
             engine = self.check_engine(engine)
             label = self.check_label(label)
             wd = self.check_workdir(workdir, logged)
+            if meta.get("problem"):
+                raise Refused(meta["problem"])
             self.check_brief(brief)
             with _locked(self.state_dir / ".lock"):
                 self.check_rate(self.own_jobs())

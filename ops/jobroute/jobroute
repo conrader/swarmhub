@@ -17,7 +17,6 @@ Output is one JSON line. Exit 0 ok, 2 refused, 3 rate limited, 1 route error.
 """
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
 import os
@@ -59,23 +58,31 @@ def parse_cli(cmd: str) -> tuple[str, dict]:
     return op, kv
 
 
-def read_brief(keep: int, deadline: float | None = None) -> tuple[bytes, str, int]:
-    """Read stdin to EOF: keep the first `keep` bytes, hash up to HASH_CAP. -> (kept, sha256, bytes).
-    With a deadline, stop reading when it passes (the hash then covers what arrived)."""
-    fd, kept, h, total = sys.stdin.fileno(), bytearray(), hashlib.sha256(), 0
+def read_brief(keep: int, secs: float) -> tuple[bytes, dict]:
+    """Read fd 0 until EOF, HASH_CAP bytes or `secs`: keep the first `keep` bytes, hash what arrived.
+    -> (kept, meta); meta["end"] is "eof", "cap" (hash covers HASH_CAP bytes) or "timeout"."""
+    kept, h, total, end = bytearray(), hashlib.sha256(), 0, "cap"
+    deadline = time.monotonic() + secs
     while total < HASH_CAP:
-        if deadline is not None:
+        try:
             left = deadline - time.monotonic()
-            if left <= 0 or not select.select([fd], [], [], left)[0]:
+            if left <= 0 or not select.select([0], [], [], left)[0]:
+                end = "timeout"
                 break
-        chunk = os.read(fd, min(65536, HASH_CAP - total))
+            chunk = os.read(0, min(65536, HASH_CAP - total))
+        except (OSError, ValueError):            # closed or unusable stdin reads as an empty brief
+            chunk = b""
         if not chunk:
+            end = "eof"
             break
         h.update(chunk)
         total += len(chunk)
         if len(kept) < keep:
             kept += chunk[:keep - len(kept)]
-    return bytes(kept), h.hexdigest(), total
+    meta = {"sha256": h.hexdigest(), "bytes": total, "end": end}
+    if end == "timeout":
+        meta["problem"] = f"brief not received: stdin not closed within {int(secs)} s"
+    return bytes(kept), meta
 
 
 def audit_parse_refusal(route: Route, cmd: str, reason: str) -> None:
@@ -87,9 +94,10 @@ def audit_parse_refusal(route: Route, cmd: str, reason: str) -> None:
             key, _, value = t.partition("=")
             if key in ("label", "workdir"):
                 fields.setdefault(key if key == "label" else "workdir_requested", value[:256])
-        with contextlib.suppress(OSError, ValueError):
-            _, digest, size = read_brief(0, time.monotonic() + REFUSED_READ_SECS)
-            fields.update(brief_sha256=digest, brief_bytes=size)
+        _, meta = read_brief(0, REFUSED_READ_SECS)
+        fields.update(brief_sha256=meta["sha256"], brief_bytes=meta["bytes"])
+        if meta["end"] != "eof":
+            fields["brief_hash_partial"] = True
     route.audit("parse", "cli", "refused", reason=reason, **fields)
 
 
@@ -105,9 +113,9 @@ def run_cli(route: Route, cmd: str) -> int:
               "workdirs": route.workdirs, "usage": __doc__.split("\n\n")[2]})
         return 0
     if op == "submit":
-        brief, digest, size = read_brief(route.max_brief + 1)
+        brief, meta = read_brief(route.max_brief + 1, route.brief_read_secs)
         emit(route.submit("cli", kv.get("engine"), kv.get("label"), kv.get("workdir"), brief, kv.get("agent"),
-                          brief_meta=(digest, size)))
+                          brief_meta=meta))
         return 0
     limit = kv.get("limit", "10")
     emit(route.status("cli", kv.get("job"), int(limit) if limit.isdigit() else limit))
@@ -156,6 +164,8 @@ def call_tool(route: Route, name: str, args: dict) -> dict:
 def _call_tool(route: Route, name: str, args: dict) -> dict:
     if not isinstance(args, dict):
         raise Refused("arguments must be an object")
+    if not isinstance(name, str):
+        raise Refused("unknown tool (submit_job, job_status)")
     allowed = {"submit_job": {"engine", "label", "brief", "workdir"}, "job_status": {"job_id", "limit"}}.get(name)
     if allowed is None:
         raise Refused("unknown tool (submit_job, job_status)")
@@ -172,21 +182,31 @@ def _call_tool(route: Route, name: str, args: dict) -> dict:
     return route.status("mcp", args.get("job_id"), args.get("limit", 10))
 
 
-def read_lines(stream):
-    """Yield input lines; a line over MAX_LINE is drained and dropped, never held whole."""
+def read_lines(stream, on_drop=None):
+    """Yield input lines; a line over MAX_LINE is drained and dropped, never held whole.
+    on_drop(sha256, bytes) is told about each dropped line (hashed while draining)."""
     while True:
         raw = stream.readline(MAX_LINE + 1)
         if not raw:
             return
         if len(raw) > MAX_LINE:
+            h, total = hashlib.sha256(raw), len(raw)
             while raw and not raw.endswith(b"\n"):
                 raw = stream.readline(MAX_LINE + 1)
+                h.update(raw)
+                total += len(raw)
+            if on_drop:
+                on_drop(h.hexdigest(), total)
             continue
         yield raw
 
 
 def serve_mcp(route: Route) -> int:
-    for raw in read_lines(sys.stdin.buffer):
+    def dropped(digest: str, size: int) -> None:
+        route.audit("parse", "mcp", "refused", reason=f"MCP message over {MAX_LINE} bytes dropped",
+                    line_sha256=digest, line_bytes=size)
+
+    for raw in read_lines(sys.stdin.buffer, dropped):
         try:
             msg = json.loads(raw)
         except ValueError:
