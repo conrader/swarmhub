@@ -31,11 +31,14 @@ ACCEPTED = {
     "single escaped backslash then quote": (r"'a\\\'b'", "a\\'b"),
 }
 MALFORMED = {"unterminated double": '"unterminated', "unterminated single": "'unterminated",
-             "mismatched": "'mismatch\"", "lone quote": '"', "quoted then comment": '"x" # note'}
+             "mismatched": "'mismatch\"", "lone quote": '"', "trailing text": '"value" trailing',
+             "stray double quote": '"a"b"', "stray single quote": "'a'b'",
+             "unclosed multiline": '"first\nsecond', "multiline trailing text": "'first\nsecond' trailing",
+             "comment hides closing quote": '"value # not a comment'}
 
 
 class OptInEnvironmentTests(DefaultsOnlyCase):
-    def opt_in_with(self, line, reference="${FINANCE_TOKEN}", backend="hermes"):
+    def prepare_opt_in(self, line, reference="${FINANCE_TOKEN}", backend="hermes"):
         self.manager(backend)
         source = helper.config_path(self.home, backend, "manager")
         config = helper.read_config(source)
@@ -44,8 +47,12 @@ class OptInEnvironmentTests(DefaultsOnlyCase):
         source.write_text(yaml.safe_dump(config) if backend == "hermes" else json.dumps(config))
         (helper.location(self.home, backend, "manager") / ".env").write_text(
             "# manager credentials\n" + line + "\nPRIVATE_TOKEN=unselected-dotenv-secret\n")
-        target = self.config(backend, "reports", {})
+        return self.config(backend, "reports", {})
+
+    def opt_in_with(self, line, reference="${FINANCE_TOKEN}", backend="hermes"):
+        target = self.prepare_opt_in(line, reference, backend)
         helper.opt_in(self.home, backend, "reports", "manager", "finance")
+        key = "mcp_servers" if backend == "hermes" else "mcpServers"
         return helper.read_config(target)[key]["finance"]["headers"]["Authorization"]
 
     def setUp(self):
@@ -79,32 +86,58 @@ class OptInEnvironmentTests(DefaultsOnlyCase):
         self.fresh()
         self.assertEqual(self.opt_in_with("OTHER=1", "${FINANCE_TOKEN:-fallback}"), "fallback")
 
-    def test_unparseable_lines_are_ignored_and_later_files_win(self):
-        self.assertEqual(self.opt_in_with("1BAD=x\nnot an assignment\nFINANCE_TOKEN=first\nFINANCE_TOKEN=last"), "last")
+    def test_quoted_values_allow_inline_comments(self):
+        for backend in ("hermes", "openclaw"):
+            for raw, expected in (("'a # b'", "a # b"), ('""', ""), (r'"say \"hi\""', 'say "hi"')):
+                for suffix in ("# comment", " # comment with ' and \"", "\t# comment"):
+                    with self.subTest(backend=backend, raw=raw, suffix=suffix):
+                        self.fresh()
+                        self.assertEqual(self.opt_in_with("export FINANCE_TOKEN=" + raw + suffix, backend=backend), expected)
+
+    def test_multiline_quoted_values_preserve_their_contents(self):
+        contents = ("first\nsecond", "first\n\n# literal comment\nOTHER=value\nlast", "\n  indented\t\n",
+                    "café\n雪", "first\\\nsecond", "first\u2028second")
+        for backend in ("hermes", "openclaw"):
+            for quote in ("'", '"'):
+                for content in contents:
+                    with self.subTest(backend=backend, quote=quote, content=content):
+                        self.fresh()
+                        raw = "export FINANCE_TOKEN=" + quote + content + quote + " # trailing comment"
+                        self.assertEqual(self.opt_in_with(raw, backend=backend), content)
+
+    def test_comments_and_bare_keys_are_ignored_and_later_files_win(self):
+        self.assertEqual(self.opt_in_with("1BAD=x\nBARE_KEY\n# comment\nFINANCE_TOKEN=first\nFINANCE_TOKEN=last"), "last")
         self.fresh()
         (self.home / ".hermes").mkdir(parents=True, exist_ok=True)
         (self.home / ".hermes/.env").write_text("FINANCE_TOKEN=root-value\n")
         self.assertEqual(self.opt_in_with("FINANCE_TOKEN=manager-value"), "manager-value")
 
     def test_malformed_quoting_fails_before_any_write(self):
-        for name, raw in MALFORMED.items():
-            with self.subTest(case=name):
-                self.fresh()
-                with self.assertRaises(ValueError):
-                    self.opt_in_with("FINANCE_TOKEN=" + raw)
-                target = helper.config_path(self.home, "hermes", "reports")
-                self.assertNotIn("finance", helper.read_config(target)["mcp_servers"])
-                self.assertFalse((target.parent / ".swarmhub-connector-sources.json").exists())
+        for backend in ("hermes", "openclaw"):
+            for name, raw in MALFORMED.items():
+                with self.subTest(backend=backend, case=name):
+                    self.fresh()
+                    self.prepare_opt_in("FINANCE_TOKEN=selected-finance-secret\nBROKEN=" + raw, backend=backend)
+                    before = self.snapshot()
+                    with self.assertRaisesRegex(ValueError, "^Malformed dotenv binding$"):
+                        helper.opt_in(self.home, backend, "reports", "manager", "finance")
+                    self.assertEqual(self.snapshot(), before)
 
     def test_malformed_quoting_is_a_redacted_cli_failure(self):
-        self.manager("hermes")
-        (helper.location(self.home, "hermes", "manager") / ".env").write_text("FINANCE_TOKEN='selected-finance-secret\n")
-        self.config("hermes", "reports", {})
-        result = subprocess.run([sys.executable, str(Path(helper.__file__)), "--home", str(self.home), "opt-in", "hermes", "reports",
-                                 "--manager", "manager", "--connector", "finance"], capture_output=True, text=True, timeout=60)
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(json.loads(result.stdout)["list"][0]["state"], "failed")
-        self.assertNotIn("selected-finance-secret", result.stdout + result.stderr)
+        for backend in ("hermes", "openclaw"):
+            for raw in ("'selected-finance-secret", '"selected-finance-secret\nsecond line',
+                        '"selected-finance-secret" trailing', '"selected-finance-secret"inner"'):
+                with self.subTest(backend=backend, raw=raw):
+                    self.fresh()
+                    self.prepare_opt_in("FINANCE_TOKEN=valid\nBROKEN=" + raw, backend=backend)
+                    before = self.snapshot()
+                    result = subprocess.run([sys.executable, str(Path(helper.__file__)), "--home", str(self.home),
+                                             "opt-in", backend, "reports", "--manager", "manager", "--connector", "finance"],
+                                            capture_output=True, text=True, timeout=60)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(json.loads(result.stdout)["list"][0]["state"], "failed")
+                    self.assertNotIn("selected-finance-secret", result.stdout + result.stderr)
+                    self.assertEqual(self.snapshot(), before)
 
     def test_written_model_keys_read_back_unchanged(self):
         for value in ("model-secret", 'quote-"-and-\\-slash', "clé-secret", "tab\tkey"):
