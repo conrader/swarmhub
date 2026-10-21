@@ -28,7 +28,8 @@ import json
 import os
 import sys
 
-from . import apply, bundle, channel, compat, fetch, pins as pinfile, policy, runner, stage, state as statefile, verify
+from . import (apply, bundle, channel, compat, devmode, fetch, pins as pinfile, policy, runner, stage, state as statefile,
+               verify)
 
 EX_OK, EX_USAGE, EX_REFUSED, EX_FAILED, EX_TEMPFAIL, EX_CONFIG = 0, 64, 65, 70, 75, 78
 EXIT = {"current": EX_OK, "pending_confirm": EX_OK, "pinned": EX_OK, "held": EX_OK, "deferred": EX_TEMPFAIL,
@@ -197,7 +198,8 @@ def _attempt(box, source, readers, consumer, config, progress=None):
 def _commit(box, command, verified, profiles, hermes, extra=None):
     """Store a verified bundle, raise the bundle floor and apply it (decision 2)."""
     st = box.state
-    if profiles is not None:
+    if profiles is not None:  # a reset applies to this request only; dev_mode persists with the profile
+        profiles, box.reset = devmode.split_reset(profiles)
         st.write_json(profiles, "profiles.json")
     for data in verified.blobs.values():
         st.put_blob(data)

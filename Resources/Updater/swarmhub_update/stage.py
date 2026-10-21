@@ -34,7 +34,8 @@ SHELLS = ("sh", "dash", "bash")
 DIR_MODE = 0o755
 _O_NEW_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
 
-Profile = namedtuple("Profile", "name coding_order skills")  # skills: names to install, None = every given skill
+# skills: names to install, None = every given skill; dev_mode and reset (skill names): devmode.py
+Profile = namedtuple("Profile", "name coding_order skills dev_mode reset", defaults=(False, ()))
 Entry = namedtuple("Entry", "kind mode data")  # one snapshot entry: kind "dir"/"file", permission bits, bytes or None
 
 

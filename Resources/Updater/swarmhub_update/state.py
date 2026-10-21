@@ -21,7 +21,7 @@ import os
 import secrets
 import shutil
 
-from . import apply, bundle, render, verify
+from . import apply, bundle, devmode, render, verify
 
 STATUS_SCHEMA = "swarmhub/update-status/1"
 PROFILES_SCHEMA = "swarmhub/profiles/1"
@@ -210,7 +210,8 @@ def check_profiles(doc):
         if skills is not None and not (isinstance(skills, list)
                                        and all(render.is_valid_profile_name(s) for s in skills)):
             raise ValueError("profiles.json: skills of %s must be a list of names or null" % entry["name"])
+        extra = devmode.check_row(entry)  # dev_mode / reset keys only when set, so other rows read as before
         seen.add(entry["name"])
-        result.append({"name": entry["name"], "coding_order": entry.get("coding_order", render.STANDARD_ORDER),
-                       "skills": None if skills is None else sorted(set(skills))})
+        result.append(dict({"name": entry["name"], "coding_order": entry.get("coding_order", render.STANDARD_ORDER),
+                            "skills": None if skills is None else sorted(set(skills))}, **extra))
     return result

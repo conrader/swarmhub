@@ -16,7 +16,7 @@ from collections import namedtuple
 import os
 import time
 
-from . import VERSION, apply, bundle, idle, pins as pinfile, policy, render, stage, verify
+from . import VERSION, apply, bundle, devmode, idle, pins as pinfile, policy, render, stage, verify
 
 Report = namedtuple("Report", "succeeded errors held results")
 GOOD = ("applied", "unchanged")
@@ -26,6 +26,7 @@ class Box:
     def __init__(self, hermes_home, state, pins, now, max_wait=idle.DEFAULT_MAX_WAIT, poll=idle.DEFAULT_POLL):
         self.hermes_home, self.state, self.pins, self.now = hermes_home, state, pins, now
         self.max_wait, self.poll = max_wait, poll
+        self.reset = {}  # this request's "Reset to bundled" skills per profile (devmode.split_reset), never persisted
 
 
 def discover(hermes_home, skill_names=None):
@@ -49,7 +50,11 @@ def discover(hermes_home, skill_names=None):
 def profiles_for(box, skill_names=None):
     """Configured profiles (ValueError when profiles.json is malformed), else the discovered ones."""
     configured = box.state.profiles()
-    return configured if configured is not None else discover(box.hermes_home, skill_names)
+    entries = configured if configured is not None else discover(box.hermes_home, skill_names)
+    for entry in entries:
+        if box.reset.get(entry["name"]):
+            entry["reset"] = box.reset[entry["name"]]
+    return entries
 
 
 def _manager_text(box, verified, names_now, comps, errors):
@@ -117,7 +122,8 @@ def _apply_now(box, verified, now, waiting, comps):
                         wanted.discard(name)
             if wanted:
                 targets.append(stage.Profile(entry["name"], entry["coding_order"] or render.STANDARD_ORDER,
-                                             tuple(sorted(wanted))))
+                                             tuple(sorted(wanted)), entry.get("dev_mode", False),
+                                             tuple(entry.get("reset", ()))))
     # Settle preparation failures before passing anything to the engine: adjusting records after a swap
     # cannot undo dependent data that already landed. Include held/dropped skills and transitive edges.
     targeted = {name for p in targets for name in p.skills}
@@ -139,7 +145,7 @@ def _apply_now(box, verified, now, waiting, comps):
     for target in targets:
         wanted = tuple(n for n in target.skills if n in loaded)
         if wanted:
-            eligible.append(stage.Profile(target.name, target.coding_order, wanted))
+            eligible.append(target._replace(skills=wanted))
     targets = eligible
     if targets:
         for result in apply.apply(box.hermes_home, box.state.root, [loaded[n] for n in sorted(loaded)], template,
@@ -232,6 +238,9 @@ def _record_variants(box, profile, loaded):
         variants = record["variants"] = {}
     category = stage.category_dir(box.hermes_home, profile.name)
     for name in profile.skills:
+        live = os.path.join(category, name)
+        if profile.dev_mode and devmode.modified(box.hermes_home, record, profile.name, name, live):
+            continue  # kept: the bound tree stays the one SwarmHub installed, so the bot's edit never reads as ours
         variants[name] = {"value": render.variant(loaded[name], profile.coding_order),
                           "tree": stage.tree_digest(os.path.join(category, name))}
     box.state.write_json(record, "profiles", profile.name + ".json")
@@ -277,6 +286,11 @@ def _profiles_view(box):
                                "variants": _live_variants(record, category),
                                "advertised": {n: bundle.live_advertised(category, n) for n in present
                                               if os.path.isdir(os.path.join(category, n))}}
+        if entry.get("dev_mode"):  # what dev mode keeps; the key is absent while dev mode is off
+            names = set(entry.get("skills") or []) | {n for n in present if os.path.isdir(os.path.join(category, n))}
+            view[entry["name"]]["modified"] = sorted(
+                n for n in names if render.is_valid_profile_name(n)
+                and devmode.modified(box.hermes_home, record, entry["name"], n, os.path.join(category, n)))
     return view
 
 

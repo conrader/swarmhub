@@ -27,7 +27,7 @@ import shutil
 import sys
 import time
 
-from . import bundle, idle, render, stage
+from . import bundle, devmode, idle, render, stage
 
 Result = namedtuple("Result", "profile status detail versions reload_pending")  # status: see STATUSES
 STATUSES = ("applied", "reverted", "unchanged", "deferred", "failed", "recovery_pending")
@@ -383,8 +383,10 @@ def _prepare(hermes_home, profile, state_dir):
     return category
 
 
-def apply_profile(hermes_home, state_dir, skills, manager_template, profile, deadline, poll=idle.DEFAULT_POLL):
-    """Stage, check, wait for idle and swap one profile (a stage.Profile). Returns a Result."""
+def apply_profile(hermes_home, state_dir, skills, manager_template, profile, deadline, poll=idle.DEFAULT_POLL,
+                  keep=None):
+    """Stage, check, wait for idle and swap one profile (a stage.Profile). Returns a Result. `keep(category, skill,
+    files)` true (dev mode, devmode.py) leaves that live skill and its recorded version alone."""
     try:
         category = _prepare(hermes_home, profile.name, state_dir)
         rendered = stage.render_profile(skills, manager_template, profile)
@@ -394,6 +396,9 @@ def apply_profile(hermes_home, state_dir, skills, manager_template, profile, dea
     versions = {s.name: s.version for s in skills if s.name in rendered}
     planned = []
     for name, files in sorted(rendered.items()):
+        if keep is not None and keep(category, name, files):
+            versions.pop(name, None)
+            continue
         expected = stage.expected_snapshot(files)
         new, old = stage.digest(expected), stage.tree_digest(os.path.join(category, name))
         if old is None:
@@ -435,8 +440,8 @@ def apply(hermes_home, state_dir, skills, manager_template, profiles, max_wait=i
     deadline = time.monotonic() + max_wait
     try:
         with locked(state_dir):
-            return [_guarded(p.name, apply_profile, hermes_home, state_dir, skills, manager_template, p, deadline, poll)
-                    for p in profiles]
+            return [_guarded(p.name, devmode.run, apply_profile, read_record, hermes_home, state_dir, skills,
+                             manager_template, p, deadline, poll) for p in profiles]
     except Busy:
         return [Result(p.name, "deferred", "another updater run is active", {}, False) for p in profiles]
 
