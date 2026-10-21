@@ -235,6 +235,18 @@ def hermes_model_auth(home, manager):
     names = MODEL_ENV[provider]
     from urllib.parse import urlparse
     hostname = urlparse(str(model.get("base_url") or "")).hostname or ""
+    if provider == "custom":
+        endpoint = values.get("CUSTOM_BASE_URL") or model.get("base_url") or values.get("OPENAI_BASE_URL") or ""
+        hostname = urlparse(str(endpoint)).hostname or ""
+        # Match the custom endpoint's credential, never an ambient OpenAI key for
+        # an unrelated host. Explicit inline credentials take precedence.
+        custom_key = ("OPENAI_API_KEY" if hostname == "openai.com" or hostname.endswith((".openai.com", ".openai.azure.com")) else
+                      "OPENROUTER_API_KEY" if hostname == "openrouter.ai" or hostname.endswith(".openrouter.ai") else
+                      "OLLAMA_API_KEY" if hostname == "ollama.com" or hostname.endswith(".ollama.com") else
+                      re.sub(r"[^A-Z0-9_]", "_", hostname.split(".")[-2].upper()) + "_API_KEY"
+                      if "." in hostname and not hostname.replace(".", "").isdigit() else None)
+        names = ((custom_key,) if custom_key and not (model.get("api_key") or model.get("api")) else ()) + (
+            "OPENAI_BASE_URL", "CUSTOM_BASE_URL")
     if provider == "anthropic" and (hostname == "azure.com" or hostname.endswith(".azure.com")):
         names = ("AZURE_ANTHROPIC_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL")
     for hint in ("api_key_env", "key_env"):
@@ -249,9 +261,10 @@ def hermes_model_auth(home, manager):
                     and (name == selected_key or name.endswith(("_URL", "_BASE_URL")))}
     if provider == "custom":
         endpoint = selected_env.pop("CUSTOM_BASE_URL", None) or model.get("base_url") or selected_env.get("OPENAI_BASE_URL")
+        selected_env.pop("OPENAI_BASE_URL", None)
         if endpoint:
             model["base_url"] = endpoint
-        if selected_key:
+        if selected_key and not (model.get("api_key") or model.get("api")):
             # Generic custom runtimes consume inline keys alongside config endpoints.
             model["api_key"] = values[selected_key]
     # Preserve per-provider shadowing from root to named profile, independently for each auth map.

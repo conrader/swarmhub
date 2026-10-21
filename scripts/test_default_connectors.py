@@ -651,7 +651,7 @@ class DefaultsOnlyTests(unittest.TestCase):
             "default": "selected-model", "provider": "custom", "base_url": "http://localhost:11434/v1"})
 
     def test_inline_selected_model_key_and_header_references_are_materialized(self):
-        self.model_manager("custom", env="MODEL_KEY=model-secret", api_key="${MODEL_KEY}",
+        self.model_manager("custom", env="MODEL_KEY=model-secret\nOPENAI_API_KEY=other-provider-secret", api_key="${MODEL_KEY}",
                            base_url="https://models.invalid/v1", extra_headers={"X-Model": "${MODEL_KEY}"},
                            unrelated="connector-secret")
         root = self.create_model_bot()
@@ -659,6 +659,12 @@ class DefaultsOnlyTests(unittest.TestCase):
         self.assertEqual(model["api_key"], "model-secret")
         self.assertEqual(model["extra_headers"], {"X-Model": "model-secret"})
         self.assertNotIn("unrelated", model)
+
+    def test_local_custom_endpoint_does_not_receive_an_unrelated_openai_key(self):
+        self.model_manager("custom", env="OPENAI_API_KEY=other-provider-secret", base_url="http://127.0.0.1:8080/v1")
+        root = self.create_model_bot()
+        self.assertNotIn("api_key", helper.read_config(root / "config.yaml")["model"])
+        self.assertEqual((root / ".env").read_text(), "")
 
     def test_missing_unsupported_and_ambiguous_auth_fail_before_backend_or_writes(self):
         for provider, env in (("openai-codex", ""), ("unknown-future-provider", ""),
