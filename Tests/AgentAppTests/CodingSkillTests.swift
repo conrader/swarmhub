@@ -29,7 +29,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
 
 @Test func codingSkillShipsWithItsScript() throws {
     let skill = try codingSkill()
-    #expect(skill.version == SkillVersion("1.3.13")!)
+    #expect(skill.version == SkillVersion("1.3.14")!)
     let fields = SkillLibrary.frontmatter(skill.template)
     #expect(fields["author"] == "SwarmHub" && skill.template.contains("metadata:\n  swarmhub:\n    source: swarmhub"))
     let description = try #require(fields["description"])
@@ -50,7 +50,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let rendered = try #require(SkillLibrary.render(skill, forProfile: "coder", managerTemplate: nil, codingOrder: order))
     #expect(!rendered.contains("{{"))
     #expect(rendered.contains("~/.hermes/profiles/coder/skills/swarmhub/swarmhub-coding/scripts/code-job --bot coder --order \(order.argument) --dir"))
-    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.3.13")
+    #expect(SkillLibrary.advertisedVersion(in: SkillLibrary.frontmatter(rendered)["description"] ?? "") == "1.3.14")
     #expect(rendered.contains("CODE_JOB_USE_DELEGATE") && rendered.contains("delegate_task") && rendered.contains("claude.token"))
     #expect(SkillLibrary.variant(of: skill, codingOrder: order) == order.argument)
     let defaultBot = try #require(SkillLibrary.render(skill, forProfile: "default", managerTemplate: nil, codingOrder: order))
@@ -77,7 +77,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(text.contains("cat > \(folder)/scripts/code-job <<'SWARMHUB_EOF'\n\(script.content)SWARMHUB_EOF\ncat > \(folder)/scripts/completion-contract.py <<'SWARMHUB_EOF'\n"))
     #expect(text.contains("chmod 755 \(folder)/scripts/code-job \(folder)/scripts/completion-contract.py \(folder)/scripts/scratch.py \(folder)/scripts/swarmhub-claude-login \(folder)/scripts/verify-sandbox.py \(folder)/scripts/verify_darwin.py \(folder)/scripts/verify_git.py \(folder)/scripts/verify_processes.py \(folder)/scripts/verify_signals.py\n"))
     #expect(text.contains("--order codex,claude,hermes"))
-    #expect(text.contains(#"{"name":"swarmhub-coding","version":"1.3.13","variant":"codex,claude,hermes"}"#))
+    #expect(text.contains(#"{"name":"swarmhub-coding","version":"1.3.14","variant":"codex,claude,hermes"}"#))
 }
 
 // MARK: Settings resolution
@@ -138,20 +138,20 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     #expect(SwarmHubSkillsSection.stateText(.changed(installed: "1.0.0"), bundled: bundled) == "v1.0.0 installed · coding agent changed, needs updating")
 }
 
-// Darwinkill3 changes coding; coreInt2 versions the merged messages skill beyond both P5d/P8a 1.4.5 installs.
+// code-job hardening updates existing coding installs; coreInt2 versions messages beyond both P5d/P8a 1.4.5 installs.
 @Test @MainActor func installsAtThePreviousSkillVersionsAreOutdated() throws {
     let (store, _, coder, _) = codingStore()
     let coding = try codingSkill()
     let messages = try #require(SkillLibrary.bundled().first { $0.name == "swarmhub-messages" })
-    #expect(coding.version == SkillVersion("1.3.13")! && messages.version == SkillVersion("1.4.7")!)
+    #expect(coding.version == SkillVersion("1.3.14")! && messages.version == SkillVersion("1.4.7")!)
     let variant = store.codingOrder(for: coder).argument
-    coder.installedSkills = ["swarmhub-coding": "1.3.12", "swarmhub-messages": "1.4.4"]
+    coder.installedSkills = ["swarmhub-coding": "1.3.13", "swarmhub-messages": "1.4.4"]
     coder.installedSkillVariants = ["swarmhub-coding": variant]
-    #expect(store.skillState(coding, for: coder) == .outdated(installed: "1.3.12"))
+    #expect(store.skillState(coding, for: coder) == .outdated(installed: "1.3.13"))
     #expect(store.skillState(messages, for: coder) == .outdated(installed: "1.4.4"))
     #expect(store.skillBanner(for: coder)?.skill.name == "swarmhub-coding")
-    #expect(store.skillBanner(for: coder)?.state == .outdated(installed: "1.3.12"))
-    coder.installedSkills["swarmhub-coding"] = "1.3.13"
+    #expect(store.skillBanner(for: coder)?.state == .outdated(installed: "1.3.13"))
+    coder.installedSkills["swarmhub-coding"] = "1.3.14"
     #expect(store.skillState(coding, for: coder) == .current)
     #expect(store.skillBanner(for: coder)?.state == .outdated(installed: "1.4.4"), "then the messages skill")
     coder.installedSkills["swarmhub-messages"] = "1.4.5"
@@ -189,7 +189,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
 }
 
 @Test @MainActor func installRecordsTheVariantFromTheBlock() async throws {
-    let reply = "Installed.\n```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"coder\",\"skills\":[{\"name\":\"swarmhub-coding\",\"version\":\"1.3.13\",\"variant\":\"codex\"}]}\n```"
+    let reply = "Installed.\n```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"coder\",\"skills\":[{\"name\":\"swarmhub-coding\",\"version\":\"1.3.14\",\"variant\":\"codex\"}]}\n```"
     let (store, jarvis, coder, host) = codingStore(reply: reply)
     coder.modelSettings = BotModelSettings(codingAgent: .codexOnly)
     #expect(store.installSkills(for: coder))
@@ -197,7 +197,7 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
     let sent = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.compactMap { $0.body?["instructions"] as? String }
     #expect(sent.count == 1 && sent[0].contains("--order codex --dir") && sent[0].contains("for Coder (profile `coder`)"))
     #expect(jarvis.messages.first { $0.role == .user }?.content == "Install SwarmHub’s instructions for Coder.")
-    #expect(coder.installedSkills == (["swarmhub-coding": "1.3.13"] as [String: String]) && coder.installedSkillVariants == (["swarmhub-coding": "codex"] as [String: String]))
+    #expect(coder.installedSkills == (["swarmhub-coding": "1.3.14"] as [String: String]) && coder.installedSkillVariants == (["swarmhub-coding": "codex"] as [String: String]))
     #expect(store.skillState(try codingSkill(), for: coder) == .current)
     // The variant survives a save and reload with the bot; a bot without one encodes as before.
     let url = temporaryStore()
@@ -221,9 +221,9 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
 
 private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() }
 
-/// `Tests/Scripts/code-job-test.sh` under each shell present: stub CLIs, a temp HOME, every case must pass. The 23 cases
-/// run in five shards (`CODE_JOB_CASES`) so the slow ones overlap; 17-23 cover evidence, verification cleanup and report states.
-private let codeJobShards = ["1 2 3 4 5 6", "7", "8 9", "10 11 12 13 14 15 16", "17 18 19 20 21 22 23"]
+/// `Tests/Scripts/code-job-test.sh` under each shell present: stub CLIs, a temp HOME, every case must pass. The 24 cases
+/// run in five shards (`CODE_JOB_CASES`) so the slow ones overlap; 17-24 cover evidence, verification cleanup, report states and interrupted reads.
+private let codeJobShards = ["1 2 3 4 5 6", "7", "8 9", "10 11 12 13 14 15 16", "17 18 19 20 21 22 23 24"]
 
 @Test(arguments: ["/bin/sh", "/bin/dash"], codeJobShards) func codeJobShellTestPasses(_ shell: String, _ cases: String) async throws {
     guard FileManager.default.isExecutableFile(atPath: shell) else { return }

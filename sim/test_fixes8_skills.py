@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / 'Resources/Skills'
 TESTS = ROOT / 'Tests/AgentAppTests'
 # skill -> (version installed before this change, bundled now, the Swift test that pins it)
-BUMPS = {'swarmhub-coding': ('1.3.12', '1.3.13', 'CodingSkillTests.swift'),  # skill-update-loop: `kill -1` prose tripped Hermes's hardline guard
+BUMPS = {'swarmhub-coding': ('1.3.13', '1.3.14', 'CodingSkillTests.swift'),  # dash-safe code-job reads reach existing installs
          'swarmhub-messages': ('1.4.6', '1.4.7', 'BotMessageSkillTests.swift')}  # verify enablement; report sealed-core PM blocks
 
 

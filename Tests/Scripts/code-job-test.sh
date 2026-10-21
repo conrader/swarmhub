@@ -476,6 +476,59 @@ fi
 done_case
 }
 
-for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23}; do "case_$n"; done
+# 24
+case_24() {
+new_case "interrupted reads retry; exhausted process-tree reads still kill the root"
+# Exercise the shipped functions with deterministic empty reads, without sending real signals.
+sed -n '/^now() {/,/^}/p; /^read_output() {/,/^}/p; /^kill_tree() {/,/^}/p' "$JOB" > "$C/functions"
+cat > "$C/check-reads" <<'READS'
+. "$1/functions"
+C=$1
+empty_then_value() {
+  IFS= read -r n < "$C/count"
+  n=$((n + 1)); echo "$n" > "$C/count"
+  [ "$n" -lt 3 ] || printf '%s\n' "$*"
+  return 0
+}
+echo 0 > "$C/count"
+read_output empty_then_value 'a value with spaces' || exit 1
+[ "$READ_OUTPUT" = 'a value with spaces' ] || exit 2
+IFS= read -r n < "$C/count"; [ "$n" -eq 3 ] || exit 3
+# Exhaustion clears an old value, and command errors retain their status without retrying.
+empty() { echo x >> "$C/empty-calls"; return 0; }
+read_output empty && exit 4
+[ -z "$READ_OUTPUT" ] && [ "$(wc -l < "$C/empty-calls" | tr -d ' ')" -eq 5 ] || exit 5
+failed() { echo x >> "$C/failed-calls"; return 17; }
+read_output failed; rc=$?
+[ "$rc" -eq 17 ] && [ "$(wc -l < "$C/failed-calls" | tr -d ' ')" -eq 1 ] || exit 6
+date() { empty_then_value 123; }
+echo 0 > "$C/count"; NOW=100
+now; [ "$NOW" -eq 123 ] || exit 7
+date() { return 0; }
+now; [ "$NOW" -eq 123 ] || exit 8
+kill() { printf '%s\n' "$*" >> "$C/kills"; }
+sleep() { :; }
+tree() { empty_then_value "$1" 456; }
+echo 0 > "$C/count"
+kill_tree 123
+grep -qx -- '-TERM 123 456' "$C/kills" || exit 9
+grep -qx -- '-KILL 123 456 123 456' "$C/kills" || exit 10
+: > "$C/kills"
+tree() { return 0; }
+kill_tree 123
+grep -qx -- '-TERM 123' "$C/kills" || exit 11
+grep -qx -- '-KILL 123 123' "$C/kills" || exit 12
+# Keep descendants from the first snapshot when the post-TERM read is empty.
+: > "$C/kills"
+tree() { [ -s "$C/kills" ] || echo '123 456'; return 0; }
+kill_tree 123
+grep -qx -- '-KILL 123 456 123' "$C/kills" || exit 13
+READS
+"$SH" "$C/check-reads" "$C" > "$C/out" 2> "$C/err"; RC=$?
+expect "read and kill fallbacks pass (got $RC)" [ "$RC" -eq 0 ]
+done_case
+}
+
+for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24}; do "case_$n"; done
 echo "code-job tests under $SH: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
