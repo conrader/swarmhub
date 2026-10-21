@@ -7,22 +7,26 @@ import Foundation
 /// `~/.hermes/swarmhub/dev-overrides/<profile>/<skill>/` exists, or when its live folder is neither the bundled copy
 /// being installed (`contentDigest`) nor what SwarmHub last installed there (the baseline in
 /// `~/.hermes/swarmhub/dev-baseline/<profile>/<skill>.sha256`, written after each dev-mode install). "Reset to bundled"
-/// installs the bundled copy regardless, removes the override folder and records a new baseline. With dev mode off none
+/// moves the live folder aside (`~/.hermes/swarmhub/dev-reset/<profile>/<skill>`, the previous reset's copy replaced),
+/// writes exactly the bundled copy, removes the override folder and records the bundled digest. With dev mode off none
 /// of this is sent and the install commands and profiles.json are byte-identical to before. Hermes is never changed.
 enum SkillDevMode {
     /// What the box did with one skill of a dev-mode legacy install, from the turn's terminal output.
     enum Outcome: String, Equatable, Sendable { case kept = "KEPT", failed = "FAILED" }
 
     /// The legacy install's shell function: `check <profile> <skill> <bundled digest>` exits 0 (write) or 3 (keep);
-    /// `record` stores the live folder's digest as the baseline; `reset` also removes the override folder first.
+    /// `record` stores the live folder's digest as the baseline; `clear` moves the live folder aside before a reset
+    /// writes; `reset <profile> <skill> <bundled digest>` removes the override folder and, when the live folder is
+    /// exactly the bundled copy, records that digest (else exits 4: no baseline, reported failed).
     static let functionHead = "swarmhub_dev() {\npython3 -I -B - \"$@\" <<'SWARMHUB_DEV'"
     static let functionTail = "SWARMHUB_DEV\n}"
     /// Around one guarded skill's commands ({profile}, {skill}, {bundled} filled in). The markers are split in the
     /// command so only the output, never an echoed command line, carries them.
     static let guardHead = "swarmhub_dev check {profile} {skill} {bundled}; case $? in\n0)"
     static let guardTail = "swarmhub_dev record {profile} {skill} ;;\n3) echo 'SWARMHUB_DEV_''KEPT:{profile}/{skill}' ;;\n*) echo 'SWARMHUB_DEV_''FAILED:{profile}/{skill}' ;;\nesac"
-    /// After a reset skill's (unguarded) commands.
-    static let resetTail = "swarmhub_dev reset {profile} {skill}"
+    /// Around a reset skill's commands: written into an empty folder, so files the bot added never survive a reset.
+    static let resetHead = "swarmhub_dev clear {profile} {skill}; case $? in\n0)"
+    static let resetTail = "swarmhub_dev reset {profile} {skill} {bundled} || echo 'SWARMHUB_DEV_''FAILED:{profile}/{skill}' ;;\n*) echo 'SWARMHUB_DEV_''FAILED:{profile}/{skill}' ;;\nesac"
 
     /// Stdlib Python 3 run by `swarmhub_dev`; its digest is `devmode.content_digest` (Tests/Updater/test_devmode.py runs
     /// this exact text). Paths follow `SkillLibrary.skillsRoot`: `~/.hermes`, profiles under `profiles/<name>`.
@@ -37,6 +41,7 @@ enum SkillDevMode {
     live = os.path.join(home, 'skills', 'swarmhub', skill)
     over = os.path.join(root, 'swarmhub', 'dev-overrides', profile, skill)
     base = os.path.join(root, 'swarmhub', 'dev-baseline', profile, skill + '.sha256')
+    aside = os.path.join(root, 'swarmhub', 'dev-reset', profile, skill)
 
 
     def digest(folder):
@@ -63,6 +68,15 @@ enum SkillDevMode {
         return hasher.hexdigest()
 
 
+    def remove(path, *parts):
+        """Delete path (a link itself, never its target) only when its folder is root/parts, reached without links."""
+        if os.path.lexists(path) and os.path.realpath(os.path.dirname(path)) == os.path.join(os.path.realpath(root), *parts):
+            if os.path.islink(path) or not os.path.isdir(path):
+                os.unlink(path)
+            else:
+                shutil.rmtree(path)
+
+
     if act == 'check':
         if os.path.lexists(over):
             sys.exit(3)
@@ -75,16 +89,19 @@ enum SkillDevMode {
         except (OSError, UnicodeDecodeError):
             recorded = None
         sys.exit(0 if now is not None and now in (sys.argv[4], recorded) else 3)
+    if act == 'clear':
+        if os.path.lexists(live):
+            os.makedirs(os.path.dirname(aside), 0o700, exist_ok=True)
+            remove(aside, 'swarmhub', 'dev-reset', profile)
+            if os.path.lexists(aside):
+                sys.exit(4)
+            shutil.move(live, aside)
+        sys.exit(0)
     if act == 'reset':
-        expected = os.path.join(os.path.realpath(root), 'swarmhub', 'dev-overrides', profile)
-        if os.path.lexists(over) and os.path.realpath(os.path.dirname(over)) == expected:
-            if os.path.islink(over) or not os.path.isdir(over):
-                os.unlink(over)
-            else:
-                shutil.rmtree(over)
+        remove(over, 'swarmhub', 'dev-overrides', profile)
     if act in ('record', 'reset'):
         now = digest(live)
-        if now is None:
+        if now is None or (act == 'reset' and now != sys.argv[4]):
             sys.exit(4)
         os.makedirs(os.path.dirname(base), 0o700, exist_ok=True)
         with open(base + '.tmp', 'w') as handle:
@@ -97,13 +114,14 @@ enum SkillDevMode {
     static var functionDefinition: String { functionHead + "\n" + guardScript + "\n" + functionTail }
 
     /// One skill's install commands as dev mode sends them: guarded (written only when the box allows it, then its
-    /// baseline recorded), or for a reset written unguarded and followed by `reset`. Off and not reset: unchanged.
+    /// baseline recorded), or for a reset written into a cleared folder and followed by `reset`. Off and not reset:
+    /// unchanged.
     static func wrap(_ body: [String], skill: String, profile: String, files: [SkillFile], devMode: Bool, reset: Bool) -> [String] {
         func fill(_ template: String) -> String {
             template.replacingOccurrences(of: "{profile}", with: profile).replacingOccurrences(of: "{skill}", with: skill)
                 .replacingOccurrences(of: "{bundled}", with: contentDigest(files))
         }
-        if reset { return body + [fill(resetTail)] }
+        if reset { return [fill(resetHead)] + body + [fill(resetTail)] }
         guard devMode else { return body }
         return [fill(guardHead)] + body + [fill(guardTail)]
     }

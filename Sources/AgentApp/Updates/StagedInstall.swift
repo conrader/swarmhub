@@ -127,9 +127,34 @@ enum StagedInstall {
         return data
     }
 
+    /// How the box script folds a request's profiles.json rows into the saved one (run verbatim by
+    /// Tests/Updater/test_devmode_merge.py). A saved row keeps its skills (joined with the request's), and `dev_modes`
+    /// (the app's skill dev mode toggle for every bot it knows on this box) sets or clears `dev_mode` on each saved row
+    /// it names, so a request for one bot never drops another bot's dev mode. Rows it does not name are left as they were.
+    static let profileMerge = #"""
+    def merge_profiles(doc, incoming, dev_modes):
+        rows = {row['name']: row for row in doc['profiles']}
+        for row in incoming:
+            old = rows.get(row['name'])
+            if old is not None:
+                row['skills'] = None if old.get('skills') is None else sorted(set(old['skills']) | set(row['skills']))
+            rows[row['name']] = row
+        for name, on in dev_modes.items():
+            if name in rows and on:
+                rows[name]['dev_mode'] = True
+            elif name in rows:
+                rows[name].pop('dev_mode', None)
+        doc['profiles'] = list(rows.values())
+        return doc
+    """#
+
     /// Only identifiers and hashes travel through the model. The app uploads the bytes before starting its turn.
-    static func command(_ transfer: StagedTransfer, profile: String) throws -> String {
+    /// `devModes`: skill dev mode per profile for the bots on this box (see `profileMerge`).
+    static func command(_ transfer: StagedTransfer, profile: String, devModes: [String: Bool] = [:]) throws -> String {
         guard HermesKeyPaste.isValidProfileName(profile) else { throw Failure.refused("manager profile") }
+        guard devModes.keys.allSatisfy(HermesKeyPaste.isValidProfileName) else { throw Failure.refused("dev mode profile") }
+        let modes = "{" + devModes.sorted { $0.key < $1.key }.map { "'\($0.key)': \($0.value ? "True" : "False")" }
+            .joined(separator: ", ") + "}"
         let prefix = transfer.prefix
         let hashes = transfer.hashes.map { "'\($0)'" }.joined(separator: ", ")
         let whole = transfer.sha256
@@ -137,6 +162,7 @@ enum StagedInstall {
         return """
         python3 -I -B <<'SWARMHUB_STAGE'
         import base64, hashlib, json, os, pathlib, shutil, sqlite3, stat, subprocess, tempfile
+        \(profileMerge)
         state = pathlib.Path(os.environ.get('XDG_STATE_HOME', str(pathlib.Path.home() / '.local/state'))) / 'swarmhub-update'
         state.mkdir(mode=0o700, parents=True, exist_ok=True)
         folder = pathlib.Path(tempfile.mkdtemp(prefix='mac-stage-', dir=state))
@@ -198,13 +224,7 @@ enum StagedInstall {
             incoming = json.loads((folder / 'profiles.json').read_bytes())
             prior = state / 'profiles.json'
             doc = json.loads(prior.read_bytes()) if prior.exists() else {'schema': 'swarmhub/profiles/1', 'profiles': []}
-            rows = {row['name']: row for row in doc['profiles']}
-            for row in incoming:
-                old = rows.get(row['name'])
-                if old is not None:
-                    row['skills'] = None if old.get('skills') is None else sorted(set(old['skills']) | set(row['skills']))
-                rows[row['name']] = row
-            doc['profiles'] = list(rows.values())
+            doc = merge_profiles(doc, incoming, \(modes))
             (folder / 'profiles.json').write_text(json.dumps(doc))
             result = subprocess.run(['\(updater)', '--max-wait', '0', 'apply', '--staged', str(folder)], capture_output=True, text=True)
             print('SWARMHUB_UPDATER_RESULT:\(prefix)' + json.dumps({'exit_code': result.returncode, 'output': result.stdout}))
@@ -220,14 +240,14 @@ enum StagedInstall {
         """
     }
 
-    static func instructions(_ transfer: StagedTransfer, profile: String) throws -> String {
+    static func instructions(_ transfer: StagedTransfer, profile: String, devModes: [String: Bool] = [:]) throws -> String {
         """
         Install the signed SwarmHub bytes already stored by the app in temporary Hermes sessions.
         Run exactly the first terminal command, then run the status command as a separate terminal call.
         Never extract or execute an archive yourself. Do not run apply without --staged: code waits for a separate confirmation.
         Do not modify Hermes, enable plugins or restart anything. A reply cannot establish install success.
         ````sh
-        \(try command(transfer, profile: profile))
+        \(try command(transfer, profile: profile, devModes: devModes))
         ````
         Then, in a separate terminal call, run exactly:
         ```sh

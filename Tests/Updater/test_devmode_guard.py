@@ -33,7 +33,8 @@ def swift_parts():
     def literal(name):
         raw = re.search(r'static let %s = "((?:[^"\\]|\\.)*)"' % name, text).group(1)
         return raw.replace('\\n', '\n').replace('\\"', '"')
-    return script, {n: literal(n) for n in ("functionHead", "functionTail", "guardHead", "guardTail", "resetTail")}
+    return script, {n: literal(n) for n in ("functionHead", "functionTail", "guardHead", "guardTail", "resetHead",
+                                     "resetTail")}
 
 
 SCRIPT, PARTS = swift_parts()
@@ -53,7 +54,7 @@ def command(files, profile="default", dev=True, reset=False):
             .replace("{bundled}", devmode.files_digest(files))
     lines = [PARTS["functionHead"] + "\n" + SCRIPT + "\n" + PARTS["functionTail"]] if dev or reset else []
     if reset:
-        lines += body + [fill(PARTS["resetTail"])]
+        lines += [fill(PARTS["resetHead"])] + body + [fill(PARTS["resetTail"])]
     elif dev:
         lines += [fill(PARTS["guardHead"])] + body + [fill(PARTS["guardTail"])]
     else:
@@ -133,6 +134,37 @@ class Guard(BoxCase):
         self.assertTrue(sibling.is_dir())
         self.assertEqual(self.baseline(), devmode.content_digest(str(self.folder())))
         self.assertEqual(self.run_install(V1), "", "after a reset the skill is SwarmHub's again")
+
+    def test_reset_restores_exactly_the_bundled_folder_and_records_its_digest(self):
+        """Files the bot added are gone after a reset (kept aside, the last reset's only), and the baseline is the
+        bundled digest, so the next install updates the skill instead of keeping it."""
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                self.run_install(V1, shell)
+                (self.folder() / "SKILL.md").write_text("bot edit\n")
+                (self.folder() / "notes").mkdir(exist_ok=True)
+                (self.folder() / "notes/plan.md").write_text("added by the bot\n")
+                (self.folder() / "scripts/extra").write_text("#!/bin/sh\n")
+                self.assertEqual(self.run_install(V2, shell, reset=True), "")
+                self.assertEqual(sorted(str(p.relative_to(self.folder())) for p in self.folder().rglob("*")),
+                                 ["SKILL.md", "scripts", "scripts/report"])
+                self.assertEqual(devmode.content_digest(str(self.folder())), devmode.files_digest(V2))
+                self.assertEqual(self.baseline(), devmode.files_digest(V2))
+                aside = self.hermes / "swarmhub/dev-reset/default" / SKILL
+                self.assertEqual((aside / "notes/plan.md").read_text(), "added by the bot\n")
+                self.assertEqual(self.run_install(V1, shell), "", "SwarmHub's copy again: the next install writes")
+                self.assertIn("v1", self.text())
+
+    def test_a_reset_that_cannot_clear_the_folder_writes_nothing(self):
+        self.run_install(V1)
+        (self.folder() / "SKILL.md").write_text("bot edit\n")
+        blocker = self.hermes / "swarmhub/dev-reset/default"
+        blocker.parent.mkdir(parents=True)
+        os.symlink(str(self.tmp), str(blocker))  # a linked dev-reset folder: never written through
+        (self.tmp / SKILL).mkdir()
+        self.assertEqual(self.run_install(V2, reset=True), "SWARMHUB_DEV_FAILED:default/%s\n" % SKILL)
+        self.assertEqual(self.text(), "bot edit\n")
+        self.assertTrue((self.tmp / SKILL).is_dir())
 
     def test_reset_never_follows_a_linked_overrides_folder(self):
         self.run_install(V1)

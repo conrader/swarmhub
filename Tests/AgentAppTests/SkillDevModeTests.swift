@@ -114,7 +114,8 @@ private func devInstalled(_ rows: String) -> String {
     #expect(store.resetSkillToBundled(devFeedback, for: jarvis))
     try await waitUntil { !store.anyTurnRunning && jarvis.installedSkills["swarmhub-feedback"] == "1.0.0" }
     let sent = try #require(devTurns(host).first)
-    #expect(sent.contains("swarmhub_dev reset grok-jarvis swarmhub-feedback") && sent.contains("pressed Reset to bundled"))
+    #expect(sent.contains("swarmhub_dev clear grok-jarvis swarmhub-feedback; case $? in"))
+    #expect(sent.contains("swarmhub_dev reset grok-jarvis swarmhub-feedback ") && sent.contains("pressed Reset to bundled"))
     #expect(!sent.contains("swarmhub_dev check grok-jarvis swarmhub-feedback") && !sent.contains(devManagerFolder))
     #expect(sent.contains("cat > \(devFeedbackFolder)/SKILL.md <<'SWARMHUB_EOF'"))
     #expect(jarvis.skillsModifiedLocally.isEmpty && jarvis.installedSkills["swarmhub-manager"] == "1.1.0")
@@ -190,7 +191,10 @@ private func devInstalled(_ rows: String) -> String {
 @Test func offAndNotResetWrapsNothing() {
     let body = ["mkdir -p a", "cat > a/SKILL.md <<'SWARMHUB_EOF'\nx\nSWARMHUB_EOF"]
     #expect(SkillDevMode.wrap(body, skill: "s", profile: "p", files: [], devMode: false, reset: false) == body)
-    #expect(SkillDevMode.wrap(body, skill: "s", profile: "p", files: [], devMode: true, reset: true) == body + ["swarmhub_dev reset p s"])
+    // A reset writes into a cleared folder (so no file the bot added survives) and records the bundled digest.
+    let empty = SkillDevMode.contentDigest([])
+    #expect(SkillDevMode.wrap(body, skill: "s", profile: "p", files: [], devMode: true, reset: true) ==
+            ["swarmhub_dev clear p s; case $? in\n0)"] + body + ["swarmhub_dev reset p s \(empty) || echo 'SWARMHUB_DEV_''FAILED:p/s' ;;\n*) echo 'SWARMHUB_DEV_''FAILED:p/s' ;;\nesac"])
     let guarded = SkillDevMode.wrap(body, skill: "s", profile: "p", files: [], devMode: true, reset: false)
     #expect(guarded.first?.hasPrefix("swarmhub_dev check p s ") == true && guarded.last?.hasSuffix("esac") == true)
 }

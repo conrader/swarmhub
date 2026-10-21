@@ -40,23 +40,36 @@ SHA-256 of the bytes) and skips `__pycache__`, so umask and caches never read as
   record …;; 3) echo KEPT marker;; *) echo FAILED marker;; esac`. The app reads the markers from the terminal
   result (`noteSkillDevTool`), skips recording kept skills and never counts them as failures.
 - **Staged:** the profile row gains `dev_mode: true` (persisted in the box's profiles.json, so later runs honour it).
+  Every staged request also carries the toggle of every bot the app knows on that connection (`dev_modes`, a
+  profile → bool map in the stage command). The box merge (`StagedInstall.profileMerge`) sets or clears `dev_mode` on
+  each saved row it names, so a signed install for bot B never drops bot A's dev mode, even when A turned it on after
+  its own last request (cross-review 2026-10-21, HIGH). Rows the app does not know stay as saved.
   `devmode.run` wraps `apply_profile` with a `keep` predicate; kept skills keep their recorded version, the run stays
   applied/unchanged (so `current`), the bound tree is not moved onto the edit, and `status` lists them in the
   profile's `modified`. The app treats a listed skill as kept, not failed, so it never defers the connection.
-- **Reset to bundled:** one request for one skill (`reset` in the row, or an unguarded legacy write followed by
-  `swarmhub_dev reset`): installs the bundled copy, deletes that skill's override folder (never through a link) and
-  records a new baseline. The updater strips `reset` before persisting profiles.json; a persisted one is ignored.
-- **Off:** commands, instructions and profiles.json rows are byte-identical to before; no marker is read; the updater
-  neither reads nor writes anything under `~/.hermes/swarmhub/dev-*`.
+- **Reset to bundled:** one request for one skill (`reset` in the row, or on the legacy path `swarmhub_dev clear`,
+  the unguarded writes, then `swarmhub_dev reset`): installs exactly the bundled copy, deletes that skill's override
+  folder (never through a link) and records the bundled digest as the baseline. On the legacy path `clear` first moves
+  the live folder to `~/.hermes/swarmhub/dev-reset/<profile>/<skill>` (replacing the previous reset's copy), so files
+  the bot added do not survive; `reset` records the digest only when the live folder equals the bundled copy, else
+  the skill is reported failed with no baseline. The updater swaps whole trees, so its reset was already exact, and it
+  strips `reset` before persisting profiles.json; a persisted one is ignored.
+- **Off:** legacy commands and instructions and the profiles.json rows sent are byte-identical to before; no marker is
+  read; the updater neither reads nor writes anything under `~/.hermes/swarmhub/dev-*`. The staged command text does
+  change: it always carries the `dev_modes` map (all `False` when off), which leaves the merged profiles.json as before.
 
 Hermes itself is not touched; new box state lives under `~/.hermes/swarmhub/`.
 
 ## Known limits
 
-- A skill installed before dev mode existed and never applied by the updater has no baseline: with dev mode on, if it
-  differs from the bundled copy it is kept and shown as modified locally until Reset to bundled (conservative on purpose).
-- Turning dev mode off in the app reaches a bootstrapped box with the next staged request for that bot; until then
-  the box's saved profiles.json still has `dev_mode` (box timers are disabled today).
+- **Skill with no stored hash (decided 2026-10-21: keep).** A skill installed before dev mode was turned on, and never
+  applied by the updater, has no baseline. With dev mode on, if its live folder differs from the bundled copy (also
+  normal for an older, untouched version) it is **kept**, not overwritten, and shown as "Modified locally" until Reset
+  to bundled. Dev mode never guesses in favour of overwriting: the alternative would lose edits the bot made before the
+  first dev-mode install. An untouched skill that happens to equal the bundled copy is written and gets its baseline,
+  and on the signed path the updater's own record (bound trees) usually proves the skill is SwarmHub's.
+- Turning dev mode off in the app reaches a bootstrapped box with the next staged request for any bot on that box;
+  until then the box's saved profiles.json still has `dev_mode` (box timers are disabled today).
 - Legacy streams without tool results cannot report kept skills: the box still keeps them, but the app then believes
   the manager's block. Session-chat streaming carries results.
 - The legacy guard needs `python3` on the box (as the messages skill already does); without it nothing is written and
@@ -66,6 +79,8 @@ Hermes itself is not touched; new box state lives under `~/.hermes/swarmhub/`.
 
 - Linux: `python3 -B -m unittest discover -s Tests/Updater -p 'test_*.py'` includes `test_devmode.py` (engine + CLI)
   and `test_devmode_guard.py` (runs the guard script and templates taken verbatim from `SkillDevMode.swift` under
-  sh/dash/bash, and through the Hermes hardline-rule port).
+  sh/dash/bash, and through the Hermes hardline-rule port), and `test_devmode_merge.py` (runs `profileMerge` taken
+  verbatim from `StagedInstall.swift`, then the real `apply --staged`: a signed install for bot B keeps bot A's dev
+  mode and A's edited skill; without the map it would be overwritten).
 - Mac (not run here, no Swift toolchain): `SkillDevModeTests`, `SkillDevModeStagedTests`, and the extended
   `noShippedSkillTextTripsHermesHardlineGuard`. The digest vector `643ff4d5…` is pinned on both sides.

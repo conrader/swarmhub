@@ -22,7 +22,7 @@ MAC = ROOT / "Sources/AgentApp/Updates/StagedInstall.swift"
 RENDERS = ROOT / "Tests/Fixtures/release-bundles/renders"
 
 
-def transport_command(files, profiles, updater, home, mutate_parts=None, profile="default"):
+def transport_command(files, profiles, updater, home, mutate_parts=None, profile="default", dev_modes=None):
     """Emulate stock POST /api/sessions' INSERT of system_prompt; instantiate the actual Swift shell literal.
 
     Stock Hermes 0.21.7 api_server.py _handle_create_session stores the supplied string verbatim in
@@ -50,7 +50,10 @@ def transport_command(files, profiles, updater, home, mutate_parts=None, profile
             if part is not None:
                 db.execute("INSERT INTO sessions (id, system_prompt) VALUES (?, ?)",
                            (prefix + str(i), base64.b64encode(part).decode()))
-    values = {"prefix": prefix, "hashes": hashes, "whole": whole, "managerProfile": profile, "updater": str(updater)}
+    merge = textwrap.dedent(source.split('static let profileMerge = #"""\n', 1)[1].split('\n    """#', 1)[0])
+    modes = "{" + ", ".join("'%s': %s" % (k, v) for k, v in sorted((dev_modes or {}).items())) + "}"
+    values = {"prefix": prefix, "hashes": hashes, "whole": whole, "managerProfile": profile, "updater": str(updater),
+              "profileMerge": merge, "modes": modes}
     for name, value in values.items():
         literal = literal.replace('\\(' + name + ')', value)
     return literal + '\n'
@@ -73,7 +76,8 @@ class StagedTransport(CliCase):
         self.assertTrue(result.stdout, result.stderr)
         return result.returncode, json.loads(result.stdout)
 
-    def transport(self, folder, profiles=None, mutate=None, mutate_parts=None, profile="default", expected_code=None):
+    def transport(self, folder, profiles=None, mutate=None, mutate_parts=None, profile="default", expected_code=None,
+                  dev_modes=None):
         manifest = json.loads(next((folder / "bundles").iterdir()).read_bytes())["signed"]
         wanted = {c["sha256"] for c in manifest["components"] if "box" in c["targets"]}
         files = {p.relative_to(folder).as_posix(): p.read_bytes() for p in folder.rglob("*")
@@ -82,7 +86,7 @@ class StagedTransport(CliCase):
         if mutate:
             mutate(files)
         rows = (profiles or PROFILES_DOC)["profiles"]
-        command = transport_command(files, rows, self.launcher, self.home, mutate_parts, profile)
+        command = transport_command(files, rows, self.launcher, self.home, mutate_parts, profile, dev_modes)
         # Model instructions have only a bounded script, IDs and hashes, regardless of archive bytes.
         self.assertLess(len(command), 32768)
         before_db = {p: p.read_bytes() for p in (self.home / ".hermes").rglob("state.db")}
@@ -353,6 +357,26 @@ class StagedTransport(CliCase):
         for name in names:
             record["variants"][name] = {"value": "codex", "tree": stage.tree_digest(str(category / name))}
         self.assertEqual(runner._live_variants(record, str(category)), {"skill.with-dots": "codex"})
+
+    def test_a_request_for_one_profile_keeps_another_profiles_dev_mode_and_edit(self):
+        """Skill dev mode: the default bot turned it on after its last request and edited a skill. A signed install for
+        coder_2 alone carries the app's map, so the merged profiles.json keeps default's dev_mode and the edit stays."""
+        _, comps = self.release("v1")
+        self.transport(self.stage(11, comps))
+        self.assertEqual(self.real("--max-wait", "0", "apply", "--version", "11")[0], 0)
+        skill_md = self.live("swarmhub-feedback") / "SKILL.md"
+        skill_md.write_text(skill_md.read_text() + "Edited on the box.\n")
+        _, comps = self.release("v2", version="1.1.0", note="v2")
+        only_b = {"schema": "swarmhub/profiles/1", "profiles": [PROFILES_DOC["profiles"][1]]}
+        self.transport(self.stage(12, comps), only_b, dev_modes={"default": True, "coder_2": False})
+        code, status = self.real("--max-wait", "0", "apply", "--version", "12")
+        self.assertEqual((code, status["state"]), (0, "current"), status["detail"])
+        self.assertIn("Edited on the box.", skill_md.read_text())
+        self.assertEqual(status["profiles"]["default"]["modified"], ["swarmhub-feedback"])
+        self.assertEqual(status["profiles"]["coder_2"]["advertised"]["swarmhub-coding"], "1.1.0")
+        saved = {p["name"]: p for p in json.loads((self.state / "profiles.json").read_bytes())["profiles"]}
+        self.assertIs(saved["default"].get("dev_mode"), True)
+        self.assertNotIn("dev_mode", saved["coder_2"])
 
     def test_same_verified_archives_install_into_an_additional_profile(self):
         _, comps = self.release("v1")

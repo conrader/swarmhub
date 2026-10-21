@@ -59,14 +59,25 @@ extension AppStore {
         }
         let transfer = try StagedTransfer(package, namespace: sessionNamespace)
         let profile = manager.hermesProfile ?? "default"
-        let instructions = try StagedInstall.instructions(transfer, profile: profile)
-        let command = try StagedInstall.command(transfer, profile: profile)
+        let devModes = stagedDevModes(on: target)
+        let instructions = try StagedInstall.instructions(transfer, profile: profile, devModes: devModes)
+        let command = try StagedInstall.command(transfer, profile: profile, devModes: devModes)
         guard command.utf8.count <= 32_768 else { throw StagedInstall.Failure.refused("transfer exceeds command budget") }
         // Raise before sending, even if delivery fails. A retry may reuse only this exact manifest.
         defaults.set(try JSONEncoder().encode(package.floor), forKey: key)
         boxInstallTransport.attempts[manager.id] = .init(package: package, transfer: transfer,
                                                        command: command)
         return instructions
+    }
+
+    /// Skill dev mode for every bot the app knows on this connection, by profile: the box merge applies it to each
+    /// saved row, so a signed install for one bot carries (and never drops) the toggle of the others.
+    func stagedDevModes(on target: String) -> [String: Bool] {
+        var modes: [String: Bool] = [:]
+        for bot in bots where bot.backend == .hermes && !bot.isReadOnlyArchive && connection(of: bot) == target {
+            modes[profile(of: bot)] = modes[profile(of: bot)] == true || bot.skillDevMode
+        }
+        return modes
     }
 
     func noteStagedSkillTool(_ tool: ToolEvent, manager: Bot) {

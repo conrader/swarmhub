@@ -157,3 +157,38 @@ private func encodedKeys(_ profiles: [StagedInstall.Profile]) throws -> [Set<Str
     #expect(!store.resetSkillToBundled(devStagedManager, for: bot) && store.errorMessage?.contains("deferred") == true)
     #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.isEmpty)
 }
+
+@Test @MainActor func aSignedInstallForAnotherBotCarriesDevModeOfEveryBotOnTheBox() async throws {
+    // Jarvis turned dev mode on and edited a skill; no request for Jarvis has gone out since, so the box's saved row has no
+    // dev_mode. A signed install for the manager must still carry Jarvis's toggle: the box merge sets it on Jarvis's saved
+    // row, so the updater keeps the edit (box side, the same merge text run against the real updater:
+    // Tests/Updater/test_devmode_merge.py). The manager's own row is unchanged, and Jarvis keeps dev mode and its mark.
+    let source = try devStagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try devStagedPackage(source)
+    let (store, manager, _, _) = devStagedStore(source: source, status: try devStagedStatus(package, version: "1.2.0", modified: nil))
+    let jarvis = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis")
+    let elsewhere = Bot(name: "Other box", backend: .hermes, hermesProfile: "grok-other")
+    elsewhere.hermesBaseURL = "https://unrelated.example.invalid"
+    store.bots += [jarvis, elsewhere]
+    store.setSkillDevMode(true, for: jarvis)
+    store.setSkillDevMode(true, for: elsewhere)
+    jarvis.skillsModifiedLocally = ["swarmhub-feedback"]
+    #expect(store.stagedDevModes(on: store.connection(of: manager)) == ["default": false, "grok-jarvis": true])
+    #expect(store.installSkills(for: manager))
+    let attempt = try #require(store.boxInstallTransport.attempts[manager.id])
+    #expect(attempt.command.contains("doc = merge_profiles(doc, incoming, {'default': False, 'grok-jarvis': True})"))
+    #expect(attempt.command.contains(StagedInstall.profileMerge) && !attempt.command.contains("grok-other"))
+    #expect(attempt.package.profiles.map(\.name) == ["default"] && attempt.package.profiles.first?.dev_mode == nil,
+            "only the manager's row travels, as before")
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(manager.installedSkills == ["swarmhub-manager": "1.2.0"] && manager.skillInstallFailures.isEmpty)
+    #expect(jarvis.skillDevMode && jarvis.skillsModifiedLocally == ["swarmhub-feedback"])
+}
+
+@Test func theStagedCommandRefusesABadDevModeProfileName() throws {
+    let source = try devStagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let transfer = try StagedTransfer(try devStagedPackage(source))
+    #expect(throws: StagedInstall.Failure.self) { try StagedInstall.command(transfer, profile: "default", devModes: ["a'b": true]) }
+    let plain = try StagedInstall.command(transfer, profile: "default")
+    #expect(plain.contains("doc = merge_profiles(doc, incoming, {})"))
+}
