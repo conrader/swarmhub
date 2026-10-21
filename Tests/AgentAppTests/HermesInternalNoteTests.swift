@@ -92,6 +92,58 @@ private func fold(_ message: ChatMessage) -> TechnicalFold? { TechnicalRow.class
     #expect(HermesInternalNote.summary(attached) == nil)
 }
 
+@Test func unknownKindsOverrideLegacyNoteText() {
+    for kind in ["future_timeline_event", "skill_invocation", ""] {
+        for text in [batchNote, singleNote, processNote] {
+            let message = ChatMessage(role: .user, content: text, metadata: [HermesDisplayKey.kind: kind])
+            #expect(HermesInternalNote.summary(message) == nil, "\(kind) must override legacy text matching")
+            #expect(fold(message) == nil)
+        }
+    }
+}
+
+@MainActor @Test func refreshBackfillsKindsOnCachedNotes() async throws {
+    let (store, bots, states) = reconcileStore(bots: ["Jarvis"])
+    let bot = bots[0]; bot.hermesSessionID = "s-cached-notes"
+    let start = Date().addingTimeInterval(-600)
+    // Neither note has a legacy header/footer; the cached rows were saved before display_kind was imported.
+    let note = ChatMessage(role: .user, content: "Background checks have finished.", createdAt: start, metadata: ["keep": "cached"])
+    let reply = ChatMessage(role: .assistant, content: "All checks passed.", createdAt: start.addingTimeInterval(5), turnState: .finished)
+    let pending = ChatMessage(role: .user, content: "Background process exited successfully.", createdAt: start.addingTimeInterval(10))
+    bot.messages = [note, reply, pending]
+    let originalIDs = bot.messages.map(\.id), originalText = bot.messages.map(\.content)
+    #expect(fold(note) == nil && fold(pending) == nil)
+    states[0].add("s-cached-notes", "user", note.content, time: start.timeIntervalSince1970, displayKind: "async_delegation_complete")
+    states[0].add("s-cached-notes", "assistant", reply.content, finish: "stop", time: reply.createdAt.timeIntervalSince1970)
+    states[0].add("s-cached-notes", "user", pending.content, time: pending.createdAt.timeIntervalSince1970, displayKind: "process_complete")
+    let report = await store.reconcile(bot, reason: .refresh)
+    #expect(report.changed && report.changedRows == Set([note.id, pending.id]))
+    #expect(bot.messages.map(\.id) == originalIDs && bot.messages.map(\.content) == originalText)
+    #expect(note.metadata[HermesDisplayKey.kind] == "async_delegation_complete" && note.metadata["keep"] == "cached")
+    #expect(pending.metadata[HermesDisplayKey.kind] == "process_complete")
+    let layout = store.technicalLayout(bot.messages, botName: bot.name)
+    #expect(layout.folds[note.id]?.kind == .internalNote && layout.folds[pending.id]?.kind == .internalNote)
+    #expect(layout.folds[reply.id] == nil && reply.turnState == .finished && bot.unreadCount == 0)
+    let decoded = try JSONDecoder().decode(ChatMessage.self, from: JSONEncoder().encode(note))
+    #expect(decoded.metadata[HermesDisplayKey.kind] == "async_delegation_complete" && fold(decoded)?.kind == .internalNote)
+    let again = await store.reconcile(bot, reason: .refresh)
+    #expect(!again.changed && bot.messages.map(\.id) == originalIDs)
+}
+
+@MainActor @Test func pairedRowsRefreshChangedKinds() {
+    let note = ChatMessage(role: .user, content: batchNote, metadata: [HermesDisplayKey.kind: "async_delegation_complete"])
+    var row = BackendMessage(role: "user", content: batchNote); row.displayKind = "future_timeline_event"
+    for additions in [true, false] {
+        let local = [HistoryReconciler.LocalRow(note)]
+        let plan = HistoryReconciler.plan(.init(local: local, server: [row], mode: .chat(additions: additions)))
+        let refreshed = applied(plan, to: local)
+        #expect(plan.additions.isEmpty && plan.edits.count == 1)
+        #expect(refreshed[0].metadata[HermesDisplayKey.kind] == "future_timeline_event")
+        #expect(fold(ChatMessage(role: .user, content: refreshed[0].text, metadata: refreshed[0].metadata)) == nil)
+        #expect(HistoryReconciler.plan(.init(local: refreshed, server: [row], mode: .chat(additions: additions))).isEmpty)
+    }
+}
+
 @MainActor @Test func reconcileAdoptsTheNoteFoldedAndTheBotsReplyShows() async throws {
     let (store, bots, states) = reconcileStore(bots: ["Jarvis"])
     let bot = bots[0]; bot.hermesSessionID = "s-jarvis"

@@ -18,7 +18,8 @@ enum HermesInternalNote {
     /// The fold line of a row Hermes wrote itself; nil for every other row.
     static func summary(_ message: ChatMessage) -> String? {
         guard message.role == .user, message.attachments.isEmpty else { return nil }
-        if let kind = message.metadata[HermesDisplayKey.kind], kinds.contains(kind) { return label(kind: kind) }
+        // A structured kind takes precedence, including kinds a newer Hermes adds. Text fallback is for untyped rows only.
+        if let kind = message.metadata[HermesDisplayKey.kind] { return kinds.contains(kind) ? label(kind: kind) : nil }
         let text = message.content
         if delegationHeader.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil { return label(kind: "async_delegation_complete") }
         let last = text.split(whereSeparator: \.isNewline).last.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""

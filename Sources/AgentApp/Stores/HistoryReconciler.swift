@@ -226,6 +226,12 @@ enum HistoryReconciler {
         for (index, serverIndex) in pairs.sorted(by: { $0.key < $1.key }) {
             let turn = local[index], box = server[serverIndex]
             plan.counts.paired += 1
+            // Cached user rows may predate display_kind support. Refresh their kind even without a reply or text changes.
+            // A group turn's user is a context blob, so its metadata does not belong to the local human trigger.
+            if case .chat = input.mode, let user = turn.user, let kind = box.user?.displayKind,
+               user.metadata[HermesDisplayKey.kind] != kind {
+                plan.edits.append(.init(rowID: user.id, content: nil, state: nil, metadata: [HermesDisplayKey.kind: kind]))
+            }
             guard let reply = turn.reply else {
                 // A bot-chat user row with no reply row: the box's reply is inserted after it.
                 if case .chat(true) = input.mode, let user = turn.user, !box.replyText.isEmpty {
