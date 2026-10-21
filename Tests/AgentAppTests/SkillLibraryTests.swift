@@ -72,7 +72,7 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
     #expect(skill.files.map(\.path) == ["references/accounts.md", "references/box.md", "references/capacity.md", "references/models.md", "scripts/default-connectors.py"], "P31 C, D+E: the recipe files as references")
     #expect(skill.files.map(\.content) == [BotManagerText.recipe(.accounts), BotManagerText.recipe(.box), BotManagerText.recipe(.capacity), BotManagerText.recipe(.models), BotManagerText.connectorHelper], "shipped from Resources/BotManager/recipes")
     #expect(SkillLibrary.bundled(managerReferences: nil).map(\.name) == ["swarmhub-coding", "swarmhub-feedback", "swarmhub-messages"], "no recipes, no manager skill")
-    #expect(skill.version == SkillVersion("1.5.0")!, "P31 D+E: + the models and capacity references; P56: + Heartbeat")
+    #expect(skill.version == SkillVersion("1.5.1")!, "P31 D+E: + the models and capacity references; P56: + Heartbeat")
     #expect(SkillLibrary.state(installed: "1.0.0", bundled: skill.version) == .outdated(installed: "1.0.0"), "bots on 1.0.0 get the Update banner")
     let fields = SkillLibrary.frontmatter(skill.template)
     #expect(fields["name"] == "swarmhub-manager" && fields["version"] == skill.version.description)
@@ -155,8 +155,8 @@ cd ~/.hermes && : > swarmhub-model.err && printf '%s\n' <names> | xargs -P 2 -n 
 /// P56 2: the manager skill tells a bot its heartbeat is the one routine SwarmHub manages, to edit and never duplicate.
 @Test func theManagerSkillTellsBotsToEditTheirOneHeartbeatRoutine() throws {
     let skill = try #require(SkillLibrary.bundled().first { $0.name == SkillLibrary.managerSkill })
-    #expect(skill.version == SkillVersion("1.5.0"))
-    #expect(skill.template.contains("version: 1.5.0") && skill.template.contains("\n## Heartbeat\n"))
+    #expect(skill.version == SkillVersion("1.5.1"))
+    #expect(skill.template.contains("version: 1.5.1") && skill.template.contains("\n## Heartbeat\n"))
     for phrase in ["routine SwarmHub manages", "swarmhub-heartbeat", "never create a second heartbeat routine", "deliver: bot-chat:<profile>", "say what changed", "SwarmHub reads it back"] {
         #expect(skill.template.contains(phrase), "\(phrase)")
     }

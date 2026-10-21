@@ -12,7 +12,8 @@ enum BotManagerText {
     /// Bundle prompt overrides may predate connector defaults. Keep the app's provisioning requirement on those
     /// paths too; custom prose and the optional default connector policy still belong to the install.
     static func withConnectorDefaults(_ text: String, backend: BackendKind) -> String {
-        guard !text.contains("create \(backend == .openClaw ? "openclaw" : "hermes")"), let section = connectorDefaults(backend: backend) else { return text }
+        let currentPolicy = backend == .hermes ? "selected model/provider auth is transferred" : "create openclaw"
+        guard !text.contains(currentPolicy), let section = connectorDefaults(backend: backend) else { return text }
         return text + "\n\n" + section
     }
 

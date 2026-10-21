@@ -19,6 +19,7 @@ import Testing
         let rendered = try #require(SkillLibrary.render(skill, forProfile: profile, managerTemplate: BotManagerText.template()))
         #expect(!rendered.contains("{{"), "all opt-in recipe placeholders must be filled")
         #expect(rendered.contains("--manager \(profile) --connector"))
+        #expect(rendered.contains("create hermes \"$NAME\" --manager \(profile)"))
     }
     let openClaw = try #require(BotManagerText.template(for: .openClaw))
     #expect(openClaw.contains("mcporter --config ~/.openclaw/workspace-<id>/config/mcporter.json"))
@@ -27,6 +28,16 @@ import Testing
     #expect(custom.contains("Custom instructions for manager") && custom.contains("provision hermes"), "older prompt overrides retain the app's defaults")
     let stock = try #require(BotManagerText.template())
     #expect(BotManagerText.withConnectorDefaults(stock, backend: .hermes) == stock)
+}
+
+@Test func previousDefaultsOnlyCreationOverridesReceiveTheModelAuthUpgrade() throws {
+    let old = "Every new bot gets ONLY defaults. Use `python3 {{CONNECTOR_RUNNER}} create hermes \"$NAME\"`."
+    let upgraded = BotManagerText.withConnectorDefaults(old, backend: .hermes)
+    let filled = BotManagerText.filled(upgraded, managerProfile: "named-manager")
+    #expect(filled.contains("replace older clone recipes"))
+    #expect(filled.contains("create hermes \"$NAME\" --manager named-manager"))
+    #expect(filled.contains("selected model/provider auth is transferred"))
+    #expect(!filled.contains("{{"))
 }
 
 @Test func connectorReportsValidateStatesCountsAndNames() throws {
@@ -61,7 +72,7 @@ import Testing
     #expect(creation.contains("~/.config/swarmhub/default-connectors.py"))
     #expect(store.managementText(for: bot, text: "yes", conversation: bot)?.contains("def provision(home, backend, bot):") == true)
     // An outdated skill keeps the cheap pointer; only its creation turns add the connector step and helper it predates.
-    bot.installedSkills = [SkillLibrary.managerSkill: "1.3.0"]
+    bot.installedSkills = [SkillLibrary.managerSkill: "1.5.0"]
     store.managementExchanges = [:]
     #expect(store.managementText(for: bot, text: "list bots", conversation: bot) == AppStore.skillPointer)
     store.managementExchanges = [:]

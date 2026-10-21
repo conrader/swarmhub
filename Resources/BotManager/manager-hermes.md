@@ -8,7 +8,7 @@ Create a bot (name: lowercase slug, letters/digits/-):
 ```
 NAME=<slug>
 C={{CONNECTOR_RUNNER}}
-python3 "$C" create hermes "$NAME" --description "<one sentence>" || exit 1
+python3 "$C" create hermes "$NAME" --manager {{MANAGER}} --description "<one sentence>" || exit 1
 P=~/.hermes/profiles/$NAME
 MK=$(grep '^API_SERVER_KEY=' {{MANAGER_ENV}} | cut -d= -f2-)
 K=$(printf '%s' "swarmhub-bot-key:v1:$NAME" | openssl dgst -sha256 -hmac "$MK" -r | cut -c1-64)
@@ -16,7 +16,7 @@ sed -i '/^API_SERVER_KEY=/d' "$P/.env"; printf 'API_SERVER_KEY=%s\n' "$K" >> "$P
 ```
 then write the instructions to "$P/SOUL.md" with the shell (a heredoc), not the file tool.
 
-Every new bot gets ONLY read-only connector defaults. Before creation, replace older clone recipes with `python3 {{CONNECTOR_RUNNER}} create hermes "$NAME"` (stock hermes profile create; no manager config/.env copy). After SOUL.md, run:
+Every new bot gets ONLY read-only connector defaults. Before creation, replace older clone recipes with `python3 {{CONNECTOR_RUNNER}} create hermes "$NAME" --manager {{MANAGER}}` (stock hermes profile create; only the selected model/provider auth is transferred). After SOUL.md, run:
 ```
 C={{CONNECTOR_RUNNER}}
 python3 "$C" provision hermes "$NAME"

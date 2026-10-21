@@ -1,7 +1,7 @@
 ---
 name: swarmhub-manager
 description: "Use when Konrad asks to create, change or retire bots (Hermes profiles), to read or change their instructions, avatars or descriptions, to change bots' models, to list or connect the bots already on the box, or to install, log in to or out of the coding tools (Claude Code, Codex CLI) and ChatGPT accounts, to report bots' models and sub-agent models, or to check this box's capacity or set its coding job limit, or to change a bot's heartbeat (how often or when it runs). Installed by SwarmHub, v{{VERSION}}."
-version: 1.5.0
+version: 1.5.1
 author: SwarmHub
 metadata:
   swarmhub:
@@ -29,7 +29,7 @@ and the new schedule); SwarmHub reads it back and asks Konrad whether to keep th
 
 ## Optional connectors
 
-New bots get only the read-only defaults, including aliases in ~/.config/swarmhub/default-connectors.json. Never use --clone-from or copy a manager's config, .env, auth files or workspace into a new bot. Model/provider authentication must be configured separately when needed; do not copy the manager's .env as a shortcut. Existing bots retain their connectors.
+New bots get only the read-only defaults, including aliases in ~/.config/swarmhub/default-connectors.json. Use create hermes with --manager {{BOT}}: the helper transfers only the selected model/provider settings and static credentials; OAuth keeps the shared-root login without copying refresh tokens. A private manager OAuth login must be configured at the shared root first. Never copy whole config, .env, auth files, skills or workspace. Missing or unsupported model auth fails before creation; fix the manager's model login/selection first. Existing bots retain their connectors.
 
 Only after the user explicitly selects a connector and one target bot, run:
 ```sh
