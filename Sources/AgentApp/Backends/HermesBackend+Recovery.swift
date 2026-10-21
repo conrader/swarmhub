@@ -1,4 +1,5 @@
 import Foundation
+import SwarmHubCore
 
 struct HermesRecoveryTiming: Sendable {
     var delays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15)]
@@ -109,7 +110,7 @@ extension HermesBackend {
         try validate(response, data: data)
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         guard let id = json?["run_id"] as? String, !id.isEmpty else {
-            throw BackendError.unavailable("Hermes accepted no identifiable run. Check the conversation before retrying.")
+            throw StreamBreak(delivered: true, underlying: BackendError.unavailable("Hermes accepted no identifiable run. Check the conversation before retrying."))
         }
         return id
     }
