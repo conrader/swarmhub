@@ -18,6 +18,8 @@ private final class RecoveryServer: URLProtocol, @unchecked Sendable {
     }
     final class State: @unchecked Sendable {
         let requests = AwaitableLog<URLRequest>()
+        let connection = LockedValue<RecoveryServer?>(nil)
+        func disconnect() { connection.current?.drop() }
         var handler: @Sendable (URLRequest) -> Reply
         init(_ handler: @escaping @Sendable (URLRequest) -> Reply) { self.handler = handler }
     }
@@ -53,10 +55,14 @@ private final class RecoveryServer: URLProtocol, @unchecked Sendable {
         let reply = state.handler(logged)
         if let error = reply.error { client?.urlProtocol(self, didFailWithError: URLError(error)); return }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: [:])!, cacheStoragePolicy: .notAllowed)
+        if reply.hold { _ = state.connection.swap(self) }
         client?.urlProtocol(self, didLoad: reply.data)
         if !reply.hold { client?.urlProtocolDidFinishLoading(self) }
     }
-    override func stopLoading() {}
+    func drop() { client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost)) }
+    override func stopLoading() {
+        if let state = Self.lock.withLock({ Self.states[request.url!.host!] }), state.connection.current === self { _ = state.connection.swap(nil) }
+    }
 }
 
 private var runFeatures: [String: Any] { [
@@ -229,14 +235,17 @@ private func completed(_ events: [AgentEvent]) -> Bool { events.contains { if ca
 @Test func submissionRetryNeverIncludesAuthenticationOrUserCancellation() {
     for error in [BackendError.http(401, "auth"), BackendError.http(403, "auth"), BackendError.http(409, "conflict")] {
         var recovery = HermesRunRecovery()
-        #expect(!recovery.replaySubmission(after: error))
+        let replay = recovery.replaySubmission(after: error)
+        #expect(!replay)
     }
     var cancelled = HermesRunRecovery()
-    #expect(!cancelled.replaySubmission(after: CancellationError()))
-    #expect(!cancelled.replaySubmission(after: URLError(.cancelled)))
+    let cancellationReplay = cancelled.replaySubmission(after: CancellationError())
+    let urlCancellationReplay = cancelled.replaySubmission(after: URLError(.cancelled))
+    #expect(!cancellationReplay && !urlCancellationReplay)
     var network = HermesRunRecovery()
-    #expect(network.replaySubmission(after: URLError(.networkConnectionLost)))
-    #expect(!network.replaySubmission(after: URLError(.networkConnectionLost)))
+    let firstReplay = network.replaySubmission(after: URLError(.networkConnectionLost))
+    let secondReplay = network.replaySubmission(after: URLError(.networkConnectionLost))
+    #expect(firstReplay && !secondReplay)
 }
 
 @Test func pathMonitorRecognizesSatisfiedInterfaceChangesAndRestoration() {
@@ -248,4 +257,40 @@ private func completed(_ events: [AgentEvent]) -> Bool { events.contains { if ca
     #expect(ethernet.event(after: wifi) == .pathChanged)
     #expect(down.event(after: wifi) == .pathDown)
     #expect(wifi.event(after: down) == .pathUp)
+}
+
+@Test func networkLossAfterACommittedTokenRecoversTheSameRun() async throws {
+    let (backend, state) = RecoveryServer.serve { request in
+        if let reply = route(request) { return reply }
+        if request.url!.path.hasSuffix("/events") { return .events([["event": "message.delta", "seq": 0, "delta": "committed"]], hold: true) }
+        return .json(["status": "completed", "output": "complete answer"])
+    }
+    defer { backend.session.invalidateAndCancel() }
+    var iterator = try await backend.send(recoveryTurn).makeAsyncIterator()
+    while let event = try await iterator.next() { if case .token("committed") = event { break } }
+    state.disconnect()
+    var events: [AgentEvent] = []
+    while let event = try await iterator.next() { events.append(event) }
+    #expect(completed(events) && postCount(state) == 1)
+    #expect(events.contains { if case .replace("complete answer") = $0 { true } else { false } })
+}
+
+@Test func missingSubscriptionPollsTheRetainedResultWithoutResending() async throws {
+    let (backend, state) = RecoveryServer.serve { request in
+        if let reply = route(request) { return reply }
+        if request.url!.path.hasSuffix("/events") { return .json(["error": "expired events"], status: 404) }
+        return .json(["status": "completed", "output": "retained result"])
+    }
+    defer { backend.session.invalidateAndCancel() }
+    #expect(completed(try await collect(backend)) && postCount(state) == 1)
+}
+
+@Test func errorsAfterAdmissionAreNeverReportedAsAnUnsentTurn() async throws {
+    let (backend, state) = RecoveryServer.serve { request in
+        route(request) ?? .json(["error": "key revoked"], status: 401)
+    }
+    defer { backend.session.invalidateAndCancel() }
+    do { _ = try await collect(backend); Issue.record("Expected the failed event subscription") }
+    catch let error as StreamBreak { #expect(error.delivered) }
+    #expect(postCount(state) == 1)
 }

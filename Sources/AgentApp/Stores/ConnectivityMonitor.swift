@@ -35,7 +35,9 @@ struct ConnectivityPath: Sendable, Equatable {
         let lastPath = LockedValue<ConnectivityPath?>(nil)
         monitor.pathUpdateHandler = { path in
             let satisfied = path.status == .satisfied
-            let signature = "\(path.status)|\(path.availableInterfaces.map { "\($0.type):\($0.name):\($0.index)" }.sorted())|\(path.isExpensive)|\(path.isConstrained)|\(path.supportsIPv4)|\(path.supportsIPv6)|\(path.supportsDNS)"
+            let types: [NWInterface.InterfaceType] = [.wifi, .wiredEthernet, .cellular, .loopback, .other]
+            let used = types.filter { path.usesInterfaceType($0) }.map { String(describing: $0) }
+            let signature = "\(used)|\(path.gateways)|\(path.status)|\(path.availableInterfaces.map { "\($0.type):\($0.name):\($0.index)" }.sorted())|\(path.isExpensive)|\(path.isConstrained)|\(path.supportsIPv4)|\(path.supportsIPv6)|\(path.supportsDNS)"
             let current = ConnectivityPath(satisfied: satisfied, signature: signature)
             if let event = current.event(after: lastPath.swap(current)) { continuation.yield(event) }
         }

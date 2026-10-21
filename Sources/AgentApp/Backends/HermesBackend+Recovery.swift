@@ -77,6 +77,7 @@ extension HermesBackend {
             let task = Task {
                 var recovery = initialRecovery
                 let token = UUID()
+                var admitted = false
                 do {
                     let runID: String
                     do { runID = try await admitRun(submission) }
@@ -90,6 +91,7 @@ extension HermesBackend {
                         do { runID = try await admitRun(submission) }
                         catch { throw StreamBreak(delivered: true, underlying: error) }
                     }
+                    admitted = true
                     await HermesRunRegistry.shared.set(runID, for: turn.sessionID, scope: capabilityScope, token: token)
                     // Ensure the UI records the run ID even before the first text/tool event.
                     continuation.yield(.status("Waiting for reply…"))
@@ -98,7 +100,9 @@ extension HermesBackend {
                     continuation.finish()
                 } catch {
                     await HermesRunRegistry.shared.clear(turn.sessionID, scope: capabilityScope, token: token)
-                    continuation.finish(throwing: Task.isCancelled ? CancellationError() : error)
+                    if Task.isCancelled { continuation.finish(throwing: CancellationError()) }
+                    else if admitted, !(error is StreamBreak) { continuation.finish(throwing: StreamBreak(delivered: true, underlying: error)) }
+                    else { continuation.finish(throwing: error) }
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
@@ -165,7 +169,9 @@ extension HermesBackend {
             } catch {
                 try Task.checkCancellation()
                 let pathChanged = await eventConnections.revision() != revision
-                guard HermesRunRecovery.transient(error) || pathChanged else { throw error }
+                let subscriptionMissing: Bool
+                if case BackendError.http(404, _) = error { subscriptionMissing = true } else { subscriptionMissing = false }
+                guard HermesRunRecovery.transient(error) || pathChanged || subscriptionMissing else { throw error }
                 guard attempt < recoveryTiming.delays.count else { throw StreamBreak(delivered: true, underlying: error) }
                 continuation.yield(.status("Connection interrupted. Reconnecting to the reply…"))
                 if attempt == 0 { continuation.yield(.appNotice("Connection interrupted. Reconnecting to the same reply…")) }
