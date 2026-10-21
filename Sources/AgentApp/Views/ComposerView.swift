@@ -55,35 +55,31 @@ struct ComposerView: View {
                 }
             }
             if dictationContext != nil, dictation.isBusy || dictation.errorMessage != nil { DictationStatusRow(dictation: dictation) }
-            HStack(alignment: .bottom, spacing: 7) {
-                Button { importing = true } label: { Image(systemName: "paperclip").frame(width: 28, height: 28) }.buttonStyle(.plain).foregroundStyle(.secondary).help("Attach PNG, JPEG, GIF, WebP, PDF, RTF, DOC, DOCX and text files")
-                if !manageActions.isEmpty { ManageBotsMenu(actions: manageActions, perform: manage) { Image(systemName: "plus").frame(width: 28, height: 28) } }
-                TextEditor(text: $text).font(.body).scrollContentBackground(.hidden).frame(height: 30).padding(.vertical, 2).focused($focused)
-                    .overlay(alignment: .topLeading) { if text.isEmpty { Text(isStreaming && canSteer ? SteerCopy.placeholder : "Message " + AppConstants.name + "…").foregroundStyle(.tertiary).allowsHitTesting(false).padding(.top, 5).padding(.leading, 5) } }
-                    .onKeyPress(.return, phases: .down) { press in
-                        if press.modifiers.contains(.shift) { return .ignored }
-                        if slashOpen, let command = slash.current(in: slashMatches) { pickSlash(command); return .handled }
-                        if let first = suggestions.first { text = GroupRouting.complete(text, with: first); return .handled }
-                        if (!isStreaming || canSteer) && reading.isEmpty && !dictationBusy { send() }; return .handled
-                    }
-                    .onKeyPress(.upArrow) { guard slashOpen else { return .ignored }; slash.move(-1, count: slashMatches.count); return .handled }
-                    .onKeyPress(.downArrow) { guard slashOpen else { return .ignored }; slash.move(1, count: slashMatches.count); return .handled }
-                    .onKeyPress(.escape) { guard slashOpen else { return .ignored }; slash.dismissedAt = text; return .handled }
-                    .onKeyPress(.tab) { if slashOpen, let command = slash.current(in: slashMatches) { text = SlashMenu.completion(for: command); return .handled }; guard let first = suggestions.first else { return .ignored }; text = GroupRouting.complete(text, with: first); return .handled }
-                if let dictationContext { DictationButton(dictation: dictation, context: dictationContext) { focused = true } }
+            // One row of 28 pt slots: each control is centred in its slot (AppKit-drawn ones, the `+` menu and the round
+            // buttons, ignore their label's frame), and the slots sit on the draft's last line as it grows.
+            HStack(alignment: .bottom, spacing: ComposerMetrics.spacing) {
+                Button { importing = true } label: { Image(systemName: "paperclip").frame(width: ComposerMetrics.control, height: ComposerMetrics.control).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Attach PNG, JPEG, GIF, WebP, PDF, RTF, DOC, DOCX and text files")
+                    .composerSlot("composer_attach")
+                if !manageActions.isEmpty { ManageBotsMenu(actions: manageActions, perform: manage) { Image(systemName: "plus") }.composerSlot("composer_manage") }
+                input.chromeProbe("composer_input")
+                if let dictationContext { DictationButton(dictation: dictation, context: dictationContext) { focused = true }.composerSlot("composer_dictation") }
                 if isStreaming && canSteer && hasContent {
                     Button(action: send) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)).frame(width: 28, height: 28) }
                         .buttonStyle(.bordered).buttonBorderShape(.circle).help("Add to this answer").disabled(dictationBusy)
+                        .composerSlot("composer_steer")
                 }
                 if isStreaming {
                     Button(action: stop) { Image(systemName: "stop.fill").font(.system(size: 10, weight: .semibold)).frame(width: 28, height: 28) }
                         .buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.primary).help("Stop response")
+                        .composerSlot("composer_send")
                 } else {
                     Button(action: send) { Image(systemName: "arrow.up").font(.system(size: 12, weight: .semibold)).frame(width: 28, height: 28) }
                         .buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.primary).disabled(!hasContent || !reading.isEmpty || dictationBusy)
+                        .composerSlot("composer_send")
                 }
             }
-            if let hint { Text(hint).font(.caption).foregroundStyle(.secondary).padding(.leading, 35) }
+            if let hint { Text(hint).font(.caption).foregroundStyle(.secondary).padding(.leading, ComposerMetrics.control + ComposerMetrics.spacing) }
         }.padding(8).background(AppColor.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous)).overlay(RoundedRectangle(cornerRadius: 16).stroke(AppColor.separator, lineWidth: 0.5))
             .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 14).frame(maxWidth: 768)
             .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
@@ -102,6 +98,35 @@ struct ComposerView: View {
                 if dictation.state == .recording { dictation.cancel() }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in dictation.cancel() }
+    }
+
+    /// The draft, sized by a hidden copy of its text (wrapped lines included): one line fills a 28 pt slot with the line
+    /// centred, more lines grow it up to `ComposerMetrics.maxInput`, then the editor scrolls. The placeholder sits where
+    /// the first typed line does.
+    private var input: some View {
+        Text(ComposerMetrics.sizingText(text)).font(.body)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, ComposerMetrics.linePadding)
+            .padding(.vertical, ComposerMetrics.textInset).hidden()
+            .frame(minHeight: ComposerMetrics.control, maxHeight: ComposerMetrics.maxInput).fixedSize(horizontal: false, vertical: true)
+            .overlay {
+                TextEditor(text: $text).font(.body).scrollContentBackground(.hidden).padding(.vertical, ComposerMetrics.textInset - ComposerMetrics.editorInset).focused($focused)
+                    .overlay(alignment: .topLeading) {
+                        if text.isEmpty {
+                            Text(isStreaming && canSteer ? SteerCopy.placeholder : "Message " + AppConstants.name + "…").font(.body).foregroundStyle(.tertiary).lineLimit(1)
+                                .allowsHitTesting(false).padding(.top, ComposerMetrics.editorInset).padding(.leading, ComposerMetrics.linePadding)
+                        }
+                    }
+                    .onKeyPress(.return, phases: .down) { press in
+                        if press.modifiers.contains(.shift) { return .ignored }
+                        if slashOpen, let command = slash.current(in: slashMatches) { pickSlash(command); return .handled }
+                        if let first = suggestions.first { text = GroupRouting.complete(text, with: first); return .handled }
+                        if (!isStreaming || canSteer) && reading.isEmpty && !dictationBusy { send() }; return .handled
+                    }
+                    .onKeyPress(.upArrow) { guard slashOpen else { return .ignored }; slash.move(-1, count: slashMatches.count); return .handled }
+                    .onKeyPress(.downArrow) { guard slashOpen else { return .ignored }; slash.move(1, count: slashMatches.count); return .handled }
+                    .onKeyPress(.escape) { guard slashOpen else { return .ignored }; slash.dismissedAt = text; return .handled }
+                    .onKeyPress(.tab) { if slashOpen, let command = slash.current(in: slashMatches) { text = SlashMenu.completion(for: command); return .handled }; guard let first = suggestions.first else { return .ignored }; text = GroupRouting.complete(text, with: first); return .handled }
+            }
     }
 
     /// Enter or a click on a row: a command with arguments waits for them; the others run at once.
@@ -124,6 +149,31 @@ struct ComposerView: View {
         }
     }
     private func removePasteMonitor() { if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }; pasteMonitor = nil }
+}
+
+/// The composer row's geometry (`ComposerLayoutTests` checks it on rendered pixels).
+enum ComposerMetrics {
+    /// Every control's slot, and the draft's height at one line.
+    static let control: CGFloat = 28
+    static let spacing: CGFloat = 7
+    /// The draft's tallest size (about eight lines); beyond it the editor scrolls.
+    static let maxInput: CGFloat = 140
+    /// Space above the first line and below the last: (28 − a 16 pt body line) / 2.
+    static let textInset: CGFloat = 6
+    /// Where the editor's text view draws its first line below its own top, and the gap before each line (NSTextView's
+    /// line fragment padding); the placeholder and the sizing text use the same offsets.
+    static let editorInset: CGFloat = 0
+    static let linePadding: CGFloat = 5
+
+    /// What the hidden sizing text shows: an empty draft still takes one line, and a trailing newline its own line.
+    static func sizingText(_ text: String) -> String { text.isEmpty || text.hasSuffix("\n") ? text + " " : text }
+}
+
+/// A fixed control slot, reported to `--ui-smoke` and the layout tests as `probe`.
+private extension View {
+    func composerSlot(_ probe: String) -> some View {
+        frame(width: ComposerMetrics.control, height: ComposerMetrics.control).chromeProbe(probe)
+    }
 }
 
 /// A file still being read: text only (no spinner, no animation); the remove button cancels the read.
