@@ -72,10 +72,15 @@ for path in paths:
 # Save provenance before self-checks create audit state; reruns preserve the original list.
 def save_state():
     pending = base / 'install-state.new'
-    with pending.open('x') as f:
+    # An interrupted earlier run (e.g. ENOSPC) can leave this behind. Replace it only if it is
+    # a plain file we own with a trusted mode; never follow or truncate anything else.
+    if os.path.lexists(pending):
+        trusted(pending, directory=False)
+        pending.unlink()
+    fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as f:
         json.dump(state, f, sort_keys=True)
         f.write('\n')
-    pending.chmod(0o600)
     pending.replace(manifest)
 
 save_state()
@@ -107,7 +112,7 @@ else:
 current = base / 'current'
 if os.path.lexists(current) and not current.is_symlink():
     refuse('current is not a symlink')
-# No release code is run until its ownership, modes and all four pins pass.
+# No release code is run until its ownership, modes and every pin pass.
 if current.is_symlink():
     current.unlink()
 current.symlink_to(release)

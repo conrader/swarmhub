@@ -13,6 +13,9 @@ sudo -u sbtest -- mkdir "$stage/jobroute" "$stage/sb"
 tar -C "$here" --exclude=__pycache__ -cf - . | sudo -u sbtest -- tar -C "$stage/jobroute" -xf -
 tar -C "$sb" -cf - bin/sb-codejob bin/sb-codejob-watch lib/sbscan/job_process.py lib/sbscan/secretscan.py \
   | sudo -u sbtest -- tar -C "$stage/sb" -xf -
+# The route's pre-launch trust check refuses group/world-writable code; staged modes must not
+# depend on the caller's umask.
+sudo -u sbtest -- chmod -R go-w "$stage/jobroute" "$stage/sb"
 # pytest may live in ubuntu's user site, which sbtest cannot read: stage the packages too.
 pylib=$(python3 -c 'import os, pytest; print(os.path.dirname(os.path.dirname(pytest.__file__)))')
 sudo -u sbtest -- mkdir "$stage/pylib"

@@ -127,7 +127,8 @@ def test_foreign_owned_parent_is_refused(installer):
     assert p.returncode != 0 and 'untrusted ownership/mode/type: /home/ubuntu/.local' in p.stderr
 
 
-@pytest.mark.parametrize('name', ['jobroute', 'jobroute_core.py', 'allowlist.toml', 'check-hermes-tools'])
+@pytest.mark.parametrize('name', ['jobroute', 'jobroute_core.py', 'jobroute_jobs.py', 'jobroute_trust.py',
+                                  'allowlist.toml', 'check-hermes-tools', 'uninstall.py'])
 def test_reinstall_refuses_each_tampered_installed_pin(installer, name):
     installer.install()
     installed = installer.home / '.local/lib/jobroute/releases' / installer.sha / name

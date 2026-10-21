@@ -167,7 +167,7 @@ def test_claude_argv_contains_accept_edits(env):
     assert submit(env)[0] == 0
     [call] = env.calls()
     cmd = call["argv"][call["argv"].index("--") + 1:]
-    assert cmd == ["claude", "-p", "--permission-mode", "acceptEdits"]
+    assert cmd == [str(env.tmp / "bin/claude"), "-p", "--permission-mode", "acceptEdits"]
     assert "--dangerously-skip-permissions" not in call["argv"]
 
 
@@ -324,9 +324,11 @@ def test_eight_day_old_live_job_still_counts_toward_running_limit(tmp_path):
     e = Env(tmp_path, running=1, extra_env=f'STUB_PID = "{os.getpid()}"')
     assert submit(e)[0] == 0
     index = tmp_path / "state/profiles/grok-admin.jsonl"
-    row = json.loads(index.read_text())
-    row["t"] = time.time() - 8 * 86400
-    index.write_text(json.dumps(row) + "\n")
+    rows = [json.loads(x) for x in index.read_text().splitlines()]
+    for row in rows:
+        if "t" in row:
+            row["t"] = time.time() - 8 * 86400
+    index.write_text("".join(json.dumps(row) + "\n" for row in rows))
     rc, [out] = submit(e)
     assert rc == 3 and "already running" in out["error"] and len(e.calls()) == 1
     assert e.run("status")[1][0]["jobs"][0]["state"] == "running"

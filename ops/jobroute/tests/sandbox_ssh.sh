@@ -7,9 +7,12 @@
 # and X11, so every refusal below comes from the key's options (restrict + command=).
 # Exiting the PID namespace reaps its sshd and ssh-agent; no kill command is used.
 set -u
+umask 022
 stage=$1
 d=$stage/ssh
-mkdir -p "$d/work/Admin" "$d/calls" "$d/home"
+mkdir -p "$d/work/Admin" "$d/calls" "$d/home" "$d/bin"
+# Engines resolve on the route PATH, which the route's pre-launch trust check covers.
+for e in claude codex; do install -m 755 "$stage/jobroute/tests/stub-engine" "$d/bin/$e"; done
 cd "$d" || exit 1
 route=$stage/jobroute/jobroute
 asuser() { unshare --user --map-user=1002 --map-group=1003 "$@"; }
@@ -21,6 +24,7 @@ state_dir = "$d/state"
 sb_codejob = "$stage/jobroute/tests/stub-sb-codejob"
 job_root = "$d/work"
 home = "$d"
+path = "$d/bin:/usr/bin:/bin"
 [route.env]
 STUB_RECORD = "$d/calls"
 STUB_WORKROOT = "$d/work"
@@ -112,8 +116,9 @@ out=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
   '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"submit_job","arguments":{"engine":"codex","label":"mcp-ssh","brief":"hi $(id)"}}}' \
   '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"job_status","arguments":{}}}' | c admin -T 2>&1)
 check ssh-mcp-session 'MCP submit + status over ssh -T' "$( [ "$(has "$out" 'jobroute')" = 0 ] && [ "$(has "$out" 'mcp-ssh')" = 0 ] && [ "$(lacks "$out" '\"isError\": true')" = 0 ]; echo $?)" "$out"
-n=$(grep -c '"op": "submit"' "$d/state/audit.jsonl")
-check ssh-audit 'every submit audited with sha' "$( [ "$n" = 2 ] && [ "$(grep -c brief_sha256 "$d/state/audit.jsonl")" -ge 2 ]; echo $?)" "submits=$n"
+n=$(grep '"op": "submit"' "$d/state/audit.jsonl" | grep -c '"result": "ok"')
+l=$(grep '"op": "submit"' "$d/state/audit.jsonl" | grep -c '"result": "launching"')
+check ssh-audit 'every submit audited with sha, launching row first' "$( [ "$n" = 2 ] && [ "$l" = 2 ] && [ "$(grep -c brief_sha256 "$d/state/audit.jsonl")" -ge 4 ]; echo $?)" "submits=$n launching=$l"
 
 echo "ssh harness: $fails failure(s)"
 exit $((fails > 0))

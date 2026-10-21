@@ -29,7 +29,7 @@ job_root = "{tmp}/work"
 work_root = "{tmp}/work"
 home = "{tmp}"
 deny_paths = ["{tmp}/work/Admin/denied"]
-path = "/usr/local/bin:/usr/bin:/bin"
+path = "{tmp}/bin:/usr/bin:/bin"
 max_brief_bytes = 1024
 [route.env]
 STUB_RECORD = "{tmp}/calls"
@@ -71,6 +71,11 @@ class Env:
         for d in ("calls", "home", "work/Admin/sub", "work/Doc", "work/Stub", "work/Infra Caretaker", "outside"):
             (tmp / d).mkdir(parents=True, exist_ok=True)
         (tmp / "work/Admin/escape").symlink_to(tmp / "outside")
+        # Engines resolve on the route PATH, which the pre-launch trust check covers.
+        (tmp / "bin").mkdir(mode=0o755, exist_ok=True)
+        for name in ("claude", "codex"):
+            shutil.copyfile(STUB_ENGINE, tmp / "bin" / name)
+            (tmp / "bin" / name).chmod(0o755)
         self.cfg = tmp / "allowlist.toml"
         self.cfg.write_text(CONFIG.format(tmp=tmp, sb_codejob=sb_codejob, stub_engine=STUB_ENGINE,
                                           per_hour=per_hour, running=running, extra_env=extra_env))
@@ -116,11 +121,13 @@ def test_allowlisted_submit_runs_fixed_argv_with_brief_on_stdin(env):
     [call] = env.calls()
     wd = os.path.realpath(env.tmp / "work/Admin")
     assert call["argv"] == ["--agent", "Admin", "--workdir", wd, "--label", "fix-login", "--stdin",
-                            "--", "claude", "-p", "--permission-mode", "acceptEdits"]
+                            "--", str(env.tmp / "bin/claude"), "-p", "--permission-mode", "acceptEdits"]
     assert call["stdin"] == brief
     assert "ANTHROPIC_API_KEY" not in call["env"] and "SSH_ORIGINAL_COMMAND" not in call["env"]
     assert not pathlib.Path("/tmp/pwned").exists()
-    [row] = env.audit()
+    launching, row = env.audit()
+    assert launching["result"] == "launching" and launching["launch"] == row["launch"]
+    assert launching["brief_sha256"] == row["brief_sha256"]
     assert row["profile"] == "grok-admin" and row["label"] == "fix-login" and row["result"] == "ok"
     assert row["brief_sha256"] == hashlib.sha256(brief).hexdigest() and row["ts"]
     assert row["peer"] == "195.201.33.222" and row["job_id"] == out["job_id"]
@@ -131,7 +138,8 @@ def test_codex_engine_and_subdirectory(env):
     assert rc == 0
     argv = env.calls()[0]["argv"]
     assert argv[3] == os.path.realpath(env.tmp / "work/Admin/sub")
-    assert argv[argv.index("--") + 1:] == ["codex", "exec", "--skip-git-repo-check", "-m", "gpt-6.1-sol", "-"]
+    assert argv[argv.index("--") + 1:] == [str(env.tmp / "bin/codex"), "exec", "--skip-git-repo-check", "-m",
+                                           "gpt-6.1-sol", "-"]
 
 
 def test_absolute_workdir_inside_root_and_matching_agent(env):
@@ -327,7 +335,8 @@ def test_mcp_session(env):
         assert r[i]["result"]["isError"] is True, i
     assert r[9]["error"]["code"] == -32601
     assert len(env.calls()) == 1
-    assert [a["mode"] for a in env.audit() if a["op"] == "submit"] == ["mcp", "mcp"]
+    assert [(a["mode"], a["result"]) for a in env.audit() if a["op"] == "submit"] == [
+        ("mcp", "launching"), ("mcp", "ok"), ("mcp", "refused")]
 
 
 def test_mcp_lone_surrogate_brief_refused_and_audited(env):
@@ -361,13 +370,15 @@ SB_COPY = os.environ.get("JOBROUTE_SB_COPY")   # dir with bin/sb-codejob(+watch)
 
 
 @pytest.mark.skipif(not SB_COPY, reason="set JOBROUTE_SB_COPY to a copy of ~/sb/{bin,lib/sbscan}")
-def test_real_sb_codejob_with_stub_engine(tmp_path):
+@pytest.mark.parametrize("label", ["integ", "task_", "task-", "task_-_"])
+def test_real_sb_codejob_with_stub_engine(tmp_path, label):
     extra = (f'SB_CODEJOB_WORKROOT = "{tmp_path}/work"\nSB_CODEJOB_MODELS_LOG = "{tmp_path}/models.log"\n'
              f'SB_CODEJOB_WAKE_ENV = "{tmp_path}/no-wake.env"\nSB_CODEJOB_STATE_DIR = "{tmp_path}/cj-state"')
     e = Env(tmp_path, extra_env=extra, sb_codejob=pathlib.Path(SB_COPY) / "bin/sb-codejob")
     brief = b"Integration brief $(id) ; `x`\n"
-    rc, [out] = e.run("submit engine=stub label=integ", brief, profile="grok-stub")
+    rc, [out] = e.run(f"submit engine=stub label={label}", brief, profile="grok-stub")
     assert rc == 0, out
+    assert out["label"] == label and out["job_id"].endswith("-" + label.rstrip("-_"))
     status = tmp_path / "work/Stub" / f"{out['job_id']}.json"
     for _ in range(100):
         rec = json.loads(status.read_text())
@@ -379,5 +390,6 @@ def test_real_sb_codejob_with_stub_engine(tmp_path):
     assert f"stub-engine brief sha256: {hashlib.sha256(brief).hexdigest()}" in log
     rc, [st] = e.run(f"status job={out['job_id']}", profile="grok-stub")
     assert rc == 0 and st["jobs"][0]["state"] == "done" and st["jobs"][0]["exit_code"] == 0
+    assert st["jobs"][0]["label"] == label
     assert e.audit()[0]["brief_sha256"] == hashlib.sha256(brief).hexdigest()
     shutil.rmtree(tmp_path / "work", ignore_errors=True)
