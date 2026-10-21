@@ -76,9 +76,11 @@ struct SwarmHubSkillsPanelSection: View {
 }
 
 /// Each bundled skill meant for this bot, its version and state, and Install/Update through the connection's manager.
+/// Skill dev mode: the toggle, "Modified locally" for a skill the box kept, and Reset to bundled for it.
 struct SwarmHubSkillRows: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
+    @State private var confirmReset: String?
 
     var body: some View {
         ForEach(store.skills(for: bot), id: \.name) { skill in
@@ -86,24 +88,43 @@ struct SwarmHubSkillRows: View {
         }
         Text("Instructions \(AppConstants.name) installs into this bot’s own profile, so it follows them instead of improvising. Hermes itself is not changed.")
             .font(.caption).foregroundStyle(.secondary)
+        Toggle("Skill dev mode", isOn: Binding(get: { bot.skillDevMode }, set: { store.setSkillDevMode($0, for: bot) }))
+            .font(.system(size: 12))
+        Text(Self.devModeText(bot: bot.name, profile: store.profile(of: bot))).font(.caption).foregroundStyle(.secondary)
         if store.usesStagedSkills(on: store.connection(of: bot)) {
             BoxUpdateView(bot: bot)
         }
     }
 
+    static func devModeText(bot: String, profile: String) -> String {
+        "While on, installs and updates keep any skill \(bot) changed on its box, or one with a folder in " +
+        "~/.hermes/swarmhub/dev-overrides/\(profile)/<skill>/, and show it as modified locally. Off: every install replaces them, as before."
+    }
+
     private func row(_ skill: BundledSkill) -> some View {
         let state = store.skillState(skill, for: bot)
+        let modified = store.isModifiedLocally(skill, for: bot)
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(skill.name).font(.system(size: 12, weight: .medium))
-                Text(SwarmHubSkillsSection.stateText(state, bundled: skill.version)).font(.caption).foregroundStyle(.secondary)
-                if state.needsAction, let failure = store.skillInstallFailure(skill, for: bot) {
+                Text(modified ? "Modified locally · kept while skill dev mode is on" : SwarmHubSkillsSection.stateText(state, bundled: skill.version))
+                    .font(.caption).foregroundStyle(modified ? Color.orange : Color.secondary)
+                if !modified, state.needsAction, let failure = store.skillInstallFailure(skill, for: bot) {
                     Text(store.skillFailureText(failure, skill: skill)).font(.caption).foregroundStyle(.orange)
                 }
             }
             Spacer()
             if store.manager(for: bot) == nil {
                 Text("Needs a manager bot to install").font(.caption).foregroundStyle(.secondary)
+            } else if modified {
+                Button("Reset to bundled") { confirmReset = skill.name }
+                    .disabled(!store.managerIdle(for: bot) || store.skillInstallBackingOff(skill, for: bot))
+                    .confirmationDialog("Reset \(skill.name) to the bundled version?", isPresented: Binding(
+                        get: { confirmReset == skill.name }, set: { if !$0 { confirmReset = nil } })) {
+                        Button("Reset to bundled", role: .destructive) { store.resetSkillToBundled(skill, for: bot) }
+                    } message: {
+                        Text("\(bot.name)’s changes to this skill on its box, and its dev-overrides folder, are replaced by \(AppConstants.name)’s copy.")
+                    }
             } else if state.needsAction {
                 let failed = store.skillInstallFailure(skill, for: bot) != nil
                 Button(failed ? "Retry" : state == .missing ? "Install" : "Update") { store.installSkills(for: bot) }
