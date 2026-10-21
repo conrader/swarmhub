@@ -38,7 +38,7 @@ extension AppStore {
             #if DEBUG
             if QAMode.enabled { qaEventRecorder?(assistant.id, event) }
             #endif
-            if !sawEvent {
+            if !sawEvent || assistant.metadata[TurnKey.run] == nil {
                 sawEvent = true
                 if let run = await activeBackend.currentRunID(sessionID: sessionID) { assistant.metadata[TurnKey.run] = run }
             }

@@ -2,7 +2,7 @@ import Foundation
 import SwarmHubCore
 
 /// Session IDs are local to a gateway/profile; different connections can reuse the same ID.
-private actor HermesRunRegistry {
+actor HermesRunRegistry {
     static let shared = HermesRunRegistry()
     private struct Key: Hashable { let scope: String; let sessionID: String }
     private var runs: [Key: (token: UUID, runID: String)] = [:]
@@ -86,6 +86,9 @@ struct HermesBackend: AgentBackend {
     var timeouts = HermesTimeouts.standard
     /// Rendered by AppStore for every real bot; QA and transport-only clients stay isolated.
     var defaultInstructions: String? = nil
+    var recoveryTiming = HermesRecoveryTiming()
+    var statusScheduler = HermesStatusScheduler.shared
+    var eventConnections = HermesEventConnections.shared
 
     static func validatedBaseURL(_ value: String) -> URL? {
         guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)), let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme), url.host != nil else { return nil }
@@ -109,7 +112,12 @@ struct HermesBackend: AgentBackend {
         let flags: Set<String>
         do {
             let features = try await capabilitiesJSON()["features"] as? [String: Any] ?? [:]
-            flags = Set(features.compactMap { ($0.value as? Bool) == true ? $0.key : nil })
+            var parsed = Set(features.compactMap { ($0.value as? Bool) == true ? $0.key : nil })
+            if let idempotency = features["runs_idempotency"] as? [String: Any],
+               idempotency["supported"] as? Bool == true, idempotency["durable"] as? Bool == true {
+                parsed.insert("durable_runs_idempotency")
+            }
+            flags = parsed
         } catch BackendError.http(let code, _) where code == 404 {
             flags = []
         }
@@ -262,6 +270,16 @@ struct HermesBackend: AgentBackend {
     }
 
     private func sendSession(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
+        let flags = try await features()
+        if request.images.isEmpty, request.managementText == nil,
+           (request.messages.last(where: { $0.role == "user" })?.content.unicodeScalars.count ?? 0) <= Self.maxTextPartScalars,
+           flags.isSuperset(of: ["run_submission", "run_events_sse", "run_status", "durable_runs_idempotency"]) {
+            return try await sendDurableRun(request)
+        }
+        return try sendNativeSession(request)
+    }
+
+    func sendNativeSession(_ request: AgentRequest) throws -> AsyncThrowingStream<AgentEvent, Error> {
         let escaped = request.sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? request.sessionID
         var urlRequest = try makeRequest(path: "api/sessions/\(escaped)/chat/stream", method: "POST")
         let input = request.messages.last(where: { $0.role == "user" })?.content ?? ""
@@ -369,7 +387,7 @@ struct HermesBackend: AgentBackend {
         }
     }
 
-    private func parseNative(_ event: String, _ json: [String: Any], _ continuation: EventSink, emittedAssistantDelta: inout Bool, children: inout ChildTaskCorrelation) {
+    func parseNative(_ event: String, _ json: [String: Any], _ continuation: EventSink, emittedAssistantDelta: inout Bool, children: inout ChildTaskCorrelation) {
         switch event {
         case "assistant.delta", "message.delta": if let token = (json["delta"] ?? json["text"]) as? String { emittedAssistantDelta = true; continuation.yield(.token(token)) }
         case "tool.started", "tool.completed", "tool.failed", "tool.progress": continuation.yield(.tool(nativeTool(event, json)))
@@ -429,10 +447,18 @@ struct HermesBackend: AgentBackend {
         var request = try makeRequest(path: path, method: method)
         if let timeout { request.timeoutInterval = timeout }
         if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
+        if method == "GET" {
+            let request = request, session = session
+            let read = try await statusScheduler.read(request, scope: capabilityScope) {
+                let (data, response) = try await session.data(for: request)
+                return .init(data: data, response: response)
+            }
+            return (read.data, read.response)
+        }
         return try await session.data(for: request)
     }
 
-    private func makeRequest(path: String, method: String) throws -> URLRequest {
+    func makeRequest(path: String, method: String) throws -> URLRequest {
         guard Self.permitsAPIKey(apiKey, at: baseURL) else { throw BackendError.unavailable("Hermes API keys require HTTPS unless the server is loopback.") }
         guard let url = endpoint(path) else { throw BackendError.invalidURL }
         var request = URLRequest(url: url); request.httpMethod = method; request.timeoutInterval = timeouts.timeout(forMethod: method)
@@ -444,7 +470,7 @@ struct HermesBackend: AgentBackend {
         return request
     }
 
-    private func endpoint(_ path: String) -> URL? {
+    func endpoint(_ path: String) -> URL? {
         var root = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")); if root.hasSuffix("/v1") { root.removeLast(3) }
         let prefix = profile == "default" ? "" : "/p/\(profile.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? profile)"
         return URL(string: root + prefix + "/" + path)

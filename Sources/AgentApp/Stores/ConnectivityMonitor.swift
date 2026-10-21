@@ -3,7 +3,18 @@ import Foundation
 import Network
 
 /// P16 Part 4: sleep, wake and network-path events. Terminate is not an event here (see `SystemConnectivity.observeTerminate`).
-enum ConnectivityEvent: Sendable { case willSleep, didWake, pathUp, pathDown }
+enum ConnectivityEvent: Sendable { case willSleep, didWake, pathUp, pathDown, pathChanged }
+
+struct ConnectivityPath: Sendable, Equatable {
+    let satisfied: Bool
+    let signature: String
+    func event(after previous: Self?) -> ConnectivityEvent? {
+        guard let previous else { return satisfied ? nil : .pathDown }
+        if !satisfied { return previous.satisfied ? .pathDown : nil }
+        if !previous.satisfied { return .pathUp }
+        return signature != previous.signature ? .pathChanged : nil
+    }
+}
 
 @MainActor protocol ConnectivitySource: AnyObject {
     var events: AsyncStream<ConnectivityEvent> { get }
@@ -21,12 +32,12 @@ enum ConnectivityEvent: Sendable { case willSleep, didWake, pathUp, pathDown }
 
     func start() {
         let continuation = continuation
-        let lastSatisfied = LockedValue<Bool?>(nil)
+        let lastPath = LockedValue<ConnectivityPath?>(nil)
         monitor.pathUpdateHandler = { path in
             let satisfied = path.status == .satisfied
-            let previous = lastSatisfied.swap(satisfied)
-            if satisfied, previous == false { continuation.yield(.pathUp) }
-            if !satisfied, previous != false { continuation.yield(.pathDown) }
+            let signature = "\(path.status)|\(path.availableInterfaces.map { "\($0.type):\($0.name):\($0.index)" }.sorted())|\(path.isExpensive)|\(path.isConstrained)|\(path.supportsIPv4)|\(path.supportsIPv6)|\(path.supportsDNS)"
+            let current = ConnectivityPath(satisfied: satisfied, signature: signature)
+            if let event = current.event(after: lastPath.swap(current)) { continuation.yield(event) }
         }
         monitor.start(queue: DispatchQueue(label: "connectivity.path"))
         let center = NSWorkspace.shared.notificationCenter
@@ -57,14 +68,15 @@ extension AppStore {
         }
     }
 
-    /// No stream is ever cancelled here (the box interrupts a run whose client disconnects; a stalled stream ends by its
-    /// own idle timeout). Wake, path restored: flush the URL session, then reconcile what needs it.
+    /// Wake/path changes replace only detachable run-event subscriptions. Native POST streams
+    /// retain their server-owned lifecycle; cancelling those would interrupt the actual turn.
     func handle(_ event: ConnectivityEvent) async {
         defer { objectWillChange.send() }
         switch event {
         case .willSleep: turns.pathDown = true; suspendTeamClock(); flushNow()
         case .pathDown: turns.pathDown = true; suspendTeamClock(); automationTick()
-        case .didWake, .pathUp:
+        case .didWake, .pathUp, .pathChanged:
+            await HermesEventConnections.shared.changed()
             turns.pathDown = false; automationTick()
             await hermesSession.flush()
             await recoverTeams()

@@ -166,6 +166,14 @@ struct BotServerInfo: Equatable, Sendable {
         async let reading = backend.hermesVersion()
         let capabilities: HermesCapabilities?
         do { capabilities = try await backend.capabilities() }
+        catch let deferred as HermesStatusDeferred {
+            _ = await reading
+            // Keep the last good snapshot; a later scheduled refresh retries after the host cooldown.
+            if info.skills.value == nil { info.skills = .unavailable(deferred.localizedDescription) }
+            if info.toolsets.value == nil { info.toolsets = .unavailable(deferred.localizedDescription) }
+            if info.modelOptions.value == nil { info.modelOptions = .unavailable(deferred.localizedDescription) }
+            return info
+        }
         catch {
             info.hermesVersion = await reading
             let reason = describe(error, secrets: [backend.apiKey])
@@ -183,9 +191,9 @@ struct BotServerInfo: Equatable, Sendable {
         }
         let previousSkills = previous.skills
         let known = { @Sendable (error: Error) in HermesCompatibility.limitation(for: error, version: version.version)?.note }
-        async let skills = includeSkills ? optional(capabilities.skills, "This server does not list its skills.", key: backend.apiKey, known: known) { try await backend.skills() } : previousSkills
-        async let toolsets = optional(capabilities.toolsets, "This server does not list its toolsets.", key: backend.apiKey) { try await backend.toolsets() }
-        async let options = optional(capabilities.modelOptions, "This server does not offer model options.", key: backend.apiKey) { try await backend.modelOptions() }
+        async let skills = includeSkills ? optional(capabilities.skills, "This server does not list its skills.", key: backend.apiKey, previous: previous.skills, known: known) { try await backend.skills() } : previousSkills
+        async let toolsets = optional(capabilities.toolsets, "This server does not list its toolsets.", key: backend.apiKey, previous: previous.toolsets) { try await backend.toolsets() }
+        async let options = optional(capabilities.modelOptions, "This server does not offer model options.", key: backend.apiKey, previous: previous.modelOptions) { try await backend.modelOptions() }
         (info.skills, info.toolsets, info.modelOptions) = await (skills, toolsets, options)
         // A failed read keeps the last good value; `sessionModelSessionID` says which session it describes.
         if let sessionID, capabilities.features["session_resources"] != false {
@@ -196,12 +204,13 @@ struct BotServerInfo: Equatable, Sendable {
 
     /// Runs `fetch` only when the server advertises the feature; a 404 or 405 means the route is absent. `known` turns a
     /// known Hermes bug's exact symptom into its calm note (unavailable, not failed).
-    private nonisolated static func optional<T: Equatable & Sendable>(_ supported: Bool, _ offReason: String, key: String,
+    private nonisolated static func optional<T: Equatable & Sendable>(_ supported: Bool, _ offReason: String, key: String, previous: Loadable<T> = .loading,
                                                                     known: @Sendable (Error) -> String? = { _ in nil },
                                                                     _ fetch: @Sendable () async throws -> T) async -> Loadable<T> {
         guard supported else { return .unavailable(offReason) }
         do { return .loaded(try await fetch()) }
         catch BackendError.http(let code, _) where code == 404 || code == 405 { return .unavailable(offReason) }
+        catch let deferred as HermesStatusDeferred { return previous.value == nil ? .unavailable(deferred.localizedDescription) : previous }
         catch { return known(error).map { .unavailable($0) } ?? .failed(describe(error, key: key)) }
     }
 
