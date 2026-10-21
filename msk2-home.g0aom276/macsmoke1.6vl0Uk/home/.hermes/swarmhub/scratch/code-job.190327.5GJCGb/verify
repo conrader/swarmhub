@@ -1,1 +1,0 @@
-code-job: verification sandbox: no user namespace; .git is read-only entry by entry, new top-level workspace entries are denied, signals reach only the verifier's own processes, shared memory is the host's /dev/shm by name

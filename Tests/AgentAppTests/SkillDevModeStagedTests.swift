@@ -91,7 +91,8 @@ private func encodedKeys(_ profiles: [StagedInstall.Profile]) throws -> [Set<Str
     #expect(off.name == "default" && off.coding_order == store.codingOrder(for: bot).argument && off.skills == ["swarmhub-manager"])
     store.setSkillDevMode(true, for: bot)
     let on = store.stagedProfile(for: bot, skills: ["swarmhub-manager"])
-    #expect(on.dev_mode == true && on.reset == nil && (try encodedKeys([on])) == [["name", "coding_order", "skills", "dev_mode"]])
+    let onKeys = try encodedKeys([on])
+    #expect(on.dev_mode == true && on.reset == nil && onKeys == [["name", "coding_order", "skills", "dev_mode"]])
     let reset = store.stagedProfile(for: bot, skills: ["swarmhub-manager"], reset: devStagedManager)
     #expect(reset.reset == ["swarmhub-manager"])
     // The signed bytes and their verification do not depend on the row: the same verified package either way.

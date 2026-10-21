@@ -1,7 +1,0 @@
-nonce 4fb55faac4d85633
-report /home/ubuntu/work/swarmhub/wt-skill-devmode/msk2.t55gwqf4/td/macsmoke1-home.qjtjYR/REPORT.txt
-target tmp.given git-trust.json /tmp/code-job.7jvTpb
-target tmp.link git-trust.json /home/ubuntu/work/swarmhub/wt-skill-devmode/msk2.t55gwqf4/td/macsmoke1-links.dEufVU/a
-target tmpdir.given git-trust.json /home/ubuntu/work/swarmhub/wt-skill-devmode/msk2.t55gwqf4/td/macsmoke1-tmpdir.426FDt
-target tmpdir.link git-trust.json /home/ubuntu/work/swarmhub/wt-skill-devmode/msk2.t55gwqf4/td/macsmoke1-links.dEufVU/b
-target snap.given git-trust.json /tmp/code-job.U6ZODJ
