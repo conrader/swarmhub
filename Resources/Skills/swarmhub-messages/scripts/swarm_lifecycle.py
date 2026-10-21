@@ -216,31 +216,32 @@ def stop_legacy_supervisor(lock, folder, runtime):
     instance or the group it still leads. Require our exact script/operation,
     HOME, uid, private group and kernel proof that this process holds this
     particular flock. Other platforms use only the cooperative protocol; never
-    fall back to kill(pid).
+    fall back to kill(pid). Returns detach_legacy_stop's completion descriptor,
+    or None when nothing was sent.
     """
     if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
-        return False
+        return None
     try:
         pid = int((folder / "job-wake.supervisor.pid").read_text())
         if pid <= 1 or pid == os.getpid():
-            return False
+            return None
         fd = os.pidfd_open(pid)
     except (OSError, ValueError):
-        return False
+        return None
     try:
         proc = Path("/proc") / str(pid)
         argv = (proc / "cmdline").read_bytes().split(b"\0")[:-1]
         if len(argv) != 3 or argv[1:] != [os.fsencode(runtime), b"supervise"]:
-            return False
+            return None
         if not os.path.samefile(proc / "exe", sys.executable) or proc.stat().st_uid != os.getuid():
-            return False
+            return None
         if os.fsencode("HOME=" + str(Path.home())) not in (proc / "environ").read_bytes().split(b"\0"):
-            return False
+            return None
         inspected = subprocess.run(["ps", "-p", str(pid), "-o", "pid=,pgid=,cmd="],
                                    capture_output=True, text=True, timeout=1)
         fields = inspected.stdout.split(None, 2)
         if inspected.returncode or len(fields) != 3 or fields[:2] != [str(pid), str(pid)]:
-            return False
+            return None
         info = os.fstat(lock.fileno())
         inode = (os.major(info.st_dev), os.minor(info.st_dev), info.st_ino)
         for line in Path("/proc/locks").read_text().splitlines():
@@ -249,17 +250,62 @@ def stop_legacy_supervisor(lock, folder, runtime):
                 continue
             major, minor, number = row[5].split(":")
             if (int(major, 16), int(minor, 16), int(number)) == inode:
-                stop_legacy_group(fd, pid)
-                return True
+                return detach_legacy_stop(fd, pid)
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         pass
     finally:
         os.close(fd)
-    return False
+    return None
 
 
 def exited(fd):
+    """A pidfd whose process exited, or a pipe whose writers are all gone."""
     return bool(select.select([fd], [], [], 0)[0])
+
+
+def detach_legacy_stop(fd, pid):
+    """Run stop_legacy_group where killing the relay cannot interrupt it.
+
+    The leader stays SIGSTOPped until stop_legacy_group's finally resumes it. If
+    that ran in the relay, Hermes' registry escalation (TERM, two
+    terminal.daemon_term_grace_seconds windows, then SIGKILL of the relay and
+    its current descendants; the grace is configurable) or an operator stop
+    could kill it first: nothing would ever continue the leader, which would
+    keep its flock and block recovery until the next shutdown. A double fork
+    leaves the work outside the relay's tree, session and group. It is bounded
+    by STOP_GRACE + REAP_GRACE, within the relay's own wait. Returns a pipe
+    that reaches EOF once the work is done.
+    """
+    done, finished = os.pipe()
+    try:
+        child = os.fork()
+    except OSError:
+        os.close(done)
+        os.close(finished)
+        raise
+    if child == 0:
+        try:
+            os.setsid()
+            if os.fork() == 0:
+                # Hold nothing of the relay's: not its stdout pipe to the gateway
+                # and not the lock's open file description it may still flock.
+                for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+                    signal.signal(sig, signal.SIG_IGN)
+                null = os.open(os.devnull, os.O_RDWR)
+                for target in (0, 1, 2):
+                    os.dup2(null, target)
+                for number in map(int, os.listdir("/proc/self/fd")):
+                    if number > 2 and number not in (fd, finished):
+                        try:
+                            os.close(number)
+                        except OSError:
+                            pass  # The listing's own descriptor.
+                stop_legacy_group(fd, pid)
+        finally:
+            os._exit(0)
+    os.close(finished)
+    os.waitpid(child, 0)  # The intermediate exits at once; the worker is orphaned.
+    return done
 
 
 def group_members(pgid, leader):
@@ -285,25 +331,25 @@ def stop_legacy_group(fd, pid):
     and would keep running after the lock is released. Freeze the pinned leader
     first: a stopped process cannot exit by itself, and while it exists its
     number cannot be reused, so killpg(pid) reaches exactly its own tree. A
-    group signal also reaches a child that is being forked at that moment.
+    group signal also reaches a child that is being forked at that moment. One
+    budget bounds the freeze, the TERM drain and the KILL settle together.
     """
     if pid <= 1:
         return
     signal.pidfd_send_signal(fd, signal.SIGSTOP)
     try:
-        deadline = time.monotonic() + REAP_GRACE
+        started = time.monotonic()
         while not exited(fd):
             if (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()[0] == "T":
                 break
-            if time.monotonic() >= deadline:
+            if time.monotonic() >= started + REAP_GRACE:
                 return  # Not frozen: never signal its group by number.
             time.sleep(.01)
-        for sig, grace in ((signal.SIGTERM, STOP_GRACE), (signal.SIGKILL, REAP_GRACE)):
+        for sig, until in ((signal.SIGTERM, STOP_GRACE), (signal.SIGKILL, STOP_GRACE + REAP_GRACE)):
             if exited(fd):
                 return  # Pinned leader gone: its number no longer names this group.
             os.killpg(pid, sig)
-            deadline = time.monotonic() + grace
-            while group_members(pid, pid) and time.monotonic() < deadline:
+            while group_members(pid, pid) and time.monotonic() < started + until:
                 time.sleep(.02)
             if not group_members(pid, pid):
                 return
@@ -319,18 +365,25 @@ def stop_legacy_group(fd, pid):
 def stop_supervisor_holder(lock, folder, runtime, note):
     """Relay gateway shutdown until the actual holder has drained and unlocked."""
     deadline = time.monotonic() + STOP_GRACE + REAP_GRACE + 1
-    legacy_sent = False
-    while folder.exists():
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return  # No holder remains. Do not launch recovery during shutdown.
-        except BlockingIOError:
-            if not request_supervisor_stop(lock, folder) and not legacy_sent:
-                legacy_sent = stop_legacy_supervisor(lock, folder, runtime)
-        if time.monotonic() >= deadline:
-            note(folder, "Recovery supervisor did not release its lock after shutdown request")
-            return  # Never escalate using an unverified/stale PID.
-        time.sleep(.02)
+    legacy = None  # EOF once a detached legacy stop has resumed its leader.
+    try:
+        while folder.exists():
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return  # No holder remains. Do not launch recovery during shutdown.
+            except BlockingIOError:
+                if not request_supervisor_stop(lock, folder) and legacy is None:
+                    legacy = stop_legacy_supervisor(lock, folder, runtime)
+            if time.monotonic() >= deadline:
+                # A legacy stop still in flight is bounded and resumes its
+                # leader itself; only a finished one leaves a real holder.
+                if legacy is None or exited(legacy):
+                    note(folder, "Recovery supervisor did not release its lock after shutdown request")
+                return  # Never escalate using an unverified/stale PID.
+            time.sleep(.02)
+    finally:
+        if legacy is not None:
+            os.close(legacy)
 
 
 @contextmanager

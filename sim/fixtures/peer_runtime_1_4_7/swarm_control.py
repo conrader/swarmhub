@@ -3,15 +3,18 @@
 signal handlers. Their worker (subprocess.call) and its deliveries
 (subprocess.run in swarm_delivery.deliver) share the supervisor's process
 group, which swarm_store.spawn created with start_new_session=True. This stub
-keeps one such delivery in flight; it publishes its PID and sleeps.
+keeps one such delivery in flight; it publishes its PID and sleeps. With
+LEGACY_DELIVERY_IGNORES_TERM set it models a delivery tree that ignores SIGTERM.
 """
 import os
 from pathlib import Path
 import subprocess
 import sys
 
-DELIVERY = ("import os, sys, time\n"
+DELIVERY = ("import os, signal, sys, time\n"
             "from pathlib import Path\n"
+            "if os.environ.get('LEGACY_DELIVERY_IGNORES_TERM'):\n"
+            "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
             "Path(sys.argv[1]).write_text(str(os.getpid()))\n"
             "time.sleep(60)\n")
 

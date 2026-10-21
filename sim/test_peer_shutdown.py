@@ -18,7 +18,9 @@ from test_peer_runtime import peer, RUNTIME
 LEGACY = Path(__file__).resolve().parent / 'fixtures/peer_runtime_1_4_7'
 
 
-class ShutdownTests(unittest.TestCase):
+class ShutdownHarness(unittest.TestCase):
+    """Fixtures only; also used by test_peer_escalation."""
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -109,6 +111,63 @@ class ShutdownTests(unittest.TestCase):
         self.addCleanup(self.kill_group, worker)
         return supervisor, worker
 
+    def group(self, pid):
+        result = subprocess.run(['ps', '-p', str(pid), '-o', 'pgid='], capture_output=True, text=True, check=True)
+        return int(result.stdout)
+
+    def kill_member(self, pid, pgid):
+        """Kill one fixture process, only after ps confirms its exact PID and group."""
+        result = subprocess.run(['ps', '-p', str(pid), '-o', 'pid=,pgid=,stat=,cmd='],
+                                capture_output=True, text=True, check=False)
+        if result.returncode != 0 or not result.stdout.strip():
+            return
+        actual_pid, actual_pgid, stat, command = result.stdout.strip().split(None, 3)
+        if stat.startswith('Z'):
+            return
+        self.assertEqual((int(actual_pid), int(actual_pgid)), (pid, pgid))
+        self.assertIn('python', command)
+        os.kill(pid, signal.SIGKILL)
+
+    def kill_group(self, pid):
+        result = subprocess.run(['ps', '-p', str(pid), '-o', 'pid=,pgid=,stat=,cmd='],
+                                capture_output=True, text=True, check=False)
+        if result.returncode != 0 or not result.stdout.strip():
+            return
+        actual_pid, pgid, stat, command = result.stdout.strip().split(None, 3)
+        if stat.startswith('Z'):
+            return
+        self.assertEqual(int(actual_pid), pid)
+        self.assertEqual(int(pgid), pid)
+        self.assertIn('python', command)
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    def legacy_supervisor(self, **env):
+        """A 1.4.7 supervisor with one delivery in flight, then upgraded in place."""
+        runtime = self.home / 'peer-runtime.py'
+        for name in ('peer-runtime.py', 'swarm_control.py'):
+            shutil.copy(LEGACY / name, self.home / name)
+        legacy = subprocess.Popen([sys.executable, str(runtime), 'supervise'], env={**self.env, **env},
+                                  start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        self.processes.append(legacy)
+        delivery_pid = self.folder / 'legacy-delivery.pid'
+        self.eventually(lambda: (self.folder / 'job-wake.pid').exists() and delivery_pid.exists()
+                        and delivery_pid.read_text())
+        worker = int((self.folder / 'job-wake.pid').read_text())
+        delivery = int(delivery_pid.read_text())
+        for pid in (worker, delivery):
+            self.addCleanup(self.kill_member, pid, legacy.pid)
+            self.assertEqual(self.group(pid), legacy.pid)
+        self.assertEqual((self.folder / 'job-wake.supervisor.lock').read_text(), '')
+        # Upgrade in place: the gateway now loads the current script at that path.
+        runtime.write_text(RUNTIME.read_text().replace('import swarm_control as control',
+                           f'sys.path.insert(0, {str(RUNTIME.parent)!r})\nimport swarm_control as control'))
+        return legacy, worker, delivery, runtime
+
+
+class ShutdownTests(ShutdownHarness):
     def test_cli_first_supervisor_is_stopped_by_gateway_registry_shutdown(self):
         supervisor, worker = self.cli_supervisor()
         managed = self.gateway_supervisor()
@@ -133,24 +192,7 @@ class ShutdownTests(unittest.TestCase):
     def test_gateway_shutdown_stops_whole_tree_of_a_1_4_7_supervisor(self):
         # Verbatim 1.4.7 runtime: no instance token and no signal handlers. Its
         # worker and in-flight delivery share the supervisor's process group.
-        runtime = self.home / 'peer-runtime.py'
-        for name in ('peer-runtime.py', 'swarm_control.py'):
-            shutil.copy(LEGACY / name, self.home / name)
-        legacy = subprocess.Popen([sys.executable, str(runtime), 'supervise'], env=self.env,
-                                  start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        self.processes.append(legacy)
-        delivery_pid = self.folder / 'legacy-delivery.pid'
-        self.eventually(lambda: (self.folder / 'job-wake.pid').exists() and delivery_pid.exists()
-                        and delivery_pid.read_text())
-        worker = int((self.folder / 'job-wake.pid').read_text())
-        delivery = int(delivery_pid.read_text())
-        for pid in (worker, delivery):
-            self.addCleanup(self.kill_member, pid, legacy.pid)
-            self.assertEqual(self.group(pid), legacy.pid)
-        self.assertEqual((self.folder / 'job-wake.supervisor.lock').read_text(), '')
-        # Upgrade in place: the gateway now loads the current script at that path.
-        runtime.write_text(RUNTIME.read_text().replace('import swarm_control as control',
-                           f'sys.path.insert(0, {str(RUNTIME.parent)!r})\nimport swarm_control as control'))
+        legacy, worker, delivery, runtime = self.legacy_supervisor()
         managed = self.gateway_supervisor(runtime)
         self.stop(managed, signal.SIGTERM, limit=5)
         self.assertEqual(legacy.wait(timeout=1), -signal.SIGTERM, legacy.stderr.read().decode())
@@ -308,39 +350,6 @@ class ShutdownTests(unittest.TestCase):
         self.eventually(lambda: all(not self.live(int(record.with_suffix(suffix).read_text()))
                                    for suffix in ('.parent', '.leaf')))
         self.assertFalse((self.folder / 'job-wake.error').exists(), 'shutdown must not schedule a restart')
-
-    def group(self, pid):
-        result = subprocess.run(['ps', '-p', str(pid), '-o', 'pgid='], capture_output=True, text=True, check=True)
-        return int(result.stdout)
-
-    def kill_member(self, pid, pgid):
-        """Kill one fixture process, only after ps confirms its exact PID and group."""
-        result = subprocess.run(['ps', '-p', str(pid), '-o', 'pid=,pgid=,stat=,cmd='],
-                                capture_output=True, text=True, check=False)
-        if result.returncode != 0 or not result.stdout.strip():
-            return
-        actual_pid, actual_pgid, stat, command = result.stdout.strip().split(None, 3)
-        if stat.startswith('Z'):
-            return
-        self.assertEqual((int(actual_pid), int(actual_pgid)), (pid, pgid))
-        self.assertIn('python', command)
-        os.kill(pid, signal.SIGKILL)
-
-    def kill_group(self, pid):
-        result = subprocess.run(['ps', '-p', str(pid), '-o', 'pid=,pgid=,stat=,cmd='],
-                                capture_output=True, text=True, check=False)
-        if result.returncode != 0 or not result.stdout.strip():
-            return
-        actual_pid, pgid, stat, command = result.stdout.strip().split(None, 3)
-        if stat.startswith('Z'):
-            return
-        self.assertEqual(int(actual_pid), pid)
-        self.assertEqual(int(pgid), pid)
-        self.assertIn('python', command)
-        try:
-            os.killpg(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
 
     def test_signal_during_popen_cannot_strand_an_unregistered_worker(self):
         for sig in (signal.SIGTERM, signal.SIGINT):
