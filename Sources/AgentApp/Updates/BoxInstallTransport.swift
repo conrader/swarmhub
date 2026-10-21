@@ -46,13 +46,14 @@ extension AppStore {
         let saved = try defaults.data(forKey: key).map { try JSONDecoder().decode(StagedInstall.Floor.self, from: $0) } ?? .init()
         let package = try StagedInstall.prepare(box: box, saved: saved, profiles: profiles, now: ISO8601DateFormatter().string(from: now()))
         // The destination merges profiles.json with saved selections and rerenders them together. Filtering the
-        // incoming skills would still reapply a saved skill in backoff. Defer the whole request if any is backing off;
-        // retain every selection and the signed bundle's version decisions when the request can go through.
-        for profile in package.profiles {
-            guard let bot = boundBot(profile.name, manager: manager) else { continue }
-            for name in profile.skills where stagedSkillBackingOff(name, version: package.versions[name], bot: bot) {
-                guard let failure = bot.skillInstallFailures[name] else { continue }
-                errorMessage = "Signed skill install deferred: \(profile.name)/\(name) is backing off until \(failure.retryAt.formatted()). The requested skills install together."
+        // incoming skills would still reapply a saved skill in backoff, even in a profile omitted from this request.
+        // Defer while any skill on this connection backs off at this bundle's version. Retain every selection and
+        // the signed bundle's version decisions when the request can go through.
+        for bot in bots where bot.backend == .hermes && !bot.isReadOnlyArchive && connection(of: bot) == target {
+            for name in bot.skillInstallFailures.keys.sorted() {
+                guard let version = package.versions[name], stagedSkillBackingOff(name, version: version, bot: bot),
+                      let failure = bot.skillInstallFailures[name] else { continue }
+                errorMessage = "Signed skill install deferred: \(profile(of: bot))/\(name) is backing off until \(failure.retryAt.formatted()). Signed skill installs run together."
                 return nil
             }
         }

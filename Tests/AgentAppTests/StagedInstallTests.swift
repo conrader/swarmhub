@@ -342,10 +342,21 @@ private final class StagedClock { var date = Date(timeIntervalSince1970: 1_792_4
             #expect(eligible.skillInstallFailures[stagedFeedback.name] == nil, "no attempt was made for the eligible skill")
             #expect(store.defaults.data(forKey: "updates.transport.floor." + store.connection(of: bot)) == nil)
             #expect(store.errorMessage?.contains("default/swarmhub-manager") == true)
-            #expect(store.errorMessage?.contains("requested skills install together") == true)
+            #expect(store.errorMessage?.contains("Signed skill installs run together") == true)
         }
+        // The updater also rerenders saved selections omitted by this caller. Sending only the eligible subset
+        // must not bypass the same cooldown, including when an all-bots caller drops a fully backed-off profile.
+        let eligibleOnly: [StagedInstall.Profile] = [.init(name: separateProfile ? "eligible" : "default",
+                                                          coding_order: "codex", skills: [stagedFeedback.name])]
+        #expect(try store.stagedSkillInstructions(manager: bot, profiles: eligibleOnly) == nil)
+        #expect(store.boxInstallTransport.attempts.isEmpty && bot.skillInstallFailures[stagedManager.name] == failure)
         // Advance the injected clock to the exact boundary: the original selection and signed bytes can go through.
         clock.date = failure.retryAt
+        let unrelated = Bot(name: "Other connection", backend: .hermes, hermesProfile: "default")
+        unrelated.hermesBaseURL = "https://unrelated.example.invalid"
+        unrelated.skillInstallFailures[stagedManager.name] = SkillInstallFailure(version: failure.version, variant: nil,
+                                                                              count: 1, lastAt: clock.date, reason: "Unrelated refusal.")
+        store.bots.append(unrelated)
         #expect(try store.stagedSkillInstructions(manager: bot, profiles: profiles) != nil)
         let attempt = try #require(store.boxInstallTransport.attempts[bot.id])
         #expect(attempt.package.profiles.map(\.name) == profiles.map(\.name))
