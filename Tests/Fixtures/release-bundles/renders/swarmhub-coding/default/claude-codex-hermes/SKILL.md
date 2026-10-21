@@ -1,7 +1,7 @@
 ---
 name: swarmhub-coding
-description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v1.3.12."
-version: 1.3.12
+description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v1.3.13."
+version: 1.3.13
 author: SwarmHub
 metadata:
   swarmhub:
@@ -88,7 +88,7 @@ commands work: `>/dev/null`, `git status`, node child processes, Python asyncio/
 Without a usable user namespace (unshare refused, or unshare granted but mount denied as under Ubuntu's AppArmor
 `apparmor_restrict_unprivileged_userns`) the same commands work in the **limited mode**: the workspace is granted entry
 by entry (no new top-level entries), `kill`/`tkill`/`tgkill`/`rt_sigqueueinfo`/`rt_tgsigqueueinfo` are answered by
-the unconfined launcher and reach only the verifier's own process tree and groups (`verify_signals.py`; `kill -1`, the
+the unconfined launcher and reach only the verifier's own process tree and groups (`verify_signals.py`; a broadcast signal to PID -1, the
 launcher and every host process get EPERM; ptrace, process_vm_*, pidfd signalling and SIGIO owners are denied).
 Non-signal PID operations (limits, priority, scheduling, NUMA, robust-list reads and kcmp) are self-only;
 priority operations on groups/users are denied. pidfd_open is brokered for the own tree, process_madvise accepts self; inherited

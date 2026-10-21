@@ -98,8 +98,9 @@ import SwarmHubCore
     var managerTemplateOverride: String?
     /// P6b: bundle-configurable settings (`AppStore+Config.swift`); compiled values in tests, demo and preview stores.
     var appConfig = AppConfig.compiled
-    /// P27: tests' skill library instead of the bundled one; an Install waiting for its manager turn (per manager bot).
-    var skillLibraryOverride: [BundledSkill]?; var pendingSkillInstalls: [UUID: SkillInstallTurn] = [:]
+    /// P27: tests' skill library instead of the bundled one; an Install waiting for its manager turn (per manager bot); what
+    /// that turn asked for, checked when it ends (`AppStore+SkillInstallChecks.swift`).
+    var skillLibraryOverride: [BundledSkill]?; var pendingSkillInstalls: [UUID: SkillInstallTurn] = [:]; var pendingSkillChecks: [UUID: [SkillInstallCheck]] = [:]
     lazy var boxInstallTransport = BoxInstallTransport(configurationURL: fileURL.deletingLastPathComponent().appending(path: "Updates/box-transport.json"))
     /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()

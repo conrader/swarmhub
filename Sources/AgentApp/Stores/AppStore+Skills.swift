@@ -44,18 +44,18 @@ extension AppStore {
     /// The banner above a bot's composer: for its connection's manager, the first of its skills (its own
     /// `swarmhub-manager` first) that needs installing or updating; for any other bot (P31), an installed skill that
     /// needs updating, e.g. after its coding order changed (a missing one is offered in the editor only). Hidden while
-    /// "Not now" covers that version and variant.
+    /// "Not now" covers that version and variant. A skill whose failed install is backing off comes after the others, so
+    /// its error still shows when nothing else can be installed.
     func skillBanner(for bot: Bot) -> (skill: BundledSkill, state: SkillInstallState)? {
         let manages = isManager(bot)
         guard manages || manager(for: bot) != nil else { return nil }
         let ordered = skills(for: bot).sorted { ($0.name == SkillLibrary.managerSkill ? 0 : 1) < ($1.name == SkillLibrary.managerSkill ? 0 : 1) }
-        for skill in ordered {
+        let offered = ordered.compactMap { skill -> (skill: BundledSkill, state: SkillInstallState)? in
             let state = skillState(skill, for: bot)
-            guard state.needsAction, manages || state != .missing else { continue }
-            guard bot.skillBannerSnoozed != snoozeKey(skill, for: bot) else { continue }
+            guard state.needsAction, manages || state != .missing, bot.skillBannerSnoozed != snoozeKey(skill, for: bot) else { return nil }
             return (skill, state)
         }
-        return nil
+        return offered.first { !skillInstallBackingOff($0.skill, for: bot) } ?? offered.first
     }
 
     /// "Not now": hidden until a newer bundled version ships (or, P31, the skill's variant changes again).
@@ -77,21 +77,25 @@ extension AppStore {
 
     // MARK: Install
 
-    /// Install pressed (banner or editor): the bot's connection manager gets one management turn that writes every skill
-    /// meant for `bot`. False when there is no manager, nothing to install, or another turn is still running; a skill
-    /// whose content cannot travel in the heredoc also says so in `errorMessage`.
+    /// Install pressed (banner or editor): the bot's connection manager gets one management turn that writes the skills
+    /// meant for `bot` that need it (one whose installed version and variant match is skipped; one whose install failed
+    /// waits out its backoff). False when there is no manager, nothing to install, or another turn is still running; a
+    /// skill whose content cannot travel in the heredoc also says so in `errorMessage`.
     @discardableResult func installSkills(for bot: Bot) -> Bool {
         guard let manager = manager(for: bot), isIdle(manager) else { return false }
+        let wanted = skillsToInstall(for: bot)
+        guard !wanted.isEmpty else { return false }
         let profile = bot.hermesProfile ?? "default"
         let instructions: String
         do {
             if usesStagedSkills(on: connection(of: bot)) {
                 guard let text = try stagedSkillInstructions(manager: manager, profiles: [.init(name: profile,
-                    coding_order: codingOrder(for: bot).argument, skills: skills(for: bot).map(\.name))]) else { return false }
+                    coding_order: codingOrder(for: bot).argument, skills: wanted.map(\.name))]) else { return false }
                 instructions = text
             } else {
-                guard let text = try skillInstallInstructions(skills(for: bot), profile: profile, botName: bot.name, codingOrder: codingOrder(for: bot)) else { return false }
+                guard let text = try skillInstallInstructions(wanted, profile: profile, botName: bot.name, codingOrder: codingOrder(for: bot)) else { return false }
                 instructions = text
+                noteSkillInstallChecks([(bot, wanted)], manager: manager)
             }
         } catch {
             SwarmhubBlock.log.error("Skill install refused: \(error.localizedDescription, privacy: .public)")
@@ -101,7 +105,7 @@ extension AppStore {
         managementExchanges[manager.id] = nil
         open(manager); openThreadID = nil
         guard send(text: "Install SwarmHub’s instructions for \(bot.name).") else {
-            pendingSkillInstalls[manager.id] = nil; boxInstallTransport.attempts[manager.id] = nil; return false
+            pendingSkillInstalls[manager.id] = nil; pendingSkillChecks[manager.id] = nil; boxInstallTransport.attempts[manager.id] = nil; return false
         }
         return true
     }
@@ -191,7 +195,8 @@ extension AppStore {
 
     /// Opening the editor's SwarmHub skills section: when `GET /v1/skills` answers, its `swarmhub` category becomes the
     /// record (a version the description advertises, else the recorded one; a library skill not listed is missing).
-    /// A 500 (stock 0.22.0) or any other failure keeps the record silently.
+    /// A 500 (stock 0.22.0) or any other failure keeps the record silently. A box still advertising an older version than
+    /// the manager reported installing counts as a failed install of the bundled one.
     func refreshInstalledSkills(for bot: Bot) async {
         if usesStagedSkills(on: connection(of: bot)) { await refreshStagedSkills(for: bot); return }
         guard bot.backend == .hermes, !skills(for: bot).isEmpty, let backend = try? backend(for: bot) as? HermesBackend,
@@ -201,6 +206,10 @@ extension AppStore {
         for skill in skillLibrary {
             guard let row = ours.first(where: { $0.name == skill.name }) else { continue }
             let advertised = (row.version ?? SkillLibrary.advertisedVersion(in: row.description)).flatMap(SkillVersion.init)
+            if let box = advertised, box < skill.version, let claimed = bot.installedSkills[skill.name].flatMap(SkillVersion.init), box < claimed {
+                noteSkillInstallFailure(skill.name, version: skill.version.description, variant: SkillLibrary.variant(of: skill, codingOrder: codingOrder(for: bot)),
+                                        reason: "The manager reported v\(claimed) installed, but the box still has v\(box).", on: bot)
+            }
             record[skill.name] = advertised.map { min($0, skill.version).description } ?? bot.installedSkills[skill.name] ?? "0.0.0"
         }
         let variants = bot.installedSkillVariants.filter { record[$0.key] != nil }

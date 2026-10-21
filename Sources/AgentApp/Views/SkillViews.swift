@@ -4,16 +4,19 @@ import SwiftUI
 struct SkillInstallBanner: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
+    let skill: BundledSkill
     let state: SkillInstallState
 
     var body: some View {
+        let failure = store.skillInstallFailure(skill, for: bot)
         HStack(spacing: 10) {
-            Image(systemName: "square.and.arrow.down.on.square").foregroundStyle(.secondary)
-            Text(AppStore.skillBannerText(bot: bot.name, state: state)).font(.system(size: 12))
+            Image(systemName: failure == nil ? "square.and.arrow.down.on.square" : "exclamationmark.triangle")
+                .foregroundStyle(failure == nil ? Color.secondary : Color.orange)
+            Text(failure.map { store.skillFailureText($0, skill: skill) } ?? AppStore.skillBannerText(bot: bot.name, state: state)).font(.system(size: 12))
             Spacer()
             Button("Not now") { store.snoozeSkillBanner(for: bot) }
-            Button(state == .missing ? "Install" : "Update") { store.installSkills(for: bot) }
-                .buttonStyle(.borderedProminent).disabled(!store.managerIdle(for: bot))
+            Button(failure != nil ? "Retry" : state == .missing ? "Install" : "Update") { store.installSkills(for: bot) }
+                .buttonStyle(.borderedProminent).disabled(!store.managerIdle(for: bot) || store.skillInstallBackingOff(skill, for: bot))
         }
         .controlSize(.small).padding(.horizontal, 14).padding(.vertical, 9)
         .background(AppColor.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -56,7 +59,8 @@ struct SwarmHubSkillsPanelSection: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("SwarmHub skills").font(.headline)
                 if let banner = store.skillBanner(for: bot) {
-                    Text(AppStore.skillBannerText(bot: bot.name, state: banner.state)).font(.caption).foregroundStyle(.orange)
+                    Text(store.skillInstallFailure(banner.skill, for: bot).map { store.skillFailureText($0, skill: banner.skill) }
+                         ?? AppStore.skillBannerText(bot: bot.name, state: banner.state)).font(.caption).foregroundStyle(.orange)
                 }
                 SwarmHubSkillRows(bot: bot)
             }
@@ -77,12 +81,17 @@ struct SwarmHubSkillRows: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(skill.name).font(.system(size: 12, weight: .medium))
                     Text(SwarmHubSkillsSection.stateText(state, bundled: skill.version)).font(.caption).foregroundStyle(.secondary)
+                    if state.needsAction, let failure = store.skillInstallFailure(skill, for: bot) {
+                        Text(store.skillFailureText(failure, skill: skill)).font(.caption).foregroundStyle(.orange)
+                    }
                 }
                 Spacer()
                 if store.manager(for: bot) == nil {
                     Text("Needs a manager bot to install").font(.caption).foregroundStyle(.secondary)
                 } else if state.needsAction {
-                    Button(state == .missing ? "Install" : "Update") { store.installSkills(for: bot) }.disabled(!store.managerIdle(for: bot))
+                    let failed = store.skillInstallFailure(skill, for: bot) != nil
+                    Button(failed ? "Retry" : state == .missing ? "Install" : "Update") { store.installSkills(for: bot) }
+                        .disabled(!store.managerIdle(for: bot) || store.skillInstallBackingOff(skill, for: bot))
                 }
             }
         }

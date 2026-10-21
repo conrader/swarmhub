@@ -14,9 +14,9 @@ extension AppStore {
         static func == (a: SkillGap, b: SkillGap) -> Bool { a.bot.id == b.bot.id && a.skills.map(\.name) == b.skills.map(\.name) }
     }
 
-    /// The messaging skills `bot` lacks or has older than this build ships.
+    /// The messaging skills `bot` lacks or has older than this build ships (one whose install failed waits out its backoff).
     func missingMessagingSkills(for bot: Bot) -> [BundledSkill] {
-        skills(for: bot).filter { Self.messagingSkills.contains($0.name) && skillState($0, for: bot).needsAction }
+        skillsToInstall(for: bot, among: skills(for: bot).filter { Self.messagingSkills.contains($0.name) })
     }
 
     /// Every Hermes bot on `manager`'s connection (the manager too) that needs one of them, in sidebar order.
@@ -47,6 +47,7 @@ extension AppStore {
             } else {
                 guard let text = try allBotsSkillInstructions(gaps) else { return false }
                 instructions = text
+                noteSkillInstallChecks(gaps.map { ($0.bot, $0.skills) }, manager: manager)
             }
         } catch {
             errorMessage = error.localizedDescription; return false
@@ -55,7 +56,7 @@ extension AppStore {
         managementExchanges[manager.id] = nil
         open(manager); openThreadID = nil
         guard send(text: AllBotsSkillCopy.request(gaps.count)) else {
-            pendingSkillInstalls[manager.id] = nil; boxInstallTransport.attempts[manager.id] = nil; return false
+            pendingSkillInstalls[manager.id] = nil; pendingSkillChecks[manager.id] = nil; boxInstallTransport.attempts[manager.id] = nil; return false
         }
         return true
     }
