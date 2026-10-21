@@ -95,7 +95,8 @@ private func onBox(_ path: String, home: URL) -> URL { home.appending(path: Stri
     let sources = Dictionary(uniqueKeysWithValues: skills.map { ($0.name, AppStore.SkillSource(profile: "grok-jarvis", codingOrder: store.codingOrder(for: jarvis))) })
     let install = try #require(try store.skillInstallCommands(skills, profile: "grok-infra", codingOrder: store.codingOrder(for: others[0]), peerInline: false, sources: sources))
     let script = install.commands.joined(separator: "\n")
-    #expect(!script.contains("SWARMHUB_EOF") && !script.contains("peer-runtime.py"))
+    // No file written out, and no peer call inline (peer-runtime.py itself is one of the copied files).
+    #expect(!script.contains("SWARMHUB_EOF") && !script.contains("SWARMHUB_PEER_ENABLE") && !script.contains("peer-runtime.py start"))
     let run = try await shell(script, home: home)
     #expect(run.status == 0, "\(run.output)")
     for skill in skills {
