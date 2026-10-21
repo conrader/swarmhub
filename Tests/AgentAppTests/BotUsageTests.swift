@@ -108,6 +108,10 @@ import Vision
                          keyStore: InMemoryKeyStore(["hermes.fixture": "k"]), defaults: isolatedDefaults(), hermesSession: session)
     let bot = Bot(name: "Fixture", backend: .hermes, hermesProfile: "fixture")
     bot.hermesBaseURL = "https://\(host)/v1"; store.bots = [bot]; store.botInfo.autoLoad = true
+    // This is a layout assertion on loaded data. Shared GET admission can outlast the renderer's
+    // 300 ms settling pass, so await the fixture result instead of racing the status queue.
+    let usage = await store.loadUsage(for: bot)
+    #expect(usage.problem == nil && usage.totals(.week).totalTokens == 1_200)
     // Both appearances with SWARMHUB_RENDER_TESTS=1; a plain run renders the dark one (testspeed).
     for scheme in renderTests ? [ColorScheme.dark, .light] : [.dark] {
         let view = BotUsageView(bot: bot).environmentObject(store).padding(14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(AppColor.panel)

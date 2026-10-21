@@ -185,10 +185,10 @@ private final class Renders { var times: [Date] = [] }
     let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 200, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false; window.contentView = host; window.orderFrontRegardless()
     defer { window.close() }
-    try await waitUntil(timeout: .seconds(20)) { host.layoutSubtreeIfNeeded(); return !renders.times.isEmpty }
+    try await waitUntil { host.layoutSubtreeIfNeeded(); return !renders.times.isEmpty }
     let due = Date().addingTimeInterval(2)
     host.rootView = view([due])
-    try await waitUntil(timeout: .seconds(20)) { host.layoutSubtreeIfNeeded(); return renders.times.contains { $0 >= due } }
+    try await waitUntil { host.layoutSubtreeIfNeeded(); return renders.times.contains { $0 >= due } }
 }
 
 // MARK: Hermes hardline guard
