@@ -51,7 +51,14 @@ extension HermesBackend {
         // /v1/runs does not implement the native endpoint's confirmed Browser lock semantics.
         // Preserve that contract, multipart normalization, and install tool-argument events on the native transport.
         let json = try await jsonRequest(path: "api/sessions/\(Self.escapedPath(turn.sessionID))")
-        let row = json["session"] as? [String: Any] ?? [:]
+        guard let row = json["session"] as? [String: Any] else {
+            return try sendNativeSession(turn)
+        }
+        // Hermes 0.22 redacts model_config, exposing only its presence. Never assume
+        // an opaque configuration is unlocked: it may contain a confirmed Browser lock.
+        if row["has_model_config"] as? Bool == true, row["model_config"] == nil {
+            return try sendNativeSession(turn)
+        }
         let config: [String: Any]
         if let value = row["model_config"] as? [String: Any] { config = value }
         else if let text = row["model_config"] as? String, let data = text.data(using: .utf8) {

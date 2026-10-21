@@ -48,7 +48,10 @@ Compatibility limits: confirmed Browser model locks still use native chat,
 because `/v1/runs` does not pass `confirmed_runtime_lock` to `_create_agent`
 (the native endpoint enforces routing and disables fallback). Image turns and
 text over Hermes's per-part limit retain native content normalization.
-Management turns retain native tool argument correlation. These native and
+Hermes 0.22 also redacts model_config in its session response, returning only
+has_model_config. A session with opaque configuration retains native transport
+because the client cannot safely rule out a confirmed lock. Management turns
+retain native tool argument correlation. These native and
 legacy turns retain the existing interrupted-turn reconciliation/manual retry;
 automatically replaying a non-idempotent POST could repeat tool side effects.
 No unsupported recovery promise is inferred from the server version.

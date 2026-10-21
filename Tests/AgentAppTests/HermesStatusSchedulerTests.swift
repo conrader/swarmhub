@@ -150,9 +150,21 @@ private func statusRequest(_ path: String = "health", host: String = "status.tes
     var backend = HermesBackend(baseURL: URL(string: "https://\(host)/v1")!, apiKey: "fixture-key", session: session)
     backend.statusScheduler = HermesStatusScheduler(timing: .init(tick: .milliseconds(1), spacing: 0, debounce: 0, firstBackoff: 0, jitter: { 0 }))
     var previous = BotServerInfo()
-    if cached { previous.skills = .loaded([]); previous.toolsets = .loaded([]) }
+    if cached { previous.skills = .loaded([]); previous.toolsets = .loaded([]); previous.scope = BotInfoCache.scope(of: backend) }
     let info = await BotInfoCache.fetch(sessionID: nil, using: backend, previous: previous)
     #expect(!info.lastLoadFailed && !info.failedAnything)
     if cached { #expect(info.skills == previous.skills && info.toolsets == previous.toolsets) }
     else { #expect(info.skills == .unavailable(HermesStatusDeferred().localizedDescription)) }
+}
+
+@Test func deferredOverviewNeverPreservesAnotherProfilesSnapshot() async throws {
+    let (host, session) = MockHermesProtocol.serve { _ in (503, ["error": "busy"]) }
+    defer { session.invalidateAndCancel() }
+    var backend = HermesBackend(baseURL: URL(string: "https://\(host)/v1")!, apiKey: "fixture-key", session: session)
+    backend.statusScheduler = HermesStatusScheduler(timing: .init(tick: .milliseconds(1), spacing: 0, debounce: 0, firstBackoff: 0, jitter: { 0 }))
+    var previous = BotServerInfo()
+    previous.scope = "another-profile"
+    previous.skills = .loaded([.init(name: "private", description: "other profile", category: nil)])
+    let info = await BotInfoCache.fetch(sessionID: nil, using: backend, previous: previous)
+    #expect(info.skills.value == nil && !info.failedAnything)
 }

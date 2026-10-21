@@ -161,6 +161,7 @@ struct BotServerInfo: Equatable, Sendable {
     }
 
     nonisolated static func fetch(sessionID: String?, using backend: HermesBackend, previous: BotServerInfo = .init(), includeSkills: Bool = true) async -> BotServerInfo {
+        let previous = previous.scope == nil || previous.scope == Self.scope(of: backend) ? previous : BotServerInfo()
         var info = previous
         info.isRefreshing = false; info.lastLoadFailed = false
         async let reading = backend.hermesVersion()

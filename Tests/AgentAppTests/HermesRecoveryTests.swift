@@ -215,11 +215,12 @@ private func completed(_ events: [AgentEvent]) -> Bool { events.contains { if ca
     #expect(state.requests.all.filter { $0.url!.path.hasSuffix("/events") }.count == 1)
 }
 
-@Test(arguments: ["lock", "image", "management", "longText", "noIdempotency"]) func nativeContractsNeverSilentlySwitchToRuns(mode: String) async throws {
+@Test(arguments: ["lock", "opaqueConfig", "image", "management", "longText", "noIdempotency"]) func nativeContractsNeverSilentlySwitchToRuns(mode: String) async throws {
     let (backend, state) = RecoveryServer.serve { request in
         var features = runFeatures
         if mode == "noIdempotency" { features["runs_idempotency"] = ["supported": true, "durable": false] }
-        if let reply = route(request, features: features, session: mode == "lock" ? ["model_config": ["browser_model_lock": ["confirmed": true]]] : [:]) { return reply }
+        let config: [String: Any] = mode == "opaqueConfig" ? ["has_model_config": true] : mode == "lock" ? ["model_config": ["browser_model_lock": ["confirmed": true]]] : [:]
+        if let reply = route(request, features: features, session: config) { return reply }
         return .init(data: Data("event: assistant.completed\ndata: {\"content\":\"native\"}\n\n".utf8))
     }
     defer { backend.session.invalidateAndCancel() }
