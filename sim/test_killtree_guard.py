@@ -125,12 +125,25 @@ class CodeJobKillTreeTests(unittest.TestCase):
         self.assertNotIn("${READ_OUTPUT:-$1}", CODE_JOB.read_text())
 
     def test_delayed_kill_refuses_reused_pid_and_changed_boundaries(self):
-        for change in ('$8="12:00:01"', '$2=1600000001', '$3=701', '$4=801'):
+        for change in ('$8="12:00:01"', '$2=1600000001', '$3=701'):
             with self.subTest(change=change):
                 proc, kills = run_shell(self.after_term('{ if ($1 == 1500000003) { %s }; print }' % change))
                 self.assertIn("done=0", proc.stdout, proc.stderr)
                 self.assertIn("1500000003", kills.splitlines()[0])
                 self.assertEqual(set(kills.splitlines()[1].split()[2:]), {"1500000001", "1500000002"}, kills)
+
+    def test_delayed_kill_checks_sessions_only_on_linux(self):
+        # Exercise both behaviours on every host: BSD sess is not a session ID.
+        for platform in ("Linux", "Darwin", "FreeBSD", "OpenBSD", "NetBSD", "DragonFly"):
+            with self.subTest(platform=platform):
+                proc, kills = run_shell('uname() { echo %s; }\n' % platform + self.after_term(
+                    '{ if ($1 == 1500000003) $4=801; print }'))
+                self.assertIn("done=0", proc.stdout, proc.stderr)
+                self.assertIn("1500000003", kills.splitlines()[0])
+                expected = {"1500000001", "1500000002"}
+                if platform != "Linux":
+                    expected.add("1500000003")
+                self.assertEqual(set(kills.splitlines()[1].split()[2:]), expected, kills)
 
     def test_missing_or_incomplete_identity_never_uses_cached_pids(self):
         for listing in ('{ if ($1 != 1500000003) print }', '{ print $1, $2 }', 'BEGIN { exit }'):
@@ -262,11 +275,19 @@ class SwarmStoreTerminateTests(unittest.TestCase):
         for changed in ("5002 5001 700 800 Wed Oct 21 12:00:01 2026",
                         "5002 6001 700 800 Wed Oct 21 12:00:00 2026",
                         "5002 5001 701 800 Wed Oct 21 12:00:00 2026",
-                        "5002 5001 700 801 Wed Oct 21 12:00:00 2026", ""):
+                        ""):
             with self.subTest(changed=changed):
                 calls = self.run_terminate(5001, after=self.LISTING.replace(original, changed))
                 self.assertIn(mock.call(5002, signal.SIGTERM), calls)
                 self.assertNotIn(mock.call(5002, signal.SIGKILL), calls)
+
+    def test_delayed_kill_checks_sessions_only_on_linux(self):
+        after = self.LISTING.replace("5002 5001 700 800", "5002 5001 700 801")
+        for platform in ("linux", "darwin", "freebsd14", "openbsd7", "netbsd10"):
+            with self.subTest(platform=platform), mock.patch.object(swarm_store.sys, "platform", platform):
+                calls = self.run_terminate(5001, after=after)
+                self.assertIn(mock.call(5002, signal.SIGTERM), calls)
+                self.assertEqual(mock.call(5002, signal.SIGKILL) in calls, platform != "linux")
 
     def test_same_orphan_is_still_killed(self):
         calls = self.run_terminate(5001, after=self.LISTING.replace("5002 5001", "5002 1"))
