@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import signal
 import subprocess
 import sys
@@ -211,10 +212,11 @@ def stop_legacy_supervisor(lock, folder, runtime):
     """Linux upgrade path for an already-running supervisor without a token.
 
     Pin the process with pidfd BEFORE checking its identity. Even if it exits and
-    its PID is reused during these checks, the signal can reach only the pinned
-    instance. Require our exact script/operation, HOME, uid, private group and
-    kernel proof that this process holds this particular flock. Other platforms
-    use only the cooperative protocol; never fall back to kill(pid).
+    its PID is reused during these checks, a signal can reach only the pinned
+    instance or the group it still leads. Require our exact script/operation,
+    HOME, uid, private group and kernel proof that this process holds this
+    particular flock. Other platforms use only the cooperative protocol; never
+    fall back to kill(pid).
     """
     if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
         return False
@@ -247,13 +249,71 @@ def stop_legacy_supervisor(lock, folder, runtime):
                 continue
             major, minor, number = row[5].split(":")
             if (int(major, 16), int(minor, 16), int(number)) == inode:
-                signal.pidfd_send_signal(fd, signal.SIGTERM)
+                stop_legacy_group(fd, pid)
                 return True
     except (OSError, ValueError, subprocess.SubprocessError):
         pass
     finally:
         os.close(fd)
     return False
+
+
+def exited(fd):
+    return bool(select.select([fd], [], [], 0)[0])
+
+
+def group_members(pgid, leader):
+    """Live processes in this group other than its leader; zombies do no work."""
+    members = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == leader:
+            continue
+        try:
+            fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+        except (OSError, IndexError):
+            continue  # Exited while we listed /proc.
+        if fields[0] != "Z" and int(fields[2]) == pgid:
+            members.append(int(entry.name))
+    return members
+
+
+def stop_legacy_group(fd, pid):
+    """Stop a verified pre-token supervisor together with its worker and deliveries.
+
+    1.4.7 installs no handlers, so TERM kills only the supervisor. Its worker
+    (subprocess.call) and their deliveries share the supervisor's private group
+    and would keep running after the lock is released. Freeze the pinned leader
+    first: a stopped process cannot exit by itself, and while it exists its
+    number cannot be reused, so killpg(pid) reaches exactly its own tree. A
+    group signal also reaches a child that is being forked at that moment.
+    """
+    if pid <= 1:
+        return
+    signal.pidfd_send_signal(fd, signal.SIGSTOP)
+    try:
+        deadline = time.monotonic() + REAP_GRACE
+        while not exited(fd):
+            if (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()[0] == "T":
+                break
+            if time.monotonic() >= deadline:
+                return  # Not frozen: never signal its group by number.
+            time.sleep(.01)
+        for sig, grace in ((signal.SIGTERM, STOP_GRACE), (signal.SIGKILL, REAP_GRACE)):
+            if exited(fd):
+                return  # Pinned leader gone: its number no longer names this group.
+            os.killpg(pid, sig)
+            deadline = time.monotonic() + grace
+            while group_members(pid, pid) and time.monotonic() < deadline:
+                time.sleep(.02)
+            if not group_members(pid, pid):
+                return
+    finally:
+        # The leader holds TERM pending while stopped; it exits once continued.
+        for sig in (signal.SIGTERM, signal.SIGCONT):
+            try:
+                signal.pidfd_send_signal(fd, sig)
+            except ProcessLookupError:
+                pass
 
 
 def stop_supervisor_holder(lock, folder, runtime, note):
