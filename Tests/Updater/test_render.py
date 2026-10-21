@@ -123,7 +123,7 @@ class GoldenTests(unittest.TestCase):
         skills, manager = load_resources()
         mgr = next(s for s in skills if s.name == render.MANAGER_SKILL)
         self.assertEqual([f.path for f in mgr.files], ["references/%s.md" % r for r in
-                                                       ("accounts", "box", "capacity", "models")])
+                         ("accounts", "box", "capacity", "models")] + ["scripts/default-connectors.py"])
         for profile in PROFILES:
             text = render.render_skill(mgr, profile, manager)
             core = render.filled(manager, profile).strip(render.SWIFT_WHITESPACES_AND_NEWLINES)
