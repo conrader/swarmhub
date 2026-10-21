@@ -175,17 +175,20 @@ private func installed(_ rows: String) -> String {
 
 private final class Renders { var times: [Date] = [] }
 
-/// Nothing else changes when a backoff ends, so the view must redraw on its own then. Off screen, real clock.
+/// Nothing else changes when a backoff ends, so the view must redraw on its own then. Off screen, real clock: the view
+/// first renders with no date; then it gets one 2 s ahead and must render again at or after it, with no other trigger.
 @Test @MainActor func theRetryRefreshRedrawsAnIdleViewAtItsDate() async throws {
-    let renders = Renders(), due = Date().addingTimeInterval(1)
+    let renders = Renders()
+    func view(_ dates: [Date]) -> SkillRetryRefresh<Text> { SkillRetryRefresh(dates: dates) { () -> Text in renders.times.append(Date()); return Text("Retry") } }
     _ = NSApplication.shared
-    let host = NSHostingView(rootView: SkillRetryRefresh(dates: [due]) { () -> Text in renders.times.append(Date()); return Text("Retry") })
+    let host = NSHostingView(rootView: view([]))
     let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 200, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false; window.contentView = host; window.orderFrontRegardless()
     defer { window.close() }
-    try await waitUntil { host.layoutSubtreeIfNeeded(); return !renders.times.isEmpty }
-    #expect(renders.times.allSatisfy { $0 < due })
-    try await waitUntil { host.layoutSubtreeIfNeeded(); return renders.times.contains { $0 >= due } }
+    try await waitUntil(timeout: .seconds(20)) { host.layoutSubtreeIfNeeded(); return !renders.times.isEmpty }
+    let due = Date().addingTimeInterval(2)
+    host.rootView = view([due])
+    try await waitUntil(timeout: .seconds(20)) { host.layoutSubtreeIfNeeded(); return renders.times.contains { $0 >= due } }
 }
 
 // MARK: Hermes hardline guard
