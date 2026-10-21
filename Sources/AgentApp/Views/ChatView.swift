@@ -4,6 +4,7 @@ struct ChatView: View {
     @EnvironmentObject private var store: AppStore; @ObservedObject var bot: Bot; @State private var draft = ""
     @StateObject private var intake = AttachmentIntake(); @StateObject private var dictation = VoiceDictation()
     @State private var showProjectContext = false; @State private var viewport = ChatViewport()
+    @State private var selection = MessageSelection()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
     var body: some View {
         let thread = store.openThread(in: bot), coding = store.codingThreadChoice(for: bot)
@@ -11,12 +12,19 @@ struct ChatView: View {
         // P51: technical rows read as one folded line; an app request's result row is part of its line.
         let all = bot.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }, layout = store.technicalLayout(all, botName: bot.name)
         let shown = layout.visible(all), conversationID = thread?.id ?? bot.id
-        let threadShown = thread.map { thread in
-            let rows = thread.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }
-            return store.technicalLayout(rows, botName: bot.name).visible(rows)
-        }
-        let order = threadShown.map { store.arrivalsAboveThread(in: bot).map(\.id) + $0.map(\.id) } ?? shown.map(\.id)
+        let threadRows = thread.map { $0.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat } }
+        let threadLayout = threadRows.map { store.technicalLayout($0, botName: bot.name) }
+        let threadShown = threadRows.map { threadLayout?.visible($0) ?? $0 }
+        let arrivals = thread == nil ? [] : store.arrivalsAboveThread(in: bot)
+        let parent = thread.flatMap { thread in bot.messages.first { $0.id == thread.parentMessageID } }
+        let order = threadShown.map { arrivals.map(\.id) + $0.map(\.id) } ?? shown.map(\.id)
         let _ = viewport.show(conversationID, order: order)
+        let appStore = store, botName = bot.name
+        let pickable: [ChatMessage] = threadShown.map { rows in arrivals + [parent].compactMap { $0 } + rows } ?? shown
+        // Arrivals use the main layout, replies use the thread layout, and the parent is displayed on its own.
+        let copyFolds = layout.folds.merging(threadLayout?.folds ?? [:]) { _, reply in reply }
+            .merging(store.technicalLayout([parent].compactMap { $0 }, botName: botName).folds) { _, parent in parent }
+        let _ = selection.show(rows: pickable) { appStore.copiedMessage($0, botName: botName, fold: copyFolds[$0.id]) }
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
@@ -43,8 +51,8 @@ struct ChatView: View {
                         Color.clear.frame(height: 20)
                         if let thread {
                             // P41: an arrival shows here too, whatever thread is open.
-                            ForEach(store.arrivalsAboveThread(in: bot)) { MessageView(message: $0, fold: layout.folds[$0.id]).id($0.id).chatRow($0.id, in: viewport) }
-                            ThreadTranscript(thread: thread, parent: bot.messages.first { $0.id == thread.parentMessageID }, botID: bot.id, botName: bot.name, viewport: viewport) { count in
+                            ForEach(arrivals) { MessageView(message: $0, fold: layout.folds[$0.id]).id($0.id).chatRow($0.id, in: viewport).selectableMessage($0.id, in: selection) }
+                            ThreadTranscript(thread: thread, parent: parent, botID: bot.id, botName: bot.name, viewport: viewport, selection: selection) { count in
                                 if count > 0 { viewport.arrived(count, proxy: proxy) } else { viewport.grew(proxy: proxy) }
                             }
                         } else {
@@ -56,15 +64,18 @@ struct ChatView: View {
                                             actionTarget: .bot(botID: bot.id, threadID: nil), fold: layout.folds[message.id], partner: layout.folds[message.id]?.partnerID.flatMap { id in all.first { $0.id == id } },
                                             reply: { store.replyTo = message }, openThread: { store.replyInThread(to: message, in: bot) },
                                             codeInThread: { store.codeInThread(to: message, in: bot) }).id(message.id).chatRow(message.id, in: viewport)
+                                    .selectableMessage(message.id, in: selection)
                             }
                         }
                         TeamWorkView(conversationID: thread?.id ?? bot.id)
                         ForEach(store.approvals.filter { $0.botID == bot.id && !($0.sessionID?.hasPrefix("group-") ?? false) }) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
                         ChatBottomMarker(viewport: viewport, conversationID: conversationID)
-                    }.frame(maxWidth: 720).frame(maxWidth: .infinity)
+                    }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection)
                     // P38 B: an app connection card grants access to the bot of this chat only.
                     .environment(\.connectAppBotID, bot.id)
                 }.id(conversationID).background(AppColor.chat)
+                // ⌘/⇧-click picks rows, ⌘C copies them; another conversation starts with none picked.
+                .messageSelection(selection).onChange(of: conversationID) { _, _ in selection.clear() }
                 // P50: opens where it was left; new rows and streaming text follow only at the bottom.
                 .overlay(alignment: .bottom) { JumpToLatestButton(scroll: store.chatScroll, conversationID: conversationID, proxy: proxy) }
                 .task(id: conversationID) { await viewport.open(conversationID, model: store.chatScroll, proxy: proxy) }
@@ -141,17 +152,19 @@ struct ChatView: View {
 private struct ThreadTranscript: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var thread: ChatThread; let parent: ChatMessage?; var botID: UUID? = nil; var botName = ""; let viewport: ChatViewport
+    let selection: MessageSelection
     /// Rows that arrived (0: the newest row's text grew).
     let changed: (Int) -> Void
     var body: some View {
         let rows = thread.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }, layout = store.technicalLayout(rows, botName: botName)
-        if let parent { MessageView(message: parent, fold: store.technicalLayout([parent], botName: botName).folds[parent.id]).opacity(0.85) }
+        if let parent { MessageView(message: parent, fold: store.technicalLayout([parent], botName: botName).folds[parent.id]).opacity(0.85).selectableMessage(parent.id, in: selection) }
         HStack { Rectangle().fill(AppColor.separator).frame(height: 0.5); Text(thread.replyCount == 1 ? "1 reply" : "\(thread.replyCount) replies").font(.caption).foregroundStyle(.secondary).fixedSize(); Rectangle().fill(AppColor.separator).frame(height: 0.5) }
             .padding(.horizontal, 28).padding(.vertical, 6)
         ForEach(layout.visible(rows)) { message in
             MessageView(message: message, repliedMessage: message.replyToID.flatMap { id in thread.messages.first { $0.id == id } },
                         actionTarget: botID.map { .bot(botID: $0, threadID: thread.id) }, fold: layout.folds[message.id],
                         partner: layout.folds[message.id]?.partnerID.flatMap { id in rows.first { $0.id == id } }, reply: { store.replyTo = message }).id(message.id).chatRow(message.id, in: viewport)
+                .selectableMessage(message.id, in: selection)
         }
         Color.clear.frame(height: 0)
             .onChange(of: thread.messages.last?.content) { _, _ in changed(0) }
