@@ -114,9 +114,22 @@ struct SwarmHubSkillRows: View {
 }
 
 /// Redraws `content` when a failed install's backoff ends (`dates`), so an idle view offers Retry again on time: the
-/// backoff is read from the clock while rendering, and nothing else changes at that moment.
+/// backoff is read from the clock while rendering, and nothing else changes at that moment. A task sleeps until each
+/// date and then bumps `tick`, which the body reads.
 struct SkillRetryRefresh<Content: View>: View {
     let dates: [Date]
     @ViewBuilder let content: () -> Content
-    var body: some View { TimelineView(.explicit(dates)) { _ in content() } }
+    @State private var tick = 0
+
+    var body: some View {
+        let _ = tick
+        content().task(id: dates) {
+            for date in dates {
+                let wait = date.timeIntervalSinceNow
+                if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+                guard !Task.isCancelled else { return }
+                tick &+= 1
+            }
+        }
+    }
 }
