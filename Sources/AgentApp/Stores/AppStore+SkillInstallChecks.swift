@@ -98,8 +98,8 @@ extension AppStore {
             }
             // PM admission is separate from writing the messaging skill/plugin. A blocked enable never backs off
             // skill installation, including older servers whose reply omitted the skills_installed block.
-            let enableIssue = (peer?.profile == check.profile && peer?.verified == false) || reportedPeerBlock
-            if enableIssue && (check.skill == "swarmhub-messages" || reported[check.profile] == nil) { continue }
+            let enableIssue = (peer?.profile == check.profile && peer?.verified == false) || (!bot.skillDevMode && reportedPeerBlock)
+            if outcome == nil && enableIssue && (check.skill == "swarmhub-messages" || reported[check.profile] == nil) { continue }
             noteSkillInstallFailure(check.skill, version: check.version.description, variant: check.variant, reason: reason, on: bot)
             failed.append("\(check.skill) for \(bot.name)")
             failedBots.insert(bot.id)
@@ -111,7 +111,7 @@ extension AppStore {
                 result = .init(status: .failed, detail: "Skills not fully installed: \(reason)")
             } else if checks.contains(where: { $0.botID == id && $0.skill == "swarmhub-messages" }) {
                 if let peer, peer.profile == profile(of: bot) { result = peer.result }
-                else if reportedPeerBlock { result = .init(status: .peerEnableBlocked, detail: PeerPluginEnablement.blockedDetail) }
+                else if !bot.skillDevMode && reportedPeerBlock { result = .init(status: .peerEnableBlocked, detail: PeerPluginEnablement.blockedDetail) }
                 else { result = .init(status: .peerEnableUnverified, detail: "Skills installed; peer-plugin enablement unverified. Held delivery is not confirmed; verify with hermes -p \(profile(of: bot)) plugins list before requesting a gateway reload.") }
             } else { result = .init(status: .installed, detail: "Skills installed.") }
             recordSkillInstallResult(result, bot: bot, manager: manager)

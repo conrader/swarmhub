@@ -102,3 +102,112 @@ import Testing
     call.consume(.init(phase: .completed, name: "terminal", callID: "other", result: stdout), profiles: ["grok-jarvis"])
     #expect(call.receipt == nil)
 }
+
+@Test(arguments: ["standalone", "guarded", "guardedWithDefinition", "reset"])
+@MainActor func peerEnableReceiptsVerifyStandaloneAndWrappedInstalls(mode: String) throws {
+    let receipts: [PeerPluginEnablement.Receipt] = [
+        .init(profile: "grok-jarvis", enable_exit: 0, list_exit: 0, enable_output: "", list_output: "swarmhub-peer enabled"),
+        .init(profile: "grok-jarvis", enable_exit: 1, list_exit: 0, enable_output: "PermissionError: permission denied", list_output: "swarmhub-peer disabled"),
+        .init(profile: "grok-jarvis", enable_exit: 1, list_exit: 1, enable_output: "Hermes PM dependency-sync failed", list_output: ""),
+        .init(profile: "grok-jarvis", enable_exit: 1, list_exit: 0, enable_output: "enable failed", list_output: "swarmhub-peer enabled"),
+        .init(profile: "grok-jarvis", enable_exit: 0, list_exit: 1, enable_output: "", list_output: "swarmhub-peer enabled")
+    ]
+    for (index, receipt) in receipts.enumerated() {
+        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in MockBackend() },
+                             keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let bot = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis"); bot.canManageBots = true
+        bot.skillDevMode = mode != "standalone"; store.bots = [bot]
+        let skill = try #require(store.skills(for: bot).first { $0.name == "swarmhub-messages" })
+        let install = try #require(try store.skillInstallCommands([skill], profile: "grok-jarvis", devMode: bot.skillDevMode,
+                                                                 reset: mode == "reset" ? [skill.name] : []))
+        let peer = PeerPluginEnablement.command(profile: "grok-jarvis")
+        let command: String
+        if mode == "standalone" {
+            #expect(install.commands.contains(peer)); command = peer
+        } else {
+            command = (mode == "guardedWithDefinition" ? install.commands : Array(install.commands.dropFirst())).joined(separator: "\n")
+            #expect(command.utf8.count > 32_768, "the real bundled files exceed the old command limit")
+        }
+        store.noteSkillInstallChecks([(bot, [skill])], manager: bot)
+        let hermes = HermesBackend(baseURL: URL(string: "http://127.0.0.1")!, apiKey: "")
+        let args: Any = index.isMultiple(of: 2) ? ["command": command] :
+            String(decoding: try JSONSerialization.data(withJSONObject: ["cmd": command]), as: UTF8.self)
+        let started = hermes.nativeTool("tool.started", ["tool_name": "terminal", "tool_call_id": "enable", "args": args])
+        #expect(started.command == command)
+        store.notePeerEnableTool(started, manager: bot)
+        let data: [String: Any] = ["profile": receipt.profile, "enable_exit": receipt.enable_exit, "list_exit": receipt.list_exit,
+                                   "enable_output": receipt.enable_output, "list_output": receipt.list_output]
+        let stdout = PeerPluginEnablement.marker + String(decoding: try JSONSerialization.data(withJSONObject: data), as: UTF8.self)
+        // Both completed terminal calls and failed tool events must preserve their structured receipt.
+        let event = index.isMultiple(of: 2) ? "tool.completed" : "tool.failed"
+        let completed = hermes.nativeTool(event, ["tool_name": "terminal", "tool_call_id": "enable",
+                                                  "result": ["exit_code": event == "tool.failed" ? 1 : 0, "output": stdout]])
+        store.notePeerEnableTool(completed, manager: bot)
+        #expect(store.peerEnableCalls[bot.id]?.receipt == receipt)
+        // The reply never describes PM blocking, and even claims success when the receipt reports failure.
+        let reply = ChatMessage(role: .assistant, content: "Peer plugin enabled.\n```swarmhub\n\(install.op)\n```")
+        store.finishSkillInstallChecks(manager: bot, reply: reply, end: .completed)
+        let result = try #require(store.skillInstallResults[bot.id])
+        if index == 0 { #expect(result.status == .installed) }
+        else if index == 1 || index == 2 { #expect(result.status == .peerEnableBlocked) }
+        else { #expect(result.status == .peerEnableUnverified) }
+        #expect(bot.installedSkills[skill.name] == skill.version.description && bot.skillInstallFailures.isEmpty)
+    }
+}
+
+@Test(arguments: ["KEPT", "FAILED", "FAILED_WITH_RECEIPT"]) @MainActor func aWrappedPeerGuardOutcomeStillOverridesInstalledRows(outcome: String) throws {
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in MockBackend() },
+                         keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis"); bot.canManageBots = true
+    bot.skillDevMode = true; store.bots = [bot]
+    let skill = try #require(store.skills(for: bot).first { $0.name == "swarmhub-messages" })
+    let install = try #require(try store.skillInstallCommands([skill], profile: "grok-jarvis", devMode: true))
+    store.noteSkillInstallChecks([(bot, [skill])], manager: bot)
+    let hermes = HermesBackend(baseURL: URL(string: "http://127.0.0.1")!, apiKey: "")
+    let command = install.commands.dropFirst().joined(separator: "\n")
+    store.notePeerEnableTool(hermes.nativeTool("tool.started", ["tool_name": "terminal", "tool_call_id": "enable", "args": ["command": command]]), manager: bot)
+    let receipt = outcome == "FAILED_WITH_RECEIPT" ? PeerPluginEnablement.marker +
+        #"{"profile":"grok-jarvis","enable_exit":1,"list_exit":0,"enable_output":"PermissionError","list_output":"swarmhub-peer disabled"}"# + "\n" : ""
+    let marker = outcome == "KEPT" ? "KEPT" : "FAILED"
+    let completed = hermes.nativeTool("tool.completed", ["tool_name": "terminal", "tool_call_id": "enable",
+        "result": ["exit_code": 0, "output": receipt + "SWARMHUB_DEV_\(marker):grok-jarvis/swarmhub-messages\n"]])
+    store.notePeerEnableTool(completed, manager: bot); store.noteSkillDevTool(completed, manager: bot)
+    #expect((store.peerEnableCalls[bot.id]?.receipt != nil) == (outcome == "FAILED_WITH_RECEIPT"))
+    store.finishSkillInstallChecks(manager: bot, reply: ChatMessage(role: .assistant, content: "Peer plugin blocked by filesystem permissions.\n```swarmhub\n\(install.op)\n```"), end: .completed)
+    #expect(bot.installedSkills[skill.name] == nil)
+    if outcome == "KEPT" {
+        #expect(bot.skillsModifiedLocally == [skill.name] && bot.skillInstallFailures.isEmpty)
+    } else {
+        #expect(bot.skillInstallFailures[skill.name] != nil && store.skillInstallResults[bot.id]?.status == .failed)
+    }
+}
+
+@Test @MainActor func devModeDoesNotInferPeerBlockingFromTheReply() throws {
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in MockBackend() },
+                         keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis"); bot.canManageBots = true
+    bot.skillDevMode = true; store.bots = [bot]
+    let skill = try #require(store.skills(for: bot).first { $0.name == "swarmhub-messages" })
+    let install = try #require(try store.skillInstallCommands([skill], profile: "grok-jarvis", devMode: true))
+    store.noteSkillInstallChecks([(bot, [skill])], manager: bot)
+    store.finishSkillInstallChecks(manager: bot, reply: ChatMessage(role: .assistant,
+        content: "Peer plugin blocked by filesystem permissions.\n```swarmhub\n\(install.op)\n```"), end: .completed)
+    #expect(store.skillInstallResults[bot.id]?.status == .peerEnableUnverified)
+    #expect(bot.installedSkills[skill.name] == skill.version.description && bot.skillInstallFailures.isEmpty)
+}
+
+@Test func aWrappedPeerReceiptStillRequiresTheMatchingCommandProfileAndCallID() throws {
+    let peer = PeerPluginEnablement.command(profile: "infra")
+    let command = SkillDevMode.wrap([peer], skill: "swarmhub-messages", profile: "infra", files: [], devMode: true, reset: false).joined(separator: "\n")
+    #expect(PeerPluginEnablement.matchesCommand(command, profile: "infra"))
+    #expect(!PeerPluginEnablement.matchesCommand(command, profile: "other"))
+    #expect(!PeerPluginEnablement.matchesCommand("cat <<'COPY'\n" + peer + "\nCOPY", profile: "infra"))
+    #expect(!PeerPluginEnablement.matchesCommand(command.replacingOccurrences(of: "'plugins', 'enable'", with: "'plugins', 'disable'"), profile: "infra"))
+    var call = PeerPluginEnablement.Call()
+    call.consume(.init(phase: .started, name: "terminal", callID: "enable", command: command), profiles: ["infra"])
+    let stdout = PeerPluginEnablement.marker + #"{"profile":"infra","enable_exit":0,"list_exit":0,"enable_output":"","list_output":"swarmhub-peer enabled"}"#
+    call.consume(.init(phase: .completed, name: "terminal", callID: "other", result: stdout), profiles: ["infra"])
+    #expect(call.receipt == nil)
+    call.consume(.init(phase: .completed, name: "terminal", callID: "enable", result: stdout.replacingOccurrences(of: "infra", with: "other")), profiles: ["infra"])
+    #expect(call.receipt == nil)
+}

@@ -67,6 +67,24 @@ enum PeerPluginEnablement {
         return ["swarmhub-peer", "peer plugin", "peer-plugin"].contains { text.contains($0) } && isPMBlocked(text)
     }
 
+    /// The exact peer script may be a standalone call or part of one whole dev-mode skill block.
+    static func matchesCommand(_ candidate: String, profile: String) -> Bool {
+        let peer = command(profile: profile)
+        if candidate == peer { return true }
+        let definition = SkillDevMode.functionDefinition + "\n"
+        let block = candidate.hasPrefix(definition) ? String(candidate.dropFirst(definition.count)) : candidate
+        guard block.contains("\n" + peer + "\n") else { return false }
+        func pattern(_ template: String) -> String {
+            NSRegularExpression.escapedPattern(for: template.replacingOccurrences(of: "{profile}", with: profile)
+                .replacingOccurrences(of: "{skill}", with: "swarmhub-messages"))
+                .replacingOccurrences(of: NSRegularExpression.escapedPattern(for: "{bundled}"), with: "[0-9a-f]{64}")
+        }
+        return [(SkillDevMode.guardHead, SkillDevMode.guardTail), (SkillDevMode.resetHead, SkillDevMode.resetTail)].contains { head, tail in
+            block.range(of: "\\A" + pattern(head) + "\n", options: .regularExpression) != nil &&
+                block.range(of: "\n" + pattern(tail) + "\\z", options: .regularExpression) != nil
+        }
+    }
+
     struct Call {
         var id: String?
         var profile: String?
@@ -74,7 +92,8 @@ enum PeerPluginEnablement {
 
         mutating func consume(_ tool: ToolEvent, profiles: Set<String>) {
             guard ["terminal", "shell", "execute", "bash"].contains(tool.name) else { return }
-            if tool.phase == .started, let profile = profiles.first(where: { tool.command == PeerPluginEnablement.command(profile: $0) }) {
+            if tool.phase == .started, let command = tool.command,
+               let profile = profiles.first(where: { PeerPluginEnablement.matchesCommand(command, profile: $0) }) {
                 id = tool.callID; self.profile = profile; receipt = nil
                 return
             }

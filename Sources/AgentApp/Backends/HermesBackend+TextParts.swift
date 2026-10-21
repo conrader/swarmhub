@@ -61,8 +61,10 @@ extension HermesBackend {
     static func peerEnableCommand(_ args: Any?) -> String? {
         var object = args as? [String: Any]
         if object == nil, let text = args as? String { object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] }
-        guard let command = (object?["command"] ?? object?["cmd"]) as? String, command.utf8.count <= 32_768,
-              command.hasPrefix("python3 - <<'SWARMHUB_PEER_ENABLE'\n") else { return nil }
+        // A dev-mode call includes the skill's files and guard around the peer script (over 32 KB).
+        guard let command = (object?["command"] ?? object?["cmd"]) as? String, command.utf8.count <= 1_048_576,
+              command.hasPrefix("python3 - <<'SWARMHUB_PEER_ENABLE'\n") ||
+              command.contains("\npython3 - <<'SWARMHUB_PEER_ENABLE'\n") else { return nil }
         return command
     }
 
