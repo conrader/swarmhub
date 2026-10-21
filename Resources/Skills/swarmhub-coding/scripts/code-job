@@ -200,11 +200,37 @@ collect_evidence() {
   else EVIDENCE=none; fi
 }
 
-# Every pid in the process tree under $1 (itself included), from one ps listing.
+# Every pid in the tree under $1 (itself included) from one ps listing, then `end` (a read cut short lacks it). Only a
+# live direct child of this shell is a root ($$ is the main shell in subshells too; APID, MPID and VPID are its
+# children): 0 and 1 parent every process on the host, and walking from them sent TERM, then KILL, to every process of
+# the user (2026-10-21). Any other root lists nothing; this shell and its ancestors are never listed.
 tree() {
-  ps -A -o pid= -o ppid= 2>/dev/null | awk -v root="$1" '
-    { kids[$2] = kids[$2] " " $1 }
-    END { n = 1; q[1] = root; for (i = 1; i <= n; i++) { print q[i]; c = split(kids[q[i]], k, " "); for (j = 1; j <= c; j++) q[++n] = k[j] } }'
+  case $1 in ''|*[!0-9]*) return 0 ;; esac
+  ps -A -o pid= -o ppid= 2>/dev/null | awk -v root="$1" -v self="$$" '
+    { parent[$1] = $2; kids[$2] = kids[$2] " " $1 }
+    END {
+      if (root + 0 <= 1 || root + 0 == self + 0 || !(root in parent) || parent[root] + 0 != self + 0) { print "end"; exit }
+      for (p = self; p != "" && !(p in up); p = parent[p]) up[p] = 1
+      n = 1; q[1] = root; seen[root] = 1
+      for (i = 1; i <= n; i++) { c = split(kids[q[i]], k, " "); for (j = 1; j <= c; j++) if (!(k[j] in seen)) { seen[k[j]] = 1; q[++n] = k[j] } }
+      for (i = 1; i <= n; i++) if (q[i] + 0 > 1 && !(q[i] in up)) print q[i]
+      print "end"
+    }'
+}
+
+# Sets TREE to the pids tree() lists for $1; fails when it lists none or every read was cut short.
+tree_pids() {
+  for _tree_try in 1 2 3 4 5; do
+    TREE=$(tree "$1")
+    case $TREE in *end) TREE=${TREE%end}; case $TREE in *[0-9]*) return 0 ;; esac; break ;; '') break ;; esac
+  done
+  TREE=; return 1
+}
+
+# A pid this job may signal by itself: digits only, above 1 (kill 0 and -1 broadcast, 1 is init), not this shell.
+signalable() {
+  case $1 in ''|*[!0-9]*) return 1 ;; esac
+  [ "${#1}" -le 10 ] && [ "$1" -gt 1 ] && [ "$1" -ne "$$" ]
 }
 
 # Summed RSS (KB) of the tree under $1.
@@ -214,14 +240,18 @@ tree_rss() {
     END { n = 1; q[1] = root; s = 0; for (i = 1; i <= n; i++) { s += rss[q[i]]; c = split(kids[q[i]], k, " "); for (j = 1; j <= c; j++) q[++n] = k[j] } print s + 0 }'
 }
 
+# TERM, then KILL, the tree under $1. Anything but this job's own child tree is refused with a line on stderr and
+# nothing is signalled; the KILL pass covers the first listing too, so children orphaned meanwhile still go.
 kill_tree() {
   [ -n "$1" ] || return 0
-  read_output tree "$1"
-  pids=${READ_OUTPUT:-$1}
+  if ! signalable "$1" || ! tree_pids "$1"; then
+    echo "code-job: not signalling pid '$1': not a live child of this job" >&2
+    return 0
+  fi
+  pids=$TREE
   kill -TERM $pids 2>/dev/null
   sleep 1
-  read_output tree "$1"
-  pids="$pids ${READ_OUTPUT:-$1}"
+  tree_pids "$1" && pids="$pids $TREE"
   kill -KILL $pids 2>/dev/null
   return 0
 }
@@ -280,7 +310,7 @@ finish() {
 interrupted() {
   trap '' INT TERM
   kill_tree "$MPID"; kill_tree "$APID"; kill_tree "$VPID"
-  [ -n "$O1" ] && kill "$O1" 2>/dev/null; [ -n "$O2" ] && kill "$O2" 2>/dev/null
+  signalable "$O1" && kill "$O1" 2>/dev/null; signalable "$O2" && kill "$O2" 2>/dev/null
   finish "$1" interrupted
 }
 trap 'release; rm -rf "$T"' EXIT

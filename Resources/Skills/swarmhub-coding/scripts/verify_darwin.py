@@ -143,7 +143,10 @@ def kqueue_wait(pid, kq=select):
 
 
 def signal_group(pgid, signum, killpg=os.killpg):
-    """True while the group has members. EPERM means members remain that cannot be signalled."""
+    """True while the group has members. EPERM means members remain that cannot be signalled.
+    Only the verifier's own group, never 0 (ours), 1 or below: a refused group reports no members."""
+    if type(pgid) is not int or pgid <= 1 or pgid == os.getpgrp():
+        return False
     try:
         killpg(pgid, signum)
     except ProcessLookupError:

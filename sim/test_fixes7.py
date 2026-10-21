@@ -69,8 +69,10 @@ SIGNAL_SUITE = textwrap.dedent('''
             for pid in (1, LAUNCHER, RUNNER):
                 with self.assertRaises(PermissionError):
                     os.kill(pid, 0)
+            # Signal 0: the broker refuses kill(-1) whatever the signal, and a sandbox that failed open must not
+            # TERM every process of the user (2026-10-21).
             with self.assertRaises(PermissionError):
-                os.kill(-1, signal.SIGTERM)
+                os.kill(-1, 0)
             with self.assertRaises(PermissionError):
                 os.killpg(RUNNER_GROUP, 0)
             # Fixes9: self pidfds are safe; signalling via pidfds stays denied.

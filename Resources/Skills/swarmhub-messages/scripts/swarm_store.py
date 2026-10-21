@@ -10,6 +10,7 @@ import re
 import signal
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 
@@ -144,15 +145,28 @@ def invoking_profile(environ=None):
 
 
 def terminate(pid):
-    # Used only with child PIDs held by bot-msg, not caller-supplied task metadata.
+    # Used only with child PIDs held by bot-msg, not caller-supplied task metadata. 0 and 1 parent every process on
+    # the host, and so does an ancestor of ours (2026-10-21, code-job's kill_tree): those are refused, and this process
+    # and its ancestors are never signalled.
+    if type(pid) is not int or pid <= 1 or pid == os.getpid():
+        print(f"swarm_store: not signalling pid {pid!r}", file=sys.stderr)
+        return
     pairs = subprocess.check_output(["ps", "-A", "-o", "pid=", "-o", "ppid="], text=True)
-    ids = {int(pid)}
     rows = [tuple(map(int, line.split())) for line in pairs.splitlines()]
+    parents, ancestors, up = dict(rows), set(), os.getpid()
+    while up not in ancestors and up > 0:
+        ancestors.add(up)
+        up = parents.get(up, 0)
+    if pid in ancestors:
+        print(f"swarm_store: not signalling pid {pid}: an ancestor of this process", file=sys.stderr)
+        return
+    ids = {pid}
     while True:
         expanded = ids | {child for child, parent in rows if parent in ids}
         if expanded == ids:
             break
         ids = expanded
+    ids = {child for child in ids if child > 1} - ancestors
     for child in reversed(sorted(ids)):
         try:
             os.kill(child, signal.SIGTERM)
