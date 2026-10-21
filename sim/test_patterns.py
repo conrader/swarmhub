@@ -68,10 +68,14 @@ exit 0
         return peer.state() / "job-completions" / ident.replace("task.", "job.", 1)
 
     def code_job(self, *extra):
+        # This is an end-to-end launcher, not a timed behavior assertion: policy checks, report hashing,
+        # sandbox verification and wake startup each launch interpreters. The full parallel Swift suite can
+        # starve those children past the old 12 s cap on macOS even though they finish correctly in isolation.
+        # Keep a bounded hang guard, with enough room for that load; assert completion/exit evidence below.
         return subprocess.run(["/bin/sh", str(boundary.JOB), "--bot", "worker", "--origin", "sender",
                                "--order", "codex", "--dir", str(self.home), "--model", "synthetic-model",
                                "--effort", "high", "--report", "REPORT.txt", *extra, "--", "implement requested work"],
-                              env=self.env, capture_output=True, text=True, timeout=12)
+                              env=self.env, capture_output=True, text=True, timeout=60)
 
     def test_P01_result_next_step_standing_queue_and_receiver_dedupe(self):
         self.cli()
