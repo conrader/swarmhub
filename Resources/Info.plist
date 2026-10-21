@@ -21,11 +21,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.5.9</string>
-	<key>CFBundleVersion</key>
-	<string>24</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
+	<string>0.6.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -37,16 +33,18 @@
 			</array>
 		</dict>
 	</array>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>SwarmHub uses your microphone for live voice with your connected ChatGPT account, or sends a stopped dictation recording to deAPI to create a message draft.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>SwarmHub connects to an OpenClaw Gateway on your local network only when you add one in Settings.</string>
+	<key>CFBundleVersion</key>
+	<string>25</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>SwarmHub connects to an OpenClaw Gateway on your local network only when you add one in Settings.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SwarmHub uses your microphone for live voice with your connected ChatGPT account, or sends a stopped dictation recording to deAPI to create a message draft.</string>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
-	<key>SWComposioProvisioningURL</key>
-	<string>https://agenthut.net/swarmhub/</string>
 	<key>SUAutomaticallyUpdate</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>
@@ -59,5 +57,7 @@
 	<integer>86400</integer>
 	<key>SUVerifyUpdateBeforeExtraction</key>
 	<true/>
+	<key>SWComposioProvisioningURL</key>
+	<string>https://agenthut.net/swarmhub/</string>
 </dict>
 </plist>
