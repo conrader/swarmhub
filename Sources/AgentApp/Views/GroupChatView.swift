@@ -7,12 +7,15 @@ struct GroupChatView: View {
     @State private var planningWorkflow = false
     @State private var workTogether = false
     @State private var showProjectContext = false; @State private var viewport = ChatViewport()
+    @State private var selection = MessageSelection()
     @Environment(\.grokHistoryExpanded) private var historyExpanded
 
     var body: some View {
         let members = store.members(of: group), all = group.messages.filter { !$0.isSilent }
         let layout = store.technicalLayout(all, in: group), shown = layout.visible(all)
         let _ = viewport.show(group.id, order: shown.map(\.id))
+        let appStore = store, groupName = group.name
+        let _ = selection.show(rows: shown) { appStore.copiedMessage($0, botName: groupName) }
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
@@ -39,12 +42,15 @@ struct GroupChatView: View {
                             GroupMessageRow(message: message, author: message.authorID.flatMap { id in store.bots.first { $0.id == id } },
                                             repliedMessage: message.replyToID.flatMap { id in group.messages.first { $0.id == id } }, groupID: group.id,
                                             fold: layout.folds[message.id], partner: layout.folds[message.id]?.partnerID.flatMap { id in all.first { $0.id == id } }).id(message.id).chatRow(message.id, in: viewport)
+                                .selectableMessage(message.id, in: selection)
                         }
                         WorkflowView(group: group)
                         ForEach(store.approvals.filter(isGroupApproval)) { request in ApprovalCard(request: request) { store.decide(request, approved: $0) }.id(request.id) }
                         ChatBottomMarker(viewport: viewport, conversationID: group.id)
-                    }.frame(maxWidth: 720).frame(maxWidth: .infinity)
+                    }.frame(maxWidth: 720).frame(maxWidth: .infinity).messageSelectionContent(selection)
                 }.id(group.id).background(AppColor.chat)
+                // ⌘/⇧-click picks rows, ⌘C copies them; another group starts with none picked.
+                .messageSelection(selection).onChange(of: group.id) { _, _ in selection.clear() }
                 // P50: opens where it was left; new rows and streaming text follow only at the bottom.
                 .overlay(alignment: .bottom) { JumpToLatestButton(scroll: store.chatScroll, conversationID: group.id, proxy: proxy) }
                 .task(id: group.id) { await viewport.open(group.id, model: store.chatScroll, proxy: proxy) }
