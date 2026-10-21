@@ -54,7 +54,7 @@ private final class RecoveryServer: URLProtocol, @unchecked Sendable {
         state.requests.append(logged)
         let reply = state.handler(logged)
         if let error = reply.error { client?.urlProtocol(self, didFailWithError: URLError(error)); return }
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: [:])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": reply.hold ? "text/event-stream" : "application/json"])!, cacheStoragePolicy: .notAllowed)
         if reply.hold { _ = state.connection.swap(self) }
         client?.urlProtocol(self, didLoad: reply.data)
         if !reply.hold { client?.urlProtocolDidFinishLoading(self) }
