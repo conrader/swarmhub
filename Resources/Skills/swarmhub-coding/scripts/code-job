@@ -10,6 +10,33 @@
 
 usage() { echo "usage: code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] --model <id> --effort <level> --report <file> [--dir <workdir>] [--verify <command>] [--timeout <s>] [--max-turns <n>] -- \"<task>\"" >&2; exit 64; }
 
+# Sets NOW to the epoch second. dash catches SIGCHLD without SA_RESTART, so a background child exiting mid-read can
+# leave `$(date +%s)` empty (the macOS dash logged "ran -1792576279s"); retry until it yields digits. Should every try
+# fail, the last good reading stays, so a duration is off by seconds instead of by the whole epoch.
+NOW=0
+now() {
+  for _try in 1 2 3 4 5; do
+    _now=$(date +%s)
+    case $_now in ''|*[!0-9]*) ;; *) NOW=$_now; return 0 ;; esac
+  done
+}
+
+# Pure reads that must be nonempty: retry the same dash/SIGCHLD interruption as now().
+# Call directly (not in another substitution); callers choose a safe fallback if every read is empty.
+read_output() {
+  READ_OUTPUT=
+  for _read_try in 1 2 3 4 5; do
+    READ_OUTPUT=$("$@")
+    _read_rc=$?
+    [ "$_read_rc" -eq 0 ] || return "$_read_rc"
+    [ -n "$READ_OUTPUT" ] && return 0
+  done
+  return 1
+}
+
+SCRIPT_DIR=${0%/*}
+[ "$SCRIPT_DIR" != "$0" ] || SCRIPT_DIR=.
+
 BOT= ORDER= DIR=. TIMEOUT=1800 MAXTURNS=40 ORIGIN=${SWARMHUB_ORDERING_BOT:-}
 MODEL=${CODE_JOB_MODEL:-} EFFORT=${CODE_JOB_EFFORT:-high} REPORT=${CODE_JOB_REPORT:-} TASKID= JOBID= SPECULATIVE=0
 ORIGIN_GIVEN= VERIFY_ARG=
@@ -44,7 +71,7 @@ case $TASKID in *[!A-Za-z0-9_.-]*|.*) usage ;; esac
 case $JOBID in '') ;; job.*) case $JOBID in *[!A-Za-z0-9_.-]*) usage ;; esac ;; *) usage ;; esac
 DIR=$(cd "$DIR" && pwd -P) || exit 64
 case $REPORT in '') ;; /*) ;; *) REPORT=$DIR/$REPORT ;; esac
-CTL=$(dirname "$0")/../../swarmhub-messages/scripts/swarmctl
+CTL=$SCRIPT_DIR/../../swarmhub-messages/scripts/swarmctl
 # A managed task (--task-id) runs with the order/model its launcher resolved and recorded; policy is not
 # re-applied mid-flight, so a policy change after launch cannot fail the job as a parameter mismatch.
 if [ -f "$CTL" ]; then
@@ -79,7 +106,7 @@ printf '%s\n' "$EFFORT" > "$JOB/effort"
 printf '%s\n' "$REPORT" > "$JOB/report"
 printf '%s\n' "$TASKID" > "$JOB/task-id"
 printf '%s\n' "$$" > "$JOB/pid"
-MSG=$(dirname "$0")/../../swarmhub-messages/scripts/bot-msg
+MSG=$SCRIPT_DIR/../../swarmhub-messages/scripts/bot-msg
 SLOTS=$(sed -n 's/^SLOTS=\([0-9][0-9]*\)[[:space:]]*$/\1/p' "$S/coding.conf" 2>/dev/null | tail -n 1)
 case $SLOTS in ''|0) SLOTS=1 ;; esac
 # Verification command: --verify, else CODE_JOB_VERIFY, else VERIFY= in coding.conf (the box default). Run by code-job
@@ -99,7 +126,7 @@ POLL=${CODE_JOB_POLL:-5}
 under() { case $1 in /) return 0 ;; esac; case $2/ in "$1"/*) return 0 ;; esac; return 1; }
 mkdir -p "$S/scratch" || exit 1
 # Best effort: only old entries with a definitely dead launcher are removed; uncertain/legacy entries stay.
-python3 "$(dirname "$0")/scratch.py" "$S/scratch" || echo "code-job: scratch cleanup unavailable" >&2
+python3 "$SCRIPT_DIR/scratch.py" "$S/scratch" || echo "code-job: scratch cleanup unavailable" >&2
 T=$(mktemp -d "$S/scratch/code-job.$$.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 trap 'exit 130' INT
@@ -134,7 +161,8 @@ head_of() {
 # Evidence the CLI cannot write itself: a new HEAD since the baseline, and the configured verification command's exit.
 # A configured command that fails is never outweighed by a commit. Only its exit is recorded, never its output.
 collect_evidence() {
-  HEAD_AFTER=$(head_of)
+  read_output head_of || finish 77 failed
+  HEAD_AFTER=$READ_OUTPUT
   COMMIT=false
   case $HEAD_AFTER in
     not-a-repo) COMMIT=not-a-repo ;;
@@ -147,19 +175,21 @@ collect_evidence() {
   esac
   if [ -n "$VERIFY" ]; then
     # The launcher records its isolation mode (namespaced, fallback = limited, seatbelt) in $T, out of the verifier's reach.
-    ( exec python3 "$(dirname "$0")/verify-sandbox.py" "$DIR" "$VERIFY" "$T/verify-mode" "$T/git-trust.json" ) < /dev/null > "$T/verify" 2>&1 &
+    ( exec python3 "$SCRIPT_DIR/verify-sandbox.py" "$DIR" "$VERIFY" "$T/verify-mode" "$T/git-trust.json" ) < /dev/null > "$T/verify" 2>&1 &
     VPID=$!
-    t0=$(date +%s); VEXIT=
+    now; t0=$NOW VEXIT=
     while kill -0 "$VPID" 2>/dev/null; do
       if [ -z "$VEXIT" ] && [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ]; then VEXIT=125; kill_tree "$VPID"; fi
-      if [ -z "$VEXIT" ] && [ $(( $(date +%s) - t0 )) -gt "$VTIMEOUT" ]; then VEXIT=124; kill_tree "$VPID"; fi
+      now
+      if [ -z "$VEXIT" ] && [ $(( NOW - t0 )) -gt "$VTIMEOUT" ]; then VEXIT=124; kill_tree "$VPID"; fi
       sleep "${CODE_JOB_TICK:-1}"
     done
     wait "$VPID"; rc=$?
     VPID=
     [ -n "$VEXIT" ] || VEXIT=$rc
     TESTS=false; [ "$VEXIT" -eq 0 ] && TESTS=true
-    case $(cat "$T/verify-mode" 2>/dev/null) in
+    read_output cat "$T/verify-mode" 2>/dev/null
+    case $READ_OUTPUT in
       namespaced) VMODE=namespaced ;; fallback) VMODE=fallback ;; seatbelt) VMODE=seatbelt ;; *) VMODE=- ;;
     esac
     [ "$VMODE" = fallback ] && echo "code-job: verification ran in the limited sandbox (no user namespace); the result says so" >&2
@@ -186,16 +216,18 @@ tree_rss() {
 
 kill_tree() {
   [ -n "$1" ] || return 0
-  pids=$(tree "$1")
+  read_output tree "$1"
+  pids=${READ_OUTPUT:-$1}
   kill -TERM $pids 2>/dev/null
   sleep 1
-  pids="$pids $(tree "$1")"
+  read_output tree "$1"
+  pids="$pids ${READ_OUTPUT:-$1}"
   kill -KILL $pids 2>/dev/null
   return 0
 }
 
 release() {
-  if [ -n "$SLOT" ] && [ "$(cat "$SLOT/pid" 2>/dev/null)" = "$$" ]; then rm -rf "$SLOT"; fi
+  if [ -n "$SLOT" ] && read_output cat "$SLOT/pid" 2>/dev/null && [ "$READ_OUTPUT" = "$$" ]; then rm -rf "$SLOT"; fi
   SLOT=
 }
 
@@ -236,7 +268,8 @@ finish() {
   [ -n "$sk" ] && line="$line · skipped $sk"
   if [ -z "$LOGGED" ]; then
     LOGGED=1
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$BOT" "$AGENT" "$WAITED" "$RAN" \
+    read_output date -u +%Y-%m-%dT%H:%M:%SZ
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${READ_OUTPUT:--}" "$BOT" "$AGENT" "$WAITED" "$RAN" \
       "$(( (PEAK + 1023) / 1024 ))" "$rc" "${sk:--}" >> "$S/coding-jobs.log"
     chmod 600 "$S/coding-jobs.log" 2>/dev/null
   fi
@@ -259,7 +292,7 @@ trap 'interrupted 129' HUP
 # verifier does not admit (submodule, separate-git-dir) is recorded as unsupported, so the job still runs and its
 # verification refuses with that reason. A post-tool layout is never accepted instead. $T is outside the CLI's reach.
 if [ -n "$VERIFY" ]; then
-  python3 "$(dirname "$0")/verify-sandbox.py" --capture-git "$DIR" "$T/git-trust.json" || finish 77 failed
+  python3 "$SCRIPT_DIR/verify-sandbox.py" --capture-git "$DIR" "$T/git-trust.json" || finish 77 failed
 fi
 
 # One of SLOTS slots: `mkdir slots/<i>.lock` is atomic. A lock whose pid is dead is stale; it is removed under a short
@@ -269,9 +302,9 @@ try_slot() {
   while [ "$i" -le "$SLOTS" ]; do
     d=$S/slots/$i.lock
     if mkdir "$d" 2>/dev/null; then echo $$ > "$d/pid"; SLOT=$d; return 0; fi
-    p=$(cat "$d/pid" 2>/dev/null)
+    read_output cat "$d/pid" 2>/dev/null; p=$READ_OUTPUT
     if [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null && mkdir "$S/slots/reclaim" 2>/dev/null; then
-      [ "$(cat "$d/pid" 2>/dev/null)" = "$p" ] && rm -rf "$d"
+      read_output cat "$d/pid" 2>/dev/null && [ "$READ_OUTPUT" = "$p" ] && rm -rf "$d"
       rmdir "$S/slots/reclaim"
       continue
     fi
@@ -282,7 +315,7 @@ try_slot() {
 
 take_slot() {
   [ -n "$SLOT" ] && return 0
-  start=$(date +%s) said=
+  now; start=$NOW said=
   until try_slot; do
     [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ] && finish 125 cancelled
     if [ -z "$said" ]; then
@@ -294,7 +327,7 @@ take_slot() {
     sleep "$POLL"
   done
   # A slot free at the first try is no wait (two clock reads can straddle a second).
-  if [ -n "$said" ]; then WAITED=$(( $(date +%s) - start )); fi
+  if [ -n "$said" ]; then now; WAITED=$(( NOW - start )); fi
 }
 
 # Runs agent $1 in --dir, streaming its stdout and stderr through; sets RC (124 on timeout) and copies output to $T/out.
@@ -312,7 +345,7 @@ run_agent() {
     SWARMHUB_REPORT_FILE=$REPORT; export SWARMHUB_REPORT_FILE
     case $1 in
       claude)
-        if [ -f "$S/claude.token" ]; then CLAUDE_CODE_OAUTH_TOKEN=$(cat "$S/claude.token"); export CLAUDE_CODE_OAUTH_TOKEN; fi
+        if [ -f "$S/claude.token" ]; then read_output cat "$S/claude.token"; CLAUDE_CODE_OAUTH_TOKEN=$READ_OUTPUT; export CLAUDE_CODE_OAUTH_TOKEN; fi
         exec claude -p "$TASK" --permission-mode acceptEdits --allowedTools "Read,Edit,Write,Bash,Glob,Grep" \
           --model "$MODEL" --effort "$EFFORT" --max-turns "$MAXTURNS" --output-format text ;;
       # Config overrides instead of --full-auto: Codex CLI 0.159 dropped that flag (seen 2026-10-19); these keys exist in both.
@@ -328,23 +361,24 @@ run_agent() {
   # Watchdog and sampler: every tick (1 s; CODE_JOB_TICK for tests) check the deadline (more than TIMEOUT whole seconds
   # on the clock), every 2 ticks add up the tree's RSS.
   (
-    t=0 peak=0 t0=$(date +%s)
+    now; t=0 peak=0 t0=$NOW
     while kill -0 "$APID" 2>/dev/null; do
       if [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ]; then : > "$T/cancelled"; kill_tree "$APID"; break; fi
       if [ $((t % 2)) -eq 0 ]; then
-        r=$(tree_rss "$APID"); [ "${r:-0}" -gt "$peak" ] && { peak=$r; echo "$peak" > "$T/peak"; }
+        read_output tree_rss "$APID"; r=${READ_OUTPUT:-0}; [ "$r" -gt "$peak" ] && { peak=$r; echo "$peak" > "$T/peak"; }
       fi
-      if [ $(( $(date +%s) - t0 )) -gt "$TIMEOUT" ]; then : > "$T/timedout"; kill_tree "$APID"; break; fi
+      now
+      if [ $(( NOW - t0 )) -gt "$TIMEOUT" ]; then : > "$T/timedout"; kill_tree "$APID"; break; fi
       sleep "${CODE_JOB_TICK:-1}"; t=$((t + 1))
     done
   ) < /dev/null > /dev/null 2>&1 &
   MPID=$!
-  ran0=$(date +%s)
+  now; ran0=$NOW
   wait "$APID"; RC=$?
-  RAN=$(( RAN + $(date +%s) - ran0 ))
+  now; RAN=$(( RAN + NOW - ran0 ))
   wait "$MPID" "$O1" "$O2"
   APID= MPID= O1= O2=
-  p=$(cat "$T/peak" 2>/dev/null); [ "${p:-0}" -gt "$PEAK" ] && PEAK=$p
+  read_output cat "$T/peak" 2>/dev/null; p=${READ_OUTPUT:-0}; [ "$p" -gt "$PEAK" ] && PEAK=$p
   [ -f "$T/timedout" ] && RC=124
   [ -f "$T/cancelled" ] && RC=125
 }
@@ -397,21 +431,23 @@ for a in $(echo "$ORDER" | tr ',' ' '); do
   fi
   # A pre-existing report cannot certify this run. Preserve it but require the CLI
   # to replace/change it; completion-contract.py hashes the baseline privately.
-  python3 "$(dirname "$0")/completion-contract.py" baseline "$REPORT" "$JOB" || finish 65 failed
-  HEAD_BEFORE=$(head_of)
+  python3 "$SCRIPT_DIR/completion-contract.py" baseline "$REPORT" "$JOB" || finish 65 failed
+  read_output head_of || finish 77 failed
+  HEAD_BEFORE=$READ_OUTPUT
   run_agent "$a"
   printf '%s\n' "$RC" > "$JOB/cli-exit"
   if [ "$RC" -eq 0 ]; then
-    if python3 "$(dirname "$0")/completion-contract.py" verify "$REPORT" "$JOB" && [ -s "$T/stdout" ]; then
+    if python3 "$SCRIPT_DIR/completion-contract.py" verify "$REPORT" "$JOB" && [ -s "$T/stdout" ]; then
       collect_evidence
       [ "$VEXIT" = 125 ] && finish 125 cancelled
-      python3 "$(dirname "$0")/completion-contract.py" verify "$REPORT" "$JOB" || finish 65 failed
+      python3 "$SCRIPT_DIR/completion-contract.py" verify "$REPORT" "$JOB" || finish 65 failed
       [ "$EVIDENCE" != none ] && finish 0 ok
       echo "code-job: unverified: fresh report but no new commit and no passing verification (verify exit $VEXIT)" >&2
       finish 66 unverified
     fi
     echo "code-job: empty job or missing/empty/unchanged report" >&2
-    if [ -f "$JOB/sandbox-warning" ] && [ "$(cat "$JOB/report-valid" 2>/dev/null)" = false ]; then
+    read_output cat "$JOB/report-valid" 2>/dev/null
+    if [ -f "$JOB/sandbox-warning" ] && [ "$READ_OUTPUT" = false ]; then
       echo 'code-job: report failure [macos-excluded-tmp-workspace]: see report-state; move HOME and --dir outside temporary roots and rerun.' >&2
       finish 65 report-failed-macos-excluded-tmp-workspace
     fi

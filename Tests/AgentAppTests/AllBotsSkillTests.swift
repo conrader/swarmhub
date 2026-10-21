@@ -42,7 +42,15 @@ import Testing
     store.bots.append(contentsOf: extra)
     let targets = Array(others.prefix(2)) + extra
     #expect(store.installSkillsOnAllBots(manager: manager))
-    try await waitUntil(timeout: .seconds(30)) { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && targets.allSatisfy { store.skillInstallResults[$0.id] != nil } }
+    // Sixteen sequential turns of up to 512 KiB each: the shared ceiling, not a 30 s cap (a loaded full-suite Mac hit 32.6 s).
+    // A timeout says whether the batch stalled (turns sent, profiles still queued, a slot held) or only ran slowly.
+    do {
+        try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && targets.allSatisfy { store.skillInstallResults[$0.id] != nil } }
+    } catch {
+        let sent = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count
+        Issue.record("\(sent) turns sent, \(store.allBotsSkillQueue[manager.id]?.count ?? 0) queued, manager idle: \(store.isIdle(manager))")
+        throw error
+    }
     let turns = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }
     #expect(turns.count == 16)
     for turn in turns {
@@ -130,4 +138,27 @@ import Testing
     store.continueAllBotsSkillInstall(manager: manager, end: .stoppedByUser)
     #expect(store.allBotsSkillQueue.isEmpty && ChatParityServer.requests(host).isEmpty)
     #expect(others.prefix(2).allSatisfy { store.skillInstallResults[$0.id]?.status == .notSent && $0.skillInstallFailures.isEmpty })
+}
+
+@Test @MainActor func stoppingAQueuedManagerMessageLetsTheBatchContinue() async throws {
+    let (store, manager, others, host) = allBotsStore()
+    store.allBotsSkillQueue[manager.id] = store.messagingSkillGaps(manager: manager)
+    // The user's queued message took the slot between installs and was stopped: it is not the batch's install turn.
+    store.continueAllBotsSkillInstall(manager: manager, end: .stoppedByUser, token: UUID())
+    try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && others.prefix(2).allSatisfy { store.skillInstallResults[$0.id] != nil } }
+    #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count == 2)
+    #expect(others.prefix(2).allSatisfy { store.skillInstallResults[$0.id]?.status != .notSent && !$0.installedSkills.isEmpty })
+    #expect(store.allBotsSkillTurn.isEmpty)
+}
+
+@Test @MainActor func aRetryThatSendsNothingResumesTheBatch() async throws {
+    let (store, manager, others, host) = allBotsStore()
+    store.allBotsSkillQueue[manager.id] = store.messagingSkillGaps(manager: manager)
+    // A Retry holds the manager's chat and ends before runChatTurn (nothing sent); only its slot release can resume.
+    let token = store.beginTurn(in: manager, bot: manager, assistant: nil).token
+    #expect(!store.sendNextAllBotsSkillInstall(manager: manager), "waits while the chat is busy")
+    #expect(store.allBotsSkillQueue[manager.id]?.count == 2 && ChatParityServer.requests(host).isEmpty)
+    store.releaseSlot(token)
+    try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && others.prefix(2).allSatisfy { store.skillInstallResults[$0.id] != nil } }
+    #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count == 2)
 }

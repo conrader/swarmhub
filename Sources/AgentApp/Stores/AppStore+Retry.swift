@@ -136,9 +136,11 @@ extension AppStore {
     }
 
     func releaseSlot(_ token: UUID) {
-        guard isCurrent(token) else { return }
+        guard let turn = turn(token: token) else { return }
         endTurn(token)
         sendQueuedNextMessage()
+        // A retry that sent nothing never reached runChatTurn's end: resume a legacy all-bots batch waiting for this chat.
+        if let manager = turn.conversation as? Bot, allBotsSkillQueue[manager.id] != nil { sendNextAllBotsSkillInstall(manager: manager) }
     }
 
     // MARK: Launch recovery
