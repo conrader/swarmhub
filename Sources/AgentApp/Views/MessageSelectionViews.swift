@@ -16,6 +16,9 @@ import SwiftUI
     private var describe: (ChatMessage) -> CopiedMessage = { CopiedMessage(author: "", date: $0.createdAt, text: MessageCopy.body($0.content)) }
     private var frames: [UUID: CGRect] = [:], inTranscript = false
     private var monitor: Any?, holders = 0
+    private let copyText: (String) -> Void
+
+    init(copyText: @escaping (String) -> Void = copyToPasteboard) { self.copyText = copyText }
 
     /// Every body pass: the rows that can be picked (top to bottom) and how each is copied. Never redraws.
     func show(rows: [ChatMessage], describe: @escaping (ChatMessage) -> CopiedMessage) {
@@ -33,7 +36,21 @@ import SwiftUI
     var copiedText: String { MessageCopy.text(rows.filter { state.contains($0.id) }.map(describe)) }
     func copy() {
         let text = copiedText
-        if !text.isEmpty { copyToPasteboard(text) }
+        if !text.isEmpty { copyText(text) }
+    }
+
+    /// Keyboard/menu Copy belongs to a focused text view (including a field editor or custom text input), even
+    /// when messages remain picked. Explicitly copying messages from their context menu still works.
+    func canCopy(in window: NSWindow) -> Bool {
+        guard reader?.window === window, count > 0 else { return false }
+        let responder = window.firstResponder
+        return !(responder is NSText || responder is NSTextInputClient || responder is NSTextField)
+            && (responder as? NSControl)?.currentEditor() == nil
+    }
+
+    @discardableResult func copyIfAllowed(in window: NSWindow) -> Bool {
+        guard canCopy(in: window) else { return false }
+        copy(); return true
     }
 
     /// A laid-out row's frame in `space` (nil: no longer laid out).
@@ -63,14 +80,14 @@ import SwiftUI
         return rows.first { frames[$0.id]?.contains(point) ?? false }?.id
     }
 
-    private func handle(_ event: NSEvent) -> NSEvent? {
+    func handle(_ event: NSEvent) -> NSEvent? {
         guard let window = reader?.window, event.window === window else { return event }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
         switch event.type {
         case .keyDown:
             guard count > 0 else { return event }
             if event.keyCode == 53 { clear(); return nil } // Escape
-            if flags == .command, event.charactersIgnoringModifiers == "c" { copy(); return nil }
+            if flags == .command, event.charactersIgnoringModifiers == "c", copyIfAllowed(in: window) { return nil }
             return event
         case .rightMouseDown: return menu(event)
         case .leftMouseDown:
@@ -81,6 +98,9 @@ import SwiftUI
             }
             guard inTranscript, let id = row(at: event) else { return event }
             if flags.contains(.shift) { extend(to: id) } else { toggle(id) }
+            // A message-selection gesture moves keyboard focus out of the composer. The reader supplies native
+            // Edit > Copy while it owns focus; clicking back into a text input restores its normal Copy command.
+            window.makeFirstResponder(reader)
             return nil
         default: return event
         }
@@ -111,11 +131,25 @@ private final class ActionMenuItem: NSMenuItem {
 /// Behind the transcript content, the size of `MessageSelection.space`: flipped like SwiftUI and never hit.
 private struct SelectionReader: NSViewRepresentable {
     let selection: MessageSelection
-    func makeNSView(context: Context) -> Reader { let view = Reader(); selection.reader = view; return view }
-    func updateNSView(_ view: Reader, context: Context) { selection.reader = view }
-    final class Reader: NSView {
-        override var isFlipped: Bool { true }
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    func makeNSView(context: Context) -> MessageSelectionReader {
+        let view = MessageSelectionReader(); view.selection = selection; selection.reader = view; return view
+    }
+    func updateNSView(_ view: MessageSelectionReader, context: Context) { view.selection = selection; selection.reader = view }
+}
+
+/// A native Copy target after a message-selection gesture. AppKit routes text input Copy to its own first responder.
+final class MessageSelectionReader: NSView, NSUserInterfaceValidations {
+    weak var selection: MessageSelection?
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    @objc func copy(_ sender: Any?) {
+        if let window { selection?.copyIfAllowed(in: window) }
+    }
+    func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        guard item.action == #selector(copy(_:)), let window else { return false }
+        return selection?.canCopy(in: window) == true
     }
 }
 

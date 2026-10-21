@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import AgentApp
@@ -5,6 +6,14 @@ import Testing
 private let ids = (0..<6).map { _ in UUID() }
 private let utc = TimeZone(identifier: "UTC")!
 private func at(_ minute: Int) -> Date { Date(timeIntervalSince1970: 1_790_000_000 + Double(minute) * 60) } // 2026-09-21 14:13 UTC
+private let appRequest = "[[SWARMHUB_APP_REQUEST_00000000-0000-4000-8000-000000000051]]\n"
+    + #"{"action":"execute","tool":"GITHUB_GET_THE_AUTHENTICATED_USER","arguments":{}}"#
+
+/// Records the text input's native Copy action without touching the user's pasteboard.
+@MainActor private final class CopyingTextView: NSTextView {
+    var copied: String?
+    override func copy(_ sender: Any?) { copied = (string as NSString).substring(with: selectedRange()) }
+}
 
 struct MessageSelectionTests {
     // ⌘-click toggles a row and makes it the anchor; ⇧-click runs from the anchor.
@@ -103,5 +112,125 @@ struct MessageSelectionTests {
         selection.show(rows: Array(messages.prefix(2)), describe: describe)
         #expect(selection.count == 2 && !selection.copiedText.contains("Thanks"), "a row no longer shown is not copied")
         selection.clear(); #expect(selection.count == 0 && selection.state.isEmpty)
+    }
+
+    @MainActor @Test func copiedAppRequestsMatchTheDisplayedSuccessFailurePendingAndMissingResult() throws {
+        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        for (result, status) in [(Optional(#"{"data":{"login":"octo"}}"#), "ok"), (#"{"error":"denied"}"#, "failed"), (nil, "waiting for approval")] {
+            let request = ChatMessage(role: .assistant, content: appRequest)
+            let rows = [request] + (result.map { [ChatMessage(role: .user, content: ConnectedAppsChat.resultPrefix + $0)] } ?? [])
+            let layout = store.technicalLayout(rows, botName: "Atlas")
+            let fold = try #require(layout.folds[request.id])
+            let copied = store.copiedMessage(request, botName: "Atlas", fold: fold)
+            #expect(copied.text == "Atlas used GitHub · Get the authenticated user · \(status)")
+            #expect(copied.text == fold.summary && !copied.text.contains("SWARMHUB_APP_REQUEST"))
+            let selection = MessageSelection()
+            selection.show(rows: layout.visible(rows)) { store.copiedMessage($0, botName: "Atlas", fold: layout.folds[$0.id]) }
+            selection.toggle(request.id)
+            #expect(selection.count == 1 && selection.copiedText.hasSuffix("\n" + fold.summary))
+            #expect(!selection.copiedText.contains("SwarmHub app result"), "the absorbed result is represented by its request's summary")
+        }
+        let request = ChatMessage(role: .assistant, content: appRequest)
+        let rows = [request, ChatMessage(role: .assistant, content: "Moved on")]
+        let layout = store.technicalLayout(rows, botName: "Atlas")
+        #expect(store.copiedMessage(request, botName: "Atlas", fold: layout.folds[request.id]).text == "Atlas used GitHub · Get the authenticated user · no result")
+    }
+
+    @MainActor @Test func copiedSearchResultsAndGroupMemberSummariesUseTheConversationFold() throws {
+        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let mira = Bot(name: "Mira", backend: .mock); store.bots = [mira]
+        let request = ChatMessage(role: .assistant, content: appRequest.components(separatedBy: "\n")[0] + "\n" + #"{"action":"search","query":"GitHub user"}"#, authorID: mira.id)
+        let result = ChatMessage(role: .user, content: ConnectedAppsChat.resultPrefix + #"{"tools":[{"app":"github","slug":"GITHUB_GET_THE_AUTHENTICATED_USER"}]}"#)
+        let group = GroupChat(name: "Team", memberIDs: [mira.id], messages: [request, result])
+        let layout = store.technicalLayout(group.messages, in: group)
+        let copied = store.copiedMessage(request, botName: group.name, fold: layout.folds[request.id])
+        #expect(copied.author == "Mira" && copied.text == "Mira looked up GitHub tools · 1 found")
+        #expect(layout.visible(group.messages).map(\.id) == [request.id])
+        // A thread parent is rendered on its own, while the same row in the main chat has a paired result.
+        let parentLayout = store.technicalLayout([request], botName: "Mira")
+        #expect(store.copiedMessage(request, botName: "Mira", fold: parentLayout.folds[request.id]).text == "Mira looked up app tools · waiting for approval")
+        let system = ChatMessage(role: .system, content: "App used", metadata: [TechnicalKey.appRequest: appRequest, TechnicalKey.appResult: result.content])
+        let systemLayout = store.technicalLayout([system], botName: "Atlas")
+        #expect(store.copiedMessage(system, botName: "Atlas", fold: systemLayout.folds[system.id]).text == systemLayout.folds[system.id]?.summary)
+    }
+
+    @MainActor @Test func commandCopyDefersToFocusedTextAndFieldEditorsWithoutClearingMessages() throws {
+        var copied: [String] = []
+        let selection = MessageSelection(copyText: { copied.append($0) })
+        let (window, reader) = copyWindow(selection)
+        defer { window.contentView = nil; window.close() }
+        let row = ChatMessage(role: .assistant, content: "Selected message")
+        selection.show(rows: [row]) { CopiedMessage(author: "Atlas", date: $0.createdAt, text: $0.content) }
+        selection.toggle(row.id)
+        let editor = CopyingTextView(frame: NSRect(x: 0, y: 110, width: 200, height: 80))
+        editor.string = "Composer text"; window.contentView?.addSubview(editor)
+        #expect(window.makeFirstResponder(editor)); editor.setSelectedRange(NSRange(location: 0, length: 8))
+        let event = try commandCopyEvent(in: window)
+        #expect(event.window === window)
+        #expect(selection.handle(event) === event && copied.isEmpty)
+        #expect(editor.tryToPerform(#selector(NSText.copy(_:)), with: nil))
+        #expect(editor.copied == "Composer" && selection.count == 1)
+        editor.setSelectedRange(NSRange(location: 3, length: 0))
+        #expect(!selection.copyIfAllowed(in: window), "text input keeps Copy even with an insertion point")
+        editor.isEditable = false; editor.setSelectedRange(NSRange(location: 0, length: 8))
+        #expect(!selection.canCopy(in: window), "read-only selectable text also keeps Copy")
+
+        let field = NSTextField(string: "Field text"); field.frame = NSRect(x: 0, y: 200, width: 200, height: 24)
+        window.contentView?.addSubview(field)
+        #expect(window.makeFirstResponder(field)); field.selectText(nil)
+        let fieldEditor = try #require(field.currentEditor())
+        #expect(window.firstResponder === fieldEditor && fieldEditor.selectedRange.length > 0)
+        #expect(selection.handle(event) === event && copied.isEmpty && selection.count == 1)
+
+        #expect(window.makeFirstResponder(reader))
+        #expect(selection.handle(event) == nil && copied == [selection.copiedText])
+    }
+
+    @MainActor @Test func messageClickFocusesTheNativeCopyTargetAndMenuValidationTracksSelection() throws {
+        var copied: [String] = []
+        let selection = MessageSelection(copyText: { copied.append($0) })
+        let (window, reader) = copyWindow(selection)
+        defer { window.contentView = nil; window.close() }
+        let row = ChatMessage(role: .assistant, content: "Selected message")
+        selection.show(rows: [row]) { CopiedMessage(author: "Atlas", date: $0.createdAt, text: $0.content) }
+        selection.place(row.id, reader.bounds); selection.hoverTranscript(true)
+        let editor = CopyingTextView(frame: NSRect(x: 0, y: 110, width: 200, height: 80))
+        window.contentView?.addSubview(editor); #expect(window.makeFirstResponder(editor))
+        let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: reader.convert(NSPoint(x: 10, y: 10), to: nil),
+                                                   modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber,
+                                                   context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        #expect(selection.handle(click) == nil && window.firstResponder === reader && selection.count == 1)
+        let item = NSMenuItem(title: "Copy", action: #selector(MessageSelectionReader.copy(_:)), keyEquivalent: "c")
+        #expect(reader.validateUserInterfaceItem(item))
+        #expect(window.firstResponder?.tryToPerform(item.action!, with: item) == true)
+        #expect(copied == [selection.copiedText], "Edit > Copy and Cmd-C use the same message formatter")
+        #expect(window.makeFirstResponder(editor))
+        #expect(!reader.validateUserInterfaceItem(item)); reader.copy(item)
+        #expect(copied.count == 1, "a stale menu action cannot override text focus")
+        #expect(window.makeFirstResponder(reader)); selection.clear()
+        #expect(!reader.validateUserInterfaceItem(item)); reader.copy(item)
+        #expect(copied.count == 1)
+        selection.toggle(row.id)
+        let (otherWindow, _) = copyWindow(MessageSelection())
+        defer { otherWindow.contentView = nil; otherWindow.close() }
+        let otherEvent = try commandCopyEvent(in: otherWindow)
+        #expect(selection.handle(otherEvent) === otherEvent && !selection.copyIfAllowed(in: otherWindow))
+        #expect(copied.count == 1, "other windows cannot copy this transcript's selection")
+    }
+
+    @MainActor private func copyWindow(_ selection: MessageSelection) -> (NSWindow, MessageSelectionReader) {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 300), styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
+        let reader = MessageSelectionReader(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        reader.selection = selection; selection.reader = reader
+        content.addSubview(reader); window.contentView = content
+        return (window, reader)
+    }
+
+    @MainActor private func commandCopyEvent(in window: NSWindow) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+                                    windowNumber: window.windowNumber, context: nil, characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8))
     }
 }

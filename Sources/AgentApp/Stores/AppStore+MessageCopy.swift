@@ -13,9 +13,10 @@ extension AppStore {
     }
 
     /// A copied row: its author, time and the text its row shows (a folded row's line, never raw protocol).
-    func copiedMessage(_ message: ChatMessage, botName: String) -> CopiedMessage {
+    func copiedMessage(_ message: ChatMessage, botName: String, fold: TechnicalFold? = nil) -> CopiedMessage {
         let author = copyAuthor(message, botName: botName)
-        let text = technicalLine(message, botName: message.role == .assistant ? author : botName)
+        // Use the conversation's fold: classifying an isolated request loses its result and whether it is still waiting.
+        let text = fold?.summary ?? technicalLine(message, botName: message.role == .assistant ? author : botName)
         return CopiedMessage(author: author, date: message.createdAt, text: MessageCopy.body(text, attachmentNames: message.attachments.map(\.name)))
     }
 }

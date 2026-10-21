@@ -15,7 +15,7 @@ struct GroupChatView: View {
         let layout = store.technicalLayout(all, in: group), shown = layout.visible(all)
         let _ = viewport.show(group.id, order: shown.map(\.id))
         let appStore = store, groupName = group.name
-        let _ = selection.show(rows: shown) { appStore.copiedMessage($0, botName: groupName) }
+        let _ = selection.show(rows: shown) { appStore.copiedMessage($0, botName: groupName, fold: layout.folds[$0.id]) }
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()

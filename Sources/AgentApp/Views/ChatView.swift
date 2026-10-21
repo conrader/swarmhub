@@ -12,17 +12,19 @@ struct ChatView: View {
         // P51: technical rows read as one folded line; an app request's result row is part of its line.
         let all = bot.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }, layout = store.technicalLayout(all, botName: bot.name)
         let shown = layout.visible(all), conversationID = thread?.id ?? bot.id
-        let threadShown = thread.map { thread in
-            let rows = thread.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat }
-            return store.technicalLayout(rows, botName: bot.name).visible(rows)
-        }
+        let threadRows = thread.map { $0.messages.filter { !$0.isSilent && !$0.isSilentHeartbeat } }
+        let threadLayout = threadRows.map { store.technicalLayout($0, botName: bot.name) }
+        let threadShown = threadRows.map { threadLayout?.visible($0) ?? $0 }
         let arrivals = thread == nil ? [] : store.arrivalsAboveThread(in: bot)
         let parent = thread.flatMap { thread in bot.messages.first { $0.id == thread.parentMessageID } }
         let order = threadShown.map { arrivals.map(\.id) + $0.map(\.id) } ?? shown.map(\.id)
         let _ = viewport.show(conversationID, order: order)
         let appStore = store, botName = bot.name
         let pickable: [ChatMessage] = threadShown.map { rows in arrivals + [parent].compactMap { $0 } + rows } ?? shown
-        let _ = selection.show(rows: pickable) { appStore.copiedMessage($0, botName: botName) }
+        // Arrivals use the main layout, replies use the thread layout, and the parent is displayed on its own.
+        let copyFolds = layout.folds.merging(threadLayout?.folds ?? [:]) { _, reply in reply }
+            .merging(store.technicalLayout([parent].compactMap { $0 }, botName: botName).folds) { _, parent in parent }
+        let _ = selection.show(rows: pickable) { appStore.copiedMessage($0, botName: botName, fold: copyFolds[$0.id]) }
         VStack(spacing: 0) {
             HStack(spacing: 11) {
                 ShowSidebarItem()
