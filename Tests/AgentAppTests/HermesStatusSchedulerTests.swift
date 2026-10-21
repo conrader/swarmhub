@@ -33,21 +33,31 @@ private func statusRequest(_ path: String = "health", host: String = "status.tes
     #expect(calls.all.count == 2)
 }
 
-@Test func statusRequestsAcrossProfilesAndKeysShareHostSpacingAndDebounce() async throws {
-    let timing = HermesStatusScheduler.Timing(tick: .milliseconds(1), spacing: 0.03, debounce: 0.02, jitter: { 0.005 })
+@Test @MainActor func statusRequestsAcrossProfilesAndKeysShareHostSpacingAndDebounce() async throws {
+    let epoch = Date(timeIntervalSince1970: 0), clock = LockedValue(Date(timeIntervalSince1970: 0))
+    let timing = HermesStatusScheduler.Timing(tick: .milliseconds(1), spacing: 0.3, debounce: 0.15, jitter: { 0.005 }, now: { clock.current })
     let scheduler = HermesStatusScheduler(timing: timing), calls = AwaitableLog<Date>()
-    let began = Date()
-    try await withThrowingTaskGroup(of: Void.self) { group in
-        for n in 0..<6 {
-            group.addTask {
-                _ = try await scheduler.read(statusRequest("p/\(n)/health"), scope: "profile-key-\(n)") { calls.append(Date()); return statusRead() }
-            }
-        }
-        try await group.waitForAll()
+    let readers = (0..<6).map { n in Task {
+        try await scheduler.read(statusRequest("p/\(n)/health"), scope: "profile-key-\(n)") { calls.append(clock.current); return statusRead() }
+    } }
+    try await waitUntil { await scheduler.queuedReadCount == 6 }
+    await scheduler.tick()
+    #expect(calls.all.isEmpty, "Debounce prevents immediate admission")
+    _ = clock.swap(epoch.addingTimeInterval(0.16))
+    await scheduler.tick()
+    try await calls.wait { $0.count == 1 }
+    _ = clock.swap(epoch.addingTimeInterval(0.46))
+    await scheduler.tick()
+    #expect(calls.all.count == 1, "Spacing plus jitter is shared across profiles and credentials")
+    for n in 1..<6 {
+        _ = clock.swap(epoch.addingTimeInterval(Double(n) * 0.5))
+        await scheduler.tick()
+        try await calls.wait { $0.count == n + 1 }
     }
-    let starts = calls.all.sorted()
-    #expect(starts.count == 6 && starts[0].timeIntervalSince(began) >= 0.02)
-    for pair in zip(starts, starts.dropFirst()) { #expect(pair.1.timeIntervalSince(pair.0) >= 0.03) }
+    for reader in readers { _ = try await reader.value }
+    let starts = calls.all
+    #expect(starts.count == 6 && starts[0].timeIntervalSince(epoch) >= 0.15)
+    for pair in zip(starts, starts.dropFirst()) { #expect(pair.1.timeIntervalSince(pair.0) >= 0.3) }
 }
 
 @Test @MainActor func statusConcurrencyIsCappedPerHostWhileOtherHostsProceed() async throws {

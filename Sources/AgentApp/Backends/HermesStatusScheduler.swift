@@ -35,6 +35,7 @@ actor HermesStatusScheduler {
     init(timing: Timing = Timing()) { self.timing = timing }
 
     var pendingReadCount: Int { running.values.reduce(0) { $0 + $1.waiters.count } }
+    var queuedReadCount: Int { jobs.count }
 
     static func host(_ url: URL) -> String {
         "\(url.scheme?.lowercased() ?? "https")://\(url.host?.lowercased() ?? ""):\(url.port ?? (url.scheme == "http" ? 80 : 443))"
@@ -96,7 +97,7 @@ actor HermesStatusScheduler {
         jobs.remove(at: index).continuation.resume(throwing: CancellationError())
     }
 
-    private func tick() {
+    func tick() {
         let now = timing.now()
         var waiting: [Job] = []
         for job in jobs {
