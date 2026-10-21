@@ -122,7 +122,7 @@ extension AppStore {
         Konrad pressed Install in SwarmHub to install SwarmHub’s instructions (skills) for \(botName) (profile `\(profile)`). \
         That press is his yes: do not ask again. Run exactly these commands in your terminal with the shell (not the file tool), \
         change nothing else, then reply in one short line and end with the block below. \
-        \(PeerPluginEnablement.installInstructions)
+        \(skills.contains { $0.name == "swarmhub-messages" } ? PeerPluginEnablement.installInstructions : "")
         ````sh
         \(install.commands.joined(separator: "\n"))
         ````

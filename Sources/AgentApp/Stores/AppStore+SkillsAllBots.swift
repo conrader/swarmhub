@@ -108,6 +108,9 @@ extension AppStore {
     }
 
     @discardableResult func sendNextAllBotsSkillInstall(manager: Bot) -> Bool {
+        // A queued user message may take the manager's slot between installs. Keep the remaining profiles
+        // untouched; runChatTurn calls continueAllBotsSkillInstall again when that message finishes.
+        guard isIdle(manager) else { return false }
         while var queue = allBotsSkillQueue[manager.id], !queue.isEmpty {
             let gap = queue.removeFirst()
             allBotsSkillQueue[manager.id] = queue

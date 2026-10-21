@@ -1,7 +1,7 @@
 ---
 name: swarmhub-messages
-description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v1.4.6."
-version: 1.4.6
+description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v1.4.7."
+version: 1.4.7
 author: SwarmHub
 metadata:
   swarmhub:
@@ -45,8 +45,14 @@ Acknowledgements: answer exactly `NO_REPLY` when no action or useful answer rema
 (trimmed, case insensitive) never cause a reverse reply wake. A substantive reply mentioning either marker is kept.
 
 Runtime: Python 3 with SQLite is required for held messages and coding completion recovery. SwarmHub's Install writes
-and enables the `swarmhub-peer` Hermes plugin in this profile. Reload the Hermes gateway's plugins (or restart the
-gateway when idle) after installation; it supplies held messages to any next turn, including app and routine turns.
+the `swarmhub-peer` Hermes plugin in this profile and attempts enablement once. Verify enablement with
+`hermes -p default plugins list`: `swarmhub-peer` must be listed as enabled. If enable exits nonzero or the plugin is
+not enabled, report "peer plugin installed, enablement blocked; held delivery is inactive". A PermissionError or
+dependency-sync failure under Hermes PM's environment workspace (including a sealed-core `workspace/pyproject.toml`)
+needs the box operator. Report that state and stop: do not retry enablement, edit `plugins.enabled` in config.yaml,
+or request a gateway reload. Skill/plugin installation alone does not activate held delivery.
+Only after enablement is verified, reload the Hermes gateway's plugins (or restart the gateway when idle);
+the plugin then supplies held messages to any next turn, including app and routine turns.
 The inbox is private SQLite state under `~/.hermes/swarmhub/`. Successful turns acknowledge their held batch;
 an unanswered or interrupted turn leaves it pending (same-session next turn, otherwise after a one-hour claim lease).
 Neither held messages nor acknowledgements start an extra model turn.
