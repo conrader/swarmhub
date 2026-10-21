@@ -7,8 +7,8 @@ import Testing
 
 private final class SpeedClock { var date = Date(timeIntervalSince1970: 2_000_000_000) }
 
-@MainActor private func speedStore(_ names: [String]) -> (AppStore, Bot, [Bot]) {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in MockBackend() },
+@MainActor private func speedStore(_ names: [String], backend: any AgentBackend = MockBackend()) -> (AppStore, Bot, [Bot]) {
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend },
                          keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.managerTemplateOverride = "manager text"
     let jarvis = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis"); jarvis.canManageBots = true
@@ -79,6 +79,94 @@ private func onBox(_ path: String, home: URL) -> URL { home.appending(path: Stri
     #expect(store.skillSources(for: retry[1], in: retry)[messages.name] == nil && store.skillSources(for: retry[1], in: retry)["swarmhub-feedback"] != nil)
     others[1].skillDevMode = true
     #expect(store.skillSources(for: retry[1], in: retry).isEmpty)
+}
+
+@Test(arguments: [false, true]) @MainActor func aFailedBatchCopyRetriesWithFullWritesDespiteAnUnverifiedPeerReceipt(reportsPMBlock: Bool) async throws {
+    let attempts = LockedTrace()
+    let (host, hermes) = ChatParityServer.serve(features: ["session_chat_streaming": true]) { request, body in
+        if request.url!.path.hasSuffix("/chat/stream") {
+            attempts.add("turn"); let retry = attempts.read().count > 1
+            let profiles = installProfiles(body?["instructions"] as? String ?? "")
+            let command = PeerPluginEnablement.command(profiles: profiles, skipEnable: false)
+            let output = profiles.map { profile in
+                PeerPluginEnablement.marker + String(decoding: try! JSONSerialization.data(withJSONObject: [
+                    "profile": profile, "enable_exit": retry ? 0 : 2, "list_exit": retry ? 0 : -1,
+                    "enable_output": retry ? "" : "peer-runtime install failed: can't open file: No such file or directory",
+                    "list_output": retry ? "swarmhub-peer enabled" : ""
+                ]), as: UTF8.self)
+            }.joined(separator: "\n")
+            let ops = profiles.map { #"{"op":"skills_installed","bot":"\#($0)","skills":[{"name":"swarmhub-messages","version":"9.9.9"}]}"# }
+            let refused = profiles.map { "\(SkillSync.failure) \(SkillLibrary.installPath("swarmhub-messages", profile: $0)): sha256 mismatch" }.joined(separator: "\n")
+            let reply = retry ? "Installed.\n```swarmhub\n[\(ops.joined(separator: ","))]\n```" :
+                refused + (reportsPMBlock ? "\nPeer-plugin enablement blocked by permissions." : "")
+            return .sse([
+                ("tool.started", ["tool_name": "terminal", "tool_call_id": "peer", "args": ["command": command]]),
+                ("tool.completed", ["tool_name": "terminal", "tool_call_id": "peer", "result": ["exit_code": 0, "output": output]]),
+                ("assistant.delta", ["delta": reply]), ("run.completed", [:])
+            ])
+        }
+        if request.url!.path == "/api/sessions" { return .json(200, ["session": ["id": "s-manager"]]) }
+        return .json(404, ["error": "no route"])
+    }
+    let (store, manager, others) = speedStore(["Infra", "Reactor"], backend: hermes)
+    let messages = try #require(store.skillLibrary.first { $0.name == "swarmhub-messages" })
+    store.skillLibraryOverride = [messages]
+    let clock = SpeedClock(); store.now = { clock.date }
+    #expect(store.installSkillsOnAllBots(manager: manager))
+    try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && others.allSatisfy { store.skillInstallResults[$0.id] != nil } }
+    let first = try #require(ChatParityServer.requests(host).first { $0.path.hasSuffix("/chat/stream") }?.body?["instructions"] as? String)
+    #expect(installProfiles(first) == ["grok-infra", "grok-reactor"])
+    #expect(first.contains("python3 - '~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages'"))
+    #expect(!first.contains("cat > ~/.hermes/profiles/"))
+    for bot in others {
+        #expect(bot.installedSkills[messages.name] == nil && store.skillInstallResults[bot.id]?.status == .failed)
+        let failure = try #require(store.skillInstallFailure(messages, for: bot))
+        #expect(failure.count == 1)
+        clock.date = max(clock.date, failure.retryAt)
+    }
+    #expect(store.installSkillsOnAllBots(manager: manager))
+    try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && others.allSatisfy { $0.installedSkills[messages.name] != nil } }
+    let turns = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }
+    #expect(turns.count == 2)
+    let retry = try #require(turns.last?.body?["instructions"] as? String)
+    #expect(!retry.contains("python3 - '~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages'"))
+    for bot in others {
+        #expect(retry.contains("cat > \(SkillLibrary.installPath(messages.name, profile: store.profile(of: bot)))/scripts/bot-msg <<'SWARMHUB_EOF'"))
+        #expect(bot.installedSkills[messages.name] == messages.version.description && bot.skillInstallFailures.isEmpty)
+    }
+}
+
+@Test @MainActor func aSuccessfulSingleBotInstallClearsTheRememberedPMBlock() async throws {
+    let profile = "grok-infra"
+    let command = PeerPluginEnablement.command(profile: profile)
+    let (host, hermes) = ChatParityServer.serve(features: ["session_chat_streaming": true]) { request, _ in
+        if request.url!.path.hasSuffix("/chat/stream") {
+            let receipt = PeerPluginEnablement.marker + #"{"profile":"grok-infra","enable_exit":0,"list_exit":0,"enable_output":"","list_output":"swarmhub-peer enabled"}"#
+            let op = #"{"op":"skills_installed","bot":"grok-infra","skills":[{"name":"swarmhub-messages","version":"9.9.9"}]}"#
+            return .sse([
+                ("tool.started", ["tool_name": "terminal", "tool_call_id": "peer", "args": ["command": command]]),
+                ("tool.completed", ["tool_name": "terminal", "tool_call_id": "peer", "result": ["exit_code": 0, "output": receipt]]),
+                ("assistant.delta", ["delta": "Installed.\n```swarmhub\n\(op)\n```"]), ("run.completed", [:])
+            ])
+        }
+        if request.url!.path == "/api/sessions" { return .json(200, ["session": ["id": "s-manager"]]) }
+        return .json(404, ["error": "no route"])
+    }
+    let (store, manager, others) = speedStore(["Infra", "Reactor"], backend: hermes)
+    let messages = try #require(store.skillLibrary.first { $0.name == "swarmhub-messages" })
+    store.skillLibraryOverride = [messages]
+    let clock = SpeedClock(); store.now = { clock.date }
+    let connection = store.connection(of: manager)
+    store.notePeerEnableBlocked(true, on: connection)
+    #expect(store.peerEnableKnownBlocked(on: connection))
+    #expect(store.installSkills(for: others[0]))
+    try await waitUntil { !store.anyTurnRunning && store.skillInstallResults[others[0].id] != nil }
+    let sent = try #require(ChatParityServer.requests(host).first { $0.path.hasSuffix("/chat/stream") }?.body?["instructions"] as? String)
+    #expect(sent.contains(command))
+    #expect(store.skillInstallResults[others[0].id]?.status == .installed)
+    #expect(!store.peerEnableKnownBlocked(on: connection), "verified enable clears the block before twelve hours pass")
+    let next = try #require(try store.allBotsSkillInstructions(store.messagingSkillGaps(manager: manager)))
+    #expect(next.contains(PeerPluginEnablement.command(profile: "grok-reactor")))
 }
 
 @Test @MainActor func aSkillCopiedFromAHolderLandsByteForByteAndAStaleSourceWritesNothing() async throws {

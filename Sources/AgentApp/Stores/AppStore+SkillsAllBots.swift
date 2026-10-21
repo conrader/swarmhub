@@ -119,7 +119,7 @@ extension AppStore {
                 let next = try nextAllBotsBatch(queue, manager: manager)
                 gaps = next.gaps
                 allBotsSkillQueue[manager.id] = Array(queue.dropFirst(gaps.count))
-                noteSkillInstallChecks(gaps.map { ($0.bot, $0.installable) }, manager: manager)
+                noteSkillInstallChecks(gaps.map { ($0.bot, $0.installable) }, manager: manager, batch: gaps)
                 pendingSkillInstalls[manager.id] = .init(profile: profile(of: gaps[0].bot), instructions: next.instructions)
                 allBotsSkillBatch[manager.id] = gaps
                 managementExchanges[manager.id] = nil
