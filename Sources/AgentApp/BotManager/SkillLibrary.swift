@@ -123,7 +123,7 @@ enum SkillLibrary {
         var text = skill.template.replacingOccurrences(of: "{{VERSION}}", with: skill.version.description)
         if text.contains("{{MANAGER_TEXT}}") {
             guard let managerTemplate else { return nil }
-            let manager = BotManagerText.filled(managerTemplate, managerProfile: profile).trimmingCharacters(in: .whitespacesAndNewlines)
+            let manager = BotManagerText.filled(BotManagerText.withConnectorDefaults(managerTemplate, backend: .hermes), managerProfile: profile).trimmingCharacters(in: .whitespacesAndNewlines)
             text = text.replacingOccurrences(of: "{{MANAGER_TEXT}}", with: manager)
         }
         text = text.replacingOccurrences(of: "{{CODING_ORDER}}", with: codingOrder.argument)

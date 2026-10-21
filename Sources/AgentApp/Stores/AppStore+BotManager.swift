@@ -73,9 +73,11 @@ extension AppStore {
     func managerText(for bot: Bot) -> String? {
         if bot.backend == .openClaw {
             return (managerTemplateOverride ?? appConfig.managerTemplateOpenClaw ?? Self.cachedOpenClawTemplate)
-                .map { BotManagerText.filled($0, managerAgent: bot.openClaw?.agentID ?? "") }
+                .map { BotManagerText.filled(BotManagerText.withConnectorDefaults($0, backend: .openClaw), managerAgent: bot.openClaw?.agentID ?? "") }
         }
-        return (managerTemplateOverride ?? configuredFullTemplate ?? Self.cachedTemplate).map { BotManagerText.filled($0, managerProfile: bot.hermesProfile ?? "default") }
+        return (managerTemplateOverride ?? configuredFullTemplate ?? Self.cachedTemplate).map {
+            BotManagerText.filled(BotManagerText.withConnectorDefaults($0, backend: .hermes), managerProfile: bot.hermesProfile ?? "default")
+        }
     }
 
     /// P6b: the full Hermes manager text rebuilt from the bundle's core and recipes (each missing one compiled); nil when

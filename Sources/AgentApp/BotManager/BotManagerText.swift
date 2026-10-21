@@ -9,6 +9,15 @@ enum BotManagerText {
     static let openClawResourcePath = "BotManager/manager-openclaw.md"
     static var connectorHelper: String? { template(candidates: candidates("ConnectorDefaults/default-connectors.py")) }
 
+    /// Bundle prompt overrides may predate connector defaults. Keep the app's provisioning requirement on those
+    /// paths too; custom prose and the optional default connector policy still belong to the install.
+    static func withConnectorDefaults(_ text: String, backend: BackendKind) -> String {
+        guard !text.contains("{{CONNECTOR_HELPER}}"), !text.contains("def provision(home, backend, bot):"),
+              let stock = template(for: backend), let start = stock.range(of: "Every new bot gets"),
+              let end = stock.range(of: backend == .openClaw ? "\nRead:" : "\n\nChange instructions:", range: start.upperBound..<stock.endIndex) else { return text }
+        return text + "\n\n" + stock[start.lowerBound..<end.lowerBound]
+    }
+
     static func expandingConnectorHelper(_ text: String) -> String {
         text.replacingOccurrences(of: "{{CONNECTOR_HELPER}}", with: connectorHelper ?? "raise RuntimeError('Swarm Hub connector helper is missing')")
     }

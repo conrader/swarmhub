@@ -8,7 +8,7 @@ List: `openclaw agents list --json` (each agent's id and workspace).
 Create a bot (id: short lowercase slug, letters/digits/-):
 ```
 ID=<slug>
-openclaw agents add "$ID" --workspace ~/.openclaw/workspace-$ID --non-interactive --json
+openclaw agents add "$ID" --workspace ~/.openclaw/workspace-$ID --non-interactive --json || exit 1
 ```
 then write the instructions to ~/.openclaw/workspace-$ID/AGENTS.md with the shell (a heredoc).
 Every new bot gets Swarm Hub's read-only SB wiki connector in its own workspace's MCPorter config. Run the helper after writing AGENTS.md; keep its JSON result for the final SwarmHub block, including failures. It only references the existing restricted SSH key. Never create/copy keys or substitute the SB messaging connector.

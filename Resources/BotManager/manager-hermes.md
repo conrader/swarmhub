@@ -7,7 +7,7 @@ Never print, echo, cat or paste any key or any .env file, and never put a key in
 Create a bot (name: short lowercase slug, letters/digits/-):
 ```
 NAME=<slug>
-hermes profile create "$NAME" --clone-from {{MANAGER}} --no-alias --description "<one sentence>"
+hermes profile create "$NAME" --clone-from {{MANAGER}} --no-alias --description "<one sentence>" || exit 1
 P=~/.hermes/profiles/$NAME
 MK=$(grep '^API_SERVER_KEY=' {{MANAGER_ENV}} | cut -d= -f2-)
 K=$(printf '%s' "swarmhub-bot-key:v1:$NAME" | openssl dgst -sha256 -hmac "$MK" -r | cut -c1-64)

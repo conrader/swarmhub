@@ -86,6 +86,8 @@ def location(home, backend, bot):
 
 
 def provision(home, backend, bot):
+    if bot == "default":
+        raise ValueError("Connector defaults provision new bots only")
     root = location(home, backend, bot)
     if not root.is_dir():
         raise ValueError("New bot directory does not exist")

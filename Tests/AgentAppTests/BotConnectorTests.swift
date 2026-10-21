@@ -15,6 +15,10 @@ import Testing
     let rendered = try #require(SkillLibrary.render(skill, forProfile: "manager", managerTemplate: BotManagerText.template()))
     #expect(rendered.contains("def provision(home, backend, bot):"))
     #expect(rendered.contains("provision hermes"))
+    let custom = try #require(SkillLibrary.render(skill, forProfile: "manager", managerTemplate: "Custom instructions for {{MANAGER}}"))
+    #expect(custom.contains("Custom instructions for manager") && custom.contains("provision hermes"), "older prompt overrides retain the app's defaults")
+    let stock = try #require(BotManagerText.template())
+    #expect(BotManagerText.withConnectorDefaults(stock, backend: .hermes) == stock)
 }
 
 @Test func connectorReportsValidateStatesCountsAndNames() throws {
@@ -57,8 +61,8 @@ import Testing
 @Test @MainActor func connectorCheckReadsTheBotsOwnBackendAndSurfacesAnUnreportedFailure() async throws {
     let reply = "```swarmhub\n{\"op\":\"connectors\",\"name\":\"own-profile\",\"list\":[{\"name\":\"sb\",\"state\":\"loaded\",\"tool_count\":5,\"detail\":\"Last bot catalog (including deferred tools).\"}]}\n```"
     let (host, backend) = ChatParityServer.serve(features: ["session_chat_streaming": true]) { request, _ in
-        if request.path.hasSuffix("/chat/stream") { return .sse([("assistant.delta", ["delta": reply]), ("run.completed", [:])]) }
-        if request.path == "/api/sessions" { return .json(200, ["session": ["id": "synthetic-check"]]) }
+        if request.url?.path.hasSuffix("/chat/stream") == true { return .sse([("assistant.delta", ["delta": reply]), ("run.completed", [:])]) }
+        if request.url?.path == "/api/sessions" { return .json(200, ["session": ["id": "synthetic-check"]]) }
         return .json(404, ["error": "no route"])
     }
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore([:]), defaults: isolatedDefaults())

@@ -148,7 +148,7 @@ class DefaultConnectorsTests(unittest.TestCase):
         self.assertEqual(helper.inspect(self.home, "hermes", "brand-new")["list"][0]["state"], "failed")
 
     def test_bad_names_cannot_touch_another_profile(self):
-        for name in ("../default", "a; echo secret", "$(id)", ""):
+        for name in ("../default", "a; echo secret", "$(id)", "", "default"):
             with self.assertRaises(ValueError):
                 helper.provision(self.home, "hermes", name)
 
