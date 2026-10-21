@@ -195,8 +195,6 @@ extension AppStore {
         guard let bot = boundBot(profile, manager: manager) else { return }
         for row in installed {
             guard let skill = skillLibrary.first(where: { $0.name == row.name }), let version = SkillVersion(row.version) else { continue }
-            // Dev mode: the box kept the bot's own copy, or its guard wrote nothing; the block was written before that.
-            if skillDevOutcome(row.name, profile: profile, manager: manager) != nil { continue }
             bot.installedSkills[row.name] = min(version, skill.version).description
             bot.installedSkillVariants[row.name] = row.variant
             if bot.skillsModifiedLocally.contains(row.name) { bot.skillsModifiedLocally.remove(row.name) }

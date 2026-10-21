@@ -42,8 +42,11 @@ extension AppStore {
         }
     }
 
-    /// The box's dev-mode outcome for this skill in the manager's running install turn, if it reported one.
-    func skillDevOutcome(_ skill: String, profile: String, manager: Bot) -> SkillDevMode.Outcome? {
-        skillDevOutcomes[manager.id]?["\(profile)/\(skill)"]
+    /// A finished reply's `skills_installed` op without the skills the box kept or did not write this turn (the block
+    /// was written before that). Taken when the reply ends, before `finishSkillInstallChecks` consumes the outcomes;
+    /// the op itself is applied later, in a task.
+    func withoutSkillDevOutcomes(_ op: SwarmhubOp, manager: Bot) -> SwarmhubOp {
+        guard case .skillsInstalled(let profile, let rows) = op, let outcomes = skillDevOutcomes[manager.id], !outcomes.isEmpty else { return op }
+        return .skillsInstalled(bot: profile, skills: rows.filter { outcomes["\(profile)/\($0.name)"] == nil })
     }
 }

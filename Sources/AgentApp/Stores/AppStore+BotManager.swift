@@ -128,7 +128,9 @@ extension AppStore {
         guard isManager(bot), conversation === bot, let ops = SwarmhubBlock.ops(in: reply.content) else { return }
         managementExchanges[bot.id] = nil
         guard !ops.isEmpty else { return }
-        Task { for op in ops { await apply(op, manager: bot) } }
+        // Now, not in the task: the turn's dev-mode outcomes are consumed as soon as this returns.
+        let applied = ops.map { withoutSkillDevOutcomes($0, manager: bot) }
+        Task { for op in applied { await apply(op, manager: bot) } }
     }
 
     /// The bot bound to `profile` (an OpenClaw manager: agent id on its Gateway) on the manager's connection, the manager
