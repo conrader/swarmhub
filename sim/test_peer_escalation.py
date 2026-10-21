@@ -11,6 +11,7 @@ import fcntl
 import os
 from pathlib import Path
 import signal
+import textwrap
 import time
 import unittest
 from unittest.mock import patch
@@ -67,7 +68,7 @@ def descendants(pid):
     return [p for p in map(pinned, found) if p]
 
 
-def hermes_terminate(pid, grace=GRACE):
+def hermes_terminate(pid, grace=GRACE, before_kill=None):
     """The POSIX branch of _terminate_host_pid. Returns the PIDs it SIGKILLed."""
     parent = pinned(pid)
     snapshot = descendants(pid)
@@ -83,10 +84,14 @@ def hermes_terminate(pid, grace=GRACE):
     for proc in remaining:
         proc.signal(signal.SIGTERM)
     targets = [parent, *remaining]
+    if grace <= 0:
+        return []  # Hermes disables escalation entirely, rather than killing immediately.
     wait_for_exit(targets)
     if parent.alive():
         known = {p.pid for p in targets}
         targets.extend(p for p in descendants(pid) if p.pid not in known)
+    if before_kill:
+        before_kill(targets)
     killed = [p.pid for p in targets if p.alive()]
     for proc in targets:
         proc.signal(signal.SIGKILL)
@@ -102,7 +107,11 @@ class EscalationTests(ShutdownHarness):
         self.check_process(managed)
         started = time.monotonic()
         killed = hermes_terminate(managed.pid, grace)
-        relay = managed.wait(timeout=1)
+        relay = managed.wait(timeout=STOP_BOUND)
+        self.assert_legacy_drained(legacy, worker, delivery, started)
+        return relay, killed
+
+    def assert_legacy_drained(self, legacy, worker, delivery, started):
         deadline = started + STOP_BOUND
         while legacy.poll() is None and time.monotonic() < deadline:
             time.sleep(.02)
@@ -116,7 +125,6 @@ class EscalationTests(ShutdownHarness):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         error = self.folder / 'job-wake.error'
         self.assertNotIn('did not release its lock', error.read_text() if error.exists() else '')
-        return relay, killed
 
     def test_default_escalation_window_needs_no_sigkill(self):
         relay, killed = self.shut_down(GRACE)
@@ -128,6 +136,85 @@ class EscalationTests(ShutdownHarness):
         relay, killed = self.shut_down(.4)
         self.assertEqual(relay, -signal.SIGKILL)
         self.assertNotEqual(killed, [])
+
+    def test_zero_grace_disables_escalation_and_allows_cleanup(self):
+        relay, killed = self.shut_down(0)
+        self.assertEqual((relay, killed), (0, []))
+
+    def stalled_handoff(self, legacy):
+        """Hold the intermediate alive so Hermes can snapshot the attached launcher.
+
+        Only the intermediate's exit and a stop-entry receipt are instrumented;
+        fork, reparenting, the handoff and every signal use the real lifecycle.
+        The relay ignores TERM here to force Hermes' second descendant snapshot.
+        """
+        return self.boot(textwrap.dedent(f'''
+            import os, select, signal, time
+            from pathlib import Path
+            folder = Path({str(self.folder)!r})
+            relay_pid = os.getpid()
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            real_exit = os._exit
+            def held_exit(code):
+                if os.getppid() == relay_pid:
+                    (folder / 'intermediate').write_text(str(os.getpid()))
+                    while not (folder / 'release').exists():
+                        time.sleep(.01)
+                real_exit(code)
+            os._exit = held_exit
+            real_stop = lifecycle.stop_legacy_group
+            def recorded_stop(fd, pid):
+                (folder / 'stopper').write_text(str(os.getpid()))
+                real_stop(fd, pid)
+            lifecycle.stop_legacy_group = recorded_stop
+            fd = os.pidfd_open({legacy.pid})
+            done = lifecycle.detach_legacy_stop(fd, {legacy.pid})
+            os.close(fd)
+            select.select([done], [], [], 10)
+            os.close(done)
+            time.sleep(60)
+        '''))
+
+    def test_snapshot_before_handoff_cannot_include_the_stopper(self):
+        legacy, worker, delivery, _ = self.legacy_supervisor(LEGACY_DELIVERY_IGNORES_TERM='1')
+        relay = self.stalled_handoff(legacy)
+        self.eventually(lambda: (self.folder / 'intermediate').exists())
+        self.eventually(lambda: len(descendants(relay.pid)) >= 2)
+        started = time.monotonic()
+
+        def hand_off_after_snapshot(targets):
+            # Both snapshots are complete, but no SIGKILL has been sent yet.
+            # Keep the intermediate alive until now to expose the old race.
+            self.assertFalse((self.folder / 'stopper').exists(),
+                             'stop began while the intermediate was still attached')
+            self.assertNotEqual(proc_stat(legacy.pid)[0], 'T')
+            intermediate = int((self.folder / 'intermediate').read_text())
+            self.assertIn(intermediate, [p.pid for p in targets])
+            self.assertGreaterEqual(len(targets), 3, 'snapshot must capture the launcher too')
+            (self.folder / 'release').touch()
+            self.eventually(lambda: (self.folder / 'stopper').exists()
+                            and (self.folder / 'stopper').read_text())
+            stopper = int((self.folder / 'stopper').read_text())
+            self.assertNotIn(stopper, [p.pid for p in targets], 'stopper was in Hermes kill set')
+            self.assertNotIn(stopper, [p.pid for p in descendants(relay.pid)])
+            self.eventually(lambda: proc_stat(legacy.pid)[0] == 'T')
+
+        killed = hermes_terminate(relay.pid, .1, before_kill=hand_off_after_snapshot)
+        self.assertIn(relay.pid, killed)
+        self.assertEqual(relay.wait(timeout=1), -signal.SIGKILL)
+        self.assert_legacy_drained(legacy, worker, delivery, started)
+
+    def test_relay_killed_before_handoff_never_freezes_the_supervisor(self):
+        legacy, _, _, _ = self.legacy_supervisor()
+        relay = self.stalled_handoff(legacy)
+        self.eventually(lambda: (self.folder / 'intermediate').exists())
+        self.eventually(lambda: len(descendants(relay.pid)) >= 2)
+        killed = hermes_terminate(relay.pid, .1)
+        self.assertIn(relay.pid, killed)
+        self.assertEqual(relay.wait(timeout=1), -signal.SIGKILL)
+        self.assertFalse((self.folder / 'stopper').exists())
+        self.assertIsNone(legacy.poll())
+        self.assertNotEqual(proc_stat(legacy.pid)[0], 'T')
 
     def test_lock_note_waits_for_an_in_flight_legacy_stop(self):
         lifecycle = peer.lifecycle

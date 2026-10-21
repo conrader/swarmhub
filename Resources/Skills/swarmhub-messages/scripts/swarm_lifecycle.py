@@ -272,21 +272,34 @@ def detach_legacy_stop(fd, pid):
     its current descendants; the grace is configurable) or an operator stop
     could kill it first: nothing would ever continue the leader, which would
     keep its flock and block recovery until the next shutdown. A double fork
-    leaves the work outside the relay's tree, session and group. It is bounded
-    by STOP_GRACE + REAP_GRACE, within the relay's own wait. Returns a pipe
-    that reaches EOF once the work is done.
+    leaves a launcher outside the relay's tree, session and group. The relay
+    grants it permission only after reaping the intermediate, then the launcher
+    forks the actual stopper. Thus a Hermes snapshot taken before detachment
+    can retain the launcher, but never the stopper (which did not exist yet).
+    Killing the launcher before that fork is safe: nothing has been stopped.
+    The stop is bounded by STOP_GRACE + REAP_GRACE, within the relay's own wait.
+    Returns a pipe that reaches EOF once the work is done.
     """
     done, finished = os.pipe()
+    try:
+        ready, release = os.pipe()
+    except OSError:
+        os.close(done)
+        os.close(finished)
+        raise
     try:
         child = os.fork()
     except OSError:
         os.close(done)
         os.close(finished)
+        os.close(ready)
+        os.close(release)
         raise
     if child == 0:
         try:
             os.setsid()
             if os.fork() == 0:
+                os.close(release)
                 # Hold nothing of the relay's: not its stdout pipe to the gateway
                 # and not the lock's open file description it may still flock.
                 for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
@@ -295,16 +308,30 @@ def detach_legacy_stop(fd, pid):
                 for target in (0, 1, 2):
                     os.dup2(null, target)
                 for number in map(int, os.listdir("/proc/self/fd")):
-                    if number > 2 and number not in (fd, finished):
+                    if number > 2 and number not in (fd, finished, ready):
                         try:
                             os.close(number)
                         except OSError:
                             pass  # The listing's own descriptor.
-                stop_legacy_group(fd, pid)
+                # EOF means the relay died before confirming detachment. Never
+                # freeze anything in that case. Fork AFTER permission: this
+                # launcher itself may already be in Hermes' retained kill set.
+                granted = os.read(ready, 1) == b"1"
+                os.close(ready)
+                if granted and os.fork() == 0:
+                    stop_legacy_group(fd, pid)
         finally:
             os._exit(0)
     os.close(finished)
-    os.waitpid(child, 0)  # The intermediate exits at once; the worker is orphaned.
+    os.close(ready)
+    try:
+        os.waitpid(child, 0)  # Reparenting precedes the grant and stopper's birth.
+        os.write(release, b"1")
+    except OSError:
+        os.close(done)
+        raise
+    finally:
+        os.close(release)
     return done
 
 
