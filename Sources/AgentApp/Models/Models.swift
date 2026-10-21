@@ -225,6 +225,9 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     @Published var installedSkillVariants: [String: String] = [:]
     /// Installs that did not land (name → the version asked for, how often, why), so a failed one backs off instead of looping.
     @Published var skillInstallFailures: [String: SkillInstallFailure] = [:]
+    /// Skill dev mode (Mac): installs never overwrite a SwarmHub skill this bot changed on its box; the skills the box
+    /// last reported keeping as modified locally. Both stay out of the store while off/empty.
+    @Published var skillDevMode = false; @Published var skillsModifiedLocally: Set<String> = []
     /// P35: the key-file backup on the box from SwarmHub connecting this bot ("" = it had no key file); nil = not connected that way.
     @Published var adoptedKeyBackup: String? = nil
     /// P12: the OpenClaw Gateway and agent (nil = unbound; old stores load without it).
@@ -244,7 +247,7 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
     static let defaultPersona = "You are a thoughtful, capable assistant."
     static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox, openClaw, installedSkills, skillBannerSnoozed, installedSkillVariants, skillInstallFailures, adoptedKeyBackup, approvalRouting, reviewAfter, orientedAt, orientationQueuedAt }
+    enum CodingKeys: CodingKey { case id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox, openClaw, installedSkills, skillBannerSnoozed, installedSkillVariants, skillInstallFailures, skillDevMode, skillsModifiedLocally, adoptedKeyBackup, approvalRouting, reviewAfter, orientedAt, orientationQueuedAt }
     required init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(UUID.self, forKey: .id); let decodedName = try c.decode(String.self, forKey: .name); name = decodedName
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Personal agent"; botDescription = try c.decodeIfPresent(String.self, forKey: .botDescription) ?? ""
@@ -274,6 +277,8 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         skillBannerSnoozed = try? c.decodeIfPresent(String.self, forKey: .skillBannerSnoozed)
         installedSkillVariants = (try? c.decodeIfPresent([String: String].self, forKey: .installedSkillVariants)) ?? [:]
         skillInstallFailures = (try? c.decodeIfPresent([String: SkillInstallFailure].self, forKey: .skillInstallFailures)) ?? [:]
+        skillDevMode = (try? c.decodeIfPresent(Bool.self, forKey: .skillDevMode)) ?? false
+        skillsModifiedLocally = Set((try? c.decodeIfPresent([String].self, forKey: .skillsModifiedLocally)) ?? [])
         adoptedKeyBackup = try? c.decodeIfPresent(String.self, forKey: .adoptedKeyBackup)
         approvalRouting = (try? c.decodeIfPresent(ApprovalRouting.self, forKey: .approvalRouting)) ?? nil
         reviewAfter = (try? c.decodeIfPresent([ReviewAfterRule].self, forKey: .reviewAfter)) ?? []
@@ -309,6 +314,8 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         if !installedSkills.isEmpty { try c.encode(installedSkills, forKey: .installedSkills) }; try c.encodeIfPresent(skillBannerSnoozed, forKey: .skillBannerSnoozed)
         if !installedSkillVariants.isEmpty { try c.encode(installedSkillVariants, forKey: .installedSkillVariants) }
         if !skillInstallFailures.isEmpty { try c.encode(skillInstallFailures, forKey: .skillInstallFailures) }
+        if skillDevMode { try c.encode(true, forKey: .skillDevMode) }
+        if !skillsModifiedLocally.isEmpty { try c.encode(skillsModifiedLocally.sorted(), forKey: .skillsModifiedLocally) }
         try c.encodeIfPresent(adoptedKeyBackup, forKey: .adoptedKeyBackup)
         try c.encodeIfPresent(approvalRouting, forKey: .approvalRouting); if !reviewAfter.isEmpty { try c.encode(reviewAfter, forKey: .reviewAfter) }
         try c.encodeIfPresent(orientedAt, forKey: .orientedAt); try c.encodeIfPresent(orientationQueuedAt, forKey: .orientationQueuedAt)

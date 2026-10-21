@@ -28,6 +28,9 @@ enum StagedInstall {
         let name: String
         let coding_order: String
         let skills: [String]
+        /// Skill dev mode, and this request's Reset to bundled; nil (omitted from profiles.json) while unused.
+        var dev_mode: Bool? = nil
+        var reset: [String]? = nil
     }
 
     struct Package: Sendable {
@@ -62,6 +65,9 @@ enum StagedInstall {
               profiles.allSatisfy({ HermesKeyPaste.isValidProfileName($0.name) && CodingOrder(rawValue: $0.coding_order) != nil &&
                   !$0.skills.isEmpty && $0.skills.allSatisfy { SkillLibrary.isSafeRelativePath($0) && !$0.contains("/") } }) else {
             throw Failure.refused("operator configuration unavailable or invalid")
+        }
+        guard profiles.allSatisfy({ profile in Set(profile.reset ?? []).isSubset(of: Set(profile.skills)) }) else {
+            throw Failure.refused("reset names a skill outside the profile's selection")
         }
         let floor = Floor(keys: max(box.checkpoint.keys, saved.keys), index: max(box.checkpoint.index, saved.index),
                           bundle: max(box.checkpoint.bundle, saved.bundle), manifest: saved.manifest)

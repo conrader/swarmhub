@@ -12,6 +12,8 @@ struct BoxUpdaterStatus: Decodable, Sendable {
         let status: String?
         let advertised: [String: String?]
         let variants: [String: String]?
+        /// Skill dev mode: skills the updater keeps because the bot modified them (absent while dev mode is off).
+        var modified: [String]? = nil
     }
     struct Pins: Decodable, Sendable { let path: String; let protected: Bool }
     struct Pending: Decodable, Sendable {
