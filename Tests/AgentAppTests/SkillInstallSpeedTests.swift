@@ -81,6 +81,82 @@ private func onBox(_ path: String, home: URL) -> URL { home.appending(path: Stri
     #expect(store.skillSources(for: retry[1], in: retry).isEmpty)
 }
 
+@Test(arguments: ["current", "olderVersion", "otherVariant"]) @MainActor func copyRetriesMatchTheFailureVersionAndVariant(failureKind: String) throws {
+    let (store, manager, others) = speedStore(["Infra"])
+    let skill = try #require(store.skillLibrary.first { $0.name == "swarmhub-coding" })
+    let bot = others[0], variant = SkillLibrary.variant(of: skill, codingOrder: store.codingOrder(for: bot))
+    manager.installedSkills[skill.name] = skill.version.description
+    manager.installedSkillVariants[skill.name] = SkillLibrary.variant(of: skill, codingOrder: store.codingOrder(for: manager))
+    bot.skillInstallFailures[skill.name] = SkillInstallFailure(version: failureKind == "olderVersion" ? "0.0.0" : skill.version.description,
+        variant: failureKind == "otherVariant" ? CodingOrder.hermesOnly.argument : variant, count: 1, lastAt: .distantPast, reason: "Refused.")
+    let gap = AppStore.SkillGap(bot: bot, skills: [skill], installable: [skill])
+    let source = store.skillSources(for: gap, in: [gap])[skill.name]
+    #expect((source == nil) == (failureKind == "current"))
+    if failureKind != "current" { #expect(source?.profile == "grok-jarvis") }
+}
+
+@Test(arguments: [false, true]) @MainActor func aBatchedHeredocInstallWithAPMBlockDoesNotBackOff(hasHolder: Bool) throws {
+    let (store, manager, others) = speedStore(["Infra", "Reactor"])
+    let skills = store.skillLibrary.filter { AppStore.messagingSkills.contains($0.name) }
+    #expect(Set(skills.map(\.name)) == AppStore.messagingSkills)
+    // The literal source names make substitution unsafe even though skillSources offers a holder or an earlier bot.
+    store.skillLibraryOverride = skills.map { BundledSkill(name: $0.name, version: $0.version,
+        template: "Profile {{BOT}}; preserve grok-jarvis and grok-infra literally.") }
+    if !hasHolder { manager.installedSkills = [:] }
+    let gaps = store.messagingSkillGaps(manager: manager)
+    #expect(!store.skillSources(for: gaps[1], in: gaps).isEmpty)
+    let next = try store.nextAllBotsBatch(gaps, manager: manager)
+    #expect(next.gaps.count == gaps.count && next.gaps.count > 1)
+    #expect(next.copies.values.allSatisfy(\.isEmpty))
+    for gap in next.gaps {
+        for skill in gap.installable {
+            #expect(next.instructions.contains("cat > \(SkillLibrary.installPath(skill.name, profile: store.profile(of: gap.bot)))/SKILL.md <<'SWARMHUB_EOF'"))
+        }
+    }
+    store.noteSkillInstallChecks(next.gaps.map { ($0.bot, $0.installable) }, manager: manager, copies: next.copies)
+    #expect(try #require(store.pendingSkillChecks[manager.id]).allSatisfy { !$0.usesCopy })
+    store.allBotsSkillBatch[manager.id] = next.gaps
+    let reply = ChatMessage(role: .assistant, content: "Installed and verified the skills; peer-plugin enablement blocked by permissions.")
+    store.finishSkillInstallChecks(manager: manager, reply: reply, end: .completed)
+    for gap in next.gaps {
+        #expect(gap.bot.skillInstallFailures.isEmpty)
+        #expect(store.skillInstallResults[gap.bot.id]?.status == .peerEnableBlocked)
+    }
+    #expect(others.allSatisfy { bot in skills.allSatisfy { bot.installedSkills[$0.name] == nil } }, "an omitted block never invents an installed version")
+    #expect(store.allBotsSkillBadSources[manager.id] == nil)
+}
+
+@Test(arguments: [false, true]) @MainActor func aFailedCopySourceIsExcludedForTheRestOfTheRun(stopped: Bool) throws {
+    let (store, manager, others) = speedStore(["Infra", "Reactor", "Beacon"])
+    let messages = try #require(store.skillLibrary.first { $0.name == "swarmhub-messages" })
+    store.skillLibraryOverride = [messages]; store.allBotsBatchLimit = 1
+    let gaps = store.messagingSkillGaps(manager: manager)
+    let first = try store.nextAllBotsBatch(gaps, manager: manager)
+    #expect(first.copies[others[0].id]?[messages.name]?.profile == "grok-jarvis")
+    store.allBotsSkillQueue[manager.id] = Array(gaps.dropFirst())
+    store.allBotsSkillBatch[manager.id] = first.gaps
+    store.noteSkillInstallChecks(first.gaps.map { ($0.bot, $0.installable) }, manager: manager, copies: first.copies)
+    let reply = ChatMessage(role: .assistant, content: "\(SkillSync.failure) \(SkillLibrary.installPath(messages.name, profile: "grok-infra"))")
+    store.finishSkillInstallChecks(manager: manager, reply: reply, end: .completed)
+    #expect(store.allBotsSkillBadSources[manager.id] == ["grok-jarvis"])
+    #expect(store.skillInstallFailure(messages, for: others[0])?.count == 1)
+    let next = try store.nextAllBotsBatch(Array(gaps.dropFirst()), manager: manager)
+    #expect(next.copies.values.allSatisfy(\.isEmpty))
+    #expect(next.instructions.contains("cat > \(SkillLibrary.installPath(messages.name, profile: "grok-reactor"))/SKILL.md <<'SWARMHUB_EOF'"))
+    // A bad holder must not return through the earlier-in-batch fallback; another healthy holder is still usable.
+    let stale = AppStore.SkillGap(bot: manager, skills: [messages], installable: [messages])
+    #expect(store.skillSources(for: gaps[1], in: [stale, gaps[1]]).isEmpty)
+    others[2].installedSkills[messages.name] = messages.version.description
+    #expect(store.skillSources(for: gaps[1], in: [gaps[1]])[messages.name]?.profile == "grok-beacon")
+    if stopped { store.continueAllBotsSkillInstall(manager: manager, end: .stoppedByUser) }
+    else {
+        store.allBotsSkillQueue[manager.id] = []
+        #expect(!store.sendNextAllBotsSkillInstall(manager: manager))
+    }
+    #expect(store.allBotsSkillBadSources[manager.id] == nil)
+    #expect(store.skillSources(for: gaps[1], in: [gaps[1]])[messages.name]?.profile == "grok-jarvis", "a later run can try the holder again")
+}
+
 @Test(arguments: [false, true]) @MainActor func aFailedBatchCopyRetriesWithFullWritesDespiteAnUnverifiedPeerReceipt(reportsPMBlock: Bool) async throws {
     let attempts = LockedTrace()
     let (host, hermes) = ChatParityServer.serve(features: ["session_chat_streaming": true]) { request, body in
@@ -182,6 +258,7 @@ private func onBox(_ path: String, home: URL) -> URL { home.appending(path: Stri
     }
     let sources = Dictionary(uniqueKeysWithValues: skills.map { ($0.name, AppStore.SkillSource(profile: "grok-jarvis", codingOrder: store.codingOrder(for: jarvis))) })
     let install = try #require(try store.skillInstallCommands(skills, profile: "grok-infra", codingOrder: store.codingOrder(for: others[0]), peerInline: false, sources: sources))
+    #expect(install.copied == Set(skills.map(\.name)))
     let script = install.commands.joined(separator: "\n")
     // No file written out, and no peer call inline (peer-runtime.py itself is one of the copied files).
     #expect(!script.contains("SWARMHUB_EOF") && !script.contains("SWARMHUB_PEER_ENABLE") && !script.contains("peer-runtime.py start"))

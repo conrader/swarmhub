@@ -17,7 +17,8 @@ struct SkillInstallFailure: Codable, Equatable {
 /// One skill an install turn asked the manager to write, checked against that turn's `skills_installed` block.
 struct SkillInstallCheck: Equatable {
     let botID: UUID; let profile: String; let skill: String; let version: SkillVersion; let variant: String?
-    let usesCopy: Bool
+    let copySource: String?
+    var usesCopy: Bool { copySource != nil }
 }
 
 extension AppStore {
@@ -50,12 +51,11 @@ extension AppStore {
     }
 
     /// Remembers what the install turn about to be sent asks for.
-    func noteSkillInstallChecks(_ wanted: [(bot: Bot, skills: [BundledSkill])], manager: Bot, batch: [SkillGap] = []) {
+    func noteSkillInstallChecks(_ wanted: [(bot: Bot, skills: [BundledSkill])], manager: Bot, copies: [UUID: [String: SkillSource]] = [:]) {
         peerEnableCalls[manager.id] = nil
         pendingSkillChecks[manager.id] = wanted.flatMap { bot, skills in
-            let sources = batch.first { $0.bot.id == bot.id }.map { skillSources(for: $0, in: batch) } ?? [:]
-            return skills.map { SkillInstallCheck(botID: bot.id, profile: profile(of: bot), skill: $0.name, version: $0.version,
-                                                 variant: SkillLibrary.variant(of: $0, codingOrder: codingOrder(for: bot)), usesCopy: sources[$0.name] != nil) }
+            skills.map { SkillInstallCheck(botID: bot.id, profile: profile(of: bot), skill: $0.name, version: $0.version,
+                                          variant: SkillLibrary.variant(of: $0, codingOrder: codingOrder(for: bot)), copySource: copies[bot.id]?[$0.name]?.profile) }
         }
     }
 
@@ -111,6 +111,8 @@ extension AppStore {
             // An unconfirmed copy must still fail so its retry writes every file instead of reusing a bad source.
             let enableIssue = (receipts[check.profile].map { !$0.verified } ?? false) || (!bot.skillDevMode && reportedPeerBlock)
             if !check.usesCopy && outcome == nil && enableIssue && (check.skill == "swarmhub-messages" || reported[check.profile] == nil) { continue }
+            // An unconfirmed source must not make every remaining batch fail once before falling back to full writes.
+            if let source = check.copySource { allBotsSkillBadSources[manager.id, default: []].insert(source) }
             noteSkillInstallFailure(check.skill, version: check.version.description, variant: check.variant, reason: reason, on: bot)
             failed.append("\(check.skill) for \(bot.name)")
             failedBots.insert(bot.id)

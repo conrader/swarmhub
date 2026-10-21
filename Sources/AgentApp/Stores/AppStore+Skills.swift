@@ -150,11 +150,13 @@ extension AppStore {
     /// all-bots install). Nil when a skill cannot be rendered or the profile name is not valid. All-bots batches (0.6.4)
     /// pass `peerInline: false` (one peer call covers the batch) and `sources`: a skill with a source is copied from it
     /// when every file can be derived (`SkillSync`); never in dev mode or a reset, which keep their guarded heredocs.
+    /// `copied` lists only skills whose commands actually use `SkillSync`, excluding heredoc fallbacks.
     func skillInstallCommands(_ skills: [BundledSkill], profile: String, codingOrder: CodingOrder = .standard,
                               devMode: Bool = false, reset: Set<String> = [], peerInline: Bool = true,
-                              sources: [String: SkillSource] = [:]) throws -> (commands: [String], op: String)? {
+                              sources: [String: SkillSource] = [:]) throws -> (commands: [String], op: String, copied: Set<String>)? {
         guard !skills.isEmpty, HermesKeyPaste.isValidProfileName(profile) else { return nil }
         var commands: [String] = devMode || !reset.isEmpty ? [SkillDevMode.functionDefinition] : []
+        var copied: Set<String> = []
         for skill in skills {
             var body: [String] = []
             guard let files = renderedSkillFiles(skill, profile: profile, codingOrder: codingOrder) else { return nil }
@@ -166,6 +168,7 @@ extension AppStore {
                                          folder: folder, substitutions: [(SkillLibrary.installPath(skill.name, profile: source.profile), folder),
                                                                          (source.profile, profile)]) {
                 body.append(SkillSync.command(plan))
+                copied.insert(skill.name)
             } else {
                 let folders = Set(files.map { ($0.path as NSString).deletingLastPathComponent }.filter { !$0.isEmpty })
                 body.append("mkdir -p " + ([folder] + folders.sorted().map { "\(folder)/\($0)" }).joined(separator: " "))
@@ -185,7 +188,7 @@ extension AppStore {
             let variant = SkillLibrary.variant(of: skill, codingOrder: codingOrder).map { #","variant":"\#($0)""# } ?? ""
             return #"{"name":"\#(skill.name)","version":"\#(skill.version)"\#(variant)}"#
         }.joined(separator: ",")
-        return (commands, #"{"op":"skills_installed","bot":"\#(profile)","skills":[\#(listed)]}"#)
+        return (commands, #"{"op":"skills_installed","bot":"\#(profile)","skills":[\#(listed)]}"#, copied)
     }
 
     /// The core manager text (the skill's SKILL.md body).

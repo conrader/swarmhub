@@ -82,6 +82,7 @@ extension AppStore {
         guard !gaps.isEmpty, isIdle(manager), allBotsSkillQueue[manager.id] == nil else { return false }
         for gap in gaps { skillInstallResults[gap.bot.id] = nil }
         if !usesStagedSkills(on: connection(of: manager)) {
+            allBotsSkillBadSources[manager.id] = nil
             allBotsSkillQueue[manager.id] = gaps
             open(manager); openThreadID = nil
             return sendNextAllBotsSkillInstall(manager: manager)
@@ -119,7 +120,7 @@ extension AppStore {
                 let next = try nextAllBotsBatch(queue, manager: manager)
                 gaps = next.gaps
                 allBotsSkillQueue[manager.id] = Array(queue.dropFirst(gaps.count))
-                noteSkillInstallChecks(gaps.map { ($0.bot, $0.installable) }, manager: manager, batch: gaps)
+                noteSkillInstallChecks(gaps.map { ($0.bot, $0.installable) }, manager: manager, copies: next.copies)
                 pendingSkillInstalls[manager.id] = .init(profile: profile(of: gaps[0].bot), instructions: next.instructions)
                 allBotsSkillBatch[manager.id] = gaps
                 managementExchanges[manager.id] = nil
@@ -138,6 +139,7 @@ extension AppStore {
             }
         }
         allBotsSkillQueue[manager.id] = nil; allBotsSkillSolo[manager.id] = nil
+        allBotsSkillBadSources[manager.id] = nil
         return false
     }
 
@@ -149,6 +151,7 @@ extension AppStore {
         guard let queue = allBotsSkillQueue[manager.id] else { return }
         if case .stoppedByUser = end, installTurn {
             allBotsSkillQueue[manager.id] = nil; allBotsSkillSolo[manager.id] = nil
+            allBotsSkillBadSources[manager.id] = nil
             for gap in queue {
                 recordSkillInstallResult(.init(status: .notSent, detail: "Install not sent: the batch was stopped."), bot: gap.bot, manager: manager)
             }
@@ -161,12 +164,20 @@ extension AppStore {
     /// Outside dev mode a skill is copied from a profile that holds it where it can be (`skillSources`), and one peer call
     /// after the skills covers every profile, without enable while PM blocked this box recently.
     func allBotsSkillInstructions(_ gaps: [SkillGap]) throws -> String? {
+        try allBotsSkillPlan(gaps)?.instructions
+    }
+
+    /// Keep the sources of emitted copy commands with the exact instructions selected for the turn.
+    func allBotsSkillPlan(_ gaps: [SkillGap]) throws -> (instructions: String, copies: [UUID: [String: SkillSource]])? {
         var commands: [String] = [], ops: [String] = [], peers: [String] = []
+        var copies: [UUID: [String: SkillSource]] = [:]
         for gap in gaps {
             let batched = !gap.bot.skillDevMode
+            let sources = batched ? skillSources(for: gap, in: gaps) : [:]
             guard let part = try skillInstallCommands(gap.installable, profile: profile(of: gap.bot), codingOrder: codingOrder(for: gap.bot),
                                                       devMode: gap.bot.skillDevMode, peerInline: !batched,
-                                                      sources: batched ? skillSources(for: gap, in: gaps) : [:]) else { return nil }
+                                                      sources: sources) else { return nil }
+            copies[gap.bot.id] = sources.filter { part.copied.contains($0.key) }
             commands += part.commands; ops.append(part.op)
             if batched, gap.installable.contains(where: { $0.name == "swarmhub-messages" }) { peers.append(profile(of: gap.bot)) }
         }
@@ -179,7 +190,7 @@ extension AppStore {
         }
         let names = gaps.map { "\(profile(of: $0.bot)) (\($0.bot.name))" }.joined(separator: ", ")
         let devNote = gaps.contains { $0.bot.skillDevMode } ? " Skill dev mode is on for some of these bots: a skill a bot changed on this box is kept, not overwritten, and its line says so; that is expected, not an error to fix. Run each `case … esac` block whole, as one call; a peer command inside one runs there, not as its own call." : ""
-        return """
+        return ("""
         Konrad pressed “\(AllBotsSkillCopy.button)” in SwarmHub and confirmed it once for all of these profiles: \(names). \
         That confirmation is his yes for every one of them: do not ask again. Run exactly these commands in your terminal with \
         the shell (not the file tool), change nothing else, then reply in one short line and end with the block below. \
@@ -190,7 +201,7 @@ extension AppStore {
         ```swarmhub
         [\(ops.joined(separator: ","))]
         ```
-        """
+        """, copies)
     }
 }
 

@@ -25,19 +25,22 @@ extension AppStore {
 
     /// Where each skill `gap` installs can be copied from: a bot on the same box recorded at this version and variant (the
     /// manager first), else an earlier bot of this batch that writes it. None in dev mode, nor for a skill whose last
-    /// install failed: that retry writes every file out, so a bad source cannot keep a bot failing.
+    /// install failed at this version and variant: that retry writes every file out. Sources that failed earlier in
+    /// this all-bots run are excluded too, so they cannot make every remaining bot fail once.
     func skillSources(for gap: SkillGap, in batch: [SkillGap]) -> [String: SkillSource] {
         guard !gap.bot.skillDevMode else { return [:] }
         let target = connection(of: gap.bot), own = profile(of: gap.bot)
+        let badSources = manager(for: gap.bot).flatMap { allBotsSkillBadSources[$0.id] } ?? []
         var sources: [String: SkillSource] = [:]
-        for skill in gap.installable where gap.bot.skillInstallFailures[skill.name] == nil {
+        for skill in gap.installable where skillInstallFailure(skill, for: gap.bot) == nil {
             let holders = bots.filter { bot in
                 bot.id != gap.bot.id && bot.backend == .hermes && !bot.isReadOnlyArchive && !bot.skillDevMode && profile(of: bot) != own &&
-                    connection(of: bot) == target && HermesKeyPaste.isValidProfileName(profile(of: bot)) &&
+                    connection(of: bot) == target && HermesKeyPaste.isValidProfileName(profile(of: bot)) && !badSources.contains(profile(of: bot)) &&
                     skills(for: bot).contains { $0.name == skill.name } && !skillState(skill, for: bot).needsAction
             }
             let earlier = batch.prefix { $0.bot.id != gap.bot.id }.map(\.bot).first { bot in
-                !bot.skillDevMode && profile(of: bot) != own && batch.first { $0.bot.id == bot.id }?.installable.contains { $0.name == skill.name } == true
+                !bot.skillDevMode && profile(of: bot) != own && !badSources.contains(profile(of: bot)) &&
+                    batch.first { $0.bot.id == bot.id }?.installable.contains { $0.name == skill.name } == true
             }
             if let source = holders.first(where: { isManager($0) }) ?? holders.first ?? earlier {
                 sources[skill.name] = SkillSource(profile: profile(of: source), codingOrder: codingOrder(for: source))
@@ -49,20 +52,20 @@ extension AppStore {
     /// The next all-bots turn from the front of `queue`. A dev-mode bot, or one whose batch the provider refused, goes
     /// alone; otherwise the bots after it join while the batch stays within the bot cap and the planning budget. Throws
     /// when the first bot's files cannot be rendered (it is reported and the batch moves on).
-    func nextAllBotsBatch(_ queue: [SkillGap], manager: Bot) throws -> (gaps: [SkillGap], instructions: String) {
+    func nextAllBotsBatch(_ queue: [SkillGap], manager: Bot) throws -> (gaps: [SkillGap], instructions: String, copies: [UUID: [String: SkillSource]]) {
         let solo = allBotsSkillSolo[manager.id] ?? []
         func alone(_ gap: SkillGap) -> Bool { gap.bot.skillDevMode || solo.contains(gap.bot.id) }
-        guard let first = queue.first, let text = try allBotsSkillInstructions([first]) else {
+        guard let first = queue.first, let plan = try allBotsSkillPlan([first]) else {
             throw BackendError.unavailable("Could not render this bot's skill files or validate its profile.")
         }
-        var batch = [first], instructions = text
-        guard !alone(first) else { return (batch, instructions) }
+        var batch = [first], install = plan
+        guard !alone(first) else { return (batch, install.instructions, install.copies) }
         for gap in queue.dropFirst() {
-            guard batch.count < allBotsBatchLimit, !alone(gap), let next = try? allBotsSkillInstructions(batch + [gap]),
-                  Self.encodedInstructionsSize(next) <= Self.allBotsPlanningBudget else { break }
-            batch.append(gap); instructions = next
+            guard batch.count < allBotsBatchLimit, !alone(gap), let next = try? allBotsSkillPlan(batch + [gap]),
+                  Self.encodedInstructionsSize(next.instructions) <= Self.allBotsPlanningBudget else { break }
+            batch.append(gap); install = next
         }
-        return (batch, instructions)
+        return (batch, install.instructions, install.copies)
     }
 
     static func encodedInstructionsSize(_ text: String) -> Int {
