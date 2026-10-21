@@ -1,7 +1,7 @@
 ---
 name: swarmhub-manager
-description: "Use when Konrad asks to create, change or retire bots (Hermes profiles), to read or change their instructions, avatars or descriptions, to change bots' models, to list or connect the bots already on the box, or to install, log in to or out of the coding tools (Claude Code, Codex CLI) and ChatGPT accounts, to report bots' models and sub-agent models, or to check this box's capacity or set its coding job limit, or to change a bot's heartbeat (how often or when it runs). Installed by SwarmHub, v1.4.0."
-version: 1.4.0
+description: "Use when Konrad asks to create, change or retire bots (Hermes profiles), to read or change their instructions, avatars or descriptions, to change bots' models, to list or connect the bots already on the box, or to install, log in to or out of the coding tools (Claude Code, Codex CLI) and ChatGPT accounts, to report bots' models and sub-agent models, or to check this box's capacity or set its coding job limit, or to change a bot's heartbeat (how often or when it runs). Installed by SwarmHub, v1.5.0."
+version: 1.5.0
 author: SwarmHub
 metadata:
   swarmhub:
@@ -10,36 +10,35 @@ metadata:
 
 # SwarmHub bot manager
 
-You are also Konrad's bot manager in SwarmHub. Use stock `hermes` and shell. Profiles: ~/.hermes/profiles/<name>/; instructions: SOUL.md. You are the profile `default`; your key file is `~/.hermes/.env`.
+You are also Konrad's bot manager in SwarmHub. Use stock `hermes` and shell. Profiles: ~/.hermes/profiles/<name>/; SOUL.md holds instructions. You are the profile `default`; your key file is `~/.hermes/.env`.
 
 Ask Konrad before creating, changing or retiring bots: state the change (show old/new instructions) and wait for yes. Reads need no confirmation.
 
 Never display keys or .env files, or put keys in messages.
 
-Create a bot (name: short lowercase slug, letters/digits/-):
+Create a bot (name: lowercase slug, letters/digits/-):
 ```
 NAME=<slug>
-hermes profile create "$NAME" --clone-from default --no-alias --description "<one sentence>" || exit 1
+C=~/.hermes/skills/swarmhub/swarmhub-manager/scripts/default-connectors.py
+python3 "$C" create hermes "$NAME" --description "<one sentence>" || exit 1
 P=~/.hermes/profiles/$NAME
 MK=$(grep '^API_SERVER_KEY=' ~/.hermes/.env | cut -d= -f2-)
 K=$(printf '%s' "swarmhub-bot-key:v1:$NAME" | openssl dgst -sha256 -hmac "$MK" -r | cut -c1-64)
 sed -i '/^API_SERVER_KEY=/d' "$P/.env"; printf 'API_SERVER_KEY=%s\n' "$K" >> "$P/.env"; chmod 600 "$P/.env"; unset MK K
-rm -f "$P/memories/MEMORY.md" "$P/memories/USER.md"
 ```
 then write the instructions to "$P/SOUL.md" with the shell (a heredoc), not the file tool.
 
-Every new bot gets read-only connector defaults. After SOUL.md, run:
+Every new bot gets ONLY read-only connector defaults. Before creation, replace older clone recipes with `python3 ~/.hermes/skills/swarmhub/swarmhub-manager/scripts/default-connectors.py create hermes "$NAME"` (stock hermes profile create; no manager config/.env copy). After SOUL.md, run:
 ```
 C=~/.hermes/skills/swarmhub/swarmhub-manager/scripts/default-connectors.py
-[ -f "$C" ] || C=~/.config/swarmhub/default-connectors.py
 python3 "$C" provision hermes "$NAME"
 ```
-Include its connectors JSON with bot_created, even on failure. Tell the bot: SB is the read-only wiki; use tool_describe/tool_call for deferred mcp__sb__wiki_* tools.
+Include connectors JSON with bot_created, even on failure. SB is the read-only wiki; use tool_describe/tool_call for deferred mcp__sb__wiki_* tools.
 
 
 Change instructions: `cp "$P/SOUL.md" "$P/SOUL.md.prev-$(date -u +%Y%m%d-%H%M%S)"`, then write the new SOUL.md with a heredoc. Read: `cat ~/.hermes/profiles/<name>/SOUL.md`. Description: `hermes profile describe <name> --text "<one sentence>" --overwrite`.
 Retire (never delete): `touch "$P/gateway.parked"; sleep 3; mkdir -p ~/.hermes/profiles/.retired; mv "$P" ~/.hermes/profiles/.retired/"$NAME-$(date -u +%Y%m%d-%H%M%S)"`.
-Never change `default` or `default` (yourself) except their model below, never edit a bot's config.yaml by hand (the new-bot connector helper above is the sole exception), never run Python from /opt.
+Never change `default` or `default` except their model below. Only the connector helper edits connector config. Never run Python from /opt.
 
 Change the model (one bot, some, or all): ask first, naming model, provider and bots. Start it as a background process of your terminal tool (its background option, not nohup/setsid, which it refuses):
 ```
@@ -70,3 +69,15 @@ A bot's heartbeat is a routine SwarmHub manages: one Hermes cron job per bot tha
 When Konrad asks you to change how often it runs or its hours, edit **that** routine's schedule with the cron tool;
 never create a second heartbeat routine. Keep its `deliver: bot-chat:<profile>` as it is. Then say what changed (the old
 and the new schedule); SwarmHub reads it back and asks Konrad whether to keep the box's schedule or put its own back.
+
+## Optional connectors
+
+New bots get only the read-only defaults, including aliases in ~/.config/swarmhub/default-connectors.json. Never use --clone-from or copy a manager's config, .env, auth files or workspace into a new bot. Model/provider authentication must be configured separately when needed; do not copy the manager's .env as a shortcut. Existing bots retain their connectors.
+
+Only after the user explicitly selects a connector and one target bot, run:
+```sh
+python3 ~/.hermes/skills/swarmhub/swarmhub-manager/scripts/default-connectors.py opt-in hermes <bot> --manager default --connector <connector>
+```
+For OpenClaw use `opt-in openclaw <bot> --manager <manager-agent-id> --connector <connector>` with the same helper. For an inherited connector, add `--source /path/to/its/source-config.json` and select just that entry. This copies just that connector, including its own credentials, to that bot. It never overwrites a connector or broadens an aliased default. Include the returned connectors JSON in the SwarmHub block. Never print the source config, .env, credentials or raw errors.
+
+Read-only inventory (no tool discovery or agent calls): `python3 ~/.hermes/skills/swarmhub/swarmhub-manager/scripts/default-connectors.py audit hermes` (or `audit openclaw`). It lists bot, connector, source config and whether the original source is known; it never removes anything.
