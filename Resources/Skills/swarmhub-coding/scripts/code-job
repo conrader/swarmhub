@@ -10,6 +10,17 @@
 
 usage() { echo "usage: code-job --bot <name> --order claude,codex,hermes [--origin <ordering-bot>] --model <id> --effort <level> --report <file> [--dir <workdir>] [--verify <command>] [--timeout <s>] [--max-turns <n>] -- \"<task>\"" >&2; exit 64; }
 
+# Sets NOW to the epoch second. dash catches SIGCHLD without SA_RESTART, so a background child exiting mid-read can
+# leave `$(date +%s)` empty (the macOS dash logged "ran -1792576279s"); retry until it yields digits. Should every try
+# fail, the last good reading stays, so a duration is off by seconds instead of by the whole epoch.
+NOW=0
+now() {
+  for _try in 1 2 3 4 5; do
+    _now=$(date +%s)
+    case $_now in ''|*[!0-9]*) ;; *) NOW=$_now; return 0 ;; esac
+  done
+}
+
 BOT= ORDER= DIR=. TIMEOUT=1800 MAXTURNS=40 ORIGIN=${SWARMHUB_ORDERING_BOT:-}
 MODEL=${CODE_JOB_MODEL:-} EFFORT=${CODE_JOB_EFFORT:-high} REPORT=${CODE_JOB_REPORT:-} TASKID= JOBID= SPECULATIVE=0
 ORIGIN_GIVEN= VERIFY_ARG=
@@ -149,10 +160,11 @@ collect_evidence() {
     # The launcher records its isolation mode (namespaced, fallback = limited, seatbelt) in $T, out of the verifier's reach.
     ( exec python3 "$(dirname "$0")/verify-sandbox.py" "$DIR" "$VERIFY" "$T/verify-mode" "$T/git-trust.json" ) < /dev/null > "$T/verify" 2>&1 &
     VPID=$!
-    t0=$(date +%s); VEXIT=
+    now; t0=$NOW VEXIT=
     while kill -0 "$VPID" 2>/dev/null; do
       if [ -z "$VEXIT" ] && [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ]; then VEXIT=125; kill_tree "$VPID"; fi
-      if [ -z "$VEXIT" ] && [ $(( $(date +%s) - t0 )) -gt "$VTIMEOUT" ]; then VEXIT=124; kill_tree "$VPID"; fi
+      now
+      if [ -z "$VEXIT" ] && [ $(( NOW - t0 )) -gt "$VTIMEOUT" ]; then VEXIT=124; kill_tree "$VPID"; fi
       sleep "${CODE_JOB_TICK:-1}"
     done
     wait "$VPID"; rc=$?
@@ -282,7 +294,7 @@ try_slot() {
 
 take_slot() {
   [ -n "$SLOT" ] && return 0
-  start=$(date +%s) said=
+  now; start=$NOW said=
   until try_slot; do
     [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ] && finish 125 cancelled
     if [ -z "$said" ]; then
@@ -294,7 +306,7 @@ take_slot() {
     sleep "$POLL"
   done
   # A slot free at the first try is no wait (two clock reads can straddle a second).
-  if [ -n "$said" ]; then WAITED=$(( $(date +%s) - start )); fi
+  if [ -n "$said" ]; then now; WAITED=$(( NOW - start )); fi
 }
 
 # Runs agent $1 in --dir, streaming its stdout and stderr through; sets RC (124 on timeout) and copies output to $T/out.
@@ -328,20 +340,21 @@ run_agent() {
   # Watchdog and sampler: every tick (1 s; CODE_JOB_TICK for tests) check the deadline (more than TIMEOUT whole seconds
   # on the clock), every 2 ticks add up the tree's RSS.
   (
-    t=0 peak=0 t0=$(date +%s)
+    now; t=0 peak=0 t0=$NOW
     while kill -0 "$APID" 2>/dev/null; do
       if [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ]; then : > "$T/cancelled"; kill_tree "$APID"; break; fi
       if [ $((t % 2)) -eq 0 ]; then
         r=$(tree_rss "$APID"); [ "${r:-0}" -gt "$peak" ] && { peak=$r; echo "$peak" > "$T/peak"; }
       fi
-      if [ $(( $(date +%s) - t0 )) -gt "$TIMEOUT" ]; then : > "$T/timedout"; kill_tree "$APID"; break; fi
+      now
+      if [ $(( NOW - t0 )) -gt "$TIMEOUT" ]; then : > "$T/timedout"; kill_tree "$APID"; break; fi
       sleep "${CODE_JOB_TICK:-1}"; t=$((t + 1))
     done
   ) < /dev/null > /dev/null 2>&1 &
   MPID=$!
-  ran0=$(date +%s)
+  now; ran0=$NOW
   wait "$APID"; RC=$?
-  RAN=$(( RAN + $(date +%s) - ran0 ))
+  now; RAN=$(( RAN + NOW - ran0 ))
   wait "$MPID" "$O1" "$O2"
   APID= MPID= O1= O2=
   p=$(cat "$T/peak" 2>/dev/null); [ "${p:-0}" -gt "$PEAK" ] && PEAK=$p

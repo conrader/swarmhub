@@ -109,7 +109,7 @@ extension AppStore {
 
     @discardableResult func sendNextAllBotsSkillInstall(manager: Bot) -> Bool {
         // A queued user message may take the manager's slot between installs. Keep the remaining profiles
-        // untouched; runChatTurn calls continueAllBotsSkillInstall again when that message finishes.
+        // untouched; runChatTurn (or a Retry's releaseSlot) resumes the batch when that turn finishes.
         guard isIdle(manager) else { return false }
         while var queue = allBotsSkillQueue[manager.id], !queue.isEmpty {
             let gap = queue.removeFirst()
@@ -122,7 +122,9 @@ extension AppStore {
                 pendingSkillInstalls[manager.id] = .init(profile: profile(of: gap.bot), instructions: instructions)
                 managementExchanges[manager.id] = nil
                 // Explicit destination: switching chats during the batch must not redirect the next turn.
-                if send(text: AllBotsSkillCopy.request(1), bot: manager, conversation: manager, replyToID: nil) { return true }
+                if send(text: AllBotsSkillCopy.request(1), bot: manager, conversation: manager, replyToID: nil) {
+                    allBotsSkillTurn[manager.id] = turn(in: manager)?.token; return true
+                }
                 throw BackendError.unavailable(errorMessage ?? "The manager could not start the install turn.")
             } catch {
                 pendingSkillInstalls[manager.id] = nil; pendingSkillChecks[manager.id] = nil; peerEnableCalls[manager.id] = nil
@@ -134,9 +136,13 @@ extension AppStore {
         return false
     }
 
-    func continueAllBotsSkillInstall(manager: Bot, end: TurnEnd) {
+    /// `token` is the manager-chat turn that ended (nil: the batch's own). Stop ends the batch only on its install turn; a
+    /// stopped queued message lets the next profile go.
+    func continueAllBotsSkillInstall(manager: Bot, end: TurnEnd, token: UUID? = nil) {
+        let installTurn = token == nil || allBotsSkillTurn[manager.id] == token
+        if installTurn { allBotsSkillTurn[manager.id] = nil }
         guard let queue = allBotsSkillQueue[manager.id] else { return }
-        if case .stoppedByUser = end {
+        if case .stoppedByUser = end, installTurn {
             allBotsSkillQueue[manager.id] = nil
             for gap in queue {
                 recordSkillInstallResult(.init(status: .notSent, detail: "Install not sent: the batch was stopped."), bot: gap.bot, manager: manager)

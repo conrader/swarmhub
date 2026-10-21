@@ -215,7 +215,7 @@ extension AppStore {
             routeSecretRequests(in: assistant, bot: bot, conversation: conversation)
         }
         automationTurnEnded(in: conversation, bot: bot, reply: assistant, outcome: outcome, corrected: corrected)
-        if conversation.id == bot.id { continueAllBotsSkillInstall(manager: bot, end: end) }
+        if conversation.id == bot.id { continueAllBotsSkillInstall(manager: bot, end: end, token: token) }
     }
 
     /// History for a 1:1 turn: the transcript up to and including `last`, without steer bubbles, warning lines and empty replies.
