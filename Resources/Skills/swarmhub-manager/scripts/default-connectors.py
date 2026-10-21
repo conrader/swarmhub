@@ -126,15 +126,23 @@ def provision(home, backend, bot):
         import yaml
         path = root / "config.yaml"
         config = read_config(path)
-        # A clone may contain a disabled or broader SB entry. The default is deliberately narrow.
-        config.setdefault("mcp_servers", {}).update(configured)
-        atomic_write(path, yaml.safe_dump(config, sort_keys=False, allow_unicode=True))
+        servers = config.setdefault("mcp_servers", {})
     else:
         # OpenClaw's MCPorter skill resolves config relative to the agent's workspace.
         # This does not touch the Gateway config, auth profiles, or another agent's workspace.
         path = root / "config/mcporter.json"
         config = read_config(path) if path.exists() else {"mcpServers": {}, "imports": []}
-        config.setdefault("mcpServers", {}).update(configured)
+        servers = config.setdefault("mcpServers", {})
+    # A clone may contain a disabled or broader SB entry. The default is deliberately narrow.
+    servers.update(configured)
+    for name in skipped:
+        # A clone may also carry a full copy of a default we refused to reference, with its credentials and
+        # every tool. A failed default must not stay active, so the inherited copy is removed.
+        if servers.pop(name, None) is not None:
+            skipped[name] += " The copy inherited from the manager was removed from this bot."
+    if backend == "hermes":
+        atomic_write(path, yaml.safe_dump(config, sort_keys=False, allow_unicode=True))
+    else:
         atomic_write(path, json.dumps(config, indent=2) + "\n")
     report = {"op": "connectors", "name": bot, "list": [
         {"name": name, "state": "never_attempted", "detail": "Configured; awaiting the bot's first tool load."}

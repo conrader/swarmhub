@@ -229,6 +229,45 @@ class DefaultConnectorsTests(unittest.TestCase):
         self.assertIn("only stdio", states["remote"][1])
         self.assertEqual(states["gone"], ("failed", "Default connector source or server cannot be read on this computer."))
 
+    def test_skipped_defaults_inherited_from_the_manager_clone_do_not_stay_active(self):
+        inherited = {
+            "remote": {"url": "https://docs.invalid/mcp", "headers": {"Authorization": "Bearer synthetic-header-secret"}},
+            "gone": {"command": "docs-mcp", "env": {"DOCS_TOKEN": "synthetic-env-secret"}}}
+        source = self.home / ".hermes/config.yaml"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(yaml.safe_dump({"mcp_servers": {"remote": inherited["remote"]}}))
+        policy = self.home / ".config/swarmhub/default-connectors.json"
+        policy.parent.mkdir(parents=True)
+        policy.write_text(json.dumps({"connectors": [
+            {"name": "remote", "source": "~/.hermes/config.yaml", "server": "remote", "tools": ["search"]},
+            {"name": "gone", "source": "~/.hermes/config.yaml", "server": "missing", "tools": ["search"]}]}))
+        hermes = self.profile()
+        config = yaml.safe_load((hermes / "config.yaml").read_text())
+        config["mcp_servers"].update(inherited)
+        (hermes / "config.yaml").write_text(yaml.safe_dump(config))
+        openclaw = helper.location(self.home, "openclaw", "brand-new")
+        (openclaw / "config").mkdir(parents=True)
+        (openclaw / "config/mcporter.json").write_text(json.dumps({"mcpServers": dict(inherited), "imports": []}))
+        for backend, path, key in (("hermes", hermes / "config.yaml", "mcp_servers"),
+                                   ("openclaw", openclaw / "config/mcporter.json", "mcpServers")):
+            with self.subTest(backend=backend), patch.object(helper.shutil, "which", return_value="/usr/bin/mcporter"), \
+                    patch.object(helper, "mcporter_status", return_value={}):
+                report = helper.provision(self.home, backend, "brand-new")
+                text = path.read_text()
+                for secret in ("synthetic-header-secret", "synthetic-env-secret", "DOCS_TOKEN", "docs.invalid"):
+                    self.assertNotIn(secret, text)
+                servers = helper.read_config(path)[key]
+                self.assertNotIn("remote", servers)
+                self.assertNotIn("gone", servers)
+                self.assertIn("sb", servers)
+                # The setup report and a later read of the config agree: failed, not configured.
+                states = {row["name"]: row for row in report["list"]}
+                inspected = {row["name"]: row for row in helper.inspect(self.home, backend, "brand-new")["list"]}
+                for name in ("remote", "gone"):
+                    self.assertEqual(states[name]["state"], "failed")
+                    self.assertIn("inherited from the manager was removed", states[name]["detail"])
+                    self.assertEqual(inspected[name]["state"], "failed")
+
     def test_bad_names_cannot_touch_another_profile(self):
         for name in ("../default", "a; echo secret", "$(id)", "", "default"):
             with self.assertRaises(ValueError):
