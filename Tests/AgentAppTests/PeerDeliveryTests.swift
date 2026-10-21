@@ -60,7 +60,10 @@ import Testing
                          keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let skill = try #require(SkillLibrary.bundled().first { $0.name == "swarmhub-messages" })
     let install = try #require(try store.skillInstallCommands([skill], profile: "infra"))
-    #expect(install.commands.contains("python3 ~/.hermes/profiles/infra/skills/swarmhub/swarmhub-messages/scripts/peer-runtime.py install infra"))
-    #expect(install.commands.contains("hermes -p infra plugins enable swarmhub-peer"))
+    let enable = PeerPluginEnablement.command(profile: "infra")
+    #expect(install.commands.contains(enable))
+    #expect(enable.contains("'install', 'infra'"))
+    #expect(enable.contains("'plugins', 'enable', 'swarmhub-peer'"))
+    #expect(enable.contains("'plugins', 'list'"))
     #expect(install.commands.last == "python3 ~/.hermes/profiles/infra/skills/swarmhub/swarmhub-messages/scripts/peer-runtime.py start")
 }

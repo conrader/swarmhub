@@ -50,6 +50,7 @@ extension AppStore {
 
     /// Remembers what the install turn about to be sent asks for.
     func noteSkillInstallChecks(_ wanted: [(bot: Bot, skills: [BundledSkill])], manager: Bot) {
+        peerEnableCalls[manager.id] = nil
         pendingSkillChecks[manager.id] = wanted.flatMap { bot, skills in
             skills.map { SkillInstallCheck(botID: bot.id, profile: profile(of: bot), skill: $0.name, version: $0.version,
                                            variant: SkillLibrary.variant(of: $0, codingOrder: codingOrder(for: bot))) }
@@ -63,12 +64,24 @@ extension AppStore {
     func finishSkillInstallChecks(manager: Bot, reply: ChatMessage, end: TurnEnd) {
         let outcomes = skillDevOutcomes.removeValue(forKey: manager.id) ?? [:]
         guard let checks = pendingSkillChecks.removeValue(forKey: manager.id), !checks.isEmpty else { return }
+        let peer = peerEnableCalls.removeValue(forKey: manager.id)?.receipt
+        if SkillInstallPayloadError.isPayloadError(end) {
+            let reason = "Client-side install payload error: \(Self.skillInstallFailureReason(end, reply: reply)). Install backoff unchanged."
+            for id in Set(checks.map(\.botID)) {
+                guard let bot = bots.first(where: { $0.id == id }) else { continue }
+                recordSkillInstallResult(.init(status: .clientPayloadError, detail: reason), bot: bot, manager: manager)
+            }
+            errorMessage = reason
+            return
+        }
         var reported: [String: [SwarmhubOp.InstalledSkill]] = [:]
         if case .completed = end {
             for case .skillsInstalled(let profile, let rows) in SwarmhubBlock.ops(in: reply.content) ?? [] { reported[profile, default: []] += rows }
         }
         let reason = Self.skillInstallFailureReason(end, reply: reply)
         var failed: [String] = []
+        var failedBots: Set<UUID> = []
+        let reportedPeerBlock = PeerPluginEnablement.reportedBlock(SwarmhubBlock.visibleText(reply.finalText))
         for check in checks {
             guard let bot = bots.first(where: { $0.id == check.botID }) else { continue }
             let outcome = outcomes["\(check.profile)/\(check.skill)"]
@@ -76,9 +89,29 @@ extension AppStore {
             let landed = outcome == nil && reported[check.profile]?.contains {
                 $0.name == check.skill && (SkillVersion($0.version).map { $0 >= check.version } ?? false) && (check.variant == nil || $0.variant == check.variant)
             } ?? false
-            if landed { bot.skillInstallFailures[check.skill] = nil; continue }
+            if landed {
+                recordInstalled(reported[check.profile] ?? [], profile: check.profile, manager: manager)
+                bot.skillInstallFailures[check.skill] = nil; continue
+            }
+            // PM admission is separate from writing the messaging skill/plugin. A blocked enable never backs off
+            // skill installation, including older servers whose reply omitted the skills_installed block.
+            let enableIssue = (peer?.profile == check.profile && peer?.verified == false) || reportedPeerBlock
+            if enableIssue && (check.skill == "swarmhub-messages" || reported[check.profile] == nil) { continue }
             noteSkillInstallFailure(check.skill, version: check.version.description, variant: check.variant, reason: reason, on: bot)
             failed.append("\(check.skill) for \(bot.name)")
+            failedBots.insert(bot.id)
+        }
+        for id in Set(checks.map(\.botID)) {
+            guard let bot = bots.first(where: { $0.id == id }) else { continue }
+            let result: SkillInstallResult
+            if failedBots.contains(id) {
+                result = .init(status: .failed, detail: "Skills not fully installed: \(reason)")
+            } else if checks.contains(where: { $0.botID == id && $0.skill == "swarmhub-messages" }) {
+                if let peer, peer.profile == profile(of: bot) { result = peer.result }
+                else if reportedPeerBlock { result = .init(status: .peerEnableBlocked, detail: PeerPluginEnablement.blockedDetail) }
+                else { result = .init(status: .peerEnableUnverified, detail: "Skills installed; peer-plugin enablement unverified. Held delivery is not confirmed; verify with hermes -p \(profile(of: bot)) plugins list before requesting a gateway reload.") }
+            } else { result = .init(status: .installed, detail: "Skills installed.") }
+            recordSkillInstallResult(result, bot: bot, manager: manager)
         }
         if !failed.isEmpty { errorMessage = "SwarmHub’s instructions were not installed (\(failed.joined(separator: ", "))): \(reason)" }
         objectWillChange.send(); save()
@@ -126,13 +159,22 @@ extension AppStore {
     func noteStagedSkillResults(_ package: StagedInstall.Package, status: BoxUpdaterStatus?, reason: String, manager: Bot) {
         for profile in package.profiles {
             guard let bot = boundBot(profile.name, manager: manager) else { continue }
+            var failed = false
             for name in profile.skills {
                 if status.map({ Self.stagedSkillLanded(name, profile: profile, package: package, status: $0) ||
                                 Self.stagedSkillKept(name, profile: profile, status: $0) }) ?? false {
                     bot.skillInstallFailures[name] = nil; continue
                 }
+                if name == "swarmhub-messages", PeerPluginEnablement.reportedBlock(reason) { continue }
                 noteSkillInstallFailure(name, version: package.versions[name] ?? "", variant: stagedVariant(name, for: bot), reason: reason, on: bot)
+                failed = true
             }
+            let result: SkillInstallResult
+            if profile.skills.contains("swarmhub-messages"), PeerPluginEnablement.reportedBlock(reason) {
+                result = .init(status: .peerEnableBlocked, detail: PeerPluginEnablement.blockedDetail)
+            } else if failed { result = .init(status: .failed, detail: reason) }
+            else { result = .init(status: .installed, detail: "Signed skills installed." + (status?.reload_pending == true ? " Gateway reload pending." : "")) }
+            recordSkillInstallResult(result, bot: bot, manager: manager)
         }
         objectWillChange.send(); save()
     }

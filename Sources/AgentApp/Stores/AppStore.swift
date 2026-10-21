@@ -103,6 +103,9 @@ import SwarmHubCore
     var skillLibraryOverride: [BundledSkill]?; var pendingSkillInstalls: [UUID: SkillInstallTurn] = [:]; var pendingSkillChecks: [UUID: [SkillInstallCheck]] = [:]
     /// Skill dev mode: per manager, what the box did with each "profile/skill" of the running legacy install turn.
     var skillDevOutcomes: [UUID: [String: SkillDevMode.Outcome]] = [:]
+    var allBotsSkillQueue: [UUID: [SkillGap]] = [:]
+    var skillInstallResults: [UUID: SkillInstallResult] = [:]
+    var peerEnableCalls: [UUID: PeerPluginEnablement.Call] = [:]
     /// The task that redraws when the next failed install's backoff ends, and its sleep (tests return at once).
     var skillRetryRedraw: Task<Void, Never>?; var skillRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     lazy var boxInstallTransport = BoxInstallTransport(configurationURL: fileURL.deletingLastPathComponent().appending(path: "Updates/box-transport.json"))

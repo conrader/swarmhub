@@ -121,12 +121,12 @@ extension AppStore {
     func skillInstallInstructions(_ skills: [BundledSkill], profile: String, botName: String, codingOrder: CodingOrder = .standard,
                                   devMode: Bool = false, reset: Set<String> = []) throws -> String? {
         guard let install = try skillInstallCommands(skills, profile: profile, codingOrder: codingOrder, devMode: devMode, reset: reset) else { return nil }
-        let devNote = devMode || !reset.isEmpty ? " Skill dev mode is on: a skill \(botName) changed on this box is kept, not overwritten, and its line says so; that is expected, not an error to fix." : ""
+        let devNote = devMode || !reset.isEmpty ? " Skill dev mode is on: a skill \(botName) changed on this box is kept, not overwritten, and its line says so; that is expected, not an error to fix. Run each `case … esac` block whole, as one call; a peer command inside one runs there, not as its own call." : ""
         return """
         Konrad pressed \(reset.isEmpty ? "Install" : "Reset to bundled") in SwarmHub to install SwarmHub’s instructions (skills) for \(botName) (profile `\(profile)`). \
         That press is his yes: do not ask again. Run exactly these commands in your terminal with the shell (not the file tool), \
         change nothing else, then reply in one short line and end with the block below. \
-        If swarmhub-messages was installed, report whether its peer plugin activated; if the gateway did not reload it, mention that a reload is needed for held delivery.\(devNote)
+        \(skills.contains { $0.name == "swarmhub-messages" } ? PeerPluginEnablement.installInstructions : "")\(devNote)
         ````sh
         \(install.commands.joined(separator: "\n"))
         ````
@@ -158,8 +158,7 @@ extension AppStore {
             let executables = files.filter(\.isExecutable).map { "\(folder)/\($0.path)" }
             if !executables.isEmpty { body.append("chmod 755 " + executables.joined(separator: " ")) }
             if skill.name == "swarmhub-messages" {
-                body.append("python3 \(folder)/scripts/peer-runtime.py install \(profile)")
-                body.append("hermes -p \(profile) plugins enable swarmhub-peer")
+                body.append(PeerPluginEnablement.command(profile: profile))
                 body.append("python3 \(folder)/scripts/peer-runtime.py start")
             }
             commands += SkillDevMode.wrap(body, skill: skill.name, profile: profile, files: files, devMode: devMode, reset: reset.contains(skill.name))
