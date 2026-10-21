@@ -32,7 +32,7 @@ extension HermesBackend {
     func runStatus(runID: String) async throws -> String? {
         guard try await features().contains("run_status") else { return nil }
         let escaped = runID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? runID
-        do { return try await jsonRequest(path: "v1/runs/\(escaped)", timeout: timeouts.read)["status"] as? String }
+        do { return try await jsonRequest(path: "v1/runs/\(escaped)", timeout: timeouts.read, statusPolling: true)["status"] as? String }
         catch BackendError.http(let code, _) where code == 404 { return nil }
     }
 

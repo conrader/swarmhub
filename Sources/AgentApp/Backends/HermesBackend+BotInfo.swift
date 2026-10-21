@@ -81,7 +81,7 @@ struct HermesModelLock: Codable, Sendable, Equatable {
 extension HermesBackend {
     /// `nil` when the server has no `/v1/capabilities` (old gateway): every optional feature is then hidden.
     func capabilities() async throws -> HermesCapabilities? {
-        do { return HermesCapabilities.parse(try await capabilitiesJSON()) }
+        do { return HermesCapabilities.parse(try await capabilitiesJSON(statusPolling: true)) }
         catch BackendError.http(404, _) { return nil }
     }
 
@@ -90,8 +90,8 @@ extension HermesBackend {
     func hermesVersion() async -> HermesVersionReading {
         do {
             let json: [String: Any]
-            do { json = try await jsonRequest(path: "health", timeout: timeouts.check) }
-            catch BackendError.http(404, _) { json = try await jsonRequest(path: "health/detailed", timeout: timeouts.check) }
+            do { json = try await jsonRequest(path: "health", timeout: timeouts.check, statusPolling: true) }
+            catch BackendError.http(404, _) { json = try await jsonRequest(path: "health/detailed", timeout: timeouts.check, statusPolling: true) }
             guard let raw = json["version"] as? String else { return .init(raw: nil, problem: "/health reports no version.") }
             return .init(raw: raw)
         } catch {
@@ -99,9 +99,9 @@ extension HermesBackend {
         }
     }
 
-    func skills() async throws -> [HermesSkill] { HermesSkill.parseList(try await jsonRequest(path: "v1/skills")) }
-    func toolsets() async throws -> [HermesToolset] { HermesToolset.parseList(try await jsonRequest(path: "v1/toolsets")) }
-    func modelOptions() async throws -> HermesModelOptions { HermesModelOptions.parse(try await jsonRequest(path: "api/model/options")) }
+    func skills() async throws -> [HermesSkill] { HermesSkill.parseList(try await jsonRequest(path: "v1/skills", statusPolling: true)) }
+    func toolsets() async throws -> [HermesToolset] { HermesToolset.parseList(try await jsonRequest(path: "v1/toolsets", statusPolling: true)) }
+    func modelOptions() async throws -> HermesModelOptions { HermesModelOptions.parse(try await jsonRequest(path: "api/model/options", statusPolling: true)) }
 
     /// The `model` stored on the session row (`GET /api/sessions/{id}` → `session.model`).
     func sessionModel(sessionID: String) async throws -> String? {

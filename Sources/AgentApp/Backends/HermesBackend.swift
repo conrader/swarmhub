@@ -226,10 +226,10 @@ struct HermesBackend: AgentBackend {
 
     func testConnection() async throws -> String {
         do {
-            let json = try await jsonRequest(path: "health/detailed")
+            let json = try await jsonRequest(path: "health/detailed", statusPolling: true)
             return "Hermes \(json["version"] as? String ?? "unknown version") (\(json["status"] as? String ?? "ok"))"
         } catch BackendError.http(let code, _) where code == 404 {
-            _ = try await jsonRequest(path: "health")
+            _ = try await jsonRequest(path: "health", statusPolling: true)
             return "Hermes healthy (legacy server; version unavailable)"
         }
     }
@@ -436,18 +436,18 @@ struct HermesBackend: AgentBackend {
         }
     }
 
-    func jsonRequest(path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> [String: Any] {
-        let (data, response) = try await rawRequest(path: path, method: method, body: body, timeout: timeout); try validate(response, data: data)
+    func jsonRequest(path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil, statusPolling: Bool = false) async throws -> [String: Any] {
+        let (data, response) = try await rawRequest(path: path, method: method, body: body, timeout: timeout, statusPolling: statusPolling); try validate(response, data: data)
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw BackendError.unavailable("Hermes returned invalid JSON.") }
         return json
     }
 
     /// Authenticated, profile-prefixed request whose status the caller inspects (e.g. a 424 body that still names the saved job).
-    func rawRequest(path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> (Data, URLResponse) {
+    func rawRequest(path: String, method: String = "GET", body: [String: Any]? = nil, timeout: TimeInterval? = nil, statusPolling: Bool = false) async throws -> (Data, URLResponse) {
         var request = try makeRequest(path: path, method: method)
         if let timeout { request.timeoutInterval = timeout }
         if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
-        if method == "GET" {
+        if method == "GET", statusPolling {
             let request = request, session = session
             let read = try await statusScheduler.read(request, scope: capabilityScope) {
                 let (data, response) = try await session.data(for: request)

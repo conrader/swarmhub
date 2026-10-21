@@ -3,6 +3,8 @@ import SwarmHubCore
 
 struct HermesRecoveryTiming: Sendable {
     var delays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15)]
+    var stableInterval: Duration = .seconds(30)
+    var now: @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }
     var sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 }
 
@@ -135,6 +137,7 @@ extension HermesBackend {
         while true {
             try Task.checkCancellation()
             let revision = await eventConnections.revision()
+            var connectedAt: ContinuousClock.Instant?
             do {
                 var request = try makeRequest(path: "v1/runs/\(Self.escapedPath(runID))/events", method: "GET")
                 request.timeoutInterval = timeouts.streamIdle
@@ -145,6 +148,7 @@ extension HermesBackend {
                 await eventConnections.add(bytes.task, token: token, revision: revision)
                 do {
                     try await validateStreamResponse(response, bytes: bytes)
+                    connectedAt = recoveryTiming.now()
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
                         guard line.hasPrefix("data:") else { continue }
@@ -156,6 +160,8 @@ extension HermesBackend {
                         // The final output replaces the preview even if the retained replay lost old deltas.
                         if event == "replay.truncated" { continue }
                         guard let seq = json["seq"] as? Int, recovery.accept(seq) else { continue }
+                        // Fresh progress restores the budget; replayed events do not make a flapping stream healthy.
+                        attempt = 0
                         HermesStreamTap.shared.record(event, json)
                         if let runtime = HermesRuntime.parse(json["runtime"]) { await HermesRuntimeLog.shared.record(runtime, for: sessionID) }
                         if event == "run.completed", let output = json["output"] as? String { sink.yield(.replace(output)) }
@@ -179,6 +185,7 @@ extension HermesBackend {
                 let subscriptionMissing: Bool
                 if case BackendError.http(404, _) = error { subscriptionMissing = true } else { subscriptionMissing = false }
                 guard HermesRunRecovery.transient(error) || pathChanged || subscriptionMissing else { throw error }
+                if let connectedAt, connectedAt.duration(to: recoveryTiming.now()) >= recoveryTiming.stableInterval { attempt = 0 }
                 guard attempt < recoveryTiming.delays.count else { throw StreamBreak(delivered: true, underlying: error) }
                 continuation.yield(.status("Connection interrupted. Reconnecting to the reply…"))
                 if attempt == 0 { continuation.yield(.appNotice("Connection interrupted. Reconnecting to the same reply…")) }
@@ -186,7 +193,7 @@ extension HermesBackend {
                 attempt += 1
                 // Poll after the delay: the run may have finished while the Mac was offline. Output is authoritative.
                 do {
-                    let result = try await jsonRequest(path: "v1/runs/\(Self.escapedPath(runID))")
+                    let result = try await jsonRequest(path: "v1/runs/\(Self.escapedPath(runID))", statusPolling: true)
                     if let status = result["status"] as? String, ["completed", "failed", "cancelled", "interrupted"].contains(status) {
                         if let runtime = HermesRuntime.parse(result["runtime"]) { await HermesRuntimeLog.shared.record(runtime, for: sessionID) }
                         if let output = result["output"] as? String { sink.yield(.replace(output)) }

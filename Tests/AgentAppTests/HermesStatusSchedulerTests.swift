@@ -16,6 +16,51 @@ private func statusRequest(_ path: String = "health", host: String = "status.tes
     URLRequest(url: URL(string: "https://\(host)/\(path)")!)
 }
 
+@Test @MainActor func ordinaryRequestsBypassTheStatusPollingQueue() async throws {
+    let (host, session) = MockHermesProtocol.serve { _ in
+        (200, ["features": ["session_chat_streaming": true], "data": [], "session": [:]])
+    }
+    defer { session.invalidateAndCancel() }
+    let clockReleased = LockedValue(false)
+    let scheduler = HermesStatusScheduler(timing: .init(tick: .milliseconds(1), spacing: 0, jitter: { 0 }, now: {
+        clockReleased.current ? Date() : Date(timeIntervalSince1970: 0)
+    }))
+    var backend = HermesBackend(baseURL: URL(string: "https://\(host)/v1")!, apiKey: "fixture-key", session: session)
+    backend.statusScheduler = scheduler
+    let client = backend, finished = AwaitableLog<String>()
+    // Freeze the debounce clock: status polling must queue, while ordinary requests can finish.
+    let status = Task { try await client.testConnection() }
+    defer { status.cancel() }
+    try await waitUntil { await scheduler.queuedReadCount == 1 }
+    var readers = ["api/sessions/session", "v1/models", "api/jobs"].map { path in Task {
+        _ = try await client.jsonRequest(path: path); finished.append(path)
+    } }
+    readers.append(Task {
+        _ = try await client.rawRequest(path: "api/sessions/session/messages"); finished.append("raw GET")
+    })
+    readers.append(Task {
+        _ = try await client.loadMessages(sessionID: "session"); finished.append("history and capabilities")
+    })
+    readers.append(Task {
+        _ = try await client.jsonRequest(path: "health", method: "POST", body: [:]); finished.append("POST")
+    })
+    defer { readers.forEach { $0.cancel() } }
+    try await waitUntil {
+        let queued = await scheduler.queuedReadCount
+        return finished.all.count == readers.count || queued > 1
+    }
+    #expect(finished.all.count == readers.count, "Session preflight, history, discovery and writes bypass status debounce/backoff")
+    #expect(await scheduler.queuedReadCount == 1)
+    #expect(!MockHermesProtocol.recorded(host).contains { $0.url!.path == "/health/detailed" })
+    status.cancel()
+    readers.forEach { $0.cancel() }
+    // The capability registry owns a shared fetch independently of its cancelled reader.
+    _ = clockReleased.swap(true)
+    await scheduler.tick()
+    for reader in readers { _ = await reader.result }
+    _ = await status.result
+}
+
 @Test @MainActor func statusBurstsCoalesceWithoutCachingLaterReconciliationReads() async throws {
     let scheduler = HermesStatusScheduler(timing: .init(tick: .milliseconds(1), spacing: 0, debounce: 0.01, jitter: { 0 }))
     let gate = ReadGate(), calls = AwaitableLog<Bool>()

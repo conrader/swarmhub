@@ -167,6 +167,61 @@ private func completed(_ events: [AgentEvent]) -> Bool { events.contains { if ca
     #expect(state.requests.all.filter { $0.url!.path.hasSuffix("/events") }.count == 4)
 }
 
+@Test func runReconnectProgressRestoresFullBudgetAndInitialBackoff() async throws {
+    let subscriptions = AwaitableLog<URLRequest>(), delays = AwaitableLog<Duration>()
+    let (original, state) = RecoveryServer.serve { request in
+        if let reply = route(request) { return reply }
+        if request.url!.path.hasSuffix("/events") {
+            subscriptions.append(request)
+            let n = subscriptions.all.count - 1
+            if n == 4 { return .events([["event": "run.completed", "seq": 2, "output": "done"]]) }
+            return .events([["event": "message.delta", "seq": n < 2 ? 0 : 1, "delta": "progress"]])
+        }
+        return .json(["status": "running"])
+    }
+    var backend = original
+    backend.recoveryTiming.delays = [.seconds(1), .seconds(2)]
+    backend.recoveryTiming.sleep = { delays.append($0); try Task.checkCancellation() }
+    defer { backend.session.invalidateAndCancel() }
+    let events = try await collect(backend)
+    #expect(completed(events) && tokens(events) == "progressprogress")
+    #expect(delays.all == [.seconds(1), .seconds(2), .seconds(1), .seconds(2)])
+    #expect(subscriptions.all.count == 5 && postCount(state) == 1)
+}
+
+@Test func stableRunConnectionRestoresFullBudgetWithoutNewEvents() async throws {
+    let start = ContinuousClock.now
+    let clock = LockedValue(start)
+    let clockReads = AwaitableLog<ContinuousClock.Instant>(), delays = AwaitableLog<Duration>()
+    let subscriptions = AwaitableLog<URLRequest>()
+    let (original, state) = RecoveryServer.serve { request in
+        if let reply = route(request) { return reply }
+        if request.url!.path.hasSuffix("/events") {
+            subscriptions.append(request)
+            let n = subscriptions.all.count - 1
+            if n == 4 { return .events([["event": "run.completed", "seq": 1, "output": "done"]]) }
+            return .events([["event": "message.delta", "seq": 0, "delta": "once"]], hold: n == 2)
+        }
+        return .json(["status": "running"])
+    }
+    var backend = original
+    backend.recoveryTiming.delays = [.seconds(1), .seconds(2)]
+    backend.recoveryTiming.now = { let now = clock.current; clockReads.append(now); return now }
+    backend.recoveryTiming.sleep = { delays.append($0); try Task.checkCancellation() }
+    let client = backend
+    defer { client.session.invalidateAndCancel() }
+    let consumer = Task { try await collect(client) }
+    defer { consumer.cancel() }
+    // Two failed subscriptions each read the clock at open and close; the third stays connected.
+    try await clockReads.wait { $0.count == 5 }
+    _ = clock.swap(start.advanced(by: .seconds(31)))
+    state.disconnect()
+    let events = try await consumer.value
+    #expect(completed(events) && tokens(events) == "once")
+    #expect(delays.all == [.seconds(1), .seconds(2), .seconds(1), .seconds(2)])
+    #expect(subscriptions.all.count == 5 && postCount(state) == 1)
+}
+
 @Test func truncatedReplayStillFinishesWithTheFullOutput() async throws {
     let (backend, _) = RecoveryServer.serve { request in
         if let reply = route(request) { return reply }

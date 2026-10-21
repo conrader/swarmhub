@@ -49,8 +49,8 @@ extension HermesBackend {
     }
 
     /// One `GET v1/capabilities` through the registry.
-    func capabilitiesJSON() async throws -> [String: Any] {
+    func capabilitiesJSON(statusPolling: Bool = false) async throws -> [String: Any] {
         let backend = self
-        return try await HermesCapabilityRegistry.shared.read(capabilityScope) { .init(json: try await backend.jsonRequest(path: "v1/capabilities")) }.json
+        return try await HermesCapabilityRegistry.shared.read(capabilityScope) { .init(json: try await backend.jsonRequest(path: "v1/capabilities", statusPolling: statusPolling)) }.json
     }
 }

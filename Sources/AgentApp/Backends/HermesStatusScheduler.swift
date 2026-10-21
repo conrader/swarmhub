@@ -1,6 +1,6 @@
 import Foundation
 
-/// One queue/timer for all Hermes GETs. Coalescing is scoped to credentials/profile, while
+/// One queue/timer for Hermes status polling GETs. Coalescing is scoped to credentials/profile, while
 /// admission and busy-server backoff are shared by origin (nginx's budget crosses profiles).
 actor HermesStatusScheduler {
     static let shared = HermesStatusScheduler()

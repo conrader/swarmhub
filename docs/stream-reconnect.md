@@ -34,7 +34,9 @@ A broken event subscription retries at 1, 2, 4, 8, and 15 seconds. Each delay is
 followed by a status read: a terminal result replaces the preview; otherwise the
 subscription resumes from its last successfully parsed sequence. Duplicate
 sequences are ignored. After replay truncation, available events resume and the
-terminal output repairs the incomplete preview. Cancellation ends recovery.
+terminal output repairs the incomplete preview. Fresh sequence progress or a
+validated subscription lasting 30 seconds restores the full retry budget and
+initial backoff. Replayed duplicates alone do not reset it. Cancellation ends recovery.
 Explicit server failure/cancellation is not retried. Retry exhaustion retains
 ambiguous-delivery semantics for the existing read-only reconciliation UI.
 Recovery emits visible chat notices and status events. Run IDs are recorded even
@@ -56,7 +58,10 @@ legacy turns retain the existing interrupted-turn reconciliation/manual retry;
 automatically replaying a non-idempotent POST could repeat tool side effects.
 No unsupported recovery promise is inferred from the server version.
 
-All Hermes JSON GETs share an actor queue and one timer. Identical concurrent
+Status polling GETs (health, Overview metadata, and run status) opt into an actor
+queue and one timer. Session preflight, history, discovery, and other requests
+bypass this queue; send-time capability reads retain their own coalescing registry.
+Identical concurrent
 URLs coalesce only within the same credential/profile scope. Reads are fresh
 once the shared operation finishes; run/history results are never cached.
 Origins share 300 ms spacing plus 0–100 ms jitter, a 150 ms debounce, and a cap
