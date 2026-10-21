@@ -22,7 +22,7 @@ import Testing
     #expect(template.contains("{{MANAGER}}") && template.contains("{{MANAGER_ENV}}") && template.contains("```swarmhub"))
     let named = BotManagerText.filled(template, managerProfile: "grok-jarvis")
     #expect(!named.contains("{{") && named.contains("`grok-jarvis`") && named.contains("~/.hermes/profiles/grok-jarvis/.env"))
-    #expect(named.contains("--clone-from grok-jarvis"))
+    #expect(named.contains("create hermes") && !named.contains("--clone-from"))
     let standard = BotManagerText.filled(template, managerProfile: "default")
     #expect(standard.contains("`~/.hermes/.env`") && !standard.contains("profiles/default/.env") && !standard.contains("{{"))
 }

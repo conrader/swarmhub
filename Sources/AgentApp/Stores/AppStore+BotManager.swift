@@ -111,7 +111,11 @@ extension AppStore {
         guard !current, decision.next?.provisioningConnectors == true else { return installed ? Self.skillPointer : managerText(for: bot) }
         let step = installed ? BotManagerText.connectorDefaults(backend: .hermes).map { BotManagerText.filled($0, managerProfile: bot.hermesProfile ?? "default") } : nil
         let base = installed ? Self.skillPointer + (step.map { "\n\n" + $0 } ?? "") : managerText(for: bot)
-        return base.map { text in BotManagerText.connectorBootstrap.map { text + "\n\n" + $0 } ?? text }
+        return base.map { text in
+            let runner = SkillLibrary.installPath(SkillLibrary.managerSkill, profile: bot.hermesProfile ?? "default") + "/scripts/default-connectors.py"
+            let current = text.replacingOccurrences(of: runner, with: "~/.config/swarmhub/default-connectors.py")
+            return BotManagerText.connectorBootstrap.map { current + "\n\n" + $0 } ?? current
+        }
     }
 
     /// Opens a management exchange in the manager's chat and fills its composer (or sends at once when `send`).

@@ -130,7 +130,7 @@ private func check(_ name: String, _ text: String?, carries wanted: Set<String>)
     }
     #expect(!text.contains("{{"))
     #expect(text.contains("chmod 755 \(folder)/scripts/default-connectors.py"), "the connector helper is executable; references remain data")
-    #expect(text.contains(#"{"name":"swarmhub-manager","version":"1.4.0"}"#))
+    #expect(text.contains(#"{"name":"swarmhub-manager","version":"1.5.0"}"#))
     let rendered = try #require(SkillLibrary.render(skill, forProfile: "grok-jarvis", managerTemplate: BotManagerText.template()))
     print("P31C-SIZE rendered SKILL.md (grok-jarvis): \(rendered.utf8.count) bytes; install turn: \(text.utf8.count) bytes")
 }

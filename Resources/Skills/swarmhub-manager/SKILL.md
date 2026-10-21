@@ -1,7 +1,7 @@
 ---
 name: swarmhub-manager
 description: "Use when Konrad asks to create, change or retire bots (Hermes profiles), to read or change their instructions, avatars or descriptions, to change bots' models, to list or connect the bots already on the box, or to install, log in to or out of the coding tools (Claude Code, Codex CLI) and ChatGPT accounts, to report bots' models and sub-agent models, or to check this box's capacity or set its coding job limit, or to change a bot's heartbeat (how often or when it runs). Installed by SwarmHub, v{{VERSION}}."
-version: 1.4.0
+version: 1.5.0
 author: SwarmHub
 metadata:
   swarmhub:
@@ -26,3 +26,15 @@ A bot's heartbeat is a routine SwarmHub manages: one Hermes cron job per bot tha
 When Konrad asks you to change how often it runs or its hours, edit **that** routine's schedule with the cron tool;
 never create a second heartbeat routine. Keep its `deliver: bot-chat:<profile>` as it is. Then say what changed (the old
 and the new schedule); SwarmHub reads it back and asks Konrad whether to keep the box's schedule or put its own back.
+
+## Optional connectors
+
+New bots get only the read-only defaults, including aliases in ~/.config/swarmhub/default-connectors.json. Never use --clone-from or copy a manager's config, .env, auth files or workspace into a new bot. Model/provider authentication must be configured separately when needed; do not copy the manager's .env as a shortcut. Existing bots retain their connectors.
+
+Only after the user explicitly selects a connector and one target bot, run:
+```sh
+python3 {{SKILL_DIR}}/scripts/default-connectors.py opt-in hermes <bot> --manager {{MANAGER}} --connector <connector>
+```
+For OpenClaw use `opt-in openclaw <bot> --manager <manager-agent-id> --connector <connector>` with the same helper. This copies just that connector, including its own credentials, to that bot. It never overwrites a connector or broadens an aliased default. Include the returned connectors JSON in the SwarmHub block. Never print the source config, .env, credentials or raw errors.
+
+Read-only inventory (no tool discovery or agent calls): `python3 {{SKILL_DIR}}/scripts/default-connectors.py audit hermes` (or `audit openclaw`). It lists bot, connector, source config and whether the original source is known; it never removes anything.

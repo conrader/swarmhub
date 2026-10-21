@@ -12,7 +12,7 @@ enum BotManagerText {
     /// Bundle prompt overrides may predate connector defaults. Keep the app's provisioning requirement on those
     /// paths too; custom prose and the optional default connector policy still belong to the install.
     static func withConnectorDefaults(_ text: String, backend: BackendKind) -> String {
-        guard !text.contains("{{CONNECTOR_RUNNER}}"), let section = connectorDefaults(backend: backend) else { return text }
+        guard !text.contains("create \(backend == .openClaw ? "openclaw" : "hermes")"), let section = connectorDefaults(backend: backend) else { return text }
         return text + "\n\n" + section
     }
 
@@ -26,7 +26,7 @@ enum BotManagerText {
     /// Only creation exchanges without the installed script carry executable source. Ordinary management stays small.
     static var connectorBootstrap: String? {
         connectorHelper.map { """
-        As part of the approved new-bot action, install this helper before provisioning connectors:
+        As part of the approved new-bot action, install this helper BEFORE creating the bot. The defaults-only create command supersedes all older clone recipes:
         ```sh
         mkdir -p ~/.config/swarmhub
         cat > ~/.config/swarmhub/default-connectors.py <<'SWARMHUB_CONNECTORS'

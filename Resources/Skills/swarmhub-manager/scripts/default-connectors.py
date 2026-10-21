@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Swarm Hub's new-bot defaults and read-only load diagnostics. Never calls an agent.
+"""Swarm Hub's new-bot defaults, explicit per-bot opt-in, and read-only audit/diagnostics.
 
 Optional ~/.config/swarmhub/default-connectors.json adds references, never credentials:
 {"connectors": [{"name": "docs", "source": "~/.hermes/config.yaml",
@@ -8,6 +8,7 @@ Sources may be Hermes YAML or MCPorter JSON. Only explicit tool names are accept
 SB always uses the existing forced-command wiki SSH identity, never the messaging MCP.
 """
 import argparse
+import copy
 from contextlib import closing
 import json
 import os
@@ -99,12 +100,49 @@ def location(home, backend, bot):
     return home / (".openclaw/workspace-" + bot)
 
 
+def config_path(home, backend, bot):
+    return location(home, backend, bot) / ("config.yaml" if backend == "hermes" else "config/mcporter.json")
+
+
+def writable_root(home, backend, bot):
+    root = location(home, backend, bot)
+    # A bot/workspace symlink must not redirect a one-bot write into another bot's directory.
+    if root.is_symlink() or (backend == "openclaw" and (root / "config").is_symlink()):
+        raise ValueError("Bot directory must not redirect to another workspace")
+    return root
+
+
+def create(home, backend, bot, description=""):
+    """Create without cloning manager config, .env, auth files or skills containing credentials."""
+    root = writable_root(home, backend, bot)
+    if bot == "default" or root.exists():
+        raise ValueError("Only a fresh bot may be created")
+    defaults(home)  # Validate policy before invoking either backend.
+    command = (["hermes", "profile", "create", bot, "--no-alias", "--description", description]
+               if backend == "hermes" else
+               ["openclaw", "agents", "add", bot, "--workspace", str(root), "--non-interactive", "--json"])
+    # CLI errors/output can include configuration; never forward them to a model reply.
+    subprocess.run(command, check=True, capture_output=True, cwd=home)
+    if not root.is_dir() or root.is_symlink():
+        raise ValueError("Backend did not create the expected bot directory")
+    atomic_write(root / ".swarmhub-new-bot", "defaults-only-v1\n")
+    return provision(home, backend, bot)
+
+
 def provision(home, backend, bot):
     if bot == "default":
         raise ValueError("Connector defaults provision new bots only")
-    root = location(home, backend, bot)
+    root = writable_root(home, backend, bot)
     if not root.is_dir():
         raise ValueError("New bot directory does not exist")
+    marker = root / ".swarmhub-connectors.json"
+    pending = root / ".swarmhub-new-bot"
+    # Old bots (including bots provisioned before this policy) are never migrated or narrowed.
+    # A retry after successful provisioning also preserves subsequent explicit opt-ins.
+    if not pending.is_file():
+        if marker.is_file():
+            return json.loads(marker.read_text())
+        raise ValueError("Existing bots are not reprovisioned; use explicit opt-in")
     entries = defaults(home)
     # SB is enforced read-only by the remote forced command. Additional defaults run through our narrow stdio
     # adapter, which reads the upstream entry from its source at launch and filters listing and calls.
@@ -143,8 +181,11 @@ def provision(home, backend, bot):
                 removed = True
         if removed:
             skipped[name] += " The copy inherited from the manager was removed from this bot."
-    # A clone may contain a disabled or broader SB entry. The default is deliberately narrow.
-    servers.update(configured)
+    # Replace the complete connector map for a newly created bot, never merge manager connectors.
+    # Clear MCPorter's imported catalogs too; they can otherwise reintroduce manager credentials.
+    config["mcp_servers" if backend == "hermes" else "mcpServers"] = configured
+    if backend == "openclaw":
+        config["imports"] = []
     if backend == "hermes":
         atomic_write(path, yaml.safe_dump(config, sort_keys=False, allow_unicode=True))
     else:
@@ -162,8 +203,115 @@ def provision(home, backend, bot):
             row.update(state="failed", detail="SB SSH known_hosts file is missing on this computer.")
         if backend == "openclaw" and not shutil.which("mcporter"):
             row.update(state="failed", detail="MCPorter is not installed on this computer.")
-    atomic_write(root / ".swarmhub-connectors.json", json.dumps(report) + "\n")
+    atomic_write(marker, json.dumps(report) + "\n")
+    pending.unlink()
     return report
+
+
+def environment_values(paths):
+    """Read dotenv values for explicit connector references, without copying a whole credentials file."""
+    values = dict(os.environ)
+    for path in paths:
+        if not path.is_file():
+            continue
+        for line in path.read_text().splitlines():
+            match = re.fullmatch(r"\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*", line)
+            if not match:
+                continue
+            value = match[2]
+            if value[:1] in ("'", '"'):
+                if len(value) < 2 or value[-1] != value[0]:
+                    raise ValueError("Unsupported dotenv quoting")
+                value = value[1:-1]
+            else:
+                value = re.split(r"\s+#", value, maxsplit=1)[0]
+            values[match[1]] = value
+    return values
+
+
+def connector_copy(entry, values):
+    """Materialize only variables named by the selected connector. Never expand shell commands."""
+    variable = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+
+    def expand(value):
+        if isinstance(value, dict):
+            return {key: expand(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [expand(item) for item in value]
+        if isinstance(value, str):
+            def replace(match):
+                name = match[1] or match[2]
+                if name not in values:
+                    raise ValueError("Selected connector references an unavailable variable")
+                return values[name]
+            return variable.sub(replace, value)
+        return value
+    return expand(copy.deepcopy(entry))
+
+
+def opt_in(home, backend, bot, manager, connector):
+    """Copy exactly one explicitly selected manager connector, including its own credentials."""
+    if bot in ("default", manager) or not connector or not isinstance(connector, str):
+        raise ValueError("Select one other bot and one connector")
+    root = writable_root(home, backend, bot)
+    path, source = config_path(home, backend, bot), config_path(home, backend, manager)
+    if not path.is_file() or path.resolve() == source.resolve():
+        raise ValueError("Target bot configuration must already exist and differ from the manager")
+    entries = defaults(home)
+    if connector in entries or any(entry.get("_source") == str(source.resolve()) and
+                                   entry.get("_server") == connector for entry in entries.values()):
+        raise ValueError("Defaults must retain their read-only policy, including source aliases")
+    key = "mcp_servers" if backend == "hermes" else "mcpServers"
+    entry = read_config(source)[key][connector]
+    if not isinstance(entry, dict) or not (entry.get("command") or entry.get("url")):
+        raise ValueError("Selected manager connector is not supported")
+    values = environment_values([home / (".hermes/.env" if backend == "hermes" else ".openclaw/.env"),
+                                 location(home, backend, manager) / ".env"])
+    selected = connector_copy(entry, values)
+    config = read_config(path)
+    servers = config.setdefault(key, {})
+    if connector in servers:
+        raise ValueError("Connector already exists on this bot; no overwrite performed")
+    provenance = root / ".swarmhub-connector-sources.json"
+    origins = json.loads(provenance.read_text()) if provenance.exists() else {}
+    origins[connector] = str(source)
+    servers[connector] = selected
+    if backend == "hermes":
+        import yaml
+        text = yaml.safe_dump(config, sort_keys=False, allow_unicode=True)
+    else:
+        text = json.dumps(config, indent=2) + "\n"
+    atomic_write(path, text)
+    # Provenance contains paths and names only; credentials remain in this bot's private config.
+    atomic_write(provenance, json.dumps(origins) + "\n")
+    return {"op": "connectors", "name": bot, "list": [{"name": connector, "state": "never_attempted",
+            "detail": "Explicitly added from the manager for this bot only; awaiting tool load."}]}
+
+
+def audit(home, backend):
+    """List non-default connector holdings. No discovery, subprocesses, writes, or live tool calls."""
+    entries = defaults(home)
+    bots = (["default"] + sorted(p.name for p in (home / ".hermes/profiles").glob("*") if SLUG.fullmatch(p.name))
+            if backend == "hermes" else
+            sorted(p.name[len("workspace-"):] for p in (home / ".openclaw").glob("workspace-*")
+                   if SLUG.fullmatch(p.name[len("workspace-"):])) )
+    rows = []
+    for bot in bots:
+        path = config_path(home, backend, bot)
+        if not path.is_file():
+            continue
+        config = read_config(path)
+        provenance = path.parent.parent / ".swarmhub-connector-sources.json" if backend == "openclaw" else path.parent / ".swarmhub-connector-sources.json"
+        origins = json.loads(provenance.read_text()) if provenance.exists() else {}
+        servers = config.get("mcp_servers" if backend == "hermes" else "mcpServers", {})
+        for name in sorted(set(servers) - set(entries)):
+            rows.append({"bot": bot, "connector": name, "source": origins.get(name, str(path)),
+                         "config": str(path), "origin_known": name in origins})
+        # An imported catalog can grant additional connectors without a local server entry.
+        for _ in config.get("imports", []) if backend == "openclaw" else []:
+            rows.append({"bot": bot, "connector": "(imported catalog)", "source": str(path),
+                         "config": str(path), "origin_known": False})
+    return {"backend": backend, "bots_with_non_defaults": rows}
 
 
 def catalog_tools(payload):
@@ -379,18 +527,32 @@ def main():
             pass  # Upstream configs and errors may contain secrets; MCPorter reports the closed transport.
         return
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["provision", "inspect"])
+    parser.add_argument("--home", type=Path, default=Path.home(), help="Configuration home (use fixtures for offline audit)")
+    parser.add_argument("action", choices=["create", "provision", "opt-in", "audit", "inspect"])
     parser.add_argument("backend", choices=["hermes", "openclaw"])
-    parser.add_argument("bot")
+    parser.add_argument("bot", nargs="?")
+    parser.add_argument("--manager")
+    parser.add_argument("--connector")
+    parser.add_argument("--description", default="")
     args = parser.parse_args()
     try:
-        result = (provision if args.action == "provision" else inspect)(Path.home(), args.backend, args.bot)
+        if args.action == "audit":
+            result = audit(args.home, args.backend)
+        elif args.action == "opt-in":
+            result = opt_in(args.home, args.backend, args.bot, args.manager, args.connector)
+        elif args.action == "create":
+            result = create(args.home, args.backend, args.bot, args.description)
+        else:
+            result = (provision if args.action == "provision" else inspect)(args.home, args.backend, args.bot)
     except Exception:
         # Config/SQLite/YAML errors can echo secrets. Fail closed with a fixed, actionable reason.
         result = {"op": "connectors", "name": args.bot, "list": [
-            {"name": "defaults", "state": "failed", "detail": "Cannot read or apply connector defaults. Check config format, file permissions and Python YAML support."}]}
+            {"name": "defaults", "state": "failed", "detail": "Cannot read or apply connectors. Check names, existing bot state, config format, file permissions and Python YAML support."}]}
+        print(json.dumps(result))
+        return 1
     print(json.dumps(result))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -60,9 +60,22 @@ import Testing
     let outdated = try #require(store.managementText(for: bot, text: "create a bot for reports", conversation: bot))
     #expect(outdated.hasPrefix(AppStore.skillPointer + "\n\nEvery new bot gets"))
     #expect(outdated.contains("provision hermes") && outdated.contains("def provision(home, backend, bot):") && !outdated.contains("{{"))
-    #expect(!outdated.contains("hermes profile create"), "not the full manager text")
+    #expect(!outdated.contains("--clone-from"), "older skills receive the safe creation path")
+    #expect(outdated.contains("python3 ~/.config/swarmhub/default-connectors.py create hermes"))
+    #expect(!outdated.contains("skills/swarmhub/swarmhub-manager/scripts/default-connectors.py"), "an old installed helper must not shadow the bootstrapped helper")
     bot.installedSkills = [SkillLibrary.managerSkill: try #require(store.skillLibrary.first { $0.name == SkillLibrary.managerSkill }).version.description]
     #expect(store.managementText(for: bot, text: "create a bot for reports", conversation: bot) == AppStore.skillPointer)
+}
+
+@Test func olderManagerOverridesReceiveTheDefaultsOnlyCreationRule() throws {
+    for backend in [BackendKind.hermes, .openClaw] {
+        let old = "Old recipe using {{CONNECTOR_RUNNER}} provision and a manager clone."
+        let updated = BotManagerText.withConnectorDefaults(old, backend: backend)
+        #expect(updated.contains("ONLY read-only"))
+        #expect(updated.contains(backend == .hermes ? "create hermes" : "create openclaw"))
+        #expect(updated.contains("Replace") || updated.contains("replace"))
+        #expect(BotManagerText.withConnectorDefaults(updated, backend: backend) == updated)
+    }
 }
 
 @Test @MainActor func connectorFailuresPersistAndDoNotCrossBotBindings() throws {
