@@ -166,8 +166,7 @@ struct MessageSelectionTests {
         editor.string = "Composer text"; window.contentView?.addSubview(editor)
         #expect(window.makeFirstResponder(editor)); editor.setSelectedRange(NSRange(location: 0, length: 8))
         let event = try commandCopyEvent(in: window)
-        #expect(event.window === window)
-        #expect(selection.handle(event) === event && copied.isEmpty)
+        #expect(selection.handle(event, in: window) === event && copied.isEmpty)
         #expect(editor.tryToPerform(#selector(NSText.copy(_:)), with: nil))
         #expect(editor.copied == "Composer" && selection.count == 1)
         editor.setSelectedRange(NSRange(location: 3, length: 0))
@@ -180,10 +179,11 @@ struct MessageSelectionTests {
         #expect(window.makeFirstResponder(field)); field.selectText(nil)
         let fieldEditor = try #require(field.currentEditor())
         #expect(window.firstResponder === fieldEditor && fieldEditor.selectedRange.length > 0)
-        #expect(selection.handle(event) === event && copied.isEmpty && selection.count == 1)
+        #expect(selection.handle(event, in: window) === event && copied.isEmpty && selection.count == 1)
 
         #expect(window.makeFirstResponder(reader))
-        #expect(selection.handle(event) == nil && copied == [selection.copiedText])
+        #expect(selection.handle(event, in: nil) === event && copied.isEmpty, "an event without a window is not the transcript's")
+        #expect(selection.handle(event, in: window) == nil && copied == [selection.copiedText])
     }
 
     @MainActor @Test func messageClickFocusesTheNativeCopyTargetAndMenuValidationTracksSelection() throws {
@@ -199,7 +199,7 @@ struct MessageSelectionTests {
         let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: reader.convert(NSPoint(x: 10, y: 10), to: nil),
                                                    modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber,
                                                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-        #expect(selection.handle(click) == nil && window.firstResponder === reader && selection.count == 1)
+        #expect(selection.handle(click, in: window) == nil && window.firstResponder === reader && selection.count == 1)
         let item = NSMenuItem(title: "Copy", action: #selector(MessageSelectionReader.copy(_:)), keyEquivalent: "c")
         #expect(reader.validateUserInterfaceItem(item))
         #expect(window.firstResponder?.tryToPerform(item.action!, with: item) == true)
@@ -214,7 +214,7 @@ struct MessageSelectionTests {
         let (otherWindow, _) = copyWindow(MessageSelection())
         defer { otherWindow.contentView = nil; otherWindow.close() }
         let otherEvent = try commandCopyEvent(in: otherWindow)
-        #expect(selection.handle(otherEvent) === otherEvent && !selection.copyIfAllowed(in: otherWindow))
+        #expect(selection.handle(otherEvent, in: otherWindow) === otherEvent && !selection.copyIfAllowed(in: otherWindow))
         #expect(copied.count == 1, "other windows cannot copy this transcript's selection")
     }
 

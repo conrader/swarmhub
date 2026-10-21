@@ -63,7 +63,7 @@ import SwiftUI
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
-            return self.handle(event)
+            return self.handle(event, in: event.window)
         }
     }
     func remove() {
@@ -80,8 +80,10 @@ import SwiftUI
         return rows.first { frames[$0.id]?.contains(point) ?? false }?.id
     }
 
-    func handle(_ event: NSEvent) -> NSEvent? {
-        guard let window = reader?.window, event.window === window else { return event }
+    /// `eventWindow` is the window the event belongs to (the monitor passes `event.window`); passed in rather than read
+    /// from the event, so the routing doesn't depend on AppKit resolving a window number.
+    func handle(_ event: NSEvent, in eventWindow: NSWindow?) -> NSEvent? {
+        guard let window = reader?.window, eventWindow === window else { return event }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
         switch event.type {
         case .keyDown:
@@ -89,9 +91,9 @@ import SwiftUI
             if event.keyCode == 53 { clear(); return nil } // Escape
             if flags == .command, event.charactersIgnoringModifiers == "c", copyIfAllowed(in: window) { return nil }
             return event
-        case .rightMouseDown: return menu(event)
+        case .rightMouseDown: return menu(event, in: window)
         case .leftMouseDown:
-            if flags.contains(.control) { return menu(event) }
+            if flags.contains(.control) { return menu(event, in: window) }
             guard flags.contains(.command) || flags.contains(.shift) else {
                 if inTranscript { clear() }
                 return event
@@ -107,8 +109,8 @@ import SwiftUI
     }
 
     /// A right-click on a picked row: Copy and Deselect. Elsewhere the usual menu.
-    private func menu(_ event: NSEvent) -> NSEvent? {
-        guard inTranscript, let id = row(at: event), state.contains(id), let view = event.window?.contentView else { return event }
+    private func menu(_ event: NSEvent, in window: NSWindow) -> NSEvent? {
+        guard inTranscript, let id = row(at: event), state.contains(id), let view = window.contentView else { return event }
         let menu = NSMenu()
         menu.addItem(ActionMenuItem(MessageCopy.menuTitle(count: count), key: "c") { [weak self] in self?.copy() })
         menu.addItem(ActionMenuItem("Deselect Messages") { [weak self] in self?.clear() })
