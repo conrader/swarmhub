@@ -76,7 +76,10 @@ extension AppStore {
         }
         var reported: [String: [SwarmhubOp.InstalledSkill]] = [:]
         if case .completed = end {
-            for case .skillsInstalled(let profile, let rows) in SwarmhubBlock.ops(in: reply.content) ?? [] { reported[profile, default: []] += rows }
+            // Dev mode: rows the box kept or failed to write are not installs (recordInstalled would clear "modified locally").
+            for case .skillsInstalled(let profile, let rows) in SwarmhubBlock.ops(in: reply.content) ?? [] {
+                reported[profile, default: []] += rows.filter { outcomes["\(profile)/\($0.name)"] == nil }
+            }
         }
         let reason = Self.skillInstallFailureReason(end, reply: reply)
         var failed: [String] = []
