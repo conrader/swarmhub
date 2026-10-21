@@ -107,7 +107,7 @@ private func onBox(_ path: String, home: URL) -> URL { home.appending(path: Stri
     #expect(!store.skillSources(for: gaps[1], in: gaps).isEmpty)
     let next = try store.nextAllBotsBatch(gaps, manager: manager)
     #expect(next.gaps.count == gaps.count && next.gaps.count > 1)
-    #expect(next.copies.values.allSatisfy(\.isEmpty))
+    #expect(next.copies.values.allSatisfy { $0.isEmpty })
     for gap in next.gaps {
         for skill in gap.installable {
             #expect(next.instructions.contains("cat > \(SkillLibrary.installPath(skill.name, profile: store.profile(of: gap.bot)))/SKILL.md <<'SWARMHUB_EOF'"))
@@ -141,7 +141,7 @@ private func onBox(_ path: String, home: URL) -> URL { home.appending(path: Stri
     #expect(store.allBotsSkillBadSources[manager.id] == ["grok-jarvis"])
     #expect(store.skillInstallFailure(messages, for: others[0])?.count == 1)
     let next = try store.nextAllBotsBatch(Array(gaps.dropFirst()), manager: manager)
-    #expect(next.copies.values.allSatisfy(\.isEmpty))
+    #expect(next.copies.values.allSatisfy { $0.isEmpty })
     #expect(next.instructions.contains("cat > \(SkillLibrary.installPath(messages.name, profile: "grok-reactor"))/SKILL.md <<'SWARMHUB_EOF'"))
     // A bad holder must not return through the earlier-in-batch fallback; another healthy holder is still usable.
     let stale = AppStore.SkillGap(bot: manager, skills: [messages], installable: [messages])
