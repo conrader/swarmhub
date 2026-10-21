@@ -432,10 +432,13 @@ done_case
 # 22
 case_22() {
 new_case "interrupting verification kills its child process" codex; mode codex ok
-# The verifier runs in its own PID namespace on Linux, so its `$!` means nothing to the host: find the child by
-# a unique argument. Zombies print as <defunct> and do not match.
-sleepers() { ps -A -o args= 2>/dev/null | grep -c '^sleep 59\.37$'; }
-CASE_VERIFY='sleep 59.37 & wait'; job --bot jarvis --order codex --dir "$C/work" -- "$TASK" &
+# The verifier runs in its own PID namespace on Linux, so its `$!` means nothing to the host. Give its executable
+# a case-specific path: the Swift suite runs sh and dash concurrently, and either one's sleeper must never count
+# as the other's readiness or survivor. Keep matching after reparenting too; an ancestry-only check would hide leaks.
+# Zombies print as <defunct> and do not match.
+ln -s /bin/sleep "$C/work/verification-sleeper"
+sleepers() { ps -A -o args= 2>/dev/null | grep -Fxc -- "$C/work/verification-sleeper 59.37"; }
+CASE_VERIFY="\"$C/work/verification-sleeper\" 59.37 & wait"; job --bot jarvis --order codex --dir "$C/work" -- "$TASK" &
 runner=$!
 i=0; while [ "$(sleepers)" -eq 0 ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
 expect "verification started" [ "$(sleepers)" -gt 0 ]

@@ -169,5 +169,63 @@ own_pid "$child" || echo reaped-refused
         self.assertLess(cap.index("if p.returncode is not None"), cap.index("os.killpg(p.pid"))
 
 
+class VerificationSleeperTests(unittest.TestCase):
+    """Run the real case-22 harness with recorded process listings and a kill recorder, never real signals."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="verification-sleeper-")
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.case = Path(self.tmp) / "case"
+        (self.case / "work").mkdir(parents=True)
+        completion = self.case / "home/.hermes/swarmhub/job-completions/job.fixture"
+        completion.mkdir(parents=True)
+        (completion / "pid").write_text("424242\n")
+        script = (ROOT / "Tests/Scripts/code-job-test.sh").read_text()
+        self.body = script[script.index("case_22() {"):script.index("\n# 23\n")]
+
+    def run_case(self, listings):
+        for index, listing in enumerate(listings, 1):
+            (self.case / ("ps-%d" % index)).write_text(listing)
+        (self.case / "count").write_text("0\n")
+        fixture = r'''
+C=$1 JOB=fixture TASK=fixture PROBLEMS=
+new_case() { :; }
+mode() { :; }
+job() { :; }
+sleep() { :; }
+ps() {
+  n=$(cat "$C/count"); n=$((n + 1)); echo "$n" > "$C/count"
+  cat "$C/ps-$n" 2>/dev/null || :
+}
+own_pid() { [ "$1" = 424242 ] && [ "$2" = fixture ]; }
+kill() { printf '%s\n' "$*" >> "$C/signals"; }
+wait() { return 143; }
+rec() { echo interrupted; }
+expect() { what=$1; shift; "$@" || PROBLEMS="$PROBLEMS; $what"; }
+done_case() { printf '%s\n' "PROBLEMS=$PROBLEMS"; }
+'''
+        out = subprocess.run(["sh", "-c", fixture + self.body + "\ncase_22\ncommand wait\n", "fixture",
+                              str(self.case)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual((self.case / "signals").read_text(), "-TERM 424242\n")
+        return out.stdout
+
+    def test_another_suites_sleeper_cannot_claim_readiness_then_disappear(self):
+        # The other shell's sleeper exits between the loop's query and expect's next query. Our verifier starts
+        # later. The old global `sleep 59.37` match failed only "verification started", exactly as on the Mac.
+        own = "%s/work/verification-sleeper 59.37\n" % self.case
+        self.assertEqual(self.run_case(["sleep 59.37\n", "", own, own, "", ""]), "PROBLEMS=\n")
+
+    def test_another_suites_survivor_does_not_count_as_our_leak(self):
+        own = "%s/work/verification-sleeper 59.37\n" % self.case
+        foreign = "/other/case/work/verification-sleeper 59.37\nsleep 59.37\n"
+        self.assertEqual(self.run_case([own + foreign, own + foreign, foreign, foreign]), "PROBLEMS=\n")
+
+    def test_our_survivor_is_still_detected_after_its_parent_exits(self):
+        # ps args remain the same when init adopts the child; readiness and cleanup must use the same marker.
+        own = "%s/work/verification-sleeper 59.37\n" % self.case
+        self.assertEqual(self.run_case([own] * 44), "PROBLEMS=; verification child gone\n")
+
+
 if __name__ == "__main__":
     unittest.main()
