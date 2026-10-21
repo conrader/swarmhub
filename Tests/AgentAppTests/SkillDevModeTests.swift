@@ -99,7 +99,8 @@ private func devInstalled(_ rows: String) -> String {
     let (store, jarvis, _, _) = devStore(replies: [devInstalled(devManagerRow + "," + devFeedbackRow)], outputs: [failed])
     store.setSkillDevMode(true, for: jarvis)
     #expect(store.installSkills(for: jarvis))
-    try await waitUntil { !store.anyTurnRunning && !jarvis.skillInstallFailures.isEmpty }
+    // The failure is noted when the turn ends; the block's op is applied after that, in a task.
+    try await waitUntil { !store.anyTurnRunning && !jarvis.skillInstallFailures.isEmpty && jarvis.installedSkills["swarmhub-manager"] != nil }
     #expect(jarvis.installedSkills == ["swarmhub-manager": "1.2.0"] && jarvis.skillsModifiedLocally.isEmpty)
     #expect(store.skillInstallBackingOff(devFeedback, for: jarvis))
 }
