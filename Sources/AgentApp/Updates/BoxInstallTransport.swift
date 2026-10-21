@@ -103,7 +103,8 @@ extension AppStore {
             return
         }
         let installed = attempt.package.profiles.allSatisfy { profile in
-            profile.skills.allSatisfy { Self.stagedSkillLanded($0, profile: profile, package: attempt.package, status: status) }
+            profile.skills.allSatisfy { Self.stagedSkillLanded($0, profile: profile, package: attempt.package, status: status) ||
+                Self.stagedSkillKept($0, profile: profile, status: status) }
         }
         noteStagedSkillResults(attempt.package, status: status, reason: "Updater: \(status.state). \(status.detail) Requested skills are not yet confirmed.", manager: manager)
         if !installed || status.state != "current" || status.reload_pending {
@@ -115,8 +116,11 @@ extension AppStore {
     func recordUpdaterSkills(_ status: BoxUpdaterStatus, manager: Bot) {
         for (profile, live) in status.profiles {
             guard let bot = boundBot(profile, manager: manager) else { continue }
-            bot.installedSkills = SkillLibrary.updaterVersions(live.advertised, names: Set(skills(for: bot).map(\.name)))
+            let names = Set(skills(for: bot).map(\.name))
+            bot.installedSkills = SkillLibrary.updaterVersions(live.advertised, names: names)
             bot.installedSkillVariants = (live.variants ?? [:]).filter { bot.installedSkills[$0.key] != nil }
+            let modified = bot.skillDevMode ? Set(live.modified ?? []).intersection(names) : []
+            if modified != bot.skillsModifiedLocally { bot.skillsModifiedLocally = modified }
         }
         objectWillChange.send(); save()
     }

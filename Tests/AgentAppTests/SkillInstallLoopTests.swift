@@ -225,10 +225,15 @@ private func hardlineMatch(_ text: String) -> String? {
     let (store, _, _, _) = loopStore(replies: ["ok"])
     store.skillLibraryOverride = nil; store.managerTemplateOverride = nil
     #expect(store.skillLibrary.map(\.name) == ["swarmhub-coding", "swarmhub-feedback", "swarmhub-manager", "swarmhub-messages"])
+    // Skill dev mode's guarded commands and Reset to bundled's too.
+    let names = Set(store.skillLibrary.map(\.name))
     for order in CodingOrder.allCases {
-        let install = try #require(try store.skillInstallCommands(store.skillLibrary, profile: "grok-jarvis", codingOrder: order))
-        for command in install.commands {
-            #expect(hardlineMatch(command) == nil, "Hermes would refuse: \(hardlineMatch(command) ?? "") in \(command.prefix(120))")
+        for (devMode, reset) in [(false, Set<String>()), (true, Set<String>()), (true, names)] {
+            let install = try #require(try store.skillInstallCommands(store.skillLibrary, profile: "grok-jarvis", codingOrder: order,
+                                                                       devMode: devMode, reset: reset))
+            for command in install.commands {
+                #expect(hardlineMatch(command) == nil, "Hermes would refuse: \(hardlineMatch(command) ?? "") in \(command.prefix(120))")
+            }
         }
     }
 }

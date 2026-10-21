@@ -52,7 +52,8 @@ extension AppStore {
         let ordered = skills(for: bot).sorted { ($0.name == SkillLibrary.managerSkill ? 0 : 1) < ($1.name == SkillLibrary.managerSkill ? 0 : 1) }
         let offered = ordered.compactMap { skill -> (skill: BundledSkill, state: SkillInstallState)? in
             let state = skillState(skill, for: bot)
-            guard state.needsAction, manages || state != .missing, bot.skillBannerSnoozed != snoozeKey(skill, for: bot) else { return nil }
+            guard state.needsAction, manages || state != .missing, bot.skillBannerSnoozed != snoozeKey(skill, for: bot),
+                  !isModifiedLocally(skill, for: bot) else { return nil }
             return (skill, state)
         }
         return offered.first { !skillInstallBackingOff($0.skill, for: bot) } ?? offered.first
@@ -83,19 +84,20 @@ extension AppStore {
     /// build's fallback copy) decides the versions and skips what is already applied; it sends nothing while any skill
     /// on that connection failed at the bundle's version and backs off (`stagedSkillInstructions`). False when there is no
     /// manager, nothing to install, or another turn is still running; a skill whose content cannot travel in the heredoc
-    /// also says so in `errorMessage`.
-    @discardableResult func installSkills(for bot: Bot) -> Bool {
+    /// also says so in `errorMessage`. Skill dev mode: `reset` sends that skill alone, replacing the bot's own copy.
+    @discardableResult func installSkills(for bot: Bot, reset: BundledSkill? = nil) -> Bool {
         guard let manager = manager(for: bot), isIdle(manager) else { return false }
         let profile = bot.hermesProfile ?? "default"
         let instructions: String
         do {
             if usesStagedSkills(on: connection(of: bot)) {
-                guard let text = try stagedSkillInstructions(manager: manager, profiles: [.init(name: profile,
-                    coding_order: codingOrder(for: bot).argument, skills: skills(for: bot).map(\.name))]) else { return false }
+                guard let text = try stagedSkillInstructions(manager: manager, profiles: [stagedProfile(for: bot,
+                    skills: skills(for: bot).map(\.name), reset: reset)]) else { return false }
                 instructions = text
             } else {
-                let wanted = skillsToInstall(for: bot)
-                guard !wanted.isEmpty, let text = try skillInstallInstructions(wanted, profile: profile, botName: bot.name, codingOrder: codingOrder(for: bot)) else { return false }
+                let wanted = reset.map { [$0] } ?? skillsToInstall(for: bot)
+                guard !wanted.isEmpty, let text = try skillInstallInstructions(wanted, profile: profile, botName: bot.name, codingOrder: codingOrder(for: bot),
+                                                                                devMode: bot.skillDevMode, reset: Set(reset.map { [$0.name] } ?? [])) else { return false }
                 instructions = text
                 noteSkillInstallChecks([(bot, wanted)], manager: manager)
             }
@@ -106,7 +108,7 @@ extension AppStore {
         pendingSkillInstalls[manager.id] = SkillInstallTurn(profile: profile, instructions: instructions)
         managementExchanges[manager.id] = nil
         open(manager); openThreadID = nil
-        guard send(text: "Install SwarmHub’s instructions for \(bot.name).") else {
+        guard send(text: reset.map { "Reset \($0.name) to SwarmHub’s bundled version for \(bot.name)." } ?? "Install SwarmHub’s instructions for \(bot.name).") else {
             pendingSkillInstalls[manager.id] = nil; pendingSkillChecks[manager.id] = nil; boxInstallTransport.attempts[manager.id] = nil; return false
         }
         return true
@@ -116,13 +118,15 @@ extension AppStore {
     /// file (SKILL.md rendered for this bot, then its extra files as shipped), `chmod 755` for `scripts/`, and the
     /// `skills_installed` block to end with (P31: with each skill's variant, e.g. the coding order). Nil when a skill cannot
     /// be rendered; throws when a file contains the heredoc end marker, which would cut the file short on the box.
-    func skillInstallInstructions(_ skills: [BundledSkill], profile: String, botName: String, codingOrder: CodingOrder = .standard) throws -> String? {
-        guard let install = try skillInstallCommands(skills, profile: profile, codingOrder: codingOrder) else { return nil }
+    func skillInstallInstructions(_ skills: [BundledSkill], profile: String, botName: String, codingOrder: CodingOrder = .standard,
+                                  devMode: Bool = false, reset: Set<String> = []) throws -> String? {
+        guard let install = try skillInstallCommands(skills, profile: profile, codingOrder: codingOrder, devMode: devMode, reset: reset) else { return nil }
+        let devNote = devMode || !reset.isEmpty ? " Skill dev mode is on: a skill \(botName) changed on this box is kept, not overwritten, and its line says so; that is expected, not an error to fix." : ""
         return """
-        Konrad pressed Install in SwarmHub to install SwarmHub’s instructions (skills) for \(botName) (profile `\(profile)`). \
+        Konrad pressed \(reset.isEmpty ? "Install" : "Reset to bundled") in SwarmHub to install SwarmHub’s instructions (skills) for \(botName) (profile `\(profile)`). \
         That press is his yes: do not ask again. Run exactly these commands in your terminal with the shell (not the file tool), \
         change nothing else, then reply in one short line and end with the block below. \
-        If swarmhub-messages was installed, report whether its peer plugin activated; if the gateway did not reload it, mention that a reload is needed for held delivery.
+        If swarmhub-messages was installed, report whether its peer plugin activated; if the gateway did not reload it, mention that a reload is needed for held delivery.\(devNote)
         ````sh
         \(install.commands.joined(separator: "\n"))
         ````
@@ -134,28 +138,31 @@ extension AppStore {
 
     /// One profile's part of an install turn: its shell commands and its `skills_installed` op (P42: shared by the
     /// all-bots install). Nil when a skill cannot be rendered or the profile name is not valid.
-    func skillInstallCommands(_ skills: [BundledSkill], profile: String, codingOrder: CodingOrder = .standard) throws -> (commands: [String], op: String)? {
+    func skillInstallCommands(_ skills: [BundledSkill], profile: String, codingOrder: CodingOrder = .standard,
+                              devMode: Bool = false, reset: Set<String> = []) throws -> (commands: [String], op: String)? {
         guard !skills.isEmpty, HermesKeyPaste.isValidProfileName(profile) else { return nil }
-        var commands: [String] = []
+        var commands: [String] = devMode || !reset.isEmpty ? [SkillDevMode.functionDefinition] : []
         for skill in skills {
+            var body: [String] = []
             guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: managerCoreTemplate,
                                                     codingOrder: codingOrder) else { return nil }
             let folder = SkillLibrary.installPath(skill.name, profile: profile)
             let files = [SkillFile(path: "SKILL.md", content: content)] + skill.files.map { SkillLibrary.render(configuredFile($0), forProfile: profile) }
             if let clash = files.first(where: { $0.content.contains(Self.heredocEnd) }) { throw SkillInstallError.markerInFile(skill: skill.name, path: clash.path) }
             let folders = Set(files.map { ($0.path as NSString).deletingLastPathComponent }.filter { !$0.isEmpty })
-            commands.append("mkdir -p " + ([folder] + folders.sorted().map { "\(folder)/\($0)" }).joined(separator: " "))
+            body.append("mkdir -p " + ([folder] + folders.sorted().map { "\(folder)/\($0)" }).joined(separator: " "))
             for file in files {
                 let text = file.content.hasSuffix("\n") ? file.content : file.content + "\n"
-                commands.append("cat > \(folder)/\(file.path) <<'\(Self.heredocEnd)'\n\(text)\(Self.heredocEnd)")
+                body.append("cat > \(folder)/\(file.path) <<'\(Self.heredocEnd)'\n\(text)\(Self.heredocEnd)")
             }
             let executables = files.filter(\.isExecutable).map { "\(folder)/\($0.path)" }
-            if !executables.isEmpty { commands.append("chmod 755 " + executables.joined(separator: " ")) }
+            if !executables.isEmpty { body.append("chmod 755 " + executables.joined(separator: " ")) }
             if skill.name == "swarmhub-messages" {
-                commands.append("python3 \(folder)/scripts/peer-runtime.py install \(profile)")
-                commands.append("hermes -p \(profile) plugins enable swarmhub-peer")
-                commands.append("python3 \(folder)/scripts/peer-runtime.py start")
+                body.append("python3 \(folder)/scripts/peer-runtime.py install \(profile)")
+                body.append("hermes -p \(profile) plugins enable swarmhub-peer")
+                body.append("python3 \(folder)/scripts/peer-runtime.py start")
             }
+            commands += SkillDevMode.wrap(body, skill: skill.name, profile: profile, files: files, devMode: devMode, reset: reset.contains(skill.name))
         }
         let listed = skills.map { skill in
             let variant = SkillLibrary.variant(of: skill, codingOrder: codingOrder).map { #","variant":"\#($0)""# } ?? ""
@@ -188,8 +195,11 @@ extension AppStore {
         guard let bot = boundBot(profile, manager: manager) else { return }
         for row in installed {
             guard let skill = skillLibrary.first(where: { $0.name == row.name }), let version = SkillVersion(row.version) else { continue }
+            // Dev mode: the box kept the bot's own copy, or its guard wrote nothing; the block was written before that.
+            if skillDevOutcome(row.name, profile: profile, manager: manager) != nil { continue }
             bot.installedSkills[row.name] = min(version, skill.version).description
             bot.installedSkillVariants[row.name] = row.variant
+            if bot.skillsModifiedLocally.contains(row.name) { bot.skillsModifiedLocally.remove(row.name) }
         }
     }
 

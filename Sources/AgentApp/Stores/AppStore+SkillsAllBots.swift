@@ -18,9 +18,10 @@ extension AppStore {
         }
     }
 
-    /// The messaging skills `bot` lacks or has older than this build ships, including one whose install failed.
+    /// The messaging skills `bot` lacks or has older than this build ships, including one whose install failed; not one
+    /// it modified locally in skill dev mode (that copy is the bot's own until Reset to bundled).
     func missingMessagingSkills(for bot: Bot) -> [BundledSkill] {
-        skills(for: bot).filter { Self.messagingSkills.contains($0.name) && skillState($0, for: bot).needsAction }
+        skills(for: bot).filter { Self.messagingSkills.contains($0.name) && skillState($0, for: bot).needsAction && !isModifiedLocally($0, for: bot) }
     }
 
     /// Every Hermes bot on `manager`'s connection (the manager too) that needs one of them, in sidebar order. A bot whose
@@ -83,7 +84,7 @@ extension AppStore {
         do {
             if usesStagedSkills(on: connection(of: manager)) {
                 guard let text = try stagedSkillInstructions(manager: manager, profiles: gaps.map { gap in
-                    .init(name: profile(of: gap.bot), coding_order: codingOrder(for: gap.bot).argument, skills: gap.skills.map(\.name))
+                    stagedProfile(for: gap.bot, skills: gap.skills.map(\.name))
                 }) else { return false }
                 instructions = text
             } else {
@@ -108,16 +109,18 @@ extension AppStore {
     func allBotsSkillInstructions(_ gaps: [SkillGap]) throws -> String? {
         var commands: [String] = [], ops: [String] = []
         for gap in gaps {
-            guard let part = try skillInstallCommands(gap.installable, profile: profile(of: gap.bot), codingOrder: codingOrder(for: gap.bot)) else { return nil }
+            guard let part = try skillInstallCommands(gap.installable, profile: profile(of: gap.bot), codingOrder: codingOrder(for: gap.bot),
+                                                      devMode: gap.bot.skillDevMode) else { return nil }
             commands += part.commands; ops.append(part.op)
         }
         guard !ops.isEmpty else { return nil }
         let names = gaps.map { "\(profile(of: $0.bot)) (\($0.bot.name))" }.joined(separator: ", ")
+        let devNote = gaps.contains { $0.bot.skillDevMode } ? " Skill dev mode is on for some of these bots: a skill a bot changed on this box is kept, not overwritten, and its line says so; that is expected, not an error to fix." : ""
         return """
         Konrad pressed “\(AllBotsSkillCopy.button)” in SwarmHub and confirmed it once for all of these profiles: \(names). \
         That confirmation is his yes for every one of them: do not ask again. Run exactly these commands in your terminal with \
         the shell (not the file tool), change nothing else, then reply in one short line and end with the block below. \
-        Report whether the peer plugins activated; if the gateway did not reload them, mention that a reload is needed for held delivery.
+        Report whether the peer plugins activated; if the gateway did not reload them, mention that a reload is needed for held delivery.\(devNote)
         ````sh
         \(commands.joined(separator: "\n"))
         ````

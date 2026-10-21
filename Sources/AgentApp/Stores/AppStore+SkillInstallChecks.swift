@@ -41,9 +41,11 @@ extension AppStore {
     }
 
     /// The skills an install press may send for `bot`: those that need it and are not backing off. A skill whose
-    /// installed version and variant already match is never sent again.
+    /// installed version and variant already match is never sent again, nor (dev mode) one the bot modified locally.
     func skillsToInstall(for bot: Bot, among skills: [BundledSkill]? = nil) -> [BundledSkill] {
-        (skills ?? self.skills(for: bot)).filter { skillState($0, for: bot).needsAction && !skillInstallBackingOff($0, for: bot) }
+        (skills ?? self.skills(for: bot)).filter {
+            skillState($0, for: bot).needsAction && !skillInstallBackingOff($0, for: bot) && !isModifiedLocally($0, for: bot)
+        }
     }
 
     /// Remembers what the install turn about to be sent asks for.
@@ -56,8 +58,10 @@ extension AppStore {
 
     /// The manager's install turn ended. Each skill its block reports at the version and variant asked for clears its
     /// failure; every other one is a failure with the reason (the turn's error, or the start of the reply), and the
-    /// error is shown once.
+    /// error is shown once. Dev mode: a skill the box kept is modified locally, never a failure (so it never backs off);
+    /// one whose guard failed is a failure whatever the block says.
     func finishSkillInstallChecks(manager: Bot, reply: ChatMessage, end: TurnEnd) {
+        let outcomes = skillDevOutcomes.removeValue(forKey: manager.id) ?? [:]
         guard let checks = pendingSkillChecks.removeValue(forKey: manager.id), !checks.isEmpty else { return }
         var reported: [String: [SwarmhubOp.InstalledSkill]] = [:]
         if case .completed = end {
@@ -67,7 +71,9 @@ extension AppStore {
         var failed: [String] = []
         for check in checks {
             guard let bot = bots.first(where: { $0.id == check.botID }) else { continue }
-            let landed = reported[check.profile]?.contains {
+            let outcome = outcomes["\(check.profile)/\(check.skill)"]
+            if outcome == .kept { bot.skillInstallFailures[check.skill] = nil; bot.skillsModifiedLocally.insert(check.skill); continue }
+            let landed = outcome == nil && reported[check.profile]?.contains {
                 $0.name == check.skill && (SkillVersion($0.version).map { $0 >= check.version } ?? false) && (check.variant == nil || $0.variant == check.variant)
             } ?? false
             if landed { bot.skillInstallFailures[check.skill] = nil; continue }
@@ -115,12 +121,14 @@ extension AppStore {
 
     /// The staged install turn ended: each requested skill the updater's accepted status advertises at the bundle's version
     /// (and, for the coding skill, the profile's coding order) clears its failure; every other one is a failure of that
-    /// signed version with `reason`. Versions are the bundle's, never this build's fallback copy.
+    /// signed version with `reason`. Versions are the bundle's, never this build's fallback copy. Dev mode: a skill the
+    /// updater kept as modified locally clears its failure instead, so it never holds back the connection's installs.
     func noteStagedSkillResults(_ package: StagedInstall.Package, status: BoxUpdaterStatus?, reason: String, manager: Bot) {
         for profile in package.profiles {
             guard let bot = boundBot(profile.name, manager: manager) else { continue }
             for name in profile.skills {
-                if status.map({ Self.stagedSkillLanded(name, profile: profile, package: package, status: $0) }) ?? false {
+                if status.map({ Self.stagedSkillLanded(name, profile: profile, package: package, status: $0) ||
+                                Self.stagedSkillKept(name, profile: profile, status: $0) }) ?? false {
                     bot.skillInstallFailures[name] = nil; continue
                 }
                 noteSkillInstallFailure(name, version: package.versions[name] ?? "", variant: stagedVariant(name, for: bot), reason: reason, on: bot)
@@ -133,6 +141,11 @@ extension AppStore {
     static func stagedSkillLanded(_ name: String, profile: StagedInstall.Profile, package: StagedInstall.Package, status: BoxUpdaterStatus) -> Bool {
         guard let live = status.profiles[profile.name], let version = package.versions[name] else { return false }
         return (live.advertised[name] ?? nil) == version && (name != "swarmhub-coding" || live.variants?[name] == profile.coding_order)
+    }
+
+    /// The updater kept `name` in this dev-mode profile because the bot modified it there.
+    static func stagedSkillKept(_ name: String, profile: StagedInstall.Profile, status: BoxUpdaterStatus) -> Bool {
+        profile.dev_mode == true && status.profiles[profile.name]?.modified?.contains(name) == true
     }
 
     private func stagedVariant(_ name: String, for bot: Bot) -> String? {
