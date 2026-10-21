@@ -5,8 +5,9 @@ STUB_RECORD   directory for call records (required)
 STUB_WORKROOT sb-codejob WORKROOT (required)
 STUB_PID      pid written into the status file (default: none -> job reads as "lost"/done)
 STUB_FAIL     exit 1 without printing a status line
+STUB_SLEEP    seconds to hang after writing the status file, before printing it (a slow launch)
 """
-import datetime, json, os, pathlib, sys, uuid
+import datetime, json, os, pathlib, sys, time, uuid
 
 argv = sys.argv[1:]
 rec_dir = pathlib.Path(os.environ["STUB_RECORD"])
@@ -30,5 +31,7 @@ cmd = argv[argv.index("--") + 1:]
 (d / f"{stem}.json").write_text(json.dumps({
     "tool": "sb-codejob", "agent": agent, "pid": pid, "cmd": cmd, "started": ts,
     "ended": None if pid else ts, "exit_code": None if pid else 0, "minutes": 0.0,
-    "primary_tool": cmd[0], "model": None, "review": "none", "wake": "dormant"}))
+    "primary_tool": cmd[0], "model": None, "review": "none", "wake": "dormant",
+    "workdir": argv[argv.index("--workdir") + 1]}))
+time.sleep(float(os.environ.get("STUB_SLEEP") or 0))
 print(f"status {d / (stem + '.json')}\nlog    {d / (stem + '.log')}\npid    {pid or 4242}")

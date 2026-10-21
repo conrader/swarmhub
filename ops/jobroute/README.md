@@ -19,7 +19,7 @@ ovh sshd → authorized_keys: restrict,from="195.201.33.222",command="…/jobrou
         │  profile fixed by the key line; client cannot choose it
         ▼
 jobroute  ── allowlist.toml (one file: profiles, agent, workdirs, engines, rate limits)
-        │   validate → rate-limit (flock) → launch → audit.jsonl
+        │   validate → trust check → rate-limit + reserve (flock) → launch → audit.jsonl
         ▼
 sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed engine argv>   (brief on stdin)
         └─ detached job; sb-codejob's existing wake route tells the agent when it ends
@@ -73,12 +73,16 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
 - **Rate limit (per profile).**
   - At most 4 accepted submissions per hour and 20 per day.
   - At most 2 route jobs running at once, counting every live route job regardless of age.
-  - The check and the launch run under one `flock`.
+  - The check and a reservation row in `profiles/<profile>.jsonl` are written under one
+    `flock` (bounded 5 s wait), before the launch; the lock is not held during the launch.
+    A launch that is killed or times out keeps its reservation: it counts toward the limits,
+    and once its launcher is gone the route matches it to the job's sb-codejob status file
+    (same label, engine argv and workdir, named within 5 min) and audits a `recover` row.
   - Exceeding a limit exits with code 3 and is logged as `rate_limited`.
 - **Audit.** `~/.local/state/jobroute/audit.jsonl` (mode 600) gets one JSON line for every
   submit, status call, parse refusal and refused profile. Each line records `ts`,
   `profile`, `op`, `mode`, `result` (the outcome: `ok`, `refused`, `rate_limited` or
-  `error`), `reason` and `peer`. Every submit row, whether accepted or refused (including
+  `error`; `launching` is written before each launch), `reason` and `peer`. Every submit row, whether accepted or refused (including
   a CLI or MCP parse refusal of a submit), also records `label`, `engine`,
   `workdir_requested`, `workdir` (the resolved realpath, or `null` if it was never
   resolved), `brief_sha256` and `brief_bytes`. An MCP message over 1 MiB is dropped and
@@ -87,9 +91,20 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
   Non-allowlisted connects retain supplied CLI metadata or metadata from the first bounded
   MCP line (at most a 10 s read). The brief itself is never logged.
   `profiles/<profile>.jsonl` is the list of that profile's own jobs, which `status` reads.
+  An allowlisted profile that is misconfigured (bad `agent`, `bot` or `workdirs`) is
+  refused with an `error` row (`op` `connect`).
 - **Defence in depth.**
   - The route refuses to run if `allowlist.toml` or the state directory is not owned by
     `ubuntu`, or is group- or world-writable.
+  - Before every launch the route checks what it would exec: `sb_codejob`, the engine
+    binary found on the route `path` (passed to sb-codejob as that absolute path), the
+    resolved real path of each, every directory above them, and every `path` entry (which
+    must be absolute). Each must be owned by `ubuntu` or root and not group/world-writable;
+    a root-owned sticky directory such as `/tmp` is accepted. Otherwise the submit is
+    refused (`error`, "launch refused: untrusted …") and nothing runs. On ovh (2026-10-21)
+    this refuses every launch until a reviewed permission fix: `www-data` is in group
+    `ubuntu`, and `~/sb`, `~/sb/bin`, `sb-codejob`, `~/.local`, `~/.local/bin`,
+    `~/.local/share/claude{,/versions}` and codex's real path under `~/.nvm` are 775.
   - The CLI mode has a 120 s alarm.
   - MCP lines over 1 MiB are drained and dropped.
   - `#!/usr/bin/python3 -IB` ignores `PYTHON*` environment variables and the user site,
@@ -137,6 +152,8 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
 |---|---|
 | `jobroute` | entry point: forced-command args, strict CLI, MCP stdio server |
 | `jobroute_core.py` | allowlist loading, validation, rate limit, audit, submit, status |
+| `jobroute_jobs.py` | per-profile job index: reservations, launch outcomes, recovery, job states |
+| `jobroute_trust.py` | pre-launch ownership/mode check of sb-codejob, engines and PATH |
 | `allowlist.toml` | the one config file (12 profiles → bot dirs, engines, denylist, limits) |
 | `check-hermes-tools` | read-only heartbeat check: no allowlisted profile has a file-read, terminal or shell tool (not installed anywhere) |
 | `install.sh.in`, `generate-installer.py` | pinned installer template and exact-commit renderer |
@@ -144,6 +161,8 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
 | `tests/test_installer.py` | scratch-HOME install security, tampered releases, idempotence and rollback |
 | `tests/test_jobroute.py` | pytest: wrapper called with `SSH_ORIGINAL_COMMAND` (stub sb-codejob), plus one run against a copy of the real sb-codejob with a stub engine |
 | `tests/test_jobroute_guards.py` | per-bot workdir allowlist, prod-path denylist, symlink escapes, brief size, refusal audit, claude flags |
+| `tests/test_jobroute_p2.py` | pre-launch exec trust check, reservation before launch (killed/timed-out launch recovery), audited misconfigured profile |
+| `tests/test_installer_p2.py` | full undo after a real submit, stale `install-state.new` |
 | `tests/test_check_hermes_tools.py` | the tool check, locally and through a fake `ssh` |
 | `tests/sandbox_ssh.sh` | throwaway sshd in the sandbox: real ssh client against the production options string |
 | `tests/run-sandbox.sh` | runs both, each as `sudo -u sbtest -- unshare -r -p -f --mount-proc …` |
@@ -151,8 +170,9 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
 
 Run the tests on ovh as `ubuntu`: `ops/jobroute/tests/run-sandbox.sh`.
 Test a generated installer with `ops/jobroute/tests/run-rollback-sandbox.sh /path/to/installer.sh`.
-Both rollback scenarios start from a saved baseline and must end identical to it; the
-fresh HOME initially contains only a marker and a Git redirect to a staged GitHub mirror.
+Both rollback scenarios start from a saved baseline and must end identical to it, after one
+accepted submit through the installed route; the fresh HOME initially contains only a
+marker, a Git redirect to a staged GitHub mirror, a stub `~/sb/bin/sb-codejob` and `~/work/Admin`.
 
 Run the tool check from ovh as `ubuntu` with `ops/jobroute/check-hermes-tools`. It makes one
 `ssh … tar -cf -` of the 12 profile configs, writes nothing, and exits 0 ok, 1 FAIL or
@@ -235,7 +255,9 @@ and no group/world write permission. A pre-existing writable parent needs a sepa
 reviewed permission correction before install; this script refuses it without changing it.
 
 Before reusing or executing a release, the installer verifies its tree's ownership/modes
-and all four installed SHA-256 pins, rejecting a tampered copy. Existing config must be
+and all seven installed SHA-256 pins (including `uninstall.py`), rejecting a tampered
+copy. A stale `install-state.new` from an interrupted run is replaced if it is a plain
+file owned by `ubuntu`, and refused otherwise. Existing config must be
 trusted and is retained. `install-state.json` records the paths and inode identities of
 directories created by the installer, plus the digest of a newly created config. A rerun
 preserves this provenance. The self-check creates audit rows; it launches no jobs.
@@ -261,7 +283,10 @@ python3 -IB /home/ubuntu/.local/lib/jobroute/releases/<sha>/uninstall.py --relea
 ```
 
 Step 4 removes the selected code release and its `current` link. After the last release,
-it removes only a config created by this installer whose digest is still unchanged.
+it removes only a config created by this installer whose digest is still unchanged, the
+route's working state (`state/jobroute/.lock` and the job index `profiles/<profile>.jsonl`,
+whose submissions `audit.jsonl` also records) and a stale `install-state.new`; with
+`--remove-audit` also `audit.jsonl`.
 It prunes `.config`, `.local/lib`, `.local/state`, `.local` and the jobroute directories
 **only if recorded as installer-created, still the same inode, and empty**. Existing
 parents, changed config and user files survive. An older installation without the

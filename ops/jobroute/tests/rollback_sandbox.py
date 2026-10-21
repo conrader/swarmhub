@@ -1,5 +1,8 @@
 """Exercise the exact generated installer and documented undo in two marked HOME baselines.
 Invoked only by run-rollback-sandbox.sh as sbtest in its user/PID/mount namespace.
+Before the undo, each scenario makes one accepted submit through the installed route (a stub
+sb-codejob at the shipped path, a stub claude bound over /usr/local/bin in the private mount
+namespace), so the undo must also clear the state real use creates.
 """
 import hashlib
 import json
@@ -15,7 +18,8 @@ expected = sys.argv[2]
 installer = stage / 'installer.sh'
 sha = re.search(r'^SHA=([0-9a-f]{40})$', installer.read_text(), re.M)[1]
 pins = dict((name, digest) for digest, name in re.findall(
-    r'^([0-9a-f]{64})  (jobroute|jobroute_core.py|allowlist.toml|check-hermes-tools)$', installer.read_text(), re.M))
+    r'^([0-9a-f]{64})  (jobroute|jobroute_core\.py|jobroute_jobs\.py|jobroute_trust\.py|allowlist\.toml|'
+    r'check-hermes-tools|uninstall\.py)$', installer.read_text(), re.M))
 fails = 0
 checks = 0
 os.umask(0o022)
@@ -40,6 +44,28 @@ def snapshot(home):
     return rows
 
 
+SB_STUB = '''#!/usr/bin/python3 -I
+import datetime, json, pathlib, sys
+argv = sys.argv[1:]
+sys.stdin.buffer.read()
+arg = lambda k: argv[argv.index(k) + 1]
+ts = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+status = pathlib.Path('/home/ubuntu/work') / arg('--agent') / f"{ts}-{arg('--label')}.json"
+status.write_text(json.dumps({'tool': 'sb-codejob', 'pid': None, 'ended': ts, 'exit_code': 0,
+                              'cmd': argv[argv.index('--') + 1:], 'workdir': arg('--workdir')}))
+print(f'status {status}')
+'''
+ROUTE = ('/home/ubuntu/.local/lib/jobroute/current/jobroute --config /home/ubuntu/.config/jobroute/allowlist.toml '
+         '--profile grok-admin')
+fakebin = stage / 'fakebin'
+fakebin.mkdir()
+(fakebin / 'claude').write_text('#!/bin/sh\nexit 0\n')
+(fakebin / 'claude').chmod(0o755)
+USE = (f'mount --bind {fakebin} /usr/local/bin; '
+       f'out=$(printf "Real use before rollback.\\n" | SSH_ORIGINAL_COMMAND="submit engine=claude label=undo-check" {ROUTE}); '
+       'grep -q \'"ok": true\' <<<"$out"')
+
+
 def run(home, command):
     wrapper = '''set -euo pipefail
 mount --make-rprivate /
@@ -59,7 +85,7 @@ bash -ex -c "$4"
 
 check('staged installer byte-identical: sha256 ' + expected,
       hashlib.sha256(installer.read_bytes()).hexdigest() == expected)
-check('all four pins found in generated installer', len(pins) == 4)
+check('all seven pins (incl. uninstall.py) found in generated installer', len(pins) == 7)
 print('pinned SHA: ' + sha, flush=True)
 print('namespace uid: ' + str(os.geteuid()) + '; pid: ' + str(os.getpid()), flush=True)
 
@@ -69,6 +95,11 @@ for populated in (False, True):
     home = stage / name
     home.mkdir()
     (home / 'SCRATCH-HOME-MARKER').touch()
+    # ovh has ~/sb and ~/work; they belong to the baseline and rollback never touches them.
+    (home / 'sb/bin').mkdir(parents=True)
+    (home / 'sb/bin/sb-codejob').write_text(SB_STUB)
+    (home / 'sb/bin/sb-codejob').chmod(0o755)
+    (home / 'work/Admin').mkdir(parents=True)
     (home / '.gitconfig').write_text(
         f'[url "file://{stage}/swarmhub.git"]\n\tinsteadOf = git@github.com:conrader/swarmhub.git\n')
     if populated:
@@ -80,7 +111,7 @@ for populated in (False, True):
     baseline = snapshot(home)
     print('baseline: ' + json.dumps(baseline), flush=True)
     check(name + ': correct baseline', populated or {p.name for p in home.iterdir()} == {
-        'SCRATCH-HOME-MARKER', '.gitconfig'})
+        'SCRATCH-HOME-MARKER', '.gitconfig', 'sb', 'work'})
     rc = run(home, 'bash -x "$INSTALLER"')
     check(name + ': install #1 self-check exit 0, inherited umask 0002', rc == 0)
     if rc:
@@ -106,9 +137,18 @@ for populated in (False, True):
           [r for r in second if r[0] != '.local/state/jobroute/audit.jsonl'])
     check(name + ': two audited non-allowlisted self-checks',
           len((home / '.local/state/jobroute/audit.jsonl').read_text().splitlines()) == 2)
+    rc = run(home, USE)
+    check(name + ': accepted submit through the installed route', rc == 0)
+    state = home / '.local/state/jobroute'
+    check(name + ': real use created .lock and profiles/grok-admin.jsonl',
+          (state / '.lock').is_file() and (state / 'profiles/grok-admin.jsonl').is_file())
+    jobs = list((home / 'work/Admin').glob('*-undo-check.json'))
+    check(name + ': stub sb-codejob wrote one status file', len(jobs) == 1)
     print('documented rollback commands:\n' + undo, flush=True)
     rc = run(home, undo)
     check(name + ': exact README rollback commands exit 0', rc == 0)
+    for job in jobs:   # sb-codejob's own status file, not jobroute state
+        job.unlink()
     after = snapshot(home)
     print('after rollback: ' + json.dumps(after), flush=True)
     check(name + ': HOME after rollback identical to baseline', after == baseline)

@@ -14,11 +14,15 @@ sha = subprocess.check_output(['git', '-C', repo, 'rev-parse', sha + '^{commit}'
 if not re.fullmatch(r'[0-9a-f]{40}', sha):
     raise SystemExit('expected a full commit SHA')
 
+# Every file the installed route runs or reads, including the uninstaller used at rollback.
+PINNED = ('jobroute', 'jobroute_core.py', 'jobroute_jobs.py', 'jobroute_trust.py', 'allowlist.toml',
+          'check-hermes-tools', 'uninstall.py')
+
+
 def blob(name):
     return subprocess.check_output(['git', '-C', repo, 'show', f'{sha}:ops/jobroute/{name}'])
 
-pins = '\n'.join(f'{hashlib.sha256(blob(name)).hexdigest()}  {name}'
-                 for name in ('jobroute', 'jobroute_core.py', 'allowlist.toml', 'check-hermes-tools'))
+pins = '\n'.join(f'{hashlib.sha256(blob(name)).hexdigest()}  {name}' for name in PINNED)
 script = blob('install.sh.in').decode().replace('@SHA@', sha).replace('@PINS@', pins)
 path = pathlib.Path(output)
 with path.open('x') as f:

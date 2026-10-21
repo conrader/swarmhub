@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import contextlib
 import datetime
-import fcntl
 import hashlib
 import json
 import os
@@ -20,8 +19,10 @@ import subprocess
 import time
 import tomllib
 
+from jobroute_jobs import LABEL_RX, Busy, JobIndex, _append, _launcher, _locked
+from jobroute_trust import launch_problem
+
 PROFILE_RX = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
-LABEL_RX = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,39}")
 COMPONENT_RX = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 BOT_RX = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}")
 JOB_ID_RX = re.compile(r"[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9_-]{1,40}(-[0-9]{1,2})?")
@@ -75,7 +76,7 @@ def _trusted(path: pathlib.Path) -> None:
         raise Refused(f"route misconfigured: {path.name} must be owned by the route user and not group/world-writable", 1)
 
 
-class Route:
+class Route(JobIndex):
     """One loaded allowlist bound to one profile (the profile comes from the forced command)."""
 
     def __init__(self, config_path: str, profile: str, refused_connect=None):
@@ -89,8 +90,9 @@ class Route:
         self.job_root = pathlib.Path(r["job_root"])
         self.path = r.get("path", "/usr/local/bin:/usr/bin:/bin")
         self.max_brief = int(r.get("max_brief_bytes", 65536))
-        # a CLI submit's stdin must reach EOF within this (+ 60 s launch stays under the 120 s alarm)
+        # a CLI submit's stdin must reach EOF within this (+ 5 s lock + 60 s launch stays under the 120 s alarm)
         self.brief_read_secs = min(float(r.get("brief_read_secs", 50)), 50.0)
+        self.launch_timeout = min(float(r.get("launch_timeout_secs", LAUNCH_TIMEOUT)), LAUNCH_TIMEOUT)
         self.work_root = os.path.normpath(r.get("work_root", r["job_root"]))
         self.canonical_work_root = os.path.realpath(self.work_root)
         self.home = _forms(r.get("home", PROD_HOME))
@@ -106,7 +108,25 @@ class Route:
             fields = refused_connect() if refused_connect else {}
             self.audit("connect", "-", "refused", reason="profile not allowlisted", **fields)
             raise Refused("profile not allowlisted")
+        try:
+            self._load_profile(prof, defaults)
+        except (KeyError, TypeError, ValueError) as e:
+            err = _misconfigured(f"profile {self.profile} is invalid ({type(e).__name__})")
+        except Refused as e:
+            err = e
+        else:
+            self.index = self.state_dir / "profiles" / f"{profile}.jsonl"
+            self.index.parent.mkdir(mode=0o700, exist_ok=True)
+            return
+        fields = refused_connect() if refused_connect else {}
+        self.audit("connect", "-", "error", reason=err.reason, **fields)
+        err.audited = True
+        raise err
+
+    def _load_profile(self, prof: dict, defaults: dict) -> None:
         self.agent = prof["agent"]
+        if not isinstance(self.agent, str) or not self.agent.strip():
+            raise _misconfigured(f"profile {self.profile} needs agent = <sb-codejob agent name>")
         bot = prof.get("bot")
         if not isinstance(bot, str) or not BOT_RX.fullmatch(bot) or ".." in bot:
             raise _misconfigured(f"profile {self.profile} needs bot = <directory name under {self.work_root}>")
@@ -121,8 +141,6 @@ class Route:
         self.max_per_hour = int(prof.get("max_per_hour", defaults["max_per_hour"]))
         self.max_per_day = int(prof.get("max_per_day", defaults["max_per_day"]))
         self.max_running = int(prof.get("max_running", defaults["max_running"]))
-        self.index = self.state_dir / "profiles" / f"{profile}.jsonl"
-        self.index.parent.mkdir(mode=0o700, exist_ok=True)
 
     # ------------------------------------------------------------ audit
     def audit(self, op: str, mode: str, result: str, **fields) -> None:
@@ -221,31 +239,6 @@ class Route:
             raise Refused("brief is not UTF-8") from None
         return brief
 
-    # ------------------------------------------------------------ own jobs
-    def own_jobs(self) -> list[dict]:
-        rows = []
-        with contextlib.suppress(FileNotFoundError):
-            for line in self.index.read_text().splitlines():
-                with contextlib.suppress(ValueError):
-                    rows.append(json.loads(line))
-        return rows
-
-    def job_record(self, job_id: str) -> dict | None:
-        path = self.job_root / self.agent / f"{job_id}.json"
-        try:
-            rec = json.loads(path.read_text())
-        except (OSError, ValueError):
-            return None
-        return rec if isinstance(rec, dict) and rec.get("tool") == "sb-codejob" else None
-
-    def _running(self, jobs: list[dict]) -> int:
-        n = 0
-        for j in jobs:
-            rec = self.job_record(j["id"])
-            if rec and not rec.get("ended") and (_alive(rec.get("pid")) or _alive(rec.get("supervisor_pid"))):
-                n += 1
-        return n
-
     def check_rate(self, jobs: list[dict]) -> None:
         now = time.time()
         hour = sum(1 for j in jobs if now - j.get("t", 0) < 3600)
@@ -277,10 +270,18 @@ class Route:
             if meta.get("problem"):
                 raise Refused(meta["problem"])
             self.check_brief(brief)
-            with _locked(self.state_dir / ".lock"):
-                self.check_rate(self.own_jobs())
-                job_id = self._launch(engine, label, wd, brief)
-                _append(self.index, {"t": time.time(), "id": job_id, "label": label, "engine": engine})
+            problem, cmd = launch_problem(self.sb_codejob, self.engines[engine], self.path)
+            if problem:
+                raise _misconfigured(f"launch refused: {problem}")
+            launch = os.urandom(8).hex()
+            with self._lock():
+                self.check_rate(self.own_jobs(mode))
+                # Reserve before the slow launch: a killed launch still leaves an index + audit row.
+                _append(self.index, {"t": time.time(), "launch": launch, "label": label, "engine": engine,
+                                     "workdir": wd, "cmd": cmd, "launcher": _launcher()})
+                self.audit("submit", mode, "launching", launch=launch, **logged)
+            job_id = self._launch(launch, cmd, label, wd, brief, mode)
+            _append(self.index, {"launch": launch, "id": job_id})
         except RateLimited as e:
             self.audit("submit", mode, "rate_limited", reason=e.reason, **logged)
             e.audited = True
@@ -293,32 +294,53 @@ class Route:
             self.audit("submit", mode, "error", reason=f"route error: {type(e).__name__}", **logged)
             e.audited = True
             raise
-        self.audit("submit", mode, "ok", job_id=job_id, **logged)
+        self.audit("submit", mode, "ok", job_id=job_id, launch=launch, **logged)
         return {"ok": True, "job_id": job_id, "agent": self.agent, "engine": engine, "label": label,
                 "workdir": wd, "brief_sha256": digest,
                 "note": "the job runs detached on ovh; sb-codejob wakes this agent when it ends"}
 
-    def _launch(self, engine: str, label: str, workdir: str, brief: bytes) -> str:
+    @contextlib.contextmanager
+    def _lock(self):
+        try:
+            with _locked(self.state_dir / ".lock"):
+                yield
+        except Busy:
+            raise RateLimited("route busy: try again shortly") from None
+
+    def _launch(self, launch: str, cmd: list[str], label: str, workdir: str, brief: bytes, mode: str) -> str:
         argv = [self.sb_codejob, "--agent", self.agent, "--workdir", workdir, "--label", label,
-                "--stdin", "--", *self.engines[engine]]
+                "--stdin", "--", *cmd]
         home = pwd.getpwuid(os.geteuid()).pw_dir
         env = {"PATH": self.path, "HOME": home, "USER": pwd.getpwuid(os.geteuid()).pw_name,
                "LANG": "C.UTF-8", **self.extra_env}
         env.pop("ANTHROPIC_API_KEY", None)        # subscription auth only, never an API key
         try:
             p = subprocess.run(argv, input=brief, capture_output=True, env=env, cwd=workdir,
-                               timeout=LAUNCH_TIMEOUT)
-        except (OSError, subprocess.TimeoutExpired) as e:
+                               timeout=self.launch_timeout)
+        except OSError as e:
+            _append(self.index, {"launch": launch, "failed": type(e).__name__})
             raise Refused(f"launch failed: {type(e).__name__}", 1) from None
+        except subprocess.TimeoutExpired:
+            raise self._abandon(launch, mode, "launch failed: TimeoutExpired") from None
         status = next((ln.split(None, 1)[1] for ln in p.stdout.decode(errors="replace").splitlines()
                        if ln.startswith("status ")), None)
         if p.returncode != 0 or not status:
+            _append(self.index, {"launch": launch, "failed": f"exit {p.returncode}"})
             raise Refused(f"launch failed: sb-codejob exit {p.returncode}", 1)
         sp = pathlib.Path(status.strip())
         if (os.path.realpath(sp.parent) != os.path.realpath(self.job_root / self.agent)
                 or not JOB_ID_RX.fullmatch(sp.stem)):
-            raise Refused("launch failed: unexpected status path", 1)
+            raise self._abandon(launch, mode, "launch failed: unexpected status path")
         return sp.stem
+
+    def _abandon(self, launch: str, mode: str, reason: str) -> Refused:
+        """The launcher gave up, but sb-codejob may already have detached the job: let recovery find it."""
+        _append(self.index, {"launch": launch, "abandoned": True})
+        with contextlib.suppress(RateLimited), self._lock():
+            job = next((j for j in self.own_jobs(mode) if j.get("launch") == launch), {})
+            if job.get("id"):
+                reason += f"; job {job['id']} did start, see job_status"
+        return Refused(reason, 1)
 
     def status(self, mode: str, job_id=None, limit=10) -> dict:
         try:
@@ -330,7 +352,11 @@ class Route:
             self.audit("status", mode, "refused", reason=e.reason)
             e.audited = True
             raise
-        jobs = self.own_jobs()
+        try:
+            with self._lock():
+                jobs = self.own_jobs(mode)
+        except RateLimited:                    # busy: answer from the index without recovering
+            jobs = self.own_jobs()
         if job_id is not None:
             jobs = [j for j in jobs if j.get("id") == job_id]
             if not jobs:
@@ -341,38 +367,3 @@ class Route:
         out = [self._summary(j) for j in reversed(jobs[-limit:])]
         self.audit("status", mode, "ok", count=len(out))
         return {"ok": True, "profile": self.profile, "agent": self.agent, "jobs": out}
-
-    def _summary(self, j: dict) -> dict:
-        rec = self.job_record(j["id"]) or {}
-        if rec.get("ended"):
-            state = "done"
-        elif rec and (_alive(rec.get("pid")) or _alive(rec.get("supervisor_pid"))):
-            state = "running"
-        else:
-            state = "lost" if rec else "unknown"
-        return {"job_id": j["id"], "label": j.get("label"), "engine": j.get("engine"), "state": state,
-                "started": rec.get("started"), "ended": rec.get("ended"), "exit_code": rec.get("exit_code"),
-                "minutes": rec.get("minutes"), "model": rec.get("model"), "review": rec.get("review"),
-                "wake": rec.get("wake")}
-
-
-def _alive(pid) -> bool:
-    return isinstance(pid, int) and pid > 0 and os.path.exists(f"/proc/{pid}")
-
-
-def _append(path: pathlib.Path, row: dict) -> None:
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    try:
-        os.write(fd, (json.dumps(row, ensure_ascii=True) + "\n").encode())
-    finally:
-        os.close(fd)
-
-
-@contextlib.contextmanager
-def _locked(path: pathlib.Path):
-    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        os.close(fd)
