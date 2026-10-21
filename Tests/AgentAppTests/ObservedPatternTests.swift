@@ -36,7 +36,9 @@ import Testing
 
 /// The same ten acceptance replays can run on macOS from `swift test` without
 /// network access or coding CLIs. Native parsing/state assertions are above.
-@Test(arguments: (1...10).map { String(format: "P%02d", $0) })
+// Each replay starts Python/shell workers and a verifier. Running these in parallel competes with the full Mac suite
+// for process startup and CPU; these acceptance cases do not need to overlap to exercise their concurrency rules.
+@Test(.serialized, arguments: (1...10).map { String(format: "P%02d", $0) })
 func observedPatternManagedRuntimeReplay(_ pattern: String) async throws {
     guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { return }
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

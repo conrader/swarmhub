@@ -74,7 +74,7 @@ Which features are available also depends on what your connected server supports
 
 **In development**
 
-- **Sandboxed checks for coding jobs:** the bundled coding skill (`swarmhub-coding` 1.3.12) runs a job's test or build command in a sandbox. Only the job's workspace and a private temporary folder are writable, the environment is cleaned, there is no network, and the repository's git metadata is read-only. The recorded Linux simulation run was not fully green. The Swift build and automated tests pass on a Mac, but those results do not establish acceptance of the separate native sandbox and real coding-tool smoke checks.
+- **Sandboxed checks for coding jobs:** the bundled coding skill (`swarmhub-coding` 1.3.13) runs a job's test or build command in a sandbox. Only the job's workspace and a private temporary folder are writable, the environment is cleaned, there is no network, and the repository's git metadata is read-only. The recorded Linux simulation run was not fully green. The Swift build and automated tests pass on a Mac, but those results do not establish acceptance of the separate native sandbox and real coding-tool smoke checks.
 
 ## Connected apps and voice
 

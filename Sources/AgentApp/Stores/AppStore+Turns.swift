@@ -200,7 +200,7 @@ extension AppStore {
             if !isTeamThread(conversation) { handleManagerReply(assistant, from: bot, in: conversation); handleReportOps(assistant, from: bot); refreshModelsAfterRecipe(assistant, from: bot, in: conversation) }
             startReviewIfNeeded(assistant, from: bot, in: conversation)
         }
-        if conversation.id == bot.id { finishStagedSkillInstall(manager: bot) }
+        if conversation.id == bot.id { finishStagedSkillInstall(manager: bot); finishSkillInstallChecks(manager: bot, reply: assistant, end: end) }
         if outcome.state == .finished && hasText && !SilentReply.isSilent(SwarmhubBlock.visibleText(assistant.finalText)) {
             AvatarReactions.shared.completed(bot)
             if !isTeamThread(conversation) { notifyIfNeeded(bot: bot, message: technicalLine(assistant, botName: bot.name)) }

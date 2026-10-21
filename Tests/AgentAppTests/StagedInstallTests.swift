@@ -315,6 +315,97 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     #expect(store.boxInstallTransport.status[store.connection(of: bot)]?.state == "failed")
 }
 
+private final class StagedClock { var date = Date(timeIntervalSince1970: 1_792_497_600) }
+
+@Test @MainActor func aMixedStagedRequestWaitsForTheBackingOffSkillWithoutSendingOrExtendingItsFailure() throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    // Cover a mixed skill list within one profile and an eligible skill in a separate requested profile.
+    for separateProfile in [false, true] {
+        let (store, bot, host) = stagedStore(source: source, status: nil)
+        let clock = StagedClock(); store.now = { clock.date }
+        store.skillLibraryOverride = [stagedManager, stagedFeedback]
+        let eligible = separateProfile ? Bot(name: "Eligible", backend: .hermes, hermesProfile: "eligible") : bot
+        if separateProfile { store.bots.append(eligible) }
+        let failure = SkillInstallFailure(version: try #require(package.versions[stagedManager.name]), variant: nil,
+                                         count: 1, lastAt: clock.date, reason: "Earlier staged refusal.")
+        bot.skillInstallFailures[stagedManager.name] = failure
+        let profiles: [StagedInstall.Profile] = separateProfile ? [
+            .init(name: "eligible", coding_order: "codex", skills: [stagedFeedback.name]),
+            .init(name: "default", coding_order: "codex", skills: [stagedManager.name])
+        ] : [.init(name: "default", coding_order: "codex", skills: [stagedFeedback.name, stagedManager.name])]
+        #expect(!store.stagedSkillBackingOff(stagedFeedback.name, version: package.versions[stagedFeedback.name], bot: eligible))
+        for _ in 0..<2 {
+            #expect(try store.stagedSkillInstructions(manager: bot, profiles: profiles) == nil)
+            #expect(store.boxInstallTransport.attempts.isEmpty && ChatParityServer.requests(host).isEmpty)
+            #expect(bot.skillInstallFailures[stagedManager.name] == failure, "deferral must not extend the cooldown")
+            #expect(eligible.skillInstallFailures[stagedFeedback.name] == nil, "no attempt was made for the eligible skill")
+            #expect(store.defaults.data(forKey: "updates.transport.floor." + store.connection(of: bot)) == nil)
+            #expect(store.errorMessage?.contains("default/swarmhub-manager") == true)
+            #expect(store.errorMessage?.contains("Signed skill installs run together") == true)
+        }
+        // The updater also rerenders saved selections omitted by this caller. Sending only the eligible subset
+        // must not bypass the same cooldown, including when an all-bots caller drops a fully backed-off profile.
+        let eligibleOnly: [StagedInstall.Profile] = [.init(name: separateProfile ? "eligible" : "default",
+                                                          coding_order: "codex", skills: [stagedFeedback.name])]
+        #expect(try store.stagedSkillInstructions(manager: bot, profiles: eligibleOnly) == nil)
+        #expect(store.boxInstallTransport.attempts.isEmpty && bot.skillInstallFailures[stagedManager.name] == failure)
+        // Advance the injected clock to the exact boundary: the original selection and signed bytes can go through.
+        clock.date = failure.retryAt
+        let unrelated = Bot(name: "Other connection", backend: .hermes, hermesProfile: "default")
+        unrelated.hermesBaseURL = "https://unrelated.example.invalid"
+        unrelated.skillInstallFailures[stagedManager.name] = SkillInstallFailure(version: failure.version, variant: nil,
+                                                                              count: 1, lastAt: clock.date, reason: "Unrelated refusal.")
+        store.bots.append(unrelated)
+        #expect(try store.stagedSkillInstructions(manager: bot, profiles: profiles) != nil)
+        let attempt = try #require(store.boxInstallTransport.attempts[bot.id])
+        #expect(attempt.package.profiles.map(\.name) == profiles.map(\.name))
+        #expect(attempt.package.profiles.map(\.skills) == profiles.map(\.skills))
+        #expect(attempt.package.files == package.files && attempt.package.versions == package.versions)
+        #expect(bot.skillInstallFailures[stagedManager.name] == failure)
+        let files = try JSONDecoder().decode([String: String].self, from: attempt.transfer.parts.reduce(Data(), +))
+        let profileBytes = try #require(files["profiles.json"].flatMap { Data(base64Encoded: $0) })
+        let transferred = try JSONDecoder().decode([StagedInstall.Profile].self, from: profileBytes)
+        #expect(transferred.map(\.name) == profiles.map(\.name) && transferred.map(\.skills) == profiles.map(\.skills))
+    }
+}
+
+@Test @MainActor func aFailedStagedInstallBacksOffAtTheSignedVersion() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let (store, bot, host) = stagedStore(source: source, status: try stagedStatus(package), stageOK: false)
+    let clock = StagedClock(); store.now = { clock.date }
+    let turns = { ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count }
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning && !bot.skillInstallFailures.isEmpty }
+    let failure = try #require(store.skillInstallFailure(stagedManager, for: bot))
+    #expect(failure.count == 1 && failure.version == "1.2.0" && failure.version == package.versions["swarmhub-manager"],
+            "recorded at the signed bundle's version, not the 1.0.0 fallback")
+    #expect(failure.reason.contains("unconfirmed") && store.skillInstallBackingOff(stagedManager, for: bot))
+    // Backing off: a press sends nothing.
+    #expect(!store.installSkills(for: bot) && turns() == 1)
+    // After 15 minutes one retry, which goes out unchanged; failing again doubles the wait.
+    clock.date += 15 * 60
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning && bot.skillInstallFailures["swarmhub-manager"]?.count == 2 }
+    #expect(turns() == 2 && store.skillInstallFailure(stagedManager, for: bot)?.retryAt == clock.date + 30 * 60)
+    // A failure at another version does not hold back this bundle: the signed bundle still decides.
+    bot.skillInstallFailures["swarmhub-manager"]?.version = "1.1.0"
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning && turns() == 3 }
+}
+
+@Test @MainActor func aConfirmedStagedInstallClearsItsFailure() async throws {
+    let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
+    let package = try stagedPackage(source)
+    let (store, bot, _) = stagedStore(source: source, status: try stagedStatus(package))
+    bot.skillInstallFailures["swarmhub-manager"] = SkillInstallFailure(version: "1.2.0", variant: nil, count: 1,
+        lastAt: Date(timeIntervalSince1970: 1_792_497_600 - 86_400), reason: "Earlier refusal.")
+    #expect(store.installSkills(for: bot))
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(bot.installedSkills == ["swarmhub-manager": "1.2.0"] && bot.skillInstallFailures.isEmpty)
+}
+
 @Test func stagingDiagnosticsRequireThisTransfersPrefixAndNeverEstablishAcceptance() throws {
     let source = try stagedSource(); defer { try? FileManager.default.removeItem(at: source) }
     let package = try stagedPackage(source)
