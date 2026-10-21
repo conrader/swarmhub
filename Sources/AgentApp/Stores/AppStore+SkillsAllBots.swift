@@ -112,28 +112,32 @@ extension AppStore {
         // A queued user message may take the manager's slot between installs. Keep the remaining profiles
         // untouched; runChatTurn (or a Retry's releaseSlot) resumes the batch when that turn finishes.
         guard isIdle(manager) else { return false }
-        while var queue = allBotsSkillQueue[manager.id], !queue.isEmpty {
-            let gap = queue.removeFirst()
-            allBotsSkillQueue[manager.id] = queue
+        while let queue = allBotsSkillQueue[manager.id], !queue.isEmpty {
+            // 0.6.4: up to allBotsBatchLimit bots per turn (`nextAllBotsBatch`); a refused batch comes back one by one.
+            var gaps = [queue[0]]
             do {
-                guard let instructions = try allBotsSkillInstructions([gap]) else {
-                    throw BackendError.unavailable("Could not render this bot's skill files or validate its profile.")
-                }
-                noteSkillInstallChecks([(gap.bot, gap.installable)], manager: manager)
-                pendingSkillInstalls[manager.id] = .init(profile: profile(of: gap.bot), instructions: instructions)
+                let next = try nextAllBotsBatch(queue, manager: manager)
+                gaps = next.gaps
+                allBotsSkillQueue[manager.id] = Array(queue.dropFirst(gaps.count))
+                noteSkillInstallChecks(gaps.map { ($0.bot, $0.installable) }, manager: manager)
+                pendingSkillInstalls[manager.id] = .init(profile: profile(of: gaps[0].bot), instructions: next.instructions)
+                allBotsSkillBatch[manager.id] = gaps
                 managementExchanges[manager.id] = nil
                 // Explicit destination: switching chats during the batch must not redirect the next turn.
-                if send(text: AllBotsSkillCopy.request(1), bot: manager, conversation: manager, replyToID: nil) {
+                if send(text: AllBotsSkillCopy.request(gaps.count), bot: manager, conversation: manager, replyToID: nil) {
                     allBotsSkillTurn[manager.id] = turn(in: manager)?.token; return true
                 }
                 throw BackendError.unavailable(errorMessage ?? "The manager could not start the install turn.")
             } catch {
+                allBotsSkillQueue[manager.id] = Array(queue.dropFirst(gaps.count)); allBotsSkillBatch[manager.id] = nil
                 pendingSkillInstalls[manager.id] = nil; pendingSkillChecks[manager.id] = nil; peerEnableCalls[manager.id] = nil
-                recordSkillInstallResult(.init(status: .notSent, detail: "Install not sent: \(error.localizedDescription)"), bot: gap.bot, manager: manager)
+                for gap in gaps {
+                    recordSkillInstallResult(.init(status: .notSent, detail: "Install not sent: \(error.localizedDescription)"), bot: gap.bot, manager: manager)
+                }
                 errorMessage = error.localizedDescription
             }
         }
-        allBotsSkillQueue[manager.id] = nil
+        allBotsSkillQueue[manager.id] = nil; allBotsSkillSolo[manager.id] = nil
         return false
     }
 
@@ -144,7 +148,7 @@ extension AppStore {
         if installTurn { allBotsSkillTurn[manager.id] = nil }
         guard let queue = allBotsSkillQueue[manager.id] else { return }
         if case .stoppedByUser = end, installTurn {
-            allBotsSkillQueue[manager.id] = nil
+            allBotsSkillQueue[manager.id] = nil; allBotsSkillSolo[manager.id] = nil
             for gap in queue {
                 recordSkillInstallResult(.init(status: .notSent, detail: "Install not sent: the batch was stopped."), bot: gap.bot, manager: manager)
             }
@@ -153,22 +157,33 @@ extension AppStore {
         sendNextAllBotsSkillInstall(manager: manager)
     }
 
-    /// A legacy turn contains one profile; Konrad's original confirmation covers every queued turn.
+    /// A legacy turn's profiles (0.6.4: a batch; dev mode alone); Konrad's original confirmation covers every queued turn.
+    /// Outside dev mode a skill is copied from a profile that holds it where it can be (`skillSources`), and one peer call
+    /// after the skills covers every profile, without enable while PM blocked this box recently.
     func allBotsSkillInstructions(_ gaps: [SkillGap]) throws -> String? {
-        var commands: [String] = [], ops: [String] = []
+        var commands: [String] = [], ops: [String] = [], peers: [String] = []
         for gap in gaps {
+            let batched = !gap.bot.skillDevMode
             guard let part = try skillInstallCommands(gap.installable, profile: profile(of: gap.bot), codingOrder: codingOrder(for: gap.bot),
-                                                      devMode: gap.bot.skillDevMode) else { return nil }
+                                                      devMode: gap.bot.skillDevMode, peerInline: !batched,
+                                                      sources: batched ? skillSources(for: gap, in: gaps) : [:]) else { return nil }
             commands += part.commands; ops.append(part.op)
+            if batched, gap.installable.contains(where: { $0.name == "swarmhub-messages" }) { peers.append(profile(of: gap.bot)) }
         }
         guard !ops.isEmpty else { return nil }
+        if let first = gaps.first, !peers.isEmpty {
+            let skip = peerEnableKnownBlocked(on: connection(of: first.bot))
+            commands.append(PeerPluginEnablement.command(profiles: peers, skipEnable: skip))
+            // The single-bot command leaves starting the worker to the line after it, as an inline install does.
+            if peers.count == 1, !skip { commands.append("python3 \(SkillLibrary.installPath("swarmhub-messages", profile: peers[0]))/scripts/peer-runtime.py start") }
+        }
         let names = gaps.map { "\(profile(of: $0.bot)) (\($0.bot.name))" }.joined(separator: ", ")
         let devNote = gaps.contains { $0.bot.skillDevMode } ? " Skill dev mode is on for some of these bots: a skill a bot changed on this box is kept, not overwritten, and its line says so; that is expected, not an error to fix. Run each `case … esac` block whole, as one call; a peer command inside one runs there, not as its own call." : ""
         return """
         Konrad pressed “\(AllBotsSkillCopy.button)” in SwarmHub and confirmed it once for all of these profiles: \(names). \
         That confirmation is his yes for every one of them: do not ask again. Run exactly these commands in your terminal with \
         the shell (not the file tool), change nothing else, then reply in one short line and end with the block below. \
-        \(PeerPluginEnablement.installInstructions)\(devNote)
+        \(PeerPluginEnablement.installInstructions)\(devNote) \(AllBotsSkillCopy.speedNote)
         ````sh
         \(commands.joined(separator: "\n"))
         ````
@@ -194,5 +209,7 @@ enum AllBotsSkillCopy {
     }
     static let confirm = "The manager writes swarmhub-messages and swarmhub-feedback into each of these bots’ profiles. Hermes itself is not changed."
     static let allSet = "Every bot has SwarmHub’s messaging skills."
+    /// 0.6.4: start at once, as few calls as possible; a refused copy (`SkillSync`) is that profile's failure, not a retry.
+    static let speedNote = "Start with the first command; do not view or load any skill first. Run the skill commands in as few terminal calls as you can, in order. A `python3 - … <<'\(SkillSync.end)'` line copies a skill from another profile on this box and verifies it; if it prints \(SkillSync.failure) or fails, that skill was not written for that profile: leave it out of that profile's skills_installed entry and do not write it another way."
     static let needsManager = "Needs a manager bot on the connection to install."
 }

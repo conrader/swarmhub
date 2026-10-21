@@ -136,28 +136,46 @@ extension AppStore {
         """
     }
 
+    /// Where a skill can be copied from instead of written out (`SkillSync`): another profile on the same box and the
+    /// coding order its copy was rendered with.
+    struct SkillSource: Equatable { let profile: String; let codingOrder: CodingOrder }
+
+    /// The files of `skill` as the install writes them into `profile`: SKILL.md rendered for it, then its extra files.
+    func renderedSkillFiles(_ skill: BundledSkill, profile: String, codingOrder: CodingOrder) -> [SkillFile]? {
+        guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: managerCoreTemplate, codingOrder: codingOrder) else { return nil }
+        return [SkillFile(path: "SKILL.md", content: content)] + skill.files.map { SkillLibrary.render(configuredFile($0), forProfile: profile) }
+    }
+
     /// One profile's part of an install turn: its shell commands and its `skills_installed` op (P42: shared by the
-    /// all-bots install). Nil when a skill cannot be rendered or the profile name is not valid.
+    /// all-bots install). Nil when a skill cannot be rendered or the profile name is not valid. All-bots batches (0.6.4)
+    /// pass `peerInline: false` (one peer call covers the batch) and `sources`: a skill with a source is copied from it
+    /// when every file can be derived (`SkillSync`); never in dev mode or a reset, which keep their guarded heredocs.
     func skillInstallCommands(_ skills: [BundledSkill], profile: String, codingOrder: CodingOrder = .standard,
-                              devMode: Bool = false, reset: Set<String> = []) throws -> (commands: [String], op: String)? {
+                              devMode: Bool = false, reset: Set<String> = [], peerInline: Bool = true,
+                              sources: [String: SkillSource] = [:]) throws -> (commands: [String], op: String)? {
         guard !skills.isEmpty, HermesKeyPaste.isValidProfileName(profile) else { return nil }
         var commands: [String] = devMode || !reset.isEmpty ? [SkillDevMode.functionDefinition] : []
         for skill in skills {
             var body: [String] = []
-            guard let content = SkillLibrary.render(skill, forProfile: profile, managerTemplate: managerCoreTemplate,
-                                                    codingOrder: codingOrder) else { return nil }
+            guard let files = renderedSkillFiles(skill, profile: profile, codingOrder: codingOrder) else { return nil }
             let folder = SkillLibrary.installPath(skill.name, profile: profile)
-            let files = [SkillFile(path: "SKILL.md", content: content)] + skill.files.map { SkillLibrary.render(configuredFile($0), forProfile: profile) }
             if let clash = files.first(where: { $0.content.contains(Self.heredocEnd) }) { throw SkillInstallError.markerInFile(skill: skill.name, path: clash.path) }
-            let folders = Set(files.map { ($0.path as NSString).deletingLastPathComponent }.filter { !$0.isEmpty })
-            body.append("mkdir -p " + ([folder] + folders.sorted().map { "\(folder)/\($0)" }).joined(separator: " "))
-            for file in files {
-                let text = file.content.hasSuffix("\n") ? file.content : file.content + "\n"
-                body.append("cat > \(folder)/\(file.path) <<'\(Self.heredocEnd)'\n\(text)\(Self.heredocEnd)")
+            if !devMode, reset.isEmpty, let source = sources[skill.name], source.profile != profile,
+               let from = renderedSkillFiles(skill, profile: source.profile, codingOrder: source.codingOrder),
+               let plan = SkillSync.plan(expected: files, source: from, sourceFolder: SkillLibrary.installPath(skill.name, profile: source.profile),
+                                         folder: folder, substitutions: [(SkillLibrary.installPath(skill.name, profile: source.profile), folder),
+                                                                         (source.profile, profile)]) {
+                body.append(SkillSync.command(plan))
+            } else {
+                let folders = Set(files.map { ($0.path as NSString).deletingLastPathComponent }.filter { !$0.isEmpty })
+                body.append("mkdir -p " + ([folder] + folders.sorted().map { "\(folder)/\($0)" }).joined(separator: " "))
+                for file in files {
+                    body.append("cat > \(folder)/\(file.path) <<'\(Self.heredocEnd)'\n\(SkillSync.written(file.content))\(Self.heredocEnd)")
+                }
             }
             let executables = files.filter(\.isExecutable).map { "\(folder)/\($0.path)" }
             if !executables.isEmpty { body.append("chmod 755 " + executables.joined(separator: " ")) }
-            if skill.name == "swarmhub-messages" {
+            if skill.name == "swarmhub-messages" && peerInline {
                 body.append(PeerPluginEnablement.command(profile: profile))
                 body.append("python3 \(folder)/scripts/peer-runtime.py start")
             }

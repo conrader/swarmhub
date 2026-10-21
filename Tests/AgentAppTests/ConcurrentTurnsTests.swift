@@ -111,6 +111,8 @@ private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1
         for bot in targets { bot.hermesProfile = bot.name.lowercased() }
         store.skillLibraryOverride = [feedback]; store.managerTemplateOverride = "manager text"
         store.boxInstallTransport.boxes = [:]
+        // One bot per turn, so the queued message lands between installs (batches are AllBotsSkillTests' subject).
+        store.allBotsBatchLimit = 1
         #expect(store.installSkillsOnAllBots(manager: manager))
         try await backend.calls.wait { $0.contains("send:\(AllBotsSkillCopy.request(1))") }
 

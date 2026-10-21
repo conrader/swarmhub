@@ -64,8 +64,15 @@ extension AppStore {
     func finishSkillInstallChecks(manager: Bot, reply: ChatMessage, end: TurnEnd) {
         let outcomes = skillDevOutcomes.removeValue(forKey: manager.id) ?? [:]
         guard let checks = pendingSkillChecks.removeValue(forKey: manager.id), !checks.isEmpty else { return }
-        let peer = peerEnableCalls.removeValue(forKey: manager.id)?.receipt
+        let receipts = peerEnableCalls.removeValue(forKey: manager.id)?.receipts ?? [:]
+        let batch = allBotsSkillBatch.removeValue(forKey: manager.id) ?? []
         if SkillInstallPayloadError.isPayloadError(end) {
+            // 0.6.4: a batch the provider refused goes again one bot per turn, as before batching; nothing is recorded yet.
+            if batch.count > 1, let queue = allBotsSkillQueue[manager.id] {
+                allBotsSkillSolo[manager.id, default: []].formUnion(batch.map(\.bot.id))
+                allBotsSkillQueue[manager.id] = batch + queue
+                return
+            }
             let reason = "Client-side install payload error: \(Self.skillInstallFailureReason(end, reply: reply)). Install backoff unchanged."
             for id in Set(checks.map(\.botID)) {
                 guard let bot = bots.first(where: { $0.id == id }) else { continue }
@@ -84,6 +91,7 @@ extension AppStore {
         let reason = Self.skillInstallFailureReason(end, reply: reply)
         var failed: [String] = []
         var failedBots: Set<UUID> = []
+        var peerBlocked = false
         let reportedPeerBlock = PeerPluginEnablement.reportedBlock(SwarmhubBlock.visibleText(reply.finalText))
         for check in checks {
             guard let bot = bots.first(where: { $0.id == check.botID }) else { continue }
@@ -98,7 +106,7 @@ extension AppStore {
             }
             // PM admission is separate from writing the messaging skill/plugin. A blocked enable never backs off
             // skill installation, including older servers whose reply omitted the skills_installed block.
-            let enableIssue = (peer?.profile == check.profile && peer?.verified == false) || (!bot.skillDevMode && reportedPeerBlock)
+            let enableIssue = (receipts[check.profile].map { !$0.verified } ?? false) || (!bot.skillDevMode && reportedPeerBlock)
             if outcome == nil && enableIssue && (check.skill == "swarmhub-messages" || reported[check.profile] == nil) { continue }
             noteSkillInstallFailure(check.skill, version: check.version.description, variant: check.variant, reason: reason, on: bot)
             failed.append("\(check.skill) for \(bot.name)")
@@ -110,12 +118,16 @@ extension AppStore {
             if failedBots.contains(id) {
                 result = .init(status: .failed, detail: "Skills not fully installed: \(reason)")
             } else if checks.contains(where: { $0.botID == id && $0.skill == "swarmhub-messages" }) {
-                if let peer, peer.profile == profile(of: bot) { result = peer.result }
+                if let peer = receipts[profile(of: bot)] { result = peer.result }
                 else if !bot.skillDevMode && reportedPeerBlock { result = .init(status: .peerEnableBlocked, detail: PeerPluginEnablement.blockedDetail) }
                 else { result = .init(status: .peerEnableUnverified, detail: "Skills installed; peer-plugin enablement unverified. Held delivery is not confirmed; verify with hermes -p \(profile(of: bot)) plugins list before requesting a gateway reload.") }
             } else { result = .init(status: .installed, detail: "Skills installed.") }
             recordSkillInstallResult(result, bot: bot, manager: manager)
+            if result.status == .peerEnableBlocked, receipts[profile(of: bot)]?.skipped != true { peerBlocked = true }
         }
+        // Only an attempt that ran counts: a skipped enable never extends the window, a verified one ends it.
+        if receipts.values.contains(where: \.verified) { notePeerEnableBlocked(false, on: connection(of: manager)) }
+        else if peerBlocked { notePeerEnableBlocked(true, on: connection(of: manager)) }
         if !failed.isEmpty { errorMessage = "SwarmHub’s instructions were not installed (\(failed.joined(separator: ", "))): \(reason)" }
         objectWillChange.send(); save()
     }

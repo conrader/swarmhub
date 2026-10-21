@@ -105,6 +105,8 @@ import SwarmHubCore
     var skillDevOutcomes: [UUID: [String: SkillDevMode.Outcome]] = [:]
     /// A legacy all-bots batch's remaining profiles per manager, and the token of its install turn in flight.
     var allBotsSkillQueue: [UUID: [SkillGap]] = [:]; var allBotsSkillTurn: [UUID: UUID] = [:]
+    /// 0.6.4: the bots of the all-bots install turn in flight, and those that must go one per turn (their batch was refused).
+    var allBotsSkillBatch: [UUID: [SkillGap]] = [:]; var allBotsSkillSolo: [UUID: Set<UUID>] = [:]; var allBotsBatchLimit = 8
     var skillInstallResults: [UUID: SkillInstallResult] = [:]
     var peerEnableCalls: [UUID: PeerPluginEnablement.Call] = [:]
     /// The task that redraws when the next failed install's backoff ends, and its sleep (tests return at once).

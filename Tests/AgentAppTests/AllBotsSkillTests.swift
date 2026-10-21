@@ -2,21 +2,24 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-// One confirmation, one bounded turn per legacy profile; failures never erase another bot's result. Synthetic only.
+// One confirmation, bounded batched turns (0.6.4) on legacy connections; failures never erase another bot's result. Synthetic only.
+
+/// Every profile whose skills_installed op the turn's instructions carry, in order.
+func installProfiles(_ instructions: String) -> [String] {
+    instructions.components(separatedBy: #""op":"skills_installed","bot":""#).dropFirst().map { String($0.prefix { $0 != "\"" }) }
+}
 
 @MainActor private func allBotsStore(failingProfile: String? = nil, payloadRejectedProfile: String? = nil) -> (AppStore, Bot, [Bot], String) {
     let (host, hermes) = ChatParityServer.serve(features: ["session_chat_streaming": true]) { request, body in
         let path = request.url!.path
         if path.hasSuffix("/chat/stream") {
             let instructions = body?["instructions"] as? String ?? ""
-            let profile = String((instructions.components(separatedBy: #""op":"skills_installed","bot":""#).last ?? "").prefix { $0 != "\"" })
-            if profile == payloadRejectedProfile { return .json(400, ["error": ["message": "Invalid 'instructions': string too long. Expected max 1048576, got 2802969."]]) }
-            let reply = profile == failingProfile ? "The filesystem refused the skill writes." : """
-            Installed.
-            ```swarmhub
-            {"op":"skills_installed","bot":"\(profile)","skills":[{"name":"swarmhub-messages","version":"9.9.9"},{"name":"swarmhub-feedback","version":"9.9.9"}]}
-            ```
-            """
+            let profiles = installProfiles(instructions)
+            if let rejected = payloadRejectedProfile, profiles.contains(rejected) { return .json(400, ["error": ["message": "Invalid 'instructions': string too long. Expected max 1048576, got 2802969."]]) }
+            let ops = profiles.filter { $0 != failingProfile }.map {
+                #"{"op":"skills_installed","bot":"\#($0)","skills":[{"name":"swarmhub-messages","version":"9.9.9"},{"name":"swarmhub-feedback","version":"9.9.9"}]}"#
+            }
+            let reply = ops.isEmpty ? "The filesystem refused the skill writes." : "Installed.\n```swarmhub\n[\(ops.joined(separator: ","))]\n```"
             return .sse([("assistant.delta", ["delta": reply]), ("run.completed", [:])])
         }
         if path == "/api/sessions" { return .json(200, ["session": ["id": "s-manager"]]) }
@@ -36,13 +39,13 @@ import Testing
     return (store, jarvis, [infra, reactor, elsewhere], host)
 }
 
-@Test @MainActor func sixteenBotsKeepTheirBundledSkillBytesInSeparateBudgetedTurns() async throws {
+@Test @MainActor func sixteenBotsInstallInTwoBudgetedBatchTurns() async throws {
     let (store, manager, others, host) = allBotsStore()
     let extra = (0..<14).map { Bot(name: "Worker \($0)", backend: .hermes, hermesProfile: "worker-\($0)") }
     store.bots.append(contentsOf: extra)
     let targets = Array(others.prefix(2)) + extra
     #expect(store.installSkillsOnAllBots(manager: manager))
-    // Sixteen sequential turns of up to 512 KiB each: the shared ceiling, not a 30 s cap (a loaded full-suite Mac hit 32.6 s).
+    // Two turns of eight bots (was sixteen sequential turns), each within 512 KiB: the shared ceiling, not a 30 s cap.
     // A timeout says whether the batch stalled (turns sent, profiles still queued, a slot held) or only ran slowly.
     do {
         try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && targets.allSatisfy { store.skillInstallResults[$0.id] != nil } }
@@ -52,16 +55,23 @@ import Testing
         throw error
     }
     let turns = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }
-    #expect(turns.count == 16)
+    #expect(turns.count == 2)
+    var sent: [String] = []
     for turn in turns {
         let instructions = try #require(turn.body?["instructions"] as? String)
         #expect(try JSONSerialization.data(withJSONObject: ["instructions": instructions]).count <= SkillInstallPayloadError.instructionsByteBudget)
+        #expect(installProfiles(instructions).count == 8)
+        // The manager holds both skills at this version: every bot copies them from it, none gets the files written out.
+        #expect(!instructions.contains("<<'SWARMHUB_EOF'") && instructions.contains("python3 - '~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages'"))
+        sent += installProfiles(instructions)
     }
+    #expect(sent == targets.map { store.profile(of: $0) }, "every bot once, in sidebar order")
     #expect(targets.allSatisfy { !$0.installedSkills.isEmpty && $0.skillInstallFailures.isEmpty })
     #expect(manager.messages.filter { $0.metadata["skill-install-result"] != nil }.count == 16)
+    #expect(manager.messages.filter { $0.role == .user }.map(\.content) == [AllBotsSkillCopy.request(8), AllBotsSkillCopy.request(8)])
 }
 
-@Test @MainActor func separateManagerTurnsInstallMessagingSkillsOnEveryBotWithoutThem() async throws {
+@Test @MainActor func oneBatchTurnInstallsMessagingSkillsOnEveryBotWithoutThem() async throws {
     let (store, jarvis, others, host) = allBotsStore()
     let (infra, reactor, elsewhere) = (others[0], others[1], others[2])
     let gaps = store.messagingSkillGaps(manager: jarvis)
@@ -72,19 +82,22 @@ import Testing
     #expect(store.installSkillsOnAllBots(manager: jarvis))
     try await waitUntil { !store.anyTurnRunning && infra.installedSkills["swarmhub-feedback"] != nil && reactor.installedSkills["swarmhub-feedback"] != nil }
     let turns = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }
-    #expect(turns.count == 2, "one manager request per bot")
-    for (turn, profile) in zip(turns, ["grok-infra", "grok-reactor"]) {
-        let sent = try #require(turn.body?["instructions"] as? String)
-        #expect(try JSONSerialization.data(withJSONObject: ["instructions": sent]).count <= SkillInstallPayloadError.instructionsByteBudget)
-        #expect(sent.contains("mkdir -p ~/.hermes/profiles/\(profile)/skills/swarmhub/swarmhub-messages"))
-        #expect(sent.contains("cat > ~/.hermes/profiles/\(profile)/skills/swarmhub/swarmhub-messages/scripts/bot-msg <<'SWARMHUB_EOF'"))
-        #expect(sent.contains("~/.hermes/profiles/\(profile)/skills/swarmhub/swarmhub-feedback/SKILL.md"))
-        #expect(sent.contains(#"{"op":"skills_installed","bot":"\#(profile)","skills":["#))
-        let other = profile == "grok-infra" ? "grok-reactor" : "grok-infra"
-        #expect(!sent.contains("\(other)/skills"), "no other bot's skill bytes in this turn")
-        #expect(!sent.contains("grok-jarvis/skills") && !sent.contains("grok-other"))
+    #expect(turns.count == 1, "one manager request for both bots")
+    let sent = try #require(turns.first?.body?["instructions"] as? String)
+    #expect(try JSONSerialization.data(withJSONObject: ["instructions": sent]).count <= SkillInstallPayloadError.instructionsByteBudget)
+    #expect(installProfiles(sent) == ["grok-infra", "grok-reactor"])
+    for profile in ["grok-infra", "grok-reactor"] {
+        for skill in ["swarmhub-messages", "swarmhub-feedback"] {
+            #expect(sent.contains("python3 - '~/.hermes/profiles/grok-jarvis/skills/swarmhub/\(skill)' '~/.hermes/profiles/\(profile)/skills/swarmhub/\(skill)' "),
+                    "copied from the manager, which holds \(skill) at this version")
+        }
+        #expect(!sent.contains("cat > ~/.hermes/profiles/\(profile)/skills/"), "no skill bytes written out")
     }
-    #expect(jarvis.messages.filter { $0.role == .user }.map(\.content) == [AllBotsSkillCopy.request(1), AllBotsSkillCopy.request(1)])
+    #expect(!sent.contains("grok-other"))
+    // One peer call for the batch, after the skills, enabling each profile.
+    #expect(sent.contains(PeerPluginEnablement.command(profiles: ["grok-infra", "grok-reactor"], skipEnable: false)))
+    #expect(!sent.contains(PeerPluginEnablement.command(profile: "grok-infra")))
+    #expect(jarvis.messages.filter { $0.role == .user }.map(\.content) == [AllBotsSkillCopy.request(2)])
     #expect(store.messagingSkillGaps(manager: jarvis).isEmpty && elsewhere.installedSkills.isEmpty, "recorded per bot, capped at this build's versions")
     #expect(!store.installSkillsOnAllBots(manager: jarvis), "nothing left to install")
 }
@@ -95,7 +108,7 @@ import Testing
     // Moving to another chat during the batch must not change the next turn's destination.
     store.selectedBot = others[2]
     try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && store.skillInstallResults[others[1].id] != nil }
-    #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count == 2)
+    #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count == 1, "both bots in one turn")
     #expect(store.skillInstallResults[others[0].id]?.status == .failed)
     #expect(store.skillInstallResults[others[1].id]?.status == .peerEnableUnverified)
     #expect(others[0].installedSkills.isEmpty && !others[0].skillInstallFailures.isEmpty)
@@ -110,6 +123,8 @@ import Testing
     let large = BundledSkill(name: "swarmhub-feedback", version: SkillVersion("1.0.0")!,
         template: String(repeating: "{{BOT}}", count: 40_000))
     store.skillLibraryOverride = [large]
+    // A dev-mode manager is no copy source, so each bot's file travels in full as before.
+    manager.skillDevMode = true
     others[0].hermesProfile = "grok-infra-very-long-profile"
     manager.installedSkills[large.name] = "1.0.0"
     #expect(store.installSkillsOnAllBots(manager: manager))
@@ -126,7 +141,10 @@ import Testing
     let (store, manager, others, host) = allBotsStore(payloadRejectedProfile: "grok-infra")
     #expect(store.installSkillsOnAllBots(manager: manager))
     try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && store.skillInstallResults[others[1].id] != nil }
-    #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count == 2)
+    // The refused batch goes again one bot per turn: the batch, then Infra alone (refused), then Reactor alone.
+    let turns = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.compactMap { $0.body?["instructions"] as? String }
+    #expect(turns.map(installProfiles) == [["grok-infra", "grok-reactor"], ["grok-infra"], ["grok-reactor"]])
+    #expect(store.allBotsSkillSolo.isEmpty && store.allBotsSkillBatch.isEmpty)
     #expect(store.skillInstallResults[others[0].id]?.status == .clientPayloadError)
     #expect(others[0].installedSkills.isEmpty && others[0].skillInstallFailures.isEmpty)
     #expect(!others[1].installedSkills.isEmpty && others[1].skillInstallFailures.isEmpty)
@@ -146,7 +164,7 @@ import Testing
     // The user's queued message took the slot between installs and was stopped: it is not the batch's install turn.
     store.continueAllBotsSkillInstall(manager: manager, end: .stoppedByUser, token: UUID())
     try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && others.prefix(2).allSatisfy { store.skillInstallResults[$0.id] != nil } }
-    #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count == 2)
+    #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count == 1)
     #expect(others.prefix(2).allSatisfy { store.skillInstallResults[$0.id]?.status != .notSent && !$0.installedSkills.isEmpty })
     #expect(store.allBotsSkillTurn.isEmpty)
 }
@@ -160,5 +178,5 @@ import Testing
     #expect(store.allBotsSkillQueue[manager.id]?.count == 2 && ChatParityServer.requests(host).isEmpty)
     store.releaseSlot(token)
     try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && others.prefix(2).allSatisfy { store.skillInstallResults[$0.id] != nil } }
-    #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count == 2)
+    #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.count == 1)
 }
