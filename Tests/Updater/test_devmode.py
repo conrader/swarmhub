@@ -16,8 +16,8 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cli_fixtures import (CODING, FEEDBACK, MANAGER, MESSAGES, PROFILES, PROFILES_DOC, CliCase, apply,  # noqa: E402
-                          stage)
+from cli_fixtures import (CODING, FEEDBACK, MANAGER, MESSAGES, PROMPTS, PROFILES, PROFILES_DOC, CliCase,  # noqa: E402
+                          apply, component, stage)
 from swarmhub_update import devmode  # noqa: E402
 
 DEV = [stage.Profile("default", PROFILES[0].coding_order, None, True), PROFILES[1]]
@@ -275,6 +275,34 @@ class Staged(DevCase):
         self.assertEqual(self.snapshot(CODING, "coder_2"), self.expected(v1, CODING, PROFILES[1]))
         self.assertEqual((self.live(CODING) / "SKILL.md").read_text(), edited, "default has no reset: untouched")
         self.assertIsNone(self.pending())
+
+    def test_updated_manager_prompts_rerender_all_profiles_with_a_pending_reset_in_one(self):
+        profiles = dict(PROFILES_DOC, profiles=[PROFILES_DOC["profiles"][0],
+                        dict(PROFILES_DOC["profiles"][1], skills=list(PROFILES[1].skills) + [MANAGER])])
+        self.start(profiles)
+        _, comps = self.release("same-v1")
+        self.edit(MANAGER, "coder_2")
+        override = self.override(MANAGER, "coder_2")
+        record = json.loads((self.state / "applied.json").read_bytes())
+        record["pending_reset"] = {"coder_2": [MANAGER]}
+        (self.state / "applied.json").write_text(json.dumps(record))
+        updates = [c for c in comps if c[0]["name"] != PROMPTS]
+        updates.append(component("config", PROMPTS, "1.1.0",
+                                 {"manager-hermes.md": (b"NEW MANAGER TEXT for {{MANAGER}}.\n", 0o644)}))
+        # No staged profiles: exercise the content-update path, without a forced global re-render.
+        code, out = self.update("apply", "--staged", str(self.stage(12, updates, profiles=None)))
+        self.assertEqual((code, out["state"]), (0, "current"), out["detail"])
+        self.assertEqual(out["components"][PROMPTS]["version"], "1.1.0")
+        self.assertIsNone(self.pending())
+        self.assertFalse(override.exists())
+        for profile in ("default", "coder_2"):
+            text = (self.live(MANAGER, profile) / "SKILL.md").read_text()
+            self.assertIn("NEW MANAGER TEXT for %s." % profile, text, profile)
+            self.assertNotIn("Edited on the box", text)
+        edited = self.edit(MANAGER)
+        code, out = self.update("check")
+        self.assertEqual((code, out["state"]), (0, "current"), out["detail"])
+        self.assertEqual((self.live(MANAGER) / "SKILL.md").read_text(), edited)
 
     def test_a_reset_for_a_removed_profile_is_dropped(self):
         self.start(PROFILES_DOC)

@@ -115,8 +115,11 @@ def _apply_now(box, verified, now, waiting, comps, reset_only=frozenset()):
     skills = [c for c in now if c["kind"] == "skill"]
     manager = next((c for c in verified.apply if c["name"] == render.MANAGER_SKILL), None)
     if bundle.MANAGER_PROMPTS in names_now and bundle.MANAGER_PROMPTS not in errors and manager is not None \
-            and manager["name"] not in names_now and manager["name"] not in waiting:
-        skills.append(manager)  # unchanged skill, rendered again with the new manager text
+            and manager["name"] not in waiting:
+        # New prompts re-render every target, even when a reset also requests the manager skill.
+        reset_only = set(reset_only) - {manager["name"]}
+        if manager["name"] not in names_now:
+            skills.append(manager)  # unchanged skill, rendered again with the new manager text
     loaded = {}
     for component in skills:
         try:
