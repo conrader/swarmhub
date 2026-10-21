@@ -1,0 +1,198 @@
+#!/usr/bin/python3 -IB
+"""jobroute: the forced-command route Hermes bots use to submit sb-codejob jobs on ovh.
+
+One authorized_keys line per profile, one key per profile; the profile comes from the
+line, never from the client:
+  restrict,from="195.201.33.222",command="/home/ubuntu/.local/lib/jobroute/current/jobroute --config /home/ubuntu/.config/jobroute/allowlist.toml --profile grok-admin" ssh-ed25519 AAAA... jobroute:grok-admin
+
+SSH_ORIGINAL_COMMAND is the only thing the client chooses:
+  (empty) | mcp                                     MCP over stdio: submit_job, job_status
+  submit engine=E label=L [workdir=W] [agent=A]     the brief is read from stdin
+  status [job=ID] [limit=N]                         this profile's own jobs only
+  list                                              same as status
+  help
+A character outside [A-Za-z0-9 ._/=-], a command over 512 chars, an unknown verb or key,
+a repeated key or a token without '=' is refused. It is never handed to a shell.
+Output is one JSON line. Exit 0 ok, 2 refused, 3 rate limited, 1 route error.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import signal
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from jobroute_core import Refused, Route  # noqa: E402
+
+CMD_RX = re.compile(r"[A-Za-z0-9 ._/=-]{0,512}")
+KEYS = {"submit": {"engine", "label", "workdir", "agent"}, "status": {"job", "limit"}, "list": {"job", "limit"}}
+CLI_TIMEOUT = 120
+MAX_LINE = 1 << 20
+PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+
+
+def emit(obj: dict) -> None:
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+
+def parse_cli(cmd: str) -> tuple[str, dict]:
+    if not CMD_RX.fullmatch(cmd):
+        raise Refused("command refused: characters outside [A-Za-z0-9 ._/=-] or too long")
+    tokens = [t for t in cmd.split(" ") if t]
+    if not tokens or tokens[0] not in (*KEYS, "help"):
+        raise Refused("unknown operation (submit, status, list, help)")
+    op, kv = tokens[0], {}
+    for t in tokens[1:]:
+        key, sep, value = t.partition("=")
+        if not sep or "=" in value or key not in KEYS.get(op, ()) or key in kv:
+            raise Refused(f"argument refused: {t[:40]}")
+        kv[key] = value
+    return op, kv
+
+
+def run_cli(route: Route, cmd: str) -> int:
+    signal.alarm(CLI_TIMEOUT)
+    try:
+        op, kv = parse_cli(cmd)
+    except Refused as e:
+        route.audit("parse", "cli", "refused", reason=e.reason,
+                    cmd_sha256=hashlib.sha256(cmd.encode("utf-8", "replace")).hexdigest())
+        raise
+    if op == "help":
+        emit({"ok": True, "profile": route.profile, "agent": route.agent, "engines": route.allowed_engines,
+              "workdirs": route.workdirs, "usage": __doc__.split("\n\n")[2]})
+        return 0
+    if op == "submit":
+        brief = sys.stdin.buffer.read(route.max_brief + 1)
+        emit(route.submit("cli", kv.get("engine"), kv.get("label"), kv.get("workdir"), brief, kv.get("agent")))
+        return 0
+    limit = kv.get("limit", "10")
+    emit(route.status("cli", kv.get("job"), int(limit) if limit.isdigit() else limit))
+    return 0
+
+
+# ---------------------------------------------------------------- MCP over stdio
+def tools(route: Route) -> list[dict]:
+    return [
+        {"name": "submit_job",
+         "description": (f"Start a detached coding job on ovh as sb-codejob agent '{route.agent}'. The brief is the "
+                         "whole prompt; the engine runs with fixed flags. Returns a job_id at once; you are woken "
+                         "when the job ends. Rate limited per profile."),
+         "inputSchema": {"type": "object", "additionalProperties": False, "required": ["engine", "label", "brief"],
+                         "properties": {
+                             "engine": {"type": "string", "enum": route.allowed_engines},
+                             "label": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"},
+                             "brief": {"type": "string", "maxLength": route.max_brief},
+                             "workdir": {"type": "string",
+                                         "description": f"subdirectory of {route.workdirs[0]} (default: that directory)"}}}},
+        {"name": "job_status",
+         "description": "Read-only status of jobs this profile submitted through this route (newest first).",
+         "inputSchema": {"type": "object", "additionalProperties": False,
+                         "properties": {"job_id": {"type": "string"},
+                                        "limit": {"type": "integer", "minimum": 1, "maximum": 50}}}},
+    ]
+
+
+def call_tool(route: Route, name: str, args: dict) -> dict:
+    try:
+        return _call_tool(route, name, args)
+    except Refused as e:
+        if not getattr(e, "audited", False):
+            route.audit("parse", "mcp", "refused", reason=e.reason, tool=str(name)[:40])
+        raise
+
+
+def _call_tool(route: Route, name: str, args: dict) -> dict:
+    if not isinstance(args, dict):
+        raise Refused("arguments must be an object")
+    allowed = {"submit_job": {"engine", "label", "brief", "workdir"}, "job_status": {"job_id", "limit"}}.get(name)
+    if allowed is None:
+        raise Refused("unknown tool (submit_job, job_status)")
+    extra = set(args) - allowed
+    if extra:
+        raise Refused(f"unknown argument: {sorted(extra)[0][:40]}")
+    if name == "submit_job":
+        brief = args.get("brief")
+        if not isinstance(brief, str):
+            raise Refused("brief must be a string")
+        return route.submit("mcp", args.get("engine"), args.get("label"), args.get("workdir"), brief.encode("utf-8"))
+    return route.status("mcp", args.get("job_id"), args.get("limit", 10))
+
+
+def read_lines(stream):
+    """Yield input lines; a line over MAX_LINE is drained and dropped, never held whole."""
+    while True:
+        raw = stream.readline(MAX_LINE + 1)
+        if not raw:
+            return
+        if len(raw) > MAX_LINE:
+            while raw and not raw.endswith(b"\n"):
+                raw = stream.readline(MAX_LINE + 1)
+            continue
+        yield raw
+
+
+def serve_mcp(route: Route) -> int:
+    for raw in read_lines(sys.stdin.buffer):
+        try:
+            msg = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(msg, dict):
+            continue
+        mid, method, params = msg.get("id"), msg.get("method"), msg.get("params") or {}
+        if method == "initialize":
+            asked = params.get("protocolVersion") if isinstance(params, dict) else None
+            result = {"protocolVersion": asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[-1],
+                      "capabilities": {"tools": {}},
+                      "serverInfo": {"name": "jobroute", "version": "1.0.0"},
+                      "instructions": (f"Job route for profile {route.profile} (sb-codejob agent {route.agent}). "
+                                       "submit_job starts one detached job; job_status reads your own jobs.")}
+        elif method == "tools/list":
+            result = {"tools": tools(route)}
+        elif method == "tools/call":
+            p = params if isinstance(params, dict) else {}
+            try:
+                body, is_error = call_tool(route, p.get("name", ""), p.get("arguments") or {}), False
+            except Refused as e:
+                body, is_error = {"ok": False, "error": e.reason}, True
+            except Exception as e:                 # never take the client down
+                body, is_error = {"ok": False, "error": f"route error: {type(e).__name__}"}, True
+            result = {"content": [{"type": "text", "text": json.dumps(body)}], "isError": is_error}
+        elif method == "ping":
+            result = {}
+        elif isinstance(method, str) and method.startswith("notifications/"):
+            continue
+        else:
+            if mid is not None:
+                emit({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "unknown method"}})
+            continue
+        if mid is not None:
+            emit({"jsonrpc": "2.0", "id": mid, "result": result})
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 4 or argv[0] != "--config" or argv[2] != "--profile":
+        emit({"ok": False, "error": "route misconfigured: expected --config PATH --profile NAME"})
+        return 1
+    cmd = os.environ.get("SSH_ORIGINAL_COMMAND", "")
+    try:
+        route = Route(argv[1], argv[3])
+        if cmd.strip() in ("", "mcp"):
+            return serve_mcp(route)
+        return run_cli(route, cmd)
+    except Refused as e:
+        emit({"ok": False, "error": e.reason})
+        return e.code
+    except Exception as e:
+        emit({"ok": False, "error": f"route error: {type(e).__name__}"})
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
