@@ -85,8 +85,10 @@ class TimerPullScope(MacCommand, PullCase):
                                              "--description=Swarm Hub webhook receiver install"])
         live = self.live(MESSAGES) / "scripts/swarmctl"
         self.assertEqual(scope[separator + 1:], [sys.executable, "-B", str(live)] + INSTALL)
-        self.assertEqual(self.pull(self.service.url)[1]["state"], "current")
-        self.assertEqual(len(self.scope_calls()), 1, "nothing new landed: no second install, no second scope")
+        with mock.patch.dict(os.environ, {"INVOCATION_ID": "fedcba9876543210fedcba9876543210", "PATH": self.path}):
+            self.assertEqual(self.pull(self.service.url)[1]["state"], "current")  # the timer's next, unchanged run
+        self.assertEqual(len(self.scope_calls()), 1, "nothing new landed: no second scope")
+        self.assertEqual(len(self.calls.read_text().splitlines()), 1, "nothing new landed: no second install")
         self.assert_hermes_unchanged()
 
     def test_without_a_scope_the_install_still_runs_directly(self):
