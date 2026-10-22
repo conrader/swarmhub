@@ -135,6 +135,11 @@ after the updater exits 0. It reinstalls the webhook receiver from the first liv
 is discarded and a failure fails nothing, so the call's stdout and exit code stay the updater's. swarmhub-messages is
 code, so the receiver's code reaches the box only through this confirm.
 
+With `--max-wait 0` a busy box defers the confirm (exit 75): the updater keeps the confirmation (`state` `deferred`,
+`confirmed_version` N, `applied_bundle_version` below N, no `pending_confirm`) but the code is not live, so the
+receiver step does not run. The pane then offers **Retry code update N on <box>**, the same command for the same
+version; the retry that lands the code runs the receiver step.
+
 The updater checks `--version` under its CLI lock, so N+1 arriving before execution refuses the old click. There is
 no automatic retry with a new version. Apply must finish in the matched terminal call and report `current`, the
 expected manifest/version, `confirmed_version` and `applied_bundle_version`. A separate matched fixed-path `status`

@@ -38,10 +38,12 @@ struct BoxUpdaterStatus: Decodable, Sendable {
     var confirmed_version: Int64? = nil
 
     /// App diagnostic overlay: preserve the last known live versions, but never reuse an acceptance verdict.
+    /// The applied and confirmed versions stay too, so a deferred confirm is offered again as a retry.
     static func failure(_ detail: String, state: String = "failed", previous: Self?) -> Self {
         Self(schema: "swarmhub/update-status/1", state: state, detail: detail, bundle: previous?.bundle,
              last: nil, profiles: previous?.profiles ?? [:], reload_pending: previous?.reload_pending ?? false,
-             pins: previous?.pins ?? Pins(path: "/usr/local/lib/swarmhub-update/pins.json", protected: false))
+             pins: previous?.pins ?? Pins(path: "/usr/local/lib/swarmhub-update/pins.json", protected: false),
+             applied_bundle_version: previous?.applied_bundle_version, confirmed_version: previous?.confirmed_version)
     }
 
     static func failedResult(_ output: String, previous: Self?) -> Self {

@@ -15,22 +15,32 @@ struct BoxUpdateState: Codable, Equatable {
     }
 
     /// A value captured by the button, never expanded to another box or a newer pending version.
+    /// A confirm the busy box deferred (75) keeps its confirmation but not its code: the same command, offered again
+    /// as a retry, lands the code and then installs the webhook receiver from it.
     struct Confirmation: Equatable, Sendable {
         let connection: String
         let version: Int64
         let manifest: String
+        let retry: Bool
 
         init?(connection: String, status: BoxUpdaterStatus) {
-            guard status.state == "pending_confirm", let pending = status.pending_confirm,
-                  !pending.code.isEmpty, let bundle = status.bundle, bundle.bundle_version > 0,
-                  pending.bundle_version == bundle.bundle_version else { return nil }
+            guard let bundle = status.bundle, bundle.bundle_version > 0 else { return nil }
+            if status.state == "pending_confirm", let pending = status.pending_confirm {
+                guard !pending.code.isEmpty, pending.bundle_version == bundle.bundle_version else { return nil }
+                retry = false
+            } else {
+                guard status.state == "deferred", status.pending_confirm == nil,
+                      status.confirmed_version == bundle.bundle_version,
+                      status.applied_bundle_version != bundle.bundle_version else { return nil }
+                retry = true
+            }
             self.connection = connection
             version = bundle.bundle_version
             manifest = bundle.manifest_sha256
         }
 
         var command: String { StagedInstall.confirmCommand(version: version) }
-        var title: String { "Apply code update \(version) on \(connection)" }
+        var title: String { (retry ? "Retry code update" : "Apply code update") + " \(version) on \(connection)" }
 
         func accepted(_ status: BoxUpdaterStatus) -> Bool {
             status.state == "current" && status.pending_confirm == nil &&

@@ -18,6 +18,14 @@ private func boxStatus(_ version: Int64 = 11, pending: Bool = true, command: Str
     return String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
 }
 
+/// What `status` reports after a confirm the busy box deferred: confirmed, nothing pending, the code not yet live.
+private func deferredStatus(confirmed: Int64 = 11, applied: Int64 = 0) throws -> String {
+    var object = try JSONSerialization.jsonObject(with: Data(try boxStatus(pending: false, command: "apply").utf8)) as! [String: Any]
+    object["state"] = "deferred"; object["detail"] = "box busy: code job slot 1"
+    object["confirmed_version"] = confirmed; object["applied_bundle_version"] = applied
+    return String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+}
+
 private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = nil, output: String? = nil, exit: Int = 0) -> ToolEvent {
     let result = output.map { String(decoding: try! JSONSerialization.data(withJSONObject: ["output": $0, "exit_code": exit]), as: UTF8.self) }
     return .init(phase: phase, name: "terminal", callID: id, command: command, result: result)
@@ -242,5 +250,35 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
     for altered in [StagedInstall.updater + " --max-wait 0 apply --version \(click.version)",
                     click.command.replacingOccurrences(of: "receiver install", with: "receiver uninstall")] {
         #expect(HermesBackend.updaterStatusCommand(["command": altered]) == nil)
+    }
+}
+
+@Test @MainActor func aDeferredConfirmIsOfferedAgainAsARetry() async throws {
+    let deferred = try deferredStatus()
+    let (store, bot, _) = try boxStore(applyStatus: deferred, applyExit: 75)
+    let target = store.connection(of: bot)
+    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(try boxStatus())), on: target)
+    let click = try #require(store.boxCodeConfirmation(for: bot))
+    #expect(!click.retry)
+    await store.confirmBoxCode(click, for: bot)
+    #expect(store.errorMessage?.contains("busy") == true)
+    #expect(bot.installedSkills.isEmpty)
+    let retry = try #require(store.boxCodeConfirmation(for: bot), "the pane offers the deferred confirm again")
+    #expect(retry.retry && retry.version == 11 && retry.command == click.command)
+    #expect(retry.title == "Retry code update 11 on \(target)")
+    #expect(store.canConfirmBoxCode(retry, for: bot))
+    var call = BoxUpdateConfirmCall(retry)  // the retry lands the code: the same receipt and status read accept it
+    let applied = try boxStatus(pending: false, command: "apply")
+    _ = call.consume(boxTool(.started, id: "apply", command: retry.command), previous: nil)
+    _ = call.consume(boxTool(.completed, id: "apply", output: applied), previous: nil)
+    _ = call.consume(boxTool(.started, id: "status", command: StagedInstall.statusCommand), previous: nil)
+    _ = call.consume(boxTool(.completed, id: "status", output: applied), previous: nil)
+    #expect(call.succeeded)
+    store.noteBoxUpdaterStatus(try #require(BoxUpdaterStatus.decode(applied)), on: target)
+    #expect(store.boxCodeConfirmation(for: bot) == nil)
+    // A refresh reading the deferred state offers it too; an unconfirmed or already-applied deferral does not.
+    for (status, offered) in [(deferred, true), (try deferredStatus(confirmed: 0), false), (try deferredStatus(applied: 11), false)] {
+        let read = try #require(BoxUpdaterStatus.decode(status))
+        #expect((BoxUpdateState.Confirmation(connection: target, status: read)?.retry == true) == offered)
     }
 }

@@ -19,12 +19,16 @@ struct BoxUpdateView: View {
                 Text("Updater: \(status.state). \(status.detail)")
                 if status.reload_pending { Text("Reload pending.") }
             }
-            if let confirmation = store.boxCodeConfirmation(for: bot), let pending = status?.pending_confirm {
-                ForEach(pending.code, id: \.name) { component in
-                    Text("Code: \(component.name) v\(component.version)")
-                }
-                ForEach(pending.data, id: \.name) { component in
-                    Text("Waiting data: \(component.name) v\(component.version) — needs \((component.waits_for ?? []).joined(separator: ", ")).")
+            if let confirmation = store.boxCodeConfirmation(for: bot) {
+                if let pending = status?.pending_confirm {
+                    ForEach(pending.code, id: \.name) { component in
+                        Text("Code: \(component.name) v\(component.version)")
+                    }
+                    ForEach(pending.data, id: \.name) { component in
+                        Text("Waiting data: \(component.name) v\(component.version) — needs \((component.waits_for ?? []).joined(separator: ", ")).")
+                    }
+                } else if confirmation.retry {
+                    Text("Code update \(confirmation.version) is confirmed but the busy box deferred it. Retry when it is idle.")
                 }
                 Button(confirmation.title) { Task { await store.confirmBoxCode(confirmation, for: bot) } }
                     .disabled(!store.canConfirmBoxCode(confirmation, for: bot))

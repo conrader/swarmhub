@@ -117,3 +117,26 @@ class MacCodeConfirm(CliCase):
         self.assertEqual(calls.read_text().splitlines(), ['["webhook", "receiver", "install"]'],
                          "one install per box account, from the copy the confirm just made live")
         self.assert_hermes_unchanged()
+
+    def test_a_deferred_confirm_installs_the_receiver_when_its_retry_lands(self):
+        calls = self.tmp / "receiver-calls"
+        _, components = self.release("v11", files={MESSAGES + "/scripts/swarmctl": RECEIVER_STUB % str(calls)})
+        self.assertEqual(self.update("apply", "--staged", str(self.stage(11, components)))[0], 0)
+        sleeper = self.start_sleeper()
+        slot = self.code_job_slot(sleeper.pid)  # a busy box: the --max-wait 0 confirm defers
+        code, status = self.confirm(11)
+        self.assertEqual((code, status["state"], status["confirmed_version"]), (75, "deferred", 11))
+        self.assertFalse(calls.exists(), "deferred: the code is not live, so the receiver step has not run")
+        # What the Mac reads back and offers as a retry (BoxUpdateState.Confirmation): deferred, confirmed, not applied.
+        code, status = self.update("status")
+        self.assertEqual((status["state"], status["pending_confirm"], status["bundle"]["bundle_version"],
+                          status["confirmed_version"]), ("deferred", None, 11, 11))
+        self.assertNotEqual(status["applied_bundle_version"], 11)
+        sleeper.kill()
+        sleeper.wait()
+        shutil.rmtree(str(slot))
+        code, status = self.confirm(11)  # the retry is the same command
+        self.assertEqual((code, status["state"], status["applied_bundle_version"]), (0, "current", 11))
+        self.assertEqual(calls.read_text().splitlines(), ['["webhook", "receiver", "install"]'],
+                         "the retry that lands the code installs the receiver once")
+        self.assert_hermes_unchanged()
