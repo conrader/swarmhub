@@ -3,9 +3,12 @@ service, no lingering): one per box account, held by a lock file. It restarts `s
 appends the receiver's own output (its start line and any crash; requests are never logged) to
 ~/.hermes/swarmhub/logs/webhook-receiver.log. The marker file records that this account uses it, so the peer plugin
 resumes it at every gateway start; removing the marker (`webhook receiver uninstall`) stops the receiver and the
-supervisor within a couple of seconds. Only the supervisor's own child is ever signalled.
+supervisor within a couple of seconds. A pidfile records the running receiver and the digest of the code it started
+with; installing again after a skill update terminates that one receiver (its exact pid, checked against `ps`), and the
+supervisor starts it again on the new code. Only the supervisor's own child is ever signalled.
 """
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,16 +18,30 @@ import sys
 import threading
 import time
 
+from swarm_intake import write_private
 import swarm_store as store
 from swarm_store import state
 
 HERE = Path(__file__).resolve().parent
+# The modules the receiver loads; their digest is in the unit and the pidfile, so a skill update restarts it.
+CODE = ("swarmctl", "swarm_control.py", "swarm_webhook.py", "swarm_delivery.py", "swarm_store.py", "swarm_policy.py",
+        "swarm_intake.py", "swarm_jobs.py", "swarm_lifecycle.py", "swarm_webhook_receiver.py", "swarm_webhook_supervisor.py")
 
 
 def paths():
     folder = state()
     return {"lock": folder / "webhook-receiver.lock", "marker": folder / "webhook-receiver.supervised",
-            "log": folder / "logs/webhook-receiver.log"}
+            "log": folder / "logs/webhook-receiver.log", "pid": folder / "webhook-receiver.pid"}
+
+
+def digest(folder):
+    hasher = hashlib.sha256()
+    for name in CODE:
+        try:
+            hasher.update(name.encode() + b"\0" + (folder / name).read_bytes())
+        except OSError:
+            hasher.update(name.encode() + b"\0missing")
+    return hasher.hexdigest()[:16]
 
 
 def enabled():
@@ -53,11 +70,47 @@ def spawn(python, port):
 
 
 def start(python, port):
-    """Record the fallback and start the supervisor unless one already runs (the lock makes a second one exit)."""
+    """Record the fallback and start the supervisor unless one already runs (the lock makes a second one exit); a
+    running one whose receiver started on other code than its swarmctl folder now holds gets that receiver restarted."""
     marker = paths()["marker"]
     marker.write_text(json.dumps({"port": int(port), "python": python}) + "\n")
     if holder() is None:
         spawn(python, port)
+    else:
+        refresh()
+
+
+def receiver_pid():
+    """(pid, record) of the supervised receiver when its pidfile, the lock and `ps` all agree, else (None, record).
+    `ps` must show that pid in the supervisor's own process group (the supervisor leads a session of its own), with the
+    exact command line and start time the supervisor recorded: a recycled pid or anything else is never signalled."""
+    try:
+        record = json.loads(paths()["pid"].read_text())
+        pid, supervisor = int(record["pid"]), holder()
+    except (OSError, ValueError, KeyError, TypeError):
+        return None, {}
+    if not supervisor or pid <= 1 or pid == supervisor:
+        return None, record
+    shown = subprocess.run(["ps", "-ww", "-o", "pid=,pgid=,cmd=", "-p", str(pid)], stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True).stdout.strip().split(None, 2)
+    if len(shown) != 3 or shown[:2] != [str(pid), str(supervisor)] or shown[2] != " ".join(record.get("cmd", [])):
+        return None, record
+    if not record.get("start") or store.process_start(pid) != record["start"]:
+        return None, record
+    return pid, record
+
+
+def refresh():
+    """Terminate the running receiver when its code changed on disk since it started; the supervisor starts it again.
+    True when a receiver was signalled."""
+    pid, record = receiver_pid()
+    if pid is None or len(record.get("cmd", [])) < 3 or record.get("code") == digest(Path(record["cmd"][2]).parent):
+        return False
+    try:
+        os.kill(pid, signal.SIGTERM)  # This receiver's exact pid only, never a group.
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def resume():
@@ -100,9 +153,12 @@ def supervise(port, python=None, sleep=time.sleep, popen=subprocess.Popen):
             began = time.monotonic()
             if p["log"].exists() and p["log"].stat().st_size > 1_000_000:
                 os.replace(p["log"], p["log"].with_name(p["log"].name + ".1"))  # A crash loop keeps two small files.
+            argv = [python or sys.executable, "-B", str(HERE / "swarmctl"), "webhook", "serve", str(int(port))]
+            code = digest(HERE)  # before the start: a change while it starts reads as changed, so it is restarted
             with p["log"].open("ab") as log:
-                child = popen([python or sys.executable, "-B", str(HERE / "swarmctl"), "webhook", "serve", str(int(port))],
-                              stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+                child = popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+                write_private(p["pid"], json.dumps({"pid": child.pid, "start": store.process_start(child.pid),
+                                                    "cmd": argv, "code": code}).encode())
                 while child.poll() is None:
                     if halted():
                         child.terminate()
@@ -113,11 +169,13 @@ def supervise(port, python=None, sleep=time.sleep, popen=subprocess.Popen):
                             child.wait()
                         break
                     sleep(1)
+            p["pid"].unlink(missing_ok=True)
             delay = 1 if time.monotonic() - began > 60 else min(delay * 2, 60)
             for _ in range(delay):
                 if halted():
                     break
                 sleep(1)
+        p["pid"].unlink(missing_ok=True)
         lock.seek(0)
         lock.truncate()
     return 0

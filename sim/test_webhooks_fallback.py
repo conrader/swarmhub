@@ -5,6 +5,7 @@ import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import unittest
@@ -54,6 +55,8 @@ class FallbackSupervisorTests(ReceiverTestBase):
         starts, sleeps = [], []
 
         class Crashed:
+            pid = 4_000_000  # Above any pid_max: never a live process.
+
             def poll(self):
                 return 1
 
@@ -79,6 +82,8 @@ class FallbackSupervisorTests(ReceiverTestBase):
         events = []
 
         class Running:
+            pid = 4_000_000
+
             def poll(self):
                 return None if "terminate" not in events else 0
 
@@ -110,6 +115,45 @@ class FallbackSupervisorTests(ReceiverTestBase):
         self.assertNotIn("via the supervisor", log)
         fallback.stop()
         self.eventually(lambda: fallback.holder() is None and not receiver.probe(port, timeout=0.5))
+
+    def test_an_upgrade_restarts_only_the_receiver_whose_code_changed(self):
+        port = self.free_port()
+        scripts = self.home / "skill-copy/scripts"  # A live copy this test may change, like a skill update does.
+        shutil.copytree(SWARMCTL.parent, scripts, ignore=shutil.ignore_patterns("__pycache__"))
+        fallback.paths()["marker"].write_text(json.dumps({"port": port, "python": "/usr/bin/python3"}))
+        self.addCleanup(fallback.stop)
+        fallback.store.spawn(["/usr/bin/python3", "-B", str(scripts / "swarm_webhook_supervisor.py"), str(port)])
+        self.eventually(lambda: receiver.probe(port, timeout=0.5) and fallback.receiver_pid()[0])
+        supervisor, (old, record) = fallback.holder(), fallback.receiver_pid()
+        self.assertEqual(record["cmd"], ["/usr/bin/python3", "-B", str(scripts / "swarmctl"), "webhook", "serve", str(port)])
+        self.assertEqual(record["code"], fallback.digest(scripts))
+        self.assertFalse(fallback.refresh(), "unchanged code is left running")
+        fallback.start("/usr/bin/python3", port)
+        self.assertEqual((fallback.holder(), fallback.receiver_pid()[0]), (supervisor, old))
+
+        with (scripts / "swarm_webhook.py").open("a") as code:
+            code.write("\n# a skill update\n")
+        decoy = subprocess.Popen(["sleep", "60"], start_new_session=True)  # Not the supervisor's child.
+        self.addCleanup(decoy.wait)
+        self.addCleanup(decoy.kill)
+        pidfile = fallback.paths()["pid"]
+        for forged in ({**record, "cmd": record["cmd"][:-1] + ["1"]},  # another command line on that pid
+                       {**record, "start": "Thu Jan  1 00:00:00 1970"},  # a recycled pid
+                       {**record, "pid": decoy.pid, "cmd": ["sleep", "60"], "start": fallback.store.process_start(decoy.pid)}):
+            pidfile.write_text(json.dumps(forged))
+            self.assertFalse(fallback.refresh(), forged)
+        self.assertIsNone(decoy.poll(), "a process outside the supervisor's group is never signalled")
+        pidfile.write_text(json.dumps(record))
+
+        fallback.start("/usr/bin/python3", port)  # The install after the update.
+        self.eventually(lambda: fallback.receiver_pid()[0] not in (None, old) and receiver.probe(port, timeout=0.5))
+        self.assertEqual(fallback.holder(), supervisor, "the supervisor keeps running; only its receiver restarted")
+        self.assertEqual(fallback.receiver_pid()[1]["code"], fallback.digest(scripts))
+        with self.assertRaises(ProcessLookupError):
+            os.kill(old, 0)
+        fallback.stop()
+        self.eventually(lambda: fallback.holder() is None and not receiver.probe(port, timeout=0.5))
+        self.assertFalse(pidfile.exists())
 
     def test_gateway_start_resumes_only_a_recorded_fallback(self):
         spawned = []

@@ -8,7 +8,6 @@ its text changes (a new skill version changes it), and an unchanged running serv
 binds 127.0.0.1 only; exposing it is the owner's reverse proxy (docs/webhooks-exposure.md). The unit carries no key
 and the receiver logs no request, so neither the service file nor its log can hold a secret.
 """
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -29,9 +28,7 @@ PORT = 8745
 HEALTH = "/swarmhub/webhook/health"
 SERVICE = "swarmhub-webhook"
 HERE = Path(__file__).resolve().parent
-# The modules the receiver loads; their digest is in the unit, so a skill update restarts it on the next install.
-CODE = ("swarmctl", "swarm_control.py", "swarm_webhook.py", "swarm_delivery.py", "swarm_store.py", "swarm_policy.py",
-        "swarm_intake.py", "swarm_jobs.py", "swarm_lifecycle.py", "swarm_webhook_receiver.py", "swarm_webhook_supervisor.py")
+CODE, digest = fallback.CODE, fallback.digest  # in the unit, so a skill update restarts it on the next install
 NO_USER_MANAGER = ("Failed to connect to bus", "No medium found", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
 
 
@@ -90,16 +87,6 @@ def current_target(kind):
                 target = Path(line[len(head):len(line) - len(tail)].strip())
                 return target if target.name == "swarmctl" and target.is_file() else None
     return None
-
-
-def digest(folder):
-    hasher = hashlib.sha256()
-    for name in CODE:
-        try:
-            hasher.update(name.encode() + b"\0" + (folder / name).read_bytes())
-        except OSError:
-            hasher.update(name.encode() + b"\0missing")
-    return hasher.hexdigest()[:16]
 
 
 def systemd_text(python, swarmctl, port=PORT):
