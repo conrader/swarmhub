@@ -30,7 +30,7 @@ enum WebhookCopy {
     static let nameHint = "Letters, digits, dots, dashes or underscores; up to 64. It names the webhook in the wake message."
     static let create = "Create"
     static let created = "Webhook created"
-    static let rotated = "New key"
+    static let rotated = "Key replaced"
     static let address = "Address"
     static let key = "Key"
     static let headerLine = "Send the key in the \(header) header and JSON {\"text\": \"…\"} as the body."

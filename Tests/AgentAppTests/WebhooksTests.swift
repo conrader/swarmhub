@@ -83,7 +83,7 @@ private let script = SkillLibrary.installPath("swarmhub-messages", profile: "gro
     let silent = String(decoding: try JSONSerialization.data(withJSONObject: ["output": "", "exit_code": 2]), as: UTF8.self)
     #expect(throws: WebhookPanelError.refused("the webhook command exited with status 2")) { try WebhookPanel.decode(silent) }
     #expect(throws: WebhookPanelError.unreadable) { try WebhookPanel.decode("Done! The webhooks are " + webhookPanelJSON() + " as you can see.") }
-    #expect(throws: WebhookPanelError.unreadable) { try WebhookPanel.decode(webhookPanelJSON().replacingOccurrences(of: "swarmhub/webhooks/1", with: "swarmhub/webhooks/0")) }
+    #expect(throws: WebhookPanelError.unreadable) { try WebhookPanel.decode(webhookPanelJSON().replacingOccurrences(of: "webhooks\\/1", with: "webhooks\\/0").replacingOccurrences(of: "webhooks/1", with: "webhooks/0")) }
     let notice = try WebhookPanel.decode(webhookPanelJSON(action: "receiver-install", result: ["error": "systemctl --user enable failed (1): no bus"]))
     #expect(notice.result?.error == "systemctl --user enable failed (1): no bus")
     let leaky = String(decoding: try JSONSerialization.data(withJSONObject: ["output": "swarmctl: bad API_SERVER_KEY=abc123\n", "exit_code": 64]), as: UTF8.self)
