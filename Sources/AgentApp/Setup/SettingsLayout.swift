@@ -65,11 +65,13 @@ enum SettingsLayout {
                         // P46: the heartbeat template and each bot's heartbeat.
                         "heartbeat.template", "heartbeat.bots",
                         // P49: orientation for new bots (on/off, coordinator) and the quiet hours.
-                        "orientation.newBots", "orientation.quietHours"]
+                        "orientation.newBots", "orientation.quietHours",
+                        // Konrad 2026-10-22: the app icon (Light by default, Dark on request), apart from the theme.
+                        "appearance.appIcon"]
 
     static let entries: [(id: String, home: Home)] = [
         ("connection.status", .simple), ("connection.test", .simple), ("connection.setup", .simple), ("you.name", .simple),
-        ("appearance.theme", .simple), ("appearance.accent", .simple), ("notifications.master", .simple),
+        ("appearance.theme", .simple), ("appearance.appIcon", .simple), ("appearance.accent", .simple), ("notifications.master", .simple),
         // Konrad (2026-10-14): the automatic-check toggle sits with Version and Check for Updates; the rest of Updates is Advanced.
         ("about.version", .simple), ("about.autoCheck", .simple), ("about.checkUpdates", .simple), ("advanced.open", .simple),
         ("servers.hermesVersion", .advanced(.servers)), ("servers.baseURL", .advanced(.servers)), ("servers.defaultKey", .advanced(.servers)),

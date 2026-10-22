@@ -25,8 +25,8 @@ iconutil --convert icns Resources/AppIcon/AppIcon.iconset \
 
 `SwarmHub-logo-dark.svg` and `SwarmHub-icon-dark.svg` are the dark drawing: a cream face with olive eyes on an olive
 tile. `AppIcon-dark.iconset/` holds its ten Mac sizes. `ThemeIcons/SwarmHub-light.png` and `SwarmHub-dark.png` (1024 px)
-are bundled for `AppIconAppearance`, which sets the running app's Dock icon from the Light, Dark or System preference
-(System follows macOS, also with no window open). SwiftPM, the `swiftc` fallback and `package-release.sh` all include
+are bundled for `AppIconAppearance`, which sets the running app's Dock icon from Settings → Appearance → App icon: Light
+(the default, also for installs that never picked one) or Dark, apart from the theme (Konrad 2026-10-22). SwiftPM, the `swiftc` fallback and `package-release.sh` all include
 `ThemeIcons/`. `AppIcon.icns` stays the light icon Finder shows before launch.
 
 `SwarmHub-logo-light.svg` and `SwarmHub-icon-light.svg` are the light drawing under explicit names (the default paths

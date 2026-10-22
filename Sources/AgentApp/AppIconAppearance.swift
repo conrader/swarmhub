@@ -1,39 +1,52 @@
 import AppKit
 
-/// P38: the Dock icon follows the app's Light/Dark/System preference. The bundle's light `AppIcon.icns` stays the Finder
-/// fallback; the running app swaps in `ThemeIcons/SwarmHub-dark|light.png` at launch, when the preference changes and,
-/// on System, when macOS switches appearance (also with no window open).
+/// P38, changed 2026-10-22 (Konrad: "make light version icon default"): the Dock icon has its own preference, Light (the
+/// default, also for everyone who never picked one) or Dark, under Settings → Appearance → App icon. The theme no longer
+/// moves it. The bundle's light `AppIcon.icns` stays the Finder icon; the running app swaps in
+/// `ThemeIcons/SwarmHub-dark|light.png` at launch and when the preference changes.
 @MainActor final class AppIconAppearance: NSObject, NSApplicationDelegate {
-    private var systemAppearance: NSKeyValueObservation?
+    static let preferenceKey = "appIcon"
+    static let defaultPreference = "Light"
+
+    private let defaults: UserDefaults
+    private let setIcon: @MainActor (NSImage) -> Void
     private var images: [Bool: NSImage] = [:]
-    private var appliedDark: Bool?
+    private(set) var appliedDark: Bool?
+
+    override convenience init() {
+        self.init(defaults: .standard) { NSApp.applicationIconImage = $0 }
+    }
+
+    init(defaults: UserDefaults, setIcon: @escaping @MainActor (NSImage) -> Void) {
+        self.defaults = defaults
+        self.setIcon = setIcon
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
         if QAMode.enabled || UIAcceptanceMode.requested { return }
         #endif
-        systemAppearance = NSApp.observe(\.effectiveAppearance, options: [.initial, .new]) { [weak self] _, _ in
-            Task { @MainActor [weak self] in self?.refreshIcon() }
-        }
-        NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: UserDefaults.didChangeNotification, object: nil)
+        start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        systemAppearance?.invalidate()
         NotificationCenter.default.removeObserver(self)
+    }
+
+    /// Sets the icon now and again whenever the defaults change (the Settings picker writes them).
+    func start() {
+        refreshIcon()
+        NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: UserDefaults.didChangeNotification, object: nil)
     }
 
     @objc nonisolated private func preferencesChanged(_ notification: Notification) {
         Task { @MainActor [weak self] in self?.refreshIcon() }
     }
 
-    /// Dark for "Dark", light for "Light", else the system's appearance.
-    static func usesDarkIcon(preference: String, systemDark: Bool) -> Bool {
-        switch AppTheme.colorScheme(for: preference) {
-        case .dark: true
-        case .light: false
-        default: systemDark
-        }
+    /// Dark only for "Dark"; Light for "Light", no choice yet or anything unknown. The theme plays no part.
+    static func usesDarkIcon(preference: String?) -> Bool {
+        preference == "Dark"
     }
 
     /// The installed app's Resources, the SwiftPM bundle or `swiftc` folder beside the binary, or the checkout (tests).
@@ -53,12 +66,10 @@ import AppKit
         ] + icns).compactMap { $0 }
     }
 
-    private func refreshIcon() {
-        let preference = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"]
-            ?? UserDefaults.standard.string(forKey: "appearance") ?? AppTheme.defaultPreference
-        let dark = Self.usesDarkIcon(preference: preference, systemDark: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+    func refreshIcon() {
+        let dark = Self.usesDarkIcon(preference: defaults.string(forKey: Self.preferenceKey))
         guard appliedDark != dark, let image = image(dark: dark) else { return }
-        NSApp.applicationIconImage = image
+        setIcon(image)
         appliedDark = dark
     }
 

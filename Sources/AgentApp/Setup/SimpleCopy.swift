@@ -26,9 +26,11 @@ enum SimpleCopy {
 
     static let appearance = "Appearance"
     static let theme = "Theme"
+    static let appIcon = "App icon"
     static let dark = "Dark", light = "Light", system = "System"
     static let accent = "Accent"
-    static let accentCaption = "Dark is the default. The accent colours buttons, selections and usage bars; Graphite follows the text colour."
+    static let accentCaption = "Dark is the default theme. The app icon in the Dock is Light unless you pick Dark, whatever the theme. "
+        + "The accent colours buttons, selections and usage bars; Graphite follows the text colour."
 
     static let notifications = "Notifications"
     static let notifyMaster = "Notify about new messages"
@@ -79,7 +81,7 @@ enum SimpleCopy {
     static var all: [String] {
         [connection, notConnected, connected(to: SetupCopy.thisMac, agents: 3), reenterKey, testConnection, testingConnection, setUp,
          changeConnection, connectionCaption, tested(answered: 2, of: 3), tested(answered: 0, of: 0), agentsNotAnswering(["Ada"]), you,
-         yourName, yourNameCaption, appearance, theme, dark, light, system, accent, accentCaption, notifications, notifyMaster,
+         yourName, yourNameCaption, appearance, theme, appIcon, dark, light, system, accent, accentCaption, notifications, notifyMaster,
          notifyCaption, notifyNeedsApp, about, version, autoCheck, checkForUpdates, checkNow, autoCheckCaption, openRelease("1.0"),
          advanced, advancedCaption, backToSimple, previewOff, newAgent, agentSettings, avatar, name, instructions,
          instructionsCaption, notifyAgent, cancel, save, editorAdvanced, editorAdvancedCaption, runsOn("this Mac", as: "Ada"),

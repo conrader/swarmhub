@@ -21,9 +21,9 @@ private func containsWord(_ text: String, _ word: String) -> Bool {
 }
 
 @Test func theSimplePageHoldsExactlyTheEverydayControls() {
-    // The brief's ten, plus the automatic-check toggle Konrad placed in About (2026-10-14).
+    // The brief's ten, plus the automatic-check toggle Konrad placed in About (2026-10-14) and the app icon beside the theme (2026-10-22).
     #expect(SettingsLayout.simpleIDs == ["connection.status", "connection.test", "connection.setup", "you.name", "appearance.theme",
-                                         "appearance.accent", "notifications.master", "about.version", "about.autoCheck",
+                                         "appearance.appIcon", "appearance.accent", "notifications.master", "about.version", "about.autoCheck",
                                          "about.checkUpdates", "advanced.open"])
     for entry in SettingsLayout.entries where entry.home != .simple {
         guard case .advanced(let pane) = entry.home else { Issue.record("\(entry.id) has no pane"); continue }

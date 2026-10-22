@@ -8,6 +8,7 @@ struct SettingsSimplePane: View {
     @Environment(\.openWindow) private var openWindow
     let openAdvanced: () -> Void
     @AppStorage("appearance") private var appearance = AppTheme.defaultPreference; @AppStorage("accent") private var accent = AppTheme.defaultAccent
+    @AppStorage(AppIconAppearance.preferenceKey) private var appIcon = AppIconAppearance.defaultPreference
     @AppStorage("notifications") private var notifications = false
     @AppStorage(UserIdentity.key) private var accountName = ""
     @State private var testLines: [String] = []; @State private var testing = false
@@ -32,6 +33,7 @@ struct SettingsSimplePane: View {
             }
             Section(SimpleCopy.appearance) {
                 Picker(SimpleCopy.theme, selection: $appearance) { Text(SimpleCopy.dark).tag("Dark"); Text(SimpleCopy.light).tag("Light"); Text(SimpleCopy.system).tag("System") }.pickerStyle(.segmented)
+                Picker(SimpleCopy.appIcon, selection: $appIcon) { Text(SimpleCopy.light).tag("Light"); Text(SimpleCopy.dark).tag("Dark") }.pickerStyle(.segmented)
                 Picker(SimpleCopy.accent, selection: $accent) {
                     ForEach(AppTheme.accentNames, id: \.self) { name in HStack { Circle().fill(AppTheme.accentColor(for: name)).frame(width: 10, height: 10); Text(name) }.tag(name) }
                 }
