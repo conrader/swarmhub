@@ -24,10 +24,14 @@ import Foundation
     private var sinkRegistration: ComposioValue?
     private var receivedText: [UUID: String] = [:]
     private let transport: @Sendable (ComposioValue) async throws -> ComposioValue
+    /// Wall clock for proof and lease expiry and scope budgets; tests pin it so MainActor latency cannot expire a proof.
+    private let clock: () -> Date
 
-    init(directory: URL, transport: @escaping @Sendable (ComposioValue) async throws -> ComposioValue = { try await QAMode.boundary.control($0) }) throws {
+    init(directory: URL, transport: @escaping @Sendable (ComposioValue) async throws -> ComposioValue = { try await QAMode.boundary.control($0) },
+         clock: @escaping () -> Date = { Date() }) throws {
         self.directory = directory
         self.transport = transport
+        self.clock = clock
         recorder = try QARecorder(directory: directory)
         let defaults = UserDefaults(suiteName: directory.appending(path: "preferences").path)!
         // No shared key vault, discovery, migration, automation ticker, production connected apps, or launch work.
@@ -78,9 +82,9 @@ import Foundation
             // Registration crosses only the authenticated local QA gateway; it is never journaled or returned.
             if let sinkRegistration { request["recorder"] = sinkRegistration }
             let value = try await remote("attest", .object(request))
-            try QAPolicy.attestation(value, nonce: nonce)
+            try QAPolicy.attestation(value, nonce: nonce, now: clock().timeIntervalSince1970)
             guard let lease = value["lease"].string, issuedLeases.count < 20_000, issuedLeases.insert(lease).inserted else { throw QAError.refused }
-            leases = leases.filter { if case .number(let expiry) = $0.value["expires_at"] { return expiry > Date().timeIntervalSince1970 }; return false }
+            leases = leases.filter { if case .number(let expiry) = $0.value["expires_at"] { return expiry > clock().timeIntervalSince1970 }; return false }
             guard leases.count < 64 else { throw QAError.refused }
             leases[lease] = value
             capabilities = Set(value["capabilities"].array?.compactMap(\.string) ?? []).intersection(QAPolicy.operations.union(["observe", "cleanup"]))
@@ -114,7 +118,7 @@ import Foundation
               let scenario = body["scenario_id"].string, scenario.range(of: #"\A(?:A(?:0[1-9]|1[0-8])|F(?:0[1-9]|1[0-9]|2[0-5])|B(?:0[1-9]|10)|U(?:0[1-9]|1[0-2]))\z"#, options: .regularExpression) != nil,
               let resource = body["resource"].string, QAPolicy.name(resource), resource == "QA-\(run)-\(scenario) [QA-TEST]",
               let lease = body["lease"].string, let proof = leases.removeValue(forKey: lease),
-              case .number(let expiry) = proof["expires_at"], expiry > Date().timeIntervalSince1970 else { throw QAError.refused }
+              case .number(let expiry) = proof["expires_at"], expiry > clock().timeIntervalSince1970 else { throw QAError.refused }
         let key = run + "/" + scenario
         // MainActor is reentrant at awaits. Serialize scope handlers before any remote suspension.
         if route != "record" {
@@ -125,14 +129,14 @@ import Foundation
             guard scopes[key] == nil, body["marker"] == .string(QAPolicy.marker),
                   body["max_turns"] == .number(3), body["max_seconds"] == .number(120),
                   body["max_run_turns"] == .number(24), body["max_run_seconds"] == .number(900), scopes.count < 65 else { throw QAError.refused }
-            if runs[run] == nil { runs[run] = (.now, 0, 0) }
-            guard Date().timeIntervalSince(runs[run]!.started) < 900 else { throw QAError.refused }
+            if runs[run] == nil { runs[run] = (clock(), 0, 0) }
+            guard clock().timeIntervalSince(runs[run]!.started) < 900 else { throw QAError.refused }
             let id = "QA-" + UUID().uuidString
             let bot = Bot(name: resource, persona: "[QA-TEST] Isolated synthetic QA scope. All tool results are simulated; never claim delivery.", backend: .hermes, hermesProfile: "default")
             let base = try QAMode.boundary.nativeURL(scope: id)
             bot.hermesBaseURL = base.absoluteString
             // Record ownership before the first remote mutation, including uncertain begin outcomes.
-            scopes[key] = Scope(id: id, run: run, scenario: scenario, resource: resource, bot: bot, started: .now, busy: true)
+            scopes[key] = Scope(id: id, run: run, scenario: scenario, resource: resource, bot: bot, started: clock(), busy: true)
             var journalBody = body.object!; journalBody["lease"] = nil
             try journal(.object(["scope": .string(id), "intent": .object(journalBody), "state": .string("begin-accepted")]))
             var remoteBody = body.object!; remoteBody["scope_id"] = .string(id)
@@ -165,7 +169,7 @@ import Foundation
             // Recording never sends and needs no remote call (avoids deadlock inside a real Hermes tool call).
             return try recorder.record(resource: resource, tool: tool, payload: body["payload"], attempt: attempt)
         }
-        guard Date().timeIntervalSince(scope.started) < 120, let budget = runs[run], Date().timeIntervalSince(budget.started) < 900 else { throw QAError.refused }
+        guard clock().timeIntervalSince(scope.started) < 120, let budget = runs[run], clock().timeIntervalSince(budget.started) < 900 else { throw QAError.refused }
         let authorization = try await remote("authorize", .object(remoteBody))
         guard authorization["acknowledged"] == .bool(true), authorization["scope_id"] == .string(scope.id) else { throw QAError.blocked }
         let actionID = body["action_id"].string ?? route

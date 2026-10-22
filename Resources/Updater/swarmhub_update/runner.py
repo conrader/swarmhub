@@ -18,6 +18,7 @@ the box deferred and a later run completed still leaves the receiver on the code
 
 from collections import namedtuple
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -258,7 +259,8 @@ def ensure_receiver(box, report):
     """Install the webhook receiver from the first live swarmhub-messages copy this run applied (default first), as
     the Mac's receiver step does: `swarmctl webhook receiver install` is idempotent and restarts the receiver only
     when its code changed. Its output is discarded and its failure fails nothing; the Webhooks pane reads its state.
-    Returns True when the install ran and exited 0."""
+    Returns True when the install ran and exited 0. Run by the timer, the install gets a scope of its own (own_scope);
+    where that scope cannot be made, it runs directly, as from a shell."""
     for profile in sorted(report.results, key=lambda name: (name != "default", name)):
         if report.results[profile].status not in GOOD:
             continue
@@ -266,14 +268,32 @@ def ensure_receiver(box, report):
         script = os.path.join(category, apply.MESSAGES_SKILL, "scripts", "swarmctl")
         if not os.path.isfile(script):
             continue
+        install = [sys.executable, "-B", script, "webhook", "receiver", "install"]
+        quiet = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
         try:
-            done = stage.run([sys.executable, "-B", script, "webhook", "receiver", "install"],
-                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             timeout=120)
+            scoped = own_scope(install)
+            done = stage.run(scoped, **quiet) if scoped else None
+            if done is None or done.returncode != 0:
+                done = stage.run(install, **quiet)  # idempotent: a second run after a failed scope changes nothing
         except (OSError, subprocess.SubprocessError):
             return False
         return done.returncode == 0
     return False
+
+
+def own_scope(argv):
+    """`argv` in a transient scope of the account's systemd user manager when the updater itself runs as a systemd unit
+    (the timer's oneshot swarmhub-update.service; systemd sets INVOCATION_ID), else None. Without lingering the install
+    starts the receiver's fallback supervisor, a detached process that would still sit in the updater's control group,
+    which systemd empties when the oneshot exits; in a scope of its own it outlives the run. From a shell (the Mac's
+    confirm over SSH, an owner's `check`) and on macOS nothing changes."""
+    if not (os.environ.get("INVOCATION_ID") and sys.platform.startswith("linux")):
+        return None
+    tool = shutil.which("systemd-run")
+    if not tool:
+        return None
+    return [tool, "--user", "--scope", "--quiet", "--collect", "--description=Swarm Hub webhook receiver install", "--"
+            ] + list(argv)
 
 
 def _state(report, not_applied, waiting):

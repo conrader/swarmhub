@@ -148,6 +148,12 @@ discarded, failure fails nothing). A run that only re-renders bytes the box alre
 the receiver alone, so an owner's `webhook receiver uninstall` survives the timer. The Mac's receiver step stays for
 boxes whose updater predates this; on a current updater it is a second, idempotent install.
 
+Run by the timer, the updater is a oneshot systemd user service, and systemd kills whatever is left in its control
+group when it exits. Without lingering the install starts the receiver's fallback supervisor, so there the updater runs
+the install in a transient scope of its own (`systemd-run --user --scope`, `runner.own_scope`) and the supervisor
+outlives the run. If the scope cannot be made, the install runs directly, as before. A scope still belongs to the user
+manager, which stops at logout without lingering; the gateway brings the recorded fallback back at its next start.
+
 The updater checks `--version` under its CLI lock, so N+1 arriving before execution refuses the old click. There is
 no automatic retry with a new version. Apply must finish in the matched terminal call and report `current`, the
 expected manifest/version, `confirmed_version` and `applied_bundle_version`. A separate matched fixed-path `status`

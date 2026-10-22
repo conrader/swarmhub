@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-private func qaProof(nonce: String = "QA-nonce") -> ComposioValue {
+private func qaProof(nonce: String = "QA-nonce", now: Date = Date()) -> ComposioValue {
     var fields: [String: ComposioValue] = [:]
     for key in ["debug_build", "test_mode", "real_app", "real_hermes", "isolated_qa_store", "inventory_complete",
                 "sandbox_enforced_app", "sandbox_enforced_hermes", "default_deny_tools", "egress_denied_except_model",
@@ -11,7 +11,7 @@ private func qaProof(nonce: String = "QA-nonce") -> ComposioValue {
     fields.merge(["schema": .string(QAPolicy.schema), "nonce": .string(nonce), "real_connector_count": .number(0),
         "production_jobs_accessible": .bool(false), "build": .string("unit-only"), "commit": .string("unit-only"),
         "hermes_version": .string("not-connected"), "sandbox_policy_digest": .string("unit-only"), "lease": .string("QA-unit-lease"),
-        "expires_at": .number(Date().timeIntervalSince1970 + 30), "capabilities": .strings(["chat.send", "observe", "cleanup"]),
+        "expires_at": .number(now.timeIntervalSince1970 + 30), "capabilities": .strings(["chat.send", "observe", "cleanup"]),
         "connectors": .array(["email", "slack", "whatsapp", "connected-apps", "terminal", "browser", "http", "coding", "peers", "background"].map {
             .object(["name": .string($0), "implementation": .string("record-only"), "has_credentials": .bool(false), "network_enabled": .bool(false)])
         })], uniquingKeysWith: { _, new in new })
@@ -141,7 +141,10 @@ private func qaHTTP(_ headers: String = "", token: String = qaToken, route: Stri
 
 @MainActor @Test func qaControllerRefusesUnsafeProofAndLeaseReplay() async throws {
     let directory = try qaDirectory(); defer { try? FileManager.default.removeItem(at: directory) }
-    let controller = try QAController(directory: directory, transport: { request in qaProof(nonce: request["nonce"].string ?? "missing") })
+    // A pinned clock: the proof is checked at the moment it was stamped, however long the MainActor takes to resume.
+    let now = Date()
+    let controller = try QAController(directory: directory, transport: { request in qaProof(nonce: request["nonce"].string ?? "missing", now: now) },
+                                      clock: { now })
     let body: ComposioValue = .object(["schema": .string(QAPolicy.schema), "nonce": .string("QA-nonce")])
     _ = try await controller.handle("attest", body)
     await #expect(throws: QAError.self) { try await controller.handle("attest", body) }
@@ -155,18 +158,21 @@ private func qaHTTP(_ headers: String = "", token: String = qaToken, route: Stri
 }
 
 private actor QAControlProbe {
+    let now: Date
     var calls = 0
+    init(now: Date) { self.now = now }
     func call(_ request: ComposioValue) -> ComposioValue {
         calls += 1
-        var fields = qaProof(nonce: request["nonce"].string ?? "missing").object!
+        var fields = qaProof(nonce: request["nonce"].string ?? "missing", now: now).object!
         fields["lease"] = .string("QA-unit-lease-\(calls)")
         return .object(fields)
     }
 }
 @MainActor @Test func qaForeignNamesAndOffListContentNeverReachGatewayAuthorization() async throws {
     let directory = try qaDirectory(); defer { try? FileManager.default.removeItem(at: directory) }
-    let probe = QAControlProbe()
-    let controller = try QAController(directory: directory, transport: { await probe.call($0) })
+    let now = Date()
+    let probe = QAControlProbe(now: now)
+    let controller = try QAController(directory: directory, transport: { await probe.call($0) }, clock: { now })
     let proof = try await controller.handle("attest", .object(["schema": .string(QAPolicy.schema), "nonce": .string("QA-nonce")]))
     let common: [String: ComposioValue] = ["schema": .string(QAPolicy.schema), "run_id": .string("unit"),
         "scenario_id": .string("F03"), "resource": .string("Real chat"), "lease": proof["lease"],
