@@ -18,7 +18,6 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.error
 import urllib.request
 
 from swarm_intake import write_private
@@ -32,7 +31,7 @@ SERVICE = "swarmhub-webhook"
 HERE = Path(__file__).resolve().parent
 # The modules the receiver loads; their digest is in the unit, so a skill update restarts it on the next install.
 CODE = ("swarmctl", "swarm_control.py", "swarm_webhook.py", "swarm_delivery.py", "swarm_store.py", "swarm_policy.py",
-        "swarm_intake.py", "swarm_webhook_receiver.py", "swarm_webhook_supervisor.py")
+        "swarm_intake.py", "swarm_jobs.py", "swarm_lifecycle.py", "swarm_webhook_receiver.py", "swarm_webhook_supervisor.py")
 NO_USER_MANAGER = ("Failed to connect to bus", "No medium found", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
 
 
@@ -70,7 +69,9 @@ def log_hint(kind=None):
 
 def interpreter():
     # The system Python, not Hermes' venv: the receiver is standard-library only and must outlive Hermes updates.
-    for candidate in ("/usr/bin/python3", "/usr/local/bin/python3", "/opt/homebrew/bin/python3"):
+    # On macOS /usr/bin/python3 may be only the Command Line Tools stub, so a real install comes first there.
+    order = ("/usr/bin/python3", "/usr/local/bin/python3", "/opt/homebrew/bin/python3")
+    for candidate in order if sys.platform != "darwin" else order[::-1]:
         if os.access(candidate, os.X_OK):
             return candidate
     return shutil.which("python3") or sys.executable
@@ -107,7 +108,9 @@ def systemd_text(python, swarmctl, port=PORT):
 # code: {digest(swarmctl.parent)}
 [Unit]
 Description=Swarm Hub webhook receiver (127.0.0.1:{port})
-After=network.target
+# A port held by something else is not retried forever: after 10 failed starts in 5 minutes the unit stays failed.
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 Type=simple
@@ -115,7 +118,7 @@ ExecStart={python} -B {swarmctl} webhook serve {port}
 Environment=PYTHONDONTWRITEBYTECODE=1
 UMask=0077
 Restart=on-failure
-RestartSec=5
+RestartSec=10
 NoNewPrivileges=yes
 
 [Install]
@@ -159,6 +162,13 @@ def domain():
     return f"gui/{os.getuid()}"
 
 
+def lingering():
+    """False only when logind says this account does not linger: its user manager, and a unit in it, stops at logout
+    and does not start at boot, even if it answers now (an owner's SSH session)."""
+    code, output = run("loginctl", "show-user", str(os.getuid()), "--property=Linger", "--value")
+    return not (code == 0 and output.strip().splitlines()[-1:] == ["no"])
+
+
 def install(port=PORT):
     """Write the service file if it changed, then enable and start it. Raises ValueError when the manager refuses."""
     kind = manager()
@@ -166,6 +176,12 @@ def install(port=PORT):
     if path is None:
         raise ValueError("no supported service manager for this account here (systemd user units or launchd, with HOME as "
                          "the account's home); run `swarmctl webhook serve` under your own supervisor")
+    if kind == "systemd" and not lingering():
+        if path.exists():
+            run("systemctl", "--user", "disable", "--now", NAME)
+            path.unlink()
+            run("systemctl", "--user", "daemon-reload")
+        return supervised(path, port)
     target = current_target(kind) or HERE / "swarmctl"
     text = (systemd_text if kind == "systemd" else launchd_text)(interpreter(), target, port)
     try:
@@ -234,7 +250,7 @@ def probe(port=PORT, timeout=2):
     try:
         with opener.open(f"http://127.0.0.1:{int(port)}{HEALTH}", timeout=timeout) as response:
             return json.loads(response.read(4096) or b"{}").get("service") == SERVICE
-    except (OSError, ValueError, urllib.error.URLError):
+    except Exception:  # noqa: BLE001  Anything but our health answer (a non-HTTP listener, odd JSON) is "not ours".
         return False
 
 
@@ -270,7 +286,7 @@ def ensure():
     """The setup path's call: install, say on stderr when it is not running, never fail the skill installation."""
     try:
         result = install()
-    except (OSError, ValueError) as exc:
+    except Exception as exc:  # noqa: BLE001  Skill setup must finish whatever the receiver does.
         result = {"running": False, "detail": "webhook receiver not started: " + str(exc)}
     if not result.get("running"):
         print("peer-runtime: " + result.get("detail", "webhook receiver not running"), file=sys.stderr)

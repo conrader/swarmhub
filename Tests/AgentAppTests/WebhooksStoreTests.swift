@@ -31,11 +31,14 @@ import Testing
     #expect(reveal.url == "http://127.0.0.1:8745/swarmhub/webhook/reporter/nightly/slug-nightly" && !reveal.rotated)
     let state = store.webhooks.state(for: bot.id)
     #expect(state.panel?.webhooks.map(\.routine) == ["nightly"] && state.busy == nil && state.error == nil)
-    #expect(!String(describing: store.webhooks.entries).contains(reveal.key), "the store keeps no key")
+    #expect(state.reveal == reveal, "held in memory for the sheet, even if the tab was left during the call")
     #expect(store.defaults.dictionaryRepresentation().values.allSatisfy { !String(describing: $0).contains(reveal.key) })
+    store.dismissWebhookReveal(for: bot)
+    #expect(!String(describing: store.webhooks.entries).contains(reveal.key), "closing the sheet forgets the key")
 
-    let rotated = try #require(await store.rotateWebhookKey(try #require(state.panel?.webhooks.first), for: bot))
-    #expect(rotated.rotated && rotated.key != reveal.key)
+    let first = try #require(state.panel?.webhooks.first)
+    let rotated = try #require(await store.rotateWebhookKey(first, for: bot))
+    #expect(rotated.rotated && rotated.key != reveal.key && store.webhooks.state(for: bot.id).reveal == rotated)
     #expect(box.calls.last.map { Array($0.prefix(5)) } == ["webhook", "panel", "reporter", "rotate", "nightly"])
     #expect(box.calls.last?.last == WebhookKey.digest(rotated.key))
 }
@@ -112,6 +115,7 @@ import Testing
     let requests = ChatParityServer.requests(host)
     #expect(!requests.contains { String(describing: $0.body ?? [:]).contains(reveal.key) }, "the key never crosses to the box")
     #expect(requests.contains { $0.method == "DELETE" && $0.path.contains("agentapp_update_webhooks_") })
+    #expect(store.boxInstallTransport.refreshing.isEmpty, "the box's temporary-session slot is released")
     #expect((store.defaults.stringArray(forKey: "updates.transport.cleanup." + store.connection(of: bot)) ?? []).isEmpty)
 }
 
@@ -126,7 +130,13 @@ import Testing
                          keyStore: InMemoryKeyStore([:]), defaults: isolatedDefaults())
     let bot = Bot(name: "Reporter", backend: .hermes, hermesProfile: "grok-reporter"); bot.hermesBaseURL = "https://\(host)/v1"
     store.bots = [bot]
+    store.boxInstallTransport.refreshing.insert(store.connection(of: bot))
+    #expect(await store.createWebhook("nightly", for: bot) == nil)
+    #expect(store.webhooks.state(for: bot.id).error == WebhookPanelError.busy.errorDescription, "another temporary-session turn holds the box")
+    #expect(ChatParityServer.requests(host).isEmpty)
+    store.boxInstallTransport.refreshing.removeAll()
     #expect(await store.createWebhook("nightly", for: bot) == nil, "a reply cannot establish success")
+    #expect(store.webhooks.state(for: bot.id).reveal == nil)
     #expect(store.webhooks.state(for: bot.id).error == WebhookPanelError.noAnswer.errorDescription)
     #expect(ChatParityServer.requests(host).contains { $0.method == "DELETE" && $0.path.contains("agentapp_update_webhooks_") })
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// New webhook: a name, then the address and key, shown once with copy buttons. A new key opens straight on the
-/// reveal. The key lives only in this sheet's state; closing it forgets the key.
+/// New webhook: a name; once the box confirms, the section swaps this for the reveal (address and key, shown once
+/// with copy buttons). A new key opens straight on the reveal. Closing the reveal forgets the key.
 struct WebhookSheetView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
@@ -9,12 +9,11 @@ struct WebhookSheetView: View {
     @ObservedObject var cache: WebhooksCache
     let initial: WebhookSheet
     @State private var name = ""
-    @State private var reveal: WebhookReveal?
     @State private var working = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if let reveal = reveal ?? initialReveal {
+            if let reveal = initialReveal {
                 WebhookRevealView(reveal: reveal)
                 HStack { Spacer(); Button(WebhookCopy.done) { dismiss() }.keyboardShortcut(.defaultAction) }
             } else {
@@ -40,7 +39,7 @@ struct WebhookSheetView: View {
         guard !working, WebhookCommand.validName(routine) else { return }
         working = true
         Task {
-            reveal = await store.createWebhook(routine, for: bot)
+            _ = await store.createWebhook(routine, for: bot)
             working = false
         }
     }

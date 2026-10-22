@@ -18,13 +18,13 @@ extension AppStore {
 
     func deleteWebhook(_ webhook: BoxWebhook, for bot: Bot) async { _ = await performWebhook(.delete(webhook.routine), for: bot) }
 
-    /// A new routine: the key is generated here and only its digest is sent; the answer's URL plus the key are returned
-    /// for the one-time reveal and kept nowhere else.
-    func createWebhook(_ routine: String, for bot: Bot) async -> WebhookReveal? {
+    /// A new routine: the key is generated here and only its digest is sent; the answer's URL plus the key go to the
+    /// one-time reveal (memory only, until its sheet closes) and nowhere else.
+    @discardableResult func createWebhook(_ routine: String, for bot: Bot) async -> WebhookReveal? {
         await reveal(.create(routine), for: bot)
     }
 
-    func rotateWebhookKey(_ webhook: BoxWebhook, for bot: Bot) async -> WebhookReveal? {
+    @discardableResult func rotateWebhookKey(_ webhook: BoxWebhook, for bot: Bot) async -> WebhookReveal? {
         await reveal(.rotate(webhook.routine), for: bot)
     }
 
@@ -32,8 +32,13 @@ extension AppStore {
         let key = WebhookKey.generate()
         guard let panel = await performWebhook(action, for: bot, keyHash: WebhookKey.digest(key)),
               let routine = action.routine, let row = panel.webhooks.first(where: { $0.routine == routine }) else { return nil }
-        return WebhookReveal(routine: routine, url: row.url, key: key, rotated: action == .rotate(routine))
+        let reveal = WebhookReveal(routine: routine, url: row.url, key: key, rotated: action == .rotate(routine))
+        webhooks.update(bot.id) { $0.reveal = reveal }
+        return reveal
     }
+
+    /// The reveal sheet closed: the key is forgotten.
+    func dismissWebhookReveal(for bot: Bot) { webhooks.update(bot.id) { $0.reveal = nil } }
 
     /// Runs one action; the state shows the box's answer or the reason it is missing. Nil when nothing was confirmed.
     @discardableResult func performWebhook(_ action: WebhookAction, for bot: Bot, keyHash: String? = nil) async -> WebhookPanel? {

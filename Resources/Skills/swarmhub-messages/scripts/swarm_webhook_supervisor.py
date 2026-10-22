@@ -67,7 +67,7 @@ def resume():
         if marker.exists() and holder() is None:
             recorded = json.loads(marker.read_text())
             spawn(recorded.get("python") or sys.executable, recorded.get("port") or 8745)
-    except (OSError, ValueError, TypeError):
+    except Exception:  # noqa: BLE001  A malformed marker must never fail the gateway's plugin load.
         pass
 
 
@@ -83,10 +83,14 @@ def supervise(port, python=None, sleep=time.sleep, popen=subprocess.Popen):
         signal.signal(signal.SIGTERM, lambda *_: stopping.append(True))
     halted = lambda: bool(stopping) or not p["marker"].exists()  # noqa: E731
     with p["lock"].open("a+") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return 0  # One supervisor per account.
+        for attempt in range(5):  # holder() takes the lock for an instant; only a lasting holder is another supervisor.
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if attempt == 4:
+                    return 0  # One supervisor per account.
+                time.sleep(0.05)
         lock.seek(0)
         lock.truncate()
         lock.write(str(os.getpid()))
@@ -94,6 +98,8 @@ def supervise(port, python=None, sleep=time.sleep, popen=subprocess.Popen):
         delay = 1
         while not halted():
             began = time.monotonic()
+            if p["log"].exists() and p["log"].stat().st_size > 1_000_000:
+                os.replace(p["log"], p["log"].with_name(p["log"].name + ".1"))  # A crash loop keeps two small files.
             with p["log"].open("ab") as log:
                 child = popen([python or sys.executable, "-B", str(HERE / "swarmctl"), "webhook", "serve", str(int(port))],
                               stdin=subprocess.DEVNULL, stdout=log, stderr=log)

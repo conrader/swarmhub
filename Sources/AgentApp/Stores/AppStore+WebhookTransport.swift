@@ -42,14 +42,22 @@ extension AppStore {
         guard connection(of: runner) == target, isIdle(runner), !boxInstallTransport.refreshing.contains(target) else {
             throw WebhookPanelError.busy
         }
-        guard let backend = try? backend(for: runner) as? HermesBackend else { throw WebhookPanelError.unavailable(WebhookCopy.boxUnavailable) }
+        let runnerProfile = runner.hermesProfile ?? "default"
+        guard WebhookCommand.validName(runnerProfile), let backend = try? backend(for: runner) as? HermesBackend else {
+            throw WebhookPanelError.unavailable(WebhookCopy.boxUnavailable)
+        }
+        // One temporary-session turn per box at a time: session cleanup deletes every listed id, so an updater turn or
+        // another webhook call on this box must not run (and clean up) while this session is still open.
+        boxInstallTransport.refreshing.insert(target)
+        objectWillChange.send()
+        defer { boxInstallTransport.refreshing.remove(target); objectWillChange.send() }
         await cleanUpdaterSessions(on: target, backend: backend)
         let key = "updates.transport.cleanup." + target
         guard (defaults.stringArray(forKey: key) ?? []).isEmpty else { throw WebhookPanelError.unavailable(WebhookCopy.cleanupPending) }
         let session = "\(sessionNamespace)agentapp_update_webhooks_\(UUID().uuidString.lowercased())"
         defaults.set((defaults.stringArray(forKey: key) ?? []) + [session], forKey: key)
         let command = WebhookCommand.line(
-            script: SkillLibrary.installPath("swarmhub-messages", profile: runner.hermesProfile ?? "default") + "/scripts/swarmctl",
+            script: SkillLibrary.installPath("swarmhub-messages", profile: runnerProfile) + "/scripts/swarmctl",
             arguments: arguments)
         var call = WebhookPanelCall(command: command)
         var failure: Error?

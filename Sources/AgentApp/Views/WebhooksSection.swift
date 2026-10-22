@@ -7,7 +7,7 @@ struct WebhooksSection: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
     @ObservedObject var cache: WebhooksCache
-    @State private var sheet: WebhookSheet?
+    @State private var creating = false
     @State private var confirming: String?
 
     var body: some View {
@@ -19,7 +19,7 @@ struct WebhooksSection: View {
                 if busy { ProgressView().controlSize(.mini).help(WebhookCopy.working) }
                 Button { Task { await store.refreshWebhooks(for: bot) } } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.plain).disabled(busy).help(WebhookCopy.refresh).accessibilityLabel(WebhookCopy.refresh)
-                Button { sheet = .create } label: { Image(systemName: "plus") }
+                Button { creating = true } label: { Image(systemName: "plus") }
                     .buttonStyle(.plain).disabled(busy || state.panel == nil).help(WebhookCopy.newWebhook).accessibilityLabel(WebhookCopy.newWebhook)
             }
             if let error = state.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
@@ -28,7 +28,7 @@ struct WebhooksSection: View {
                 WebhookReceiverRow(status: panel.receiver, busy: busy) { Task { await store.startWebhookReceiver(for: bot) } }
                 ForEach(panel.webhooks) { hook in
                     WebhookRow(hook: hook, busy: busy, confirming: $confirming,
-                               rotate: { Task { if let reveal = await store.rotateWebhookKey(hook, for: bot) { sheet = .reveal(reveal) } } },
+                               rotate: { Task { await store.rotateWebhookKey(hook, for: bot) } },
                                delete: { Task { await store.deleteWebhook(hook, for: bot) } })
                 }
                 if panel.webhooks.isEmpty { Text(WebhookCopy.empty).font(.caption).foregroundStyle(.secondary) }
@@ -38,10 +38,25 @@ struct WebhooksSection: View {
                 if !store.webhooksAreLocal(bot) { Text(WebhookCopy.loadCaption).font(.caption).foregroundStyle(.secondary) }
             }
         }
-        .sheet(item: $sheet) { target in WebhookSheetView(bot: bot, cache: cache, initial: target) }
+        .sheet(item: sheet) { target in WebhookSheetView(bot: bot, cache: cache, initial: target) }
         .task(id: bot.id) {
             if cache.autoLoad, store.webhooksAreLocal(bot), cache.state(for: bot.id).panel == nil { await store.refreshWebhooks(for: bot) }
         }
+    }
+}
+
+extension WebhooksSection {
+    /// A pending reveal (kept by the store, so a slow box call survives leaving the tab) wins over the name form;
+    /// closing either forgets the key.
+    private var sheet: Binding<WebhookSheet?> {
+        Binding(get: {
+            if let reveal = cache.state(for: bot.id).reveal { return .reveal(reveal) }
+            return creating ? .create : nil
+        }, set: { value in
+            guard value == nil else { return }
+            creating = false
+            store.dismissWebhookReveal(for: bot)
+        })
     }
 }
 

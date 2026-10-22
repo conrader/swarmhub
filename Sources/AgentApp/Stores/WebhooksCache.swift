@@ -1,9 +1,11 @@
 import Foundation
 
-/// What the Webhooks section of the Routines tab shows for one agent (memory only). Keys are never kept here: a new
-/// key lives only in the reveal sheet's state until it closes.
+/// What the Webhooks section of the Routines tab shows for one agent (memory only, never saved). A new key is held
+/// here only until its reveal sheet is closed, so leaving the tab during a slow box call cannot lose it.
 struct BotWebhooksState: Equatable, Sendable {
     var panel: WebhookPanel?
+    /// The created or rotated routine's one-time reveal, waiting to be shown or open now.
+    var reveal: WebhookReveal?
     /// The action in flight; one at a time per agent.
     var busy: WebhookAction?
     var error: String?
@@ -12,7 +14,7 @@ struct BotWebhooksState: Equatable, Sendable {
 }
 
 /// A created or rotated routine's address and new key, shown once in the reveal sheet.
-struct WebhookReveal: Identifiable, Equatable {
+struct WebhookReveal: Identifiable, Equatable, Sendable {
     let id = UUID()
     let routine: String, url: String, key: String, rotated: Bool
     var curl: String {
