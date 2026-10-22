@@ -63,7 +63,8 @@ def work_dir(category):
 
 
 def run(argv, **kwargs):
-    """Every process the updater starts goes through here (the tests audit it): checks only, never a restart."""
+    """Every process the updater starts goes through here (the tests audit it): checks only, never a Hermes restart.
+    The one start is the webhook receiver's idempotent install after swarmhub-messages lands (runner.ensure_receiver)."""
     return subprocess.run(argv, **kwargs)
 
 

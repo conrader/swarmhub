@@ -408,8 +408,9 @@ class StagedTransport(CliCase):
         self.assertFalse(calls.exists(), "no live swarmhub-messages copy yet: nothing to run")
         self.assertEqual(self.real("--max-wait", "0", "apply", "--version", "11")[0], 0)
         self.transport(self.stage(11, comps))
-        self.assertEqual(calls.read_text().splitlines(), ['["webhook", "receiver", "install"]'],
-                         "one install per box account, after the updater exited 0")
+        self.assertEqual(calls.read_text().splitlines(), ['["webhook", "receiver", "install"]'] * 2,
+                         "the confirm's updater run installs it as the code lands; the staged install re-renders "
+                         "the same bytes (no updater install), then its own step installs once after exit 0")
         calls.unlink()
         _, changed_comps = self.release("v2", version="1.1.0", note="tamper", files=stub)
 

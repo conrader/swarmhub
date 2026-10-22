@@ -140,6 +140,14 @@ With `--max-wait 0` a busy box defers the confirm (exit 75): the updater keeps t
 receiver step does not run. The pane then offers **Retry code update N on <box>**, the same command for the same
 version; the retry that lands the code runs the receiver step.
 
+The Mac is not needed for that last step. The confirmation stays recorded, so a later `check` or the timer's `pull`
+can land the deferred code in the background, and the state turns `current` with no Retry left. The updater
+therefore installs the receiver itself, the same `swarmctl webhook receiver install` from the first live copy,
+whenever a run lands new swarmhub-messages content, whichever command it was (`runner.ensure_receiver`; output
+discarded, failure fails nothing). A run that only re-renders bytes the box already had, or lands nothing new, leaves
+the receiver alone, so an owner's `webhook receiver uninstall` survives the timer. The Mac's receiver step stays for
+boxes whose updater predates this; on a current updater it is a second, idempotent install.
+
 The updater checks `--version` under its CLI lock, so N+1 arriving before execution refuses the old click. There is
 no automatic retry with a new version. Apply must finish in the matched terminal call and report `current`, the
 expected manifest/version, `confirmed_version` and `applied_bundle_version`. A separate matched fixed-path `status`

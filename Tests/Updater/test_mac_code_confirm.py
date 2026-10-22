@@ -13,6 +13,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cli_fixtures import CliCase, CODING, FEEDBACK, MESSAGES, ROOT, box_snapshot  # noqa: E402
+from pull_fixtures import PullCase  # noqa: E402
 
 # Stands in for a live swarmhub-messages copy's swarmctl: it records how the Mac's command called it.
 RECEIVER_STUB = '''#!/usr/bin/env python3
@@ -22,7 +23,9 @@ with open(%r, "a") as calls:
 '''
 
 
-class MacCodeConfirm(CliCase):
+class MacCommand:
+    """The Mac's confirm command, run by a shell against this case's isolated updater install."""
+
     def setUp(self):
         super().setUp()
         shutil.copytree(ROOT / "Resources/Updater/swarmhub_update", self.prefix / "swarmhub_update")
@@ -48,6 +51,26 @@ class MacCodeConfirm(CliCase):
         self.assertTrue(result.stdout, result.stderr)
         return result.returncode, json.loads(result.stdout)
 
+    def assert_hermes_unchanged(self):
+        self.assertEqual(box_snapshot(self.hermes / "hermes-agent"), self.before)
+
+    def defer_confirm(self, version, calls):
+        """The Mac's confirm for `version` on a busy box: deferred (75), confirmation kept, receiver step not run.
+        Returns the release function that makes the box idle again."""
+        sleeper = self.start_sleeper()
+        slot = self.code_job_slot(sleeper.pid)  # a busy box: the --max-wait 0 confirm defers
+        code, status = self.confirm(version)
+        self.assertEqual((code, status["state"], status["confirmed_version"]), (75, "deferred", version))
+        self.assertFalse(calls.exists(), "deferred: the code is not live, so the receiver step has not run")
+
+        def idle():
+            sleeper.kill()
+            sleeper.wait()
+            shutil.rmtree(str(slot))
+        return idle
+
+
+class MacCodeConfirm(MacCommand, CliCase):
     def pending_release(self, version=11, component_version="1.0.0", seq=5):
         _, components = self.release("v%d" % version, version=component_version,
                                      deps={FEEDBACK: [{"name": CODING, "min_version": component_version}]})
@@ -57,9 +80,6 @@ class MacCodeConfirm(CliCase):
         self.assertEqual(next(row["waits_for"] for row in status["pending_confirm"]["data"]
                               if row["name"] == FEEDBACK), [CODING])
         return status
-
-    def assert_hermes_unchanged(self):
-        self.assertEqual(box_snapshot(self.hermes / "hermes-agent"), self.before)
 
     def test_status_verify_and_check_never_confirm_code(self):
         self.pending_release()
@@ -114,29 +134,57 @@ class MacCodeConfirm(CliCase):
         self.assertFalse(calls.exists(), "a refused confirm never reaches the receiver")
         code, status = self.confirm(11)  # stdout is still exactly the updater's one JSON status
         self.assertEqual((code, status["state"]), (0, "current"))
-        self.assertEqual(calls.read_text().splitlines(), ['["webhook", "receiver", "install"]'],
-                         "one install per box account, from the copy the confirm just made live")
+        self.assertEqual(calls.read_text().splitlines(), ['["webhook", "receiver", "install"]'] * 2,
+                         "the updater installs it as the code lands, then the Mac's step (for boxes whose updater "
+                         "predates that) runs the same idempotent install, both from the copy just made live")
         self.assert_hermes_unchanged()
 
     def test_a_deferred_confirm_installs_the_receiver_when_its_retry_lands(self):
         calls = self.tmp / "receiver-calls"
         _, components = self.release("v11", files={MESSAGES + "/scripts/swarmctl": RECEIVER_STUB % str(calls)})
         self.assertEqual(self.update("apply", "--staged", str(self.stage(11, components)))[0], 0)
-        sleeper = self.start_sleeper()
-        slot = self.code_job_slot(sleeper.pid)  # a busy box: the --max-wait 0 confirm defers
-        code, status = self.confirm(11)
-        self.assertEqual((code, status["state"], status["confirmed_version"]), (75, "deferred", 11))
-        self.assertFalse(calls.exists(), "deferred: the code is not live, so the receiver step has not run")
+        idle = self.defer_confirm(11, calls)
         # What the Mac reads back and offers as a retry (BoxUpdateState.Confirmation): deferred, confirmed, not applied.
         code, status = self.update("status")
         self.assertEqual((status["state"], status["pending_confirm"], status["bundle"]["bundle_version"],
                           status["confirmed_version"]), ("deferred", None, 11, 11))
         self.assertNotEqual(status["applied_bundle_version"], 11)
-        sleeper.kill()
-        sleeper.wait()
-        shutil.rmtree(str(slot))
+        idle()
         code, status = self.confirm(11)  # the retry is the same command
         self.assertEqual((code, status["state"], status["applied_bundle_version"]), (0, "current", 11))
+        self.assertEqual(calls.read_text().splitlines(), ['["webhook", "receiver", "install"]'] * 2,
+                         "the retry that lands the code installs the receiver (updater, then the Mac's step)")
+        self.assert_hermes_unchanged()
+
+    def test_a_deferred_confirm_completed_by_check_still_installs_the_receiver(self):
+        calls = self.tmp / "receiver-calls"
+        _, components = self.release("v11", files={MESSAGES + "/scripts/swarmctl": RECEIVER_STUB % str(calls)})
+        self.assertEqual(self.update("apply", "--staged", str(self.stage(11, components)))[0], 0)
+        idle = self.defer_confirm(11, calls)
+        idle()
+        code, status = self.update("check")  # no Mac: the stored confirmation applies in the background
+        self.assertEqual((code, status["state"], status["applied_bundle_version"]), (0, "current", 11))
         self.assertEqual(calls.read_text().splitlines(), ['["webhook", "receiver", "install"]'],
-                         "the retry that lands the code installs the receiver once")
+                         "the run that landed swarmhub-messages installed the receiver itself")
+        self.assertEqual(self.update("check")[1]["state"], "current")
+        self.assertEqual(len(calls.read_text().splitlines()), 1, "nothing new landed: the receiver is left alone")
+        self.assert_hermes_unchanged()
+
+
+class DeferredCompletionByPull(MacCommand, PullCase):
+    def test_a_deferred_confirm_completed_by_the_timer_pull_still_installs_the_receiver(self):
+        calls = self.tmp / "receiver-calls"
+        _, components = self.release("v11", files={MESSAGES + "/scripts/swarmctl": RECEIVER_STUB % str(calls)})
+        self.publish(11, components)
+        code, status = self.pull(self.service.url)
+        self.assertEqual((code, status["state"]), (0, "pending_confirm"), status)
+        idle = self.defer_confirm(11, calls)
+        idle()
+        code, status = self.pull(self.service.url)  # the timer's next run: the same bundle, the stored confirmation
+        self.assertEqual((code, status["state"], status["applied_bundle_version"]), (0, "current", 11), status)
+        self.assertEqual(self.live_version(CODING), "1.0.0")
+        self.assertEqual(calls.read_text().splitlines(), ['["webhook", "receiver", "install"]'],
+                         "the pull that landed swarmhub-messages installed the receiver itself")
+        self.assertEqual(self.pull(self.service.url)[1]["state"], "current")
+        self.assertEqual(len(calls.read_text().splitlines()), 1, "nothing new landed: the receiver is left alone")
         self.assert_hermes_unchanged()

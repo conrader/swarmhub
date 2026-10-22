@@ -10,10 +10,16 @@ the updater only updates skills already installed in a profile, and holds a skil
 (its order is not recorded on the box) rather than guess it. `tool`, `config` and `ui` components are recorded and
 kept in the state's blob store; `manager-prompts` feeds the manager skill's render. Nothing else on the box reads
 them yet, and nothing outside `skills/swarmhub/` and the state directory is written. Stdlib only, Python 3.8+.
+
+A run that lands new swarmhub-messages content, whichever command did it (the timer's `pull`, `check`, the confirm,
+a staged apply), ends by installing the webhook receiver again from the live copy (`ensure_receiver`), so a confirm
+the box deferred and a later run completed still leaves the receiver on the code that is live.
 """
 
 from collections import namedtuple
 import os
+import subprocess
+import sys
 import time
 
 from . import VERSION, apply, bundle, devmode, idle, pins as pinfile, policy, render, stage, verify
@@ -215,6 +221,7 @@ def apply_bundle(box, verified, confirm=False, rerender=False):
         box.state.save_applied(record)
     confirmed = is_confirmed(record, verified)
     now, waiting = policy.split(verified.apply, comps, confirmed)
+    new_content = {c["name"] for c in now}  # a rerender below re-lands bytes the box already had
     reset_only = set()
     if rerender or box.reset:
         # P4b: new profiles and changed coding orders must render even when this box already applied the archive.
@@ -241,8 +248,32 @@ def apply_bundle(box, verified, confirm=False, rerender=False):
     box.state.save_applied(record)
     keep = {r["sha256"] for r in comps.values() if isinstance(r, dict)} | {c["sha256"] for c in verified.apply}
     box.state.prune_blobs(keep)
+    if apply.MESSAGES_SKILL in done & new_content:
+        ensure_receiver(box, report)
     return {"state": _state(report, not_applied, waiting), "detail": _detail(report, not_applied, waiting),
             "waiting": waiting, "not_applied": not_applied, "report": report}
+
+
+def ensure_receiver(box, report):
+    """Install the webhook receiver from the first live swarmhub-messages copy this run applied (default first), as
+    the Mac's receiver step does: `swarmctl webhook receiver install` is idempotent and restarts the receiver only
+    when its code changed. Its output is discarded and its failure fails nothing; the Webhooks pane reads its state.
+    Returns True when the install ran and exited 0."""
+    for profile in sorted(report.results, key=lambda name: (name != "default", name)):
+        if report.results[profile].status not in GOOD:
+            continue
+        category = stage.category_dir(box.hermes_home, profile)
+        script = os.path.join(category, apply.MESSAGES_SKILL, "scripts", "swarmctl")
+        if not os.path.isfile(script):
+            continue
+        try:
+            done = stage.run([sys.executable, "-B", script, "webhook", "receiver", "install"],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             timeout=120)
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return done.returncode == 0
+    return False
 
 
 def _state(report, not_applied, waiting):
