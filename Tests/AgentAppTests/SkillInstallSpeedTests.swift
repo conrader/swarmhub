@@ -203,11 +203,15 @@ private func onBox(_ path: String, home: URL) -> URL { home.appending(path: Stri
     #expect(store.installSkillsOnAllBots(manager: manager))
     try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty && others.allSatisfy { $0.installedSkills[messages.name] != nil } }
     let turns = ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }
-    #expect(turns.count == 2)
-    let retry = try #require(turns.last?.body?["instructions"] as? String)
-    #expect(!retry.contains("python3 - '~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages'"))
+    // messages 1.4.11: two bots' full writes no longer fit one turn's planning budget, so the retry may take a turn per bot.
+    let retries = turns.dropFirst().compactMap { $0.body?["instructions"] as? String }
+    #expect((1...2).contains(retries.count) && retries.count == turns.count - 1)
+    for retry in retries {
+        #expect(!retry.contains("python3 - '~/.hermes/profiles/grok-jarvis/skills/swarmhub/swarmhub-messages'"))
+        #expect(AppStore.encodedInstructionsSize(retry) <= SkillInstallPayloadError.instructionsByteBudget)
+    }
     for bot in others {
-        #expect(retry.contains("cat > \(SkillLibrary.installPath(messages.name, profile: store.profile(of: bot)))/scripts/bot-msg <<'SWARMHUB_EOF'"))
+        #expect(retries.contains { $0.contains("cat > \(SkillLibrary.installPath(messages.name, profile: store.profile(of: bot)))/scripts/bot-msg <<'SWARMHUB_EOF'") })
         #expect(bot.installedSkills[messages.name] == messages.version.description && bot.skillInstallFailures.isEmpty)
     }
 }
