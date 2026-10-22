@@ -15,11 +15,17 @@ import sys
 import textwrap
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cli_fixtures import (CliCase, ROOT, PROFILES_DOC, box_snapshot, changed, component,  # noqa: E402
+from cli_fixtures import (CliCase, MESSAGES, ROOT, PROFILES_DOC, box_snapshot, changed, component,  # noqa: E402
                           source_components)
 
 MAC = ROOT / "Sources/AgentApp/Updates/StagedInstall.swift"
 RENDERS = ROOT / "Tests/Fixtures/release-bundles/renders"
+# Stands in for a live swarmhub-messages copy's swarmctl: it records how the transport called it.
+RECEIVER_STUB = '''#!/usr/bin/env python3
+import json, sys
+with open(%r, "a") as calls:
+    calls.write(json.dumps(sys.argv[1:]) + "\\n")
+'''
 
 
 def transport_command(files, profiles, updater, home, mutate_parts=None, profile="default", dev_modes=None):
@@ -52,8 +58,9 @@ def transport_command(files, profiles, updater, home, mutate_parts=None, profile
                            (prefix + str(i), base64.b64encode(part).decode()))
     merge = textwrap.dedent(source.split('static let profileMerge = #"""\n', 1)[1].split('\n    """#', 1)[0])
     modes = "{" + ", ".join("'%s': %s" % (k, v) for k, v in sorted((dev_modes or {}).items())) + "}"
+    receiver = source.split('static let receiverCommand = #"', 1)[1].split('"#\n', 1)[0]
     values = {"prefix": prefix, "hashes": hashes, "whole": whole, "managerProfile": profile, "updater": str(updater),
-              "profileMerge": merge, "modes": modes}
+              "profileMerge": merge, "modes": modes, "receiverCommand": receiver}
     for name, value in values.items():
         literal = literal.replace('\\(' + name + ')', value)
     return literal + '\n'
@@ -391,4 +398,27 @@ class StagedTransport(CliCase):
         self.assertIsNone(status["pending_confirm"])
         self.assertEqual(status["profiles"]["coder_2"]["advertised"]["swarmhub-coding"], "1.0.0")
         self.assertEqual(box_snapshot(self.category()), default_before)
+        self.assert_confined()
+
+    def test_a_staged_install_reinstalls_the_webhook_receiver_from_a_live_copy_only_after_success(self):
+        calls = self.tmp / "receiver-calls"
+        stub = {MESSAGES + "/scripts/swarmctl": RECEIVER_STUB % str(calls)}
+        _, comps = self.release("v1", files=stub)
+        self.assertEqual(self.transport(self.stage(11, comps))["state"], "pending_confirm")
+        self.assertFalse(calls.exists(), "no live swarmhub-messages copy yet: nothing to run")
+        self.assertEqual(self.real("--max-wait", "0", "apply", "--version", "11")[0], 0)
+        self.transport(self.stage(11, comps))
+        self.assertEqual(calls.read_text().splitlines(), ['["webhook", "receiver", "install"]'],
+                         "one install per box account, after the updater exited 0")
+        calls.unlink()
+        _, changed_comps = self.release("v2", version="1.1.0", note="tamper", files=stub)
+
+        def alter(files):
+            path = "blobs/sha256/" + changed_comps[0][0]["sha256"]
+            data = bytearray(files[path])
+            data[600] ^= 1
+            files[path] = bytes(data)
+        self.transport(self.stage(12, changed_comps, seq=6), mutate=alter)
+        self.assertEqual(self.updater_result()["exit_code"], 65)
+        self.assertFalse(calls.exists(), "a refused transfer never reaches the receiver")
         self.assert_confined()

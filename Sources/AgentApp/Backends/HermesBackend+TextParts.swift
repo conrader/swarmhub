@@ -54,7 +54,8 @@ extension HermesBackend {
         guard let command = (object?["command"] ?? object?["cmd"]) as? String, command.utf8.count <= 32_768,
               command == StagedInstall.statusCommand || command.hasPrefix("python3 -I -B <<'SWARMHUB_STAGE'\n") ||
               command.range(of: "\\A" + NSRegularExpression.escapedPattern(for: StagedInstall.updater) +
-                  #" --max-wait 0 apply --version [1-9][0-9]{0,18}\z"#, options: .regularExpression) != nil else { return nil }
+                  #" --max-wait 0 apply --version [1-9][0-9]{0,18} && "# +
+                  NSRegularExpression.escapedPattern(for: StagedInstall.receiverCommand) + #"\z"#, options: .regularExpression) != nil else { return nil }
         return command
     }
 

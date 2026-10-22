@@ -126,8 +126,14 @@ button cannot start a turn. The operator's bootstrap record must still exist; th
 One click starts one native management turn on that connection and invokes exactly:
 
 ```
-/usr/local/lib/swarmhub-update/bin/swarmhub-update --max-wait 0 apply --version N
+/usr/local/lib/swarmhub-update/bin/swarmhub-update --max-wait 0 apply --version N && <receiver step>
 ```
+
+The receiver step (`StagedInstall.receiverCommand`, also run at the end of a successful staged install) runs only
+after the updater exits 0. It reinstalls the webhook receiver from the first live swarmhub-messages copy
+(`swarmctl webhook receiver install`, which is idempotent and restarts the receiver when its code changed). Its output
+is discarded and a failure fails nothing, so the call's stdout and exit code stay the updater's. swarmhub-messages is
+code, so the receiver's code reaches the box only through this confirm.
 
 The updater checks `--version` under its CLI lock, so N+1 arriving before execution refuses the old click. There is
 no automatic retry with a new version. Apply must finish in the matched terminal call and report `current`, the

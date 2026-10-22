@@ -59,6 +59,21 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     #expect(transfer.hashes.allSatisfy { command.contains($0) })
     #expect(command.contains("'\(StagedInstall.updater)', '--max-wait', '0', 'apply', '--staged'"))
     #expect(!command.contains("plugins enable") && !command.contains("restart"))
+    // The webhook receiver is installed again from a live swarmhub-messages copy, after the updater, never failing it.
+    let updaterCall = try #require(command.range(of: "'apply', '--staged'"))
+    let receiverStep = try #require(command.range(of: "subprocess.run(['/bin/sh', '-c', '\(StagedInstall.receiverCommand)']"))
+    #expect(updaterCall.upperBound < receiverStep.lowerBound && command.contains("raise SystemExit(result.returncode)"))
+}
+
+@Test func webhookReceiverStepUsesTheLiveSkillPathsAndStaysSilent() {
+    let receiver = StagedInstall.receiverCommand
+    for profile in ["default", "*"] {
+        #expect(receiver.contains(SkillLibrary.installPath("swarmhub-messages", profile: profile) + "/scripts/swarmctl"))
+    }
+    #expect(receiver.contains("webhook receiver install >/dev/null 2>&1; break;"), "one install per box account, no output")
+    #expect(!receiver.contains("'") && !receiver.contains("\\"), "fits in the staged script's quoted Python string")
+    let confirm = StagedInstall.confirmCommand(version: 7)
+    #expect(confirm == StagedInstall.updater + " --max-wait 0 apply --version 7 && " + receiver, "only after the updater exits 0")
 }
 
 @Test func stagedRetryReverifiesTheExactSavedBundleWithoutLoweringFloors() throws {

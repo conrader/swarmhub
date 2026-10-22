@@ -238,4 +238,9 @@ private func boxTool(_ phase: ToolEvent.Phase, id: String, command: String? = ni
         #expect(HermesBackend.updaterStatusCommand(["command": click.command + suffix]) == nil)
     }
     #expect(HermesBackend.updaterStatusCommand(["command": StagedInstall.updater + " apply"]) == nil)
+    #expect(click.command == StagedInstall.confirmCommand(version: click.version))
+    for altered in [StagedInstall.updater + " --max-wait 0 apply --version \(click.version)",
+                    click.command.replacingOccurrences(of: "receiver install", with: "receiver uninstall")] {
+        #expect(HermesBackend.updaterStatusCommand(["command": altered]) == nil)
+    }
 }

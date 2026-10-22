@@ -29,7 +29,7 @@ struct BoxUpdateState: Codable, Equatable {
             manifest = bundle.manifest_sha256
         }
 
-        var command: String { StagedInstall.updater + " --max-wait 0 apply --version \(version)" }
+        var command: String { StagedInstall.confirmCommand(version: version) }
         var title: String { "Apply code update \(version) on \(connection)" }
 
         func accepted(_ status: BoxUpdaterStatus) -> Bool {

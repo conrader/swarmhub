@@ -12,7 +12,14 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from cli_fixtures import CliCase, CODING, FEEDBACK, ROOT, box_snapshot  # noqa: E402
+from cli_fixtures import CliCase, CODING, FEEDBACK, MESSAGES, ROOT, box_snapshot  # noqa: E402
+
+# Stands in for a live swarmhub-messages copy's swarmctl: it records how the Mac's command called it.
+RECEIVER_STUB = '''#!/usr/bin/env python3
+import json, sys
+with open(%r, "a") as calls:
+    calls.write(json.dumps(sys.argv[1:]) + "\\n")
+'''
 
 
 class MacCodeConfirm(CliCase):
@@ -28,10 +35,12 @@ class MacCodeConfirm(CliCase):
         self.before = box_snapshot(self.hermes / "hermes-agent")
 
     def command(self, version):
-        source = (ROOT / "Sources/AgentApp/Updates/BoxUpdateState.swift").read_text()
-        literal = re.search(r'var command: String \{ StagedInstall.updater \+ "([^"]+)" \}', source)[1]
+        source = (ROOT / "Sources/AgentApp/Updates/StagedInstall.swift").read_text()
+        literal = re.search(r'static func confirmCommand\(version: Int64\) -> String \{ updater \+ "([^"]+)" \+ receiverCommand \}',
+                            source)[1]
+        receiver = re.search(r'static let receiverCommand = #"(.+)"#\n', source)[1]
         # Substitute only the fixed path for this isolated fixture's admin-style prefix, plus the numeric version.
-        return str(self.launcher) + literal.replace(r"\(version)", str(version))
+        return str(self.launcher) + literal.replace(r"\(version)", str(version)) + receiver
 
     def confirm(self, version):
         result = subprocess.run(["/bin/sh", "-c", self.command(version)], env=self.env,
@@ -92,4 +101,19 @@ class MacCodeConfirm(CliCase):
         self.assertNotEqual(status["confirmed_version"], 12)
         self.assertEqual(self.confirm(12)[0], 0)
         self.assertEqual(self.live_version(CODING), "1.1.0")
+        self.assert_hermes_unchanged()
+
+    def test_the_confirm_reinstalls_the_webhook_receiver_once_its_code_is_live(self):
+        calls = self.tmp / "receiver-calls"
+        _, components = self.release("v11", files={MESSAGES + "/scripts/swarmctl": RECEIVER_STUB % str(calls)})
+        code, status = self.update("apply", "--staged", str(self.stage(11, components)))
+        self.assertEqual((code, status["state"]), (0, "pending_confirm"))
+        self.assertFalse((self.live(MESSAGES) / "scripts/swarmctl").exists(), "swarmhub-messages is code: it waits")
+        code, status = self.confirm(12)
+        self.assertEqual((code, status["last"]["reason"]), (65, "version_changed"))
+        self.assertFalse(calls.exists(), "a refused confirm never reaches the receiver")
+        code, status = self.confirm(11)  # stdout is still exactly the updater's one JSON status
+        self.assertEqual((code, status["state"]), (0, "current"))
+        self.assertEqual(calls.read_text().splitlines(), ['["webhook", "receiver", "install"]'],
+                         "one install per box account, from the copy the confirm just made live")
         self.assert_hermes_unchanged()

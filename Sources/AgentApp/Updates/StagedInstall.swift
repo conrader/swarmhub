@@ -8,6 +8,14 @@ import SwarmHubCore
 enum StagedInstall {
     static let updater = "/usr/local/lib/swarmhub-update/bin/swarmhub-update"
     static let statusCommand = updater + " status"
+    /// The webhook receiver runs from a live swarmhub-messages copy, which the updater swaps in only after a staged
+    /// apply or the code confirm: both then install it again from the first copy found (idempotent; changed code
+    /// restarts it). Its output goes nowhere and its failure fails nothing; the Webhooks pane reads its state.
+    static let receiverCommand = #"for s in ~/.hermes/skills/swarmhub/swarmhub-messages/scripts/swarmctl ~/.hermes/profiles/*/skills/swarmhub/swarmhub-messages/scripts/swarmctl; do if [ -f "$s" ]; then python3 -B "$s" webhook receiver install >/dev/null 2>&1; break; fi; done"#
+
+    /// The code confirm for one bundle version; the receiver step runs only after the updater exits 0, so the exit
+    /// code and stdout (one JSON status) stay the updater's.
+    static func confirmCommand(version: Int64) -> String { updater + " --max-wait 0 apply --version \(version) && " + receiverCommand }
 
     struct Box: Codable, Sendable {
         let source: URL
@@ -236,6 +244,10 @@ enum StagedInstall {
             raise
         finally:
             shutil.rmtree(folder)
+        try:
+            subprocess.run(['/bin/sh', '-c', '\(receiverCommand)'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+        except Exception:
+            pass
         SWARMHUB_STAGE
         """
     }
