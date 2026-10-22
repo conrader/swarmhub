@@ -5,13 +5,16 @@ appends the receiver's own output (its start line and any crash; requests are ne
 resumes it at every gateway start; removing the marker (`webhook receiver uninstall`) stops the receiver and the
 supervisor within a couple of seconds. A pidfile records the running receiver and the digest of the code it started
 with; installing again after a skill update terminates that one receiver (its exact pid, checked against `ps`), and the
-supervisor starts it again on the new code. Only the supervisor's own child is ever signalled.
+supervisor starts it again on the new code. A supervisor from before the pidfile records nothing: its receiver is found
+as its one direct child running exactly that supervisor's receiver command, and restarted once if it started before the
+code on disk appeared. Only the supervisor's own child is ever signalled.
 """
 import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -26,6 +29,8 @@ HERE = Path(__file__).resolve().parent
 # The modules the receiver loads; their digest is in the unit and the pidfile, so a skill update restarts it.
 CODE = ("swarmctl", "swarm_control.py", "swarm_webhook.py", "swarm_delivery.py", "swarm_store.py", "swarm_policy.py",
         "swarm_intake.py", "swarm_jobs.py", "swarm_lifecycle.py", "swarm_webhook_receiver.py", "swarm_webhook_supervisor.py")
+# The command line spawn() gives every supervisor, before and after the pidfile: python -B <folder>/<this file> <port>.
+SUPERVISOR = re.compile(r"\A(/\S+) -B (/\S+)/swarm_webhook_supervisor\.py (\d+)\Z")
 
 
 def paths():
@@ -89,20 +94,82 @@ def receiver_pid():
         pid, supervisor = int(record["pid"]), holder()
     except (OSError, ValueError, KeyError, TypeError):
         return None, {}
-    if not supervisor or pid <= 1 or pid == supervisor:
-        return None, record
-    shown = subprocess.run(["ps", "-ww", "-o", "pid=,pgid=,cmd=", "-p", str(pid)], stdin=subprocess.DEVNULL,
-                           capture_output=True, text=True).stdout.strip().split(None, 2)
-    if len(shown) != 3 or shown[:2] != [str(pid), str(supervisor)] or shown[2] != " ".join(record.get("cmd", [])):
+    if not supervisor or pid <= 1 or pid == supervisor or not shows(pid, supervisor, " ".join(record.get("cmd", []))):
         return None, record
     if not record.get("start") or store.process_start(pid) != record["start"]:
         return None, record
     return pid, record
 
 
+def ps(*args):
+    return subprocess.run(["ps", "-ww", *args], stdin=subprocess.DEVNULL, capture_output=True, text=True).stdout
+
+
+def shows(pid, group, cmd):
+    """`ps -o pid,pgid,cmd` shows exactly this pid, in this process group, running exactly this command line."""
+    return ps("-o", "pid=,pgid=,cmd=", "-p", str(pid)).strip().split(None, 2) == [str(pid), str(group), cmd]
+
+
+def legacy_receiver():
+    """(pid, command line, folder) of the receiver a pre-pidfile supervisor runs, else None. It is the supervisor's one
+    direct child, in its process group, whose command line is exactly `<python> -B <folder>/swarmctl webhook serve
+    <port>` for that supervisor's own python, folder and port. Nothing is matched by pattern alone."""
+    supervisor = holder()
+    if not supervisor or supervisor <= 1 or paths()["pid"].exists():
+        return None
+    rows = [row for row in (line.split(None, 3) for line in ps("-A", "-o", "pid=,ppid=,pgid=,cmd=").splitlines())
+            if len(row) == 4]
+    own = [row[3] for row in rows if row[0] == str(supervisor) and row[2] == str(supervisor)]
+    match = SUPERVISOR.match(own[0]) if len(own) == 1 else None
+    if not match:
+        return None
+    python, folder, port = match.groups()
+    tail = f" -B {folder}/swarmctl webhook serve {port}"
+    children = [(int(row[0]), row[3]) for row in rows if row[1] == row[2] == str(supervisor) and row[3].endswith(tail)
+                and os.path.realpath(row[3][:-len(tail)]) == os.path.realpath(python)]
+    return (*children[0], Path(folder)) if len(children) == 1 and children[0][0] > 1 else None
+
+
+def started_before_code(pid, folder):
+    """True unless the process surely started after the code in `folder` appeared: the newest ctime of its receiver
+    modules, the folder and the skill folder the updater swaps in (a write or rename sets ctime; archived mtimes do
+    not). `etimes` is whole seconds, so allow one. An unreadable age reads as False and nothing is signalled."""
+    elapsed = ps("-o", "etimes=", "-p", str(pid)).strip()
+    if not elapsed.isdigit():
+        return False
+    try:
+        appeared = max(os.stat(path).st_ctime for path in [folder, folder.parent, *(folder / name for name in CODE)]
+                       if path.exists())
+    except OSError:
+        return False
+    return appeared > time.time() - int(elapsed) - 1
+
+
+def refresh_legacy():
+    """A pre-pidfile supervisor's receiver that started before the code on disk: SIGTERM to its exact pid, verified
+    again with `ps` (same pid, group, command line and start time) just before. Its supervisor starts it on the new
+    code, and that one has started after the code, so later installs leave it alone."""
+    found = legacy_receiver()
+    if found is None:
+        return False
+    pid, cmd, folder = found
+    began = store.process_start(pid)
+    if not began or not started_before_code(pid, folder):
+        return False
+    if not shows(pid, holder(), cmd) or store.process_start(pid) != began or paths()["pid"].exists():
+        return False
+    try:
+        os.kill(pid, signal.SIGTERM)  # This receiver's exact pid only, never a group.
+    except ProcessLookupError:
+        return False
+    return True
+
+
 def refresh():
     """Terminate the running receiver when its code changed on disk since it started; the supervisor starts it again.
     True when a receiver was signalled."""
+    if not paths()["pid"].exists():
+        return refresh_legacy()
     pid, record = receiver_pid()
     if pid is None or len(record.get("cmd", [])) < 3 or record.get("code") == digest(Path(record["cmd"][2]).parent):
         return False

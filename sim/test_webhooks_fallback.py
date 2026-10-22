@@ -8,11 +8,15 @@ from pathlib import Path
 import shutil
 import socket
 import subprocess
+import time
 import unittest
 from unittest.mock import patch
 import urllib.request
 
 from test_webhooks_live import SWARMCTL, ReceiverTestBase, control, fallback, receiver
+
+# The supervisor and receiver modules as they shipped before the pidfile (58feb41), for the upgrade from that layout.
+PRE_PIDFILE = Path(__file__).resolve().parent / "fixtures/webhooks-prepidfile"
 
 class FallbackSupervisorTests(ReceiverTestBase):
     def free_port(self):
@@ -154,6 +158,69 @@ class FallbackSupervisorTests(ReceiverTestBase):
         fallback.stop()
         self.eventually(lambda: fallback.holder() is None and not receiver.probe(port, timeout=0.5))
         self.assertFalse(pidfile.exists())
+
+    def test_an_upgrade_from_a_pre_pidfile_supervisor_restarts_its_receiver_once(self):
+        port = self.free_port()
+        scripts = self.home / "skill-copy/scripts"
+        shutil.copytree(SWARMCTL.parent, scripts, ignore=shutil.ignore_patterns("__pycache__"))
+        for name in ("swarm_webhook_supervisor.py", "swarm_webhook_receiver.py"):
+            shutil.copyfile(PRE_PIDFILE / name, scripts / name)
+        time.sleep(1.1)  # The receiver's age is read in whole seconds: let it start surely after this code appeared.
+        fallback.paths()["marker"].write_text(json.dumps({"port": port, "python": "/usr/bin/python3"}))
+        self.addCleanup(fallback.stop)
+        fallback.store.spawn(["/usr/bin/python3", "-B", str(scripts / "swarm_webhook_supervisor.py"), str(port)])
+        self.eventually(lambda: receiver.probe(port, timeout=0.5) and fallback.legacy_receiver())
+        pidfile, supervisor = fallback.paths()["pid"], fallback.holder()
+        self.assertFalse(pidfile.exists(), "the old supervisor never writes the pidfile")
+        old, cmd, folder = fallback.legacy_receiver()
+        self.assertEqual((cmd, folder), (f"/usr/bin/python3 -B {scripts}/swarmctl webhook serve {port}", scripts))
+        self.assertEqual(fallback.ps("-o", "ppid=", "-p", str(old)).strip(), str(supervisor))
+        self.assertFalse(fallback.refresh(), "a receiver that started on the code on disk is left running")
+        decoy = subprocess.Popen(["sleep", "60"], start_new_session=True)
+        self.addCleanup(decoy.wait)
+        self.addCleanup(decoy.kill)
+
+        shutil.copytree(SWARMCTL.parent, scripts, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__"))
+        fallback.start("/usr/bin/python3", port)  # The install after the skill update.
+        self.eventually(lambda: (fallback.legacy_receiver() or [old])[0] != old and receiver.probe(port, timeout=0.5))
+        with self.assertRaises(ProcessLookupError):
+            os.kill(old, 0)
+        self.assertEqual(fallback.holder(), supervisor, "the old supervisor restarted its receiver on the new code")
+        self.assertIsNone(decoy.poll(), "nothing else is signalled")
+        new = fallback.legacy_receiver()[0]
+        self.assertFalse(fallback.refresh(), "the receiver it restarted runs the new code: later installs leave it")
+        fallback.start("/usr/bin/python3", port)
+        time.sleep(0.5)
+        self.assertEqual(fallback.legacy_receiver()[0], new)
+        fallback.stop()
+        self.eventually(lambda: fallback.holder() is None and not receiver.probe(port, timeout=0.5))
+
+    def test_a_pre_pidfile_receiver_is_only_the_supervisors_one_exact_child(self):
+        lock = fallback.paths()["lock"]
+        lock.write_text("4000")
+        folder = "/home/x/.hermes/skills/swarmhub/swarmhub-messages/scripts"
+        supervisor = f"4000 1 4000 /usr/bin/python3 -B {folder}/swarm_webhook_supervisor.py 8745"
+        child = f"/usr/bin/python3 -B {folder}/swarmctl webhook serve 8745"
+        cases = {"the one exact child": ([supervisor, f"4001 4000 4000 {child}"], 4001),
+                 "another parent": ([supervisor, f"4001 1 4000 {child}"], None),
+                 "another group": ([supervisor, f"4001 4000 4001 {child}"], None),
+                 "another port": ([supervisor, f"4001 4000 4000 {child[:-4]}8746"], None),
+                 "another folder": ([supervisor, f"4001 4000 4000 {child.replace('/x/', '/y/')}"], None),
+                 "another python": ([supervisor, f"4001 4000 4000 /tmp/python3{child[16:]}"], None),
+                 "two candidates": ([supervisor, f"4001 4000 4000 {child}", f"4002 4000 4000 {child}"], None),
+                 "not our supervisor": ([supervisor.replace("swarm_webhook_supervisor.py", "other.py"),
+                                         f"4001 4000 4000 {child}"], None)}
+        for name, (rows, expected) in cases.items():
+            with patch.object(fallback, "holder", return_value=4000), \
+                    patch.object(fallback, "ps", return_value="\n".join(rows) + "\n"):
+                found = fallback.legacy_receiver()
+                self.assertEqual(found and found[0], expected, name)
+                if expected:
+                    self.assertEqual(found[1:], (child, Path(folder)))
+        with patch.object(fallback, "holder", return_value=4000), \
+                patch.object(fallback, "ps", return_value=f"{supervisor}\n4001 4000 4000 {child}\n"):
+            fallback.paths()["pid"].write_text("{}")
+            self.assertIsNone(fallback.legacy_receiver(), "a pidfile means a current supervisor: its record decides")
 
     def test_gateway_start_resumes_only_a_recorded_fallback(self):
         spawned = []
