@@ -448,6 +448,7 @@ def register(ctx):
     ctx.register_hook("post_llm_call", lambda session_id, turn_id, assistant_response, **kw:
                       after_turn(profile, session_id, turn_id, assistant_response))
     start_worker(managed=True)  # The gateway owns shutdown of plugin recovery.
+    control.receiver.resume()  # A fallback-supervised webhook receiver comes back with the gateway.
 
 
 def install(profile):
@@ -467,6 +468,7 @@ def install(profile):
         "register = runpy.run_path(" + repr(str(Path(__file__).resolve())) + ")[\"register\"]\n")
     # Registration refers to the gateway's existing .env. No key is exposed or copied.
     control.register(profile)
+    control.receiver.ensure()  # One webhook receiver per box account; idempotent, so batches over profiles stay cheap.
 
 
 if __name__ == "__main__":

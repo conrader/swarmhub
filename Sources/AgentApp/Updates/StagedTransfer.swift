@@ -87,7 +87,7 @@ extension AppStore {
         let key = "updates.transport.cleanup." + target
         let ids = defaults.stringArray(forKey: key) ?? []
         // Persisted IDs can belong to an earlier QA/E2E namespace. Match them independently of today's namespace.
-        for id in ids where id.range(of: #"\A[A-Za-z0-9_-]*agentapp_update_(bytes|status)_[A-Za-z0-9_-]+\z"#,
+        for id in ids where id.range(of: #"\A[A-Za-z0-9_-]*agentapp_update_(bytes|status|webhooks)_[A-Za-z0-9_-]+\z"#,
                                     options: .regularExpression) != nil {
             if (try? await backend.deleteUpdaterSession(id)) != nil {
                 defaults.set((defaults.stringArray(forKey: key) ?? []).filter { $0 != id }, forKey: key)

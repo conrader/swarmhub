@@ -1,7 +1,7 @@
 ---
 name: swarmhub-messages
-description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v1.4.10."
-version: 1.4.10
+description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v1.4.11."
+version: 1.4.11
 author: SwarmHub
 metadata:
   swarmhub:
@@ -82,12 +82,28 @@ or copies a credential. This provides the requested wake subscription through th
 
 Managed webhook routines: `scripts/swarmctl webhook register <profile> <routine>` creates a keyed URL that wakes the
 profile; `webhook show <profile> <routine>` prints the URL and the key file path; `webhook rotate <profile> <routine>`
-replaces the key (the old one is rejected at once); `webhook list` lists them. The key is generated into
+replaces the key (the old one is rejected at once); `webhook delete <profile> <routine>` removes the routine and its
+key file (the URL stops working at once); `webhook list [profile]` lists them. The key is generated into
 `~/.hermes/swarmhub/webhooks/<unique-slug>.key` (0600, owner-only) and is **never printed**: hand the user the
 file path, never its content, and never read it into a chat. A caller POSTs JSON `{"text": "..."}` to the URL with the
-`X-SwarmHub-Key` header; `scripts/swarmctl webhook serve [port]` is the loopback receiver (127.0.0.1 only; policy
-`webhook_base` sets the URL shown), and `webhook fire <profile> <routine> <slug>` with `{"key","text"}` on stdin is the
-same check without HTTP. An accepted call journals one durable self-delivery for the profile (`[Webhook routine …]`).
+`X-SwarmHub-Key` header; `webhook fire <profile> <routine> <slug>` with `{"key","text"}` on stdin is the same check
+without HTTP. An accepted call journals one durable self-delivery for the profile (`[Webhook routine …]`).
+The SwarmHub app manages these from the agent's Routines tab: it generates the key on the user's Mac, shows it there
+once and sends only its digest (`webhook panel … --key-hash sha256:<hex>`), so that key never reaches this box or a
+turn; a key file holding `sha256:<hex>` is such a digest. Run a `webhook panel` command only when the app's own
+management turn asks for exactly that command.
+
+Webhook receiver: one supervised service per box account serves every profile, on 127.0.0.1:8745 only. Skill setup
+(`peer-runtime.py install`) installs and starts it, idempotently: the systemd user unit `swarmhub-webhook.service` on
+Linux (restarts on failure; logs: `journalctl --user -u swarmhub-webhook.service`) or the LaunchAgent
+`com.swarmhub.webhook` on macOS (log: `~/Library/Logs/SwarmHub/webhook-receiver.log`). Where no systemd user manager
+answers (a gateway run by the system manager, no lingering), a lock-guarded fallback supervisor restarts it instead
+(log: `~/.hermes/swarmhub/logs/webhook-receiver.log`) and the peer plugin resumes it at each gateway start.
+`webhook receiver status|install|uninstall` reads, (re)installs or removes it; status says `running` only when the
+receiver answers its health check (`GET /swarmhub/webhook/health`). `webhook serve [port]` runs the receiver in the
+foreground for another supervisor. To accept calls from outside the box, the owner puts a reverse proxy (or tunnel) in front of the loopback
+port and publishes its public base as policy `webhook_base` (SwarmHub repository: `docs/webhooks-exposure.md`). Never
+bind the receiver to a public address yourself.
 
 Secure key intake: `scripts/swarmctl secret intake <name>` reads the value from **stdin** and writes
 `~/.hermes/swarmhub/secrets/<name>` with mode 0600; it prints the path, never the value. Pass that path, not the key,

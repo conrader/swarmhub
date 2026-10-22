@@ -79,18 +79,36 @@ def main(args):
         control.check_job(*args)
         return None
     if command == "webhook":
-        # register/show/rotate print the URL and the key file path; the key itself is never printed.
+        # register/show/rotate print the URL and the key file path; the key itself is never printed. The app passes
+        # `--key-hash sha256:<hex>` of a key it generated and showed on the Mac, so no key crosses to the box at all.
         verb, *rest = args
+        key_hash = None
+        if "--key-hash" in rest:
+            at = rest.index("--key-hash")
+            key_hash = rest[at + 1] if at + 1 < len(rest) else ""  # A missing value fails validation, never a random key.
+            del rest[at:at + 2]
         if verb == "register":
-            result = control.webhook.register(rest[0], rest[1])
+            result = control.webhook.register(rest[0], rest[1], key_hash)
             start()
             return result
         if verb == "show":
             return control.webhook.show(rest[0], rest[1])
         if verb == "rotate":
-            return control.webhook.rotate(rest[0], rest[1])
+            return control.webhook.rotate(rest[0], rest[1], key_hash)
+        if verb == "delete":
+            return control.webhook.delete(rest[0], rest[1])
         if verb == "list":
-            return control.webhook.listing()
+            rows = control.webhook.listing()
+            return [row for row in rows if row["profile"] == rest[0]] if rest else rows
+        if verb == "panel":
+            # The app's call: panel <profile> list|register|rotate|delete|receiver-install [routine] [--key-hash h].
+            return control.webhook.panel(rest[0], rest[1], *rest[2:3], key_hash=key_hash)
+        if verb == "receiver":
+            # Supervised loopback receiver: install (idempotent; enable + start), status, uninstall.
+            action = rest[0] if rest else "status"
+            if action not in ("install", "status", "uninstall"):
+                raise ValueError("webhook receiver install|status|uninstall")
+            return getattr(control.receiver, action)()
         if verb == "fire":
             # Stdin JSON {"key": ..., "text": ...}: the key comes from the caller's copy, never from this box's file.
             payload = json.load(sys.stdin)
@@ -104,9 +122,9 @@ def main(args):
             start()
             return result
         if verb == "serve":
-            control.webhook.serve(int(rest[0]) if rest else control.webhook.DEFAULT_PORT)
+            control.webhook.serve(int(rest[0]) if rest else control.webhook.DEFAULT_PORT, on_fire=start)
             return None
-        raise ValueError("webhook register|show|rotate|list|fire|serve")
+        raise ValueError("webhook register|show|rotate|delete|list|fire|serve|receiver|panel")
     if command == "secret":
         verb, *rest = args
         if verb == "intake":

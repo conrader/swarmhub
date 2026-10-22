@@ -6,10 +6,12 @@ Layers (each under 500 lines, no cycles):
   swarm_delivery durable deliveries, receiver receipts bound by delivery id
   swarm_jobs     one-job-per-bot scheduler, managed command execution
   swarm_webhook  managed webhook routines: keyed URL → durable self-delivery (key file only)
+  swarm_webhook_receiver  the supervised loopback receiver (systemd user unit / LaunchAgent)
   swarm_intake   secure secret intake into 0600 files; only paths are returned
 """
 import swarm_intake as intake  # noqa: F401
 import swarm_webhook as webhook  # noqa: F401
+import swarm_webhook_receiver as receiver  # noqa: F401
 from swarm_store import (NAME, canonical, database, invoking_profile, process_alive, process_start,  # noqa: F401
                          profile_exists, spawn, spawn_recorded, state, terminate)
 from swarm_policy import (SIDE_EFFECT_KINDS, acknowledge_policy, acknowledge_turn_policy, action, active,  # noqa: F401

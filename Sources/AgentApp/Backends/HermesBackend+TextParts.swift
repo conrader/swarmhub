@@ -35,7 +35,7 @@ extension HermesBackend {
         }
         let preview = phase == .progress ? nil : ToolEvent.preview(json["preview"] as? String, key: apiKey)
         return ToolEvent(phase: phase, name: name, preview: preview, callID: (json["tool_call_id"] ?? json["toolCallId"]) as? String,
-                         command: phase == .started ? Self.peerEnableCommand(json["args"] ?? json["arguments"]) ?? Self.updaterStatusCommand(json["args"] ?? json["arguments"]) ?? Self.botMessageCommand(json["args"] ?? json["arguments"]) ?? Self.botMessageLine(json["preview"], key: apiKey) : nil,
+                         command: phase == .started ? Self.peerEnableCommand(json["args"] ?? json["arguments"]) ?? Self.updaterStatusCommand(json["args"] ?? json["arguments"]) ?? Self.webhookPanelCommand(json["args"] ?? json["arguments"]) ?? Self.botMessageCommand(json["args"] ?? json["arguments"]) ?? Self.botMessageLine(json["preview"], key: apiKey) : nil,
                          result: phase == .completed || phase == .failed ? Self.toolResult(json) : nil)
     }
 
@@ -55,6 +55,14 @@ extension HermesBackend {
               command == StagedInstall.statusCommand || command.hasPrefix("python3 -I -B <<'SWARMHUB_STAGE'\n") ||
               command.range(of: "\\A" + NSRegularExpression.escapedPattern(for: StagedInstall.updater) +
                   #" --max-wait 0 apply --version [1-9][0-9]{0,18}\z"#, options: .regularExpression) != nil else { return nil }
+        return command
+    }
+
+    /// The Webhooks section's one panel call (names and a key digest only, never a key), kept for exact call binding.
+    static func webhookPanelCommand(_ args: Any?) -> String? {
+        var object = args as? [String: Any]
+        if object == nil, let text = args as? String { object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] }
+        guard let command = (object?["command"] ?? object?["cmd"]) as? String, WebhookCommand.matches(command) else { return nil }
         return command
     }
 

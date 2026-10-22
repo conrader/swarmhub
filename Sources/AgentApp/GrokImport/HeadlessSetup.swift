@@ -174,6 +174,11 @@ import SwiftUI
             output("Rendered P55 to \(directory.path); \(failures) failed")
             return failures == 0 ? 0 : 1
         }
+        if only == "webhooks" {
+            await HeadlessWebhookShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+            output("Rendered webhooks to \(directory.path); \(failures) failed")
+            return failures == 0 ? 0 : 1
+        }
         if only == "p38e" {
             await HeadlessP38EShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
             output("Rendered P38 E to \(directory.path); \(failures) failed")
@@ -222,6 +227,7 @@ import SwiftUI
         await HeadlessP52Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP55Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         await HeadlessP56Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+        await HeadlessWebhookShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
         output("Rendered setup to \(directory.path); \(failures) failed")
         return failures == 0 ? 0 : 1
     }

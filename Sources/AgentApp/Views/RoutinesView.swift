@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Routines tab: the bot's Hermes cron jobs, plus routines that are not on the server yet.
+/// Routines tab: the bot's Hermes cron jobs, plus routines that are not on the server yet, then its webhooks.
 struct RoutinesView: View {
     @EnvironmentObject private var store: AppStore
     @ObservedObject var bot: Bot
@@ -50,6 +50,7 @@ struct RoutinesView: View {
                 }
             }
             if bot.backend != .hermes && bot.routines.isEmpty { Text("No routines yet.").foregroundStyle(.secondary) }
+            if store.canManageWebhooks(bot) { Divider().padding(.vertical, 4); WebhooksSection(bot: bot, cache: store.webhooks) }
         }
         .transaction { $0.animation = nil }
         .sheet(item: $editor) { target in RoutineEditorHost(bot: bot, job: target.job) }

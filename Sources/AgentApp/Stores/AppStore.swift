@@ -27,6 +27,8 @@ import SwarmHubCore
     var managedControl: (@MainActor (Bot, String, String, Data?) async throws -> ManagedRecord)?
     /// The account home the real control subprocess runs against (tests point it at a temporary runtime layout).
     var managedHome: URL? = nil
+    /// Test injection for the webhook panel call (`AppStore+WebhookTransport.swift`): argv after `swarmctl` → raw output.
+    var webhookControl: (@MainActor (Bot, [String]) async throws -> String)?
     @Published var secretRequest: SecretRequestPrompt?; var secretFolder: URL?
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
@@ -122,6 +124,7 @@ import SwarmHubCore
     /// P51: folded technical rows the user opened (memory only).
     let technicalFolds = TechnicalFolds()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
+    let webhooks = WebhooksCache()
     let approvalKeys: any DeviceApprovalKeyStore
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     /// P16: turn bookkeeping, the token autosave interval, the connectivity events and the reconcile timing (injectable).
@@ -251,7 +254,7 @@ import SwarmHubCore
         if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys(); await discoverBoxesOnLaunch() } }
         selectVisibleChat()
         if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
-        botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad; botWork.autoStart = botInfo.autoLoad
+        botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad; webhooks.autoLoad = botInfo.autoLoad; botWork.autoStart = botInfo.autoLoad
         if botInfo.autoLoad { startAutomationTicker() }
         if connectivity != nil { listenForConnectivity() }
     }

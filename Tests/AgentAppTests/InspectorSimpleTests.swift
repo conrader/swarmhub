@@ -10,7 +10,8 @@ private func source(_ path: String) throws -> String { try String(contentsOf: re
 
 /// The right panel's simple views: no string literal reaches a control (`SimpleSettingsTests` scans them).
 let inspectorSimpleFiles = ["Sources/AgentApp/Views/ModelSectionView.swift", "Sources/AgentApp/Views/RoutineEditorSheet.swift",
-                            "Sources/AgentApp/Views/GroupMembersView.swift", "Sources/AgentApp/Views/AdvancedFold.swift"]
+                            "Sources/AgentApp/Views/GroupMembersView.swift", "Sources/AgentApp/Views/AdvancedFold.swift",
+                            "Sources/AgentApp/Views/WebhooksSection.swift", "Sources/AgentApp/Views/WebhookSheet.swift"]
 /// Right-panel files that still hold their own words (tabs and the Advanced parts): none of them says "bot".
 private let inspectorWordFiles = ["Sources/AgentApp/Views/InfoPanel.swift", "Sources/AgentApp/Views/RoutinesView.swift",
                                   "Sources/AgentApp/Views/BotCapabilitiesView.swift", "Sources/AgentApp/Views/ModelSectionAdvanced.swift",

@@ -2,15 +2,19 @@
 
 The key lives only in an owner-only file (0600 under the 0700 state folder) and is never
 printed, journaled or returned by any command. The URL carries an unguessable slug, not the
-key; callers present the key in the `X-SwarmHub-Key` header. A fired routine becomes a
+key; callers present the key in the `X-SwarmHub-Key` header. The app instead generates the key on the owner's Mac,
+shows it there once and sends only `sha256:<hex>` (`--key-hash`), so the key never reaches this box, a turn or a log;
+the key file then holds that digest and calls are checked against it. A fired routine becomes a
 durable self-delivery to the profile, so it survives restarts and is acknowledged like any
 other wake. The loopback receiver binds 127.0.0.1 only; exposing it is the reverse proxy's job.
 """
+import hashlib
 import hmac
 import json
 from pathlib import Path
 import re
 import secrets
+import sys
 import time
 
 from swarm_delivery import TEXT_LIMIT, enqueue
@@ -36,11 +40,22 @@ def key_folder():
     return folder
 
 
-def write_key(path):
-    """A fresh key; the file is created 0600 and the value is not returned."""
-    value = secrets.token_urlsafe(32)
+KEY_HASH = re.compile(r"sha256:[0-9a-f]{64}\Z")
+
+
+def write_key(path, key_hash=None):
+    """A fresh key, or the digest of a key generated elsewhere; the file is created 0600 and nothing is returned."""
+    if key_hash is not None and not (isinstance(key_hash, str) and KEY_HASH.fullmatch(key_hash)):
+        raise ValueError("key hash must be sha256:<64 lowercase hex>")
+    value = key_hash or secrets.token_urlsafe(32)
     write_private(path, (value + "\n").encode())
     return None
+
+
+def matches(stored, key):
+    if KEY_HASH.fullmatch(stored):
+        stored, key = stored[7:], hashlib.sha256(key.encode()).hexdigest()
+    return hmac.compare_digest(stored.encode(), key.encode())
 
 
 def url(profile, routine, slug):
@@ -68,19 +83,21 @@ def check(profile, routine):
         raise ValueError("routine must be a short name")
 
 
-def register(profile, routine):
+def register(profile, routine, key_hash=None):
     check(profile, routine)
     with database() as db:
         db.execute("BEGIN IMMEDIATE")
         existing = db.execute("SELECT * FROM webhooks WHERE profile=? AND routine=?", (profile, routine)).fetchone()
         if existing:
+            if key_hash is not None and Path(existing["key_file"]).read_text().strip() != key_hash:
+                raise ValueError("webhook routine already exists; rotate its key or choose another name")
             return describe(existing)  # Idempotent: re-registering never rotates or reveals the key.
         slug = secrets.token_urlsafe(18)
         path = key_folder() / f"{slug}.key"  # Dot-containing profile/routine pairs cannot collide.
-        write_key(path)
+        write_key(path, key_hash)
         now = time.time()
         db.execute("INSERT INTO webhooks VALUES(?,?,?,?,?,?,0)", (profile, routine, slug, str(path), now, now))
-        return describe(db.execute("SELECT * FROM webhooks WHERE profile=? AND routine=?", (profile, routine)).fetchone())
+        return describe(record(profile, routine, db))
 
 
 def show(profile, routine):
@@ -89,20 +106,69 @@ def show(profile, routine):
         return describe(record(profile, routine, db))
 
 
-def rotate(profile, routine):
+def rotate(profile, routine, key_hash=None):
     """A new key in the same file; the previous key is rejected from the moment the file is rewritten."""
     check(profile, routine)
     with database() as db:
         db.execute("BEGIN IMMEDIATE")
         row = record(profile, routine, db)
-        write_key(Path(row["key_file"]))
+        write_key(Path(row["key_file"]), key_hash)
         db.execute("UPDATE webhooks SET rotated=? WHERE profile=? AND routine=?", (time.time(), profile, routine))
         return describe(record(profile, routine, db))
+
+
+def delete(profile, routine):
+    """Forget the routine and remove its key file; the URL stops working at once. Deleting twice is not an error."""
+    if not all(isinstance(v, str) and NAME.fullmatch(v) and len(v) <= 64 for v in (profile, routine)):
+        raise ValueError("profile and routine must be short names")  # A removed profile's routines stay deletable.
+    with database() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT * FROM webhooks WHERE profile=? AND routine=?", (profile, routine)).fetchone()
+        if row:
+            db.execute("DELETE FROM webhooks WHERE profile=? AND routine=?", (profile, routine))
+    if row:
+        path = Path(row["key_file"])
+        if path.parent == key_folder() and path.name == row["slug"] + ".key":
+            path.unlink(missing_ok=True)
+    return {"profile": profile, "routine": routine, "deleted": bool(row)}
 
 
 def listing():
     with database() as db:
         return [describe(row) for row in db.execute("SELECT * FROM webhooks ORDER BY profile,routine")]
+
+
+PANEL_ACTIONS = ("list", "register", "rotate", "delete", "receiver-install")
+
+
+def panel(profile, action, routine=None, key_hash=None):
+    """The app's one call per click: do one action, then answer with the profile's routines and the receiver state.
+
+    register/rotate take only the digest of a key the app generated (`key_hash`), so this answer never holds a key.
+    """
+    import swarm_webhook_receiver as receiver
+    if not isinstance(profile, str) or not NAME.fullmatch(profile) or len(profile) > 64:
+        raise ValueError("profile must be a short name")
+    if action not in PANEL_ACTIONS:
+        raise ValueError("panel action must be one of " + ", ".join(PANEL_ACTIONS))
+    if action in ("register", "rotate") and key_hash is None:
+        raise ValueError("the app's register and rotate need --key-hash")
+    if (routine is None) != (action in ("list", "receiver-install")):
+        raise ValueError("register, rotate and delete name a routine; list and receiver-install do not")
+    result = None
+    if action == "register":
+        result = register(profile, routine, key_hash)
+    elif action == "rotate":
+        result = rotate(profile, routine, key_hash)
+    elif action == "delete":
+        result = delete(profile, routine)
+    elif action == "receiver-install":
+        try:
+            result = receiver.install()
+        except ValueError as exc:
+            result = {"error": str(exc)}  # Still answer with the state so the app can show why.
+    return {"schema": "swarmhub/webhooks/1", "profile": profile, "action": action, "result": result,
+            "webhooks": [row for row in listing() if row["profile"] == profile], "receiver": receiver.status()}
 
 
 def fire(profile, routine, slug, key, text):
@@ -118,7 +184,7 @@ def fire(profile, routine, slug, key, text):
         stored = Path(row["key_file"]).read_text().strip()
     except OSError as exc:
         raise ValueError("webhook key file unavailable") from exc
-    if row["slug"] != slug or not hmac.compare_digest(stored.encode(), key.encode()):
+    if row["slug"] != slug or not matches(stored, key):
         raise PermissionError("webhook rejected")
     ident = enqueue(profile, profile, f"[Webhook routine {routine} for {profile}]\n{text}")
     with database() as db:
@@ -126,7 +192,7 @@ def fire(profile, routine, slug, key, text):
     return {"profile": profile, "routine": routine, "delivery": ident, "status": "pending"}
 
 
-def request_handler():
+def request_handler(on_fire=None):
     """Build the HTTP handler separately so protocol validation can be tested without sockets."""
     from http.server import BaseHTTPRequestHandler
 
@@ -141,6 +207,12 @@ def request_handler():
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+
+        def do_GET(self):
+            # Reachability for `webhook receiver status` and the app; says nothing about routines.
+            if self.path.split("?", 1)[0] == "/swarmhub/webhook/health":
+                return self.answer(200, {"ok": True, "service": "swarmhub-webhook"})
+            return self.answer(404, {"error": "unknown webhook"})
 
         def do_POST(self):
             match = PATH.match(self.path.split("?", 1)[0])
@@ -161,16 +233,25 @@ def request_handler():
             except (ValueError, OSError):
                 return self.answer(400, {"error": "bad request"})
             self.answer(202, result)
+            if on_fire:
+                try:
+                    on_fire()
+                except Exception:  # noqa: BLE001  The wake is journalled; any later worker start delivers it.
+                    pass
     return Handler
 
 
-def serve(port=DEFAULT_PORT, once=False, ready=None):
-    """Loopback receiver: POST <url> with X-SwarmHub-Key and JSON {"text": ...}; never logs keys."""
+def serve(port=DEFAULT_PORT, once=False, ready=None, on_fire=None):
+    """Loopback receiver: POST <url> with X-SwarmHub-Key and JSON {"text": ...}; never logs keys.
+
+    `on_fire` runs after each accepted call (swarmctl passes the delivery worker's idempotent start)."""
     from http.server import ThreadingHTTPServer
 
-    server = ThreadingHTTPServer(("127.0.0.1", int(port)), request_handler())
+    server = ThreadingHTTPServer(("127.0.0.1", int(port)), request_handler(on_fire))
     if ready:
         ready(server.server_address[1])
+    if not once:
+        print(f"swarmhub-webhook: listening on 127.0.0.1:{server.server_address[1]}", file=sys.stderr, flush=True)
     try:
         if once:
             server.handle_request()
