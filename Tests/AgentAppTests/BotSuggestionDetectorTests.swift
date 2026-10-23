@@ -102,7 +102,8 @@ private func repeated(_ dates: [Date], text: String = "Summarize my inbox?") -> 
         SuggestionPolicy.refusal(stems: stems, botID: bot, ledger: BotSuggestionLedger(records: records), enabled: true, now: now, calendar: calendar)
     }
     #expect(refusal([record(.declined, askedAt: at(1, 10))], now: at(21, 10)) == .declined)
-    #expect(refusal([record(.accepted, askedAt: at(1, 10))], now: at(21, 10)) == .accepted)
+    #expect(refusal([record(.accepted, askedAt: at(15, 10))], now: at(21, 10)) == .accepted)
+    #expect(refusal([record(.accepted, askedAt: at(1, 10))], now: at(21, 10)) == nil, "a yes pauses a week; the routine it made keeps it quiet after")
     #expect(refusal([record(.asked, askedAt: at(15, 10))], now: at(21, 10)) == .askedRecently, "6 days")
     #expect(refusal([record(.asked, askedAt: at(13, 10))], now: at(21, 10)) == nil, "8 days")
     #expect(refusal([record(.declined, askedAt: at(1, 10), botID: UUID())], now: at(21, 10)) == nil, "another bot's no is its own")
@@ -120,6 +121,8 @@ private func repeated(_ dates: [Date], text: String = "Summarize my inbox?") -> 
     #expect(SuggestionAnswer.classify("Please do") == .yes)
     #expect(SuggestionAnswer.classify("Different time") == .other)
     #expect(SuggestionAnswer.classify("maybe later") == .other)
+    #expect(SuggestionAnswer.isAboutTheOffer("Make it 7:30 instead") && SuggestionAnswer.isAboutTheOffer("Different time"))
+    #expect(!SuggestionAnswer.isAboutTheOffer("What's the weather in Warsaw?"))
 }
 
 @Test func theQuestionAndItsRepliesReadNaturally() {

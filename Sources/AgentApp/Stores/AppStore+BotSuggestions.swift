@@ -63,27 +63,36 @@ extension AppStore {
 
     // MARK: The answer
 
-    /// The bot's suggestion row in its main chat that no user row (other than `except`) follows yet.
-    func pendingSuggestionRow(in bot: Bot, except: ChatMessage? = nil) -> ChatMessage? {
+    /// The suggestion `user` may answer: the bot's newest suggestion row, asked at most 12 hours ago, with nothing but
+    /// answers to it (the conversation about it) between it and `user`. `answered`: an earlier answer already carried the
+    /// question to the bot.
+    func openSuggestion(in bot: Bot, for user: ChatMessage) -> (row: ChatMessage, id: UUID, answered: Bool)? {
         guard let index = bot.messages.lastIndex(where: { $0.presentation == .suggestion }) else { return nil }
-        return bot.messages[(index + 1)...].contains { $0.role == .user && $0.id != except?.id } ? nil : bot.messages[index]
+        let row = bot.messages[index]
+        guard now().timeIntervalSince(row.createdAt) <= Self.suggestionAnswerWindow,
+              let id = row.metadata[SuggestionKey.record].flatMap(UUID.init(uuidString:)) else { return nil }
+        let between = bot.messages[(index + 1)...].filter { $0.role == .user && $0.id != user.id }
+        guard between.allSatisfy({ $0.metadata[SuggestionKey.answers] == id.uuidString }) else { return nil }
+        return (row, id, !between.isEmpty)
     }
 
-    /// Called as `user` joins `conversation`: when it is the first answer to a pending suggestion (within 12 hours) it
-    /// carries the record, the answer and the lead (the question and the routine offered) that the bot reads before the
-    /// text. A no declines that request for good; a yes accepts it; anything else leaves the 7-day pause running. The same
-    /// request asked again is not an answer: the question was ignored.
+    /// Called as `user` joins `conversation`. An answer to the open suggestion carries the record and the answer; the first
+    /// one also carries the lead (the question and the routine offered) that the bot reads before the text. A no declines
+    /// that request for good; a yes accepts it; "Different time" or a reply about the time, days or wording keeps the
+    /// conversation about it open. Not an answer: the same request asked again (the question was ignored) or another
+    /// subject; those go to the bot as they are.
     func noteSuggestionAnswer(_ user: ChatMessage, bot: Bot, in conversation: any Conversation) {
-        guard conversation === bot, user.role == .user, let row = pendingSuggestionRow(in: bot, except: user),
-              now().timeIntervalSince(row.createdAt) <= Self.suggestionAnswerWindow,
-              let id = row.metadata[SuggestionKey.record].flatMap(UUID.init(uuidString:)) else { return }
+        guard conversation === bot, user.role == .user, let open = openSuggestion(in: bot, for: user) else { return }
         var ledger = suggestionLedger
-        guard let index = ledger.records.firstIndex(where: { $0.id == id }), ledger.records[index].state == .asked else { return }
+        guard let index = ledger.records.firstIndex(where: { $0.id == open.id }), ledger.records[index].state == .asked else { return }
         let answer = SuggestionAnswer.classify(user.content)
-        if answer == .other, AskText.similar(AskText.stems(user.content), Set(ledger.records[index].stems)) { return }
-        user.metadata[SuggestionKey.answers] = id.uuidString
+        if answer == .other, user.metadata[SuggestionKey.chip] == nil,
+           AskText.similar(AskText.stems(user.content), Set(ledger.records[index].stems)) || !SuggestionAnswer.isAboutTheOffer(user.content) { return }
+        user.metadata[SuggestionKey.answers] = open.id.uuidString
         user.metadata[SuggestionKey.answer] = answer.rawValue
-        user.metadata[SuggestionKey.lead] = BotSuggestionCopy.lead(question: row.content, draft: ledger.records[index].draft, timeZone: heartbeatTimeZone)
+        if !open.answered {
+            user.metadata[SuggestionKey.lead] = BotSuggestionCopy.lead(question: open.row.content, draft: ledger.records[index].draft, timeZone: heartbeatTimeZone)
+        }
         switch answer {
         case .no: ledger.records[index].state = .declined
         case .yes: ledger.records[index].state = .accepted
@@ -94,11 +103,13 @@ extension AppStore {
 
     // MARK: After a turn
 
-    /// After a finished turn in a bot's main chat: follow a yes through, else look for a repeated ask.
-    func afterSuggestionTurn(bot: Bot, reply: ChatMessage) {
+    /// After a turn in a bot's main chat: follow a yes through (whatever the turn's end, so a failed or stopped turn
+    /// still falls back to the editor), else, after a finished turn, look for a repeated ask.
+    func afterSuggestionTurn(bot: Bot, reply: ChatMessage, finished: Bool) {
         Task { [weak self] in
             guard let self else { return }
-            if await self.followThroughSuggestion(bot: bot, reply: reply) { return }
+            let answered = await self.followThroughSuggestion(bot: bot, reply: reply)
+            if answered || !finished { return }
             await self.suggestRoutineIfRepeated(bot: bot)
         }
     }

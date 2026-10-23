@@ -199,8 +199,8 @@ extension AppStore {
         if outcome.state == .finished {
             if !isTeamThread(conversation) { handleManagerReply(assistant, from: bot, in: conversation); handleReportOps(assistant, from: bot); refreshModelsAfterRecipe(assistant, from: bot, in: conversation) }
             startReviewIfNeeded(assistant, from: bot, in: conversation)
-            if conversation === bot { afterSuggestionTurn(bot: bot, reply: assistant) }
         }
+        if conversation === bot { afterSuggestionTurn(bot: bot, reply: assistant, finished: outcome.state == .finished) }
         if conversation.id == bot.id { finishStagedSkillInstall(manager: bot, end: end); finishSkillInstallChecks(manager: bot, reply: assistant, end: end) }
         if outcome.state == .finished && hasText && !SilentReply.isSilent(SwarmhubBlock.visibleText(assistant.finalText)) {
             AvatarReactions.shared.completed(bot)

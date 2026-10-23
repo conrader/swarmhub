@@ -14,8 +14,8 @@ enum SuggestionKey {
     static let followed = "suggestion.followed"
 }
 
-/// One suggestion SwarmHub had a bot ask, and what came of it. `asked` with no answer pauses that pattern for 7 days;
-/// `declined` is for good; `accepted` (a yes) never asks again either.
+/// One suggestion SwarmHub had a bot ask, and what came of it. `declined` is for good; `asked` (no answer) and `accepted`
+/// (a yes) pause that pattern for 7 days; after a yes the routine that exists then keeps it quiet.
 struct BotSuggestionRecord: Codable, Equatable, Identifiable, Sendable {
     enum State: String, Codable, Sendable { case asked, declined, accepted }
     var id = UUID()
@@ -63,7 +63,7 @@ enum SuggestionPolicy {
         guard enabled else { return .off }
         let earlier = records(ledger, botID: botID, stems: stems)
         if earlier.contains(where: { $0.state == .declined }) { return .declined }
-        if earlier.contains(where: { $0.state == .accepted }) { return .accepted }
+        if earlier.contains(where: { $0.state == .accepted && now.timeIntervalSince($0.askedAt) < unansweredPause }) { return .accepted }
         if earlier.contains(where: { $0.state == .asked && now.timeIntervalSince($0.askedAt) < unansweredPause }) { return .askedRecently }
         if isQuiet(now, calendar: calendar) { return .quietHours }
         if postedToday(ledger, now: now, calendar: calendar) >= dailyCap { return .dailyCap }
@@ -90,6 +90,17 @@ enum SuggestionAnswer: String, Sendable {
         if negativePhrases.contains(where: { words.contains(" \($0) ") }) { return .no }
         if affirmativePhrases.contains(where: { words.contains(" \($0) ") }) { return .yes }
         return .other
+    }
+
+    /// Words that make an `other` reply about the offer (a time, days, the wording); anything else is a new subject.
+    static let scheduleWords: Set<String> = ["time", "times", "hour", "hours", "am", "pm", "morning", "mornings", "evening", "evenings", "afternoon",
+                                             "night", "noon", "daily", "day", "days", "weekday", "weekdays", "weekend", "weekends", "week", "weekly",
+                                             "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "every", "instead",
+                                             "earlier", "later", "routine", "schedule", "wording", "prompt", "rano", "wieczorem", "godzina", "codziennie"]
+
+    /// An `other` reply that talks about the offer: it names a time or a schedule word.
+    static func isAboutTheOffer(_ text: String) -> Bool {
+        AskText.normalized(text).split(separator: " ").contains { word in scheduleWords.contains(String(word)) || word.first?.isNumber == true }
     }
 }
 

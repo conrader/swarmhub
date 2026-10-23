@@ -31,6 +31,10 @@ import Vision
     #expect(text.contains("Want me to run it") && text.contains("Different time") && text.contains("No thanks"), "the question and its chips render: \(text)")
     if let directory = ProcessInfo.processInfo.environment["SWARMHUB_SUGGESTION_CAPTURE"] {
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
-        try data.write(to: URL(fileURLWithPath: directory).appending(path: "suggestion-dark.png"))
+        let file = URL(fileURLWithPath: directory).appending(path: "suggestion-dark.png")
+        try data.write(to: file)
+        print("SUGGESTION_CAPTURE wrote \(file.path) (\(data.count) bytes)")
+    } else {
+        print("SUGGESTION_CAPTURE not set")
     }
 }

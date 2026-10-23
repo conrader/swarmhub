@@ -146,6 +146,23 @@ import Testing
         #expect(typed.outgoingText.hasPrefix("(SwarmHub asked") && typed.outgoingText.hasSuffix("\nMake it 7:30 instead") && typed.content == "Make it 7:30 instead")
         #expect(store.suggestionLedger.records.first?.state == .asked, "settled in the conversation, not declined")
         #expect(store.suggestions.editor == nil, "the editor opens only after a yes")
+        // The conversation about it goes on: the later yes is its answer; the question already reached the bot.
+        #expect(store.send(text: "Yes, do that", bot: bot, conversation: bot, replyToID: nil))
+        try await waitUntil { store.suggestions.editor != nil }
+        let yes = try #require(bot.messages.last { $0.role == .user })
+        #expect(yes.metadata[SuggestionKey.answer] == "yes" && yes.outgoingText == "Yes, do that")
+        #expect(store.suggestionLedger.records.first?.state == .accepted)
+    }
+
+    @Test func anotherSubjectIsNotAnAnswer() async throws {
+        let backend = GroupBackend(name: "Ada")
+        let (store, bot) = repeatingStore(backend: backend)
+        _ = try #require(await store.suggestRoutineIfRepeated(bot: bot))
+        #expect(store.send(text: "What's the weather in Warsaw?", bot: bot, conversation: bot, replyToID: nil))
+        try await waitUntil { !store.anyTurnRunning }
+        let other = try #require(bot.messages.last { $0.role == .user })
+        #expect(other.metadata[SuggestionKey.answer] == nil && backend.sent.all.last?.text == "What's the weather in Warsaw?")
+        #expect(store.suggestionLedger.records.first?.state == .asked)
     }
 
     @Test func askingTheSameThingAgainIsNotAnAnswer() async throws {
