@@ -110,7 +110,10 @@ class ServiceInstall(base.AlertsBase):
 
 class PanelEndToEnd(base.AlertsBase):
     def swarmctl(self, *args):
-        done = subprocess.run([sys.executable, "-B", str(SWARMCTL), *args], capture_output=True, text=True, timeout=60,
+        # rel066: alerts are switched off in the release; this swarmctl runs with the switch on (swarm_alerts_service.ON).
+        on = (f"import runpy, sys; sys.path.insert(0, {str(SWARMCTL.parent)!r}); import swarm_alerts_service; "
+              f"swarm_alerts_service.ON = True; sys.argv[0] = {str(SWARMCTL)!r}; runpy.run_path(sys.argv[0], run_name='__main__')")
+        done = subprocess.run([sys.executable, "-B", "-c", on, *args], capture_output=True, text=True, timeout=60,
                               env=dict(os.environ))
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout.strip().splitlines()[-1]), done.stdout + done.stderr

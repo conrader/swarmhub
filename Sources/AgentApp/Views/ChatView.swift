@@ -116,7 +116,8 @@ struct ChatView: View {
             // recs1: the routine the user said yes to, prefilled, when the bot's reply made none.
             .sheet(item: Binding(get: { store.suggestions.editor?.botID == bot.id ? store.suggestions.editor : nil },
                                  set: { if $0 == nil { store.suggestions.editor = nil; store.objectWillChange.send() } })) { routine in
-                RoutineEditorSheet(bot: bot, job: nil, schedule: routine.schedule, name: routine.name, prompt: routine.prompt)
+                // The editor writes the box's time (its summary says so): the routine converted with the zone read now.
+                RoutineEditorSheet(bot: bot, job: nil, schedule: store.suggestionZones(for: bot).boxSchedule(routine.schedule), name: routine.name, prompt: routine.prompt)
             }
             .task(id: bot.id) { UISmokeProbe.renderedChats.insert(bot.id); draft = store.drafts.text(for: bot.id); store.refreshFeatures(for: bot); takeComposerFill() }
             .onChange(of: draft) { _, value in store.drafts.set(value, for: bot.id) }

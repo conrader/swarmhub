@@ -14,7 +14,7 @@ SKILLS = ROOT / 'Resources/Skills'
 TESTS = ROOT / 'Tests/AgentAppTests'
 # skill -> (version installed before this change, bundled now, the Swift test that pins it)
 BUMPS = {'swarmhub-coding': ('1.3.14', '1.3.15', 'CodingSkillTests.swift'),  # kill_tree retries until the tree is gone reach existing installs
-         'swarmhub-messages': ('1.4.11', '1.4.12', 'BotMessageSkillTests.swift')}  # off-app alert service (ntfy/email), sealed settings
+         'swarmhub-messages': ('1.4.13', '1.4.14', 'BotMessageSkillTests.swift')}  # off-app alerts switched off in this release (rel066)
 
 
 def semver(text):

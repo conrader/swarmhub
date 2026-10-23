@@ -13,8 +13,8 @@ struct SettingsAlertsPane: View {
             if !notifications { Text("Notifications are off on the simple page.").font(.caption).foregroundStyle(.secondary) }
         }.disabled(!notifications)
         AvatarMotionSettingRow()
-        // Alerts from each server while SwarmHub is closed (ntfy, email), with the box's service state.
-        BoxAlertsSection(cache: store.boxAlerts)
+        // Alerts from each server while SwarmHub is closed (ntfy, email), with the box's service state. rel066: switched off.
+        if store.boxAlertsOn { BoxAlertsSection(cache: store.boxAlerts) }
     }
 }
 

@@ -9,10 +9,14 @@ struct BoxAlertsPanel: Decodable, Equatable, Sendable {
     static let schemaID = "swarmhub/alerts/1"
     struct Outcome: Decodable, Equatable, Sendable {
         var saved: Bool? = nil, error: String? = nil, removed: Bool? = nil, manager: String? = nil
+        /// recsfix3: an automatic push refused because the box holds newer settings (saved from another Mac).
+        var stale: Bool? = nil
         var sinks: [String: String]? = nil
     }
     struct Summary: Decodable, Equatable, Sendable {
         let configured: Bool, enabled: Bool, window: Bool, sinks: [String]
+        /// recsfix3: how often the box's settings were saved (nil or 0 from a skill before 1.4.13's revision).
+        var revision: Int? = nil
     }
     struct Service: Decodable, Equatable, Sendable {
         let manager: String, installed: Bool, service: String, running: Bool, detail: String
@@ -98,8 +102,11 @@ struct AlertSettings: Codable, Equatable, Sendable {
     var hasSink: Bool { (ntfyOn && !ntfyURL.trimmingCharacters(in: .whitespaces).isEmpty) || (emailOn && !emailHost.isEmpty) }
 
     /// The box's settings JSON (`swarm_alerts.validate`), secrets included: only ever sealed, never stored or logged.
-    func boxJSON(ntfyToken: String, emailPassword: String) -> Data {
-        var object: [String: Any] = ["v": 1, "enabled": enabled, "window": window]
+    /// `profiles` (recsfix1, #14): the box alerts for routines of these profiles only, the ones this Mac connected.
+    /// `ifRevision` (recsfix3): an automatic push applies only over this revision of the box's settings.
+    func boxJSON(ntfyToken: String, emailPassword: String, profiles: [String] = [], ifRevision: Int? = nil) -> Data {
+        var object: [String: Any] = ["v": 1, "enabled": enabled, "window": window, "profiles": profiles]
+        if let ifRevision { object["if_revision"] = ifRevision }
         if ntfyOn, !ntfyURL.isEmpty {
             var ntfy: [String: Any] = ["url": ntfyURL.trimmingCharacters(in: .whitespaces)]
             if !ntfyToken.isEmpty { ntfy["token"] = ntfyToken }

@@ -31,6 +31,8 @@ import SwarmHubCore
     var webhookControl: (@MainActor (Bot, [String]) async throws -> String)?
     /// Test injection for the Alerts pane's call (`AppStore+BoxAlerts.swift`), same shape as `webhookControl`.
     var alertsControl: (@MainActor (Bot, [String]) async throws -> String)?
+    /// rel066: whether off-app alerts run at all (`AppStore.boxAlertsShipped`); tests of the alerts themselves turn them on.
+    var boxAlertsOn = AppStore.boxAlertsShipped
     @Published var secretRequest: SecretRequestPrompt?; var secretFolder: URL?
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
@@ -284,7 +286,7 @@ import SwarmHubCore
         bot.gettingStartedSkill?.isEnabled = false
         bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save(); return bot
     }
-    func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }; save() }
+    func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }; save(); alertProfilesLeft(bot) }
     /// Writes store.json; a failed write is reported once per streak (P16) instead of being swallowed.
     func save() {
         guard persistenceEnabled else { return }

@@ -11,6 +11,7 @@ The app side is CryptoKit (Curve25519.KeyAgreement, HKDF<SHA256>, HMAC<SHA256>),
 import base64
 import hashlib
 import hmac
+import json
 import os
 
 from swarm_intake import write_private
@@ -105,6 +106,30 @@ def open_sealed(private, blob):
     if not hmac.compare_digest(hmac.new(mac, theirs + body, hashlib.sha256).digest()[:16], tag):
         raise ValueError("sealed alert settings do not match this box's key (refresh the status, then save again)")
     return stream(enc, body)
+
+
+def open_settings(private, blob):
+    """The alert settings the app sealed to this box, parsed (`swarm_alerts.configure`)."""
+    plain = open_sealed(private, blob)
+    try:
+        return json.loads(plain.decode("utf-8"))
+    except ValueError:  # UnicodeDecodeError and JSONDecodeError both
+        raise ValueError("the sealed alert settings are not valid JSON") from None
+
+
+def revision(config):
+    """recsfix3: how often the settings were saved (0: never, or by a skill before revisions)."""
+    value = (config or {}).get("revision")
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def revised(raw, config, previous):
+    """recsfix3: the validated `config` with its revision, or None for an automatic push of the app (`if_revision`) over
+    settings saved since `previous` (from another Mac): newer settings win. A save by the user (none) always applies."""
+    expected = raw.get("if_revision") if isinstance(raw, dict) else None
+    if expected is not None and expected != revision(previous):
+        return None
+    return dict(config, revision=revision(previous) + 1)
 
 
 def box_key(folder):

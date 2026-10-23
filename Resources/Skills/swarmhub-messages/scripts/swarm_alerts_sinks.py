@@ -14,6 +14,16 @@ TIMEOUT = 15
 LOCAL = ("127.0.0.1", "localhost", "::1")
 
 
+def silent(text):
+    return text.strip().lower() in ("[silent]", "no_reply")
+
+
+def digest_body(entries):
+    """A digest's lines: the titles of the alerts it stands for (`swarm_alerts_hermes.digest_entry`)."""
+    shown = [entry.get("title", "") for entry in entries[:8]]
+    return "\n".join("• " + title for title in shown) + (f"\n… and {len(entries) - len(shown)} more" if len(entries) > len(shown) else "")
+
+
 def secrets(config):
     return [value for value in ((config.get("ntfy") or {}).get("token"), (config.get("email") or {}).get("password"))
             if isinstance(value, str) and value]

@@ -19,6 +19,7 @@ import alerts_fixtures as fixtures  # noqa: E402
 import swarm_alerts as alerts  # noqa: E402
 import swarm_alerts_hermes as hermes  # noqa: E402
 import swarm_alerts_seal as seal  # noqa: E402
+import swarm_alerts_service as service  # noqa: E402
 import swarm_alerts_sinks as sinks  # noqa: E402
 import swarm_store as store  # noqa: E402
 
@@ -44,6 +45,9 @@ class AlertsBase(unittest.TestCase):
         patcher = patch.dict(os.environ, env, clear=True)
         patcher.start()
         self.addCleanup(patcher.stop)
+        switch = patch.object(service, "ON", True)  # rel066: switched off in the release; these test the alerts themselves.
+        switch.start()
+        self.addCleanup(switch.stop)
         self.sent = []
         self.now = 1_800_000_000.0
 
@@ -52,7 +56,8 @@ class AlertsBase(unittest.TestCase):
         return {"ntfy": "sent"}
 
     def configure(self, **extra):
-        config = dict({"v": 1, "enabled": True, "window": False, "ntfy": {"url": "https://ntfy.example/topic", "token": TOKEN}}, **extra)
+        config = dict({"v": 1, "enabled": True, "window": False, "ntfy": {"url": "https://ntfy.example/topic", "token": TOKEN},
+                       "profiles": ["default", "jarvis"]}, **extra)  # The app connected both profiles.
         alerts.paths()["config"].write_text(json.dumps(alerts.validate(config)))
 
     def tick(self, advance=31):
@@ -109,7 +114,8 @@ class Settings(AlertsBase):
         self.assertNotIn(TOKEN, text)
         self.assertNotIn(PASSWORD, text)
         self.assertEqual(answer["schema"], "swarmhub/alerts/1")
-        self.assertEqual(answer["config"], {"configured": True, "enabled": True, "window": True, "sinks": ["ntfy", "email"]})
+        self.assertEqual(answer["config"], {"configured": True, "enabled": True, "window": True, "sinks": ["ntfy", "email"], "profiles": [],
+                                            "revision": 1})
         self.assertEqual(answer["box_key"], public)
         self.assertTrue(answer["result"]["saved"])
         self.assertIn("no supported service manager", answer["result"]["error"])
@@ -370,7 +376,7 @@ class Filters(AlertsBase):
             alerts.emit("report", "report:n2", "night two", "x")
             state = self.tick()
         self.assertEqual(self.sent, [])
-        self.assertEqual(state["deferred"], ["night one", "night two"])
+        self.assertEqual([entry["title"] for entry in state["deferred"]], ["night one", "night two"])
         with patch("swarm_policy.in_report_window", return_value=True):
             self.tick()
         self.assertEqual(self.sent, [("2 alerts from outside the report window", "• night one\n• night two")])

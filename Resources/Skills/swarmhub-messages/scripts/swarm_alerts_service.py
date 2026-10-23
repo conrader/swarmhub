@@ -20,6 +20,11 @@ import swarm_webhook_receiver as receiver
 NAME = "swarmhub-alerts.service"
 LABEL = "com.swarmhub.alerts"
 HERE = Path(__file__).resolve().parent
+# rel066 (Jarvis, 2026-10-23): off-app alerts are switched off in this version. Off: nothing installs or resumes the
+# service, saved settings turn alerts off, a running service sends nothing (it re-executes on this change), no test
+# alert, no spooled event. The app's twin is `AppStore.boxAlertsShipped`. To bring them back: both to True, bump the skill.
+ON = False
+OFF = "off-app alerts are switched off in this SwarmHub version"
 # The receiver's service-manager helpers, looked up at call time (tests patch `receiver.run` once for both services).
 def manager():
     return receiver.manager()
@@ -138,6 +143,8 @@ def spawn(python):
 
 def install():
     """Write the unit if it changed, enable and start it; the fallback where no user manager is usable."""
+    if not ON:
+        raise ValueError(OFF)
     kind = manager()
     path = unit_path(kind)
     if path is None:
@@ -219,7 +226,7 @@ def resume():
     """Gateway start: bring a recorded fallback back after a reboot. Never raises into the plugin."""
     try:
         marker = store.state() / "alerts" / "service.supervised"
-        if marker.exists() and fallback_running() is None:
+        if ON and marker.exists() and fallback_running() is None:
             spawn(json.loads(marker.read_text()).get("python") or receiver.interpreter())
     except Exception:  # noqa: BLE001  A malformed marker must never fail the gateway's plugin load.
         pass

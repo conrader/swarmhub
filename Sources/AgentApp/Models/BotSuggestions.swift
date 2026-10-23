@@ -21,6 +21,9 @@ struct BotSuggestionRecord: Codable, Equatable, Identifiable, Sendable {
     var id = UUID()
     var botID: UUID; var stems: [String]; var example: String; var askedAt: Date; var state: State
     var messageID: UUID; var draft: RoutineDraft
+    /// recsfix2: the box job the yes made, once seen (`followSuggestedRoutineZones` keeps it on the user's time), and
+    /// whether it was let go (deleted or changed by someone else: not looked for again). Optional, so 0.6.5's ledger decodes.
+    var jobID: String? = nil, letGo: Bool? = nil
 }
 
 /// The suggestion state kept on the Mac (`UserDefaults`, one JSON value).
@@ -136,15 +139,37 @@ enum BotSuggestionCopy {
     }
 
     /// Sent before the user's answer (never shown in the bubble), so the bot knows what it is answering and can make the
-    /// routine with its own cron tool. Nothing is made without a yes.
-    static func lead(question: String, draft: RoutineDraft, timeZone: TimeZone, app: String = AppConstants.name) -> String {
-        """
-        (\(app) asked this in your chat for you: "\(question)" The routine it offered: name "\(draft.name)", schedule `\(draft.schedule)` \
-        (cron, \(draft.time) in my time zone \(timeZone.identifier)), prompt "\(draft.prompt)". If my answer below is yes, create that routine now \
-        with your cron tool, with any change I ask for, without asking me to confirm again. If I want another time or wording, settle it with me \
-        first, and end each message where you offer a changed routine with one line: Routine: name "…", schedule `<cron>`, prompt "…". \
+    /// routine with its own cron tool, kept on the box (`deliver 'local'`, as the app's own routines; Hermes's default
+    /// sends a cron's output to a home channel). Nothing is made without a yes. recsfix1: the schedule is the draft's in
+    /// the box's zone (`draft.boxSchedule`), and the lead says how the two clocks differ, so the bot converts any other
+    /// time the user names and tells them their own.
+    static func lead(question: String, draft: RoutineDraft, zones: RoutineZones, app: String = AppConstants.name) -> String {
+        let box = draft.boxSchedule ?? zones.boxSchedule(draft.schedule), mine = zones.local.identifier
+        let clocks = zones.isSame ? "(cron, \(draft.time) in my time zone \(mine), which your cron runs in too)"
+            : "(cron in your time zone \(zones.boxName): that is \(draft.time) in my time zone \(mine))"
+        return """
+        (\(app) asked this in your chat for you: "\(question)" The routine it offered: name "\(draft.name)", schedule `\(box)` \
+        \(clocks), prompt "\(draft.prompt)". If my answer below is yes, create that routine now with your cron tool, with deliver \
+        'local', with any change I ask for, without asking me to confirm again.\(difference(zones.shift(draft.schedule), zones: zones))\(drift(zones, app: app)) \
+        When you tell me a time, say it in my time zone. If I want another time or wording, settle it with me first, and end each \
+        message where you offer a changed routine with one line: Routine: name "…", schedule `<cron in your time zone>`, prompt "…". \
         If I say no, just acknowledge it. Create nothing without my yes. My answer:)
         """
+    }
+
+    /// recsfix2: Hermes's cron has no zone per job, so the box schedule holds for one daylight saving period; the bot is
+    /// told who moves it (nothing when the clocks' difference never changes).
+    static func drift(_ zones: RoutineZones, app: String) -> String {
+        zones.drifts ? " Your cron does not follow my clock changes for daylight saving time; \(app) moves this routine's hour on the box when they come, so leave that to it." : ""
+    }
+
+    /// " My clock is 2 h ahead of yours, so a time I name is 2 h earlier in your cron." (nothing when they agree).
+    static func difference(_ minutes: Int, zones: RoutineZones) -> String {
+        guard minutes != 0, !zones.isSame else { return "" }
+        let hours = abs(minutes) / 60, rest = abs(minutes) % 60
+        let size = [hours > 0 ? "\(hours) h" : nil, rest > 0 ? "\(rest) min" : nil].compactMap { $0 }.joined(separator: " ")
+        let ahead = minutes > 0
+        return " My clock is \(size) \(ahead ? "ahead of" : "behind") yours, so a time I name is \(size) \(ahead ? "earlier" : "later") in your cron."
     }
 }
 

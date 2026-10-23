@@ -28,7 +28,12 @@ enum InspectorCopy {
     static let customSchedule = "Custom (see Advanced)"
     static let at = "at", on = "on", every = "every"
     static func hours(_ count: Int) -> String { count == 1 ? "1 hour" : "\(count) hours" }
-    static func scheduleSummary(_ description: String) -> String { "\(description) · times use your box's time zone" }
+    /// recsfix2: with the zones known, the box's is named, and a box clock that does not change with the user's for
+    /// daylight saving time is said to (only the routines a suggestion made are moved for it).
+    static func scheduleSummary(_ description: String, zones: RoutineZones? = nil) -> String {
+        guard let zones, !zones.isSame else { return "\(description) · times use your box's time zone" }
+        return "\(description) · times use your box's time zone, \(zones.boxName)" + (zones.drifts ? ", which does not change with your daylight saving time" : "")
+    }
     static let customSummary = "A schedule the picker can't show. It is kept exactly as written under Advanced."
     static let routinePrompt = "What should the agent do?"
     static let create = "Create"

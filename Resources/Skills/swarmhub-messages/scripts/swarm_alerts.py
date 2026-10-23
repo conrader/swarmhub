@@ -2,18 +2,20 @@
 there to show it. One service per box account (`swarmctl alerts run`, supervised by swarm_alerts_service.py).
 
 What it watches, each with a stable id (an id is alerted at most once):
-  routine runs   every profile's `/api/jobs` (swarm_alerts_hermes.py); a job's first sighting is only recorded
+  routine runs   `/api/jobs` of each profile the app connected (settings `profiles`; none from an older app), agent
+                 jobs only (a `no_agent` script has no reply) (swarm_alerts_hermes.py); a first sighting is only recorded
   code jobs      managed coding actions that reach done/failed in Swarm Hub's own database
   reports, webhook wakes   spooled by `swarmctl report` and an accepted webhook call (`emit`)
   loops/goals handed to the box   the bot's reply to the job's own delivery in its Bot Chat (matched by the job's name
                  and run, never the chat's newest reply); a done/blocked block pauses the job. Turning alerts off or
                  removing the service pauses every handed-off job first, and changes nothing if one can't be (pause_handoffs)
 
-Before sending: `[SILENT]` / `NO_REPLY` is dropped; while the app's presence lease is fresh nothing is sent (the app
-shows it itself; see docs/offapp-alerts.md); outside the policy's reporting window alerts wait and go out as one digest
-when it opens; more than RATE_LIMIT in RATE_WINDOW are held and summarised in one digest. A failed send is retried with
-backoff, at most RETRIES times. Settings (with the ntfy token and SMTP password) live only in alerts/config.json, 0600;
-nothing here prints an alert, a setting or a secret.
+Before sending: an alert or digest line of a profile no longer in the settings' `profiles` (scope is checked again
+here, not only when it was queued) is dropped, and so is `[SILENT]` / `NO_REPLY`; while the app's presence lease is fresh
+nothing is sent (the app shows it itself; see docs/offapp-alerts.md); outside the policy's reporting window alerts wait
+and go out as one digest when it opens; more than RATE_LIMIT in RATE_WINDOW are held and summarised in one digest. A
+failed send is retried with backoff, at most RETRIES times. Settings (with the ntfy token and SMTP password) live only in
+alerts/config.json, 0600; nothing here prints an alert, a setting or a secret.
 """
 import fcntl
 import hashlib
@@ -67,7 +69,8 @@ def load_config():
 def validate(config):
     if not isinstance(config, dict) or config.get("v") != 1:
         raise ValueError("unsupported alert settings")
-    clean = {"v": 1, "enabled": config.get("enabled", True) is not False, "window": config.get("window", True) is not False}
+    clean = {"v": 1, "enabled": service.ON and config.get("enabled", True) is not False, "window": config.get("window", True) is not False}
+    clean["profiles"] = hermes.allowed_profiles(config.get("profiles"))
     if config.get("ntfy"):
         sinks.check_ntfy(config["ntfy"])
         clean["ntfy"] = {key: config["ntfy"][key] for key in ("url", "token", "priority") if config["ntfy"].get(key)}
@@ -83,9 +86,10 @@ def validate(config):
 def public_view(config):
     """What the app may see: which sinks are set, never their addresses' secrets."""
     if not config:
-        return {"configured": False, "enabled": False, "window": True, "sinks": []}
+        return {"configured": False, "enabled": False, "window": True, "sinks": [], "profiles": [], "revision": 0}
     return {"configured": True, "enabled": bool(config.get("enabled")), "window": bool(config.get("window", True)),
-            "sinks": [name for name in ("ntfy", "email") if config.get(name)]}
+            "sinks": [name for name in ("ntfy", "email") if config.get(name)], "profiles": config.get("profiles", []),
+            "revision": seal.revision(config)}
 
 
 # MARK: state
@@ -111,7 +115,7 @@ def save_state(data):
 def emit(kind, ident, title, body=""):
     """A producer's event (report, webhook wake): one spool file, only on a box with alert settings. Never raises."""
     try:
-        if not (store.state() / "alerts" / "config.json").exists():
+        if not service.ON or not (store.state() / "alerts" / "config.json").exists():
             return False
         spool = paths()["spool"]
         spool.mkdir(mode=0o700, exist_ok=True)
@@ -168,32 +172,21 @@ def collect_codejobs(data):
     data["codejobs"] = sorted(finished)
 
 
-def routine_alert(profile, env, job, last):
-    name = str(job.get("name") or job["id"])[:80]
-    failed = job.get("last_status") == "error"
-    output = None if failed else hermes.run_output(profile, env, job)
-    if failed:
-        body = str(job.get("last_error") or "The run failed.")
-    elif output is None:
-        body = "Finished. The result could not be read on the box; Swarm Hub shows it when it opens."
-    else:
-        body = output or "Finished without a reply."
-    return {"id": f"routine:{profile}:{job['id']}:{last}", "kind": "routine", "body": body,
-            "title": f"{name} {'failed' if failed else 'finished'} ({profile})"}
-
-
-def collect_routines(data, now):
-    """Queue finished runs; returns the freshest presence lease seen (0 when none)."""
-    present = 0
+def collect_routines(data, now, allowed=(), scripts=None):
+    """Queue finished runs of the `allowed` profiles' agent jobs; returns the freshest presence lease seen on any
+    profile (0 when none), and adds each script-only job seen to `scripts`. Another profile keeps no marks, so once
+    connected its jobs start from a first sighting."""
+    present, scripts = 0, set() if scripts is None else scripts
     for profile, env in hermes.profiles():
         rows = hermes.jobs(profile, env)
         if rows is None:
             continue
         present = max(present, hermes.presence_until(rows))
         listed = set()
-        for job in rows:
+        scripts.update(f"{profile}/{job.get('id')}" for job in rows if not hermes.agent_job(job))
+        for job in rows if profile in allowed else []:
             name = str(job.get("name", ""))
-            if name == hermes.PRESENCE:
+            if name == hermes.PRESENCE or not hermes.agent_job(job):
                 continue
             key, last = f"{profile}/{job['id']}", str(job.get("last_run_at") or "")
             listed.add(key)
@@ -215,22 +208,25 @@ def collect_routines(data, now):
                     data["handoff"][key] = {"profile": profile, "job": job["id"], "name": name, "since": since,
                                             "until": now + HANDOFF_WAIT}
             else:
-                queue(data, routine_alert(profile, env, job, last))
+                queue(data, hermes.routine_alert(profile, env, job, last))
         for key in [key for key in data["marks"] if key.startswith(profile + "/") and key not in listed]:
             del data["marks"][key]
     return present
 
 
-def follow_handoffs(data, now):
+def follow_handoffs(data, now, allowed=()):
     """A loop or goal the app handed to the box answers in the Bot Chat: alert with each reply to the job's own
     deliveries (never another reply in the chat), and pause the job when one ends it (a loop's done block, a goal's done
-    or blocked block). The handoff stays while a delivered turn has no reply yet, until HANDOFF_WAIT."""
+    or blocked block). The handoff stays while a delivered turn has no reply yet, until HANDOFF_WAIT. A profile the app
+    no longer connects is still paused at the end, but not alerted."""
     envs = dict(hermes.profiles())
     for key, item in list(data["handoff"].items()):
         env = envs.get(item.get("profile"))
         if item.get("ending"):  # Fails closed: past HANDOFF_WAIT, its pause is retried until confirmed, then alerted.
             if env is not None and hermes.confirm_paused(item["profile"], env, item["job"]):
-                queue(data, data["handoff"].pop(key)["ending"])
+                ending = data["handoff"].pop(key)["ending"]
+                if item["profile"] in allowed:
+                    queue(data, ending)
             continue
         if env is None or now > item.get("until", 0):
             del data["handoff"][key]
@@ -247,19 +243,18 @@ def follow_handoffs(data, now):
             ended = block is not None and block[0] == kind and (block[1] == "done" or kind == "goal")
             visible = hermes.FENCE.sub("", text).strip() or (f"{kind.capitalize()} {block[1]}." if block else "")
             title = f"{'Goal' if kind == 'goal' else 'Loop'} on the box ({item['profile']})" + (f": {block[1]}" if ended else "")
-            item["ending"] = {"id": f"{kind}:{key}:{when}", "kind": kind, "title": title, "body": visible}
+            item["ending"] = {"id": f"{kind}:{key}:{when}", "kind": kind, "title": title, "body": visible,
+                              "profile": item["profile"], "job": item["job"]}
             if ended and not hermes.confirm_paused(item["profile"], env, item["job"]):
                 break  # Still scheduled: kept, and paused (then alerted) on a later tick.
-            queue(data, item.pop("ending"))
+            ending = item.pop("ending")
+            if item["profile"] in allowed:
+                queue(data, ending)
         else:
             del data["handoff"][key]
 
 
 # MARK: sending
-
-def silent(text):
-    return text.strip().lower() in ("[silent]", "no_reply")
-
 
 def in_window(config, now):
     if not config.get("window", True):
@@ -288,13 +283,14 @@ def send(data, config, title, body, now, deliver):
     return False
 
 
-def digest_body(titles):
-    shown = titles[:8]
-    return "\n".join("• " + title for title in shown) + (f"\n… and {len(titles) - len(shown)} more" if len(titles) > len(shown) else "")
+def dispatch(data, config, now, present_until, deliver=None, scripts=()):
+    """Sends the queue. Scope is checked here too (`hermes.in_scope`, the settings' `profiles`): an alert or digest line
+    of a profile the app no longer connects, or of a script-only job, is dropped; so is a digest line an older skill
+    kept as a bare title (its scope can't be told)."""
+    deliver, allowed = deliver or sinks.deliver, config.get("profiles") or []
 
-
-def dispatch(data, config, now, present_until, deliver=None):
-    deliver = deliver or sinks.deliver
+    def fits(alert):
+        return isinstance(alert, dict) and hermes.in_scope(alert, allowed, scripts)
     data["sent"] = {key: value for key, value in data["sent"].items() if isinstance(value, list) and now - value[0] < KEEP}
     data["rate"] = [stamp for stamp in data["rate"] if now - stamp < RATE_WINDOW]
     present, open_now = present_until > now, in_window(config, now)
@@ -303,17 +299,19 @@ def dispatch(data, config, now, present_until, deliver=None):
         ident = alert["id"]
         if ident in data["sent"]:
             continue
-        if silent(alert.get("body", "")):
+        if not fits(alert):
+            mark(data, ident, "out of scope", now)
+        elif sinks.silent(alert.get("body", "")):
             mark(data, ident, "silent", now)
         elif present:
             mark(data, ident, "app", now)  # The app is there and shows it; see docs/offapp-alerts.md.
         elif not open_now:
-            data["deferred"] = (data["deferred"] + [alert["title"]])[-50:]
+            data["deferred"] = (data["deferred"] + [hermes.digest_entry(alert)])[-50:]
             mark(data, ident, "deferred", now)
         elif alert.get("retry_at", 0) > now:
             keep.append(alert)
         elif len(data["rate"]) >= RATE_LIMIT:
-            data["held"] = (data["held"] + [alert["title"]])[-50:]
+            data["held"] = (data["held"] + [hermes.digest_entry(alert)])[-50:]
             mark(data, ident, "held", now)
         elif send(data, config, alert["title"], alert.get("body", ""), now, deliver):
             mark(data, ident, "sent", now)
@@ -325,14 +323,16 @@ def dispatch(data, config, now, present_until, deliver=None):
             else:
                 mark(data, ident, "failed", now)
     data["pending"] = keep
+    for key in ("deferred", "held"):
+        data[key] = [entry for entry in data[key] if fits(entry)]
     if present:
         data["deferred"], data["held"] = [], []
         return
     if open_now and data["deferred"] and send(data, config, f"{len(data['deferred'])} alerts from outside the report window",
-                                              digest_body(data["deferred"]), now, deliver):
+                                              sinks.digest_body(data["deferred"]), now, deliver):
         data["deferred"] = []
     if open_now and data["held"] and len(data["rate"]) < RATE_LIMIT and send(
-            data, config, f"{len(data['held'])} more alerts were held back", digest_body(data["held"]), now, deliver):
+            data, config, f"{len(data['held'])} more alerts were held back", sinks.digest_body(data["held"]), now, deliver):
         data["held"] = []
 
 
@@ -364,11 +364,12 @@ def tick(now=None, deliver=None):
     config, data = load_config(), load_state()
     files = collect_spool(data)
     present = 0
-    if config and config.get("enabled"):
+    if service.ON and config and config.get("enabled"):
         collect_codejobs(data)
-        present = collect_routines(data, now)
-        follow_handoffs(data, now)
-        dispatch(data, config, now, present, deliver)
+        scripts = set()
+        present = collect_routines(data, now, config.get("profiles") or [], scripts)
+        follow_handoffs(data, now, config.get("profiles") or [])
+        dispatch(data, config, now, present, deliver, scripts)
     else:
         data["pending"] = []
     data["presence_until"] = present
@@ -442,15 +443,13 @@ def status(now=None):
 
 
 def configure(blob):
-    plain = seal.open_sealed(seal.box_key(paths()["folder"]), blob)
-    try:
-        raw = json.loads(plain.decode("utf-8"))
-    except ValueError:  # UnicodeDecodeError and JSONDecodeError both
-        raise ValueError("the sealed alert settings are not valid JSON") from None
-    config = validate(raw)
+    raw = seal.open_settings(seal.box_key(paths()["folder"]), blob)
+    previous = load_config() or {}
+    config = seal.revised(raw, validate(raw), previous)  # recsfix3: None over newer settings saved since (another Mac's)
+    if config is None:
+        return {"saved": False, "stale": True}
     if not config["enabled"]:
         pause_handoffs()
-    previous = load_config() or {}
     write_private(paths()["config"], json.dumps(config, sort_keys=True).encode())
     if config["enabled"] and not previous.get("enabled"):
         data = load_state()
@@ -470,8 +469,8 @@ def start():
 
 def test():
     config = load_config()
-    if not config:
-        raise ValueError("save the alert settings first")
+    if not config or not service.ON:
+        raise ValueError("save the alert settings first" if service.ON else service.OFF)
     results = sinks.deliver(config, "Swarm Hub test alert", "This box can reach you. Real alerts come only while Swarm Hub "
                             "on your Mac is closed or you are away from it.")
     data = load_state()
