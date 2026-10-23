@@ -20,7 +20,7 @@ class FakeHermes:
 
     def __init__(self, keys):
         self.keys, self.jobs, self.sessions, self.messages = keys, {}, {}, {}
-        self.requests, self.paused, self.down = [], [], False
+        self.requests, self.paused, self.down, self.refuse_pause = [], [], False, set()
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -52,6 +52,8 @@ class FakeHermes:
                 if method == "GET" and path.startswith("/api/sessions/") and path.endswith("/messages"):
                     return self.answer(200, {"data": fake.messages.get(path.split("/")[3], [])})
                 if method == "POST" and path.startswith("/api/jobs/") and path.endswith("/pause"):
+                    if path.split("/")[3] in fake.refuse_pause:
+                        return self.answer(500, {"error": "pause failed"})
                     fake.paused.append((profile, path.split("/")[3]))
                     return self.answer(200, {"job": {"id": path.split("/")[3], "enabled": False}})
                 return self.answer(404, {"error": "not found"})

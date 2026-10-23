@@ -148,6 +148,33 @@ class Settings(AlertsBase):
         alerts.panel("uninstall")
         self.assertEqual(sorted(self.hermes.paused), [("default", "bbbbbbbbbbbb"), ("jarvis", "aaaaaaaaaaaa")])
 
+    def test_a_job_list_or_pause_that_fails_keeps_alerts_on_and_the_service_installed(self):
+        # Fail closed: with a handed-off job possibly still scheduled, alerts off would leave nothing to end it.
+        self.configure()
+        before = alerts.paths()["config"].read_text()
+        self.job("jarvis", "aaaaaaaaaaaa", "swarmhub-loop-0123abcd", "")
+        self.job("default", "bbbbbbbbbbbb", "swarmhub-goal-89abcdef", "")
+        public = seal.public(seal.box_key(alerts.paths()["folder"]))
+        off = seal.seal(public, json.dumps({"v": 1, "enabled": False}).encode())
+        removed = []
+        with patch.object(alerts.service, "uninstall", lambda: removed.append(1) or {"removed": True}):
+            self.hermes.down = True  # No job list.
+            for action in (("configure", off), ("uninstall",)):
+                with self.assertRaisesRegex(ValueError, "alerts stay on.*could not be read"):
+                    alerts.panel(*action)
+            self.hermes.down = False
+            self.hermes.refuse_pause = {"aaaaaaaaaaaa"}  # One pause fails.
+            for action in (("configure", off), ("uninstall",)):
+                with self.assertRaisesRegex(ValueError, "alerts stay on.*1 could not be paused"):
+                    alerts.panel(*action)
+            self.assertEqual(alerts.paths()["config"].read_text(), before, "settings unchanged: alerts still on")
+            self.assertEqual(removed, [], "the service is never removed")
+            self.hermes.refuse_pause, self.hermes.paused = set(), []  # A later try that works goes through.
+            answer = alerts.panel("configure", off)
+        self.assertEqual(answer["config"]["enabled"], False)
+        self.assertEqual(removed, [1])
+        self.assertEqual(sorted(self.hermes.paused), [("default", "bbbbbbbbbbbb"), ("jarvis", "aaaaaaaaaaaa")])
+
     def test_status_reports_the_heartbeat_and_the_last_error(self):
         self.assertFalse(alerts.status(now=self.now)["running"])
         alerts.paths()["beat"].write_text(str(int(self.now - 20)))

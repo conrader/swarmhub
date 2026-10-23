@@ -133,10 +133,15 @@ boxes with no jobs API or no Bot Chat. These wait in the app, as before. A stop 
 the record until the routine is deleted. Nothing is resumed then, so the routine is deleted without waiting for a read.
 
 **Ending needs the alert service.** A `--until` loop and a goal end by a reply, and only the alert service reads that
-reply and pauses the routine. So on a box whose alerts are off or were never set up (the app's `alerts.on.<server>`),
-these stay in the app at quit, and the chat says so once. A loop that only ends by its `--times` or a stop still goes.
-Turning alerts off on the box, or removing its service, first pauses every handed-off routine there
-(`pause_handoffs`); the app takes it back paused at its next launch, as above.
+reply and pauses the routine. The app can't confirm at quit that the service is on and running now: that takes a box
+turn, which the 4-second quit budget doesn't allow, and its own record (`alerts.on.<server>`) may be stale, for example
+when another Mac turned alerts off since. So these always stay in the app at quit, and the chat says so once (a known
+limitation: they don't run while SwarmHub is closed). A loop that only ends by its `--times` or a stop still goes.
+Every answer from the alerts panel, a refresh included, updates `alerts.on.<server>`.
+Turning alerts off on the box, or removing its service, first pauses every handed-off routine there (`pause_handoffs`;
+routines handed off earlier or by an older app); the app takes it back paused at its next launch, as above. This fails
+closed: if a profile's routine list can't be read or a pause fails, nothing is saved or removed, the alerts stay on and
+the panel shows the error; the next try pauses them again.
 
 ## Supervision
 

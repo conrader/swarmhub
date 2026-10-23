@@ -61,7 +61,6 @@ extension AppStore {
         do { blob = try AlertSeal.seal(settings.boxJSON(ntfyToken: ntfyToken, emailPassword: emailPassword), to: boxKey) }
         catch { boxAlerts.update(target) { $0.error = (error as? BoxAlertsError)?.errorDescription ?? AlertsCopy.sealFailed }; return }
         guard let panel = await performAlerts(.configure(blob), on: target, secrets: [ntfyToken, emailPassword]) else { return }
-        defaults.set(panel.config.enabled, forKey: "alerts.on." + target)
         boxAlerts.presenceWritten[target] = nil  // The lease goes out at the next poll tick.
         boxAlerts.update(target) { state in
             if let reason = panel.result?.error { state.notice = AlertsCopy.serviceError(ToolEvent.redacted(reason)) }
@@ -69,7 +68,8 @@ extension AppStore {
         }
     }
 
-    /// Runs one action; the state shows the box's answer or why it is missing. Nil when nothing was confirmed.
+    /// Runs one action; the state shows the box's answer or why it is missing. Nil when nothing was confirmed. Every answer
+    /// (a refresh too) records whether the box's alerts are on now: another Mac may have changed them.
     @discardableResult func performAlerts(_ action: BoxAlertsAction, on target: String, secrets: [String] = []) async -> BoxAlertsPanel? {
         guard boxAlerts.state(for: target).busy == nil else { return nil }
         guard let bot = alertRunner(for: target) else { boxAlerts.update(target) { $0.error = AlertsCopy.noRunner }; return nil }
@@ -78,6 +78,7 @@ extension AppStore {
         do {
             let panel = try await runAlertsPanel(arguments, for: bot)
             boxAlerts.update(target) { $0.busy = nil; $0.panel = panel }
+            defaults.set(panel.config.enabled, forKey: "alerts.on." + target)
             return panel
         } catch {
             let reason = BotInfoCache.describe(error, secrets: secrets.filter { !$0.isEmpty })

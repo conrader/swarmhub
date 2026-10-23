@@ -7,7 +7,7 @@ What it watches, each with a stable id (an id is alerted at most once):
   reports, webhook wakes   spooled by `swarmctl report` and an accepted webhook call (`emit`)
   loops/goals handed to the box   the bot's reply to the job's own delivery in its Bot Chat (matched by the job's name
                  and run, never the chat's newest reply); a done/blocked block pauses the job. Turning alerts off or
-                 removing the service pauses every handed-off job first: nothing else would end one (pause_handoffs)
+                 removing the service pauses every handed-off job first, and changes nothing if one can't be (pause_handoffs)
 
 Before sending: `[SILENT]` / `NO_REPLY` is dropped; while the app's presence lease is fresh nothing is sent (the app
 shows it itself; see docs/offapp-alerts.md); outside the policy's reporting window alerts wait and go out as one digest
@@ -336,11 +336,23 @@ def dispatch(data, config, now, present_until, deliver=None):
 
 def pause_handoffs():
     """Alerts going off (or the service going away) leave nothing to end a handed-off loop or goal when its reply says
-    done: each one still scheduled is paused here, and the app takes it back paused at its next launch."""
+    done: each one still scheduled is paused here, and the app takes it back paused at its next launch. Fails closed: a
+    job list that can't be read or a pause that fails raises, before anything is saved or removed, so the service stays
+    on and keeps ending them, and the next try pauses them again."""
+    unread, failed = [], 0
     for profile, env in hermes.profiles():
-        for job in hermes.jobs(profile, env) or []:
+        rows = hermes.jobs(profile, env)
+        if rows is None:
+            unread.append(profile)
+            continue
+        for job in rows:
             if hermes.HANDOFF.fullmatch(str(job.get("name", ""))) and job.get("enabled", True) is not False:
-                hermes.pause(profile, env, job["id"])
+                failed += not hermes.pause(profile, env, job["id"])
+    if unread or failed:
+        why = (f"the routines of profile {', '.join(unread)} could not be read" if unread else "")
+        why += ("; " if unread and failed else "") + (f"{failed} could not be paused" if failed else "")
+        raise ValueError(f"alerts stay on: loops or goals handed to this box must be paused first, and {why}. "
+                         "Try again when Hermes answers.")
 
 
 def tick(now=None, deliver=None):
@@ -434,6 +446,8 @@ def configure(blob):
     except ValueError:  # UnicodeDecodeError and JSONDecodeError both
         raise ValueError("the sealed alert settings are not valid JSON") from None
     config = validate(raw)
+    if not config["enabled"]:
+        pause_handoffs()
     previous = load_config() or {}
     write_private(paths()["config"], json.dumps(config, sort_keys=True).encode())
     if config["enabled"] and not previous.get("enabled"):
@@ -442,7 +456,6 @@ def configure(blob):
         save_state(data)
     if config["enabled"]:
         return start()
-    pause_handoffs()
     return dict(service.uninstall(), saved=True)
 
 

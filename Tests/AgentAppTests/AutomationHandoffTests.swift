@@ -101,13 +101,13 @@ private func boxRound(_ box: BoxSession, job: String, reply: String, at date: Da
     #expect(bot.messages.first { CronDeliveryRow.jobName($0.content) == name }?.metadata[AutomationKey.display] == "Loop (on the box)")
 }
 
-@Test @MainActor func aGoalGetsAFifteenMinuteRoundWithinItsBudgetAndADoneReplyOnTheBoxEndsIt() async throws {
-    let (store, bot, server, bodies, _, box) = handoffStore()
-    store.automations[bot.id] = ChatAutomation(goal: GoalRun(text: "Write the release notes", maxRounds: 20, startedAt: Date(), maxDuration: 7200, codingEvidence: false))
-    store.handOffForQuit(budget: 5)
-    let body = try #require(bodies.all.first)
-    #expect(body["schedule"] as? String == "every 15m" && [7, 8].contains(body["repeat"] as? Int ?? 0), "two hours of 15-minute rounds")
-    #expect((body["prompt"] as? String)?.contains("Continue toward the goal: Write the release notes") == true)
+@Test @MainActor func aGoalOnTheBoxFromAnEarlierQuitEndsByADoneReplyThere() async throws {
+    // Goals no longer go to the box at quit (AutomationHandoffAlertsTests); one handed off earlier is still taken back.
+    let (store, bot, server, _, _, box) = handoffStore()
+    let name = AppStore.handoffName(.goal, chat: bot.id), handedAt = Date()
+    server.add(jobPayload(id: "0000000abc18", name: name, schedule: "every 15m"))
+    store.automations[bot.id] = ChatAutomation(goal: GoalRun(text: "Write the release notes", maxRounds: 20, startedAt: Date(), maxDuration: 7200, codingEvidence: false),
+                                               boxHandoff: BoxHandoff(kind: .goal, jobName: name, jobID: "0000000abc18", handedAt: handedAt))
     let handoff = try #require(store.automations[bot.id]?.boxHandoff)
     boxRound(box, job: handoff.jobName, reply: "Drafted.", at: handoff.handedAt.addingTimeInterval(900))
     boxRound(box, job: handoff.jobName, reply: """

@@ -7,7 +7,8 @@ import Foundation
 /// chat, counts the rounds, deletes the routine and drives the loop or goal itself again. Without a jobs API, a Bot Chat or
 /// a reachable box at quit, the loop or goal stays in the app and waits for it, as before (threads and groups always do).
 /// A loop with `--until` or a goal ends by a reply, and only the box's alert service reads those replies and pauses the
-/// routine: on a box whose alerts are off (or never set up) it stays in the app too, and the chat says so.
+/// routine. The app can't confirm at quit that the service is on and running now (that takes a box turn; another Mac may
+/// have turned alerts off since), so these always stay in the app, and the chat says so.
 extension AppStore {
     /// A goal on the box gets a round every 15 minutes (in the app the next round follows each reply).
     static let goalBoxInterval: TimeInterval = 900
@@ -26,26 +27,26 @@ extension AppStore {
 
     func handoffPlans(now: Date) -> [HandoffPlan] { handoffCandidates(now: now).filter { !$0.unsupervised }.map(\.plan) }
 
-    /// Every loop and goal that could go to its box; `unsupervised` ones end by a reply on a box with alerts off.
+    /// Every loop and goal that could go to its box; `unsupervised` ones end by a reply, which nothing confirmed reads there.
     private func handoffCandidates(now: Date) -> [(plan: HandoffPlan, unsupervised: Bool)] {
         automations.compactMap { entry -> (plan: HandoffPlan, unsupervised: Bool)? in
             let (id, automation) = (entry.key, entry.value)
             guard automation.boxHandoff == nil, let (bot, conversation) = automationConversation(id), conversation.id == bot.id,
                   bot.backend == .hermes, hasBotChat(bot), botChatConflict(bot) == nil, routines.state(for: bot.id).hasJobsAPI,
                   let client = try? jobsClient(for: bot) else { return nil }
-            let deliver = HeartbeatPlan.delivery(profile(of: bot)), supervised = alertServers.contains(connection(of: bot))
+            let deliver = HeartbeatPlan.delivery(profile(of: bot))
             if let loop = automation.loop, !loop.paused, loop.timesLeft.map({ $0 > 0 }) ?? true {
                 let minutes = max(1, Int((loop.interval / 60).rounded()))
                 return (HandoffPlan(id: id, client: client, name: Self.handoffName(.loop, chat: id), schedule: "every \(minutes)m",
                                     prompt: Self.handoffPrompt(loop.message), deliver: deliver, times: loop.timesLeft, kind: .loop),
-                        loop.until != nil && !supervised)
+                        loop.until != nil)
             }
             if let goal = automation.goal, goal.state == .running {
                 let rounds = min(goal.maxRounds - goal.round, Int(goal.deadline.timeIntervalSince(now) / Self.goalBoxInterval))
                 guard rounds > 0 else { return nil }
                 return (HandoffPlan(id: id, client: client, name: Self.handoffName(.goal, chat: id),
                                     schedule: "every \(Int(Self.goalBoxInterval / 60))m", prompt: Self.handoffPrompt(GoalProtocol.boxContinuation(goal)),
-                                    deliver: deliver, times: rounds, kind: .goal), !supervised)
+                                    deliver: deliver, times: rounds, kind: .goal), true)
             }
             return nil
         }
@@ -266,7 +267,7 @@ enum HandoffCopy {
         "This \(kind.rawValue) is still on the box and SwarmHub is taking it back by itself; there is nothing to take over."
     }
     static func staysHere(_ kind: AutomationKind) -> String {
-        "Alerts are off for this box, so it can't stop this \(kind.rawValue) when it's done. It stays in SwarmHub while SwarmHub is closed and runs again when it opens."
+        "SwarmHub can't be sure the box would stop this \(kind.rawValue) when it's done, so it stays in SwarmHub while SwarmHub is closed and runs again when it opens."
     }
     static func nothingOnTheBox(_ kind: AutomationKind) -> String {
         "There is no \(kind.rawValue) on the box to take over."
