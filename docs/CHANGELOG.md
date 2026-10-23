@@ -1,11 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.6.6 (build 31)
 
 - Routine suggestions: the routine a yes asks for is converted to the box's time zone (read from its jobs' times, UTC when none say), at the offset of its next run, so DST and runs that cross midnight land on the time offered; the user still sees their own time. A routine the bot made on the converted schedule, or on the unconverted one a 0.6.5 lead asked for, counts as made, so the editor no longer invites a duplicate. The bot is asked for `deliver 'local'`.
-- Off-app alerts (swarmhub-messages 1.4.13): the box alerts only for the profiles the app connected on that server (sent sealed with the settings) and skips script-only (`no_agent`) jobs. Box alerts stay off until set up in the app.
 - Daylight saving time: Hermes runs cron in one zone per profile (UTC on our boxes) with no zone per job, so the app moves a routine its suggestion made when the clocks' difference changes (a Warsaw 09:00 routine is 07:00 UTC in summer, 08:00 in winter), once the next run is past the change; a routine changed since is left alone. The lead tells the bot, and the routine editor names the box's zone and says it does not change for daylight saving time. While the Mac is off across a change, runs until the app next reads the jobs can be an hour off.
-- Off-app alerts: the allowlist is sent again whenever the connected agents on a server change (connect, archive, delete, the last one included) and to settings saved by 0.6.5; the box checks it again when an alert or a digest goes out, so a queued alert of a disconnected profile is dropped.
+- Off-app alerts are switched off for now (swarmhub-messages 1.4.14): Settings shows no alerts section, the app sends nothing to a box about alerts and installs no service, and a box a 0.6.5 app turned alerts on for sends nothing once its skill updates. The per-profile allowlist and settings revision work is in this build but inert; alerts come back in a later release. A `/loop` with a count still runs on the box while the app is closed.
+- Ships without the embedded baseline (P1b pending), like 0.6.0–0.6.5. Release text: [releases/v0.6.6.md](releases/v0.6.6.md).
 
 ## 0.6.5 (build 30)
 
