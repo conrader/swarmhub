@@ -313,3 +313,32 @@ private func boxRound(_ box: BoxSession, job: String, reply: String, at date: Da
     let loop = try #require(store.automations[bot.id]?.loop)
     #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && loop.runs == 0 && loop.timesLeft == 3)
 }
+
+@Test @MainActor func roundsWithTheSameTextAsEarlierOnesAreStillMergedAcrossTicksAndQuits() async throws {
+    let (store, bot, server, _, _, box) = handoffStore()
+    let name = AppStore.handoffName(.loop, chat: bot.id), first = Date().addingTimeInterval(-7_200)
+    func handOff(_ id: String, at date: Date) {
+        server.add(jobPayload(id: id, name: name, schedule: "every 10m"))
+        store.automations[bot.id]?.boxHandoff = BoxHandoff(kind: .loop, jobName: name, jobID: id, handedAt: date)
+    }
+    store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "ping", interval: 600, timesLeft: nil, until: nil, nextAt: Date()))
+    // First quit: one round, taken back.
+    handOff("0000000abc11", at: first)
+    boxRound(box, job: name, reply: "pong", at: first.addingTimeInterval(600))
+    await store.reclaimHandoffs()
+    #expect(store.automations[bot.id]?.boxHandoff == nil && store.automations[bot.id]?.loop?.runs == 1)
+    // Second quit: the same routine name, the same delivery text, the same reply; one round in, one still in flight.
+    let second = Date().addingTimeInterval(-1_800)
+    handOff("0000000abc12", at: second)
+    server.set("0000000abc12", ["fire_claim": ["by": "scheduler", "at": "2026-10-23T08:00:00+00:00"]])
+    boxRound(box, job: name, reply: "pong", at: second.addingTimeInterval(600))
+    await store.reclaimHandoffs()
+    #expect(store.automations[bot.id]?.boxHandoff != nil, "a run is in flight")
+    boxRound(box, job: name, reply: "pong", at: second.addingTimeInterval(1_200))
+    server.set("0000000abc12", ["fire_claim": NSNull(), "repeat": ["times": NSNull(), "completed": 2]])
+    await store.reclaimHandoffs()
+    let deliveries = bot.messages.filter { CronDeliveryRow.jobName($0.content) == name }
+    #expect(deliveries.count == 3 && bot.messages.filter { $0.role == .assistant && $0.content == "pong" }.count == 3, "every box round is in the chat once")
+    #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && store.automations[bot.id]?.loop?.runs == 3)
+    #expect(bot.messages.contains { $0.content == HandoffCopy.loopRan(2) })
+}

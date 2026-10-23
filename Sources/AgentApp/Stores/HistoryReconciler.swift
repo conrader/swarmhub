@@ -198,7 +198,10 @@ enum HistoryReconciler {
             let candidates = server.filter { !used.contains($0.index) && userMatches(turn, $0, mode: input.mode) }
             guard !candidates.isEmpty else { continue }
             let compatible = candidates.filter { candidate in turn.reply.map { relation(local: $0.text, server: candidate.replyText) != .conflict } ?? true }
-            let pick = (compatible.isEmpty ? candidates : compatible).max { $0.index < $1.index }!
+            // A turn read from the box before keeps its own box turn: identical rounds (a routine's deliveries) never swap.
+            let own = (turn.user?.boxIDs ?? []).union(turn.reply?.boxIDs ?? [])
+            let same = own.isEmpty ? [] : candidates.filter { !own.isDisjoint(with: $0.ids) }
+            let pick = (!same.isEmpty ? same : compatible.isEmpty ? candidates : compatible).max { $0.index < $1.index }!
             pairs[index] = pick.index; used.insert(pick.index)
         }
         // Group turns the user side cannot match (empty trigger, or a blob whose cap dropped it): by reply, in order.
@@ -268,13 +271,18 @@ enum HistoryReconciler {
         let oldestPair = pairs.values.min(), newestPair = pairs.values.max()
         plan.newerUnmatched = server.contains { !used.contains($0.index) && $0.index > (newestPair ?? -1) }
         let knownIDs = input.local.reduce(into: Set<Int>()) { $0.formUnion($1.boxIDs) }
+        let pairedRows = Set(pairs.keys.flatMap { [local[$0].user?.id, local[$0].reply?.id].compactMap { $0 } })
         var midAdded = 0
         for box in server where !used.contains(box.index) {
             if hasLocalTurns, let oldestPair, box.index < oldestPair { plan.counts.ignoredOld += 1; continue }
             if hasLocalTurns && oldestPair == nil { continue }
             guard additionsAllowed, !box.replyText.isEmpty || !isGroup(input.mode) else { continue }
             if !Set(box.ids).isDisjoint(with: knownIDs) { continue }
-            if isDuplicate(box, local: input.local, mode: input.mode) { plan.counts.ambiguous += 1; continue }
+            // A routine's delivery is written on the box, so the Mac never holds an id-less copy of it: only a row that is
+            // neither paired nor read from the box can be one (every round of a routine has the same text).
+            let delivery = box.user.map { CronDeliveryRow.jobName($0.content) != nil } ?? false
+            let candidatesForCopy = delivery ? input.local.filter { !pairedRows.contains($0.id) && $0.boxIDs.isEmpty } : input.local
+            if isDuplicate(box, local: candidatesForCopy, mode: input.mode) { plan.counts.ambiguous += 1; continue }
             let localTime = box.time?.addingTimeInterval(-input.skew)
             let anchor = localTime.flatMap { time in input.local.last { $0.createdAt <= time } }
             let after = anchor?.id == input.local.last?.id ? nil : anchor?.id
