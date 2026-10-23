@@ -420,3 +420,35 @@ private func boxRound(_ box: BoxSession, job: String, reply: String, at date: Da
     #expect(bot.messages.filter { $0.role == .assistant && $0.content == "pong" }.count == 2, "the box's round is not taken for the local reply")
     #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && store.automations[bot.id]?.loop?.runs == 1)
 }
+
+/// A round of this handoff read from the box before (its rows carry the box's ids), whose reply in the chat is not the
+/// box's: `reply` is what the chat holds, the box holds "Build is green.".
+@MainActor private func staleRound(reply: String, state: TurnState) async -> (AppStore, Bot, FakeJobsServer, String) {
+    let (store, bot, server, _, host, box) = handoffStore()
+    let name = AppStore.handoffName(.loop, chat: bot.id), handedAt = Date().addingTimeInterval(-1_800), at = handedAt.addingTimeInterval(600)
+    boxRound(box, job: name, reply: "Build is green.", at: at)
+    bot.messages += [ChatMessage(role: .user, content: "[Cronjob \"\(name)\" output — scheduled job, not the user. Reply to it.]\nprompt", createdAt: at, metadata: [TurnKey.box: "1"]),
+                     ChatMessage(role: .assistant, content: reply, createdAt: at.addingTimeInterval(5), metadata: [TurnKey.box: "2"], turnState: state)]
+    server.add(jobPayload(id: "0000000abc18", name: name, schedule: "every 10m", lastRunAt: "2026-10-23T09:00:00+00:00"))
+    server.set("0000000abc18", ["repeat": ["times": 3, "completed": 1]])
+    store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "check the build", interval: 600, timesLeft: 3, until: nil, nextAt: Date()),
+                                               boxHandoff: BoxHandoff(kind: .loop, jobName: name, jobID: "0000000abc18", handedAt: handedAt))
+    await store.reclaimHandoffs(); await store.reclaimHandoffs()
+    return (store, bot, server, host)
+}
+
+@Test @MainActor func aRoundWhoseReplyInTheChatConflictsWithTheBoxKeepsTheRoutine() async throws {
+    let (store, bot, server, host) = await staleRound(reply: "Build is red.", state: .incomplete)
+    let automation = try #require(store.automations[bot.id])
+    #expect(server.jobIDs == ["0000000abc18"] && !requestLines(host).contains { $0.hasPrefix("DELETE ") }, "kept, paused on the box")
+    #expect(automation.boxHandoff?.lastError == HandoffCopy.notReconciled(.loop) && automation.loop?.runs == 0)
+    #expect(bot.messages.filter { $0.content == HandoffCopy.notReconciled(.loop) }.count == 1, "said once, tried again")
+}
+
+@Test @MainActor func aRoundWhoseFinishedReplyIsShorterThanTheBoxsKeepsTheRoutine() async throws {
+    let (store, bot, server, host) = await staleRound(reply: "Build is", state: .finished)
+    let automation = try #require(store.automations[bot.id])
+    #expect(server.jobIDs == ["0000000abc18"] && !requestLines(host).contains { $0.hasPrefix("DELETE ") }, "a finished reply is never extended")
+    #expect(automation.boxHandoff?.lastError == HandoffCopy.notReconciled(.loop) && automation.loop?.runs == 0)
+    #expect(bot.messages.filter { $0.content == HandoffCopy.notReconciled(.loop) }.count == 1)
+}
