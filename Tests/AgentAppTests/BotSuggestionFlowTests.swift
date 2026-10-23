@@ -153,6 +153,29 @@ import Testing
         #expect(store.suggestions.editor == draft && unread.metadata[SuggestionKey.followed] == "1")
     }
 
+    /// recs1b-fix2 1: a routine that does the ask at another time than agreed, or paused, is not the one agreed: the editor
+    /// opens. One on the agreed schedule (its days written as names) is.
+    @Test func onlyAnEnabledRoutineOnTheAgreedScheduleCountsAsMade() async {
+        func editorAfterYes(with job: [String: Any]) async -> RoutineDraft? {
+            let server = FakeJobsServer(); server.add(job)
+            let (store, bot, _) = routinesStore(server)
+            let draft = RoutineDraft(botID: bot.id, name: "Summarize my inbox", schedule: "30 7 * * 1-5", prompt: "Summarize my inbox", weekdaysOnly: true, hour: 7)
+            let record = BotSuggestionRecord(botID: bot.id, stems: AskText.stems("Summarize my inbox").sorted(), example: "Summarize my inbox", askedAt: Self.date(21, 10),
+                                             state: .accepted, messageID: UUID(), draft: draft)
+            store.suggestionLedger = BotSuggestionLedger(records: [record])
+            let reply = ChatMessage(role: .assistant, content: "Done.")
+            bot.messages += [ChatMessage(role: .user, content: "Yes", metadata: [SuggestionKey.answers: record.id.uuidString, SuggestionKey.answer: "yes"]), reply]
+            #expect(await store.followThroughSuggestion(bot: bot, reply: reply))
+            return store.suggestions.editor
+        }
+        let prompt = "Summarize my inbox and flag anything urgent"
+        let early = await editorAfterYes(with: jobPayload(id: "a1", name: "Inbox summary", schedule: "0 9 * * 1-5", prompt: prompt))
+        #expect(early?.schedule == "30 7 * * 1-5", "made at the first offer's time, not the agreed one")
+        let paused = await editorAfterYes(with: jobPayload(id: "a2", name: "Inbox summary", schedule: "30 7 * * 1-5", prompt: prompt, enabled: false))
+        #expect(paused?.schedule == "30 7 * * 1-5", "made paused")
+        #expect(await editorAfterYes(with: jobPayload(id: "a3", name: "Inbox summary", schedule: "30 7 * * mon-fri", prompt: prompt)) == nil, "made as agreed")
+    }
+
     /// recs1b-fix 2: when the jobs cannot be read now, the list kept from an earlier read does not count.
     @Test func jobsThatCannotBeReadNowAskNothing() async throws {
         let server = FakeJobsServer()
@@ -242,6 +265,31 @@ import Testing
         let editor = try #require(store.suggestions.editor)
         #expect(editor.schedule == "30 7 * * 1-5" && editor.hour == 7 && editor.minute == 30 && editor.when == "every weekday at 7:30")
         #expect(editor.name == "Summarize my inbox" && editor.prompt == "Summarize my inbox" && editor.botID == bot.id)
+    }
+
+    /// recs1b-fix2 3: a bare yes to the bot's own offer opens the editor with that offer: its `Routine:` line (name, schedule,
+    /// prompt) when it wrote one, else the one time and the days it named.
+    @Test func aBareYesTakesTheBotsLatestOffer() async throws {
+        func editorAfterYes(to offer: String) async throws -> RoutineDraft {
+            let (store, bot) = repeatingStore()
+            let row = try #require(await store.suggestRoutineIfRepeated(bot: bot))
+            #expect(store.sendSuggestedReply(BotSuggestionCopy.differentTime, on: row, target: .bot(botID: bot.id, threadID: nil)))
+            try await waitUntil { !store.anyTurnRunning }
+            bot.messages.append(ChatMessage(role: .assistant, content: offer))
+            #expect(store.send(text: "yes", bot: bot, conversation: bot, replyToID: nil))
+            try await waitUntil { store.suggestions.editor != nil }
+            return try #require(store.suggestions.editor)
+        }
+        let worded = try await editorAfterYes(to: """
+            How about Mondays, Wednesdays and Fridays at 7:30 instead of 9:00, flagging urgent mail too?
+            **Routine:** name "Inbox digest", schedule `30 7 * * 1,3,5`, prompt "Summarize my inbox and flag urgent mail"
+            """)
+        #expect(worded.name == "Inbox digest" && worded.prompt == "Summarize my inbox and flag urgent mail")
+        #expect(worded.schedule == "30 7 * * 1,3,5" && worded.hour == 7 && worded.when == "every Monday, Wednesday and Friday at 7:30")
+        let timed = try await editorAfterYes(to: "Sure, every weekday at 7:30 instead of 9:00. Shall I set it up?")
+        #expect(timed.schedule == "30 7 * * 1-5" && timed.name == "Summarize my inbox" && timed.prompt == "Summarize my inbox")
+        let unsure = try await editorAfterYes(to: "What time suits you: 7:00, 7:30 or 8:00?")
+        #expect(unsure.schedule == "0 9 * * 1-5", "several times named: none is taken")
     }
 
     @Test func anotherSubjectIsNotAnAnswer() async throws {

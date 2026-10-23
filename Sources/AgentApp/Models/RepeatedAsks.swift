@@ -115,8 +115,8 @@ struct RoutineDraft: Codable, Equatable, Identifiable, Sendable {
     /// "8:00", "7:30".
     var time: String { "\(hour):" + String(format: "%02d", minute) }
 
-    /// "every weekday at 8:00" / "every day at 18:00" / "every weekend day at 10:30".
-    var when: String { "\(days == "1-5" ? "every weekday" : days == "0,6" ? "every weekend day" : "every day") at \(time)" }
+    /// "every weekday at 8:00" / "every day at 18:00" / "every weekend day at 10:30" / "every Monday and Friday at 7:30".
+    var when: String { "\(CronDays.phrase(days)) at \(time)" }
 
     /// The ask's first line without its closing punctuation, first letter capitalised, at most 60 characters.
     static func routineName(_ text: String) -> String {

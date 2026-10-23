@@ -90,8 +90,10 @@ extension AppStore {
     /// Called as `user` joins `conversation`. An answer to the open suggestion carries the record and the answer; the first
     /// one also carries the lead (the question and the routine offered) that the bot reads before the text. A no declines
     /// that request for good; a yes accepts it; "Different time" or a reply about the time, days or wording keeps the
-    /// conversation about it open; a time or days named in a yes or such a reply change the record's routine. Not an
-    /// answer: the same request asked again (the question was ignored) or another subject; those go to the bot as they are.
+    /// conversation about it open. The record's routine follows the conversation: first what the bot's latest reply in it
+    /// offered (`adjusted(byBot:)`), then a time or days named in a yes or such a reply, so a bare yes to the bot's offer
+    /// takes the offer. Not an answer: the same request asked again (the question was ignored) or another subject; those go
+    /// to the bot as they are.
     func noteSuggestionAnswer(_ user: ChatMessage, bot: Bot, in conversation: any Conversation) {
         guard conversation === bot, user.role == .user, let open = openSuggestion(in: bot, for: user) else { return }
         var ledger = suggestionLedger
@@ -109,8 +111,20 @@ extension AppStore {
         case .yes: ledger.records[index].state = .accepted
         case .other: break
         }
-        if answer != .no { ledger.records[index].draft = ledger.records[index].draft.adjusted(by: user.content) }
+        if answer != .no {
+            var draft = ledger.records[index].draft
+            if open.answered, let offer = latestOffer(in: bot, before: user) { draft = draft.adjusted(byBot: offer.content) }
+            ledger.records[index].draft = draft.adjusted(by: user.content)
+        }
         suggestionLedger = ledger
+    }
+
+    /// The bot's reply to the last answer before `user`: its latest finished text row after that answer.
+    func latestOffer(in bot: Bot, before user: ChatMessage) -> ChatMessage? {
+        let end = bot.messages.firstIndex { $0.id == user.id } ?? bot.messages.endIndex
+        let earlier = bot.messages[..<end]
+        guard let answer = earlier.lastIndex(where: { $0.role == .user }) else { return nil }
+        return earlier[(answer + 1)...].last { $0.role == .assistant && $0.presentation == .text && !$0.isStreaming && !$0.content.isEmpty }
     }
 
     // MARK: After a turn
@@ -126,10 +140,11 @@ extension AppStore {
         }
     }
 
-    /// The turn `reply` ends answered a suggestion (true). After a yes the routines are read again: one that does the ask
-    /// means the bot made it (none did when it was asked); otherwise, or when they cannot be read, the routine editor opens
-    /// in the bot's chat prefilled with the routine the conversation settled on (the fallback). A cron tool step alone proves
-    /// nothing: it may only have listed the jobs.
+    /// The turn `reply` ends answered a suggestion (true). After a yes the routines are read again: an enabled one on the
+    /// agreed schedule that does the ask (or the agreed prompt) means the bot made it (none did when it was asked);
+    /// otherwise, or when they cannot be read, the routine editor opens in the bot's chat prefilled with the routine the
+    /// conversation settled on (the fallback). A cron tool step alone proves nothing: it may only have listed the jobs; a
+    /// routine at another time, or paused, is not the one agreed.
     @discardableResult func followThroughSuggestion(bot: Bot, reply: ChatMessage) async -> Bool {
         guard let position = bot.messages.firstIndex(where: { $0.id == reply.id }),
               let user = bot.messages[..<position].last(where: { $0.role == .user }), let answer = user.metadata[SuggestionKey.answer] else { return false }
@@ -137,8 +152,11 @@ extension AppStore {
               let id = user.metadata[SuggestionKey.answers].flatMap(UUID.init(uuidString:)),
               let record = suggestionLedger.records.first(where: { $0.id == id }) else { return true }
         user.metadata[SuggestionKey.followed] = "1"; save()
-        let made = await knownRoutineTexts(for: bot)?.contains { AskText.covered(Set(record.stems), by: AskText.stems($0)) } == true
-        if !made { suggestions.editor = record.draft; objectWillChange.send() }
+        let draft = record.draft, asks = [Set(record.stems), AskText.stems(draft.prompt)]
+        let made = await knownRoutines(for: bot)?.contains { routine in
+            routine.enabled && CronDays.same(routine.schedule, draft.schedule) && asks.contains { AskText.covered($0, by: AskText.stems(routine.text)) }
+        } == true
+        if !made { suggestions.editor = draft; objectWillChange.send() }
         return true
     }
 
@@ -150,8 +168,8 @@ extension AppStore {
         guard bot.backend != .openClaw, !bot.isDemo, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !bot.retiredOnBox,
               !suggestions.evaluating.contains(bot.id), let repeated = allowedRepeat(in: bot) else { return nil }
         suggestions.evaluating.insert(bot.id); defer { suggestions.evaluating.remove(bot.id) }
-        guard let existing = await knownRoutineTexts(for: bot),
-              !existing.contains(where: { AskText.covered(repeated.anchor.stems, by: AskText.stems($0)) }),
+        guard let existing = await knownRoutines(for: bot),
+              !existing.contains(where: { AskText.covered(repeated.anchor.stems, by: AskText.stems($0.text)) }),
               // The chat may have moved on, or another suggestion gone out, while the routines were read.
               isIdle(bot), allowedRepeat(in: bot)?.anchor.id == repeated.anchor.id else { return nil }
         let postedAt = now(), draft = RoutineDraft.make(for: repeated, botID: bot.id, calendar: suggestionCalendar)
@@ -180,13 +198,18 @@ extension AppStore {
         return repeated
     }
 
-    /// Name and prompt of every routine that could already cover an ask: the server's jobs, read now, for a Hermes bot
-    /// (plus routines not on the server yet), the local list otherwise. Nil when the jobs cannot be read now (the list kept
-    /// from an earlier read does not count), so a duplicate is never offered.
-    func knownRoutineTexts(for bot: Bot) async -> [String]? {
-        let local = bot.routines.map { $0.name + "\n" + $0.prompt }
+    /// Every routine that could already cover an ask (name and prompt, schedule, on or paused): the server's jobs, read
+    /// now, for a Hermes bot (plus routines not on the server yet), the local list otherwise. Nil when the jobs cannot be
+    /// read now (the list kept from an earlier read does not count), so a duplicate is never offered.
+    func knownRoutines(for bot: Bot) async -> [KnownRoutine]? {
+        let local = bot.routines.map { KnownRoutine(text: $0.name + "\n" + $0.prompt, schedule: $0.schedule, enabled: $0.isEnabled) }
         guard bot.backend == .hermes else { return local }
         guard await refreshRoutines(for: bot), let jobs = routines.state(for: bot.id).jobs.value else { return nil }
-        return local + jobs.map { $0.name + "\n" + $0.prompt }
+        return local + jobs.map { KnownRoutine(text: $0.name + "\n" + $0.prompt, schedule: $0.schedule, enabled: !$0.isPaused) }
     }
+}
+
+/// A routine as the suggestion checks read it.
+struct KnownRoutine: Equatable, Sendable {
+    var text: String; var schedule: String; var enabled: Bool
 }

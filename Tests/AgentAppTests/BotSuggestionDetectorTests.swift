@@ -142,6 +142,29 @@ private func repeated(_ dates: [Date], text: String = "Summarize my inbox?") -> 
     #expect(BotSuggestionCopy.lead(question: "Q?", draft: half, timeZone: TimeZone(identifier: "Europe/Warsaw")!).contains("(cron, 7:30 in my time zone Europe/Warsaw)"))
 }
 
+/// recs1b-fix2 2: a correction takes the time it moves to, a negation turns down only what it is about, and named days
+/// count.
+@Test func correctionsNegationsAndNamedDaysReadAsMeant() {
+    func time(_ text: String) -> String? { OfferChange.time(in: text).map { "\($0.hour):\($0.minute)" } }
+    #expect(time("Change it from 9:00 to 7:30") == "7:30" && time("change it from 9 to 7") == "7:0")
+    #expect(time("7:30 instead of 9") == "7:30" && time("Instead of 9:00, make it 7:30") == "7:30")
+    #expect(time("Rather than 9am, 8pm") == "20:0" && time("not at 9, at 8pm") == "20:0")
+    #expect(time("just not at 9") == nil, "a time turned down and none named: nothing changes")
+    #expect(time("weekends only, but not before 10am") == "10:0", "not before 10 is from 10")
+    #expect(OfferChange.days(in: "weekends only, but not before 10am") == "0,6")
+    #expect(OfferChange.days(in: "Mon/Wed/Fri") == "1,3,5" && OfferChange.days(in: "Monday, Wednesday and Friday") == "1,3,5")
+    #expect(OfferChange.days(in: "only on Tuesdays and Thursdays") == "2,4" && OfferChange.days(in: "mon-fri") == "1-5" && OfferChange.days(in: "Monday to Friday") == "1-5")
+    #expect(OfferChange.days(in: "every day except Friday") == "0-4,6" && OfferChange.days(in: "weekdays, not weekends") == "1-5")
+    #expect(OfferChange.days(in: "no weekends please") == "1-5")
+    let draft = RoutineDraft(botID: UUID(), name: "Inbox", schedule: "0 9 * * 1-5", prompt: "Summarize my inbox", weekdaysOnly: true, hour: 9)
+    let weekends = draft.adjusted(by: "weekends only, but not before 10am")
+    #expect(weekends.schedule == "0 10 * * 0,6" && weekends.when == "every weekend day at 10:00")
+    let moved = draft.adjusted(by: "Change it from 9:00 to 7:30, Mon/Wed/Fri")
+    #expect(moved.schedule == "30 7 * * 1,3,5" && !moved.weekdaysOnly && moved.when == "every Monday, Wednesday and Friday at 7:30")
+    #expect(draft.adjusted(by: "Yes, but not on Fridays").schedule == "0 9 * * 1-4", "days turned down come off the offer's days")
+    #expect(moved.adjusted(by: BotSuggestionCopy.replies(moved)[0]) == moved, "the yes chip reads back as the same routine")
+}
+
 @Test func theQuestionAndItsRepliesReadNaturally() {
     let week = repeated([at(19, 9, 30), at(20, 9, 30), at(21, 9, 30)], text: "Summarize my inbox.")
     let draft = RoutineDraft.make(for: week, botID: UUID(), calendar: utcCalendar())
