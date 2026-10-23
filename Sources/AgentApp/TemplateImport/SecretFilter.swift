@@ -24,8 +24,10 @@ enum SecretFilter {
         #"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}"#,
         #"(?i)\b(sk|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_-]{12,}\b"#,
         #"(?i)github_pat_[A-Za-z0-9_-]{8,}"#,
-        // The header may not run on through `-eyJ`: a chain of `-eyJ…` pieces would otherwise scan to its end per piece.
-        #"(?i)\beyJ(?:[A-Za-z0-9_]|-(?!eyJ)){8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"#,
+        // Starts only where a dot-separated part starts and commits to the first `eyJ` in it (the lookahead is atomic), so
+        // a run of `eyJ`/`-eyJ` pieces is scanned once, yet any `eyJ` in the part counts: a header holding `-eyJ` still
+        // matches. The rest of the dotted run goes too, so a JWT chained after a JWT-shaped run is not left behind.
+        #"(?i)(?<![A-Za-z0-9_-])(?=([A-Za-z0-9_-]*?eyJ[A-Za-z0-9_-]{8}))\1[A-Za-z0-9_-]*\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)*"#,
         #"(?i)\b(?:AKIA|ASIA|AGPA|AIDA|AIPA|AROA|ANPA|ANVA|ABIA|ACCA)[0-9A-Za-z]{16}\b"#,
         #"(?i)\bAIza[0-9A-Za-z_-]{35}"#,
         #"(?i)\bxapp-[A-Za-z0-9_-]{8,}"#,
@@ -35,6 +37,7 @@ enum SecretFilter {
     ]
     // The patterns are constants covered by tests; a failure here is a programming error.
     private static let expressions = secretValuePatterns.map { try! NSRegularExpression(pattern: $0) }
+    private static let jwt = expressions[categories.firstIndex(of: "jwt")!]
     private static let basic = try! NSRegularExpression(pattern: #"(?i)\bBasic\s+([A-Za-z0-9+/]{4,}={0,2})(?![A-Za-z0-9+/=])"#)
     /// A whole token holding a `%XX` escape. It starts at a token start: `\S*` tried from every offset is quadratic.
     private static let percentCandidate = try! NSRegularExpression(pattern: #"(?<!\S)\S*%[0-9A-Fa-f]{2}\S*"#)
@@ -48,8 +51,10 @@ enum SecretFilter {
         return secretKeys.contains { normalized.contains(normalize($0)) }
     }
 
-    /// Basic credentials, then encoded candidates, then every `secretValuePatterns` hit, each replaced by `replacement`;
-    /// `counts` gains one per replacement under its category.
+    /// JWTs, then Basic credentials, then encoded candidates, then every other `secretValuePatterns` hit, each replaced by
+    /// `replacement`; `counts` gains one per replacement under its category. JWTs go first: a JWT part on its own can
+    /// decode credential-shaped (`{"alg":"HS256"}` has a colon), and the encoded pass would take that part alone and
+    /// leave the signature behind.
     static func redact(_ text: String, replacement: String = "[removed]", counts: inout [String: Int]) -> String {
         guard !text.isEmpty else { return text }
         func pass(_ category: String, _ expression: NSRegularExpression, _ text: String,
@@ -58,7 +63,8 @@ enum SecretFilter {
             if count > 0 { counts[category, default: 0] += count }
             return result
         }
-        var text = pass("basic_auth", basic, text) { match, source in
+        var text = pass("jwt", jwt, text)
+        text = pass("basic_auth", basic, text) { match, source in
             guard let decoded = Data(base64Encoded: source.substring(with: match.range(at: 1))) else { return false }
             return String(data: decoded, encoding: .utf8)?.contains(":") == true
         }
@@ -70,7 +76,7 @@ enum SecretFilter {
         text = pass("encoded_credential", base64Candidate, text) { match, source in
             decodedBase64(source.substring(with: match.range)).map(isCredentialShaped) ?? false
         }
-        for (category, expression) in zip(categories, expressions) { text = pass(category, expression, text) }
+        for (category, expression) in zip(categories, expressions) where category != "jwt" { text = pass(category, expression, text) }
         return text
     }
 

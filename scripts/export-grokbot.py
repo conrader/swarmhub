@@ -38,8 +38,10 @@ SECRET_PATTERNS = [
     ("bearer", re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}")),
     ("vendor_token", re.compile(r"(?i)\b(sk|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_-]{12,}\b")),
     ("github_pat", re.compile(r"(?i)github_pat_[A-Za-z0-9_-]{8,}")),
-    # The header may not run on through `-eyJ`: a chain of `-eyJ…` pieces would otherwise rescan to its end per piece.
-    ("jwt", re.compile(r"(?i)\beyJ(?:[A-Za-z0-9_]|-(?!eyJ)){8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")),
+    # Starts only where a dot-separated part starts and commits to the first `eyJ` in it (the lookahead is atomic), so a
+    # run of `eyJ`/`-eyJ` pieces is scanned once, yet any `eyJ` in the part counts: a header holding `-eyJ` still matches.
+    # The rest of the dotted run goes too, so a JWT chained after a JWT-shaped run is not left behind.
+    ("jwt", re.compile(r"(?i)(?<![A-Za-z0-9_-])(?=([A-Za-z0-9_-]*?eyJ[A-Za-z0-9_-]{8}))\1[A-Za-z0-9_-]*\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)*")),
     ("aws_key", re.compile(r"(?i)\b(?:AKIA|ASIA|AGPA|AIDA|AIPA|AROA|ANPA|ANVA|ABIA|ACCA)[0-9A-Za-z]{16}\b")),
     ("google_key", re.compile(r"(?i)\bAIza[0-9A-Za-z_-]{35}")),
     ("slack_app_token", re.compile(r"(?i)\bxapp-[A-Za-z0-9_-]{8,}")),
@@ -47,6 +49,7 @@ SECRET_PATTERNS = [
     ("url_credentials", re.compile(r"://[^/\s:@]+:[^/\s@]+@")),
     ("credential_assignment", re.compile(r"(?i)(?<![A-Za-z0-9])(api[_ -]?key|token|secret|password|credential|auth[_-]?token|access[_-]?token|client[_-]?secret|authorization)\s*[:=]\s*\S+")),
 ]
+JWT = dict(SECRET_PATTERNS)["jwt"]
 BASIC_AUTH = re.compile(r"(?i)\bBasic\s+([A-Za-z0-9+/]{4,}={0,2})(?![A-Za-z0-9+/=])")
 # Encoded candidates, redacted only when the decoded text is printable and credential-shaped. A percent candidate
 # starts at a token start: `\S*` from every offset of a long token is quadratic.
@@ -122,11 +125,17 @@ class Redactor:
                 return MARKER
             return replace
 
+        # JWTs first: a JWT part on its own can decode credential-shaped (`{"alg":"HS256"}` has a colon), and the encoded
+        # pass would take that part alone and leave the signature behind.
+        text, n = JWT.subn(MARKER, text)
+        self._hit("jwt", n)
         text = BASIC_AUTH.sub(basic, text)
         if "%" in text:
             text = PERCENT_CANDIDATE.sub(encoded(_decoded_percent), text)
         text = BASE64_CANDIDATE.sub(encoded(_decoded_base64), text)
         for category, pattern in SECRET_PATTERNS:
+            if category == "jwt":
+                continue
             text, n = pattern.subn(MARKER, text)
             self._hit(category, n)
         return text

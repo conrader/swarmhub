@@ -33,6 +33,25 @@ import Testing
     #expect(SecretFilter.redacted("a%20b and 50%off") == "a%20b and 50%off")              // decodes, but not a credential
     #expect(SecretFilter.redacted("aGVsbG8gd29ybGQgaGVsbG8gd29ybGQ=") == "aGVsbG8gd29ybGQgaGVsbG8gd29ybGQ=")  // "hello world hello world"
     #expect(SecretFilter.redacted("u=syntheticUser%3AsyntheticPass") == "[removed]")
-    // A JWT right after a dash still matches; only the header may not run on through a further `-eyJ`.
-    #expect(SecretFilter.redacted("x -eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlMTIz y") == "x -[removed] y")
+    // A JWT right after a dash goes with the dash: both belong to one dot-separated part.
+    #expect(SecretFilter.redacted("x -eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlMTIz y") == "x [removed] y")
+}
+
+@Test func signedJWTsAreRedactedWhole() {
+    // Synthetic HMAC-signed JWTs (mirrors test_export_grokbot.py). The first header holds `-eYj`, which 019e27f's
+    // pattern refused to run through; the second's header alone decodes to `{"alg":"HS256"}`, which the encoded pass
+    // took on its own and left the signature behind.
+    let dashHeader = "eyJhbGciOiJIUzI1NiIsImtpZCI6Iueku-eYj-WsteGVtOmQuOiLjeaDs-W1l-WGjuaytSJ9"
+        + ".eyJzdWIiOiJzeW50aGV0aWMifQ.nWK2gTy6gDmUnOnp8Y4k0uZORbhnh8pKa5ihimxQfZk"
+    let shortHeader = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzeW50aGV0aWMifQ.-0SNT8mfIIN8HLVsA6QX9pjgVs_dM3-EXDhJ_L3qvTA"
+    for jwt in [dashHeader, shortHeader] {
+        var counts: [String: Int] = [:]
+        #expect(SecretFilter.redact("x \(jwt) y", counts: &counts) == "x [removed] y", "\(jwt)")
+        #expect(counts == ["jwt": 1], "\(jwt)")
+    }
+    // Any `eyJ` in a part counts, as on main, and a dotted run holding a JWT goes whole.
+    #expect(SecretFilter.redacted("a-\(shortHeader)") == "[removed]")
+    #expect(SecretFilter.redacted("eyJxxxxxxxx.yyyyyyyy.\(dashHeader).") == "[removed].")
+    var redact = GrokRedactor()
+    #expect(redact("key \(dashHeader) end") == "key [REDACTED] end")
 }

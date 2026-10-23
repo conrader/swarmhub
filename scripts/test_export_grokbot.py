@@ -25,6 +25,11 @@ JARVIS = "00000000-0000-4000-8000-000000000001"
 GROUP = "00000000-0000-4000-8000-000000000004"
 
 
+SIGNED_JWT_DASH_HEADER = ("eyJhbGciOiJIUzI1NiIsImtpZCI6Iueku-eYj-WsteGVtOmQuOiLjeaDs-W1l-WGjuaytSJ9"
+                          ".eyJzdWIiOiJzeW50aGV0aWMifQ.nWK2gTy6gDmUnOnp8Y4k0uZORbhnh8pKa5ihimxQfZk")
+SIGNED_JWT_SHORT_HEADER = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzeW50aGV0aWMifQ.-0SNT8mfIIN8HLVsA6QX9pjgVs_dM3-EXDhJ_L3qvTA"
+
+
 class ExportTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -121,9 +126,21 @@ class ExportTests(unittest.TestCase):
         prose = "Please use basic judgement; token gestures are welcome, 100% sure, a%20b."
         self.assertEqual(exporter.Redactor()(prose), prose)
 
+    def test_signed_jwts_are_redacted_whole(self):
+        # Synthetic HMAC-signed JWTs (mirrors SecretFilterTests.swift). The first header holds `-eYj`, which 019e27f's
+        # pattern refused to run through; the second's header alone decodes to `{"alg":"HS256"}`, which the encoded
+        # pass took on its own and left the signature behind.
+        for jwt in [SIGNED_JWT_DASH_HEADER, SIGNED_JWT_SHORT_HEADER]:
+            redact = exporter.Redactor()
+            self.assertEqual(redact("x " + jwt + " y"), "x [REDACTED] y", jwt)
+            self.assertEqual(redact.counts, {"jwt": 1})
+        # Any `eyJ` in a part counts, as on main, and a dotted run holding a JWT goes whole.
+        self.assertEqual(exporter.Redactor()("a-" + SIGNED_JWT_SHORT_HEADER), "[REDACTED]")
+        self.assertEqual(exporter.Redactor()("eyJxxxxxxxx.yyyyyyyy." + SIGNED_JWT_DASH_HEADER + "."), "[REDACTED].")
+
     def test_secret_filter_is_linear_on_crafted_input(self):
         import time
-        for text in ["token=abcdefgh " * 50000, "-eyJxxxxxxxx" * 50000, "a%zz" * 150000 + " %41"]:
+        for text in ["token=abcdefgh " * 50000, "-eyJxxxxxxxx" * 50000, "eyJxxxxxxxx.yyyyyyy." * 50000, "a%zz" * 150000 + " %41"]:
             started = time.monotonic()
             exporter.Redactor()(text)
             self.assertLess(time.monotonic() - started, 2.0)
