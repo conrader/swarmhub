@@ -285,18 +285,20 @@ kill_tree() {
   KILL_LEFT=
   [ -n "$1" ] || return 0
   [ "${KILL_ROOT:-}" = "$1" ] || KILL_ROOT=$1 KILL_SEEN= KILL_TRIES=0 KILL_GAVE_UP=
-  KILL_TRIES=$((KILL_TRIES + 1))
+  KILL_TRIES=$((KILL_TRIES + 1)) _kill_stopped=' '
   if ! signalable "$1" || ! tree_pids "$1" "$KILL_SEEN"; then
     signalable "$1" && [ -z "$TREE_DONE" ] && KILL_LEFT=1
     [ -n "$KILL_SEEN" ] && [ -n "$TREE_DONE" ] || echo "code-job: not signalling pid '$1': not a live child of this job" >&2
     kill_cap "$1"; return 0
   fi
   KILL_SEEN=$SNAPSHOT KILL_LEFT=1
+  # Kept for interrupted(): the watchdog runs in a subshell, and once the agent has exited only these identities lead
+  # to its orphans. $T is where the launcher evidence lives (see above).
+  [ -z "${T:-}" ] || printf '%s' "$KILL_SEEN" > "$T/seen.$1" 2>/dev/null
   kill -TERM $TREE 2>/dev/null
   sleep 1
   # The cache stays that of the read before TERM: a pid it holds with another identity must stay refused, not turn
   # into a new child on the next round.
-  _kill_stopped=' '
   for _kill_round in 1 2 3 4 5; do
     tree_pids "$1" "$KILL_SEEN" || break
     _kill_new=
@@ -310,13 +312,15 @@ kill_tree() {
 
 # After 30 calls for one root with something left, KILL_LEFT is dropped, so retry loops end even when reads keep
 # failing or alternate with good ones. It fails safe: nothing unverified is signalled, a stopped process stays stopped,
-# and the pids last read are named once, on stderr and in $T/cleanup-incomplete (the job record's cleanup-incomplete).
+# and the pids read before TERM, plus any stopped since, are named once, on stderr and in $T/cleanup-incomplete (the
+# job record's cleanup-incomplete).
 kill_cap() {
   [ -n "$KILL_LEFT" ] && [ "$KILL_TRIES" -ge 30 ] || return 0
   KILL_LEFT=
   [ -z "$KILL_GAVE_UP" ] || return 0
   KILL_GAVE_UP=1
   _kill_left=$(printf '%s' "$KILL_SEEN" | awk 'NF == 9 { printf " %s", $1 }')
+  for _kill_pid in $_kill_stopped; do case "$_kill_left " in *" $_kill_pid "*) ;; *) _kill_left="$_kill_left $_kill_pid" ;; esac; done
   echo "code-job: gave up on the tree of pid $1 after $KILL_TRIES tries; nothing unverified was signalled; may be left:${_kill_left:- $1}" >&2
   [ -z "${T:-}" ] || printf '%s:%s\n' "$1" "${_kill_left:- $1}" >> "$T/cleanup-incomplete"
 }
@@ -376,16 +380,22 @@ finish() {
 }
 
 # As in the watchdogs: the tree again a tick later while its root lives or kill_tree has something left, up to its cap.
+# A complete read that lists nothing ends it (a live pid that is no longer this job's child is not waited on).
 kill_tree_retrying() {
   kill_tree "$1"
-  while { kill -0 "$1" 2>/dev/null || [ -n "$KILL_LEFT" ]; } && [ "${KILL_TRIES:-0}" -lt 30 ]; do
+  while [ -z "$TREE_DONE" ] && { kill -0 "$1" 2>/dev/null || [ -n "$KILL_LEFT" ]; } && [ "${KILL_TRIES:-0}" -lt 30 ]; do
     sleep "${CODE_JOB_TICK:-1}"; kill_tree "$1"
   done
 }
 
 interrupted() {
-  trap '' INT TERM
-  kill_tree_retrying "$MPID"; kill_tree_retrying "$APID"; kill_tree_retrying "$VPID"
+  trap '' INT TERM HUP
+  kill_tree_retrying "$MPID"
+  # The agent's tree as the watchdog last read it: with the agent gone, only that leads to its orphans.
+  if [ -n "$APID" ] && [ "${KILL_ROOT:-}" != "$APID" ] && read_output cat "$T/seen.$APID" 2>/dev/null; then
+    KILL_ROOT=$APID KILL_SEEN=$READ_OUTPUT KILL_TRIES=0 KILL_GAVE_UP=
+  fi
+  kill_tree_retrying "$APID"; kill_tree_retrying "$VPID"
   signalable "$O1" && kill "$O1" 2>/dev/null; signalable "$O2" && kill "$O2" 2>/dev/null
   finish "$1" interrupted
 }

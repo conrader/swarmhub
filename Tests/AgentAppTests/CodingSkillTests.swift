@@ -223,10 +223,10 @@ private func codingSkill() throws -> BundledSkill { try #require(SkillLibrary.bu
 
 private var repoRoot: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() }
 
-/// `Tests/Scripts/code-job-test.sh` under each shell present: stub CLIs, a temp HOME, every case must pass. The 30 cases
+/// `Tests/Scripts/code-job-test.sh` under each shell present: stub CLIs, a temp HOME, every case must pass. The 31 cases
 /// run in six shards (`CODE_JOB_CASES`) so the slow ones overlap; 17-24 cover evidence, verification cleanup, report states and interrupted reads, 25 and 26 a refused identity read at a deadline,
-/// 27-30 the retry cap, children forked after a read and an interrupt's retries.
-private let codeJobShards = ["1 2 3 4 5 6", "7 25 26", "8 9", "10 11 12 13 14 15 16", "17 18 19 20 21 22 23 24", "27 28 29 30"]
+/// 27-31 the retry cap, children forked after a read and an interrupt's retries (31: through the watchdog's identity read).
+private let codeJobShards = ["1 2 3 4 5 6", "7 25 26", "8 9", "10 11 12 13 14 15 16", "17 18 19 20 21 22 23 24", "27 28 29 30 31"]
 
 @Test(arguments: ["/bin/sh", "/bin/dash"], codeJobShards) func codeJobShellTestPasses(_ shell: String, _ cases: String) async throws {
     guard FileManager.default.isExecutableFile(atPath: shell) else { return }

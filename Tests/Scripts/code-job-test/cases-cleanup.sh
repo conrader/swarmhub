@@ -1,5 +1,5 @@
 # Part of Tests/Scripts/code-job-test.sh, which sources it; not a runnable script by itself.
-# Cases 24-30: process identity reads, kill_tree retries at a deadline or an interrupt, late forks and the retry cap.
+# Cases 24-31: process identity reads, kill_tree retries at a deadline or an interrupt, late forks and the retry cap.
 
 # 24
 case_24() {
@@ -242,5 +242,36 @@ ALT
 if over_limit; then RC=125; else "$SH" "$C/check-alternating" "$C" > "$C/out" 2> "$C/err"; RC=$?; fi
 expect "alternating reads end at the cap, named (got $RC)" [ "$RC" -eq 0 ]
 expect "gave up on stderr" has "$C/err" "code-job: gave up on the tree of pid 1500000021"
+done_case
+}
+
+# 31
+case_31() {
+new_case "interrupted after the agent exited: the watchdog's identity read still leads to its TERM-ignoring child" claude codex
+mode claude stubborn; mode codex ok; with_control
+# The shim passes the first identity read (the watchdog TERMs the agent, which exits; its child ignores TERM), then
+# refuses reads, slowly, so the watchdog keeps retrying, until the test interrupts code-job; from then on reads pass.
+# Only the watchdog's cached identities lead from the exited agent to its orphan.
+cat > "$C/bin/ps" <<'PS'
+#!/bin/sh
+case "$*" in *sess=*) [ -e "$STUB_STATE/reads-ok" ] || mkdir "$STUB_STATE/ps-read-1" 2>/dev/null || { : > "$STUB_STATE/refused"; sleep 0.5; exit 0; } ;; esac
+exec /bin/ps "$@"
+PS
+chmod 755 "$C/bin/ps"
+managed --bot jarvis --order claude,codex --timeout 1 --dir "$C/work" -- "$TASK" &
+runner=$!
+i=0; while [ ! -e "$C/state/refused" ] && [ "$i" -lt 200 ]; do sleep 0.05; i=$((i + 1)); done
+agent=$(cat "$C/state/claude.pid") child=$(cat "$C/state/claude.child")
+i=0; while kill -0 "$agent" 2>/dev/null && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+expect "a read was refused after TERM" [ -e "$C/state/refused" ]
+expect "agent exited on TERM" sh -c "! kill -0 $agent 2>/dev/null"
+expect "its child was still there" sh -c "kill -0 $child 2>/dev/null"
+: > "$C/state/reads-ok"
+pid=$(cat "$C/home/.hermes/swarmhub/job-completions/"job.*/pid 2>/dev/null)
+own_pid "$pid" "$JOB" && kill -TERM "$pid"
+wait "$runner"; RC=$?
+expect "exit 143 (got $RC)" [ "$RC" -eq 143 ]
+i=0; while kill -0 "$child" 2>/dev/null && [ "$i" -lt 40 ]; do sleep 0.05; i=$((i + 1)); done
+expect "TERM-ignoring child gone" sh -c "! kill -0 $child 2>/dev/null"
 done_case
 }
