@@ -212,6 +212,8 @@ collect_evidence() {
 # orphan to its nearest subreaper ancestor (systemd --user, say) or else to pid 1 (init of the pid namespace, an
 # ancestor unless this shell entered the namespace from outside, as `docker exec` does).
 # Any other new parent means the pid is not ours any more; it is left alone and named on stderr.
+# The children of a cached process whose identity still matches are its own, so an orphan that forked after the
+# last read is walked like the root.
 tree() {
   case $1 in ''|*[!0-9]*) return 0 ;; esac
   case $(uname -s 2>/dev/null) in Darwin|*BSD|DragonFly) _tree_nosess=1 ;; *) _tree_nosess= ;; esac
@@ -239,8 +241,9 @@ tree() {
       n = 0
       if (parent[root] == self && (previous == "" || same(root))) { n = 1; q[1] = root; seen[root] = 1 }
       for (i = 1; i <= n; i++) { c = split(kids[q[i]], k, " "); for (j = 1; j <= c; j++) if (!(k[j] in seen)) { seen[k[j]] = 1; q[++n] = k[j] } }
+      for (p in old) if (!(p in seen) && !(p in up) && p in parent && same(p)) { seen[p] = 1; q[++n] = p }
+      for (; i <= n; i++) { c = split(kids[q[i]], k, " "); for (j = 1; j <= c; j++) if (!(k[j] in seen)) { seen[k[j]] = 1; q[++n] = k[j] } }
       for (i = 1; i <= n; i++) if (q[i] + 0 > 1 && !(q[i] in up) && (!(q[i] in old) || same(q[i]))) print row[q[i]]
-      for (p in old) if (!(p in seen) && !(p in up) && p in parent && same(p)) print row[p]
       print "end"
     }'
 }
@@ -270,27 +273,52 @@ tree_rss() {
 }
 
 # TERM, then KILL, the tree under $1. Anything but this job's own child tree is refused with a line on stderr and
-# nothing is signalled. KILL rechecks start time, parent and PGID/session, including cached orphans. New descendants
-# are admitted only while the original root identity still matches; a missing identity never falls back to a pid.
-# Retry loops call again while KILL_LEFT is set: KILL has not reached the last identities read (KILL_SEEN, per root;
-# callers clear KILL_ROOT for a new process), the root's orphans included. KILL sent to every listed pid (what is left
-# is a zombie) or a complete read listing nothing clears it; 30 failed reads in a row give up.
+# nothing is signalled. KILL rechecks start time, parent and PGID/session, including cached orphans and their new
+# children. New descendants of the root are admitted only while its identity still matches; a missing identity never
+# falls back to a pid. Before KILL the tree is frozen: STOP what a read lists and read again until nothing new shows,
+# so a process that forks between the read and KILL cannot leave a child that no read listed.
+# Retry loops call again while KILL_LEFT is set: a read was refused or cut short, or KILL has not reached the last
+# identities read (KILL_SEEN, per root; callers clear KILL_ROOT for a new process), the root's orphans included. KILL
+# sent after such a read (what is left is a zombie) or a complete read listing nothing clears it. KILL_TRIES counts
+# the calls per root for kill_cap.
 kill_tree() {
   KILL_LEFT=
   [ -n "$1" ] || return 0
-  [ "${KILL_ROOT:-}" = "$1" ] || KILL_ROOT=$1 KILL_SEEN= KILL_MISS=0
+  [ "${KILL_ROOT:-}" = "$1" ] || KILL_ROOT=$1 KILL_SEEN= KILL_TRIES=0 KILL_GAVE_UP=
+  KILL_TRIES=$((KILL_TRIES + 1))
   if ! signalable "$1" || ! tree_pids "$1" "$KILL_SEEN"; then
-    signalable "$1" && [ -n "$KILL_SEEN" ] && [ -z "$TREE_DONE" ] && KILL_MISS=$((KILL_MISS + 1)) && KILL_LEFT=1
-    [ "$KILL_MISS" -lt 30 ] || KILL_LEFT=
+    signalable "$1" && [ -z "$TREE_DONE" ] && KILL_LEFT=1
     [ -n "$KILL_SEEN" ] && [ -n "$TREE_DONE" ] || echo "code-job: not signalling pid '$1': not a live child of this job" >&2
-    return 0
+    kill_cap "$1"; return 0
   fi
-  KILL_SEEN=$SNAPSHOT KILL_LEFT=1 KILL_MISS=0
+  KILL_SEEN=$SNAPSHOT KILL_LEFT=1
   kill -TERM $TREE 2>/dev/null
   sleep 1
-  if tree_pids "$1" "$KILL_SEEN"; then kill -KILL $TREE 2>/dev/null; KILL_LEFT=
-  elif [ -n "$TREE_DONE" ]; then KILL_LEFT=; fi
-  return 0
+  # The cache stays that of the read before TERM: a pid it holds with another identity must stay refused, not turn
+  # into a new child on the next round.
+  _kill_stopped=' '
+  for _kill_round in 1 2 3 4 5; do
+    tree_pids "$1" "$KILL_SEEN" || break
+    _kill_new=
+    for _kill_pid in $TREE; do case $_kill_stopped in *" $_kill_pid "*) ;; *) _kill_new="$_kill_new $_kill_pid" ;; esac; done
+    if [ -z "$_kill_new" ]; then kill -KILL $TREE 2>/dev/null; KILL_LEFT=; return 0; fi
+    kill -STOP $_kill_new 2>/dev/null; _kill_stopped="$_kill_stopped${_kill_new# } "
+  done
+  [ -n "$TREE_DONE" ] && KILL_LEFT=
+  kill_cap "$1"; return 0
+}
+
+# After 30 calls for one root with something left, KILL_LEFT is dropped, so retry loops end even when reads keep
+# failing or alternate with good ones. It fails safe: nothing unverified is signalled, a stopped process stays stopped,
+# and the pids last read are named once, on stderr and in $T/cleanup-incomplete (the job record's cleanup-incomplete).
+kill_cap() {
+  [ -n "$KILL_LEFT" ] && [ "$KILL_TRIES" -ge 30 ] || return 0
+  KILL_LEFT=
+  [ -z "$KILL_GAVE_UP" ] || return 0
+  KILL_GAVE_UP=1
+  _kill_left=$(printf '%s' "$KILL_SEEN" | awk 'NF == 9 { printf " %s", $1 }')
+  echo "code-job: gave up on the tree of pid $1 after $KILL_TRIES tries; nothing unverified was signalled; may be left:${_kill_left:- $1}" >&2
+  [ -z "${T:-}" ] || printf '%s:%s\n' "$1" "${_kill_left:- $1}" >> "$T/cleanup-incomplete"
 }
 
 release() {
@@ -323,6 +351,8 @@ finish() {
   printf '%s\n' "$VMODE" > "$JOB/verify-mode"
   printf '%s\n' "$TESTS" > "$JOB/tests-passed"
   printf '%s\n' "$EVIDENCE" > "$JOB/evidence"
+  # Only when kill_tree gave up on a tree: its root and the pids last read, which may still be alive.
+  [ -s "$T/cleanup-incomplete" ] && cp "$T/cleanup-incomplete" "$JOB/cleanup-incomplete"
   : > "$JOB/ready"
   if [ -f "$MSG" ]; then
     /bin/sh "$MSG" --retry >/dev/null 2>&1 || echo "code-job: wake pending in $JOB" >&2
@@ -333,6 +363,7 @@ finish() {
   sk=${SKIPPED#, }
   line="code-job: $AGENT $word · waited ${WAITED}s · ran ${RAN}s · peak $(( (PEAK + 1023) / 1024 )) MB"
   [ -n "$sk" ] && line="$line · skipped $sk"
+  [ -f "$JOB/cleanup-incomplete" ] && line="$line · cleanup incomplete"
   if [ -z "$LOGGED" ]; then
     LOGGED=1
     read_output date -u +%Y-%m-%dT%H:%M:%SZ
@@ -344,9 +375,17 @@ finish() {
   exit "$rc"
 }
 
+# As in the watchdogs: the tree again a tick later while its root lives or kill_tree has something left, up to its cap.
+kill_tree_retrying() {
+  kill_tree "$1"
+  while { kill -0 "$1" 2>/dev/null || [ -n "$KILL_LEFT" ]; } && [ "${KILL_TRIES:-0}" -lt 30 ]; do
+    sleep "${CODE_JOB_TICK:-1}"; kill_tree "$1"
+  done
+}
+
 interrupted() {
   trap '' INT TERM
-  kill_tree "$MPID"; kill_tree "$APID"; kill_tree "$VPID"
+  kill_tree_retrying "$MPID"; kill_tree_retrying "$APID"; kill_tree_retrying "$VPID"
   signalable "$O1" && kill "$O1" 2>/dev/null; signalable "$O2" && kill "$O2" 2>/dev/null
   finish "$1" interrupted
 }

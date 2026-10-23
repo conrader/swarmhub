@@ -63,14 +63,17 @@ case $(command -V kill) in *function*) ;; *) echo "kill is not the recorder" >&2
 '''
 
 
-def run_shell(body, shell="sh"):
+def run_shell(body, shell="sh", stops=False):
     with tempfile.TemporaryDirectory() as d:
         logfile = Path(d) / "kills"
-        script = HARNESS + functions("tree", "tree_pids", "signalable", "kill_tree") + body
+        script = HARNESS + functions("tree", "tree_pids", "signalable", "kill_tree", "kill_cap") + body
         proc = subprocess.run([shell, "-c", script, shell], env=dict(os.environ, LOG=str(logfile)),
                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
         assert proc.returncode != 99, proc.stderr
-        return proc, logfile.read_text() if logfile.exists() else ""
+        kills = logfile.read_text() if logfile.exists() else ""
+        if not stops:  # The freeze before KILL has its own test; the others read TERM and KILL.
+            kills = "".join(line for line in kills.splitlines(True) if not line.startswith("kill -STOP "))
+        return proc, kills
 
 
 class CodeJobKillTreeTests(unittest.TestCase):
@@ -113,6 +116,12 @@ class CodeJobKillTreeTests(unittest.TestCase):
         self.assertEqual(lines[1].split()[:2], ["kill", "-KILL"], kills)
         self.assertEqual(set(lines[1].split()[2:]), {"1500000001", "1500000002", "1500000003"}, kills)
         self.assertEqual(len(lines), 2, kills)
+
+    def test_the_tree_is_stopped_and_read_again_before_kill(self):
+        proc, kills = run_shell('kill_tree 1500000001; echo done=$?', stops=True)
+        self.assertIn("done=0", proc.stdout)
+        self.assertEqual([line.split()[1] for line in kills.splitlines()], ["-TERM", "-STOP", "-KILL"], kills)
+        self.assertEqual(set(kills.splitlines()[1].split()[2:]), {"1500000001", "1500000002", "1500000003"}, kills)
 
     def test_signalable_accepts_only_plain_pids_above_one_other_than_this_shell(self):
         proc, kills = run_shell(
@@ -166,7 +175,7 @@ class CodeJobKillTreeTests(unittest.TestCase):
         proc, kills = run_shell(
             'ps > "$LOG.ps1"; : > "$LOG.ps2"; echo 0 > "$LOG.n"\n'
             'awk \'$1 == 1500000001 { next } $1 == 1500000002 { $2 = 1 } { print }\' "$LOG.ps1" > "$LOG.ps3"\n'
-            'cp "$LOG.ps3" "$LOG.ps4"; awk \'$1 < 1500000001 || $1 > 1500000003\' "$LOG.ps1" > "$LOG.pslast"\n'
+            'cp "$LOG.ps3" "$LOG.ps4"; cp "$LOG.ps3" "$LOG.ps5"; awk \'$1 < 1500000001 || $1 > 1500000003\' "$LOG.ps1" > "$LOG.pslast"\n'
             'ps() { n=$(( $(cat "$LOG.n") + 1 )); echo $n > "$LOG.n"; cat "$LOG.ps$n" 2>/dev/null || cat "$LOG.pslast"; }\n'
             'for i in 1 2 3; do kill_tree 1500000001; echo "left$i=$KILL_LEFT"; done\n')
         self.assertEqual(proc.stdout.split(), ["left1=1", "left2=", "left3="], proc.stderr)

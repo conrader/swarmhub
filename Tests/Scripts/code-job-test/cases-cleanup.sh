@@ -1,11 +1,11 @@
 # Part of Tests/Scripts/code-job-test.sh, which sources it; not a runnable script by itself.
-# Cases 24-26: process identity reads and kill_tree retries at a deadline.
+# Cases 24-30: process identity reads, kill_tree retries at a deadline or an interrupt, late forks and the retry cap.
 
 # 24
 case_24() {
 new_case "interrupted reads retry; exhausted process identities signal nothing"
 # Exercise the shipped functions with deterministic empty reads, without sending real signals.
-sed -n '/^now() {/,/^}/p; /^read_output() {/,/^}/p; /^tree_pids() {/,/^}/p; /^signalable() {/,/^}/p; /^kill_tree() {/,/^}/p' "$JOB" > "$C/functions"
+sed -n '/^now() {/,/^}/p; /^read_output() {/,/^}/p; /^tree_pids() {/,/^}/p; /^signalable() {/,/^}/p; /^kill_tree() {/,/^}/p; /^kill_cap() {/,/^}/p' "$JOB" > "$C/functions"
 cat > "$C/check-reads" <<'READS'
 . "$1/functions"
 C=$1
@@ -112,5 +112,135 @@ expect "exit 124 (got $RC)" [ "$RC" -eq 124 ]
 expect "stopped soon after 1 s (took ${took}s)" [ "$took" -lt 30 ]
 expect "agent pid gone" sh -c "! kill -0 $(cat "$C/state/claude.pid") 2>/dev/null"
 expect "TERM-ignoring child gone" sh -c "! kill -0 $(cat "$C/state/claude.child") 2>/dev/null"
+done_case
+}
+
+# 27
+case_27() {
+new_case "every identity read after TERM is refused: retries stop at the cap, nothing unverified is signalled, the pids are named" claude codex
+mode claude tree; mode codex ok; with_control
+# The shim passes the first identity read (TERM goes out, and the agent and its child exit on it) and refuses every
+# later one, so code-job can never confirm the tree is gone. It must give up at the cap and say which pids it read.
+cat > "$C/bin/ps" <<'PS'
+#!/bin/sh
+case "$*" in *sess=*) mkdir "$STUB_STATE/ps-read-1" 2>/dev/null || exit 0 ;; esac
+exec /bin/ps "$@"
+PS
+chmod 755 "$C/bin/ps"
+t0=$(date +%s)
+managed --bot jarvis --order claude,codex --timeout 1 --dir "$C/work" -- "$TASK"; RC=$?
+took=$(( $(date +%s) - t0 ))
+agent=$(cat "$C/state/claude.pid") child=$(cat "$C/state/claude.child")
+expect "exit 124 (got $RC)" [ "$RC" -eq 124 ]
+expect "retries ended at the cap (took ${took}s)" [ "$took" -lt 60 ]
+expect "gave up on stderr" has "$C/err" "code-job: gave up on the tree of pid $agent"
+left=" $(rec cleanup-incomplete) "
+expect "record names the agent (got '$left')" sh -c 'case $1 in " $2:"*" $2 "*) exit 0 ;; esac; exit 1' - "$left" "$agent"
+expect "record names the agent's child (got '$left')" sh -c 'case $1 in *" $2 "*) exit 0 ;; esac; exit 1' - "$left" "$child"
+line_matches "cleanup incomplete" "summary line names the incomplete cleanup"
+expect "agent pid gone (it exited on TERM)" sh -c "! kill -0 $agent 2>/dev/null"
+expect "agent's child gone (it exited on TERM)" sh -c "! kill -0 $child 2>/dev/null"
+done_case
+}
+
+# 28
+case_28() {
+new_case "children forked after a read are caught: an orphan's new child, and a fork between the read and KILL"
+# The shipped functions against a scripted process table; signals are recorded, never sent.
+sed -n '/^tree() {/,/^}/p; /^tree_pids() {/,/^}/p; /^signalable() {/,/^}/p; /^kill_tree() {/,/^}/p; /^kill_cap() {/,/^}/p' "$JOB" > "$C/functions"
+cat > "$C/check-forks" <<'FORKS'
+. "$1/functions"
+C=$1
+kill() { printf '%s\n' "$*" >> "$C/kills"; }
+row() { printf '%s %s 700 800 Wed Oct 21 12:00:0%s 2026\n' "$1" "$2" "${3:-0}"; }
+# 1. TERM ends the root, the read before KILL is refused, then the orphaned child forks: the next call must walk it.
+phase=initial
+sleep() { case $phase in initial) phase=unreadable ;; esac; }
+ps() {
+  [ "$phase" != unreadable ] || return 0
+  row 1 0; row $$ 1
+  if [ "$phase" = initial ]; then row 1500000001 $$; row 1500000002 1500000001
+  else row 1500000002 1; row 1500000003 1500000002 1; fi
+}
+kill_tree 1500000001
+[ -n "$KILL_LEFT" ] || exit 1
+phase=orphan
+kill_tree 1500000001
+grep -qx -- '-KILL 1500000002 1500000003' "$C/kills" || exit 2
+[ -z "$KILL_LEFT" ] || exit 3
+# 2. The child forks after the read that would have preceded KILL: a later read lists the new child, which is KILLed.
+: > "$C/kills"; KILL_ROOT=; echo 0 > "$C/reads"
+sleep() { :; }
+ps() {
+  n=$(cat "$C/reads"); n=$((n + 1)); echo "$n" > "$C/reads"
+  row 1 0; row $$ 1; row 1500000011 $$; row 1500000012 1500000011
+  [ "$n" -le 2 ] || row 1500000013 1500000012 1
+}
+kill_tree 1500000011
+grep -qx -- '-TERM 1500000011 1500000012' "$C/kills" || exit 4
+grep -qx -- '-KILL 1500000011 1500000012 1500000013' "$C/kills" || exit 5
+# Nothing is KILLed before every listed process is stopped and a read finds nothing new.
+awk '$1 == "-KILL" { k = NR } $1 == "-STOP" && / 1500000013/ { s = NR } END { exit !(s && k > s) }' "$C/kills" || exit 6
+[ -z "$KILL_LEFT" ] || exit 7
+FORKS
+if over_limit; then RC=125; else "$SH" "$C/check-forks" "$C" > "$C/out" 2> "$C/err"; RC=$?; fi
+expect "late children are caught (got $RC; signals: $(tr '\n' ',' < "$C/kills" 2>/dev/null))" [ "$RC" -eq 0 ]
+done_case
+}
+
+# 29
+case_29() {
+new_case "an interrupted job retries refused identity reads: the agent and its child are still gone" claude codex
+mode claude tree; mode codex ok; with_control
+# interrupted() reads the watchdog's tree first, then the agent's: the shim refuses both first reads.
+cat > "$C/bin/ps" <<'PS'
+#!/bin/sh
+case "$*" in *sess=*) mkdir "$STUB_STATE/ps-failed-1" 2>/dev/null && exit 0; mkdir "$STUB_STATE/ps-failed-2" 2>/dev/null && exit 0 ;; esac
+exec /bin/ps "$@"
+PS
+chmod 755 "$C/bin/ps"
+managed --bot jarvis --order claude,codex --timeout 60 --dir "$C/work" -- "$TASK" &
+runner=$!
+i=0; while [ ! -s "$C/state/claude.child" ] && [ "$i" -lt 200 ]; do sleep 0.05; i=$((i + 1)); done
+expect "agent started" [ -s "$C/state/claude.child" ]
+pid=$(cat "$C/home/.hermes/swarmhub/job-completions/"job.*/pid 2>/dev/null)
+own_pid "$pid" "$JOB" && kill -TERM "$pid"
+wait "$runner"; RC=$?
+agent=$(cat "$C/state/claude.pid") child=$(cat "$C/state/claude.child")
+expect "exit 143 (got $RC)" [ "$RC" -eq 143 ]
+expect "shim refused two reads" [ -d "$C/state/ps-failed-2" ]
+i=0; while { kill -0 "$agent" 2>/dev/null || kill -0 "$child" 2>/dev/null; } && [ "$i" -lt 40 ]; do sleep 0.05; i=$((i + 1)); done
+expect "agent pid gone" sh -c "! kill -0 $agent 2>/dev/null"
+expect "agent's child gone" sh -c "! kill -0 $child 2>/dev/null"
+expect "job interrupted" [ "$(rec status)" = interrupted ]
+done_case
+}
+
+# 30
+case_30() {
+new_case "identity reads that alternate between good and refused still end the retries at the cap"
+sed -n '/^tree() {/,/^}/p; /^tree_pids() {/,/^}/p; /^signalable() {/,/^}/p; /^kill_tree() {/,/^}/p; /^kill_cap() {/,/^}/p' "$JOB" > "$C/functions"
+cat > "$C/check-alternating" <<'ALT'
+. "$1/functions"
+C=$1 T=$1/t
+mkdir -p "$T"
+kill() { printf '%s\n' "$*" >> "$C/kills"; }
+sleep() { :; }
+# Every odd read lists the root and its child; every even read (the one before KILL) is refused.
+echo 0 > "$C/reads"
+ps() {
+  n=$(cat "$C/reads"); n=$((n + 1)); echo "$n" > "$C/reads"
+  [ $((n % 2)) -eq 1 ] || return 0
+  printf '%s 700 800 Wed Oct 21 12:00:00 2026\n' "1 0" "$$ 1" "1500000021 $$" "1500000022 1500000021"
+}
+calls=1; kill_tree 1500000021
+while [ -n "$KILL_LEFT" ] && [ "$calls" -lt 200 ]; do kill_tree 1500000021; calls=$((calls + 1)); done
+[ "$calls" -le 30 ] || exit 1
+! grep -q -- '^-KILL' "$C/kills" || exit 2
+grep -qx -- '1500000021: 1500000021 1500000022' "$T/cleanup-incomplete" || exit 3
+ALT
+if over_limit; then RC=125; else "$SH" "$C/check-alternating" "$C" > "$C/out" 2> "$C/err"; RC=$?; fi
+expect "alternating reads end at the cap, named (got $RC)" [ "$RC" -eq 0 ]
+expect "gave up on stderr" has "$C/err" "code-job: gave up on the tree of pid 1500000021"
 done_case
 }
