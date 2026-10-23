@@ -107,7 +107,8 @@ ln -s /bin/sleep "$C/work/verification-sleeper"
 sleepers() { ps -A -o args= 2>/dev/null | grep -Fxc -- "$C/work/verification-sleeper 59.37"; }
 CASE_VERIFY="\"$C/work/verification-sleeper\" 59.37 & wait"; job --bot jarvis --order codex --dir "$C/work" -- "$TASK" &
 runner=$!
-i=0; while [ "$(sleepers)" -eq 0 ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+# Up to 20 s: the full Swift suite runs this beside the other shards, and 5 s was not always enough on the Mac.
+i=0; while [ "$(sleepers)" -eq 0 ] && [ "$i" -lt 400 ]; do sleep 0.05; i=$((i + 1)); done
 expect "verification started" [ "$(sleepers)" -gt 0 ]
 pid=$(cat "$C/home/.hermes/swarmhub/job-completions/"job.*/pid 2>/dev/null)
 own_pid "$pid" "$JOB" && kill -TERM "$pid"
