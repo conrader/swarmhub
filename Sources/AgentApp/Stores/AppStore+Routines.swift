@@ -114,6 +114,8 @@ extension AppStore {
         routinePollTask = Task { [weak self] in
             while !Task.isCancelled, let store = self {
                 await store.pollRoutinesOnce()
+                await store.reclaimHandoffs()
+                await store.renewAlertPresenceIfDue()
                 await store.pollBotMessagesOnce()
                 await store.pollLiveRowsOnce()
                 await store.orientationPassIfDue()

@@ -1,0 +1,163 @@
+import Foundation
+
+/// When SwarmHub quits, a running `/loop` or `/goal` in a bot's Bot Chat keeps going on its box: one Hermes routine per
+/// chat (`swarmhub-loop-<chat id>` / `swarmhub-goal-<chat id>`, deliver `bot-chat:<profile>`). Like a heartbeat, its run
+/// only repeats the prompt, and Hermes hands that to the Bot Chat for a full turn, so the bot works with the chat's
+/// context. At the next launch SwarmHub pauses the routine first (nothing runs after that), reads the box's turns into the
+/// chat, counts the rounds, deletes the routine and drives the loop or goal itself again. Without a jobs API, a Bot Chat or
+/// a reachable box at quit, the loop or goal stays in the app and waits for it, as before (threads and groups always do).
+extension AppStore {
+    /// A goal on the box gets a round every 15 minutes (in the app the next round follows each reply).
+    static let goalBoxInterval: TimeInterval = 900
+
+    struct HandoffPlan: Sendable {
+        let id: UUID, client: HermesJobsClient, name: String, schedule: String, prompt: String, deliver: String, times: Int?
+        let kind: AutomationKind
+    }
+
+    static func handoffName(_ kind: AutomationKind, chat id: UUID) -> String { "swarmhub-\(kind.rawValue)-\(id.uuidString.prefix(8).lowercased())" }
+
+    /// The routine's own run only repeats the text; the Bot Chat turn it is handed to does the work.
+    static func handoffPrompt(_ text: String) -> String {
+        "Reply with exactly the text between the two lines below, without the lines and without adding anything.\n-----\n\(text)\n-----"
+    }
+
+    func handoffPlans(now: Date) -> [HandoffPlan] {
+        automations.compactMap { entry -> HandoffPlan? in
+            let (id, automation) = (entry.key, entry.value)
+            guard automation.boxHandoff == nil, let (bot, conversation) = automationConversation(id), conversation.id == bot.id,
+                  bot.backend == .hermes, hasBotChat(bot), botChatConflict(bot) == nil, routines.state(for: bot.id).hasJobsAPI,
+                  let client = try? jobsClient(for: bot) else { return nil }
+            let deliver = HeartbeatPlan.delivery(profile(of: bot))
+            if let loop = automation.loop, !loop.paused, loop.timesLeft.map({ $0 > 0 }) ?? true {
+                let minutes = max(1, Int((loop.interval / 60).rounded()))
+                return HandoffPlan(id: id, client: client, name: Self.handoffName(.loop, chat: id), schedule: "every \(minutes)m",
+                                   prompt: Self.handoffPrompt(loop.message), deliver: deliver, times: loop.timesLeft, kind: .loop)
+            }
+            if let goal = automation.goal, goal.state == .running {
+                let rounds = min(goal.maxRounds - goal.round, Int(goal.deadline.timeIntervalSince(now) / Self.goalBoxInterval))
+                guard rounds > 0 else { return nil }
+                return HandoffPlan(id: id, client: client, name: Self.handoffName(.goal, chat: id),
+                                   schedule: "every \(Int(Self.goalBoxInterval / 60))m", prompt: Self.handoffPrompt(GoalProtocol.boxContinuation(goal)),
+                                   deliver: deliver, times: rounds, kind: .goal)
+            }
+            return nil
+        }
+    }
+
+    /// Quit (before the final save): hands loops and goals to their boxes and ends the presence leases. The requests run
+    /// on a detached task; the main thread waits at most `budget` seconds. A handoff is saved before its request, so a
+    /// routine the box created after the wait gave up is still found (by name) and taken back at launch.
+    func handOffForQuit(budget: TimeInterval = 4) {
+        let plans = handoffPlans(now: now()), endings = presenceEndings
+        guard !plans.isEmpty || !endings.isEmpty else { return }
+        let stamp = now()
+        for plan in plans { automations[plan.id]?.boxHandoff = BoxHandoff(kind: plan.kind, jobName: plan.name, jobID: nil, handedAt: stamp) }
+        if !plans.isEmpty { flushNow() }
+        let created = LockedValue<[UUID: String]>([:]), done = DispatchSemaphore(value: 0)
+        Task.detached {
+            let ids = await withTaskGroup(of: (UUID, String)?.self) { group -> [UUID: String] in
+                for plan in plans {
+                    group.addTask {
+                        guard let job = try? await plan.client.create(name: plan.name, schedule: plan.schedule, prompt: plan.prompt,
+                                                                      deliver: plan.deliver, repeat: plan.times) else { return nil }
+                        return (plan.id, job.id)
+                    }
+                }
+                for ending in endings {
+                    group.addTask { _ = try? await ending.client.update(ending.id, prompt: PresenceLease.prompt(until: .distantPast)); return nil }
+                }
+                var found: [UUID: String] = [:]
+                for await result in group { if let result { found[result.0] = result.1 } }
+                return found
+            }
+            _ = created.swap(ids)
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + budget)
+        for (id, jobID) in created.current { automations[id]?.boxHandoff?.jobID = jobID }
+    }
+
+    /// Each routine poll tick until none is left: takes back what was handed to a box. A box that cannot be reached keeps
+    /// it (nothing runs here meanwhile, so nothing runs twice) and the next tick tries again.
+    func reclaimHandoffs() async {
+        for (id, automation) in automations {
+            guard let handoff = automation.boxHandoff, boxAlerts.reclaiming.insert(id).inserted else { continue }
+            await reclaim(handoff, chat: id)
+            boxAlerts.reclaiming.remove(id)
+        }
+    }
+
+    func reclaim(_ handoff: BoxHandoff, chat id: UUID) async {
+        guard let (bot, conversation) = automationConversation(id) else { automations[id] = nil; save(); return }
+        guard let client = try? jobsClient(for: bot) else { return }
+        var job: HermesJob?
+        do {
+            let rows = try await client.listAll()
+            job = rows.first { $0.id == handoff.jobID } ?? rows.first { $0.name == handoff.jobName }
+            if let found = job, !found.isPaused { job = try await client.pause(found.id) }
+            if let found = job { try await client.delete(found.id) }
+        } catch HermesJobsError.notFound {
+        } catch { return }
+        await reconcile(bot, reason: .schedule)
+        labelDeliveredRows(in: bot)
+        let replies = boxReplies(in: bot, jobName: handoff.jobName, after: handoff.handedAt)
+        automations[id]?.boxHandoff = nil
+        save()
+        let rounds = replies.count, lastRun = job?.lastRunAt.flatMap(RoutineTime.date)
+        switch handoff.kind {
+        case .loop: resumeLoop(in: conversation, bot: bot, rounds: rounds, last: replies.last, lastRun: lastRun)
+        case .goal: resumeGoal(in: conversation, bot: bot, rounds: rounds, last: replies.last)
+        case .heartbeat: break
+        }
+        pruneAutomations(conversation)
+    }
+
+    /// The bot's replies to the routine's deliveries since the handoff, oldest first.
+    func boxReplies(in bot: Bot, jobName: String, after: Date) -> [ChatMessage] {
+        let messages = bot.messages
+        var replies: [ChatMessage] = []
+        for (index, row) in messages.enumerated() where row.role == .user && row.createdAt >= after.addingTimeInterval(-60)
+            && CronDeliveryRow.jobName(row.content) == jobName {
+            if let reply = messages[(index + 1)...].prefix(while: { $0.role != .user }).last(where: { $0.role == .assistant }) { replies.append(reply) }
+        }
+        return replies
+    }
+
+    private func resumeLoop(in conversation: any Conversation, bot: Bot, rounds: Int, last: ChatMessage?, lastRun: Date?) {
+        guard let loop = loop(in: conversation) else { return }
+        updateLoop(in: conversation) { run in
+            run.runs += rounds
+            if let left = run.timesLeft { run.timesLeft = max(0, left - rounds) }
+            run.awaitingReply = false
+            run.nextAt = max(now(), (lastRun ?? now()).addingTimeInterval(run.interval))
+        }
+        if rounds > 0 { commandLine(HandoffCopy.loopRan(rounds), in: conversation) }
+        if let until = loop.until, let last, LoopRun.loopDone(in: last.finalText) { endLoop(in: conversation, line: "Loop ended: \(until)."); return }
+        if let current = self.loop(in: conversation), current.timesLeft == 0 {
+            endLoop(in: conversation, line: "Loop finished after \(current.runs) \(current.runs == 1 ? "run" : "runs").")
+        }
+    }
+
+    private func resumeGoal(in conversation: any Conversation, bot: Bot, rounds: Int, last: ChatMessage?) {
+        guard goal(in: conversation)?.isActive == true else { return }
+        updateGoal(in: conversation) { $0.round += rounds; $0.awaitingReply = false }
+        if rounds > 0 { commandLine(HandoffCopy.goalRan(rounds), in: conversation) }
+        // The last box round's reply ends the goal (done, blocked) or the app sends the next round, as after any reply.
+        if let last {
+            updateGoal(in: conversation) { $0.awaitingReply = true }
+            goalTurnEnded(in: conversation, bot: bot, reply: last, outcome: TurnOutcome(state: .finished))
+        } else {
+            advanceGoal(in: conversation, bot: bot)
+        }
+    }
+}
+
+enum HandoffCopy {
+    static func loopRan(_ count: Int) -> String {
+        "While SwarmHub was closed, the box ran this loop \(count == 1 ? "once" : "\(count) times"). It runs here again now."
+    }
+    static func goalRan(_ count: Int) -> String {
+        "While SwarmHub was closed, the box ran \(count == 1 ? "one round" : "\(count) rounds") of this goal. It continues here now."
+    }
+}

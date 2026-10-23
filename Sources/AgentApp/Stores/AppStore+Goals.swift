@@ -89,7 +89,8 @@ extension AppStore {
 
     /// Sends the next round when the goal runs, the chat is free and online, and the budget allows.
     func advanceGoal(in conversation: any Conversation, bot: Bot) {
-        guard let goal = goal(in: conversation), goal.state == .running, !goal.awaitingReply, isIdle(conversation), !hasWaitingTurn(in: conversation) else { return }
+        guard let goal = goal(in: conversation), goal.state == .running, !goal.awaitingReply, isIdle(conversation), !hasWaitingTurn(in: conversation),
+              automations[conversation.id]?.boxHandoff?.kind != .goal else { return }
         if turns.pathDown { updateGoal(in: conversation) { $0.state = .paused; $0.pausedOffline = true }; return }
         if goal.budgetSpent(at: now()) {
             let why = goal.round >= goal.maxRounds ? "all \(goal.maxRounds) rounds used" : "the \(Self.hours(goal.maxDuration)) limit reached"

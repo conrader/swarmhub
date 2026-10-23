@@ -93,8 +93,11 @@ struct HermesJobsClient: Sendable {
     /// Identifies the server + profile, so bots sharing a profile are polled once.
     var identity: String { "\(backend.baseURL.absoluteString)|\(backend.profile)" }
 
-    /// Paused jobs are disabled, which `GET /api/jobs` hides unless `include_disabled` is set.
-    func list() async throws -> [HermesJob] {
+    /// Paused jobs are disabled, which `GET /api/jobs` hides unless `include_disabled` is set. The routines SwarmHub keeps
+    /// for itself (the presence lease, loops and goals handed to the box while it is closed) are not the user's: left out.
+    func list() async throws -> [HermesJob] { try await listAll().filter { !PresenceLease.isInternal($0.name) } }
+
+    func listAll() async throws -> [HermesJob] {
         do { return HermesJob.parseList(try await backend.jsonRequest(path: "api/jobs?include_disabled=true")) }
         catch BackendError.http(let code, _) where [404, 405, 501].contains(code) { throw HermesJobsError.noJobsAPI }
     }
@@ -103,8 +106,10 @@ struct HermesJobsClient: Sendable {
 
     /// `deliver: "local"` keeps the output on the box; the app reads it from the run's session. P46: a heartbeat passes
     /// `bot-chat:<profile>`.
-    func create(name: String, schedule: String, prompt: String, deliver: String = "local") async throws -> HermesJob {
-        let body: [String: Any] = ["name": name, "schedule": schedule, "prompt": prompt, "deliver": deliver]
+    /// `repeat`: run at most that many times (Hermes `create_job`; nil runs until stopped).
+    func create(name: String, schedule: String, prompt: String, deliver: String = "local", repeat times: Int? = nil) async throws -> HermesJob {
+        var body: [String: Any] = ["name": name, "schedule": schedule, "prompt": prompt, "deliver": deliver]
+        if let times { body["repeat"] = times }
         let (data, response) = try await backend.rawRequest(path: "api/jobs", method: "POST", body: body)
         if (response as? HTTPURLResponse)?.statusCode == 424 {
             let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]

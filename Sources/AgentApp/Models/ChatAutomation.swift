@@ -5,7 +5,19 @@ import Foundation
 /// Hermes routine per bot now (`AppStore+BotHeartbeat.swift`); a P45 `heartbeat` key in an older store.json is ignored.
 struct ChatAutomation: Codable, Equatable, Sendable {
     var goal: GoalRun?; var loop: LoopRun?
-    var isEmpty: Bool { goal == nil && loop == nil }
+    /// The loop or goal SwarmHub handed to the box when it quit, until it takes it back (kept after a stop, so the box's
+    /// routine is still deleted).
+    var boxHandoff: BoxHandoff?
+    var isEmpty: Bool { goal == nil && loop == nil && boxHandoff == nil }
+}
+
+/// A loop or goal running on the bot's box while SwarmHub is closed: the Hermes routine `swarmhub-loop|goal-<chat id>`
+/// (`AppStore+AutomationHandoff.swift`). `jobID` is nil when the quit ended before the box answered; the name finds it.
+struct BoxHandoff: Codable, Equatable, Sendable {
+    var kind: AutomationKind
+    var jobName: String
+    var jobID: String?
+    var handedAt: Date
 }
 
 /// Why SwarmHub started a turn the user didn't type (shown as "Woken by: goal").
@@ -104,6 +116,11 @@ enum GoalProtocol {
         {"op":"goal","status":"blocked","need":"<what you need>"}
         ```
         """
+    }
+
+    /// The round the box sends every 15 minutes while SwarmHub is closed (`AppStore+AutomationHandoff.swift`).
+    static func boxContinuation(_ goal: GoalRun) -> String {
+        "Continue toward the goal: \(goal.text)\(criteria(goal))\n(SwarmHub is closed; this comes every 15 minutes. End with the swarmhub goal block when done or blocked.)"
     }
 
     static func continuation(_ goal: GoalRun) -> String {

@@ -59,11 +59,12 @@ extension HermesBackend {
         return command
     }
 
-    /// The Webhooks section's one panel call (names and a key digest only, never a key), kept for exact call binding.
+    /// The Webhooks section's one panel call (names and a key digest only, never a key), and the Alerts pane's (settings
+    /// sealed to the box's key only), kept for exact call binding.
     static func webhookPanelCommand(_ args: Any?) -> String? {
         var object = args as? [String: Any]
         if object == nil, let text = args as? String { object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] }
-        guard let command = (object?["command"] ?? object?["cmd"]) as? String, WebhookCommand.matches(command) else { return nil }
+        guard let command = (object?["command"] ?? object?["cmd"]) as? String, WebhookCommand.matches(command) || AlertsCommand.matches(command) else { return nil }
         return command
     }
 

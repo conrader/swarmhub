@@ -29,6 +29,8 @@ import SwarmHubCore
     var managedHome: URL? = nil
     /// Test injection for the webhook panel call (`AppStore+WebhookTransport.swift`): argv after `swarmctl` → raw output.
     var webhookControl: (@MainActor (Bot, [String]) async throws -> String)?
+    /// Test injection for the Alerts pane's call (`AppStore+BoxAlerts.swift`), same shape as `webhookControl`.
+    var alertsControl: (@MainActor (Bot, [String]) async throws -> String)?
     @Published var secretRequest: SecretRequestPrompt?; var secretFolder: URL?
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false
@@ -125,6 +127,8 @@ import SwarmHubCore
     let technicalFolds = TechnicalFolds()
     let routines = RoutinesCache(); var routinePollTask: Task<Void, Never>?
     let webhooks = WebhooksCache()
+    /// Off-app alerts per server and the presence lease (`AppStore+BoxAlerts.swift`).
+    let boxAlerts = BoxAlertsCache()
     let approvalKeys: any DeviceApprovalKeyStore
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     /// P16: turn bookkeeping, the token autosave interval, the connectivity events and the reconcile timing (injectable).

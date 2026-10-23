@@ -67,7 +67,9 @@ enum SettingsLayout {
                         // P49: orientation for new bots (on/off, coordinator) and the quiet hours.
                         "orientation.newBots", "orientation.quietHours",
                         // Konrad 2026-10-22: the app icon (Light by default, Dark on request), apart from the theme.
-                        "appearance.appIcon"]
+                        "appearance.appIcon",
+                        // alerts2: each server's alerts while SwarmHub is closed (ntfy, email, test, service state).
+                        "alerts.offApp"]
 
     static let entries: [(id: String, home: Home)] = [
         ("connection.status", .simple), ("connection.test", .simple), ("connection.setup", .simple), ("you.name", .simple),
@@ -78,7 +80,7 @@ enum SettingsLayout {
         ("servers.namedProfiles", .advanced(.servers)), ("servers.testDiscover", .advanced(.servers)),
         ("servers.connectedProfiles", .advanced(.servers)), ("servers.reenterKey", .advanced(.servers)),
         ("servers.addFromBox", .advanced(.servers)), ("servers.grokBot", .advanced(.servers)), ("servers.openClaw", .advanced(.servers)),
-        ("alerts.perAgent", .advanced(.alerts)), ("alerts.avatarMotion", .advanced(.alerts)),
+        ("alerts.perAgent", .advanced(.alerts)), ("alerts.avatarMotion", .advanced(.alerts)), ("alerts.offApp", .advanced(.alerts)),
         ("models.roles", .advanced(.models)), ("review.perAgent", .advanced(.review)), ("computers.list", .advanced(.computers)),
         ("usage.table", .advanced(.usage)),
         // P36: the SwarmHub service address and the Reports inbox.
