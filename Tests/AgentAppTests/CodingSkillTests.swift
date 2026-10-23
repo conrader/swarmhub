@@ -244,7 +244,10 @@ private let codeJobShards = ["1 2 3 4 5 6", "7 25 26", "8 9", "10 11 12 13 14 15
 }
 
 @Test func codeJobShardsCoverEveryCaseOnce() throws {
-    let script = try String(contentsOf: repoRoot.appending(path: "Tests/Scripts/code-job-test.sh"), encoding: .utf8)
-    let defined = script.split(separator: "\n").filter { $0.hasPrefix("case_") && $0.hasSuffix("() {") }.count
+    // The runner sources its cases from Tests/Scripts/code-job-test/ (one file per theme).
+    let parts = repoRoot.appending(path: "Tests/Scripts/code-job-test")
+    let files = try FileManager.default.contentsOfDirectory(at: parts, includingPropertiesForKeys: nil).filter { $0.pathExtension == "sh" }
+    let lines = try files.flatMap { try String(contentsOf: $0, encoding: .utf8).split(separator: "\n") }
+    let defined = lines.filter { $0.hasPrefix("case_") && $0.hasSuffix("() {") }.count
     #expect(codeJobShards.flatMap { $0.split(separator: " ").map { Int($0)! } }.sorted() == Array(1...defined))
 }

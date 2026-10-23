@@ -100,6 +100,12 @@ class LifecycleRealGroupTests(unittest.TestCase):
         self.assertTrue(not state.strip() or state.strip().startswith("Z"), state)
 
 
+def shell_suite_text(name):
+    """A shell suite as one text: code-job-test.sh sources its setup, helpers and cases from Tests/Scripts/code-job-test/."""
+    parts = sorted((ROOT / "Tests/Scripts" / name[:-len(".sh")]).glob("*.sh"))
+    return "\n".join(path.read_text() for path in [ROOT / "Tests/Scripts" / name, *parts])
+
+
 class OwnPidTests(unittest.TestCase):
     """Tests/Scripts/own-pid.sh, sourced by code-job-test.sh and bot-msg-test.sh: a pid is signalled only when it is a
     live descendant of the shell (and, given one, runs the expected command). `kill` is a recorder here."""
@@ -151,7 +157,7 @@ own_pid "$child" || echo reaped-refused
 
     def test_every_kill_in_the_shell_suites_names_a_checked_or_spawned_pid(self):
         for name in ("code-job-test.sh", "bot-msg-test.sh"):
-            script = (ROOT / "Tests/Scripts" / name).read_text()
+            script = shell_suite_text(name)
             self.assertIn('. "$(dirname "$0")/own-pid.sh"', script, name)
             self.assertNotRegex(script, r"(?m)^own_pid\(\)", name)  # One definition, in own-pid.sh.
             for line in script.splitlines():
@@ -159,7 +165,7 @@ own_pid "$child" || echo reaped-refused
                     if "kill -0" in match.group(0) or line.lstrip().startswith("kill()"):
                         continue
                     self.assertTrue("own_pid" in line or match.group(1).strip('"') == "$runner", line)
-        code_job = (ROOT / "Tests/Scripts/code-job-test.sh").read_text()
+        code_job = shell_suite_text("code-job-test.sh")
         self.assertIn('own_pid "$pid" "$JOB" && kill -TERM "$pid"', code_job)  # A pid read from disk: code-job's.
         self.assertIn("own_pid \"$GW\" bot-msg-stub-gateway && kill", (ROOT / "Tests/Scripts/bot-msg-test.sh").read_text())
 
@@ -180,7 +186,7 @@ class VerificationSleeperTests(unittest.TestCase):
         completion = self.case / "home/.hermes/swarmhub/job-completions/job.fixture"
         completion.mkdir(parents=True)
         (completion / "pid").write_text("424242\n")
-        script = (ROOT / "Tests/Scripts/code-job-test.sh").read_text()
+        script = shell_suite_text("code-job-test.sh")
         self.body = script[script.index("case_22() {"):script.index("\n# 23\n")]
 
     def run_case(self, listings):
