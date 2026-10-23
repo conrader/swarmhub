@@ -5,6 +5,7 @@
 #   sh Tests/Scripts/code-job-test.sh <path/to/code-job>     CODE_JOB_SH = the shell that runs code-job (default /bin/sh)
 #   CODE_JOB_CASES="1 2 3"   only these cases (the Swift test runs shards in parallel); code-job gets short poll/tick values.
 #   CODE_JOB_TEST_LIMIT=300  fail the run if it is still going after this many seconds (below).
+#   CODE_JOB_STUB=<file>     another stand-in claude/codex (code-job-limit-check.sh uses one that never returns).
 
 # Sends signals: run only inside an isolated PID namespace (Linux) or the macOS signal guard; see sim/ISOLATION.md.
 /usr/bin/python3 -I -B "$(dirname "$0")/../../sim/sim_isolation.py" --check > /dev/null || exit 78  # absolute: PATH cannot fake it
@@ -43,17 +44,29 @@ PASSED=0 FAILED=0
 # Signals name only a live descendant of this shell (an empty, garbage or recycled pid must not be signalled).
 . "$(dirname "$0")/own-pid.sh" || exit 1
 # CODE_JOB_TEST_LIMIT=<s>: a run still going after that long fails fast instead of holding the suite (a code-job under
-# dash once sat ~20 min in a loaded full run). The running code-job, an own descendant whose command names this copy,
-# gets TERM, then KILL; no later case starts. The case cut short fails on its own checks, and the summary adds one FAIL.
+# dash once sat ~20 min in a loaded full run). Past the limit, no case and no code-job invocation starts (job_to and
+# case 24 check the flag), and until this shell exits the watchdog TERMs every running code-job (an own descendant
+# whose command names this copy), then KILLs any still there 5 s later, and sweeps again: one that started just as the
+# flag was set, or once KILL released the one before it, is stopped too. The shell exits only once a sweep finds none
+# (or after 30 s more). The case cut short fails on its own checks, and the summary adds one FAIL.
+over_limit() { [ -f "$ROOT/over-limit" ]; }
 if [ -n "${CODE_JOB_TEST_LIMIT:-}" ]; then
   (
     t0=$(date +%s)
     while [ $(( $(date +%s) - t0 )) -lt "$CODE_JOB_TEST_LIMIT" ]; do kill -0 $$ 2>/dev/null || exit 0; sleep 1; done
     : > "$ROOT/over-limit" || exit 0
-    running() { ps -A -o pid= -o args= 2>/dev/null | awk -v job="$JOB" 'index($0, job) { print $1 }'; }
-    for pid in $(running); do own_pid "$pid" "$JOB" && kill -TERM "$pid" 2>/dev/null; done
-    sleep 5
-    for pid in $(running); do own_pid "$pid" "$JOB" && kill -KILL "$pid" 2>/dev/null; done
+    # The path travels in the environment: an awk argv naming it would list awk itself as a running code-job.
+    running() { ps -A -o pid= -o args= 2>/dev/null | J="$JOB" awk 'index($0, ENVIRON["J"]) { print $1 }'; }
+    # All of them are checked before any is signalled: a code-job killed first would orphan its own subshells, which
+    # are then no longer this shell's descendants and would be left running.
+    owned() { for pid in $(running); do own_pid "$pid" "$JOB" && echo "$pid"; done; }
+    while kill -0 $$ 2>/dev/null; do
+      pids=$(owned); [ -z "$pids" ] || kill -TERM $pids 2>/dev/null
+      n=0; while [ -n "$(owned)" ] && [ $n -lt 5 ]; do sleep 1; n=$((n + 1)); done
+      pids=$(owned); [ -z "$pids" ] || kill -KILL $pids 2>/dev/null
+      if [ -n "$(owned)" ]; then rm -f "$ROOT/swept"; else : > "$ROOT/swept"; fi
+      sleep 1
+    done
   ) < /dev/null > /dev/null 2>&1 &
 fi
 TASK='Fix the failing test in calc.py'
@@ -63,7 +76,7 @@ export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
 export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 
-cp "$(dirname "$0")/code-job-stub.sh" "$ROOT/stub" || exit 1
+cp "${CODE_JOB_STUB:-$(dirname "$0")/code-job-stub.sh}" "$ROOT/stub" || exit 1
 
 # A fresh case: its own HOME, stub bin and work dir; $1 is the case name, then the stubs to put on PATH.
 new_case() {
@@ -86,6 +99,7 @@ job() { job_to "$C/out" "$C/err" "$@"; }
 managed() { job --task-id "$TASKID" --verify true "$@"; }
 job_to() {
   out=$1 err=$2; shift 2
+  if over_limit; then : > "$out"; echo "code-job-test: not started: over CODE_JOB_TEST_LIMIT" > "$err"; return 125; fi
   env HOME="$C/home" PATH="$C/bin:/usr/bin:/bin" STUB_STATE="$C/state" CODE_JOB_MODEL=synthetic-model CODE_JOB_REPORT="$C/work/REPORT.txt" CODE_JOB_POLL=0.2 CODE_JOB_TICK=0.25 CODE_JOB_VERIFY="${CASE_VERIFY-true}" ${CALLER_ENV:-} "$SH" "$JOB" "$@" > "$out" 2> "$err"
 }
 expect() { what=$1; shift; "$@" || PROBLEMS="$PROBLEMS; $what"; }
@@ -555,16 +569,17 @@ tree() { printf '%s\n' '1500000123 50 1500000123 1500000123 Wed Oct 21 12:00:00 
 kill_tree 1500000123
 [ ! -s "$C/kills" ] || exit 14
 READS
-"$SH" "$C/check-reads" "$C" > "$C/out" 2> "$C/err"; RC=$?
+if over_limit; then RC=125; else "$SH" "$C/check-reads" "$C" > "$C/out" 2> "$C/err"; RC=$?; fi
 expect "read retries and identity refusal pass (got $RC)" [ "$RC" -eq 0 ]
 done_case
 }
 
 for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24}; do
-  [ -f "$ROOT/over-limit" ] && break
+  over_limit && break
   "case_$n"
 done
-if [ -f "$ROOT/over-limit" ]; then
+if over_limit; then
+  rm -f "$ROOT/swept"; n=0; while [ ! -f "$ROOT/swept" ] && [ $n -lt 300 ]; do sleep 0.1; n=$((n + 1)); done
   echo "FAIL: time limit: still running after ${CODE_JOB_TEST_LIMIT}s, in \"$NAME\"; no later case ran"; FAILED=$((FAILED + 1))
 fi
 echo "code-job tests under $SH: $PASSED passed, $FAILED failed"
