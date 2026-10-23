@@ -272,9 +272,9 @@ tree_rss() {
 # TERM, then KILL, the tree under $1. Anything but this job's own child tree is refused with a line on stderr and
 # nothing is signalled. KILL rechecks start time, parent and PGID/session, including cached orphans. New descendants
 # are admitted only while the original root identity still matches; a missing identity never falls back to a pid.
-# Retry loops call again while KILL_LEFT is set: the last identities read (KILL_SEEN, per root; callers clear KILL_ROOT
-# for a new process) may still be alive, the root's orphans too. A complete read listing nothing clears it; 30 failed
-# reads in a row give up.
+# Retry loops call again while KILL_LEFT is set: KILL has not reached the last identities read (KILL_SEEN, per root;
+# callers clear KILL_ROOT for a new process), the root's orphans included. KILL sent to every listed pid (what is left
+# is a zombie) or a complete read listing nothing clears it; 30 failed reads in a row give up.
 kill_tree() {
   KILL_LEFT=
   [ -n "$1" ] || return 0
@@ -288,7 +288,7 @@ kill_tree() {
   KILL_SEEN=$SNAPSHOT KILL_LEFT=1 KILL_MISS=0
   kill -TERM $TREE 2>/dev/null
   sleep 1
-  if tree_pids "$1" "$KILL_SEEN"; then KILL_SEEN=$SNAPSHOT; kill -KILL $TREE 2>/dev/null
+  if tree_pids "$1" "$KILL_SEEN"; then kill -KILL $TREE 2>/dev/null; KILL_LEFT=
   elif [ -n "$TREE_DONE" ]; then KILL_LEFT=; fi
   return 0
 }
