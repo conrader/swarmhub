@@ -152,6 +152,7 @@ private final class BoxSessionRead: @unchecked Sendable {
     #expect(automation.boxHandoff?.lastError == HandoffCopy.notReconciled(.loop))
     #expect(automation.loop?.runs == 0 && automation.loop?.timesLeft == 3, "nothing counted, nothing resumed")
     #expect(bot.messages.filter { $0.content == HandoffCopy.notReconciled(.loop) }.count == 1, "said once")
+    #expect(bot.messages.filter { $0.content.hasPrefix("Hermes history was not merged") }.count == 1, "the reconcile's note too")
     #expect(!bot.messages.contains { $0.content == HandoffCopy.loopRan(1) })
 }
 
@@ -188,4 +189,20 @@ private final class BoxSessionRead: @unchecked Sendable {
     await store.reclaimHandoffs()
     let loop = try #require(store.automations[bot.id]?.loop)
     #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && loop.runs == 2 && loop.timesLeft == 1, "the box's count wins")
+}
+
+@Test @MainActor func aRunStillInFlightIsNeverDeletedWithinTheLongerWait() async throws {
+    let (store, bot, server, _, _) = handoffStore()
+    let name = AppStore.handoffName(.loop, chat: bot.id), handedAt = Date().addingTimeInterval(-1_800)
+    server.add(jobPayload(id: "0000000abc06", name: name, schedule: "every 10m"))
+    server.set("0000000abc06", ["fire_claim": ["by": "scheduler", "at": "2026-10-23T08:00:00+00:00"]])
+    store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "ping", interval: 600, timesLeft: 3, until: nil, nextAt: Date()),
+                                               boxHandoff: BoxHandoff(kind: .loop, jobName: name, jobID: "0000000abc06", handedAt: handedAt))
+    await store.reclaimHandoffs()
+    store.now = { Date().addingTimeInterval(AppStore.handoffSettle + 60) }
+    await store.reclaimHandoffs()
+    #expect(server.jobIDs == ["0000000abc06"] && store.automations[bot.id]?.boxHandoff != nil, "its round is not counted yet")
+    store.now = { Date().addingTimeInterval(3 * AppStore.handoffSettle + 60) }
+    await store.reclaimHandoffs()
+    #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil)
 }

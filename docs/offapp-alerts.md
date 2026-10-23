@@ -107,8 +107,9 @@ At launch, on every routine poll tick until none is left:
    turns cannot be merged, the routine stays on the box, paused, and the handoff stays. The chat says why, once. The
    next tick tries again.
 3. The box's rounds are counted: each delivery row since the handoff that has a reply. If a run is still in flight, or
-   Hermes counted more runs (`repeat.completed`) than the chat has replies, the app waits up to 20 minutes for them.
-   After that the box's count is used.
+   Hermes counted more runs (`repeat.completed`) than the chat has replies, the app waits up to 20 minutes for them
+   (an hour while a run is in flight: Hermes counts a run only after its delivery). After that the box's count is used.
+   A read that cannot merge keeps failing until the user stops the loop or goal; the chat line says so.
 4. The routine is deleted. Only then is the handoff cleared. A delete that fails keeps everything for the next tick.
 5. The loop's run count and `--times` are updated, and its next run is one interval after the box's last run. An
    `--until` met on the box ends the loop.

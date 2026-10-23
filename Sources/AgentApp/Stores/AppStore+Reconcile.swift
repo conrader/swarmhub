@@ -137,7 +137,8 @@ extension AppStore {
             report.diverged = plan.diverged && snapshot.contains { $0.role == .assistant && !$0.isEmpty }
             report.notMerged = true
             let note = "Hermes history was not merged because it diverges from this local conversation."
-            if unit.conversation.messages.last?.content != note { unit.conversation.messages.append(ChatMessage(role: .system, content: note)); report.changed = true }
+            // App-only lines after it (e.g. why a handoff waits) do not make it new again.
+            if unit.conversation.messages.last(where: { $0.metadata[SlashKey.line] == nil })?.content != note { unit.conversation.messages.append(ChatMessage(role: .system, content: note)); report.changed = true }
             return
         }
         apply(plan, snapshot: snapshot, to: unit, report: &report)

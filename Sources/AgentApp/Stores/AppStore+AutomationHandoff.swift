@@ -106,16 +106,19 @@ extension AppStore {
         var replies: [ChatMessage] = []
         if resumable {
             let report = await reconcile(bot, reason: .schedule, chatOnly: true)
-            if report.unreachable || !report.problems.isEmpty || report.notMerged {
+            if report.total == 0 || report.unreachable || !report.problems.isEmpty || report.notMerged {
                 return handoffBlocked(id, in: conversation, HandoffCopy.notReconciled(handoff.kind))
             }
             labelDeliveredRows(in: bot)
             replies = boxReplies(in: bot, jobName: handoff.jobName, after: handoff.handedAt)
-            let behind = (job?.runsCompleted ?? 0) > replies.count
-            if report.skipped || job?.isRunning == true || behind {
+            if report.skipped { return } // the chat is busy: read again next tick
+            let inFlight = job?.isRunning == true, behind = (job?.runsCompleted ?? 0) > replies.count
+            if inFlight || behind {
                 let since = handoff.waitingSince ?? now()
                 if handoff.waitingSince == nil { automations[id]?.boxHandoff?.waitingSince = since; save() }
-                if report.skipped || now().timeIntervalSince(since) < Self.handoffSettle { return }
+                // A run in flight is not counted yet (Hermes counts it after its delivery): deleting it then could run
+                // that round twice, so it gets far longer (a fire claim that never clears must not hold it forever).
+                if now().timeIntervalSince(since) < (inFlight ? 3 * Self.handoffSettle : Self.handoffSettle) { return }
             }
         }
         if let found = job {
@@ -136,7 +139,7 @@ extension AppStore {
         pruneAutomations(conversation)
     }
 
-    /// How long a reclaim waits for a box round in flight (or counted but not yet in the chat) before it continues anyway.
+    /// How long a reclaim waits for rounds the box counted but the chat lacks (a run in flight: three times this).
     static let handoffSettle: TimeInterval = 1_200
 
     /// The handoff stays (its routine paused on the box); a new reason is said once in the chat.
@@ -197,6 +200,6 @@ enum HandoffCopy {
         "SwarmHub can't reach the box to take this \(kind.rawValue) back yet. It stays on the box and SwarmHub tries again."
     }
     static func notReconciled(_ kind: AutomationKind) -> String {
-        "SwarmHub couldn't read this chat's history from the box, so this \(kind.rawValue) stays paused there and SwarmHub tries again."
+        "SwarmHub couldn't read this chat's history from the box, so this \(kind.rawValue) stays paused there and SwarmHub tries again. Stop the \(kind.rawValue) to end it."
     }
 }
