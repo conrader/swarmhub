@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.6.5 (build 30)
+
+- Dock icon: Light by default, independent of the theme; Settings → Appearance → App icon picks Dark.
+- Webhooks out of the box: a supervised loopback receiver per box account, a Webhooks pane with delete; signed installs and upgrades set up or restart the receiver.
+- Off-app alerts (swarmhub-messages 1.4.12): a per-server alerts pane; the box alerts on finished routines, code jobs, reports and webhook wakes (ntfy/email) while the app is closed. A `/loop` or `/goal` is handed to the box on quit and reclaimed when the app returns. See [off-app alerts](offapp-alerts.md).
+- Routine suggestions: a bot offers a routine for a repeated ask, as a normal chat message with quick replies.
+- Grok import: routines and connector requests imported staged and inert; one hardened single-pass secret filter.
+- swarmhub-coding 1.3.15: after a deadline, code-job's kill_tree retries every tick until the job's whole tree is gone, signalling only pids it verifies as its own. The version bump makes existing 1.3.14 installs update.
+- Ships without the embedded baseline (P1b pending), like 0.6.0–0.6.4. Release text: [releases/v0.6.5.md](releases/v0.6.5.md).
+
+## 0.6.4 (build 29)
 
 - New Hermes and OpenClaw bots receive only Swarm Hub's read-only default connectors (SB and the optional `default-connectors.json` policy). Creation uses a fresh stock backend profile/workspace instead of cloning a manager's config, `.env`, auth files or workspace. Non-default manager connectors and their credentials are never copied during creation. Hermes creation preserves the selected manager's model/provider login through a narrow credential transfer, without copying other provider or connector credentials. Existing bots are unchanged; missing or unsupported model auth fails before creation. Manager skill 1.5.1 updates older creation recipes.
 - Other manager connectors are explicitly opt-in for one bot through the connector config helper. The selected connector and its credentials are copied only into that bot's private config; unrelated connectors and credentials remain on the manager. Default aliases retain their read-only policy.
