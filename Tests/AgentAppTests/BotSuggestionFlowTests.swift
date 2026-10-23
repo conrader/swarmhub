@@ -292,6 +292,35 @@ import Testing
         #expect(unsure.schedule == "0 9 * * 1-5", "several times named: none is taken")
     }
 
+    /// recs1b-fix3: a reply that only names days ("Mon/Wed/Fri", "only on Tuesdays and Thursdays") is about the offer, so
+    /// the chat carries it as an answer and a later bare yes opens the editor on those days.
+    private func editorAfterDays(_ days: String) async throws -> (answer: ChatMessage, editor: RoutineDraft) {
+        let (store, bot) = repeatingStore()
+        _ = try #require(await store.suggestRoutineIfRepeated(bot: bot))
+        #expect(store.send(text: days, bot: bot, conversation: bot, replyToID: nil))
+        try await waitUntil { !store.anyTurnRunning }
+        let answer = try #require(bot.messages.last { $0.role == .user })
+        #expect(answer.metadata[SuggestionKey.answer] == "other" && answer.outgoingText.hasPrefix("(SwarmHub asked"))
+        #expect(store.send(text: "yes", bot: bot, conversation: bot, replyToID: nil))
+        try await waitUntil(timeout: .seconds(30)) { store.suggestions.editor != nil }
+        #expect(store.suggestionLedger.records.first?.state == .accepted)
+        return (answer, try #require(store.suggestions.editor))
+    }
+
+    @Test func namedDaysThenYesOpenTheEditorOnThoseDays() async throws {
+        let (answer, editor) = try await editorAfterDays("Mon/Wed/Fri")
+        #expect(answer.content == "Mon/Wed/Fri")
+        #expect(editor.schedule == "0 9 * * 1,3,5" && editor.when == "every Monday, Wednesday and Friday at 9:00" && !editor.weekdaysOnly)
+        #expect(editor.name == "Summarize my inbox" && editor.prompt == "Summarize my inbox")
+    }
+
+    @Test func onlyOnTuesdaysAndThursdaysThenYesOpensTheEditorOnThoseDays() async throws {
+        let (answer, editor) = try await editorAfterDays("only on Tuesdays and Thursdays")
+        #expect(answer.content == "only on Tuesdays and Thursdays")
+        #expect(editor.schedule == "0 9 * * 2,4" && editor.when == "every Tuesday and Thursday at 9:00" && !editor.weekdaysOnly)
+        #expect(editor.name == "Summarize my inbox" && editor.prompt == "Summarize my inbox")
+    }
+
     @Test func anotherSubjectIsNotAnAnswer() async throws {
         let backend = GroupBackend(name: "Ada")
         let (store, bot) = repeatingStore(backend: backend)

@@ -98,9 +98,11 @@ enum SuggestionAnswer: String, Sendable {
                                              "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "every", "instead",
                                              "earlier", "later", "routine", "schedule", "wording", "prompt", "rano", "wieczorem", "godzina", "codziennie"]
 
-    /// An `other` reply that talks about the offer: it names a time or a schedule word.
+    /// An `other` reply that talks about the offer: it names a time or a schedule word, or days or a time the offer parser
+    /// reads ("Mon/Wed/Fri", "only on Tuesdays and Thursdays").
     static func isAboutTheOffer(_ text: String) -> Bool {
         AskText.normalized(text).split(separator: " ").contains { word in scheduleWords.contains(String(word)) || word.first?.isNumber == true }
+            || OfferChange.days(in: text) != nil || !OfferChange.times(in: text).isEmpty
     }
 }
 
