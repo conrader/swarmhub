@@ -224,7 +224,10 @@ class OrdinaryVerifierTests(SandboxBase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('PermissionError', result.stderr)
         # Signalling the launcher's own parent (a host process) fails: invisible in a PID namespace, denied otherwise.
-        self.assertNotEqual(self.run_verify('kill -0 %d' % os.getpid()).returncode, 0)
+        probe = subprocess.Popen(['sleep', '30'])  # not os.getpid(): ns pid 1 is also the verifier's own init
+        self.addCleanup(probe.wait)
+        self.addCleanup(probe.kill)
+        self.assertNotEqual(self.run_verify('kill -0 %d' % probe.pid).returncode, 0)
         result = self.run_verify('cat %s' % shlex.quote(str(Path.home() / '.bashrc')))
         self.assertNotEqual(result.returncode, 0)
 

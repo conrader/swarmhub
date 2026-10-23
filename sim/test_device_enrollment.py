@@ -30,7 +30,8 @@ class OperatorGuardTests(Box):
         with patch.object(devices, 'ancestors', return_value=['bash', GATEWAY]):
             with self.assertRaises(devices.OperatorOnly):
                 devices.set_mode('required')
-        with patch.object(devices.subprocess, 'run', side_effect=lambda *a, **k: devices.subprocess.CompletedProcess(a, 1, '', '')):
+        with patch.object(devices.subprocess, 'run', side_effect=lambda *a, **k: devices.subprocess.CompletedProcess(a, 1, '', '')), \
+                patch.object(devices.os, 'getppid', return_value=4242):
             with self.assertRaisesRegex(devices.OperatorOnly, 'ancestry'):
                 devices.revoke(DEVICE)
         self.assertEqual(self.box_rows(), before)
