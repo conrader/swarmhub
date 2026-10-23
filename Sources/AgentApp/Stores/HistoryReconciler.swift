@@ -67,6 +67,8 @@ enum HistoryReconciler {
         var keepPolling: Set<UUID> = []
         /// An unpaired box turn is newer than the last paired one (Retry must not send by itself then).
         var newerUnmatched = false
+        /// Routines (by name) with a delivery turn on the box that was neither paired nor added.
+        var leftOut: Set<String> = []
         var isEmpty: Bool { edits.isEmpty && additions.isEmpty }
     }
 
@@ -274,20 +276,21 @@ enum HistoryReconciler {
         let pairedRows = Set(pairs.keys.flatMap { [local[$0].user?.id, local[$0].reply?.id].compactMap { $0 } })
         var midAdded = 0
         for box in server where !used.contains(box.index) {
-            if hasLocalTurns, let oldestPair, box.index < oldestPair { plan.counts.ignoredOld += 1; continue }
-            if hasLocalTurns && oldestPair == nil { continue }
-            guard additionsAllowed, !box.replyText.isEmpty || !isGroup(input.mode) else { continue }
-            if !Set(box.ids).isDisjoint(with: knownIDs) { continue }
+            let routine = box.user.flatMap { CronDeliveryRow.jobName($0.content) }, known = !Set(box.ids).isDisjoint(with: knownIDs)
+            func leaveOut() { if let routine, !known { plan.leftOut.insert(routine) } }
+            if hasLocalTurns, let oldestPair, box.index < oldestPair { plan.counts.ignoredOld += 1; leaveOut(); continue }
+            if hasLocalTurns && oldestPair == nil { leaveOut(); continue }
+            guard additionsAllowed, !box.replyText.isEmpty || !isGroup(input.mode) else { leaveOut(); continue }
+            if known { continue }
             // A routine's delivery is written on the box, so the Mac never holds an id-less copy of it: only a row that is
             // neither paired nor read from the box can be one (every round of a routine has the same text).
-            let delivery = box.user.map { CronDeliveryRow.jobName($0.content) != nil } ?? false
-            let candidatesForCopy = delivery ? input.local.filter { !pairedRows.contains($0.id) && $0.boxIDs.isEmpty } : input.local
-            if isDuplicate(box, local: candidatesForCopy, mode: input.mode) { plan.counts.ambiguous += 1; continue }
+            let candidatesForCopy = routine != nil ? input.local.filter { !pairedRows.contains($0.id) && $0.boxIDs.isEmpty } : input.local
+            if isDuplicate(box, local: candidatesForCopy, mode: input.mode) { plan.counts.ambiguous += 1; leaveOut(); continue }
             let localTime = box.time?.addingTimeInterval(-input.skew)
             let anchor = localTime.flatMap { time in input.local.last { $0.createdAt <= time } }
             let after = anchor?.id == input.local.last?.id ? nil : anchor?.id
             if after != nil {
-                guard midAdded < input.maxMidAdditions else { plan.counts.capped += 1; continue }
+                guard midAdded < input.maxMidAdditions else { plan.counts.capped += 1; leaveOut(); continue }
                 midAdded += 1
             }
             var rows: [NewRow] = []

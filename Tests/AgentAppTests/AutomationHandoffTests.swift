@@ -342,3 +342,47 @@ private func boxRound(_ box: BoxSession, job: String, reply: String, at date: Da
     #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && store.automations[bot.id]?.loop?.runs == 3)
     #expect(bot.messages.contains { $0.content == HandoffCopy.loopRan(2) })
 }
+
+@Test @MainActor func aLongHandoffIsReadToItsFirstRoundBeforeItIsTakenBack() async throws {
+    let (store, bot, server, _, _, box) = handoffStore()
+    let name = AppStore.handoffName(.loop, chat: bot.id), handedAt = Date().addingTimeInterval(-50_000)
+    sharedTurn(bot, box, ask: "keep an eye on the queue", reply: "On it.", at: handedAt.addingTimeInterval(-120))
+    // 45 rounds: 90 box rows, past the newest 60-row window an ordinary pass reads.
+    for round in 1...45 { boxRound(box, job: name, reply: "Queue depth \(round).", at: handedAt.addingTimeInterval(Double(round) * 600)) }
+    server.add(jobPayload(id: "0000000abc13", name: name, schedule: "every 10m", lastRunAt: "2026-10-23T09:00:00+00:00"))
+    server.set("0000000abc13", ["repeat": ["times": NSNull(), "completed": 45]])
+    store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "check the queue", interval: 600, timesLeft: nil, until: nil, nextAt: Date()),
+                                               boxHandoff: BoxHandoff(kind: .loop, jobName: name, jobID: "0000000abc13", handedAt: handedAt))
+    await store.reclaimHandoffs()
+    #expect(bot.messages.filter { CronDeliveryRow.jobName($0.content) == name }.count == 45 && bot.messages.contains { $0.content == "Queue depth 1." })
+    #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && store.automations[bot.id]?.loop?.runs == 45)
+}
+
+@Test @MainActor func aMissingSessionWithNoRoutineLeftOnTheBoxIsUnknownAndKept() async throws {
+    let (store, bot, _, _, _, box) = handoffStore()
+    box.status = 404
+    let name = AppStore.handoffName(.loop, chat: bot.id)
+    store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "ping", interval: 600, timesLeft: 3, until: nil, nextAt: Date()),
+                                               boxHandoff: BoxHandoff(kind: .loop, jobName: name, jobID: "0000000abc14", handedAt: Date().addingTimeInterval(-1_800)))
+    await store.reclaimHandoffs()
+    let automation = try #require(store.automations[bot.id])
+    #expect(automation.boxHandoff?.lastError == HandoffCopy.notReconciled(.loop) && automation.loop?.runs == 0, "the routine may have run and gone")
+}
+
+@Test @MainActor func aChatThatStaysBusyIsReadLaterAndPastTheWaitSaysSoOnce() async throws {
+    let (store, bot, server, _, host, _) = handoffStore()
+    let name = AppStore.handoffName(.loop, chat: bot.id)
+    server.add(jobPayload(id: "0000000abc15", name: name, schedule: "every 10m"))
+    store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "ping", interval: 600, timesLeft: 3, until: nil, nextAt: Date()),
+                                               boxHandoff: BoxHandoff(kind: .loop, jobName: name, jobID: "0000000abc15", handedAt: Date().addingTimeInterval(-1_800)))
+    let streaming = ChatMessage(role: .assistant, content: "…", isStreaming: true)
+    bot.messages.append(streaming)
+    await store.reclaimHandoffs()
+    #expect(store.automations[bot.id]?.boxHandoff?.lastError == nil, "busy: nothing said yet")
+    store.now = { Date().addingTimeInterval(AppStore.handoffSettle + 60) }
+    await store.reclaimHandoffs(); await store.reclaimHandoffs()
+    #expect(bot.messages.filter { $0.content == HandoffCopy.notReconciled(.loop) }.count == 1 && !requestLines(host).contains { $0.hasPrefix("DELETE ") })
+    bot.messages.removeAll { $0 === streaming } // the turn ended (its row is the box's to bring back)
+    await store.reclaimHandoffs()
+    #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil)
+}

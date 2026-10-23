@@ -106,14 +106,18 @@ extension AppStore {
         let resumable = handoff.kind == .loop ? loop(in: conversation) != nil : goal(in: conversation)?.isActive == true
         var replies: [ChatMessage] = []
         if resumable {
-            let report = await reconcile(bot, reason: .schedule, chatOnly: true)
-            if report.unreachable || !report.problems.isEmpty || report.notMerged || report.legacy {
+            // The whole session: a long handoff's rounds can reach past the newest windows.
+            let report = await reconcile(bot, reason: .schedule, full: true, chatOnly: true)
+            if report.unreachable || !report.problems.isEmpty || report.notMerged || report.legacy || report.leftOut.contains(handoff.jobName) {
                 return handoffBlocked(id, in: conversation, HandoffCopy.notReconciled(handoff.kind))
             }
-            if report.skipped { return } // the chat is busy: read again next tick
-            // Only a chat actually read and merged goes on, or one the box has no session for while the routine never
-            // ran (nothing of it can be missing). Anything else is unknown: kept, said, tried again.
-            let neverRan = job.map { !$0.isRunning && ($0.runsCompleted ?? 0) == 0 && $0.lastRunAt == nil } ?? true
+            if report.skipped { // the chat is busy: read again next tick; one that stays busy is said once
+                if waitClock(handoff, id) >= Self.handoffSettle { handoffBlocked(id, in: conversation, HandoffCopy.notReconciled(handoff.kind)) }
+                return
+            }
+            // Only a chat actually read and merged goes on, or one the box has no session for while its routine is there
+            // and never ran (nothing of it can be missing). Anything else is unknown: kept, said, tried again.
+            let neverRan = job.map { !$0.isRunning && ($0.runsCompleted ?? 0) == 0 && $0.lastRunAt == nil } ?? false
             guard report.total > 0, report.read == report.total, !report.missing || neverRan else {
                 return handoffBlocked(id, in: conversation, HandoffCopy.notReconciled(handoff.kind))
             }
@@ -121,9 +125,7 @@ extension AppStore {
             replies = boxReplies(in: bot, jobName: handoff.jobName, after: handoff.handedAt)
             let inFlight = job?.isRunning == true, behind = (job?.runsCompleted ?? 0) > replies.count
             if inFlight || behind {
-                let since = handoff.waitingSince ?? now()
-                if handoff.waitingSince == nil { automations[id]?.boxHandoff?.waitingSince = since; save() }
-                let waited = now().timeIntervalSince(since)
+                let waited = waitClock(handoff, id)
                 // A run in flight is not counted yet (Hermes counts it after its delivery): deleting it then could run that
                 // round twice, so it is never taken over. Past the long wait the chat says so once; a stop ends it.
                 if inFlight {
@@ -154,6 +156,13 @@ extension AppStore {
     /// How long a reclaim waits for rounds the box counted but the chat lacks (a run in flight is waited for as long as
     /// it runs; after three times this the chat says so).
     static let handoffSettle: TimeInterval = 1_200
+
+    /// How long this reclaim has been waiting (busy chat, a run in flight, rounds not in the chat yet); starts the clock.
+    private func waitClock(_ handoff: BoxHandoff, _ id: UUID) -> TimeInterval {
+        let since = handoff.waitingSince ?? now()
+        if handoff.waitingSince == nil { automations[id]?.boxHandoff?.waitingSince = since; save() }
+        return now().timeIntervalSince(since)
+    }
 
     /// The handoff stays (its routine paused on the box); a new reason is said once in the chat.
     private func handoffBlocked(_ id: UUID, in conversation: any Conversation, _ reason: String) {
@@ -213,7 +222,7 @@ enum HandoffCopy {
         "SwarmHub can't reach the box to take this \(kind.rawValue) back yet. It stays on the box and SwarmHub tries again."
     }
     static func stillRunning(_ kind: AutomationKind) -> String {
-        "The box has been running a round of this \(kind.rawValue) for over an hour. SwarmHub waits for it to finish before taking the \(kind.rawValue) back, so nothing runs twice. Stop the \(kind.rawValue) to end it."
+        "The box is still running a round of this \(kind.rawValue). SwarmHub waits for it to finish before taking the \(kind.rawValue) back, so nothing runs twice. Stop the \(kind.rawValue) to end it."
     }
     static func notReconciled(_ kind: AutomationKind) -> String {
         "SwarmHub couldn't read this chat's history from the box, so this \(kind.rawValue) stays paused there and SwarmHub tries again. Stop the \(kind.rawValue) to end it."
