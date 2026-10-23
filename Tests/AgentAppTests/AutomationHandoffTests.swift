@@ -197,7 +197,7 @@ private func boxRound(_ box: BoxSession, job: String, reply: String, at date: Da
     #expect(bot.messages.contains { $0.content == HandoffCopy.loopRan(2) })
 }
 
-@Test @MainActor func aRoundWhoseReplyNeverArrivesStillCountsFromTheBoxAfterTheWait() async throws {
+@Test @MainActor func roundsWhoseRepliesNeverArriveKeepTheRoutinePastTheWaitUntilTheUserTakesItOver() async throws {
     let (store, bot, server, _, _, box) = handoffStore()
     let name = AppStore.handoffName(.loop, chat: bot.id), handedAt = Date().addingTimeInterval(-1_800)
     server.add(jobPayload(id: "0000000abc05", name: name, schedule: "every 10m"))
@@ -205,9 +205,17 @@ private func boxRound(_ box: BoxSession, job: String, reply: String, at date: Da
     store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "ping", interval: 600, timesLeft: 3, until: nil, nextAt: Date()),
                                                boxHandoff: BoxHandoff(kind: .loop, jobName: name, jobID: "0000000abc05", handedAt: handedAt))
     boxRound(box, job: name, reply: "first", at: handedAt.addingTimeInterval(600))
+    store.loopCommand("takeover", bot: bot, conversation: bot)
+    #expect(bot.messages.last?.content == HandoffCopy.nothingToTakeOver(.loop), "nothing is missing yet")
     await store.reclaimHandoffs()
     #expect(server.jobIDs == ["0000000abc05"] && store.automations[bot.id]?.boxHandoff != nil)
     store.now = { Date().addingTimeInterval(AppStore.handoffSettle + 60) }
+    await store.reclaimHandoffs(); await store.reclaimHandoffs()
+    // The missing round's reply could have met an --until: not taken over by itself; the chat says so once.
+    #expect(server.jobIDs == ["0000000abc05"] && store.automations[bot.id]?.loop?.runs == 0)
+    #expect(bot.messages.filter { $0.content == HandoffCopy.roundsMissing(.loop) }.count == 1)
+    store.loopCommand("takeover", bot: bot, conversation: bot)
+    #expect(bot.messages.last?.content == HandoffCopy.takingOver(.loop))
     await store.reclaimHandoffs()
     let loop = try #require(store.automations[bot.id]?.loop)
     #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && loop.runs == 2 && loop.timesLeft == 1, "the box's count wins")
@@ -238,6 +246,9 @@ private func boxRound(_ box: BoxSession, job: String, reply: String, at date: Da
     await store.reclaimHandoffs()
     #expect(server.jobIDs == ["0000000abc06"] && store.automations[bot.id]?.boxHandoff?.waitingFor == "behind", "the run's wait is not the reply's")
     store.now = { Date().addingTimeInterval(30 * 3_600 + AppStore.handoffSettle + 60) }
+    await store.reclaimHandoffs()
+    #expect(server.jobIDs == ["0000000abc06"] && store.automations[bot.id]?.boxHandoff?.lastError == HandoffCopy.roundsMissing(.loop))
+    store.loopCommand("takeover", bot: bot, conversation: bot)
     await store.reclaimHandoffs()
     #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && store.automations[bot.id]?.loop?.runs == 1)
 }
@@ -451,4 +462,23 @@ private func boxRound(_ box: BoxSession, job: String, reply: String, at date: Da
     #expect(server.jobIDs == ["0000000abc18"] && !requestLines(host).contains { $0.hasPrefix("DELETE ") }, "a finished reply is never extended")
     #expect(automation.boxHandoff?.lastError == HandoffCopy.notReconciled(.loop) && automation.loop?.runs == 0)
     #expect(bot.messages.filter { $0.content == HandoffCopy.notReconciled(.loop) }.count == 1)
+}
+
+@Test @MainActor func aGoalWithRoundsMissingPastTheWaitIsHeldAndAStopEndsItOnTheBox() async throws {
+    let (store, bot, server, _, _, box) = handoffStore()
+    let name = AppStore.handoffName(.goal, chat: bot.id), handedAt = Date().addingTimeInterval(-3_600)
+    server.add(jobPayload(id: "0000000abc19", name: name, schedule: "every 15m", lastRunAt: "2026-10-23T09:00:00+00:00"))
+    server.set("0000000abc19", ["repeat": ["times": 4, "completed": 2]])
+    store.automations[bot.id] = ChatAutomation(goal: GoalRun(text: "Write the release notes", maxRounds: 20, startedAt: Date(), maxDuration: 7200, codingEvidence: false),
+                                               boxHandoff: BoxHandoff(kind: .goal, jobName: name, jobID: "0000000abc19", handedAt: handedAt))
+    // Round 2's reply, which may hold the done block, is not in the session.
+    boxRound(box, job: name, reply: "Drafted.", at: handedAt.addingTimeInterval(900))
+    await store.reclaimHandoffs()
+    store.now = { Date().addingTimeInterval(AppStore.handoffSettle + 60) }
+    await store.reclaimHandoffs()
+    #expect(server.jobIDs == ["0000000abc19"] && store.automations[bot.id]?.goal?.round == 0 && store.automations[bot.id]?.goal?.state == .running)
+    #expect(store.automations[bot.id]?.boxHandoff?.lastError == HandoffCopy.roundsMissing(.goal) && bot.messages.last?.content == HandoffCopy.roundsMissing(.goal))
+    store.stopAutomations(in: bot)
+    await store.reclaimHandoffs()
+    #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && store.automations[bot.id]?.goal?.isActive != true, "stopped, not resumed")
 }

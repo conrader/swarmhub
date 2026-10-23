@@ -23,6 +23,8 @@ struct BoxHandoff: Codable, Equatable, Sendable {
     /// What the wait is for (`busy`, `running`, `behind`): a new reason starts the clock again.
     var waitingFor: String? = nil
     var lastError: String? = nil
+    /// The user took it over with rounds the chat lacks (`HandoffCopy.roundsMissing`): the box's count is used.
+    var takeOver: Bool? = nil
 }
 
 /// Why SwarmHub started a turn the user didn't type (shown as "Woken by: goal").

@@ -28,6 +28,7 @@ extension AppStore {
             updateGoal(in: conversation) { $0.state = .paused; $0.pausedOffline = false }
             commandLine("Goal paused. The current reply finishes; nothing more is sent until /goal resume.", in: conversation)
         case "resume": resumeGoal(bot: bot, conversation: conversation)
+        case "takeover" where automations[conversation.id]?.boxHandoff?.kind == .goal: takeOverHandoff(in: conversation)
         case "clear":
             guard goal(in: conversation) != nil else { commandLine("No goal in this chat.", in: conversation); return }
             automations[conversation.id]?.goal = nil; pruneAutomations(conversation)

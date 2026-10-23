@@ -104,7 +104,8 @@ At launch, on every routine poll tick until none is left:
 1. **Pause first.** No run starts after this point. A box that cannot be reached keeps the routine. Nothing runs in the
    app meanwhile, so nothing runs twice. The next tick tries again.
 2. The Bot Chat is read from the box, the whole session (this chat only, not its threads). The app goes on only when
-   that read happened and every delivery turn of this routine is in the chat, or when the box says it has no session
+   that read happened and every delivery turn of this routine is in the chat (a round paired with a reply here that
+   conflicts with the box's, or is shorter and finished, is not), or when the box says it has no session
    for the chat and the routine is there and never ran (no `repeat.completed`, no `last_run_at`, nothing in flight).
    Every round of a routine has the same text, so a turn read from the box earlier keeps its own box turn (by id), and a
    delivery is taken for a copy only of an unpaired, id-less row with its own text (never of a reply alone). A delivery
@@ -114,8 +115,10 @@ At launch, on every routine poll tick until none is left:
    paused, and the handoff stays. The chat says why, once. The next tick tries again. A chat that is busy is read on
    the next tick; one still busy after 20 minutes says so once.
 3. The box's rounds are counted: each delivery row since the handoff that has a reply. If Hermes counted more runs
-   (`repeat.completed`) than the chat has replies, the app waits up to 20 minutes for them; after that the box's count
-   is used. A run still in flight is never taken over, however long it runs: Hermes counts a run only after its
+   (`repeat.completed`) than the chat has replies, the app waits up to 20 minutes for them. After that the routine
+   stays paused on the box: a missing reply may hold an `--until` met or a goal's done block. The chat says so once and
+   offers `/loop takeover` (or `/goal takeover`), which continues here with the box's count, or a stop, which deletes
+   the routine. A run still in flight is never taken over, however long it runs: Hermes counts a run only after its
    delivery, so taking it back then could run that round twice. After an hour the chat says it is still waiting and
    that stopping the loop or goal ends it. A read that cannot merge keeps failing until the user stops the loop or
    goal; the chat line says so.

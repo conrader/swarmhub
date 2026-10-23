@@ -91,8 +91,9 @@ extension AppStore {
     /// Pauses the routine (no new round starts), reads the Bot Chat from the box and only then deletes the routine and
     /// continues here. A read that fails, did not happen (no session reads) or leaves the box's turns unmerged keeps the
     /// routine (paused) and the handoff, and says why in the chat; a busy chat is read next tick. A round still in flight
-    /// is waited for however long it runs; rounds the box counted that are not in the chat yet for `handoffSettle`. So
-    /// nothing runs twice and the counts are the box's.
+    /// is waited for however long it runs; rounds the box counted that are not in the chat yet for `handoffSettle`, and
+    /// past that until the user takes it over anyway (`/loop takeover`, `/goal takeover`) or stops it. So nothing runs
+    /// twice and the counts are the box's.
     func reclaim(_ handoff: BoxHandoff, chat id: UUID) async {
         guard let (bot, conversation) = automationConversation(id) else { automations[id] = nil; save(); return }
         guard let client = try? jobsClient(for: bot) else { return }
@@ -134,6 +135,9 @@ extension AppStore {
                     return
                 }
                 if waited < Self.handoffSettle { return }
+                // Past the wait the missing rounds' replies (an `--until` met, a goal's done block) are still unknown: the
+                // routine stays paused on the box until the user takes it over anyway (the box's count) or stops it.
+                if handoff.takeOver != true { return handoffBlocked(id, in: conversation, HandoffCopy.roundsMissing(handoff.kind)) }
             }
         }
         if let found = job {
@@ -142,7 +146,7 @@ extension AppStore {
         }
         automations[id]?.boxHandoff = nil
         save()
-        // The box's own count wins: a round it ran whose reply never reached the chat still counts.
+        // The box's own count wins: a round it ran whose reply never reached the chat (taken over anyway) still counts.
         let rounds = max(replies.count, job?.runsCompleted ?? 0), lastRun = job?.lastRunAt.flatMap(RoutineTime.date)
         if resumable {
             switch handoff.kind {
@@ -172,6 +176,16 @@ extension AppStore {
         guard automations[id]?.boxHandoff != nil, automations[id]?.boxHandoff?.lastError != reason else { return }
         automations[id]?.boxHandoff?.lastError = reason
         commandLine(reason, in: conversation)
+    }
+
+    /// `/loop takeover`, `/goal takeover`: after `roundsMissing`, the next tick takes it back with the box's count.
+    func takeOverHandoff(in conversation: any Conversation) {
+        guard let handoff = automations[conversation.id]?.boxHandoff else { return }
+        guard handoff.lastError == HandoffCopy.roundsMissing(handoff.kind) else {
+            commandLine(HandoffCopy.nothingToTakeOver(handoff.kind), in: conversation); return
+        }
+        automations[conversation.id]?.boxHandoff?.takeOver = true; save()
+        commandLine(HandoffCopy.takingOver(handoff.kind), in: conversation)
     }
 
     /// The bot's replies to the routine's deliveries since the handoff, oldest first.
@@ -226,6 +240,15 @@ enum HandoffCopy {
     }
     static func stillRunning(_ kind: AutomationKind) -> String {
         "The box is still running a round of this \(kind.rawValue). SwarmHub waits for it to finish before taking the \(kind.rawValue) back, so nothing runs twice. Stop the \(kind.rawValue) to end it."
+    }
+    static func roundsMissing(_ kind: AutomationKind) -> String {
+        "The box ran rounds of this \(kind.rawValue) whose replies aren't in the chat, so a reply that ended it may be missing. It stays paused on the box. Type /\(kind.rawValue) takeover to continue it here anyway, counting the box's rounds, or stop the \(kind.rawValue) to end it."
+    }
+    static func takingOver(_ kind: AutomationKind) -> String {
+        "SwarmHub takes this \(kind.rawValue) back from the box now, counting the rounds the box ran."
+    }
+    static func nothingToTakeOver(_ kind: AutomationKind) -> String {
+        "This \(kind.rawValue) is still on the box and SwarmHub is taking it back by itself; there is nothing to take over."
     }
     static func notReconciled(_ kind: AutomationKind) -> String {
         "SwarmHub couldn't read this chat's history from the box, so this \(kind.rawValue) stays paused there and SwarmHub tries again. Stop the \(kind.rawValue) to end it."
