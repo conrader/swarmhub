@@ -110,7 +110,8 @@ class Settings(AlertsBase):
         self.assertNotIn(TOKEN, text)
         self.assertNotIn(PASSWORD, text)
         self.assertEqual(answer["schema"], "swarmhub/alerts/1")
-        self.assertEqual(answer["config"], {"configured": True, "enabled": True, "window": True, "sinks": ["ntfy", "email"], "profiles": []})
+        self.assertEqual(answer["config"], {"configured": True, "enabled": True, "window": True, "sinks": ["ntfy", "email"], "profiles": [],
+                                            "revision": 1})
         self.assertEqual(answer["box_key"], public)
         self.assertTrue(answer["result"]["saved"])
         self.assertIn("no supported service manager", answer["result"]["error"])

@@ -89,13 +89,7 @@ def public_view(config):
         return {"configured": False, "enabled": False, "window": True, "sinks": [], "profiles": [], "revision": 0}
     return {"configured": True, "enabled": bool(config.get("enabled")), "window": bool(config.get("window", True)),
             "sinks": [name for name in ("ntfy", "email") if config.get(name)], "profiles": config.get("profiles", []),
-            "revision": revision(config)}
-
-
-def revision(config):
-    """recsfix3: how many times the settings were saved (0: never, or by a skill before 1.4.13's revision)."""
-    value = (config or {}).get("revision")
-    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+            "revision": seal.revision(config)}
 
 
 # MARK: state
@@ -449,19 +443,11 @@ def status(now=None):
 
 
 def configure(blob):
-    plain = seal.open_sealed(seal.box_key(paths()["folder"]), blob)
-    try:
-        raw = json.loads(plain.decode("utf-8"))
-    except ValueError:  # UnicodeDecodeError and JSONDecodeError both
-        raise ValueError("the sealed alert settings are not valid JSON") from None
-    config = validate(raw)
+    raw = seal.open_settings(seal.box_key(paths()["folder"]), blob)
     previous = load_config() or {}
-    # recsfix3: an automatic push of the app (`if_revision`) applies only over the settings it last saw; settings saved
-    # since, from another Mac, are newer and win. A save the user made (no `if_revision`) always applies.
-    expected = raw.get("if_revision") if isinstance(raw, dict) else None
-    if expected is not None and expected != revision(previous):
+    config = seal.revised(raw, validate(raw), previous)  # recsfix3: None over newer settings saved since (another Mac's)
+    if config is None:
         return {"saved": False, "stale": True}
-    config["revision"] = revision(previous) + 1
     if not config["enabled"]:
         pause_handoffs()
     write_private(paths()["config"], json.dumps(config, sort_keys=True).encode())
