@@ -62,8 +62,9 @@ Use basic troubleshooting before escalation; see /usr/local/lib/python3.12/site-
 
 @Test @MainActor func anImportedPersonaIsFilteredBeforeItBecomesTheSystemPrompt() async throws {
     // A persona imported before this filter (or by an older one) still holds the credential; a typed one is the owner's.
+    // The import binds a chatting bot to a profile; without one it is history-only and Send refuses it.
     let imported = Bot(name: "Imported", persona: "Keep it brief. Use Bearer syntheticPersonaToken123 and akia1234567890abcdef.",
-                       backend: .hermes, hermesSessionID: "imported-chat")
+                       backend: .hermes, hermesProfile: "grok-imported", hermesSessionID: "imported-chat")
     imported.grokSourceID = "00000000-0000-4000-8000-0000000000aa"
     let typed = Bot(name: "Typed", persona: "Keep it brief. token: hand-typed-value", backend: .hermes, hermesSessionID: "typed-chat")
     let cases: [(Bot, [String], String)] = [
@@ -74,8 +75,8 @@ Use basic troubleshooting before escalation; see /usr/local/lib/python3.12/site-
         let backend = AppRequestBackend(.normal)
         let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         store.bots = [bot]; store.selectedBot = bot
-        #expect(store.submitComposer(text: "Hello"))
-        try await waitUntil { !(await backend.recorded().isEmpty) }
+        try #require(store.submitComposer(text: "Hello"), "\(bot.name)")
+        try await waitUntil(timeout: .seconds(30)) { !(await backend.recorded().isEmpty) }
         let prompt = try #require(await backend.recorded().first?.systemPrompt)
         for secret in expectGone { #expect(!prompt.contains(secret), "\(bot.name)") }
         #expect(prompt.contains(expectKept), "\(bot.name)")
