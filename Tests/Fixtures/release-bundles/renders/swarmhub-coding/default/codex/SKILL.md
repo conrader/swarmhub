@@ -1,7 +1,7 @@
 ---
 name: swarmhub-coding
-description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v1.3.14."
-version: 1.3.14
+description: "Use for any coding task: writing or changing code, work in a repository, tests, pull requests. Hands the task to a coding agent (Claude Code, Codex) through SwarmHub's code-job queue; supersedes the claude-code, codex and opencode skills. Installed by SwarmHub, v1.3.15."
+version: 1.3.15
 author: SwarmHub
 metadata:
   swarmhub:

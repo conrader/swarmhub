@@ -12,7 +12,7 @@
      "note": "SKILL.md renders {{MANAGER_TEXT}} from manager-prompts' manager-hermes.md; references/accounts.md runs swarmhub-claude-login, installed with swarmhub-coding.",
      "uses": ["swarmhub-coding"],
      "requires_component": [{"name": "manager-prompts", "min_version": "1.0.0"},
-                            {"name": "swarmhub-coding", "min_version": "1.3.14"}]},
+                            {"name": "swarmhub-coding", "min_version": "1.3.15"}]},
     {"kind": "skill", "name": "swarmhub-messages", "targets": ["box"],
      "sources": [{"from": "Resources/Skills/swarmhub-messages"}]},
     {"kind": "config", "name": "manager-prompts", "version": "1.0.0", "targets": ["box", "mac"],
