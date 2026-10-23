@@ -2,7 +2,8 @@
 there to show it. One service per box account (`swarmctl alerts run`, supervised by swarm_alerts_service.py).
 
 What it watches, each with a stable id (an id is alerted at most once):
-  routine runs   every profile's `/api/jobs` (swarm_alerts_hermes.py); a job's first sighting is only recorded
+  routine runs   `/api/jobs` of each profile the app connected (settings `profiles`; none from an older app), agent
+                 jobs only (a `no_agent` script has no reply) (swarm_alerts_hermes.py); a first sighting is only recorded
   code jobs      managed coding actions that reach done/failed in Swarm Hub's own database
   reports, webhook wakes   spooled by `swarmctl report` and an accepted webhook call (`emit`)
   loops/goals handed to the box   the bot's reply to the job's own delivery in its Bot Chat (matched by the job's name
@@ -68,6 +69,7 @@ def validate(config):
     if not isinstance(config, dict) or config.get("v") != 1:
         raise ValueError("unsupported alert settings")
     clean = {"v": 1, "enabled": config.get("enabled", True) is not False, "window": config.get("window", True) is not False}
+    clean["profiles"] = hermes.allowed_profiles(config.get("profiles"))
     if config.get("ntfy"):
         sinks.check_ntfy(config["ntfy"])
         clean["ntfy"] = {key: config["ntfy"][key] for key in ("url", "token", "priority") if config["ntfy"].get(key)}
@@ -83,9 +85,9 @@ def validate(config):
 def public_view(config):
     """What the app may see: which sinks are set, never their addresses' secrets."""
     if not config:
-        return {"configured": False, "enabled": False, "window": True, "sinks": []}
+        return {"configured": False, "enabled": False, "window": True, "sinks": [], "profiles": []}
     return {"configured": True, "enabled": bool(config.get("enabled")), "window": bool(config.get("window", True)),
-            "sinks": [name for name in ("ntfy", "email") if config.get(name)]}
+            "sinks": [name for name in ("ntfy", "email") if config.get(name)], "profiles": config.get("profiles", [])}
 
 
 # MARK: state
@@ -168,22 +170,9 @@ def collect_codejobs(data):
     data["codejobs"] = sorted(finished)
 
 
-def routine_alert(profile, env, job, last):
-    name = str(job.get("name") or job["id"])[:80]
-    failed = job.get("last_status") == "error"
-    output = None if failed else hermes.run_output(profile, env, job)
-    if failed:
-        body = str(job.get("last_error") or "The run failed.")
-    elif output is None:
-        body = "Finished. The result could not be read on the box; Swarm Hub shows it when it opens."
-    else:
-        body = output or "Finished without a reply."
-    return {"id": f"routine:{profile}:{job['id']}:{last}", "kind": "routine", "body": body,
-            "title": f"{name} {'failed' if failed else 'finished'} ({profile})"}
-
-
-def collect_routines(data, now):
-    """Queue finished runs; returns the freshest presence lease seen (0 when none)."""
+def collect_routines(data, now, allowed=()):
+    """Queue finished runs of the `allowed` profiles' agent jobs; returns the freshest presence lease seen on any
+    profile (0 when none). Another profile keeps no marks, so once connected its jobs start from a first sighting."""
     present = 0
     for profile, env in hermes.profiles():
         rows = hermes.jobs(profile, env)
@@ -191,9 +180,9 @@ def collect_routines(data, now):
             continue
         present = max(present, hermes.presence_until(rows))
         listed = set()
-        for job in rows:
+        for job in rows if profile in allowed else []:
             name = str(job.get("name", ""))
-            if name == hermes.PRESENCE:
+            if name == hermes.PRESENCE or not hermes.agent_job(job):
                 continue
             key, last = f"{profile}/{job['id']}", str(job.get("last_run_at") or "")
             listed.add(key)
@@ -215,22 +204,25 @@ def collect_routines(data, now):
                     data["handoff"][key] = {"profile": profile, "job": job["id"], "name": name, "since": since,
                                             "until": now + HANDOFF_WAIT}
             else:
-                queue(data, routine_alert(profile, env, job, last))
+                queue(data, hermes.routine_alert(profile, env, job, last))
         for key in [key for key in data["marks"] if key.startswith(profile + "/") and key not in listed]:
             del data["marks"][key]
     return present
 
 
-def follow_handoffs(data, now):
+def follow_handoffs(data, now, allowed=()):
     """A loop or goal the app handed to the box answers in the Bot Chat: alert with each reply to the job's own
     deliveries (never another reply in the chat), and pause the job when one ends it (a loop's done block, a goal's done
-    or blocked block). The handoff stays while a delivered turn has no reply yet, until HANDOFF_WAIT."""
+    or blocked block). The handoff stays while a delivered turn has no reply yet, until HANDOFF_WAIT. A profile the app
+    no longer connects is still paused at the end, but not alerted."""
     envs = dict(hermes.profiles())
     for key, item in list(data["handoff"].items()):
         env = envs.get(item.get("profile"))
         if item.get("ending"):  # Fails closed: past HANDOFF_WAIT, its pause is retried until confirmed, then alerted.
             if env is not None and hermes.confirm_paused(item["profile"], env, item["job"]):
-                queue(data, data["handoff"].pop(key)["ending"])
+                ending = data["handoff"].pop(key)["ending"]
+                if item["profile"] in allowed:
+                    queue(data, ending)
             continue
         if env is None or now > item.get("until", 0):
             del data["handoff"][key]
@@ -250,7 +242,9 @@ def follow_handoffs(data, now):
             item["ending"] = {"id": f"{kind}:{key}:{when}", "kind": kind, "title": title, "body": visible}
             if ended and not hermes.confirm_paused(item["profile"], env, item["job"]):
                 break  # Still scheduled: kept, and paused (then alerted) on a later tick.
-            queue(data, item.pop("ending"))
+            ending = item.pop("ending")
+            if item["profile"] in allowed:
+                queue(data, ending)
         else:
             del data["handoff"][key]
 
@@ -366,8 +360,8 @@ def tick(now=None, deliver=None):
     present = 0
     if config and config.get("enabled"):
         collect_codejobs(data)
-        present = collect_routines(data, now)
-        follow_handoffs(data, now)
+        present = collect_routines(data, now, config.get("profiles") or [])
+        follow_handoffs(data, now, config.get("profiles") or [])
         dispatch(data, config, now, present, deliver)
     else:
         data["pending"] = []

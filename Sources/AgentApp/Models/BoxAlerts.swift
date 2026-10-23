@@ -98,8 +98,9 @@ struct AlertSettings: Codable, Equatable, Sendable {
     var hasSink: Bool { (ntfyOn && !ntfyURL.trimmingCharacters(in: .whitespaces).isEmpty) || (emailOn && !emailHost.isEmpty) }
 
     /// The box's settings JSON (`swarm_alerts.validate`), secrets included: only ever sealed, never stored or logged.
-    func boxJSON(ntfyToken: String, emailPassword: String) -> Data {
-        var object: [String: Any] = ["v": 1, "enabled": enabled, "window": window]
+    /// `profiles` (recsfix1, #14): the box alerts for routines of these profiles only, the ones this Mac connected.
+    func boxJSON(ntfyToken: String, emailPassword: String, profiles: [String] = []) -> Data {
+        var object: [String: Any] = ["v": 1, "enabled": enabled, "window": window, "profiles": profiles]
         if ntfyOn, !ntfyURL.isEmpty {
             var ntfy: [String: Any] = ["url": ntfyURL.trimmingCharacters(in: .whitespaces)]
             if !ntfyToken.isEmpty { ntfy["token"] = ntfyToken }

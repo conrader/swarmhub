@@ -29,6 +29,13 @@ extension AppStore {
             && connection(of: $0) == target }
     }
 
+    /// recsfix1 (#14): the profiles the box may alert for: those of the live Hermes agents this Mac connected on the
+    /// server. Sent with every save, so the box drops a profile disconnected since (and knows none it was never told of).
+    func alertProfiles(on target: String) -> [String] {
+        Set(bots.filter { $0.backend == .hermes && !$0.isDemo && !$0.isReadOnlyArchive && !$0.isGrokHistoryOnly && !$0.retiredOnBox
+            && connection(of: $0) == target }.map(profile(of:))).sorted()
+    }
+
     /// Hermes on this Mac answers without a model turn, so the section may load itself.
     func alertsAreLocal(_ target: String) -> Bool { alertRunner(for: target).map(webhooksAreLocal) ?? false }
 
@@ -58,7 +65,7 @@ extension AppStore {
         if boxKey == nil { boxKey = await performAlerts(.status, on: target)?.boxKey }
         guard let boxKey else { return }
         let blob: String
-        do { blob = try AlertSeal.seal(settings.boxJSON(ntfyToken: ntfyToken, emailPassword: emailPassword), to: boxKey) }
+        do { blob = try AlertSeal.seal(settings.boxJSON(ntfyToken: ntfyToken, emailPassword: emailPassword, profiles: alertProfiles(on: target)), to: boxKey) }
         catch { boxAlerts.update(target) { $0.error = (error as? BoxAlertsError)?.errorDescription ?? AlertsCopy.sealFailed }; return }
         guard let panel = await performAlerts(.configure(blob), on: target, secrets: [ntfyToken, emailPassword]) else { return }
         boxAlerts.presenceWritten[target] = nil  // The lease goes out at the next poll tick.

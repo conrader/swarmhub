@@ -52,7 +52,8 @@ class AlertsBase(unittest.TestCase):
         return {"ntfy": "sent"}
 
     def configure(self, **extra):
-        config = dict({"v": 1, "enabled": True, "window": False, "ntfy": {"url": "https://ntfy.example/topic", "token": TOKEN}}, **extra)
+        config = dict({"v": 1, "enabled": True, "window": False, "ntfy": {"url": "https://ntfy.example/topic", "token": TOKEN},
+                       "profiles": ["default", "jarvis"]}, **extra)  # The app connected both profiles.
         alerts.paths()["config"].write_text(json.dumps(alerts.validate(config)))
 
     def tick(self, advance=31):
@@ -109,7 +110,7 @@ class Settings(AlertsBase):
         self.assertNotIn(TOKEN, text)
         self.assertNotIn(PASSWORD, text)
         self.assertEqual(answer["schema"], "swarmhub/alerts/1")
-        self.assertEqual(answer["config"], {"configured": True, "enabled": True, "window": True, "sinks": ["ntfy", "email"]})
+        self.assertEqual(answer["config"], {"configured": True, "enabled": True, "window": True, "sinks": ["ntfy", "email"], "profiles": []})
         self.assertEqual(answer["box_key"], public)
         self.assertTrue(answer["result"]["saved"])
         self.assertIn("no supported service manager", answer["result"]["error"])

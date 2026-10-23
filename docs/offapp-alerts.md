@@ -5,12 +5,12 @@ bot's main chat keeps running on the box while the app is closed.
 
 ## What gets an alert
 
-One service per box account, `swarmctl alerts run` (skill `swarmhub-messages` 1.4.12+, `scripts/swarm_alerts*.py`).
+One service per box account, `swarmctl alerts run` (skill `swarmhub-messages` 1.4.12+, profile scope 1.4.13+, `scripts/swarm_alerts*.py`).
 It checks every 30 seconds:
 
 | Source | How it is seen | Alert id (sent at most once) |
 |---|---|---|
-| Finished routine runs | each profile's `GET /api/jobs` on loopback, with the profile's own `API_SERVER_KEY`; output from the run's cron session, like the app's `runResult` | `routine:<profile>:<job>:<last_run_at>` |
+| Finished routine runs | `GET /api/jobs` on loopback of each profile the app connected (the `profiles` list it seals with the settings on every save; none from an app older than 0.6.6, and no other profile on the box), with the profile's own `API_SERVER_KEY`; agent jobs only (a `no_agent` script has no reply); output from the run's cron session, like the app's `runResult` | `routine:<profile>:<job>:<last_run_at>` |
 | Code jobs | managed coding actions that reach `done`/`failed` in Swarm Hub's own database | `codejob:<action id>` |
 | Bot reports | `swarmctl report` spools one event | `report:<delivery id>` |
 | Webhook wakes | an accepted webhook call spools one event | `webhook:<delivery id>` |

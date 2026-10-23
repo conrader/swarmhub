@@ -148,6 +148,35 @@ def run_output(profile, env, job):
     return None
 
 
+def routine_alert(profile, env, job, last):
+    name = str(job.get("name") or job["id"])[:80]
+    failed = job.get("last_status") == "error"
+    output = None if failed else run_output(profile, env, job)
+    if failed:
+        body = str(job.get("last_error") or "The run failed.")
+    elif output is None:
+        body = "Finished. The result could not be read on the box; Swarm Hub shows it when it opens."
+    else:
+        body = output or "Finished without a reply."
+    return {"id": f"routine:{profile}:{job['id']}:{last}", "kind": "routine", "body": body,
+            "title": f"{name} {'failed' if failed else 'finished'} ({profile})"}
+
+
+def allowed_profiles(value):
+    """The app's allowlist (settings `profiles`): the profiles it connected on this box. None (an older app) is none."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(name, str) and NAME.fullmatch(name) and name not in (".", "..")
+                                              for name in value):
+        raise ValueError("alert profiles must be a list of Hermes profile names")
+    return sorted(set(value))
+
+
+def agent_job(job):
+    """A run with an agent turn. A script-only job (`no_agent`) has no reply: its runs are box housekeeping."""
+    return not job.get("no_agent")
+
+
 def delivery_job(text):
     """The routine a Bot Chat user row was handed over by (`[Cronjob "<name>" output — …`, cron/scheduler_delivery.py
     `_deliver_to_bot_chat`), else None."""

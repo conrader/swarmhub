@@ -131,6 +131,26 @@ func alertsPanelJSON(action: String, boxKey: String = vectorBoxPublic, configure
     #expect((try JSONSerialization.jsonObject(with: try openSealed(try #require(box.calls.last?.last))) as? [String: Any])?["enabled"] as? Bool == false)
 }
 
+/// recsfix1 (#14): the sealed settings name the profiles this Mac connected on that server, and no other: the box alerts
+/// for those only.
+@Test @MainActor func theSealedSettingsListOnlyTheProfilesConnectedOnThatServer() async throws {
+    let (store, target, box, _) = alertsStore { args in
+        args[2] == "configure" ? alertsPanelJSON(action: "configure", configured: true, enabled: true, running: true, result: ["saved": true])
+            : alertsPanelJSON(action: args[2])
+    }
+    func hermesBot(_ name: String, profile: String, url: String = "https://box.example.invalid/v1") -> Bot {
+        let bot = Bot(name: name, backend: .hermes, hermesProfile: profile); bot.hermesBaseURL = url; return bot
+    }
+    let archived = hermesBot("Old", profile: "old-archive"), retired = hermesBot("Gone", profile: "gone")
+    archived.archivedMembers = ["Old"]; retired.retiredOnBox = true
+    store.bots += [hermesBot("Jarvis", profile: "grok-jarvis"), hermesBot("Twin", profile: "grok-jarvis"), archived, retired,
+                   hermesBot("Elsewhere", profile: "cfo", url: "https://other.example.invalid/v1")]
+    var settings = AlertSettings(); settings.ntfyURL = "https://ntfy.sh/konrad-alerts"
+    await store.saveAlerts(settings, ntfyToken: "", emailPassword: "", on: target)
+    let sealed = try #require(JSONSerialization.jsonObject(with: try openSealed(try #require(box.calls.last?.last))) as? [String: Any])
+    #expect(sealed["profiles"] as? [String] == ["grok-jarvis", "reporter"])
+}
+
 @Test @MainActor func aSaveWithoutAnySinkOrABoxRefusalShowsWhy() async throws {
     let (store, target, box, _) = alertsStore { _ in throw WebhookPanelError.refusal("swarmctl: choose ntfy, email or both\n") }
     await store.saveAlerts(AlertSettings(), ntfyToken: "", emailPassword: "", on: target)
