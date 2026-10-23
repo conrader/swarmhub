@@ -147,7 +147,8 @@ func alertsPanelJSON(action: String, boxKey: String = vectorBoxPublic, configure
                    hermesBot("Elsewhere", profile: "cfo", url: "https://other.example.invalid/v1")]
     var settings = AlertSettings(); settings.ntfyURL = "https://ntfy.sh/konrad-alerts"
     await store.saveAlerts(settings, ntfyToken: "", emailPassword: "", on: target)
-    let sealed = try #require(JSONSerialization.jsonObject(with: try openSealed(try #require(box.calls.last?.last))) as? [String: Any])
+    let blob = try #require(box.calls.last?.last)
+    let sealed = try #require(JSONSerialization.jsonObject(with: try openSealed(blob)) as? [String: Any])
     #expect(sealed["profiles"] as? [String] == ["grok-jarvis", "reporter"])
 }
 
