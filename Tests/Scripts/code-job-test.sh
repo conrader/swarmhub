@@ -56,14 +56,19 @@ if [ -n "${CODE_JOB_TEST_LIMIT:-}" ]; then
     while [ $(( $(date +%s) - t0 )) -lt "$CODE_JOB_TEST_LIMIT" ]; do kill -0 $$ 2>/dev/null || exit 0; sleep 1; done
     : > "$ROOT/over-limit" || exit 0
     # The path travels in the environment: an awk argv naming it would list awk itself as a running code-job.
-    running() { ps -A -o pid= -o args= 2>/dev/null | J="$JOB" awk 'index($0, ENVIRON["J"]) { print $1 }'; }
-    # All of them are checked before any is signalled: a code-job killed first would orphan its own subshells, which
-    # are then no longer this shell's descendants and would be left running.
+    # Deepest first (depth by the parent chain in the same listing): a code-job signalled before its own subshells
+    # would orphan them, and an orphan fails own_pid, so it would be left running. Each pid is still checked with
+    # own_pid right before its own signal; the order only keeps every one checkable.
+    running() {
+      ps -A -o pid= -o ppid= -o args= 2>/dev/null | J="$JOB" awk '{ parent[$1] = $2 } index($0, ENVIRON["J"]) { job[$1] = 1 }
+        END { for (p in job) { d = 0; for (q = p; (q in parent) && d < 64; q = parent[q]) d++; print d, p } }' |
+        sort -rn | awk '{ print $2 }'
+    }
     owned() { for pid in $(running); do own_pid "$pid" "$JOB" && echo "$pid"; done; }
     while kill -0 $$ 2>/dev/null; do
-      pids=$(owned); [ -z "$pids" ] || kill -TERM $pids 2>/dev/null
+      for pid in $(running); do own_pid "$pid" "$JOB" && kill -TERM "$pid" 2>/dev/null; done
       n=0; while [ -n "$(owned)" ] && [ $n -lt 5 ]; do sleep 1; n=$((n + 1)); done
-      pids=$(owned); [ -z "$pids" ] || kill -KILL $pids 2>/dev/null
+      for pid in $(running); do own_pid "$pid" "$JOB" && kill -KILL "$pid" 2>/dev/null; done
       if [ -n "$(owned)" ]; then rm -f "$ROOT/swept"; else : > "$ROOT/swept"; fi
       sleep 1
     done
