@@ -196,14 +196,19 @@ extension RoutineDraft {
     }
 
     /// This routine with what the bot's latest reply in the conversation about it offered: the `Routine:` line the lead asks
-    /// for (name, schedule and prompt); without it, only a time and days the reply names without doubt (one time).
-    func adjusted(byBot text: String) -> RoutineDraft {
+    /// for (name, schedule and prompt; the schedule in the box's zone, read back in the Mac's through `zones`); without it,
+    /// only a time and days the reply names without doubt (one time, the Mac's).
+    func adjusted(byBot text: String, zones: RoutineZones? = nil) -> RoutineDraft {
         if let line = OfferChange.routine(in: text) {
             var draft = self
             if let name = line.name { draft.name = name }
             if let prompt = line.prompt { draft.prompt = prompt }
-            if let schedule = line.schedule, let hour = Int(schedule.split(separator: " ")[1]) {
-                draft.schedule = schedule; draft.hour = hour; draft.weekdaysOnly = draft.days == "1-5"
+            if let schedule = line.schedule {
+                let local = zones?.localSchedule(schedule) ?? schedule
+                if let hour = local.split(separator: " ").dropFirst().first.flatMap({ Int($0) }) {
+                    draft.schedule = local; draft.hour = hour; draft.weekdaysOnly = draft.days == "1-5"
+                    draft.boxSchedule = zones == nil ? nil : schedule
+                }
             }
             return draft
         }
@@ -219,6 +224,7 @@ extension RoutineDraft {
         let minute = time?.minute ?? self.minute, day = days ?? self.days
         draft.weekdaysOnly = day == "1-5"
         draft.schedule = "\(minute) \(draft.hour) * * \(day)"
+        if draft.schedule != schedule { draft.boxSchedule = nil }  // Another time: converted again before the bot is told.
         return draft
     }
 }

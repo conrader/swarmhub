@@ -94,12 +94,15 @@ enum RepeatedAskDetector {
 }
 
 /// The routine a suggestion offers: the newest wording as the prompt, weekdays when every ask fell Monday to Friday
-/// (else every day), on the hour of the asks' median time of day. Cron text in the Mac's time, as the routine editor
-/// writes it.
+/// (else every day), on the hour of the asks' median time of day. `schedule` is cron text in the Mac's time (what the
+/// user is shown and asks to change); the box runs it in its own zone (`RoutineZones`).
 struct RoutineDraft: Codable, Equatable, Identifiable, Sendable {
     var id = UUID()
     var botID: UUID; var name: String; var schedule: String; var prompt: String
     var weekdaysOnly: Bool; var hour: Int
+    /// recsfix1: the schedule in the box's zone as the bot was last told it (the lead, or the bot's own `Routine:` line);
+    /// nil before the conversation turned it into one, and on drafts from 0.6.5, whose lead gave the Mac's time.
+    var boxSchedule: String? = nil
 
     static func make(for repeated: RepeatedAsk, botID: UUID, calendar: Calendar) -> RoutineDraft {
         let weekdaysOnly = repeated.asks.allSatisfy { (2...6).contains(calendar.component(.weekday, from: $0.at)) }

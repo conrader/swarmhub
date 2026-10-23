@@ -151,7 +151,8 @@ private func repeated(_ dates: [Date], text: String = "Summarize my inbox?") -> 
     #expect(daily.adjusted(by: "Yes, but not on weekends").schedule == "0 6 * * 1-5")
     #expect(draft.adjusted(by: "Different time") == draft && draft.adjusted(by: "Yes, every weekday at 9:00") == draft && draft.adjusted(by: "Yes") == draft)
     #expect(OfferChange.time(in: "3 times a day") == nil && OfferChange.time(in: "12:30 am")?.hour == 0 && OfferChange.time(in: "12pm")?.hour == 12)
-    #expect(BotSuggestionCopy.lead(question: "Q?", draft: half, timeZone: TimeZone(identifier: "Europe/Warsaw")!).contains("(cron, 7:30 in my time zone Europe/Warsaw)"))
+    let warsaw = RoutineZones(local: TimeZone(identifier: "Europe/Warsaw")!, box: TimeZone(identifier: "Europe/Warsaw")!, now: .now)
+    #expect(BotSuggestionCopy.lead(question: "Q?", draft: half, zones: warsaw).contains("(cron, 7:30 in my time zone Europe/Warsaw, which your cron runs in too)"))
 }
 
 /// recs1b-fix2 2: a correction takes the time it moves to, a negation turns down only what it is about, and named days
@@ -185,7 +186,8 @@ private func repeated(_ dates: [Date], text: String = "Summarize my inbox?") -> 
     #expect(BotSuggestionCopy.replies(draft) == ["Yes, every weekday at 9:00", "Different time", "No thanks"])
     let fortnight = repeated([at(8, 9, 30), at(15, 9, 30), at(21, 9, 30)])
     #expect(BotSuggestionCopy.question(fortnight, draft: draft, now: at(21, 10)).contains("3 times in the last two weeks"))
-    let lead = BotSuggestionCopy.lead(question: "Q?", draft: draft, timeZone: TimeZone(identifier: "Europe/Warsaw")!)
+    let warsaw = TimeZone(identifier: "Europe/Warsaw")!
+    let lead = BotSuggestionCopy.lead(question: "Q?", draft: draft, zones: RoutineZones(local: warsaw, box: warsaw, now: .now))
     #expect(lead.hasPrefix("(SwarmHub asked this in your chat for you: \"Q?\""))
     #expect(lead.contains("`0 9 * * 1-5`") && lead.contains("Europe/Warsaw") && lead.contains("Create nothing without my yes"))
 }

@@ -46,6 +46,13 @@ extension AppStore {
         return calendar
     }
 
+    /// recsfix1: the Mac's zone and the one `bot`'s cron runs in: a Hermes bot's from the times its jobs, as last read,
+    /// reported (UTC when none did); any other bot runs its routines in the Mac's.
+    func suggestionZones(for bot: Bot) -> RoutineZones {
+        let box = bot.backend == .hermes ? RoutineZones.boxZone(routines.state(for: bot.id).jobs.value ?? [], local: heartbeatTimeZone) : heartbeatTimeZone
+        return RoutineZones(local: heartbeatTimeZone, box: box, now: now())
+    }
+
     // MARK: Suggested replies (any bot message)
 
     /// A message's chips work while it is a finished bot row that nothing in its chat has answered yet; a suggestion's
@@ -103,8 +110,11 @@ extension AppStore {
            AskText.similar(AskText.stems(user.content), Set(ledger.records[index].stems)) || !SuggestionAnswer.isAboutTheOffer(user.content) { return }
         user.metadata[SuggestionKey.answers] = open.id.uuidString
         user.metadata[SuggestionKey.answer] = answer.rawValue
+        // The lead gives the bot the box's time; a conversation whose lead 0.6.5 sent goes on in the Mac's.
+        let zones = suggestionZones(for: bot), converts = !open.answered || ledger.records[index].draft.boxSchedule != nil
         if !open.answered {
-            user.metadata[SuggestionKey.lead] = BotSuggestionCopy.lead(question: open.row.content, draft: ledger.records[index].draft, timeZone: heartbeatTimeZone)
+            ledger.records[index].draft.boxSchedule = zones.boxSchedule(ledger.records[index].draft.schedule)
+            user.metadata[SuggestionKey.lead] = BotSuggestionCopy.lead(question: open.row.content, draft: ledger.records[index].draft, zones: zones)
         }
         switch answer {
         case .no: ledger.records[index].state = .declined
@@ -113,8 +123,10 @@ extension AppStore {
         }
         if answer != .no {
             var draft = ledger.records[index].draft
-            if open.answered, let offer = latestOffer(in: bot, before: user) { draft = draft.adjusted(byBot: offer.content) }
-            ledger.records[index].draft = draft.adjusted(by: user.content)
+            if open.answered, let offer = latestOffer(in: bot, before: user) { draft = draft.adjusted(byBot: offer.content, zones: converts ? zones : nil) }
+            draft = draft.adjusted(by: user.content)
+            if converts, draft.boxSchedule == nil { draft.boxSchedule = zones.boxSchedule(draft.schedule) }
+            ledger.records[index].draft = draft
         }
         suggestionLedger = ledger
     }
@@ -144,7 +156,9 @@ extension AppStore {
     /// agreed schedule that does the ask (or the agreed prompt) means the bot made it (none did when it was asked);
     /// otherwise, or when they cannot be read, the routine editor opens in the bot's chat prefilled with the routine the
     /// conversation settled on (the fallback). A cron tool step alone proves nothing: it may only have listed the jobs; a
-    /// routine at another time, or paused, is not the one agreed.
+    /// routine at another time, or paused, is not the one agreed. recsfix1: the agreed time on the box is the schedule the
+    /// bot was told (`boxSchedule`) or the draft's converted with the zone the jobs read now report; a draft whose lead
+    /// came from 0.6.5 gave the bot the Mac's time, so a routine made on that unconverted schedule is the one agreed too.
     @discardableResult func followThroughSuggestion(bot: Bot, reply: ChatMessage) async -> Bool {
         guard let position = bot.messages.firstIndex(where: { $0.id == reply.id }),
               let user = bot.messages[..<position].last(where: { $0.role == .user }), let answer = user.metadata[SuggestionKey.answer] else { return false }
@@ -153,8 +167,10 @@ extension AppStore {
               let record = suggestionLedger.records.first(where: { $0.id == id }) else { return true }
         user.metadata[SuggestionKey.followed] = "1"; save()
         let draft = record.draft, asks = [Set(record.stems), AskText.stems(draft.prompt)]
-        let made = await knownRoutines(for: bot)?.contains { routine in
-            routine.enabled && CronDays.same(routine.schedule, draft.schedule) && asks.contains { AskText.covered($0, by: AskText.stems(routine.text)) }
+        let known = await knownRoutines(for: bot)
+        let agreed = [draft.boxSchedule, suggestionZones(for: bot).boxSchedule(draft.schedule), draft.boxSchedule == nil ? draft.schedule : nil].compactMap { $0 }
+        let made = known?.contains { routine in
+            routine.enabled && agreed.contains { CronDays.same(routine.schedule, $0) } && asks.contains { AskText.covered($0, by: AskText.stems(routine.text)) }
         } == true
         if !made { suggestions.editor = draft; objectWillChange.send() }
         return true
