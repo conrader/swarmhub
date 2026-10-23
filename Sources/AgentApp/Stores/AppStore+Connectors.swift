@@ -24,7 +24,7 @@ extension AppStore {
         var rows: [BotConnectorReport.Connector]?
         if let instructions = BotConnectorCheck.instructions(backend: bot.backend, name: name),
            let backend = try? backend(for: bot),
-           let ops = await quietBoxTurn(backend, persona: bot.persona, request: "Check this bot's connector load state for Swarm Hub.", instructions: instructions) {
+           let ops = await quietBoxTurn(backend, persona: bot.outboundPersona, request: "Check this bot's connector load state for Swarm Hub.", instructions: instructions) {
             rows = ops.compactMap { op in
                 if case .connectors(let reportedName, let reportedRows) = op, reportedName == name { return reportedRows }
                 return nil

@@ -48,7 +48,7 @@ extension AppStore {
             guard try await backend.sessionTransport() == .nativeSessions else {
                 throw StagedInstall.Failure.refused("native Hermes sessions required")
             }
-            _ = try await backend.createSession(title: "", systemPrompt: manager.persona, id: session)
+            _ = try await backend.createSession(title: "", systemPrompt: manager.outboundPersona, id: session)
             let instructions: String
             if let confirmation {
                 instructions = """
@@ -68,7 +68,7 @@ extension AppStore {
             } else {
                 instructions = "Run exactly this in one terminal call: \(StagedInstall.statusCommand). Do not change anything."
             }
-            let stream = try await backend.send(.init(sessionID: session, systemPrompt: manager.persona,
+            let stream = try await backend.send(.init(sessionID: session, systemPrompt: manager.outboundPersona,
                 messages: [(role: "user", content: confirmation?.title ?? "Read the installed SwarmHub skill versions.")],
                 managementText: instructions))
             var call = UpdaterStatusCall()

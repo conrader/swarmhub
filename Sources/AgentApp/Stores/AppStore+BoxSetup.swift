@@ -43,7 +43,7 @@ extension AppStore {
             guard let policy = try? defaultBotInstructions(for: speaker) else { return nil }
             backend = HermesBackend(baseURL: baseURL, apiKey: manager.key, profile: manager.profile, session: hermesSession, defaultInstructions: policy)
         }
-        guard let ops = await quietBoxTurn(backend, persona: speaker.persona, request: "List every bot on this box for \(AppConstants.name).", instructions: instructions),
+        guard let ops = await quietBoxTurn(backend, persona: speaker.outboundPersona, request: "List every bot on this box for \(AppConstants.name).", instructions: instructions),
               let listed = ops.lazy.compactMap({ op -> [SwarmhubOp.ListedBot]? in if case .bots(let rows) = op { rows } else { nil } }).first else { return nil }
         let bound = addedProfileIDs.union(result.available.map(\.id))
         let sorted = BoxAdoption.sort(listed, managerProfile: manager.profile, typed: setupTypedProfiles(result, key: key), bound: bound)

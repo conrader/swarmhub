@@ -134,7 +134,7 @@ extension ArchivedMessage {
 
     /// Bundle messages and rename events → archive lines, every text field through the secret filter.
     static func from(_ bundle: GrokBotBundle) -> [ArchivedMessage] {
-        let clean = { (text: String) in GrokTemplateParser.redactSecrets(text, replacement: "[REDACTED]").text }
+        let clean = { (text: String) in SecretFilter.redacted(text, replacement: GrokRedactor.marker) }
         let messages = bundle.messages.map { message in
             ArchivedMessage(id: message.id, seq: message.seq, role: ["user", "assistant", "system"].contains(message.role) ? message.role : "system",
                             author: message.author.map(clean), text: clean(message.text), timestamp: date(message.timestamp),

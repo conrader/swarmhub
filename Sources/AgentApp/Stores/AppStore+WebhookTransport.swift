@@ -63,7 +63,7 @@ extension AppStore {
         var failure: Error?
         do {
             guard try await backend.sessionTransport() == .nativeSessions else { throw WebhookPanelError.unavailable(WebhookCopy.nativeSessions) }
-            _ = try await backend.createSession(title: "", systemPrompt: runner.persona, id: session)
+            _ = try await backend.createSession(title: "", systemPrompt: runner.outboundPersona, id: session)
             let instructions = """
             Run exactly this in one terminal call:
             ```sh
@@ -71,7 +71,7 @@ extension AppStore {
             ```
             Do not run anything else, retry, or change the command. Do not read or print any key file. Reply only "done".
             """
-            let stream = try await backend.send(.init(sessionID: session, systemPrompt: runner.persona,
+            let stream = try await backend.send(.init(sessionID: session, systemPrompt: runner.outboundPersona,
                 messages: [(role: "user", content: WebhookCopy.turnRequest)], managementText: instructions))
             for try await event in stream {
                 switch event {

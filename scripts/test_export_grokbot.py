@@ -110,6 +110,24 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(redact("Basic aGVsbG8="), "Basic aGVsbG8=")  # no colon -> not a credential
         self.assertEqual(redact("plain words"), "plain words")
 
+    def test_secret_filter_hardened_like_the_app(self):
+        # Mirrors ImportRedactionTests.swift: case variants, wider AWS ids and encoded secrets.
+        redact = exporter.Redactor()
+        for text in ["akia1234567890abcdef", "ASIAABCDEFGHIJKLMNOP", "GITHUB_PAT_syntheticMarker1234567890",
+                     "EyJsyntheticheader.syntheticpayload.syntheticsign", "XAPP-syntheticMarker123456",
+                     "https://syntheticUser%3AsyntheticPass@example.invalid/feed", "c3ludGhldGljVXNlcjpzeW50aGV0aWNQYXNz"]:
+            self.assertEqual(redact(text), "[REDACTED]", text)
+        self.assertEqual(redact.counts, {"aws_key": 2, "github_pat": 1, "jwt": 1, "slack_app_token": 1, "encoded_credential": 2})
+        prose = "Please use basic judgement; token gestures are welcome, 100% sure, a%20b."
+        self.assertEqual(exporter.Redactor()(prose), prose)
+
+    def test_secret_filter_is_linear_on_crafted_input(self):
+        import time
+        for text in ["token=abcdefgh " * 50000, "-eyJxxxxxxxx" * 50000, "a%zz" * 150000 + " %41"]:
+            started = time.monotonic()
+            exporter.Redactor()(text)
+            self.assertLess(time.monotonic() - started, 2.0)
+
     def test_attachment_reference_is_safe(self):
         self.run_export()
         attachment = next(m for m in self.bundle(JARVIS)["messages"] if m["id"] == "j12")

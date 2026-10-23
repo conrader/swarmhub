@@ -70,7 +70,7 @@ extension AppStore {
         var context = OrientationContext(userName: userName, name: bot.name, profile: bot.backend == .hermes ? bot.hermesProfile ?? "default" : nil,
                                          description: bot.botDescription.trimmingCharacters(in: .whitespacesAndNewlines))
         let box = bot.boxInstructions?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let persona = bot.persona.trimmingCharacters(in: .whitespacesAndNewlines)
+        let persona = bot.outboundPersona.trimmingCharacters(in: .whitespacesAndNewlines)
         let instructions = !box.isEmpty ? box : persona == Bot.defaultPersona ? "" : persona
         (context.instructionsTitle, context.instructionsLines) = OrientationPrompt.excerpt(instructions)
         context.skills = bot.installedSkills.keys.sorted()

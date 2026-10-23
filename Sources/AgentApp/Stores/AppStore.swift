@@ -342,7 +342,7 @@ import SwarmHubCore
         let managementText = isTeamThread(conversation) ? nil : self.managementText(for: bot, text: user.content, conversation: conversation)
         let history = chatHistory(conversation, excluding: assistant)
         turn.task = Task { [weak self] in
-            await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.persona,
+            await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.outboundPersona,
                                     managementText: managementText, backend: activeBackend, token: streamToken)
         }
     }

@@ -131,7 +131,7 @@ extension AppStore {
         [TurnKey.why, TurnKey.ambiguous, TurnKey.retry, TurnKey.end].forEach { row.metadata[$0] = nil }
         let history = chatHistory(conversation, upTo: trigger, excluding: row)
         let managementText = self.managementText(for: bot, text: trigger.content, conversation: conversation)
-        await runChatTurn(bot: bot, conversation: conversation, assistant: row, history: history, images: images, systemPrompt: bot.persona,
+        await runChatTurn(bot: bot, conversation: conversation, assistant: row, history: history, images: images, systemPrompt: bot.outboundPersona,
                           managementText: managementText, backend: activeBackend, token: token)
     }
 

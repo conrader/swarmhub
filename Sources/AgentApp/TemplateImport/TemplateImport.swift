@@ -78,30 +78,12 @@ enum TemplateImportError: LocalizedError {
 
 enum GrokTemplateParser {
     static let maximumBytes = 5 * 1024 * 1024
-    private static let secretKeys = [
-        "token", "secret", "password", "passwd", "credential", "privatekey", "apikey", "authorization", "cookie",
-        "auth", "bearer", "jwt", "passphrase", "pwd", "accesskey", "awsaccesskeyid", "sessionkey", "webhookurl", "dsn", "connectionstring"
-    ]
-    /// Internal so the Grok importer can share it (`GrokRedactor` precompiles it once); the order is `GrokRedactor.categories`.
-    static let secretValuePatterns = [
-        #"(?s)-----BEGIN ([A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?)-----.*?(?:-----END \1-----[^\r\n]*(?:\r?\n|\z)|\z)"#,
-        #"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}"#,
-        #"\b(sk|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_-]{12,}\b"#,
-        #"github_pat_[A-Za-z0-9_-]+"#,
-        #"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"#,
-        #"AKIA[0-9A-Z]{16}"#,
-        #"AIza[0-9A-Za-z_-]{35}"#,
-        #"xapp-[A-Za-z0-9_-]+"#,
-        #"https?://hooks\.slack\.com/services/[^\s]+"#,
-        #"://[^/\s:@]+:[^/\s@]+@"#,
-        #"(?i)(?<![A-Za-z0-9])(api[_ -]?key|token|secret|password|credential|auth[_-]?token|access[_-]?token|client[_-]?secret|authorization)\s*[:=]\s*\S+"#
-    ]
 
     static func parse(_ data: Data) throws -> ImportedTemplateManifest {
         guard data.count <= maximumBytes else { throw TemplateImportError.tooLarge }
         guard let root = try? JSONSerialization.jsonObject(with: data), let raw = root as? [String: Any] else { throw TemplateImportError.invalidJSON }
         var rejected = 0
-        guard let clean = sanitize(raw, rejected: &rejected) as? [String: Any] else { throw TemplateImportError.invalidJSON }
+        guard let clean = SecretFilter.sanitize(raw, rejected: &rejected) as? [String: Any] else { throw TemplateImportError.invalidJSON }
         let object = dictionary(clean, keys: ["template", "bot", "agent", "grokBot", "grok_bot"]) ?? clean
         var result = ImportedTemplateManifest()
         let suppliedName = string(object, keys: ["name", "botName", "bot_name"])
@@ -128,48 +110,6 @@ enum GrokTemplateParser {
         }
         result.rejectedSecretCount = rejected
         return result
-    }
-
-    private static func sanitize(_ value: Any, key: String? = nil, rejected: inout Int) -> Any? {
-        if let key, secretKeys.contains(where: { normalize(key).contains(normalize($0)) }) { rejected += 1; return nil }
-        if let text = value as? String {
-            let result = redactSecrets(text)
-            rejected += result.count
-            return result.text
-        }
-        if let object = value as? [String: Any] {
-            var clean: [String: Any] = [:]
-            for (childKey, childValue) in object { if let sanitized = sanitize(childValue, key: childKey, rejected: &rejected) { clean[childKey] = sanitized } }
-            return clean
-        }
-        if let array = value as? [Any] { return array.compactMap { sanitize($0, rejected: &rejected) } }
-        return value
-    }
-
-    /// The shared secret filter: Basic credentials and every `secretValuePatterns` hit are replaced.
-    static func redactSecrets(_ text: String, replacement: String = "[removed]") -> (text: String, count: Int) {
-        var redacted = text; var count = 0
-        let basicPattern = #"(?i)\bBasic\s+([A-Za-z0-9+/]{4,}={0,2})(?![A-Za-z0-9+/=])"#
-        if let expression = try? NSRegularExpression(pattern: basicPattern) {
-            for result in expression.matches(in: redacted, range: NSRange(redacted.startIndex..., in: redacted)).reversed() {
-                guard let match = Range(result.range, in: redacted),
-                      let credentialRange = Range(result.range(at: 1), in: redacted),
-                      let decoded = Data(base64Encoded: String(redacted[credentialRange])),
-                      String(data: decoded, encoding: .utf8)?.contains(":") == true else { continue }
-                redacted.replaceSubrange(match, with: replacement)
-                count += 1
-            }
-        }
-        for pattern in secretValuePatterns {
-            var searchStart = redacted.startIndex
-            while let range = redacted.range(of: pattern, options: .regularExpression, range: searchStart..<redacted.endIndex) {
-                let offset = redacted.distance(from: redacted.startIndex, to: range.lowerBound) + replacement.count
-                redacted.replaceSubrange(range, with: replacement)
-                count += 1
-                searchStart = redacted.index(redacted.startIndex, offsetBy: offset, limitedBy: redacted.endIndex) ?? redacted.endIndex
-            }
-        }
-        return (redacted, count)
     }
 
     private static func parseMemories(_ raw: Any?) -> [ImportedTemplateManifest.Memory] {

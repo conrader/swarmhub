@@ -24,7 +24,7 @@ struct ToolEvent: Sendable, Equatable {
     static func redacted(_ line: String, key: String = "") -> String {
         var text = line
         if key.count >= 4 { text = text.replacingOccurrences(of: key, with: "[key]") }
-        text = GrokTemplateParser.redactSecrets(text).text
+        text = SecretFilter.redacted(text)
         // `API_SERVER_KEY=…`, `token: …`: the value after any key-ish name goes too.
         return text.replacingOccurrences(of: #"(?i)\b([A-Z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Z0-9_.-]*\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)"#,
                                          with: "$1[removed]", options: .regularExpression).trimmingCharacters(in: .whitespaces)

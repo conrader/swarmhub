@@ -68,7 +68,7 @@ extension AppStore {
         guard manager.backend == .hermes, let template = managerRecipeTemplate(.box),
               let instructions = BoxAdoption.listInstructions(template: template, managerProfile: manager.hermesProfile ?? "default"),
               let backend = try? backend(for: manager),
-              let ops = await quietBoxTurn(backend, persona: manager.persona, request: "List every bot on this box for \(AppConstants.name).", instructions: instructions),
+              let ops = await quietBoxTurn(backend, persona: manager.outboundPersona, request: "List every bot on this box for \(AppConstants.name).", instructions: instructions),
               absorbReportOps(ops, connection: connection(of: manager)),
               let listed = ops.lazy.compactMap({ op -> [SwarmhubOp.ListedBot]? in if case .bots(let rows) = op { rows } else { nil } }).first else { return nil }
         return await absorbListed(listed, manager: manager)

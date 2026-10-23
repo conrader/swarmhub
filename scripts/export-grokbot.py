@@ -17,6 +17,7 @@ import re
 import shutil
 import sys
 import tempfile
+import urllib.parse
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -29,21 +30,61 @@ PREVIOUS_OUT = "~/Documents/Torvli Grok Export"  # written before the rename to 
 HIDDEN_MARKER = re.compile(r"\[GROK_BOT_HIDDEN[A-Z_]*\]")
 MARKER = "[REDACTED]"
 
-# Ported from GrokTemplateParser.secretValuePatterns (Sources/AgentApp/TemplateImport/TemplateImport.swift).
+# Same patterns, order and passes as `SecretFilter` (Sources/AgentApp/TemplateImport/SecretFilter.swift), hardened from
+# AgentApp: case-insensitive prefixes, wider AWS ids, encoded secrets decoded before matching. Every pattern runs once
+# over the text (one pass, no rescans), so a crafted secret-dense text costs linear time.
 SECRET_PATTERNS = [
-    ("private_key", re.compile(r"(?s)-----BEGIN ([A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?)-----.*?(?:-----END \1-----[^\r\n]*(?:\r?\n|\Z)|\Z)")),
+    ("private_key", re.compile(r"(?si)-----BEGIN ([A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?)-----.*?(?:-----END \1-----[^\r\n]*(?:\r?\n|\Z)|\Z)")),
     ("bearer", re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}")),
-    ("vendor_token", re.compile(r"\b(sk|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_-]{12,}\b")),
-    ("github_pat", re.compile(r"github_pat_[A-Za-z0-9_-]+")),
-    ("jwt", re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")),
-    ("aws_key", re.compile(r"AKIA[0-9A-Z]{16}")),
-    ("google_key", re.compile(r"AIza[0-9A-Za-z_-]{35}")),
-    ("slack_app_token", re.compile(r"xapp-[A-Za-z0-9_-]+")),
-    ("slack_webhook", re.compile(r"https?://hooks\.slack\.com/services/[^\s]+")),
+    ("vendor_token", re.compile(r"(?i)\b(sk|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_-]{12,}\b")),
+    ("github_pat", re.compile(r"(?i)github_pat_[A-Za-z0-9_-]{8,}")),
+    # The header may not run on through `-eyJ`: a chain of `-eyJ…` pieces would otherwise rescan to its end per piece.
+    ("jwt", re.compile(r"(?i)\beyJ(?:[A-Za-z0-9_]|-(?!eyJ)){8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")),
+    ("aws_key", re.compile(r"(?i)\b(?:AKIA|ASIA|AGPA|AIDA|AIPA|AROA|ANPA|ANVA|ABIA|ACCA)[0-9A-Za-z]{16}\b")),
+    ("google_key", re.compile(r"(?i)\bAIza[0-9A-Za-z_-]{35}")),
+    ("slack_app_token", re.compile(r"(?i)\bxapp-[A-Za-z0-9_-]{8,}")),
+    ("slack_webhook", re.compile(r"(?i)https?://hooks\.slack\.com/services/\S+")),
     ("url_credentials", re.compile(r"://[^/\s:@]+:[^/\s@]+@")),
     ("credential_assignment", re.compile(r"(?i)(?<![A-Za-z0-9])(api[_ -]?key|token|secret|password|credential|auth[_-]?token|access[_-]?token|client[_-]?secret|authorization)\s*[:=]\s*\S+")),
 ]
 BASIC_AUTH = re.compile(r"(?i)\bBasic\s+([A-Za-z0-9+/]{4,}={0,2})(?![A-Za-z0-9+/=])")
+# Encoded candidates, redacted only when the decoded text is printable and credential-shaped. A percent candidate
+# starts at a token start: `\S*` from every offset of a long token is quadratic.
+PERCENT_CANDIDATE = re.compile(r"(?<!\S)\S*%[0-9A-Fa-f]{2}\S*")
+BASE64_CANDIDATE = re.compile(r"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/_-]{20,1024}={0,2}(?![A-Za-z0-9+/=_-])")
+CREDENTIAL_PAIR = re.compile(r"^[^\s:]{3,64}:[^\s:]{3,64}$")
+MALFORMED_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
+
+
+def _printable(text):
+    return all(c == "\t" or (ord(c) >= 0x20 and ord(c) != 0x7F) for c in text)
+
+
+def _decoded_percent(candidate):
+    # Like Foundation's `removingPercentEncoding`: None when an escape is malformed or the bytes are not UTF-8.
+    if MALFORMED_PERCENT.search(candidate):
+        return None
+    try:
+        text = urllib.parse.unquote_to_bytes(candidate).decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return text if text != candidate and _printable(text) else None
+
+
+def _decoded_base64(candidate):
+    stripped = candidate.replace("=", "").replace("-", "+").replace("_", "/")
+    if not 20 <= len(stripped) <= 1024 or len(stripped) % 4 == 1:
+        return None
+    try:
+        text = base64.b64decode(stripped + "=" * ((4 - len(stripped) % 4) % 4), validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+    return text if _printable(text) else None
+
+
+def credential_shaped(text):
+    text = text.strip()
+    return bool(text) and (CREDENTIAL_PAIR.search(text) is not None or any(p.search(text) for _, p in SECRET_PATTERNS))
 
 
 class Redactor:
@@ -72,14 +113,22 @@ class Redactor:
             self._hit("basic_auth")
             return MARKER
 
+        def encoded(decode):
+            def replace(match):
+                decoded = decode(match.group(0))
+                if decoded is None or not credential_shaped(decoded):
+                    return match.group(0)
+                self._hit("encoded_credential")
+                return MARKER
+            return replace
+
         text = BASIC_AUTH.sub(basic, text)
+        if "%" in text:
+            text = PERCENT_CANDIDATE.sub(encoded(_decoded_percent), text)
+        text = BASE64_CANDIDATE.sub(encoded(_decoded_base64), text)
         for category, pattern in SECRET_PATTERNS:
-            # Re-apply until stable, like the Swift loop: a replacement can expose a new match.
-            for _ in range(50):
-                text, n = pattern.subn(MARKER, text)
-                self._hit(category, n)
-                if not n or category != "credential_assignment":
-                    break
+            text, n = pattern.subn(MARKER, text)
+            self._hit(category, n)
         return text
 
     def report(self):

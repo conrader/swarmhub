@@ -176,7 +176,7 @@ struct PreparedGrokBundle: Sendable {
 
     init(_ bundle: GrokBotBundle) {
         let clean = { (text: String) in
-            GrokTemplateParser.redactSecrets(text, replacement: "[REDACTED]").text.trimmingCharacters(in: .whitespacesAndNewlines)
+            SecretFilter.redacted(text, replacement: GrokRedactor.marker).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         self.bundle = bundle
         name = clean(bundle.name); title = clean(bundle.title ?? ""); description = clean(bundle.description ?? "")

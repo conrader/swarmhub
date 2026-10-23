@@ -46,7 +46,7 @@ extension AppStore {
             return false
         }
         state.begin(action); codingAccounts[target] = state
-        let ops = await quietBoxTurn(backend, persona: manager.persona, request: Self.accountsRequest(action), instructions: instructions)
+        let ops = await quietBoxTurn(backend, persona: manager.outboundPersona, request: Self.accountsRequest(action), instructions: instructions)
         var after = accounts(on: target)
         after.finish(action, ops: ops, at: now())
         codingAccounts[target] = after

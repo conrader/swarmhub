@@ -151,7 +151,7 @@ extension AppStore {
                 let plan = try await prepareModel(for: bot, backend: activeBackend, note: note)
                 // P38 D: a workflow thread is a fresh session of its own, not a fork of the bot's chat.
                 let id = workflowThread ? "\(sessionNamespace)agentapp_workflow_\((conversation as? ChatThread)?.id.uuidString.lowercased() ?? "")" : "\(sessionNamespace)agentapp_\(bot.id.uuidString.lowercased())"
-                let created = try await activeBackend.createSession(title: workflowThread ? "\(bot.name) · workflow" : bot.name, systemPrompt: bot.persona, id: id)
+                let created = try await activeBackend.createSession(title: workflowThread ? "\(bot.name) · workflow" : bot.name, systemPrompt: bot.outboundPersona, id: id)
                 if let plan { try await applyModel(plan, bot: bot, sessionID: created, record: !workflowThread, note: note) }
                 conversation.hermesSessionID = created
                 save()

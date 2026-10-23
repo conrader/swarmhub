@@ -94,7 +94,7 @@ extension AppStore {
     /// approval of its own (denied, its run stopped). Throws on failure and on timeout (the run is stopped).
     func reviewerAnswer(reviewer: Bot, sessionID reviewerSessionID: String, title: String, prompt: String, timeout: Duration) async throws -> String? {
         let reviewerBackend = try backend(for: reviewer)
-        let reviewerPersona = reviewer.persona
+        let reviewerPersona = reviewer.outboundPersona
         let stopTargetBox = ReviewerStopTargetBox()
         return try await withThrowingTaskGroup(of: ReviewerResult.self) { group in
             group.addTask {

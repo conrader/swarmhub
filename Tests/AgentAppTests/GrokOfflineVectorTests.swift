@@ -31,9 +31,9 @@ import Testing
     _ = redact("token: abc token=def")
     #expect(redact.counts == ["bearer": 1, "credential_assignment": 3, "basic_auth": 1])
     #expect(redact.total == 5)
-    #expect(GrokRedactor.categories.count == GrokTemplateParser.secretValuePatterns.count)
+    #expect(SecretFilter.categories.count == SecretFilter.secretValuePatterns.count)
     // Template import keeps its own filter and replacement.
-    #expect(GrokTemplateParser.redactSecrets("api_key=FAKEFAKE1234").text == "[removed]")
+    #expect(SecretFilter.redacted("api_key=FAKEFAKE1234") == "[removed]")
 }
 
 @Test func hiddenMarkerIsTestedOnRedactedText() {

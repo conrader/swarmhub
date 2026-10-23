@@ -246,7 +246,11 @@ final class Bot: ObservableObject, Identifiable, Codable, Hashable {
         avatarMark = avatarName == nil ? GrokDefaultLook.mark(for: id.uuidString.lowercased()) : nil
     }
     static let defaultPersona = "You are a thoughtful, capable assistant."
-    static func == (lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
+    /// The persona as it leaves for a backend (system prompt, orientation). An imported bot's persona came from Grok
+    /// Bot data and may predate the current filter, so it goes through `SecretFilter` once more; a persona typed here
+    /// is sent as written (a deliberate `token: …` line in it stays).
+    var outboundPersona: String { grokSourceID == nil ? persona : SecretFilter.redacted(persona, replacement: GrokRedactor.marker) }
+    static func ==(lhs: Bot, rhs: Bot) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
     enum CodingKeys: CodingKey { case connectorReport, id, name, title, botDescription, persona, backend, avatarName, unreadCount, isHidden, notificationsEnabled, memorySummary, skills, importedMemories, importedSkills, requestedConnectorIDs, gettingStartedSkill, routines, hermesProfile, hermesSessionID, approvalMode, approvalRules, reviewerBotID, approvalAudit, isDemo, hermesBaseURL, accentColor, grokSourceID, grokHistoryCount, archivedMembers, computerURL, hermesModelLock, routineRunMarks, threads, manualUnread, createdAt, messages, modelSettings, avatarMark, canManageBots, boxInstructions, retiredOnBox, openClaw, installedSkills, skillBannerSnoozed, installedSkillVariants, skillInstallFailures, skillDevMode, skillsModifiedLocally, adoptedKeyBackup, approvalRouting, reviewAfter, orientedAt, orientationQueuedAt }
     required init(from decoder: Decoder) throws {

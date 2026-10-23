@@ -51,7 +51,7 @@ extension AppStore {
             boxCheckProblems[check] = BoxReadingsCopy.noManager; return false
         }
         boxChecks.insert(check); boxCheckProblems[check] = nil
-        let ops = await quietBoxTurn(backend, persona: manager.persona, request: request, instructions: instructions)
+        let ops = await quietBoxTurn(backend, persona: manager.outboundPersona, request: request, instructions: instructions)
         boxChecks.remove(check)
         let wanted = ops?.contains { op in
             switch (op, check) {

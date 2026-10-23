@@ -53,7 +53,7 @@ extension AppStore {
         guard let manager = ensureManager(on: target), manager.backend == .hermes, let template = managerRecipeTemplate(.box),
               let instructions = BoxAdoption.closeReportsInstructions(template: template, managerProfile: manager.hermesProfile ?? "default", sent: work.sent, deleted: work.deleted),
               let backend = try? backend(for: manager),
-              let ops = await quietBoxTurn(backend, persona: manager.persona, request: "Close SwarmHub reports on this box.", instructions: instructions) else { return }
+              let ops = await quietBoxTurn(backend, persona: manager.outboundPersona, request: "Close SwarmHub reports on this box.", instructions: instructions) else { return }
         absorbReportOps(ops, connection: target)
     }
 

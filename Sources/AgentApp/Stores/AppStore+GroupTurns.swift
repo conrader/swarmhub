@@ -62,14 +62,14 @@ extension AppStore {
             if group.session(for: bot.id) == nil, try await activeBackend.sessionTransport() == .nativeSessions {
                 let note = { [unowned self] (text: String) in insertNote(text, in: group, before: assistant) }
                 let plan = try await prepareModel(for: bot, backend: activeBackend, note: note)
-                let created = try await activeBackend.createSession(title: "\(group.name) · \(bot.name)", systemPrompt: bot.persona, id: wanted)
+                let created = try await activeBackend.createSession(title: "\(group.name) · \(bot.name)", systemPrompt: bot.outboundPersona, id: wanted)
                 if let plan { try await applyModel(plan, bot: bot, sessionID: created, record: false, note: note) }
                 group.hermesSessionID = created
                 save()
             }
             try Task.checkCancellation()
             let sessionID = group.session(for: bot.id) ?? wanted
-            let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: withHeartbeatContext(bot.persona, bot: bot), messages: [(role: "user", content: context)], images: images))
+            let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: withHeartbeatContext(bot.outboundPersona, bot: bot), messages: [(role: "user", content: context)], images: images))
             if isCurrent(token) { setSteerAvailable((try? await activeBackend.features())?.contains("run_steer") == true, token: token) }
             end = try await consumeTurn(stream, assistant: assistant, bot: bot, sessionID: sessionID, backend: activeBackend, in: group) { [unowned self] task in upsertSubAgent(task, bot: bot, in: group, row: false) }
         } catch is CancellationError { end = .stoppedByUser
