@@ -26,6 +26,9 @@ enum MessagePresentation: String, Codable {
     case approvalDecision, review
     /// P45: a goal's end card ("Goal reached", blocked, budget used); older builds read it as text.
     case automation
+    /// recs1: a question SwarmHub has the bot ask in its own chat (a repeated ask → "run it on a schedule?"). Drawn as the
+    /// bot's message; written on the Mac only, so it is never matched against the box's history (older builds: text).
+    case suggestion
     init(from decoder: Decoder) throws { self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .text }
 }
 
