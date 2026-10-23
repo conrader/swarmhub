@@ -62,12 +62,16 @@ enum SettingsLayout {
                         "voice.dictationKey", "voice.live",
                         // P45: /goal's budget (rounds and hours).
                         "chats.goalBudget",
+                        // recs1: bots suggest a routine for a repeated ask (on by default).
+                        "chats.suggestions",
                         // P46: the heartbeat template and each bot's heartbeat.
                         "heartbeat.template", "heartbeat.bots",
                         // P49: orientation for new bots (on/off, coordinator) and the quiet hours.
                         "orientation.newBots", "orientation.quietHours",
                         // Konrad 2026-10-22: the app icon (Light by default, Dark on request), apart from the theme.
-                        "appearance.appIcon"]
+                        "appearance.appIcon",
+                        // alerts2: each server's alerts while SwarmHub is closed (ntfy, email, test, service state).
+                        "alerts.offApp"]
 
     static let entries: [(id: String, home: Home)] = [
         ("connection.status", .simple), ("connection.test", .simple), ("connection.setup", .simple), ("you.name", .simple),
@@ -78,13 +82,14 @@ enum SettingsLayout {
         ("servers.namedProfiles", .advanced(.servers)), ("servers.testDiscover", .advanced(.servers)),
         ("servers.connectedProfiles", .advanced(.servers)), ("servers.reenterKey", .advanced(.servers)),
         ("servers.addFromBox", .advanced(.servers)), ("servers.grokBot", .advanced(.servers)), ("servers.openClaw", .advanced(.servers)),
-        ("alerts.perAgent", .advanced(.alerts)), ("alerts.avatarMotion", .advanced(.alerts)),
+        ("alerts.perAgent", .advanced(.alerts)), ("alerts.avatarMotion", .advanced(.alerts)), ("alerts.offApp", .advanced(.alerts)),
         ("models.roles", .advanced(.models)), ("review.perAgent", .advanced(.review)), ("computers.list", .advanced(.computers)),
         ("usage.table", .advanced(.usage)),
         // P36: the SwarmHub service address and the Reports inbox.
         ("account.serviceURL", .advanced(.account)), ("reports.list", .advanced(.reports)),
         ("apps.chatgpt", .advanced(.apps)), ("apps.composio", .advanced(.apps)), ("apps.botAccess", .advanced(.apps)), ("apps.background", .advanced(.apps)),
         ("voice.dictationKey", .advanced(.voice)), ("voice.live", .advanced(.voice)), ("chats.goalBudget", .advanced(.chats)),
+        ("chats.suggestions", .advanced(.chats)),
         ("heartbeat.template", .advanced(.heartbeat)), ("heartbeat.bots", .advanced(.heartbeat)),
         ("orientation.newBots", .advanced(.orientation)), ("orientation.quietHours", .advanced(.orientation)),
         ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))

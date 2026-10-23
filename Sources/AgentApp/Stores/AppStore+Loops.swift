@@ -1,9 +1,10 @@
 import Foundation
 
 /// P45 3: `/loop` — the prompt again on its interval while SwarmHub runs ("Woken by: loop"), ending after `--times N`, when
-/// the bot reports the `--until` condition met, or on `/loop stop` / Stop. Box-side schedules are Routines.
+/// the bot reports the `--until` condition met, or on `/loop stop` / Stop. Box-side schedules are Routines. When SwarmHub
+/// quits, a loop in a Bot Chat keeps running on the box until the next launch (`AppStore+AutomationHandoff.swift`).
 extension AppStore {
-    static let loopRoutinesHint = "It runs while SwarmHub is open; for a schedule that runs on the box, use the bot's Routines."
+    static let loopRoutinesHint = "It runs while SwarmHub is open; in the bot's main chat it also keeps running on the box while SwarmHub is closed. For a schedule that lives on the box, use the bot's Routines."
 
     func loop(in conversation: any Conversation) -> LoopRun? { automations[conversation.id]?.loop }
 
@@ -22,6 +23,7 @@ extension AppStore {
             guard loop(in: conversation)?.paused == true else { commandLine("No paused loop to resume.", in: conversation); return }
             updateLoop(in: conversation) { $0.paused = false; $0.nextAt = max($0.nextAt, now()) }; commandLine("Loop resumed.", in: conversation)
             runLoopIfDue(in: conversation, bot: bot)
+        case "takeover": takeOverHandoff(.loop, in: conversation)
         case "stop":
             guard loop(in: conversation) != nil else { commandLine("No loop in this chat.", in: conversation); return }
             endLoop(in: conversation, line: "Loop stopped.")
@@ -46,6 +48,7 @@ extension AppStore {
     /// Sends the prompt when it is due and the chat is free and online; a busy chat gets it as soon as it is idle.
     func runLoopIfDue(in conversation: any Conversation, bot: Bot) {
         guard let loop = loop(in: conversation), !loop.paused, !loop.awaitingReply, now() >= loop.nextAt,
+              automations[conversation.id]?.boxHandoff?.kind != .loop,
               isIdle(conversation), !hasWaitingTurn(in: conversation), !turns.pathDown else { return }
         let metadata = [AutomationKey.woken: AutomationKind.loop.rawValue, AutomationKey.display: loop.prompt]
         guard send(text: loop.message, bot: bot, conversation: conversation, replyToID: nil, waitWhenFull: true, metadata: metadata) else { return }

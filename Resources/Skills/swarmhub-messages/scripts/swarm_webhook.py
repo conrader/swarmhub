@@ -189,6 +189,8 @@ def fire(profile, routine, slug, key, text):
     ident = enqueue(profile, profile, f"[Webhook routine {routine} for {profile}]\n{text}")
     with database() as db:
         db.execute("UPDATE webhooks SET fired=fired+1 WHERE profile=? AND routine=?", (profile, routine))
+    import swarm_alerts
+    swarm_alerts.emit("webhook", "webhook:" + ident, f"Webhook {routine} woke {profile}", text)  # Never raises.
     return {"profile": profile, "routine": routine, "delivery": ident, "status": "pending"}
 
 

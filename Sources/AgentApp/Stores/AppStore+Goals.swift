@@ -28,6 +28,7 @@ extension AppStore {
             updateGoal(in: conversation) { $0.state = .paused; $0.pausedOffline = false }
             commandLine("Goal paused. The current reply finishes; nothing more is sent until /goal resume.", in: conversation)
         case "resume": resumeGoal(bot: bot, conversation: conversation)
+        case "takeover": takeOverHandoff(.goal, in: conversation)
         case "clear":
             guard goal(in: conversation) != nil else { commandLine("No goal in this chat.", in: conversation); return }
             automations[conversation.id]?.goal = nil; pruneAutomations(conversation)
@@ -89,7 +90,8 @@ extension AppStore {
 
     /// Sends the next round when the goal runs, the chat is free and online, and the budget allows.
     func advanceGoal(in conversation: any Conversation, bot: Bot) {
-        guard let goal = goal(in: conversation), goal.state == .running, !goal.awaitingReply, isIdle(conversation), !hasWaitingTurn(in: conversation) else { return }
+        guard let goal = goal(in: conversation), goal.state == .running, !goal.awaitingReply, isIdle(conversation), !hasWaitingTurn(in: conversation),
+              automations[conversation.id]?.boxHandoff?.kind != .goal else { return }
         if turns.pathDown { updateGoal(in: conversation) { $0.state = .paused; $0.pausedOffline = true }; return }
         if goal.budgetSpent(at: now()) {
             let why = goal.round >= goal.maxRounds ? "all \(goal.maxRounds) rounds used" : "the \(Self.hours(goal.maxDuration)) limit reached"

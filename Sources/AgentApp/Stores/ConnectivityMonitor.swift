@@ -50,7 +50,8 @@ struct ConnectivityPath: Sendable, Equatable {
     /// Terminate saves synchronously on the main queue.
     static func observeTerminate(_ store: AppStore) -> NSObjectProtocol {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak store] _ in
-            MainActor.assumeIsolated { store?.flushNow() }
+            // Loops and goals of Bot Chats go to their boxes and presence leases end (`AppStore+AutomationHandoff.swift`).
+            MainActor.assumeIsolated { store?.handOffForQuit(); store?.flushNow() }
         }
     }
 }
