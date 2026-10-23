@@ -67,8 +67,9 @@ enum HistoryReconciler {
         var keepPolling: Set<UUID> = []
         /// An unpaired box turn is newer than the last paired one (Retry must not send by itself then).
         var newerUnmatched = false
-        /// Routines (by name) with a delivery turn on the box that was neither paired nor added.
-        var leftOut: Set<String> = []
+        /// Routines (by name) with a delivery turn on the box that was neither paired nor added: the newest such turn's
+        /// time on the Mac's clock (`distantPast` without one).
+        var leftOut: [String: Date] = [:]
         var isEmpty: Bool { edits.isEmpty && additions.isEmpty }
     }
 
@@ -277,14 +278,17 @@ enum HistoryReconciler {
         var midAdded = 0
         for box in server where !used.contains(box.index) {
             let routine = box.user.flatMap { CronDeliveryRow.jobName($0.content) }, known = !Set(box.ids).isDisjoint(with: knownIDs)
-            func leaveOut() { if let routine, !known { plan.leftOut.insert(routine) } }
+            func leaveOut() {
+                guard let routine, !known else { return }
+                plan.leftOut[routine] = max(plan.leftOut[routine] ?? .distantPast, box.time?.addingTimeInterval(-input.skew) ?? .distantPast)
+            }
             if hasLocalTurns, let oldestPair, box.index < oldestPair { plan.counts.ignoredOld += 1; leaveOut(); continue }
             if hasLocalTurns && oldestPair == nil { leaveOut(); continue }
             guard additionsAllowed, !box.replyText.isEmpty || !isGroup(input.mode) else { leaveOut(); continue }
             if known { continue }
-            // A routine's delivery is written on the box, so the Mac never holds an id-less copy of it: only a row that is
-            // neither paired nor read from the box can be one (every round of a routine has the same text).
-            let candidatesForCopy = routine != nil ? input.local.filter { !pairedRows.contains($0.id) && $0.boxIDs.isEmpty } : input.local
+            // A routine's delivery is written on the box, so only an id-less copy of its own row, neither paired nor read from
+            // the box, can be one; a reply alone never is (every round of a routine has the same text, often a short reply).
+            let candidatesForCopy = routine != nil ? input.local.filter { $0.role == .user && !pairedRows.contains($0.id) && $0.boxIDs.isEmpty } : input.local
             if isDuplicate(box, local: candidatesForCopy, mode: input.mode) { plan.counts.ambiguous += 1; leaveOut(); continue }
             let localTime = box.time?.addingTimeInterval(-input.skew)
             let anchor = localTime.flatMap { time in input.local.last { $0.createdAt <= time } }

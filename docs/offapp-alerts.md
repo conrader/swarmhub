@@ -106,8 +106,10 @@ At launch, on every routine poll tick until none is left:
 2. The Bot Chat is read from the box, the whole session (this chat only, not its threads). The app goes on only when
    that read happened and every delivery turn of this routine is in the chat, or when the box says it has no session
    for the chat and the routine is there and never ran (no `repeat.completed`, no `last_run_at`, nothing in flight).
-   Every round of a routine has the same text, so a turn read from the box earlier keeps its own box turn (by id) and a
-   delivery is never taken for a copy of a row that is already paired or read. Otherwise (the read fails, the box has no session reads,
+   Every round of a routine has the same text, so a turn read from the box earlier keeps its own box turn (by id), and a
+   delivery is taken for a copy only of an unpaired, id-less row with its own text (never of a reply alone). A delivery
+   turn left out from before this handoff (e.g. an earlier quit's) does not hold it back. Each wait (a busy chat, a run in
+   flight, replies not in the chat yet) has its own clock. Otherwise (the read fails, the box has no session reads,
    the box's turns cannot be merged, or the session is missing although the routine ran) the routine stays on the box,
    paused, and the handoff stays. The chat says why, once. The next tick tries again. A chat that is busy is read on
    the next tick; one still busy after 20 minutes says so once.

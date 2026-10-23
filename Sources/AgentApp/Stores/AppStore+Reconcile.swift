@@ -36,7 +36,7 @@ struct ReconcileReport: Sendable {
     /// A unit was not read because the box has no session reads (legacy transport); one the box has no session for.
     var legacy = false, missing = false
     /// Routines with a box delivery turn this pass did not bring into the chat (`HistoryReconciler.Plan.leftOut`).
-    var leftOut: Set<String> = []
+    var leftOut: [String: Date] = [:]
     /// Per the last unit read: box time of its oldest row (nil = whole session), the box clock minus the Mac's, whether
     /// an unpaired box turn is newer than the last paired one.
     var coversFrom: Date?; var skew: TimeInterval = 0; var newerUnmatched = false
@@ -131,7 +131,7 @@ extension AppStore {
         if !active.isEmpty { report.activeRun = true }
         let skew = read.serverDate.map { $0.timeIntervalSinceNow } ?? 0
         let plan = HistoryReconciler.plan(.init(local: snapshot, server: read.rows, mode: unit.mode, now: .now, skew: skew, coversFrom: read.coversFrom, activeRuns: active, notSentAge: reconcileTiming.notSentAge))
-        report.segments.append((unit.name, plan.counts)); report.leftOut.formUnion(plan.leftOut)
+        report.segments.append((unit.name, plan.counts)); report.leftOut.merge(plan.leftOut) { max($0, $1) }
         report.coversFrom = read.coversFrom; report.skew = skew; report.newerUnmatched = plan.newerUnmatched
         guard ignoringStream || !isStreamingIn(unit.conversation) else { report.skipped = true; return }
         let isBotChat: Bool; if case .chat(true) = unit.mode { isBotChat = true } else { isBotChat = false }

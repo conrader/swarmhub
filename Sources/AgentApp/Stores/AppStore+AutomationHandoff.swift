@@ -108,11 +108,12 @@ extension AppStore {
         if resumable {
             // The whole session: a long handoff's rounds can reach past the newest windows.
             let report = await reconcile(bot, reason: .schedule, full: true, chatOnly: true)
-            if report.unreachable || !report.problems.isEmpty || report.notMerged || report.legacy || report.leftOut.contains(handoff.jobName) {
+            if report.unreachable || !report.problems.isEmpty || report.notMerged || report.legacy
+                || (report.leftOut[handoff.jobName].map { $0 >= handoff.handedAt.addingTimeInterval(-60) } ?? false) {
                 return handoffBlocked(id, in: conversation, HandoffCopy.notReconciled(handoff.kind))
             }
             if report.skipped { // the chat is busy: read again next tick; one that stays busy is said once
-                if waitClock(handoff, id) >= Self.handoffSettle { handoffBlocked(id, in: conversation, HandoffCopy.notReconciled(handoff.kind)) }
+                if waitClock(handoff, id, for: "busy") >= Self.handoffSettle { handoffBlocked(id, in: conversation, HandoffCopy.notReconciled(handoff.kind)) }
                 return
             }
             // Only a chat actually read and merged goes on, or one the box has no session for while its routine is there
@@ -125,7 +126,7 @@ extension AppStore {
             replies = boxReplies(in: bot, jobName: handoff.jobName, after: handoff.handedAt)
             let inFlight = job?.isRunning == true, behind = (job?.runsCompleted ?? 0) > replies.count
             if inFlight || behind {
-                let waited = waitClock(handoff, id)
+                let waited = waitClock(handoff, id, for: inFlight ? "running" : "behind")
                 // A run in flight is not counted yet (Hermes counts it after its delivery): deleting it then could run that
                 // round twice, so it is never taken over. Past the long wait the chat says so once; a stop ends it.
                 if inFlight {
@@ -158,9 +159,11 @@ extension AppStore {
     static let handoffSettle: TimeInterval = 1_200
 
     /// How long this reclaim has been waiting (busy chat, a run in flight, rounds not in the chat yet); starts the clock.
-    private func waitClock(_ handoff: BoxHandoff, _ id: UUID) -> TimeInterval {
-        let since = handoff.waitingSince ?? now()
-        if handoff.waitingSince == nil { automations[id]?.boxHandoff?.waitingSince = since; save() }
+    private func waitClock(_ handoff: BoxHandoff, _ id: UUID, for reason: String) -> TimeInterval {
+        guard let since = handoff.waitingSince, handoff.waitingFor == reason else {
+            automations[id]?.boxHandoff?.waitingSince = now(); automations[id]?.boxHandoff?.waitingFor = reason; save()
+            return 0
+        }
         return now().timeIntervalSince(since)
     }
 

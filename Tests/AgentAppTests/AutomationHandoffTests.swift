@@ -233,8 +233,11 @@ private func boxRound(_ box: BoxSession, job: String, reply: String, at date: Da
     let waiting = try #require(store.automations[bot.id])
     #expect(waiting.boxHandoff?.lastError == HandoffCopy.stillRunning(.loop) && waiting.loop?.runs == 0 && waiting.loop?.awaitingReply == false)
     #expect(bot.messages.filter { $0.content == HandoffCopy.stillRunning(.loop) }.count == 1, "said once")
-    // The run ends: the box counted it and nothing is in flight, so it is taken back with the box's count.
+    // The run ends; the box counted it but its reply is not in the chat: a fresh wait for it, then the box's count.
     server.set("0000000abc06", ["fire_claim": NSNull(), "repeat": ["times": 3, "completed": 1], "last_run_at": "2026-10-23T09:00:00+00:00"])
+    await store.reclaimHandoffs()
+    #expect(server.jobIDs == ["0000000abc06"] && store.automations[bot.id]?.boxHandoff?.waitingFor == "behind", "the run's wait is not the reply's")
+    store.now = { Date().addingTimeInterval(30 * 3_600 + AppStore.handoffSettle + 60) }
     await store.reclaimHandoffs()
     #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && store.automations[bot.id]?.loop?.runs == 1)
 }
@@ -385,4 +388,35 @@ private func boxRound(_ box: BoxSession, job: String, reply: String, at date: Da
     bot.messages.removeAll { $0 === streaming } // the turn ended (its row is the box's to bring back)
     await store.reclaimHandoffs()
     #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil)
+}
+
+@Test @MainActor func anOldDeliveryTheChatNeverHeldDoesNotHoldBackALaterHandoff() async throws {
+    let (store, bot, server, _, _, box) = handoffStore()
+    let name = AppStore.handoffName(.loop, chat: bot.id), handedAt = Date().addingTimeInterval(-1_800)
+    // Older than anything the Mac holds: the reconcile leaves it out, as it always has.
+    boxRound(box, job: name, reply: "pong from last week", at: handedAt.addingTimeInterval(-7 * 86_400))
+    sharedTurn(bot, box, ask: "ping me", reply: "Will do.", at: handedAt.addingTimeInterval(-120))
+    boxRound(box, job: name, reply: "pong", at: handedAt.addingTimeInterval(600))
+    server.add(jobPayload(id: "0000000abc16", name: name, schedule: "every 10m"))
+    store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "ping", interval: 600, timesLeft: 3, until: nil, nextAt: Date()),
+                                               boxHandoff: BoxHandoff(kind: .loop, jobName: name, jobID: "0000000abc16", handedAt: handedAt))
+    await store.reclaimHandoffs()
+    #expect(!bot.messages.contains { $0.content == "pong from last week" })
+    #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && store.automations[bot.id]?.loop?.runs == 1)
+}
+
+@Test @MainActor func aShortBoxReplyEqualToALocalOnlyReplyIsStillAddedAndCounted() async throws {
+    let (store, bot, server, _, _, box) = handoffStore()
+    let name = AppStore.handoffName(.loop, chat: bot.id), handedAt = Date().addingTimeInterval(-1_800)
+    sharedTurn(bot, box, ask: "ping me", reply: "Will do.", at: handedAt.addingTimeInterval(-300))
+    // A turn only the Mac holds, with the same short reply the box's round will give.
+    bot.messages += [ChatMessage(role: .user, content: "still there?", createdAt: handedAt.addingTimeInterval(-120)),
+                     ChatMessage(role: .assistant, content: "pong", createdAt: handedAt.addingTimeInterval(-115), turnState: .finished)]
+    boxRound(box, job: name, reply: "pong", at: handedAt.addingTimeInterval(600))
+    server.add(jobPayload(id: "0000000abc17", name: name, schedule: "every 10m"))
+    store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "ping", interval: 600, timesLeft: 3, until: nil, nextAt: Date()),
+                                               boxHandoff: BoxHandoff(kind: .loop, jobName: name, jobID: "0000000abc17", handedAt: handedAt))
+    await store.reclaimHandoffs()
+    #expect(bot.messages.filter { $0.role == .assistant && $0.content == "pong" }.count == 2, "the box's round is not taken for the local reply")
+    #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && store.automations[bot.id]?.loop?.runs == 1)
 }

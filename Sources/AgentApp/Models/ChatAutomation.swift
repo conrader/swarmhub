@@ -20,6 +20,8 @@ struct BoxHandoff: Codable, Equatable, Sendable {
     var handedAt: Date
     /// Taking it back waits while a box round is still in flight (since this time), and the last reason it could not.
     var waitingSince: Date? = nil
+    /// What the wait is for (`busy`, `running`, `behind`): a new reason starts the clock again.
+    var waitingFor: String? = nil
     var lastError: String? = nil
 }
 
