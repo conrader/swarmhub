@@ -23,6 +23,7 @@ case $(cat "$d/$me.mode" 2>/dev/null) in
   lockedreport) chmod 000 "$SWARMHUB_REPORT_FILE"; echo "$me did the work"; exit 0 ;;
   slow) : > "$d/$me.slow"; while [ ! -f "$d/release" ]; do sleep 0.05; done; echo "$me slow done"; exit 0 ;;
   tree) sleep 60 & echo $! > "$d/$me.child"; sleep 60; exit 0 ;;
+  stubborn) ( trap '' TERM; exec sleep 60 ) & echo $! > "$d/$me.child"; sleep 60; exit 0 ;;
   commit) git add -A && git commit -qm "stub work" || exit 3; echo "$me committed"; exit 0 ;;
   *) echo "stub $me: no mode" >&2; exit 99 ;;
 esac

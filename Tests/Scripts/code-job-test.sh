@@ -610,7 +610,29 @@ expect "verifier: stopped soon after 1 s despite a refused read (took ${took}s)"
 done_case
 }
 
-for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25}; do
+# 26
+case_26() {
+new_case "the root exits on TERM, its child ignores TERM and the next read is refused: the child is still killed" claude codex
+mode claude stubborn; mode codex ok; with_control
+# The shim passes the first identity read and refuses the second (the one before KILL), after TERM ended the root.
+cat > "$C/bin/ps" <<'PS'
+#!/bin/sh
+case "$*" in *sess=*) mkdir "$STUB_STATE/ps-read-1" 2>/dev/null || { mkdir "$STUB_STATE/ps-failed-2" 2>/dev/null && exit 0; } ;; esac
+exec /bin/ps "$@"
+PS
+chmod 755 "$C/bin/ps"
+t0=$(date +%s)
+managed --bot jarvis --order claude,codex --timeout 1 --dir "$C/work" -- "$TASK"; RC=$?
+took=$(( $(date +%s) - t0 ))
+expect "shim refused the read after TERM" [ -d "$C/state/ps-failed-2" ]
+expect "exit 124 (got $RC)" [ "$RC" -eq 124 ]
+expect "stopped soon after 1 s (took ${took}s)" [ "$took" -lt 30 ]
+expect "agent pid gone" sh -c "! kill -0 $(cat "$C/state/claude.pid") 2>/dev/null"
+expect "TERM-ignoring child gone" sh -c "! kill -0 $(cat "$C/state/claude.child") 2>/dev/null"
+done_case
+}
+
+for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26}; do
   over_limit && break
   "case_$n"
 done

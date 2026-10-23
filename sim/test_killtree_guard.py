@@ -160,6 +160,21 @@ class CodeJobKillTreeTests(unittest.TestCase):
         self.assertIn("done=0", proc.stdout, proc.stderr)
         self.assertEqual(set(kills.splitlines()[1].split()[2:]), {"1500000002", "1500000003"}, kills)
 
+    def test_a_read_refused_after_term_is_retried_on_the_orphans_until_none_is_left(self):
+        """TERM ends the root, the read before KILL fails: the next call still finds the root's orphans by their cached
+        identity and KILLs them (KILL_LEFT set); a complete read with none of them left clears KILL_LEFT, silently."""
+        proc, kills = run_shell(
+            'ps > "$LOG.ps1"; : > "$LOG.ps2"; echo 0 > "$LOG.n"\n'
+            'awk \'$1 == 1500000001 { next } $1 == 1500000002 { $2 = 1 } { print }\' "$LOG.ps1" > "$LOG.ps3"\n'
+            'cp "$LOG.ps3" "$LOG.ps4"; awk \'$1 < 1500000001 || $1 > 1500000003\' "$LOG.ps1" > "$LOG.pslast"\n'
+            'ps() { n=$(( $(cat "$LOG.n") + 1 )); echo $n > "$LOG.n"; cat "$LOG.ps$n" 2>/dev/null || cat "$LOG.pslast"; }\n'
+            'for i in 1 2 3; do kill_tree 1500000001; echo "left$i=$KILL_LEFT"; done\n')
+        self.assertEqual(proc.stdout.split(), ["left1=1", "left2=1", "left3="], proc.stderr)
+        self.assertEqual([line.split() for line in kills.splitlines()], [
+            ["kill", "-TERM", "1500000001", "1500000002", "1500000003"],
+            ["kill", "-TERM", "1500000002", "1500000003"], ["kill", "-KILL", "1500000002", "1500000003"]], kills)
+        self.assertNotIn("not signalling", proc.stderr)
+
     def test_reused_root_cannot_admit_new_foreign_descendants(self):
         proc, kills = run_shell(self.after_term(
             '{ if ($1 == 1500000001) $8="12:00:01"; print } END { print "1500000004 1500000001 700 800 Wed Oct 21 12:00:01 2026" }'))

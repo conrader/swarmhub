@@ -177,17 +177,17 @@ collect_evidence() {
     # The launcher records its isolation mode (namespaced, fallback = limited, seatbelt) in $T, out of the verifier's reach.
     ( exec python3 "$SCRIPT_DIR/verify-sandbox.py" "$DIR" "$VERIFY" "$T/verify-mode" "$T/git-trust.json" ) < /dev/null > "$T/verify" 2>&1 &
     VPID=$!
-    now; t0=$NOW VEXIT=
-    while kill -0 "$VPID" 2>/dev/null; do
+    now; t0=$NOW VEXIT= KILL_ROOT= KILL_LEFT=
+    while kill -0 "$VPID" 2>/dev/null || [ -n "$KILL_LEFT" ]; do
       [ -z "$VEXIT" ] && [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ] && VEXIT=125
       now
       [ -z "$VEXIT" ] && [ $(( NOW - t0 )) -gt "$VTIMEOUT" ] && VEXIT=124
-      # Cancelled or late: every tick tries again until the verifier is gone (a refused identity read must not end it).
+      # Cancelled or late: every tick tries again until the verifier's tree is gone (a refused identity read must not end it).
       [ -n "$VEXIT" ] && kill_tree "$VPID"
       sleep "${CODE_JOB_TICK:-1}"
     done
     wait "$VPID"; rc=$?
-    VPID=
+    VPID= KILL_ROOT=
     [ -n "$VEXIT" ] || VEXIT=$rc
     TESTS=false; [ "$VEXIT" -eq 0 ] && TESTS=true
     read_output cat "$T/verify-mode" 2>/dev/null
@@ -231,7 +231,8 @@ tree() {
       parent[$1] = $2; kids[$2] = kids[$2] " " $1; group[$1] = $3; session[$1] = $4
       start[$1] = $5 " " $6 " " $7 " " $8 " " $9; row[$1] = $0 }
     END {
-      if (bad || !(self in parent) || root + 0 <= 1 || root + 0 == self + 0) { print "end"; exit }
+      if (bad || !(self in parent)) exit
+      if (root + 0 <= 1 || root + 0 == self + 0) { print "end"; exit }
       c = split(previous, records, "\n")
       for (i = 1; i <= c; i++) { split(records[i], fields, " "); if (fields[1] + 0 > 1) old[fields[1]] = records[i] }
       for (p = self; p != "" && !(p in up); p = parent[p]) up[p] = 1
@@ -244,11 +245,13 @@ tree() {
     }'
 }
 
-# Sets SNAPSHOT and TREE (exact positive pids); incomplete or empty identity reads fail closed.
+# Sets SNAPSHOT and TREE (exact positive pids); incomplete or empty identity reads fail closed. TREE_DONE is set
+# only when a complete read lists nothing.
 tree_pids() {
+  TREE_DONE=
   for _tree_try in 1 2 3 4 5; do
     SNAPSHOT=$(tree "$1" "${2:-}")
-    case $SNAPSHOT in *end) SNAPSHOT=${SNAPSHOT%end}; TREE=$(printf '%s' "$SNAPSHOT" | awk 'NF == 9 { print $1 }'); [ -n "$TREE" ] && return 0; break ;; '') break ;; esac
+    case $SNAPSHOT in *end) SNAPSHOT=${SNAPSHOT%end}; TREE=$(printf '%s' "$SNAPSHOT" | awk 'NF == 9 { print $1 }'); [ -n "$TREE" ] && return 0; TREE_DONE=1; break ;; '') break ;; esac
   done
   TREE=; return 1
 }
@@ -269,16 +272,24 @@ tree_rss() {
 # TERM, then KILL, the tree under $1. Anything but this job's own child tree is refused with a line on stderr and
 # nothing is signalled. KILL rechecks start time, parent and PGID/session, including cached orphans. New descendants
 # are admitted only while the original root identity still matches; a missing identity never falls back to a pid.
+# Retry loops call again while KILL_LEFT is set: the last identities read (KILL_SEEN, per root; callers clear KILL_ROOT
+# for a new process) may still be alive, the root's orphans too. A complete read listing nothing clears it; 30 failed
+# reads in a row give up.
 kill_tree() {
+  KILL_LEFT=
   [ -n "$1" ] || return 0
-  if ! signalable "$1" || ! tree_pids "$1"; then
-    echo "code-job: not signalling pid '$1': not a live child of this job" >&2
+  [ "${KILL_ROOT:-}" = "$1" ] || KILL_ROOT=$1 KILL_SEEN= KILL_MISS=0
+  if ! signalable "$1" || ! tree_pids "$1" "$KILL_SEEN"; then
+    signalable "$1" && [ -n "$KILL_SEEN" ] && [ -z "$TREE_DONE" ] && KILL_MISS=$((KILL_MISS + 1)) && KILL_LEFT=1
+    [ "$KILL_MISS" -lt 30 ] || KILL_LEFT=
+    [ -n "$KILL_SEEN" ] && [ -n "$TREE_DONE" ] || echo "code-job: not signalling pid '$1': not a live child of this job" >&2
     return 0
   fi
-  snapshot=$SNAPSHOT
+  KILL_SEEN=$SNAPSHOT KILL_LEFT=1 KILL_MISS=0
   kill -TERM $TREE 2>/dev/null
   sleep 1
-  tree_pids "$1" "$snapshot" && kill -KILL $TREE 2>/dev/null
+  if tree_pids "$1" "$KILL_SEEN"; then KILL_SEEN=$SNAPSHOT; kill -KILL $TREE 2>/dev/null
+  elif [ -n "$TREE_DONE" ]; then KILL_LEFT=; fi
   return 0
 }
 
@@ -416,10 +427,11 @@ run_agent() {
   printf '%s\n' "$APID" > "$JOB/cli-pid"
   # Watchdog and sampler: every tick (1 s; CODE_JOB_TICK for tests) check the deadline (more than TIMEOUT whole seconds
   # on the clock), every 2 ticks add up the tree's RSS. Once cancelled or late, every tick tries kill_tree again until the
-  # agent is gone: one refused or late identity read must not let it run on. Refusals reach the job's stderr.
+  # agent and every child of it are gone: one refused or late identity read must not let any run on (kill_tree's
+  # KILL_LEFT). Refusals reach the job's stderr.
   (
-    now; t=0 peak=0 t0=$NOW stop=
-    while kill -0 "$APID" 2>/dev/null; do
+    now; t=0 peak=0 t0=$NOW stop= KILL_ROOT= KILL_LEFT=
+    while kill -0 "$APID" 2>/dev/null || [ -n "$KILL_LEFT" ]; do
       [ -z "$stop" ] && [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ] && { : > "$T/cancelled"; stop=1; }
       if [ $((t % 2)) -eq 0 ]; then
         read_output tree_rss "$APID"; r=${READ_OUTPUT:-0}; [ "$r" -gt "$peak" ] && { peak=$r; echo "$peak" > "$T/peak"; }
