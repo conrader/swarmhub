@@ -123,6 +123,11 @@ private func repeated(_ dates: [Date], text: String = "Summarize my inbox?") -> 
     #expect(SuggestionAnswer.classify("maybe later") == .other)
     #expect(SuggestionAnswer.isAboutTheOffer("Make it 7:30 instead") && SuggestionAnswer.isAboutTheOffer("Different time"))
     #expect(!SuggestionAnswer.isAboutTheOffer("What's the weather in Warsaw?"))
+    // recs1b-fix4: a short day counts in a day list, a full day name anywhere; a short day in other words does not.
+    #expect(SuggestionAnswer.isAboutTheOffer("Mon/Wed/Fri") && SuggestionAnswer.isAboutTheOffer("sat and sun only") && SuggestionAnswer.isAboutTheOffer("Mon-Fri"))
+    #expect(SuggestionAnswer.isAboutTheOffer("only on Tuesdays and Thursdays") && SuggestionAnswer.isAboutTheOffer("I'd rather have it on Saturday"))
+    #expect(!SuggestionAnswer.isAboutTheOffer("I sat down to work") && !SuggestionAnswer.isAboutTheOffer("the sun is out today"))
+    #expect(!SuggestionAnswer.isAboutTheOffer("we wed in June, remember?"))
 }
 
 /// recs1b-fix 4: the time and days a reply asks for change the routine; anything else leaves it as offered.

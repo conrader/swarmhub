@@ -95,14 +95,20 @@ enum SuggestionAnswer: String, Sendable {
     /// Words that make an `other` reply about the offer (a time, days, the wording); anything else is a new subject.
     static let scheduleWords: Set<String> = ["time", "times", "hour", "hours", "am", "pm", "morning", "mornings", "evening", "evenings", "afternoon",
                                              "night", "noon", "daily", "day", "days", "weekday", "weekdays", "weekend", "weekends", "week", "weekly",
-                                             "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "every", "instead",
+                                             "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+                                             "mondays", "tuesdays", "wednesdays", "thursdays", "fridays", "saturdays", "sundays", "every", "instead",
                                              "earlier", "later", "routine", "schedule", "wording", "prompt", "rano", "wieczorem", "godzina", "codziennie"]
 
-    /// An `other` reply that talks about the offer: it names a time or a schedule word, or days or a time the offer parser
-    /// reads ("Mon/Wed/Fri", "only on Tuesdays and Thursdays").
+    /// The words a day list may hold besides the days ("only Mon and Wed", "Mon to Fri", "not Fri").
+    static let dayListWords = CronDays.joiners.union(CronDays.refusers).union(["only", "just", "to", "through", "thru", "till", "until"])
+
+    /// An `other` reply that talks about the offer: it names a time, a schedule word or a day in full ("only on Tuesdays
+    /// and Thursdays"), or it is a day list ("Mon/Wed/Fri", "sat and sun"). A short day ("sat", "sun", "wed") anywhere else
+    /// is a word of another subject ("I sat down to work", "the sun is out today").
     static func isAboutTheOffer(_ text: String) -> Bool {
-        AskText.normalized(text).split(separator: " ").contains { word in scheduleWords.contains(String(word)) || word.first?.isNumber == true }
-            || OfferChange.days(in: text) != nil || !OfferChange.times(in: text).isEmpty
+        let words = AskText.normalized(text).split(separator: " ").map(String.init)
+        return words.contains { scheduleWords.contains($0) || $0.first?.isNumber == true } || !OfferChange.times(in: text).isEmpty
+            || (OfferChange.days(in: text) != nil && words.allSatisfy { CronDays.isDay($0) || dayListWords.contains($0) })
     }
 }
 

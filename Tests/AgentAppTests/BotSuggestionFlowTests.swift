@@ -321,6 +321,26 @@ import Testing
         #expect(editor.name == "Summarize my inbox" && editor.prompt == "Summarize my inbox")
     }
 
+    /// recs1b-fix4: a short day name inside another subject ("sat", "sun") is not an answer, so a later yes leaves the
+    /// offer as it was: still asked, still every weekday, no editor.
+    private func yesAfterAnotherSubject(_ text: String) async throws {
+        let backend = GroupBackend(name: "Ada")
+        let (store, bot) = repeatingStore(backend: backend)
+        _ = try #require(await store.suggestRoutineIfRepeated(bot: bot))
+        #expect(store.send(text: text, bot: bot, conversation: bot, replyToID: nil))
+        try await waitUntil { !store.anyTurnRunning }
+        let other = try #require(bot.messages.last { $0.role == .user })
+        #expect(other.metadata[SuggestionKey.answer] == nil && backend.sent.all.last?.text == text)
+        #expect(store.send(text: "yes", bot: bot, conversation: bot, replyToID: nil))
+        try await waitUntil { !store.anyTurnRunning }
+        let record = try #require(store.suggestionLedger.records.first)
+        #expect(record.state == .asked && record.draft.schedule == "0 9 * * 1-5" && store.suggestions.editor == nil)
+    }
+
+    @Test func iSatDownToWorkThenYesKeepsTheOfferedDays() async throws { try await yesAfterAnotherSubject("I sat down to work") }
+
+    @Test func theSunIsOutTodayThenYesKeepsTheOfferedDays() async throws { try await yesAfterAnotherSubject("the sun is out today") }
+
     @Test func anotherSubjectIsNotAnAnswer() async throws {
         let backend = GroupBackend(name: "Ada")
         let (store, bot) = repeatingStore(backend: backend)

@@ -103,6 +103,9 @@ enum CronDays {
     /// Words that turn down the days after them, and the words that may sit between those days ("except Friday and Sunday").
     static let refusers: Set<String> = ["not", "no", "except", "excluding", "without", "skip", "never", "nor", "bez", "oprocz"]
     static let joiners: Set<String> = ["and", "or", "on", "the", "a", "s", "nor", "also", "any"]
+
+    /// A day's name or short name ("monday", "mondays", "mon", "thurs").
+    static func isDay(_ word: String) -> Bool { numbers[word] != nil }
     private static let rangeWords: Set<String> = ["to", "through", "thru", "till", "until"]
 
     /// The days the words at `index` name, and how many words that took.
