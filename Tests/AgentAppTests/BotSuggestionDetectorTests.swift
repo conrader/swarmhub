@@ -128,6 +128,13 @@ private func repeated(_ dates: [Date], text: String = "Summarize my inbox?") -> 
     #expect(SuggestionAnswer.isAboutTheOffer("only on Tuesdays and Thursdays") && SuggestionAnswer.isAboutTheOffer("I'd rather have it on Saturday"))
     #expect(!SuggestionAnswer.isAboutTheOffer("I sat down to work") && !SuggestionAnswer.isAboutTheOffer("the sun is out today"))
     #expect(!SuggestionAnswer.isAboutTheOffer("we wed in June, remember?"))
+    // recs1b-fix5: every reply form the day parser reads is about the offer.
+    for reply in ["weekday", "weekdays", "workday", "workdays only", "work days", "working days", "weekend", "weekends only",
+                  "daily", "everyday", "every day", "each day", "all week", "codziennie", "Monday", "Tuesdays", "only on Tuesdays and Thursdays",
+                  "Monday to Friday", "Monday, Wednesday and Friday", "Mon/Wed/Fri", "Mon-Fri", "mon to thurs", "sat and sun only", "Tue, Thu",
+                  "weds", "every day except Friday", "not on weekends", "not Fri"] {
+        #expect(OfferChange.days(in: reply) != nil && SuggestionAnswer.isAboutTheOffer(reply), "\(reply)")
+    }
 }
 
 /// recs1b-fix 4: the time and days a reply asks for change the routine; anything else leaves it as offered.

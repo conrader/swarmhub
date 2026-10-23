@@ -106,6 +106,8 @@ enum CronDays {
 
     /// A day's name or short name ("monday", "mondays", "mon", "thurs").
     static func isDay(_ word: String) -> Bool { numbers[word] != nil }
+    /// A day's short name ("sat", "sun", "wed", "thurs"): also an everyday word, so it is a day only among days.
+    static func isShortDay(_ word: String) -> Bool { isDay(word) && !word.contains("day") }
     private static let rangeWords: Set<String> = ["to", "through", "thru", "till", "until"]
 
     /// The days the words at `index` name, and how many words that took.

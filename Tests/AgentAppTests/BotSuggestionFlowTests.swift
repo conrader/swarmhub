@@ -321,6 +321,22 @@ import Testing
         #expect(editor.name == "Summarize my inbox" && editor.prompt == "Summarize my inbox")
     }
 
+    /// recs1b-fix5: a schedule word the day parser reads ("workdays", "everyday") is an answer on its own, so a later yes
+    /// opens the editor on those days.
+    @Test func workdaysOnlyThenYesOpensTheEditorOnWeekdays() async throws {
+        let (answer, editor) = try await editorAfterDays("workdays only")
+        #expect(answer.content == "workdays only")
+        #expect(editor.schedule == "0 9 * * 1-5" && editor.when == "every weekday at 9:00" && editor.weekdaysOnly)
+        #expect(editor.name == "Summarize my inbox" && editor.prompt == "Summarize my inbox")
+    }
+
+    @Test func everydayThenYesOpensTheEditorOnEveryDay() async throws {
+        let (answer, editor) = try await editorAfterDays("everyday")
+        #expect(answer.content == "everyday")
+        #expect(editor.schedule == "0 9 * * *" && editor.when == "every day at 9:00" && !editor.weekdaysOnly)
+        #expect(editor.name == "Summarize my inbox" && editor.prompt == "Summarize my inbox")
+    }
+
     /// recs1b-fix4: a short day name inside another subject ("sat", "sun") is not an answer, so a later yes leaves the
     /// offer as it was: still asked, still every weekday, no editor.
     private func yesAfterAnotherSubject(_ text: String) async throws {
