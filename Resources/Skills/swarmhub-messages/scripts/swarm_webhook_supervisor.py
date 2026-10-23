@@ -28,7 +28,8 @@ from swarm_store import state
 HERE = Path(__file__).resolve().parent
 # The modules the receiver loads; their digest is in the unit and the pidfile, so a skill update restarts it.
 CODE = ("swarmctl", "swarm_control.py", "swarm_webhook.py", "swarm_delivery.py", "swarm_store.py", "swarm_policy.py",
-        "swarm_intake.py", "swarm_jobs.py", "swarm_lifecycle.py", "swarm_webhook_receiver.py", "swarm_webhook_supervisor.py")
+        "swarm_intake.py", "swarm_jobs.py", "swarm_lifecycle.py", "swarm_webhook_receiver.py", "swarm_webhook_supervisor.py",
+        "swarm_alerts.py", "swarm_alerts_hermes.py", "swarm_alerts_seal.py", "swarm_alerts_service.py", "swarm_alerts_sinks.py")
 # The command line spawn() gives every supervisor, before and after the pidfile: python -B <folder>/<this file> <port>.
 SUPERVISOR = re.compile(r"\A(/\S+) -B (/\S+)/swarm_webhook_supervisor\.py (\d+)\Z")
 

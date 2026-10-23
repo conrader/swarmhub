@@ -8,7 +8,9 @@ Layers (each under 500 lines, no cycles):
   swarm_webhook  managed webhook routines: keyed URL → durable self-delivery (key file only)
   swarm_webhook_receiver  the supervised loopback receiver (systemd user unit / LaunchAgent)
   swarm_intake   secure secret intake into 0600 files; only paths are returned
+  swarm_alerts*  off-app alerts (ntfy / email) while the Mac app is away; its service and sealed settings
 """
+import swarm_alerts_service as alerts_service  # noqa: F401
 import swarm_intake as intake  # noqa: F401
 import swarm_webhook as webhook  # noqa: F401
 import swarm_webhook_receiver as receiver  # noqa: F401
@@ -21,3 +23,9 @@ from swarm_policy import (SIDE_EFFECT_KINDS, acknowledge_policy, acknowledge_tur
 from swarm_delivery import (TAG, TAG_PATTERN, TEXT_LIMIT, deliver, delivery_ids, enqueue, receipt_ack,  # noqa: F401
                             receipt_bind, receipt_claim, retry_deliveries, tagged)
 from swarm_jobs import check_job, run_action, tick  # noqa: F401
+
+
+def resume_services():
+    """Gateway start: the box services that run without a systemd user manager come back (each never raises)."""
+    receiver.resume()
+    alerts_service.resume()

@@ -448,7 +448,7 @@ def register(ctx):
     ctx.register_hook("post_llm_call", lambda session_id, turn_id, assistant_response, **kw:
                       after_turn(profile, session_id, turn_id, assistant_response))
     start_worker(managed=True)  # The gateway owns shutdown of plugin recovery.
-    control.receiver.resume()  # A fallback-supervised webhook receiver comes back with the gateway.
+    control.resume_services()  # Fallback-supervised webhook receiver and alert service come back with the gateway.
 
 
 def install(profile):

@@ -14,7 +14,7 @@ SKILLS = ROOT / 'Resources/Skills'
 TESTS = ROOT / 'Tests/AgentAppTests'
 # skill -> (version installed before this change, bundled now, the Swift test that pins it)
 BUMPS = {'swarmhub-coding': ('1.3.13', '1.3.14', 'CodingSkillTests.swift'),  # dash-safe code-job reads reach existing installs
-         'swarmhub-messages': ('1.4.10', '1.4.11', 'BotMessageSkillTests.swift')}  # supervised webhook receiver, delete, app key digests
+         'swarmhub-messages': ('1.4.11', '1.4.12', 'BotMessageSkillTests.swift')}  # off-app alert service (ntfy/email), sealed settings
 
 
 def semver(text):

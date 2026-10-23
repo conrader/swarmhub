@@ -1,7 +1,7 @@
 ---
 name: swarmhub-messages
-description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v1.4.11."
-version: 1.4.11
+description: "Use for any message to another bot on this box: asking it something, handing it work, answering it. Sends through SwarmHub's bot-msg (fast, shown in SwarmHub); supersedes `hermes -p … chat` and peer commands. Installed by SwarmHub, v1.4.12."
+version: 1.4.12
 author: SwarmHub
 metadata:
   swarmhub:
@@ -104,6 +104,14 @@ receiver answers its health check (`GET /swarmhub/webhook/health`). `webhook ser
 foreground for another supervisor. To accept calls from outside the box, the owner puts a reverse proxy (or tunnel) in front of the loopback
 port and publishes its public base as policy `webhook_base` (SwarmHub repository: `docs/webhooks-exposure.md`). Never
 bind the receiver to a public address yourself.
+
+Off-app alerts: when the owner sets them up in SwarmHub (Settings → Advanced → Appearance and alerts), one service per
+box account (`swarmhub-alerts.service`, LaunchAgent `com.swarmhub.alerts`, or a lock-held fallback the peer plugin
+resumes) sends finished routines, code jobs, reports and webhook wakes to ntfy or email while SwarmHub on the Mac is
+closed or its owner is away. Settings arrive sealed to the box's own key and live only in
+`~/.hermes/swarmhub/alerts/config.json` (0600): never read, print or edit that file. `swarmctl alerts status` shows
+whether it runs. A paused routine named `swarmhub-presence` is the app's presence lease, and `swarmhub-loop-*` /
+`swarmhub-goal-*` routines are loops and goals SwarmHub handed to the box while it is closed: leave them alone.
 
 Secure key intake: `scripts/swarmctl secret intake <name>` reads the value from **stdin** and writes
 `~/.hermes/swarmhub/secrets/<name>` with mode 0600; it prints the path, never the value. Pass that path, not the key,
