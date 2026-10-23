@@ -178,9 +178,12 @@ extension AppStore {
         commandLine(reason, in: conversation)
     }
 
-    /// `/loop takeover`, `/goal takeover`: after `roundsMissing`, the next tick takes it back with the box's count.
-    func takeOverHandoff(in conversation: any Conversation) {
-        guard let handoff = automations[conversation.id]?.boxHandoff else { return }
+    /// `/loop takeover`, `/goal takeover`: after `roundsMissing`, the next tick takes it back with the box's count. With no
+    /// handoff of that kind it only says so: the word is never a new goal or loop.
+    func takeOverHandoff(_ kind: AutomationKind, in conversation: any Conversation) {
+        guard let handoff = automations[conversation.id]?.boxHandoff, handoff.kind == kind else {
+            commandLine(HandoffCopy.nothingOnTheBox(kind), in: conversation); return
+        }
         guard handoff.lastError == HandoffCopy.roundsMissing(handoff.kind) else {
             commandLine(HandoffCopy.nothingToTakeOver(handoff.kind), in: conversation); return
         }
@@ -249,6 +252,9 @@ enum HandoffCopy {
     }
     static func nothingToTakeOver(_ kind: AutomationKind) -> String {
         "This \(kind.rawValue) is still on the box and SwarmHub is taking it back by itself; there is nothing to take over."
+    }
+    static func nothingOnTheBox(_ kind: AutomationKind) -> String {
+        "There is no \(kind.rawValue) on the box to take over."
     }
     static func notReconciled(_ kind: AutomationKind) -> String {
         "SwarmHub couldn't read this chat's history from the box, so this \(kind.rawValue) stays paused there and SwarmHub tries again. Stop the \(kind.rawValue) to end it."

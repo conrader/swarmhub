@@ -342,6 +342,7 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
             #expect(store.submitComposer(text: command))
             #expect(store.goal(in: bot) == nil && store.loop(in: bot) == nil, "\(command) with handoff \(String(describing: handoff))")
             #expect(bot.messages.count == 1 && bot.messages.last?.metadata[SlashKey.line] == "1", "one chat line, nothing sent")
+            #expect(bot.messages.last?.content == HandoffCopy.nothingOnTheBox(kind))
         }
     }
 }

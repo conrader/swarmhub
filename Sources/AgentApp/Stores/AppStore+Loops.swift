@@ -23,7 +23,7 @@ extension AppStore {
             guard loop(in: conversation)?.paused == true else { commandLine("No paused loop to resume.", in: conversation); return }
             updateLoop(in: conversation) { $0.paused = false; $0.nextAt = max($0.nextAt, now()) }; commandLine("Loop resumed.", in: conversation)
             runLoopIfDue(in: conversation, bot: bot)
-        case "takeover" where automations[conversation.id]?.boxHandoff?.kind == .loop: takeOverHandoff(in: conversation)
+        case "takeover": takeOverHandoff(.loop, in: conversation)
         case "stop":
             guard loop(in: conversation) != nil else { commandLine("No loop in this chat.", in: conversation); return }
             endLoop(in: conversation, line: "Loop stopped.")
