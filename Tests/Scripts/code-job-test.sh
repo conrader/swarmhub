@@ -233,9 +233,9 @@ mkdir -p "$C/home/.hermes/swarmhub"; echo "SLOTS=1" > "$C/home/.hermes/swarmhub/
 job_to "$C/out1" "$C/err1" --task-id "$TASKID" --verify true --bot first --order claude --dir "$C/work" -- "$TASK" & P1=$!
 # The first holds the slot until the second has waited over a second (released here, not on a timer, so a loaded
 # machine cannot let the first finish before the second asks); the second's own run is instant. The loops only bound a hang.
-n=0; while [ ! -f "$C/state/claude.slow" ] && [ $n -lt 600 ]; do sleep 0.05; n=$((n + 1)); done; mode claude ok
+n=0; while [ ! -f "$C/state/claude.slow" ] && ! over_limit && [ $n -lt 600 ]; do sleep 0.05; n=$((n + 1)); done; mode claude ok
 job_to "$C/out2" "$C/err2" --task-id "$TASKID" --verify true --bot second --order claude --dir "$C/work" -- "$TASK" & P2=$!
-n=0; while ! grep -q 'Waiting for a free coding slot' "$C/err2" 2>/dev/null && [ $n -lt 600 ]; do sleep 0.05; n=$((n + 1)); done
+n=0; while ! grep -q 'Waiting for a free coding slot' "$C/err2" 2>/dev/null && ! over_limit && [ $n -lt 600 ]; do sleep 0.05; n=$((n + 1)); done
 sleep 1.2; : > "$C/state/release"
 wait $P1; RC1=$?; wait $P2; RC2=$?
 expect "both exit 0 ($RC1, $RC2)" [ "$RC1" -eq 0 ] && [ "$RC2" -eq 0 ]

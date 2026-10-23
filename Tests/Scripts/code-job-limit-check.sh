@@ -25,7 +25,7 @@ FAILED=0
 # Processes whose command line names this check's temp dir (the pattern travels in the environment, not in argv).
 mine() { ps -A -o args= 2>/dev/null | P="$W/" Q="$1" awk 'index($0, ENVIRON["P"]) && index($0, ENVIRON["Q"])' | wc -l | tr -d ' '; }
 
-# check NAME LIMIT CASES SHELL STUB, then the patterns the output must contain.
+# check NAME LIMIT CASES SHELL STUB, then the patterns the output must contain (or, after a leading !, must not).
 check() {
   name=$1 limit=$2 cases=$3 run_sh=$4 stub=$5; shift 5
   t0=$(date +%s)
@@ -46,7 +46,12 @@ check() {
   [ "$took" -lt 60 ] || problems="$problems; took ${took}s"
   [ "$jobs_left" -eq 0 ] || problems="$problems; $jobs_left code-job processes left at exit"
   [ "$any_left" -eq 0 ] || problems="$problems; $any_left processes from its temp dir left 3 s later"
-  for want in "$@"; do grep -Fq -- "$want" "$W/$name.out" || problems="$problems; no \"$want\""; done
+  for want in "$@"; do
+    case $want in
+      !*) ! grep -Fq -- "${want#!}" "$W/$name.out" || problems="$problems; has \"${want#!}\"" ;;
+      *) grep -Fq -- "$want" "$W/$name.out" || problems="$problems; no \"$want\"" ;;
+    esac
+  done
   if [ -z "$problems" ]; then
     echo "ok: limit, case $name: exit $rc in ${took}s, nothing left"
   else
@@ -55,9 +60,10 @@ check() {
   sed 's/^/    /' "$W/$name.out"
 }
 
+# Case 7's own 1 s --timeout may beat the limit's TERM under load, so its checks may pass; case 1 must still not run.
 check 7 1 "7 1" "$SH" "$DIR/code-job-stub.sh" \
   'FAIL: time limit: still running after 1s, in "timeout kills the tree (exit 124)"' \
-  'code-job tests under '"$SH"': 0 passed, 2 failed'
+  '!claude: direct run'
 # Case 5's first invocation ends only by KILL (137); its second is refused before it starts (125); case 6 never runs.
 check 5 4 "5 6" "$W/term-deaf-sh" "$W/stuck-stub" \
   'FAIL: not logged in -> skipped: exit 0 (got 137)' \
