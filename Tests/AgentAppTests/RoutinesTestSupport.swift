@@ -80,7 +80,10 @@ final class FakeJobsServer: @unchecked Sendable {
                 guard let index = jobs.firstIndex(where: { $0["id"] as? String == id }) else { return (404, ["error": "Job not found"]) }
                 switch (method, parts.count == 4 ? parts[3] : "") {
                 case ("GET", ""): return (200, ["job": jobs[index]])
-                case ("PATCH", ""): jobs[index].merge(jsonBody(request) ?? [:]) { $1 }; return (200, ["job": jobs[index]])
+                case ("PATCH", ""):
+                    var fields = jsonBody(request) ?? [:]  // Hermes parses a schedule text back into its object, as on create.
+                    if let schedule = fields["schedule"] as? String { fields["schedule"] = ["kind": "cron", "expr": schedule, "display": schedule]; fields["schedule_display"] = schedule }
+                    jobs[index].merge(fields) { $1 }; return (200, ["job": jobs[index]])
                 case ("DELETE", ""): jobs.remove(at: index); return (200, ["ok": true])
                 case ("POST", "pause"):
                     guard pauseStatus == 200 else { return (pauseStatus, ["error": "pause failed"]) }

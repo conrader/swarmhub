@@ -9,9 +9,9 @@ import Testing
 @MainActor struct BotSuggestionTimeZoneTests {
     private static let warsaw = TimeZone(identifier: "Europe/Warsaw")!
 
-    private static func utc(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+    private static func utc(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0, year: Int = 2026) -> Date {
         var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "UTC")!
-        return calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute))!
+        return calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour, minute: minute))!
     }
 
     /// A job as a UTC box reports it (`next_run_at` in +00:00).
@@ -52,6 +52,7 @@ import Testing
         #expect(!lead.contains("`0 11 * * 1-5`"))
         #expect(lead.contains("11:00 in my time zone Europe/Warsaw") && lead.contains("UTC"))
         #expect(lead.contains("deliver 'local'"), "kept on the box like the app's own routines, not sent to a home channel")
+        #expect(lead.contains("daylight saving time") && lead.contains("moves this routine's hour"), "recsfix2: the bot knows the app moves it")
         #expect(store.suggestionLedger.records.first?.state == .accepted)
     }
 
@@ -74,6 +75,35 @@ import Testing
         bot.messages.append(reply)
         #expect(await store.followThroughSuggestion(bot: bot, reply: reply))
         #expect(store.suggestions.editor == nil)
+    }
+
+    /// recsfix2 (DST): the box's cron has no zone per job. The yes on Wednesday 21 October (summer time, UTC+2) made the
+    /// Warsaw 11:00 weekday routine at 9:00 UTC; summer time ends on Sunday 25 October, so from Monday 26 it has to run at
+    /// 10:00 UTC, and from Monday 29 March 2027 at 9:00 again. The app moves it once the next run is past the change, never
+    /// before; a routine someone changed since is theirs and stays where they put it.
+    @Test func aRoutineMadeBeforeTheDSTChangeIsMovedForTheRunsAfterIt() async throws {
+        let (store, bot, server) = warsawStore(now: Self.utc(10, 21, 10))
+        let row = try #require(await store.suggestRoutineIfRepeated(bot: bot))
+        _ = yes(to: row, store: store, bot: bot)
+        server.add(Self.utcJob("a1", schedule: "0 9 * * 1-5"))
+        let reply = ChatMessage(role: .assistant, content: "Done: every weekday at 11:00 your time.")
+        bot.messages.append(reply)
+        #expect(await store.followThroughSuggestion(bot: bot, reply: reply))
+        func onBox() -> String? { (server.job("a1")?["schedule"] as? [String: Any])?["expr"] as? String }
+        func read(at now: Date) async { store.now = { now }; _ = await store.refreshRoutines(for: bot) }
+        #expect(onBox() == "0 9 * * 1-5")
+        await read(at: Self.utc(10, 23, 6))  // Friday 8:00 in Warsaw: today's 11:00 run is still in summer time.
+        #expect(onBox() == "0 9 * * 1-5", "not moved before the last summer run")
+        await read(at: Self.utc(10, 23, 10))  // Friday's run is done; the next is Monday 26 October, winter time.
+        #expect(onBox() == "0 10 * * 1-5", "11:00 in Warsaw in winter (UTC+1) is 10:00 on the box")
+        await read(at: Self.utc(10, 26, 7))
+        #expect(onBox() == "0 10 * * 1-5")
+        await read(at: Self.utc(3, 26, 12, year: 2027))  // Friday 26 March 2027 after its run; summer time from Sunday 28.
+        #expect(onBox() == "0 9 * * 1-5", "back to 9:00 for summer time")
+
+        server.set("a1", ["schedule": ["kind": "cron", "expr": "0 6 * * 1-5", "display": "0 6 * * 1-5"], "schedule_display": "0 6 * * 1-5"])
+        await read(at: Self.utc(10, 30, 10, year: 2027))  // Past the October 2027 change: a routine changed since is left alone.
+        #expect(onBox() == "0 6 * * 1-5")
     }
 
     /// A routine already on the box at the converted time does the ask: no suggestion at all.

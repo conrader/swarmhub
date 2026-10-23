@@ -103,3 +103,20 @@ private func job(next: String?, last: String? = nil) -> HermesJob {
     #expect(store.suggestionZones(for: hermes).boxSchedule("0 9 * * 1-5") == "0 7 * * 1-5", "no jobs read: UTC")
     #expect(store.suggestionZones(for: local).isSame, "a bot whose routines run on this Mac")
 }
+
+/// recsfix2: the box's cron has no daylight saving time where the Mac's has: the zones drift, the editor's note says so,
+/// and a 0.6.5 ledger record (no job recorded) still decodes.
+@Test func aUTCBoxDriftsFromWarsawAndTheEditorSaysSo() throws {
+    let drifting = RoutineZones(local: warsaw, box: utc, now: at(10, 21)), same = RoutineZones(local: warsaw, box: warsaw, now: at(10, 21))
+    let fixed = RoutineZones(local: utc, box: TimeZone(secondsFromGMT: 3_600)!, now: at(10, 21))
+    #expect(drifting.drifts && !same.drifts && !fixed.drifts)
+    #expect(InspectorCopy.scheduleSummary("Weekdays at 9:00", zones: drifting) == "Weekdays at 9:00 · times use your box's time zone, UTC, which does not change with your daylight saving time")
+    #expect(InspectorCopy.scheduleSummary("Weekdays at 9:00", zones: fixed) == "Weekdays at 9:00 · times use your box's time zone, UTC+01:00")
+    #expect(InspectorCopy.scheduleSummary("Weekdays at 9:00", zones: same) == InspectorCopy.scheduleSummary("Weekdays at 9:00"))
+    #expect(BotSuggestionCopy.drift(drifting, app: "Swarm Hub").contains("Swarm Hub moves this routine's hour") && BotSuggestionCopy.drift(same, app: "Swarm Hub").isEmpty)
+    let old = #"{"records":[{"id":"8D3E3F57-3B5C-4C6E-9D57-0D7E1F2A3B4C","botID":"1D3E3F57-3B5C-4C6E-9D57-0D7E1F2A3B4C","stems":["inbox"],"example":"x","#
+        + #""askedAt":0,"state":"accepted","messageID":"2D3E3F57-3B5C-4C6E-9D57-0D7E1F2A3B4C","draft":{"id":"8D3E3F57-3B5C-4C6E-9D57-0D7E1F2A3B4C","#
+        + #""botID":"1D3E3F57-3B5C-4C6E-9D57-0D7E1F2A3B4C","name":"Inbox","schedule":"0 9 * * 1-5","prompt":"p","weekdaysOnly":true,"hour":9}}],"posted":[]}"#
+    let ledger = try JSONDecoder().decode(BotSuggestionLedger.self, from: Data(old.utf8))
+    #expect(ledger.records.first?.jobID == nil && ledger.records.first?.letGo == nil)
+}

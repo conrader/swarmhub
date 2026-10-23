@@ -23,6 +23,7 @@ extension AppStore {
             recordHeartbeatBaseline(jobs, bot: bot)
             watchRunningRoutines(jobs, bot: bot)
             await deliverFinishedRuns(jobs, bot: bot, client: client)
+            await followSuggestedRoutineZones(jobs, bot: bot, client: client)
             return true
         } catch HermesJobsError.noJobsAPI {
             routines.update(bot.id) { $0.jobs = .unavailable(HermesJobsError.noJobsAPI.localizedDescription); $0.isRefreshing = false; $0.error = nil }

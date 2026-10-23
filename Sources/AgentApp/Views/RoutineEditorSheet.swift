@@ -63,7 +63,7 @@ struct RoutineEditorSheet: View {
     }
 
     private var summary: String {
-        schedule.draft.preset == .custom ? InspectorCopy.customSummary : InspectorCopy.scheduleSummary(RoutineScheduleDraft.describe(schedule.expression))
+        schedule.draft.preset == .custom ? InspectorCopy.customSummary : InspectorCopy.scheduleSummary(RoutineScheduleDraft.describe(schedule.expression), zones: store.suggestionZones(for: bot))
     }
 
     @ViewBuilder private var scheduleFields: some View {

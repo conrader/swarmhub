@@ -21,6 +21,9 @@ struct BotSuggestionRecord: Codable, Equatable, Identifiable, Sendable {
     var id = UUID()
     var botID: UUID; var stems: [String]; var example: String; var askedAt: Date; var state: State
     var messageID: UUID; var draft: RoutineDraft
+    /// recsfix2: the box job the yes made, once seen (`followSuggestedRoutineZones` keeps it on the user's time), and
+    /// whether it was let go (deleted or changed by someone else: not looked for again). Optional, so 0.6.5's ledger decodes.
+    var jobID: String? = nil, letGo: Bool? = nil
 }
 
 /// The suggestion state kept on the Mac (`UserDefaults`, one JSON value).
@@ -147,11 +150,17 @@ enum BotSuggestionCopy {
         return """
         (\(app) asked this in your chat for you: "\(question)" The routine it offered: name "\(draft.name)", schedule `\(box)` \
         \(clocks), prompt "\(draft.prompt)". If my answer below is yes, create that routine now with your cron tool, with deliver \
-        'local', with any change I ask for, without asking me to confirm again.\(difference(zones.shift(draft.schedule), zones: zones)) \
+        'local', with any change I ask for, without asking me to confirm again.\(difference(zones.shift(draft.schedule), zones: zones))\(drift(zones, app: app)) \
         When you tell me a time, say it in my time zone. If I want another time or wording, settle it with me first, and end each \
         message where you offer a changed routine with one line: Routine: name "…", schedule `<cron in your time zone>`, prompt "…". \
         If I say no, just acknowledge it. Create nothing without my yes. My answer:)
         """
+    }
+
+    /// recsfix2: Hermes's cron has no zone per job, so the box schedule holds for one daylight saving period; the bot is
+    /// told who moves it (nothing when the clocks' difference never changes).
+    static func drift(_ zones: RoutineZones, app: String) -> String {
+        zones.drifts ? " Your cron does not follow my clock changes for daylight saving time; \(app) moves this routine's hour on the box when they come, so leave that to it." : ""
     }
 
     /// " My clock is 2 h ahead of yours, so a time I name is 2 h earlier in your cron." (nothing when they agree).

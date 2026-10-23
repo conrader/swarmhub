@@ -12,6 +12,9 @@ struct RoutineZones: Equatable, Sendable {
     var now: Date
 
     var isSame: Bool { local.identifier == box.identifier || (Self.isFixed(local) && Self.isFixed(box) && local.secondsFromGMT() == box.secondsFromGMT()) }
+    /// recsfix2: the difference between the clocks changes during the year (daylight saving time on one side, or on other
+    /// dates): a cron converted once runs an hour off part of the year, so the app moves its suggestions' routines.
+    var drifts: Bool { !isSame && !(Self.isFixed(local) && Self.isFixed(box)) }
 
     /// `schedule` (Mac time) in the box's zone; unchanged when it is not a fixed daily time or the zones are the same.
     func boxSchedule(_ schedule: String) -> String { Self.convert(schedule, from: local, to: box, now: now) }
