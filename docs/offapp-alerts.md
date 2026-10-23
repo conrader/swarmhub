@@ -132,6 +132,12 @@ At launch, on every routine poll tick until none is left:
 boxes with no jobs API or no Bot Chat. These wait in the app, as before. A stop while a handoff is still pending keeps
 the record until the routine is deleted. Nothing is resumed then, so the routine is deleted without waiting for a read.
 
+**Ending needs the alert service.** A `--until` loop and a goal end by a reply, and only the alert service reads that
+reply and pauses the routine. So on a box whose alerts are off or were never set up (the app's `alerts.on.<server>`),
+these stay in the app at quit, and the chat says so once. A loop that only ends by its `--times` or a stop still goes.
+Turning alerts off on the box, or removing its service, first pauses every handed-off routine there
+(`pause_handoffs`); the app takes it back paused at its next launch, as above.
+
 ## Supervision
 
 The service is supervised like the webhook receiver:
@@ -146,5 +152,5 @@ The service is supervised like the webhook receiver:
 
 - **Python** (run in the sandbox): `sim/test_alerts.py` and `sim/test_alerts_service.py`. They use loopback fakes for
   Hermes, ntfy and SMTP (`sim/alerts_fixtures.py`).
-- **Swift:** `BoxAlertsTests.swift` and `AutomationHandoffTests.swift`.
+- **Swift:** `BoxAlertsTests.swift`, `AutomationHandoffTests.swift` and `AutomationHandoffAlertsTests.swift`.
 - **Screenshots:** `AgentApp --render-setup <dir> --only alerts`.

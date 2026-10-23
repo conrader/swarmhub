@@ -132,6 +132,22 @@ class Settings(AlertsBase):
             alerts.panel("configure", seal.seal(seal.public(os.urandom(32)), b'{"v":1}'))
         self.assertFalse(alerts.paths()["config"].exists())
 
+    def test_turning_alerts_off_or_removing_the_service_pauses_every_handed_off_job(self):
+        # Nothing else ends a handed-off loop or goal whose reply says done: alerts off must not leave one scheduled.
+        self.job("jarvis", "aaaaaaaaaaaa", "swarmhub-loop-0123abcd", "")
+        self.job("default", "bbbbbbbbbbbb", "swarmhub-goal-89abcdef", "")
+        self.job("default", "cccccccccccc", "swarmhub-goal-00000000", "", enabled=False)
+        self.job("jarvis", "dddddddddddd", "nightly report", "")
+        self.job("jarvis", "eeeeeeeeeeee", hermes.PRESENCE, "", enabled=False)
+        public = seal.public(seal.box_key(alerts.paths()["folder"]))
+        answer = alerts.panel("configure", seal.seal(public, json.dumps({"v": 1, "enabled": False}).encode()))
+        self.assertEqual(answer["config"]["enabled"], False)
+        self.assertEqual(sorted(self.hermes.paused), [("default", "bbbbbbbbbbbb"), ("jarvis", "aaaaaaaaaaaa")])
+        self.hermes.paused.clear()
+        alerts.paths()["config"].unlink()  # Never set up: removing the service still leaves nothing running.
+        alerts.panel("uninstall")
+        self.assertEqual(sorted(self.hermes.paused), [("default", "bbbbbbbbbbbb"), ("jarvis", "aaaaaaaaaaaa")])
+
     def test_status_reports_the_heartbeat_and_the_last_error(self):
         self.assertFalse(alerts.status(now=self.now)["running"])
         alerts.paths()["beat"].write_text(str(int(self.now - 20)))

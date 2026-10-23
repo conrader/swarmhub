@@ -5,7 +5,7 @@ import Testing
 // A /loop or /goal in a Bot Chat goes to the box as a Hermes routine when SwarmHub quits, and comes back at launch:
 // paused first, its rounds counted from the Bot Chat, deleted, and continued here with nothing run twice.
 
-private final class Bodies: @unchecked Sendable {
+final class Bodies: @unchecked Sendable {
     private let lock = NSLock(); private var items: [[String: Any]] = []
     func add(_ body: [String: Any]) { lock.withLock { items.append(body) } }
     var all: [[String: Any]] { lock.withLock { items } }
@@ -13,7 +13,7 @@ private final class Bodies: @unchecked Sendable {
 
 /// The box's Bot Chat session `main-session`: its rows (served oldest first, newest window like Hermes), or `status`
 /// (503 a failed read, 404 no session). `legacy`: the box has no session reads at all.
-private final class BoxSession: @unchecked Sendable {
+final class BoxSession: @unchecked Sendable {
     private let lock = NSLock(); private var rows: [[String: Any]] = []; private var code = 200; private var noSessions = false
     var status: Int { get { lock.withLock { code } } set { lock.withLock { code = newValue } } }
     var legacy: Bool { get { lock.withLock { noSessions } } set { lock.withLock { noSessions = newValue } } }
@@ -35,7 +35,8 @@ private final class BoxSession: @unchecked Sendable {
     }
 }
 
-@MainActor private func handoffStore(botChat: Bool = true) -> (AppStore, Bot, FakeJobsServer, Bodies, String, BoxSession) {
+/// `alerts`: the box last accepted alerts as on (true), off (false) or never had them set up (nil).
+@MainActor func handoffStore(botChat: Bool = true, alerts: Bool? = true) -> (AppStore, Bot, FakeJobsServer, Bodies, String, BoxSession) {
     let server = FakeJobsServer(), bodies = Bodies(), box = BoxSession()
     let (host, session) = MockHermesProtocol.serve { request in
         if let answer = box.handle(request) { return answer }
@@ -52,6 +53,7 @@ private final class BoxSession: @unchecked Sendable {
     bot.hermesSessionID = "main-session"
     store.bots = [bot]
     if botChat { store.heartbeatSettings.botChats[bot.id.uuidString] = "main-session" }
+    if let alerts { defaults.set(alerts, forKey: "alerts.on." + store.connection(of: bot)) }
     store.save()
     return (store, bot, server, bodies, host, box)
 }

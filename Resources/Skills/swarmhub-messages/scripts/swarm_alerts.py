@@ -6,7 +6,8 @@ What it watches, each with a stable id (an id is alerted at most once):
   code jobs      managed coding actions that reach done/failed in Swarm Hub's own database
   reports, webhook wakes   spooled by `swarmctl report` and an accepted webhook call (`emit`)
   loops/goals handed to the box   the bot's reply to the job's own delivery in its Bot Chat (matched by the job's name
-                 and run, never the chat's newest reply); a done/blocked block pauses the job
+                 and run, never the chat's newest reply); a done/blocked block pauses the job. Turning alerts off or
+                 removing the service pauses every handed-off job first: nothing else would end one (pause_handoffs)
 
 Before sending: `[SILENT]` / `NO_REPLY` is dropped; while the app's presence lease is fresh nothing is sent (the app
 shows it itself; see docs/offapp-alerts.md); outside the policy's reporting window alerts wait and go out as one digest
@@ -333,6 +334,15 @@ def dispatch(data, config, now, present_until, deliver=None):
         data["held"] = []
 
 
+def pause_handoffs():
+    """Alerts going off (or the service going away) leave nothing to end a handed-off loop or goal when its reply says
+    done: each one still scheduled is paused here, and the app takes it back paused at its next launch."""
+    for profile, env in hermes.profiles():
+        for job in hermes.jobs(profile, env) or []:
+            if hermes.HANDOFF.fullmatch(str(job.get("name", ""))) and job.get("enabled", True) is not False:
+                hermes.pause(profile, env, job["id"])
+
+
 def tick(now=None, deliver=None):
     now = now or time.time()
     p = paths()
@@ -430,7 +440,10 @@ def configure(blob):
         data = load_state()
         data.update(marks={}, codejobs=None, pending=[], deferred=[], held=[], handoff={})  # Nothing from before.
         save_state(data)
-    return start() if config["enabled"] else dict(service.uninstall(), saved=True)
+    if config["enabled"]:
+        return start()
+    pause_handoffs()
+    return dict(service.uninstall(), saved=True)
 
 
 def start():
@@ -461,6 +474,7 @@ def panel(action, blob=None):
     elif action == "install":
         result = start()
     elif action == "uninstall":
+        pause_handoffs()
         result = service.uninstall()
     elif action != "status":
         raise ValueError("alerts panel status|configure <sealed>|test|install|uninstall")
