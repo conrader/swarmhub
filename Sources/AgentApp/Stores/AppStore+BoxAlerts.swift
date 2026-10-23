@@ -8,6 +8,8 @@ import Foundation
 /// jobs API every `presenceRenewal` for `presenceLease`); the box sends nothing while the lease is fresh. Quit ends it.
 extension AppStore {
     static let presenceRenewal: TimeInterval = 120, presenceLease: TimeInterval = 300, presenceIdle: TimeInterval = 600
+    /// recsfix2: a push of the profile allowlist the box did not confirm is tried again after this long.
+    static let profilesRetry: TimeInterval = 900
 
     // MARK: Settings (no secret in UserDefaults)
 
@@ -30,7 +32,8 @@ extension AppStore {
     }
 
     /// recsfix1 (#14): the profiles the box may alert for: those of the live Hermes agents this Mac connected on the
-    /// server. Sent with every save, so the box drops a profile disconnected since (and knows none it was never told of).
+    /// server. Sent with every save and whenever it changes (`syncAlertProfiles`), so the box drops a profile disconnected
+    /// since (and knows none it was never told of).
     func alertProfiles(on target: String) -> [String] {
         Set(bots.filter { $0.backend == .hermes && !$0.isDemo && !$0.isReadOnlyArchive && !$0.isGrokHistoryOnly && !$0.retiredOnBox
             && connection(of: $0) == target }.map(profile(of:))).sorted()
@@ -55,31 +58,34 @@ extension AppStore {
     }
 
     /// Keeps the settings (secrets in the Keychain), seals them to the box's key and sends them; the box saves them and
-    /// starts (or stops) its service. A box key not read yet costs one status call first.
-    func saveAlerts(_ settings: AlertSettings, ntfyToken: String, emailPassword: String, on target: String) async {
-        guard !settings.enabled || settings.hasSink else { boxAlerts.update(target) { $0.error = AlertsCopy.needSink }; return }
+    /// starts (or stops) its service. A box key not read yet costs one status call first. `runner`: the agent that runs
+    /// the command when the server has none left (`syncAlertProfiles` after the last one was deleted).
+    @discardableResult func saveAlerts(_ settings: AlertSettings, ntfyToken: String, emailPassword: String, on target: String, via runner: Bot? = nil) async -> Bool {
+        guard !settings.enabled || settings.hasSink else { boxAlerts.update(target) { $0.error = AlertsCopy.needSink }; return false }
         defaults.set(try? JSONEncoder().encode(settings), forKey: "alerts.settings." + target)
         keyStore.setKey(ntfyToken, for: Self.alertSecretAccount("ntfy", target: target))
         keyStore.setKey(emailPassword, for: Self.alertSecretAccount("smtp", target: target))
         var boxKey = boxAlerts.state(for: target).panel?.boxKey
-        if boxKey == nil { boxKey = await performAlerts(.status, on: target)?.boxKey }
-        guard let boxKey else { return }
-        let blob: String
-        do { blob = try AlertSeal.seal(settings.boxJSON(ntfyToken: ntfyToken, emailPassword: emailPassword, profiles: alertProfiles(on: target)), to: boxKey) }
-        catch { boxAlerts.update(target) { $0.error = (error as? BoxAlertsError)?.errorDescription ?? AlertsCopy.sealFailed }; return }
-        guard let panel = await performAlerts(.configure(blob), on: target, secrets: [ntfyToken, emailPassword]) else { return }
+        if boxKey == nil { boxKey = await performAlerts(.status, on: target, via: runner)?.boxKey }
+        guard let boxKey else { return false }
+        let blob: String, profiles = alertProfiles(on: target)
+        do { blob = try AlertSeal.seal(settings.boxJSON(ntfyToken: ntfyToken, emailPassword: emailPassword, profiles: profiles), to: boxKey) }
+        catch { boxAlerts.update(target) { $0.error = (error as? BoxAlertsError)?.errorDescription ?? AlertsCopy.sealFailed }; return false }
+        guard let panel = await performAlerts(.configure(blob), on: target, secrets: [ntfyToken, emailPassword], via: runner) else { return false }
+        defaults.set(profiles, forKey: "alerts.profiles." + target)  // The list the box now holds (`syncAlertProfiles`).
         boxAlerts.presenceWritten[target] = nil  // The lease goes out at the next poll tick.
         boxAlerts.update(target) { state in
             if let reason = panel.result?.error { state.notice = AlertsCopy.serviceError(ToolEvent.redacted(reason)) }
             else { state.notice = panel.config.enabled ? AlertsCopy.saved : AlertsCopy.off }
         }
+        return true
     }
 
     /// Runs one action; the state shows the box's answer or why it is missing. Nil when nothing was confirmed. Every answer
     /// (a refresh too) records whether the box's alerts are on now: another Mac may have changed them.
-    @discardableResult func performAlerts(_ action: BoxAlertsAction, on target: String, secrets: [String] = []) async -> BoxAlertsPanel? {
+    @discardableResult func performAlerts(_ action: BoxAlertsAction, on target: String, secrets: [String] = [], via runner: Bot? = nil) async -> BoxAlertsPanel? {
         guard boxAlerts.state(for: target).busy == nil else { return nil }
-        guard let bot = alertRunner(for: target) else { boxAlerts.update(target) { $0.error = AlertsCopy.noRunner }; return nil }
+        guard let bot = runner ?? alertRunner(for: target) else { boxAlerts.update(target) { $0.error = AlertsCopy.noRunner }; return nil }
         guard let arguments = AlertsCommand.arguments(action) else { boxAlerts.update(target) { $0.error = AlertsCopy.sealFailed }; return nil }
         boxAlerts.update(target) { $0.busy = action; $0.error = nil; $0.notice = nil }
         do {
@@ -106,10 +112,42 @@ extension AppStore {
                                          nativeSessions: AlertsCopy.nativeSessions).panel()
     }
 
+    // MARK: Profile allowlist
+
+    /// recsfix2 (#14): the box's allowlist follows this Mac's connections, not only a save. On each server with alerts on
+    /// whose settings this Mac saved (another Mac's are never overwritten), when the connected profiles differ from the
+    /// list last sent (a bot connected, archived, retired or deleted; or settings saved by 0.6.5, which sent none), the
+    /// saved settings go again with the new list. `leaving`: a bot just deleted, which runs the command when its server
+    /// has no agent left (its profile then leaves the list too). An unconfirmed push is retried after `profilesRetry`.
+    func syncAlertProfiles(now: Date = .now, leaving: Bot? = nil) async {
+        var targets = alertServers
+        let left = leaving.map(connection(of:))
+        if let left, !targets.contains(left), defaults.bool(forKey: "alerts.on." + left) { targets.append(left) }
+        for target in targets {
+            guard defaults.data(forKey: "alerts.settings." + target) != nil, alertSettings(for: target).enabled,
+                  defaults.stringArray(forKey: "alerts.profiles." + target) != alertProfiles(on: target) else { continue }
+            if let tried = boxAlerts.profilesTried[target], now.timeIntervalSince(tried) < Self.profilesRetry { continue }
+            boxAlerts.profilesTried[target] = now
+            let runner = target == left && alertRunner(for: target) == nil ? leaving : nil
+            if await saveAlerts(alertSettings(for: target), ntfyToken: alertSecret("ntfy", target: target),
+                                emailPassword: alertSecret("smtp", target: target), on: target, via: runner) {
+                boxAlerts.profilesTried[target] = nil  // Confirmed: a list that changed meanwhile goes at the next tick.
+            }
+        }
+    }
+
+    /// A deleted Hermes bot: its server's allowlist goes at once, not at the next tick (none comes when it was the last).
+    func alertProfilesLeft(_ bot: Bot) {
+        guard bot.backend == .hermes, defaults.bool(forKey: "alerts.on." + connection(of: bot)) else { return }
+        Task { await syncAlertProfiles(leaving: bot) }
+    }
+
     // MARK: Presence lease
 
-    /// The routine poll's tick: while the user is at this Mac, each server with alerts on gets its lease renewed.
+    /// The routine poll's tick: the allowlist follows the connections, and while the user is at this Mac, each server
+    /// with alerts on gets its lease renewed.
     func renewAlertPresenceIfDue(now: Date = .now) async {
+        await syncAlertProfiles(now: now)
         guard boxAlerts.idleSeconds() < Self.presenceIdle else { return }
         for target in alertServers {
             if let last = boxAlerts.presenceWritten[target], now.timeIntervalSince(last) < Self.presenceRenewal { continue }

@@ -16,6 +16,8 @@ struct ServerAlertsState: Equatable, Sendable {
     /// Per server: the presence routine's id once known, and when the lease was last written.
     var presenceJobs: [String: String] = [:]
     var presenceWritten: [String: Date] = [:]
+    /// Per server: when an allowlist push was last tried and not confirmed yet (`syncAlertProfiles`).
+    var profilesTried: [String: Date] = [:]
     /// Chats whose handed-off loop or goal is being taken back right now.
     var reclaiming: Set<UUID> = []
 

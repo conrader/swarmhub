@@ -152,6 +152,82 @@ func alertsPanelJSON(action: String, boxKey: String = vectorBoxPublic, configure
     #expect(sealed["profiles"] as? [String] == ["grok-jarvis", "reporter"])
 }
 
+/// The profiles in the last settings the app sealed for the box, and the ntfy token they carried.
+@MainActor private func lastSealed(_ box: FakeAlertsBox) throws -> (profiles: [String]?, token: String?) {
+    let blob = try #require(box.calls.last { $0.count > 3 && $0[2] == "configure" }?.last)
+    let sealed = try #require(JSONSerialization.jsonObject(with: try openSealed(blob)) as? [String: Any])
+    return (sealed["profiles"] as? [String], (sealed["ntfy"] as? [String: Any])?["token"] as? String)
+}
+
+@MainActor private final class Refusing { var configure = false }
+
+/// recsfix2 (#14): the allowlist follows the connections, not only a save. A bot connected or deleted on a server with
+/// alerts on sends the saved settings again (secrets from the Keychain) with the new list, once; deleting the server's
+/// last agent sends an empty list through that agent, as no later tick reaches the server.
+@Test @MainActor func theAllowlistFollowsBotsConnectedAndDeleted() async throws {
+    let (store, target, box, _) = alertsStore { args in
+        alertsPanelJSON(action: args[2], configured: true, enabled: true, running: true, result: args[2] == "configure" ? ["saved": true] : nil)
+    }
+    store.boxAlerts.idleSeconds = { 10_000 }  // Away from the Mac: no presence lease, the allowlist only.
+    var settings = AlertSettings(); settings.ntfyURL = "https://ntfy.sh/konrad-alerts"
+    await store.saveAlerts(settings, ntfyToken: "tk_secret_123", emailPassword: "", on: target)
+    #expect(try lastSealed(box).profiles == ["reporter"])
+    box.calls = []
+    await store.renewAlertPresenceIfDue()
+    #expect(box.calls.isEmpty, "the same profiles: nothing is sent")
+
+    let jarvis = Bot(name: "Jarvis", backend: .hermes, hermesProfile: "grok-jarvis"); jarvis.hermesBaseURL = "https://box.example.invalid/v1"
+    store.bots.append(jarvis)
+    await store.renewAlertPresenceIfDue()
+    #expect(box.calls.map { $0[2] } == ["configure"])
+    let sealed = try lastSealed(box)
+    #expect(sealed.profiles == ["grok-jarvis", "reporter"] && sealed.token == "tk_secret_123")
+
+    box.calls = []
+    store.delete(jarvis)
+    await store.renewAlertPresenceIfDue()
+    for _ in 0..<300 where box.calls.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(box.calls.map { $0[2] } == ["configure"], "one push, from the deletion or the tick")
+    #expect(try lastSealed(box).profiles == ["reporter"])
+
+    box.calls = []
+    store.delete(try #require(store.bots.first { $0.name == "Reporter" }))
+    for _ in 0..<300 where box.calls.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(box.calls.map { $0[2] } == ["configure"])
+    #expect(try lastSealed(box).profiles == [], "the server's last agent deleted: the box alerts for none of its routines")
+}
+
+/// Settings 0.6.5 saved went without a list, so that box alerts for no routine: the first tick sends them again with one.
+/// A push the box does not confirm waits `profilesRetry` (900 s), not one tick.
+@Test @MainActor func settingsSavedWithoutAnAllowlistGetOneAtTheNextTick() async throws {
+    let refusing = Refusing()
+    let (store, target, box, keys) = alertsStore { args in
+        if args[2] == "configure", refusing.configure { throw WebhookPanelError.refusal("swarmctl: try again later\n") }
+        return alertsPanelJSON(action: args[2], configured: true, enabled: true, running: true, result: args[2] == "configure" ? ["saved": true] : nil)
+    }
+    store.boxAlerts.idleSeconds = { 10_000 }
+    // What 0.6.5 left on this Mac: the settings, the token in the Keychain and the box's answer that alerts are on.
+    var settings = AlertSettings(); settings.ntfyURL = "https://ntfy.sh/konrad-alerts"
+    store.defaults.set(try JSONEncoder().encode(settings), forKey: "alerts.settings." + target)
+    keys.setKey("tk_secret_123", for: AppStore.alertSecretAccount("ntfy", target: target))
+    store.defaults.set(true, forKey: "alerts.on." + target)
+    refusing.configure = true
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+    await store.renewAlertPresenceIfDue(now: start)
+    #expect(box.calls.map { $0[2] } == ["status", "configure"])
+    box.calls = []
+    await store.renewAlertPresenceIfDue(now: start.addingTimeInterval(60))
+    #expect(box.calls.isEmpty, "refused: tried again later, not at every tick")
+    refusing.configure = false
+    await store.renewAlertPresenceIfDue(now: start.addingTimeInterval(901))
+    #expect(box.calls.map { $0[2] } == ["configure"])
+    let sealed = try lastSealed(box)
+    #expect(sealed.profiles == ["reporter"] && sealed.token == "tk_secret_123")
+    box.calls = []
+    await store.renewAlertPresenceIfDue(now: start.addingTimeInterval(1_000))
+    #expect(box.calls.isEmpty, "confirmed: sent once")
+}
+
 @Test @MainActor func aSaveWithoutAnySinkOrABoxRefusalShowsWhy() async throws {
     let (store, target, box, _) = alertsStore { _ in throw WebhookPanelError.refusal("swarmctl: choose ntfy, email or both\n") }
     await store.saveAlerts(AlertSettings(), ntfyToken: "", emailPassword: "", on: target)

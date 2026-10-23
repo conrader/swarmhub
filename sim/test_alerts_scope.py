@@ -4,6 +4,7 @@ no reply to alert with). Unknown or disconnected profiles alert nothing. Loopbac
 import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import json
 import unittest
+from unittest.mock import patch
 
 from test_alerts import AlertsBase, TOKEN  # noqa: E402  (sys.path is set up there)
 import swarm_alerts as alerts  # noqa: E402
@@ -93,6 +94,65 @@ class Scope(AlertsBase):
         self.assertEqual(json.loads(alerts.paths()["config"].read_text())["profiles"], ["default", "jarvis"])
         self.assertEqual(answer["config"]["profiles"], ["default", "jarvis"])
         self.assertNotIn(TOKEN, json.dumps(answer))
+
+
+class DispatchScope(AlertsBase):
+    """recsfix2: scope is checked again when an alert goes out, not only when it is queued. An alert waiting for a retry
+    or in a digest, of a profile the app disconnected since (or never connected), is dropped; so is one an older skill
+    queued, read by its id, and a digest line kept as a bare title."""
+    failing = False
+
+    def deliver(self, config, title, body):
+        if self.failing:
+            return {"ntfy": "error: synthetic outage"}
+        return super().deliver(config, title, body)
+
+    def two_runs(self, profile, ident, name):
+        self.job(profile, ident, name, "2026-10-23T07:00:00+00:00")
+        self.tick()
+        self.job(profile, ident, name, "2026-10-23T08:00:00+00:00")
+        self.run_reply(profile, ident, "20261023_080000", f"{name} reply.")
+        return self.tick()
+
+    def test_a_retry_of_a_profile_disconnected_since_is_dropped(self):
+        self.configure(profiles=["jarvis"])
+        self.failing = True
+        state = self.two_runs("jarvis", "aaaaaaaaaaaa", "Morning brief")
+        self.assertEqual([item["title"] for item in state["pending"]], ["Morning brief finished (jarvis)"], "kept for a retry")
+        self.failing = False
+        self.configure(profiles=[])
+        state = self.tick(advance=3600)
+        self.assertEqual(self.sent, [])
+        self.assertEqual(state["pending"], [])
+        self.assertEqual([value[1] for key, value in state["sent"].items() if key.startswith("routine:jarvis:")], ["out of scope"])
+
+    def test_a_digest_leaves_out_the_lines_of_a_profile_disconnected_since(self):
+        self.configure(profiles=["jarvis"], window=True)
+        with patch("swarm_policy.in_report_window", return_value=False):
+            self.two_runs("jarvis", "aaaaaaaaaaaa", "Morning brief")
+            alerts.emit("report", "report:n1", "jarvis reported", "x")
+            state = self.tick()
+        self.assertEqual(len(state["deferred"]), 2, "the routine and the report wait for the digest")
+        self.configure(profiles=[], window=True)
+        with patch("swarm_policy.in_report_window", return_value=True):
+            self.tick()
+        self.assertEqual(self.sent, [("1 alerts from outside the report window", "• jarvis reported")])
+
+    def test_what_an_older_skill_queued_is_scoped_by_its_id(self):
+        self.configure(profiles=["default"])
+        self.job("default", "dddddddddddd", "atlas-name-sync", "2026-10-23T07:00:00+00:00", no_agent=True, script="atlas.py")
+        data = alerts.load_state()
+        old = [{"id": "routine:jarvis:aaaaaaaaaaaa:2026-10-23T08:00:00+00:00", "kind": "routine", "title": "Morning brief finished (jarvis)"},
+               {"id": "routine:default:dddddddddddd:2026-10-23T07:00:00+00:00", "kind": "routine", "title": "atlas-name-sync finished (default)"},
+               {"id": "loop:jarvis/eeeeeeeeeeee:1800000000", "kind": "loop", "title": "Loop on the box (jarvis)"},
+               {"id": "report:a", "kind": "report", "title": "jarvis reported"}]
+        data["pending"] = [dict(item, body="x", attempts=0) for item in old]
+        data["deferred"] = ["Morning brief finished (jarvis)"]
+        alerts.save_state(data)
+        state = self.tick()
+        self.assertEqual(self.sent, [("jarvis reported", "x")])
+        self.assertEqual(state["deferred"], [])
+        self.assertEqual(sorted(value[1] for value in state["sent"].values()), ["out of scope"] * 3 + ["sent"])
 
 
 if __name__ == "__main__":

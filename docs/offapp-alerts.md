@@ -10,7 +10,7 @@ It checks every 30 seconds:
 
 | Source | How it is seen | Alert id (sent at most once) |
 |---|---|---|
-| Finished routine runs | `GET /api/jobs` on loopback of each profile the app connected (the `profiles` list it seals with the settings on every save; none from an app older than 0.6.6, and no other profile on the box), with the profile's own `API_SERVER_KEY`; agent jobs only (a `no_agent` script has no reply); output from the run's cron session, like the app's `runResult` | `routine:<profile>:<job>:<last_run_at>` |
+| Finished routine runs | `GET /api/jobs` on loopback of each profile the app connected (the `profiles` list it seals with the settings on every save, and sends again whenever the agents it connected on that server change, a deletion included; none from an app older than 0.6.6, and no other profile on the box), with the profile's own `API_SERVER_KEY`; agent jobs only (a `no_agent` script has no reply); output from the run's cron session, like the app's `runResult` | `routine:<profile>:<job>:<last_run_at>` |
 | Code jobs | managed coding actions that reach `done`/`failed` in Swarm Hub's own database | `codejob:<action id>` |
 | Bot reports | `swarmctl report` spools one event | `report:<delivery id>` |
 | Webhook wakes | an accepted webhook call spools one event | `webhook:<delivery id>` |
@@ -20,6 +20,8 @@ A job's first sighting, and every code job that existed when alerts were turned 
 before is sent.
 
 Before anything is sent:
+- The scope is checked again: an alert, or a digest line, of a profile no longer in `profiles` (or of a script-only job) is
+  dropped, however long it waited for a retry or a digest.
 - `[SILENT]` and `NO_REPLY` replies are dropped.
 - While the app's presence lease is fresh, nothing is sent (see below).
 - Outside the box policy's reporting window (`timezone`, `start`, `end`; 08:00 to 23:00 by default, the window

@@ -371,7 +371,7 @@ class Filters(AlertsBase):
             alerts.emit("report", "report:n2", "night two", "x")
             state = self.tick()
         self.assertEqual(self.sent, [])
-        self.assertEqual(state["deferred"], ["night one", "night two"])
+        self.assertEqual([entry["title"] for entry in state["deferred"]], ["night one", "night two"])
         with patch("swarm_policy.in_report_window", return_value=True):
             self.tick()
         self.assertEqual(self.sent, [("2 alerts from outside the report window", "• night one\n• night two")])

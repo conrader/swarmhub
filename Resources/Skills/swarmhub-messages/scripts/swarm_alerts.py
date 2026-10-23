@@ -10,11 +10,12 @@ What it watches, each with a stable id (an id is alerted at most once):
                  and run, never the chat's newest reply); a done/blocked block pauses the job. Turning alerts off or
                  removing the service pauses every handed-off job first, and changes nothing if one can't be (pause_handoffs)
 
-Before sending: `[SILENT]` / `NO_REPLY` is dropped; while the app's presence lease is fresh nothing is sent (the app
-shows it itself; see docs/offapp-alerts.md); outside the policy's reporting window alerts wait and go out as one digest
-when it opens; more than RATE_LIMIT in RATE_WINDOW are held and summarised in one digest. A failed send is retried with
-backoff, at most RETRIES times. Settings (with the ntfy token and SMTP password) live only in alerts/config.json, 0600;
-nothing here prints an alert, a setting or a secret.
+Before sending: an alert or digest line of a profile no longer in the settings' `profiles` (scope is checked again
+here, not only when it was queued) is dropped, and so is `[SILENT]` / `NO_REPLY`; while the app's presence lease is fresh
+nothing is sent (the app shows it itself; see docs/offapp-alerts.md); outside the policy's reporting window alerts wait
+and go out as one digest when it opens; more than RATE_LIMIT in RATE_WINDOW are held and summarised in one digest. A
+failed send is retried with backoff, at most RETRIES times. Settings (with the ntfy token and SMTP password) live only in
+alerts/config.json, 0600; nothing here prints an alert, a setting or a secret.
 """
 import fcntl
 import hashlib
@@ -170,16 +171,18 @@ def collect_codejobs(data):
     data["codejobs"] = sorted(finished)
 
 
-def collect_routines(data, now, allowed=()):
+def collect_routines(data, now, allowed=(), scripts=None):
     """Queue finished runs of the `allowed` profiles' agent jobs; returns the freshest presence lease seen on any
-    profile (0 when none). Another profile keeps no marks, so once connected its jobs start from a first sighting."""
-    present = 0
+    profile (0 when none), and adds each script-only job seen to `scripts`. Another profile keeps no marks, so once
+    connected its jobs start from a first sighting."""
+    present, scripts = 0, set() if scripts is None else scripts
     for profile, env in hermes.profiles():
         rows = hermes.jobs(profile, env)
         if rows is None:
             continue
         present = max(present, hermes.presence_until(rows))
         listed = set()
+        scripts.update(f"{profile}/{job.get('id')}" for job in rows if not hermes.agent_job(job))
         for job in rows if profile in allowed else []:
             name = str(job.get("name", ""))
             if name == hermes.PRESENCE or not hermes.agent_job(job):
@@ -239,7 +242,8 @@ def follow_handoffs(data, now, allowed=()):
             ended = block is not None and block[0] == kind and (block[1] == "done" or kind == "goal")
             visible = hermes.FENCE.sub("", text).strip() or (f"{kind.capitalize()} {block[1]}." if block else "")
             title = f"{'Goal' if kind == 'goal' else 'Loop'} on the box ({item['profile']})" + (f": {block[1]}" if ended else "")
-            item["ending"] = {"id": f"{kind}:{key}:{when}", "kind": kind, "title": title, "body": visible}
+            item["ending"] = {"id": f"{kind}:{key}:{when}", "kind": kind, "title": title, "body": visible,
+                              "profile": item["profile"], "job": item["job"]}
             if ended and not hermes.confirm_paused(item["profile"], env, item["job"]):
                 break  # Still scheduled: kept, and paused (then alerted) on a later tick.
             ending = item.pop("ending")
@@ -250,10 +254,6 @@ def follow_handoffs(data, now, allowed=()):
 
 
 # MARK: sending
-
-def silent(text):
-    return text.strip().lower() in ("[silent]", "no_reply")
-
 
 def in_window(config, now):
     if not config.get("window", True):
@@ -282,13 +282,14 @@ def send(data, config, title, body, now, deliver):
     return False
 
 
-def digest_body(titles):
-    shown = titles[:8]
-    return "\n".join("• " + title for title in shown) + (f"\n… and {len(titles) - len(shown)} more" if len(titles) > len(shown) else "")
+def dispatch(data, config, now, present_until, deliver=None, scripts=()):
+    """Sends the queue. Scope is checked here too (`hermes.in_scope`, the settings' `profiles`): an alert or digest line
+    of a profile the app no longer connects, or of a script-only job, is dropped; so is a digest line an older skill
+    kept as a bare title (its scope can't be told)."""
+    deliver, allowed = deliver or sinks.deliver, config.get("profiles") or []
 
-
-def dispatch(data, config, now, present_until, deliver=None):
-    deliver = deliver or sinks.deliver
+    def fits(alert):
+        return isinstance(alert, dict) and hermes.in_scope(alert, allowed, scripts)
     data["sent"] = {key: value for key, value in data["sent"].items() if isinstance(value, list) and now - value[0] < KEEP}
     data["rate"] = [stamp for stamp in data["rate"] if now - stamp < RATE_WINDOW]
     present, open_now = present_until > now, in_window(config, now)
@@ -297,17 +298,19 @@ def dispatch(data, config, now, present_until, deliver=None):
         ident = alert["id"]
         if ident in data["sent"]:
             continue
-        if silent(alert.get("body", "")):
+        if not fits(alert):
+            mark(data, ident, "out of scope", now)
+        elif sinks.silent(alert.get("body", "")):
             mark(data, ident, "silent", now)
         elif present:
             mark(data, ident, "app", now)  # The app is there and shows it; see docs/offapp-alerts.md.
         elif not open_now:
-            data["deferred"] = (data["deferred"] + [alert["title"]])[-50:]
+            data["deferred"] = (data["deferred"] + [hermes.digest_entry(alert)])[-50:]
             mark(data, ident, "deferred", now)
         elif alert.get("retry_at", 0) > now:
             keep.append(alert)
         elif len(data["rate"]) >= RATE_LIMIT:
-            data["held"] = (data["held"] + [alert["title"]])[-50:]
+            data["held"] = (data["held"] + [hermes.digest_entry(alert)])[-50:]
             mark(data, ident, "held", now)
         elif send(data, config, alert["title"], alert.get("body", ""), now, deliver):
             mark(data, ident, "sent", now)
@@ -319,14 +322,16 @@ def dispatch(data, config, now, present_until, deliver=None):
             else:
                 mark(data, ident, "failed", now)
     data["pending"] = keep
+    for key in ("deferred", "held"):
+        data[key] = [entry for entry in data[key] if fits(entry)]
     if present:
         data["deferred"], data["held"] = [], []
         return
     if open_now and data["deferred"] and send(data, config, f"{len(data['deferred'])} alerts from outside the report window",
-                                              digest_body(data["deferred"]), now, deliver):
+                                              sinks.digest_body(data["deferred"]), now, deliver):
         data["deferred"] = []
     if open_now and data["held"] and len(data["rate"]) < RATE_LIMIT and send(
-            data, config, f"{len(data['held'])} more alerts were held back", digest_body(data["held"]), now, deliver):
+            data, config, f"{len(data['held'])} more alerts were held back", sinks.digest_body(data["held"]), now, deliver):
         data["held"] = []
 
 
@@ -360,9 +365,10 @@ def tick(now=None, deliver=None):
     present = 0
     if config and config.get("enabled"):
         collect_codejobs(data)
-        present = collect_routines(data, now, config.get("profiles") or [])
+        scripts = set()
+        present = collect_routines(data, now, config.get("profiles") or [], scripts)
         follow_handoffs(data, now, config.get("profiles") or [])
-        dispatch(data, config, now, present, deliver)
+        dispatch(data, config, now, present, deliver, scripts)
     else:
         data["pending"] = []
     data["presence_until"] = present

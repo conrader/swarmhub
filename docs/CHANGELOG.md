@@ -4,6 +4,7 @@
 
 - Routine suggestions: the routine a yes asks for is converted to the box's time zone (read from its jobs' times, UTC when none say), at the offset of its next run, so DST and runs that cross midnight land on the time offered; the user still sees their own time. A routine the bot made on the converted schedule, or on the unconverted one a 0.6.5 lead asked for, counts as made, so the editor no longer invites a duplicate. The bot is asked for `deliver 'local'`.
 - Off-app alerts (swarmhub-messages 1.4.13): the box alerts only for the profiles the app connected on that server (sent sealed with the settings) and skips script-only (`no_agent`) jobs. Box alerts stay off until set up in the app.
+- Off-app alerts: the allowlist is sent again whenever the connected agents on a server change (connect, archive, delete, the last one included) and to settings saved by 0.6.5; the box checks it again when an alert or a digest goes out, so a queued alert of a disconnected profile is dropped.
 
 ## 0.6.5 (build 30)
 

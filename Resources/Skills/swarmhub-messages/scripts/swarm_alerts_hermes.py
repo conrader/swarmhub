@@ -158,7 +158,7 @@ def routine_alert(profile, env, job, last):
         body = "Finished. The result could not be read on the box; Swarm Hub shows it when it opens."
     else:
         body = output or "Finished without a reply."
-    return {"id": f"routine:{profile}:{job['id']}:{last}", "kind": "routine", "body": body,
+    return {"id": f"routine:{profile}:{job['id']}:{last}", "kind": "routine", "body": body, "profile": profile, "job": job["id"],
             "title": f"{name} {'failed' if failed else 'finished'} ({profile})"}
 
 
@@ -175,6 +175,37 @@ def allowed_profiles(value):
 def agent_job(job):
     """A run with an agent turn. A script-only job (`no_agent`) has no reply: its runs are box housekeeping."""
     return not job.get("no_agent")
+
+
+SCOPED = ("routine", "loop", "goal")
+
+
+def alert_scope(alert):
+    """The (profile, job) a routine or handed-off loop/goal alert is about, else None: reports, code jobs and webhook wakes
+    are the box's. Read from the alert, or from its id when it was queued without them (`routine:<profile>:<job>:<run>`,
+    `<kind>:<profile>/<job>:<turn>`); one whose profile can't be told is ("", "") and in no scope."""
+    if alert.get("kind") not in SCOPED:
+        return None
+    if alert.get("profile"):
+        return str(alert["profile"]), str(alert.get("job") or "")
+    parts = str(alert.get("id", "")).split(":")
+    if alert["kind"] == "routine" and len(parts) > 2:
+        return parts[1], parts[2]
+    if len(parts) > 1 and "/" in parts[1]:
+        return tuple(parts[1].split("/", 1))
+    return "", ""
+
+
+def in_scope(alert, allowed, scripts=()):
+    """Checked again when an alert goes out (and when a digest does): the allowlist may have shrunk since it was queued,
+    and a queued run of a script-only job (`scripts`: `profile/job`) is housekeeping too."""
+    scope = alert_scope(alert)
+    return scope is None or (scope[0] in allowed and f"{scope[0]}/{scope[1]}" not in scripts)
+
+
+def digest_entry(alert):
+    """What a deferred or held alert keeps for its digest line: the title, and what `in_scope` reads."""
+    return {key: alert[key] for key in ("id", "kind", "title", "profile", "job") if key in alert}
 
 
 def delivery_job(text):
