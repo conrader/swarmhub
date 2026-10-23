@@ -76,7 +76,7 @@ Use basic troubleshooting before escalation; see /usr/local/lib/python3.12/site-
         let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         store.bots = [bot]; store.selectedBot = bot
         try #require(store.submitComposer(text: "Hello"), "\(bot.name)")
-        try await waitUntil(timeout: .seconds(30)) { !(await backend.recorded().isEmpty) }
+        try await waitUntil { !(await backend.recorded().isEmpty) }  // The suite's ceiling: 30 s timed out under load.
         let prompt = try #require(await backend.recorded().first?.systemPrompt)
         for secret in expectGone { #expect(!prompt.contains(secret), "\(bot.name)") }
         #expect(prompt.contains(expectKept), "\(bot.name)")

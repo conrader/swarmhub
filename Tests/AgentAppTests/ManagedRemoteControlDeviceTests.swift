@@ -168,7 +168,9 @@ extension ManagedRemoteControlTests {
             try await DeviceApprovalClient.request(address: "https://box.example.invalid", profile: "owner", verb: "get", task: deviceTask,
                 input: nil, identity: identity, settings: DeviceApprovalSettings(defaults: isolatedDefaults()), session: session, timeout: 0.05)
         }
-        #expect(ContinuousClock.now - start < .seconds(2))
+        // Ended by the 0.05 s deadline: a call that ignored it runs into the 15 s default or hangs. 10 s leaves room for a
+        // loaded Mac (3.5 s seen 2026-10-23) and stays well short of the default.
+        #expect(ContinuousClock.now - start < .seconds(10))
     }
 }
 

@@ -27,6 +27,10 @@ private func signedResponse(raw: Data, record: ManagedRecord) throws -> [String:
     return ["payload": payload.base64EncodedString(), "signature": ManagedRemoteControl.signature(payload, key: remoteKey, purpose: "response")]
 }
 
+/// A redirect is refused at once, never by running into the request's own deadline. The deadline is long and the bound is
+/// half of it: a loaded Mac took 3-4 s here (2026-10-23), while a call that waited for the body ends at the deadline.
+private let redirectDeadline: TimeInterval = 60
+
 /// In-process URLProtocol only. It models a committed decision whose acknowledgement was lost.
 private final class RemoteFixture: @unchecked Sendable {
     private let lock = NSLock()
@@ -108,7 +112,8 @@ struct ManagedRemoteControlTests {
             await #expect(throws: ManagedControlError.self) {
                 do {
                     return try await ManagedRemoteControl.request(address: address, profile: "owner", key: key,
-                                                                  verb: "get", task: remoteTask, input: nil, session: session)
+                                                                  verb: "get", task: remoteTask, input: nil, session: session,
+                                                                  timeout: redirectDeadline)
                 } catch let error as ManagedControlError {
                     if address.hasPrefix("http:") || key.isEmpty {
                         guard case .unavailable = error else { Issue.record("expected unavailable"); throw error }
@@ -118,7 +123,7 @@ struct ManagedRemoteControlTests {
                     throw error
                 }
             }
-            #expect(ContinuousClock.now - start < .seconds(2))
+            #expect(ContinuousClock.now - start < .seconds(redirectDeadline / 2))
             if address.hasPrefix("http:") || key.isEmpty { #expect(MockHermesProtocol.recorded(host).isEmpty) }
         }
         #expect(MockHermesProtocol.recorded(target).isEmpty)
@@ -146,13 +151,14 @@ struct ManagedRemoteControlTests {
                 await #expect(throws: ManagedControlError.self) {
                     do {
                         return try await ManagedRemoteControl.request(address: "https://\(host)/v1", profile: "owner", key: remoteKey,
-                                                                      verb: verb, task: remoteTask, input: input, session: session, timeout: 5)
+                                                                      verb: verb, task: remoteTask, input: input, session: session,
+                                                                      timeout: redirectDeadline)
                     } catch let error as ManagedControlError {
                         guard case .rejected = error else { Issue.record("redirect must be rejected, not unsent"); throw error }
                         throw error
                     }
                 }
-                #expect(ContinuousClock.now - start < .seconds(2))
+                #expect(ContinuousClock.now - start < .seconds(redirectDeadline / 2))
             }
             #expect(MockHermesProtocol.recorded(host).count == 2)
         }

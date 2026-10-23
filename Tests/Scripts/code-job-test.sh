@@ -4,6 +4,7 @@
 #
 #   sh Tests/Scripts/code-job-test.sh <path/to/code-job>     CODE_JOB_SH = the shell that runs code-job (default /bin/sh)
 #   CODE_JOB_CASES="1 2 3"   only these cases (the Swift test runs shards in parallel); code-job gets short poll/tick values.
+#   CODE_JOB_TEST_LIMIT=300  fail the run if it is still going after this many seconds (below).
 
 # Sends signals: run only inside an isolated PID namespace (Linux) or the macOS signal guard; see sim/ISOLATION.md.
 /usr/bin/python3 -I -B "$(dirname "$0")/../../sim/sim_isolation.py" --check > /dev/null || exit 78  # absolute: PATH cannot fake it
@@ -41,6 +42,20 @@ with_control() { mkdir -p "$CTL_DIR" && cp "$ROOT/swarmctl-stub" "$CTL_DIR/swarm
 PASSED=0 FAILED=0
 # Signals name only a live descendant of this shell (an empty, garbage or recycled pid must not be signalled).
 . "$(dirname "$0")/own-pid.sh" || exit 1
+# CODE_JOB_TEST_LIMIT=<s>: a run still going after that long fails fast instead of holding the suite (a code-job under
+# dash once sat ~20 min in a loaded full run). The running code-job, an own descendant whose command names this copy,
+# gets TERM, then KILL; no later case starts. The case cut short fails on its own checks, and the summary adds one FAIL.
+if [ -n "${CODE_JOB_TEST_LIMIT:-}" ]; then
+  (
+    t0=$(date +%s)
+    while [ $(( $(date +%s) - t0 )) -lt "$CODE_JOB_TEST_LIMIT" ]; do kill -0 $$ 2>/dev/null || exit 0; sleep 1; done
+    : > "$ROOT/over-limit" || exit 0
+    running() { ps -A -o pid= -o args= 2>/dev/null | awk -v job="$JOB" 'index($0, job) { print $1 }'; }
+    for pid in $(running); do own_pid "$pid" "$JOB" && kill -TERM "$pid" 2>/dev/null; done
+    sleep 5
+    for pid in $(running); do own_pid "$pid" "$JOB" && kill -KILL "$pid" 2>/dev/null; done
+  ) < /dev/null > /dev/null 2>&1 &
+fi
 TASK='Fix the failing test in calc.py'
 # Synthetic identities must reach both setup git and the CLI subprocess, even on
 # a fresh Mac with no gitconfig. Ignore host signing/hooks/identity configuration.
@@ -187,7 +202,8 @@ t0=$(date +%s)
 managed --bot jarvis --order claude,codex --timeout 1 --dir "$C/work" -- "$TASK"; RC=$?
 took=$(( $(date +%s) - t0 ))
 expect "exit 124 (got $RC)" [ "$RC" -eq 124 ]
-expect "stopped soon after 1 s (took ${took}s)" [ "$took" -lt 10 ]
+# The agent sleeps 60 s: a run cut at its 1 s deadline ends within seconds, and 30 s still tells cut from uncut under load.
+expect "stopped soon after 1 s (took ${took}s)" [ "$took" -lt 30 ]
 expect "agent pid gone" sh -c "! kill -0 $(cat "$C/state/claude.pid") 2>/dev/null"
 expect "agent's child gone" sh -c "! kill -0 $(cat "$C/state/claude.child") 2>/dev/null"
 expect "no fallback after a timeout" [ ! -f "$C/state/codex.calls" ]
@@ -544,6 +560,12 @@ expect "read retries and identity refusal pass (got $RC)" [ "$RC" -eq 0 ]
 done_case
 }
 
-for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24}; do "case_$n"; done
+for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24}; do
+  [ -f "$ROOT/over-limit" ] && break
+  "case_$n"
+done
+if [ -f "$ROOT/over-limit" ]; then
+  echo "FAIL: time limit: still running after ${CODE_JOB_TEST_LIMIT}s, in \"$NAME\"; no later case ran"; FAILED=$((FAILED + 1))
+fi
 echo "code-job tests under $SH: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

@@ -233,7 +233,9 @@ private let codeJobShards = ["1 2 3 4 5 6", "7", "8 9", "10 11 12 13 14 15 16", 
     process.executableURL = URL(fileURLWithPath: shell)
     process.arguments = [repoRoot.appending(path: "Tests/Scripts/code-job-test.sh").path, repoRoot.appending(path: "Resources/Skills/swarmhub-coding/scripts/code-job").path]
     // Only what the test needs: no inherited agent keys or the developer's PATH (no real claude/codex).
-    process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "CODE_JOB_SH": shell, "CODE_JOB_CASES": cases]
+    // CODE_JOB_TEST_LIMIT: a hung code-job fails this shard after 5 min instead of holding the suite (one sat ~20 min).
+    process.environment = ["PATH": "/usr/bin:/bin", "HOME": FileManager.default.temporaryDirectory.path, "TMPDIR": FileManager.default.temporaryDirectory.path, "CODE_JOB_SH": shell, "CODE_JOB_CASES": cases,
+                           "CODE_JOB_TEST_LIMIT": "300"]
     let (status, output) = try await runToEnd(process)
     #expect(status == 0, "\(shell):\n\(output)")
     let count = cases.split(separator: " ").count
