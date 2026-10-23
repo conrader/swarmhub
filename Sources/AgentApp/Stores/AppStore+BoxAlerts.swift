@@ -10,6 +10,11 @@ extension AppStore {
     static let presenceRenewal: TimeInterval = 120, presenceLease: TimeInterval = 300, presenceIdle: TimeInterval = 600
     /// recsfix2/3: an automatic push the box did not confirm is tried again after this long, doubling up to the cap.
     static let profilesRetry: TimeInterval = 900, profilesRetryCap: TimeInterval = 6 * 3600
+    /// rel066 (Jarvis, 2026-10-23): off-app alerts are switched off in this release, until concurrent saves from two Macs
+    /// can no longer defeat the box's revision check. Off: no alerts section, no box call (no settings, allowlist or
+    /// revocation push, no test, no status, so no service installed), no presence lease. The box's twin is
+    /// `swarm_alerts_service.ON` (skill swarmhub-messages). To bring them back: both to true, and bump the skill.
+    static let boxAlertsShipped = false
 
     // MARK: Settings (no secret in UserDefaults)
 
@@ -23,7 +28,10 @@ extension AppStore {
     func alertSecret(_ kind: String, target: String) -> String { keyStore.key(for: Self.alertSecretAccount(kind, target: target)) }
 
     /// The servers whose alerts the box last accepted as on: the ones that get a presence lease.
-    var alertServers: [String] { hermesConnections.map(\.target).filter { defaults.bool(forKey: "alerts.on." + $0) } }
+    var alertServers: [String] {
+        guard boxAlertsOn else { return [] }
+        return hermesConnections.map(\.target).filter { defaults.bool(forKey: "alerts.on." + $0) }
+    }
 
     /// The agent that runs the pane's command on a server: its first live Hermes agent.
     func alertRunner(for target: String) -> Bot? {
@@ -95,7 +103,7 @@ extension AppStore {
     /// Runs one action; the state shows the box's answer or why it is missing. Nil when nothing was confirmed. Every answer
     /// (a refresh too) records whether the box's alerts are on now: another Mac may have changed them.
     @discardableResult func performAlerts(_ action: BoxAlertsAction, on target: String, secrets: [String] = [], via runner: Bot? = nil) async -> BoxAlertsPanel? {
-        guard boxAlerts.state(for: target).busy == nil else { return nil }
+        guard boxAlertsOn, boxAlerts.state(for: target).busy == nil else { return nil }
         guard let bot = runner ?? alertRunner(for: target) else { boxAlerts.update(target) { $0.error = AlertsCopy.noRunner }; return nil }
         guard let arguments = AlertsCommand.arguments(action) else { boxAlerts.update(target) { $0.error = AlertsCopy.sealFailed }; return nil }
         boxAlerts.update(target) { $0.busy = action; $0.error = nil; $0.notice = nil }
@@ -134,6 +142,7 @@ extension AppStore {
     /// Every automatic push names the box's revision this Mac saved; when the box holds newer settings (another Mac's,
     /// seen in any answer or refused by the box), nothing is pushed and nothing stays owed: the newer settings win.
     func syncAlertProfiles(now: Date = .now) async {
+        guard boxAlertsOn else { return }
         let servers = alertServers
         let targets = servers + alertPushes.keys.sorted().filter { !servers.contains($0) }
         for target in targets {
@@ -173,7 +182,7 @@ extension AppStore {
     /// was the server's last agent, it runs the revocation (no tick reaches a server without agents).
     func alertProfilesLeft(_ bot: Bot) {
         let target = connection(of: bot)
-        guard bot.backend == .hermes, defaults.bool(forKey: "alerts.on." + target), defaults.data(forKey: "alerts.settings." + target) != nil else { return }
+        guard boxAlertsOn, bot.backend == .hermes, defaults.bool(forKey: "alerts.on." + target), defaults.data(forKey: "alerts.settings." + target) != nil else { return }
         var push = alertPushes[target] ?? AlertsPush()
         push.next = .distantPast
         if alertRunner(for: target) == nil { push.runner = AlertsPush.Runner(bot) }
@@ -186,6 +195,7 @@ extension AppStore {
     /// The routine poll's tick: the allowlist follows the connections, and while the user is at this Mac, each server
     /// with alerts on gets its lease renewed.
     func renewAlertPresenceIfDue(now: Date = .now) async {
+        guard boxAlertsOn else { return }
         await syncAlertProfiles(now: now)
         guard boxAlerts.idleSeconds() < Self.presenceIdle else { return }
         for target in alertServers {
@@ -197,7 +207,7 @@ extension AppStore {
 
     /// Best effort: a lease that cannot be written lapses, and the box alerts (a duplicate beats a missed alert).
     func writePresence(until: Date, on target: String) async {
-        guard let bot = alertRunner(for: target), let client = try? jobsClient(for: bot) else { return }
+        guard boxAlertsOn, let bot = alertRunner(for: target), let client = try? jobsClient(for: bot) else { return }
         let prompt = PresenceLease.prompt(until: until)
         do {
             if let id = boxAlerts.presenceJobs[target] {

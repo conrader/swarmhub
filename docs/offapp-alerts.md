@@ -1,5 +1,11 @@
 # Off-app alerts, and loops and goals while Swarm Hub is closed
 
+**Switched off in 0.6.6** (swarmhub-messages 1.4.14), until concurrent saves from two Macs can no longer defeat the
+box's revision check. One switch per side: `AppStore.boxAlertsShipped` (no section, no box call, no presence lease) and
+`swarm_alerts_service.ON` (no install or resume, saved settings turn alerts off, a running service sends nothing). To
+bring them back: both to true, bump the skill, drop `sim/test_alerts_off.py` and `BoxAlertsOffTests.swift`. Loops still
+go to the box at quit (below); `--until` loops and goals stay in the app either way.
+
 Swarm Hub step 2. A box tells you what happened while the Mac app is not there to show it. A `/loop` or `/goal` in a
 bot's main chat keeps running on the box while the app is closed.
 

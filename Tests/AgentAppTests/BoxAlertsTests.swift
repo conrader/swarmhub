@@ -98,6 +98,7 @@ func alertsPanelJSON(action: String, boxKey: String = vectorBoxPublic, configure
 @MainActor private func alertsStore(answer: @escaping @MainActor ([String]) throws -> String) -> (AppStore, String, FakeAlertsBox, InMemoryKeyStore) {
     let keys = InMemoryKeyStore([:])
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: isolatedDefaults())
+    store.boxAlertsOn = true  // rel066: switched off in the release; these tests are of the alerts themselves.
     let bot = Bot(name: "Reporter", backend: .hermes, hermesProfile: "reporter")
     bot.hermesBaseURL = "https://box.example.invalid/v1"
     store.bots = [bot]
@@ -249,6 +250,7 @@ func alertsPanelJSON(action: String, boxKey: String = vectorBoxPublic, configure
 @Test @MainActor func thePresenceLeaseIsAPausedRoutineRenewedWhileTheUserIsHere() async throws {
     let server = FakeJobsServer()
     let (store, bot, host) = routinesStore(server)
+    store.boxAlertsOn = true  // rel066: switched off in the release; this test is of the lease itself.
     let target = store.connection(of: bot)
     store.defaults.set(true, forKey: "alerts.on." + target)
     var idle: TimeInterval = 5
@@ -301,6 +303,7 @@ func alertsPanelJSON(action: String, boxKey: String = vectorBoxPublic, configure
 
 @MainActor private func revisionStore(_ box: RevisionBox, keys: InMemoryKeyStore, defaults: UserDefaults = isolatedDefaults()) -> AppStore {
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults)
+    store.boxAlertsOn = true  // rel066: switched off in the release; these tests are of the alerts themselves.
     store.alertsControl = { bot, arguments in try box.answer(bot, arguments) }
     store.boxAlerts.idleSeconds = { 10_000 }  // Away from the Mac: no presence lease, the settings only.
     return store

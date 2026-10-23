@@ -69,7 +69,7 @@ def load_config():
 def validate(config):
     if not isinstance(config, dict) or config.get("v") != 1:
         raise ValueError("unsupported alert settings")
-    clean = {"v": 1, "enabled": config.get("enabled", True) is not False, "window": config.get("window", True) is not False}
+    clean = {"v": 1, "enabled": service.ON and config.get("enabled", True) is not False, "window": config.get("window", True) is not False}
     clean["profiles"] = hermes.allowed_profiles(config.get("profiles"))
     if config.get("ntfy"):
         sinks.check_ntfy(config["ntfy"])
@@ -115,7 +115,7 @@ def save_state(data):
 def emit(kind, ident, title, body=""):
     """A producer's event (report, webhook wake): one spool file, only on a box with alert settings. Never raises."""
     try:
-        if not (store.state() / "alerts" / "config.json").exists():
+        if not service.ON or not (store.state() / "alerts" / "config.json").exists():
             return False
         spool = paths()["spool"]
         spool.mkdir(mode=0o700, exist_ok=True)
@@ -364,7 +364,7 @@ def tick(now=None, deliver=None):
     config, data = load_config(), load_state()
     files = collect_spool(data)
     present = 0
-    if config and config.get("enabled"):
+    if service.ON and config and config.get("enabled"):
         collect_codejobs(data)
         scripts = set()
         present = collect_routines(data, now, config.get("profiles") or [], scripts)
@@ -469,8 +469,8 @@ def start():
 
 def test():
     config = load_config()
-    if not config:
-        raise ValueError("save the alert settings first")
+    if not config or not service.ON:
+        raise ValueError("save the alert settings first" if service.ON else service.OFF)
     results = sinks.deliver(config, "Swarm Hub test alert", "This box can reach you. Real alerts come only while Swarm Hub "
                             "on your Mac is closed or you are away from it.")
     data = load_state()

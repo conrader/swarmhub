@@ -31,6 +31,8 @@ import SwarmHubCore
     var webhookControl: (@MainActor (Bot, [String]) async throws -> String)?
     /// Test injection for the Alerts pane's call (`AppStore+BoxAlerts.swift`), same shape as `webhookControl`.
     var alertsControl: (@MainActor (Bot, [String]) async throws -> String)?
+    /// rel066: whether off-app alerts run at all (`AppStore.boxAlertsShipped`); tests of the alerts themselves turn them on.
+    var boxAlertsOn = AppStore.boxAlertsShipped
     @Published var secretRequest: SecretRequestPrompt?; var secretFolder: URL?
     @Published var subAgentTasks: [UUID: [SubAgentTask]] = [:]
     @Published var showInfo = true; @Published var showingNewBot = false; @Published var showingTemplateImport = false; @Published var showingCommandPalette = false

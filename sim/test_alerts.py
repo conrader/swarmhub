@@ -19,6 +19,7 @@ import alerts_fixtures as fixtures  # noqa: E402
 import swarm_alerts as alerts  # noqa: E402
 import swarm_alerts_hermes as hermes  # noqa: E402
 import swarm_alerts_seal as seal  # noqa: E402
+import swarm_alerts_service as service  # noqa: E402
 import swarm_alerts_sinks as sinks  # noqa: E402
 import swarm_store as store  # noqa: E402
 
@@ -44,6 +45,9 @@ class AlertsBase(unittest.TestCase):
         patcher = patch.dict(os.environ, env, clear=True)
         patcher.start()
         self.addCleanup(patcher.stop)
+        switch = patch.object(service, "ON", True)  # rel066: switched off in the release; these test the alerts themselves.
+        switch.start()
+        self.addCleanup(switch.stop)
         self.sent = []
         self.now = 1_800_000_000.0
 

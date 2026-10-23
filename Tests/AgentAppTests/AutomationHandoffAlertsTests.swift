@@ -31,6 +31,7 @@ func anUntilLoopOrAGoalStaysInTheAppWhateverTheAppLastRecordedAboutTheBoxsAlerts
 @Test @MainActor func aMacWhoseAlertsRecordIsStaleNeverHandsOffAnUntilLoopAndARefreshCorrectsTheRecord() async throws {
     // Mac A turned alerts on; Mac B turned them off later. A still records them as on.
     let (store, bot, server, bodies, _, _) = handoffStore(alerts: true)
+    store.boxAlertsOn = true  // rel066: switched off in the release; this test is of the alerts record itself.
     let target = store.connection(of: bot)
     var boxEnabled = false
     store.alertsControl = { _, arguments in alertsPanelJSON(action: arguments[2], configured: true, enabled: boxEnabled, running: boxEnabled) }
