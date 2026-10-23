@@ -1,5 +1,6 @@
 """Loopback stand-ins for the off-app alert tests: a Hermes API (jobs, sessions, pause), an ntfy server and an SMTP
 relay. Nothing leaves 127.0.0.1; no real ntfy or mail service is ever contacted."""
+import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import base64
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

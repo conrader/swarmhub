@@ -94,7 +94,7 @@ extension AppStore {
         var job: HermesJob?
         do {
             let rows = try await client.listAll()
-            job = rows.first { $0.id == handoff.jobID } ?? rows.first { $0.name == handoff.jobName }
+            job = rows.first(where: { $0.id == handoff.jobID }) ?? rows.first(where: { $0.name == handoff.jobName })
             if let found = job, !found.isPaused { job = try await client.pause(found.id) }
             if let found = job { try await client.delete(found.id) }
         } catch HermesJobsError.notFound {

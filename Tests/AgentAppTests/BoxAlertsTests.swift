@@ -10,10 +10,12 @@ import Testing
 private let vectorBoxPublic = "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw"
 private let vector = "v1.WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpntbpN003rAeWCpygn1YvbvZkWLEAaYz6LERav7U6ckCQmMdzCxqaMoCphvq5xicsC4"
     + "VohICnqnsTTcffP5PbwE0aUd3EgWIcEjoisa7UbE"
-private let boxPrivate = try! Curve25519.KeyAgreement.PrivateKey(rawRepresentation: Data((1...32).map { UInt8($0) }))
+private func boxPrivate() -> Curve25519.KeyAgreement.PrivateKey {
+    try! Curve25519.KeyAgreement.PrivateKey(rawRepresentation: Data((1...32).map { UInt8($0) }))
+}
 
 /// The box's side (`swarm_alerts_seal.open_sealed`), for checking what the app sealed.
-private func openSealed(_ blob: String, with key: Curve25519.KeyAgreement.PrivateKey = boxPrivate) throws -> Data {
+private func openSealed(_ blob: String, with key: Curve25519.KeyAgreement.PrivateKey = boxPrivate()) throws -> Data {
     let raw = try #require(AlertSeal.unpadded(String(blob.dropFirst(3))))
     let theirs = raw.prefix(32), body = raw.dropFirst(32).dropLast(16), tag = raw.suffix(16)
     let shared = try key.sharedSecretFromKeyAgreement(with: .init(rawRepresentation: theirs))
@@ -42,7 +44,7 @@ func alertsPanelJSON(action: String, boxKey: String = vectorBoxPublic, configure
 }
 
 @Test func theSealMatchesTheBoxsVector() throws {
-    #expect(boxPrivate.publicKey.rawRepresentation.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+    #expect(boxPrivate().publicKey.rawRepresentation.base64EncodedString().replacingOccurrences(of: "+", with: "-")
         .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "") == vectorBoxPublic)
     let ephemeral = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: Data((33...64).map { UInt8($0) }))
     let plain = Data(#"{"v":1,"enabled":true,"ntfy":{"url":"https://ntfy.example/t"}}"#.utf8)
