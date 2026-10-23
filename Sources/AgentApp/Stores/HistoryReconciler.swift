@@ -67,8 +67,9 @@ enum HistoryReconciler {
         var keepPolling: Set<UUID> = []
         /// An unpaired box turn is newer than the last paired one (Retry must not send by itself then).
         var newerUnmatched = false
-        /// Routines (by name) with a delivery turn on the box that was neither paired nor added: the newest such turn's
-        /// time on the Mac's clock (`distantPast` without one).
+        /// Routines (by name) with a delivery turn on the box that was neither paired nor added, or paired with a reply the
+        /// box's could not settle (conflicting, or shorter and not extended): the newest such turn's time on the Mac's clock
+        /// (`distantPast` without one).
         var leftOut: [String: Date] = [:]
         var isEmpty: Bool { edits.isEmpty && additions.isEmpty }
     }
@@ -246,7 +247,14 @@ enum HistoryReconciler {
                 }
                 continue
             }
-            if let edit = settle(reply, with: box, active: input.activeRuns.contains(reply.id), plan: &plan) { plan.edits.append(edit) }
+            let edit = settle(reply, with: box, active: input.activeRuns.contains(reply.id), plan: &plan)
+            if let edit { plan.edits.append(edit) }
+            // A routine's round whose reply here conflicts with the box's, or is shorter and not extended (finished, stopped),
+            // is not in the chat either.
+            if edit?.content == nil, let routine = box.user.flatMap({ CronDeliveryRow.jobName($0.content) }),
+               [.conflict, .localPrefix].contains(relation(local: reply.text, server: box.replyText)) {
+                leaveOut(routine, box, skew: input.skew, plan: &plan)
+            }
         }
 
         // "Later": a member's notSent row whose trigger a later paired turn of that member carried.
@@ -278,10 +286,7 @@ enum HistoryReconciler {
         var midAdded = 0
         for box in server where !used.contains(box.index) {
             let routine = box.user.flatMap { CronDeliveryRow.jobName($0.content) }, known = !Set(box.ids).isDisjoint(with: knownIDs)
-            func leaveOut() {
-                guard let routine, !known else { return }
-                plan.leftOut[routine] = max(plan.leftOut[routine] ?? .distantPast, box.time?.addingTimeInterval(-input.skew) ?? .distantPast)
-            }
+            func leaveOut() { if let routine, !known { Self.leaveOut(routine, box, skew: input.skew, plan: &plan) } }
             if hasLocalTurns, let oldestPair, box.index < oldestPair { plan.counts.ignoredOld += 1; leaveOut(); continue }
             if hasLocalTurns && oldestPair == nil { leaveOut(); continue }
             guard additionsAllowed, !box.replyText.isEmpty || !isGroup(input.mode) else { leaveOut(); continue }
@@ -311,6 +316,10 @@ enum HistoryReconciler {
             plan.counts.added += 1
         }
         return plan
+    }
+
+    static func leaveOut(_ routine: String, _ box: ServerTurn, skew: TimeInterval, plan: inout Plan) {
+        plan.leftOut[routine] = max(plan.leftOut[routine] ?? .distantPast, box.time?.addingTimeInterval(-skew) ?? .distantPast)
     }
 
     /// The outcome for one paired reply row. `finished` and `stopped` rows are never edited.
