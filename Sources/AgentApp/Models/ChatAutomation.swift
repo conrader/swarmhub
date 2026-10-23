@@ -18,6 +18,9 @@ struct BoxHandoff: Codable, Equatable, Sendable {
     var jobName: String
     var jobID: String?
     var handedAt: Date
+    /// Taking it back waits while a box round is still in flight (since this time), and the last reason it could not.
+    var waitingSince: Date? = nil
+    var lastError: String? = nil
 }
 
 /// Why SwarmHub started a turn the user didn't type (shown as "Woken by: goal").

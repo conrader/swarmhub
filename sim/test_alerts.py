@@ -206,21 +206,72 @@ class Sources(AlertsBase):
         self.tick()
         self.assertEqual(len(self.sent), 1)
 
-    def test_a_handed_off_loop_alerts_with_its_bot_chat_reply_and_is_paused_when_done(self):
+    def delivery(self, name, at):
+        return {"role": "user", "timestamp": at,
+                "content": f'[Cronjob "{name}" output — scheduled job, not the user. Review it, act on anything that needs '
+                           f'action, and summarize for the chat.]\n\nReply with exactly the text'}
+
+    def handed_off_loop(self, created="2026-10-23T07:00:00+00:00"):
         self.configure()
-        self.job("jarvis", "dddddddddddd", "swarmhub-loop-0123abcd", "", deliver="bot-chat:jarvis")
+        self.job("jarvis", "dddddddddddd", "swarmhub-loop-0123abcd", "", deliver="bot-chat:jarvis", created_at=created)
         self.tick()
-        self.job("jarvis", "dddddddddddd", "swarmhub-loop-0123abcd", "2026-10-23T08:00:00+00:00", deliver="bot-chat:jarvis")
+        self.job("jarvis", "dddddddddddd", "swarmhub-loop-0123abcd", "2026-10-23T08:00:00+00:00", deliver="bot-chat:jarvis",
+                 created_at=created)
         run_at = hermes.iso_seconds("2026-10-23T08:00:00+00:00")
         self.hermes.sessions["jarvis"] = [{"id": "chat1", "title": "Bot Chat", "last_active": run_at + 30}]
-        self.hermes.messages["chat1"] = [{"role": "assistant", "content": "older", "timestamp": run_at - 600}]
+        return run_at
+
+    def test_a_handed_off_loop_alerts_with_its_bot_chat_reply_and_is_paused_when_done(self):
+        run_at = self.handed_off_loop()
+        # Hermes delivers (a full Bot Chat turn) before it records last_run_at.
+        self.hermes.messages["chat1"] = [{"role": "assistant", "content": "older", "timestamp": run_at - 600},
+                                         self.delivery("swarmhub-loop-0123abcd", run_at - 30),
+                                         {"role": "assistant", "content": "", "tool_calls": [{"id": "t1"}], "timestamp": run_at - 25}]
         self.tick()
         self.assertEqual(self.sent, [])  # The Bot Chat has not answered yet.
-        self.hermes.messages["chat1"].append({"role": "assistant", "timestamp": run_at + 20,
+        self.hermes.messages["chat1"].append({"role": "assistant", "timestamp": run_at - 20,
                                               "content": 'Build is green.\n```swarmhub\n{"op":"loop","status":"done"}\n```'})
-        self.tick()
+        state = self.tick()
         self.assertEqual(self.sent, [("Loop on the box (jarvis): done", "Build is green.")])
         self.assertEqual(self.hermes.paused, [("jarvis", "dddddddddddd")])
+        self.assertEqual(state["handoff"], {})
+        self.tick()
+        self.assertEqual(len(self.sent), 1)
+
+    def test_replies_that_are_not_the_jobs_own_never_end_the_wait_alert_or_pause(self):
+        run_at = self.handed_off_loop()
+        done = 'Done.\n```swarmhub\n{"op":"loop","status":"done"}\n```'
+        self.hermes.messages["chat1"] = [
+            # The same chat's routine from an earlier quit (same name, before this job was made).
+            self.delivery("swarmhub-loop-0123abcd", run_at - 7200), {"role": "assistant", "content": done, "timestamp": run_at - 7190},
+            # Another routine's delivery and reply, and the user's own chat, all newer than the run.
+            self.delivery("swarmhub-goal-89abcdef", run_at + 5), {"role": "assistant", "content": done, "timestamp": run_at + 10},
+            {"role": "user", "content": "thanks", "timestamp": run_at + 15},
+            {"role": "assistant", "content": done, "timestamp": run_at + 20}]
+        state = self.tick()
+        self.tick()
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.hermes.paused, [])
+        self.assertEqual(list(state["handoff"]), ["jarvis/dddddddddddd"])
+        self.hermes.messages["chat1"] += [self.delivery("swarmhub-loop-0123abcd", run_at + 40),
+                                          {"role": "assistant", "content": "Still red.", "timestamp": run_at + 50}]
+        state = self.tick()
+        self.assertEqual(self.sent, [("Loop on the box (jarvis)", "Still red.")])
+        self.assertEqual(self.hermes.paused, [])
+        self.assertEqual(state["handoff"], {})
+
+    def test_a_second_run_before_the_first_reply_keeps_the_first_runs_window(self):
+        run_at = self.handed_off_loop()
+        self.hermes.messages["chat1"] = [self.delivery("swarmhub-loop-0123abcd", run_at - 30)]
+        self.tick()
+        self.job("jarvis", "dddddddddddd", "swarmhub-loop-0123abcd", "2026-10-23T08:10:00+00:00", deliver="bot-chat:jarvis",
+                 created_at="2026-10-23T07:00:00+00:00")
+        self.hermes.messages["chat1"] += [{"role": "assistant", "content": "first", "timestamp": run_at + 60},
+                                          self.delivery("swarmhub-loop-0123abcd", run_at + 570),
+                                          {"role": "assistant", "content": "second", "timestamp": run_at + 580}]
+        state = self.tick()
+        self.assertEqual(self.sent, [("Loop on the box (jarvis)", "first"), ("Loop on the box (jarvis)", "second")])
+        self.assertEqual(state["handoff"], {})
 
 
 class Filters(AlertsBase):

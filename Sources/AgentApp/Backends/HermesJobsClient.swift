@@ -25,6 +25,10 @@ struct HermesJob: Identifiable, Equatable, Sendable {
     var fireClaimed = false
     /// P46: where the output goes: `local` (kept on the box) or `bot-chat:<profile>` (a turn in that bot's Bot Chat).
     var deliver: String? = nil
+    /// Runs Hermes has recorded (`repeat.completed`, bumped by `mark_job_run` after the run's delivery).
+    var runsCompleted: Int? = nil
+    /// A run is in flight: Hermes says `running`, or a scheduler holds the fire claim. Pausing does not stop it.
+    var isRunning: Bool { state == "running" || fireClaimed }
 
     var isPaused: Bool { !enabled || state == "paused" }
 
@@ -47,7 +51,7 @@ struct HermesJob: Identifiable, Equatable, Sendable {
                      state: text(row["state"]) ?? (enabled ? "scheduled" : "paused"), nextRunAt: text(row["next_run_at"]),
                      lastRunAt: text(row["last_run_at"]), lastStatus: text(row["last_status"]), lastError: text(row["last_error"]),
                      manualRunAt: text(row["manual_run_at"]), fireClaimed: row["fire_claim"].map { !($0 is NSNull) && ($0 as? Bool) != false } ?? false,
-                     deliver: text(row["deliver"]))
+                     deliver: text(row["deliver"]), runsCompleted: (row["repeat"] as? [String: Any])?["completed"] as? Int)
     }
 
     static func parseList(_ json: [String: Any]) -> [HermesJob] { ((json["jobs"] as? [[String: Any]]) ?? []).compactMap(parse) }

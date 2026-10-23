@@ -31,6 +31,8 @@ struct ReconcileReport: Sendable {
     var changed = false, unreachable = false, skipped = false, activeRun = false
     var changedRows: Set<UUID> = []
     var diverged = false
+    /// A Bot Chat whose box history was left unmerged (it diverges, or the box session is empty): nothing was adopted.
+    var notMerged = false
     /// Per the last unit read: box time of its oldest row (nil = whole session), the box clock minus the Mac's, whether
     /// an unpaired box turn is newer than the last paired one.
     var coversFrom: Date?; var skew: TimeInterval = 0; var newerUnmatched = false
@@ -85,10 +87,12 @@ extension AppStore {
     }
 
     /// One pass over a conversation. Automatic passes keep a floor per session and never raise `errorMessage`.
-    @discardableResult func reconcile(_ conversation: any Conversation, reason: ReconcileReason, full: Bool = false, ignoringStream: Bool = false, member: UUID? = nil) async -> ReconcileReport {
+    /// `chatOnly`: a bot's own chat without its threads.
+    @discardableResult func reconcile(_ conversation: any Conversation, reason: ReconcileReason, full: Bool = false, ignoringStream: Bool = false, member: UUID? = nil,
+                                      chatOnly: Bool = false) async -> ReconcileReport {
         var report = ReconcileReport()
         guard ignoringStream || !isStreamingIn(conversation) else { report.skipped = true; return report }
-        for unit in reconcileUnits(for: conversation) where (member == nil || unit.bot.id == member) && (reason != .retry || unit.conversation === conversation) {
+        for unit in reconcileUnits(for: conversation) where (member == nil || unit.bot.id == member) && (reason != .retry && !chatOnly || unit.conversation === conversation) {
             report.total += 1
             // P39: a thread can stream while its bot's chat is read; its own turn is never adopted mid-stream.
             if !ignoringStream, unit.conversation !== conversation, isStreamingIn(unit.conversation) { report.skipped = true; continue }
@@ -131,6 +135,7 @@ extension AppStore {
             // Real divergence only: the box holds turns and none match a reply this chat already has. An empty box session
             // (it lacks the turn) or unmatched box turns against only unsent rows (newerUnmatched) leave retry to decide.
             report.diverged = plan.diverged && snapshot.contains { $0.role == .assistant && !$0.isEmpty }
+            report.notMerged = true
             let note = "Hermes history was not merged because it diverges from this local conversation."
             if unit.conversation.messages.last?.content != note { unit.conversation.messages.append(ChatMessage(role: .system, content: note)); report.changed = true }
             return

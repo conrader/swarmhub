@@ -14,7 +14,7 @@ It checks every 30 seconds:
 | Code jobs | managed coding actions that reach `done`/`failed` in Swarm Hub's own database | `codejob:<action id>` |
 | Bot reports | `swarmctl report` spools one event | `report:<delivery id>` |
 | Webhook wakes | an accepted webhook call spools one event | `webhook:<delivery id>` |
-| Loops and goals handed to the box | the bot's next reply in its Bot Chat after a run | `loop|goal:<profile>/<job>:<time>` |
+| Loops and goals handed to the box | the bot's reply to the job's own delivery row in its Bot Chat | `loop|goal:<profile>/<job>:<delivery time>` |
 
 A job's first sighting, and every code job that existed when alerts were turned on, is only recorded. Nothing from
 before is sent.
@@ -94,22 +94,30 @@ requests on a detached task):
   - A loop keeps its interval, with `repeat` set to the remaining `--times`.
   - A goal gets a round every 15 minutes, with `repeat` set to the remaining rounds within its time budget.
 - The handoff is saved before the request. A routine the box created after the app gave up waiting is found by name.
-- The alert service, when it runs, alerts with each Bot Chat reply. It pauses the routine when a reply carries the
+- The alert service, when it runs, alerts with each reply to the routine's own Bot Chat turns. A turn is matched by
+  the delivery row Hermes writes (`[Cronjob "<name>" output — …]`, the name holds the chat id) and by time: after this
+  job was made and after its previous run. Any other reply in the chat, however new, is not this routine's: it never
+  ends the wait, sends an alert or pauses the routine. The service pauses the routine when a matched reply carries the
   loop's done block or the goal's done or blocked block.
 
 At launch, on every routine poll tick until none is left:
 1. **Pause first.** No run starts after this point. A box that cannot be reached keeps the routine. Nothing runs in the
    app meanwhile, so nothing runs twice. The next tick tries again.
-2. The Bot Chat is reconciled. The box's rounds are counted: each delivery row since the handoff that has a reply.
-3. The routine is deleted.
-4. The loop's run count and `--times` are updated, and its next run is one interval after the box's last run. An
+2. The Bot Chat is read from the box (this chat only, not its threads). If the read fails, is skipped or the box's
+   turns cannot be merged, the routine stays on the box, paused, and the handoff stays. The chat says why, once. The
+   next tick tries again.
+3. The box's rounds are counted: each delivery row since the handoff that has a reply. If a run is still in flight, or
+   Hermes counted more runs (`repeat.completed`) than the chat has replies, the app waits up to 20 minutes for them.
+   After that the box's count is used.
+4. The routine is deleted. Only then is the handoff cleared. A delete that fails keeps everything for the next tick.
+5. The loop's run count and `--times` are updated, and its next run is one interval after the box's last run. An
    `--until` met on the box ends the loop.
    - The goal's round count is updated. The last box reply is judged like any reply: done, blocked, or the next round.
-5. The chat gets one line: "While SwarmHub was closed, the box ran this loop N times."
+6. The chat gets one line: "While SwarmHub was closed, the box ran this loop N times."
 
 **Not handed off:** loops and goals in threads and groups (a routine has no access to their context); paused loops; and
 boxes with no jobs API or no Bot Chat. These wait in the app, as before. A stop while a handoff is still pending keeps
-the record until the routine is deleted.
+the record until the routine is deleted. Nothing is resumed then, so the routine is deleted without waiting for a read.
 
 ## Supervision
 

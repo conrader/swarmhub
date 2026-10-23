@@ -19,6 +19,7 @@ HANDOFF = re.compile(r"\Aswarmhub-(loop|goal)-[0-9a-f]{8}\Z")
 UNTIL = re.compile(r"\buntil=(\d{1,12})\b")
 FENCE = re.compile(r"```swarmhub[ \t]*\n(.*?)\n?```", re.S)
 JOB_ID = re.compile(r"\A[0-9a-f]{12}\Z")
+DELIVERY = '[Cronjob "'
 
 
 def env_value(path, name):
@@ -147,13 +148,45 @@ def run_output(profile, env, job):
     return None
 
 
-def bot_chat_reply(profile, env, after):
-    """The newest reply in the profile's "Bot Chat" session (where `bot-chat:` routines answer) later than `after`."""
-    rows = [row for row in sessions(profile, env, "limit=100&offset=0") if row.get("title") == "Bot Chat"]
-    if not rows:
+def delivery_job(text):
+    """The routine a Bot Chat user row was handed over by (`[Cronjob "<name>" output — …`, cron/scheduler_delivery.py
+    `_deliver_to_bot_chat`), else None."""
+    text = text.strip()
+    if not text.startswith(DELIVERY):
         return None
-    newest = max(rows, key=lambda row: stamp(row, "last_active", "started_at"))
-    return latest_reply(profile, env, str(newest.get("id", "")), after)
+    name, quote, _ = text[len(DELIVERY):].partition('" output')
+    return name if quote and name else None
+
+
+def bot_chat_turns(profile, env, name, after):
+    """The Bot Chat turns the routine `name` handed over after `after` (unix seconds), oldest first: (delivery time,
+    reply) with reply None while the turn has no final answer yet. Only a reply that follows this routine's own delivery
+    row counts; any other reply in the chat, however new, is not this routine's. None when the box cannot be read."""
+    listed = call(profile, env, "api/sessions?limit=100&offset=0")
+    if not isinstance(listed, dict) or not isinstance(listed.get("data"), list):
+        return None
+    chats = [row for row in listed["data"] if isinstance(row, dict) and row.get("title") == "Bot Chat"
+             and not 0 < stamp(row, "last_active", "started_at") < after]
+    turns = []
+    for chat in chats:
+        answer = call(profile, env, f"api/sessions/{urllib.parse.quote(str(chat.get('id', '')), safe='')}/messages?order=latest&limit=200")
+        rows = answer.get("data") if isinstance(answer, dict) else None
+        if not isinstance(rows, list):
+            return None
+        rows = [row for row in rows if isinstance(row, dict)]
+        rows.sort(key=lambda row: (stamp(row, "timestamp", "created_at"), row["id"] if isinstance(row.get("id"), int) else 0))
+        turn = None
+        for row in rows:
+            if row.get("role") == "user":
+                turn = None
+                if delivery_job(text_of(row.get("content"))) == name and stamp(row, "timestamp", "created_at") > after:
+                    turn = [stamp(row, "timestamp", "created_at"), None]
+                    turns.append(turn)
+            elif turn is not None and row.get("role") == "assistant" and not row.get("tool_calls"):
+                text = text_of(row.get("content")).strip()
+                if text:
+                    turn[1] = text  # The turn's last answer is its reply.
+    return [tuple(turn) for turn in sorted(turns, key=lambda turn: turn[0])]
 
 
 def pause(profile, env, job_id):

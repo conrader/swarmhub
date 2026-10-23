@@ -5,7 +5,8 @@ What it watches, each with a stable id (an id is alerted at most once):
   routine runs   every profile's `/api/jobs` (swarm_alerts_hermes.py); a job's first sighting is only recorded
   code jobs      managed coding actions that reach done/failed in Swarm Hub's own database
   reports, webhook wakes   spooled by `swarmctl report` and an accepted webhook call (`emit`)
-  loops/goals handed to the box   the bot's reply in its Bot Chat after each run; a done/blocked block pauses the job
+  loops/goals handed to the box   the bot's reply to the job's own delivery in its Bot Chat (matched by the job's name
+                 and run, never the chat's newest reply); a done/blocked block pauses the job
 
 Before sending: `[SILENT]` / `NO_REPLY` is dropped; while the app's presence lease is fresh nothing is sent (the app
 shows it itself; see docs/offapp-alerts.md); outside the policy's reporting window alerts wait and go out as one digest
@@ -203,11 +204,18 @@ def collect_routines(data, now):
                 continue
             if not last or last == data["marks"][key]:
                 continue
-            data["marks"][key] = last
+            previous, data["marks"][key] = data["marks"][key], last
             if hermes.HANDOFF.fullmatch(name):
-                since = hermes.iso_seconds(last) or now - 2 * TICK
-                data["handoff"][key] = {"profile": profile, "job": job["id"], "name": name, "since": since - 5,
-                                        "until": now + HANDOFF_WAIT}
+                # This run's Bot Chat turn comes after the previous run (Hermes records last_run_at after delivering) and
+                # after this job was made: the same chat's routine from an earlier quit has the same name.
+                since = max(hermes.iso_seconds(previous), hermes.iso_seconds(job.get("created_at")))
+                since = since or (hermes.iso_seconds(last) or now) - HANDOFF_WAIT
+                item = data["handoff"].get(key)
+                if item and item.get("job") == job["id"]:
+                    item["until"] = now + HANDOFF_WAIT  # A run whose turn is not in yet keeps its window.
+                else:
+                    data["handoff"][key] = {"profile": profile, "job": job["id"], "name": name, "since": since,
+                                            "until": now + HANDOFF_WAIT}
             else:
                 queue(data, routine_alert(profile, env, job, last))
         for key in [key for key in data["marks"] if key.startswith(profile + "/") and key not in listed]:
@@ -216,27 +224,32 @@ def collect_routines(data, now):
 
 
 def follow_handoffs(data, now):
-    """A loop or goal the app handed to the box answers in the Bot Chat: alert with that reply, and pause the job when
-    the reply ends it (a loop's done block, a goal's done or blocked block)."""
+    """A loop or goal the app handed to the box answers in the Bot Chat: alert with each reply to the job's own
+    deliveries (never another reply in the chat), and pause the job when one ends it (a loop's done block, a goal's done
+    or blocked block). The handoff stays while a delivered turn has no reply yet, until HANDOFF_WAIT."""
     envs = dict(hermes.profiles())
     for key, item in list(data["handoff"].items()):
         env = envs.get(item.get("profile"))
         if env is None or now > item.get("until", 0):
             del data["handoff"][key]
             continue
-        reply = hermes.bot_chat_reply(item["profile"], env, item["since"])
-        if reply is None:
+        turns = hermes.bot_chat_turns(item["profile"], env, item["name"], item["since"])
+        if not turns:
             continue
-        del data["handoff"][key]
-        when, text = reply
         kind = "goal" if "-goal-" in item["name"] else "loop"
-        block = hermes.block_status(text)
-        ended = block is not None and block[0] == kind and (block[1] == "done" or kind == "goal")
-        if ended:
-            hermes.pause(item["profile"], env, item["job"])
-        visible = hermes.FENCE.sub("", text).strip() or (f"{kind.capitalize()} {block[1]}." if block else "")
-        title = f"{'Goal' if kind == 'goal' else 'Loop'} on the box ({item['profile']})" + (f": {block[1]}" if ended else "")
-        queue(data, {"id": f"{kind}:{key}:{when or now}", "kind": kind, "title": title, "body": visible})
+        for when, text in turns:
+            if text is None:
+                break  # Its reply is not in yet; later turns wait behind it.
+            item["since"] = when
+            block = hermes.block_status(text)
+            ended = block is not None and block[0] == kind and (block[1] == "done" or kind == "goal")
+            if ended:
+                hermes.pause(item["profile"], env, item["job"])
+            visible = hermes.FENCE.sub("", text).strip() or (f"{kind.capitalize()} {block[1]}." if block else "")
+            title = f"{'Goal' if kind == 'goal' else 'Loop'} on the box ({item['profile']})" + (f": {block[1]}" if ended else "")
+            queue(data, {"id": f"{kind}:{key}:{when}", "kind": kind, "title": title, "body": visible})
+        else:
+            del data["handoff"][key]
 
 
 # MARK: sending

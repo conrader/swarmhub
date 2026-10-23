@@ -11,9 +11,23 @@ private final class Bodies: @unchecked Sendable {
     var all: [[String: Any]] { lock.withLock { items } }
 }
 
-@MainActor private func handoffStore(botChat: Bool = true) -> (AppStore, Bot, FakeJobsServer, Bodies, String) {
+/// A box with session history (`/v1/capabilities` says so) whose Bot Chat read answers with `status` and no rows.
+private final class BoxSessionRead: @unchecked Sendable {
+    private let lock = NSLock(); private var value = 503
+    var status: Int { get { lock.withLock { value } } set { lock.withLock { value = newValue } } }
+}
+
+@MainActor private func handoffStore(botChat: Bool = true, sessionRead: BoxSessionRead? = nil) -> (AppStore, Bot, FakeJobsServer, Bodies, String) {
     let server = FakeJobsServer(), bodies = Bodies()
     let (host, session) = MockHermesProtocol.serve { request in
+        if let sessionRead, let path = request.url?.path {
+            if path.hasSuffix("/v1/capabilities") { return (200, ["features": ["session_chat_streaming": true]]) }
+            if path.hasSuffix("/api/sessions/main-session/messages") {
+                let status = sessionRead.status
+                if status == 200 { return (200, ["object": "list", "data": [[String: Any]]()] as [String: Any]) }
+                return (status, ["error": "unavailable"])
+            }
+        }
         var copy = request
         if request.httpMethod == "POST", let body = jsonBody(request) {
             bodies.add(body); copy.httpBody = try? JSONSerialization.data(withJSONObject: body); copy.httpBodyStream = nil
@@ -119,4 +133,59 @@ private final class Bodies: @unchecked Sendable {
     #expect(store.automations[bot.id] != nil, "kept until the box's routine is gone")
     await store.reclaimHandoffs()
     #expect(server.jobIDs.isEmpty && store.automations[bot.id] == nil)
+}
+
+@Test @MainActor func aBotChatReadThatFailsKeepsTheRoutinePausedOnTheBoxAndSaysWhyOnce() async throws {
+    let read = BoxSessionRead()
+    let (store, bot, server, _, host) = handoffStore(sessionRead: read)
+    let name = AppStore.handoffName(.loop, chat: bot.id), handedAt = Date().addingTimeInterval(-1_800)
+    server.add(jobPayload(id: "0000000abc03", name: name, schedule: "every 10m"))
+    store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "ping", interval: 600, timesLeft: 3, until: nil, nextAt: Date()),
+                                               boxHandoff: BoxHandoff(kind: .loop, jobName: name, jobID: "0000000abc03", handedAt: handedAt))
+    boxRound(bot, job: name, reply: "pong", at: handedAt.addingTimeInterval(600))
+    await store.reclaimHandoffs() // the read fails
+    read.status = 200
+    await store.reclaimHandoffs() // the box session is empty: its turns cannot be merged
+    #expect(server.job("0000000abc03")?["enabled"] as? Bool == false, "kept on the box, paused")
+    #expect(!requestLines(host).contains { $0.hasPrefix("DELETE ") }, "never deleted before the chat is read")
+    let automation = try #require(store.automations[bot.id])
+    #expect(automation.boxHandoff?.lastError == HandoffCopy.notReconciled(.loop))
+    #expect(automation.loop?.runs == 0 && automation.loop?.timesLeft == 3, "nothing counted, nothing resumed")
+    #expect(bot.messages.filter { $0.content == HandoffCopy.notReconciled(.loop) }.count == 1, "said once")
+    #expect(!bot.messages.contains { $0.content == HandoffCopy.loopRan(1) })
+}
+
+@Test @MainActor func roundsTheBoxRanButTheChatLacksAreWaitedForThenTakenBack() async throws {
+    let (store, bot, server, _, _) = handoffStore()
+    let name = AppStore.handoffName(.loop, chat: bot.id), handedAt = Date().addingTimeInterval(-1_800)
+    server.add(jobPayload(id: "0000000abc04", name: name, schedule: "every 10m"))
+    server.set("0000000abc04", ["repeat": ["times": 3, "completed": 2]])
+    store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "ping", interval: 600, timesLeft: 3, until: nil, nextAt: Date()),
+                                               boxHandoff: BoxHandoff(kind: .loop, jobName: name, jobID: "0000000abc04", handedAt: handedAt))
+    boxRound(bot, job: name, reply: "first", at: handedAt.addingTimeInterval(600))
+    await store.reclaimHandoffs()
+    #expect(server.job("0000000abc04")?["enabled"] as? Bool == false && store.automations[bot.id]?.boxHandoff?.waitingSince != nil,
+            "paused; the second round's reply is not in the chat yet")
+    #expect(store.automations[bot.id]?.loop?.runs == 0)
+    boxRound(bot, job: name, reply: "second", at: handedAt.addingTimeInterval(1_200))
+    await store.reclaimHandoffs()
+    let loop = try #require(store.automations[bot.id]?.loop)
+    #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && loop.runs == 2 && loop.timesLeft == 1)
+    #expect(bot.messages.contains { $0.content == HandoffCopy.loopRan(2) })
+}
+
+@Test @MainActor func aRoundWhoseReplyNeverArrivesStillCountsFromTheBoxAfterTheWait() async throws {
+    let (store, bot, server, _, _) = handoffStore()
+    let name = AppStore.handoffName(.loop, chat: bot.id), handedAt = Date().addingTimeInterval(-1_800)
+    server.add(jobPayload(id: "0000000abc05", name: name, schedule: "every 10m"))
+    server.set("0000000abc05", ["repeat": ["times": 3, "completed": 2]])
+    store.automations[bot.id] = ChatAutomation(loop: LoopRun(prompt: "ping", interval: 600, timesLeft: 3, until: nil, nextAt: Date()),
+                                               boxHandoff: BoxHandoff(kind: .loop, jobName: name, jobID: "0000000abc05", handedAt: handedAt))
+    boxRound(bot, job: name, reply: "first", at: handedAt.addingTimeInterval(600))
+    await store.reclaimHandoffs()
+    #expect(server.jobIDs == ["0000000abc05"] && store.automations[bot.id]?.boxHandoff != nil)
+    store.now = { Date().addingTimeInterval(AppStore.handoffSettle + 60) }
+    await store.reclaimHandoffs()
+    let loop = try #require(store.automations[bot.id]?.loop)
+    #expect(server.jobIDs.isEmpty && store.automations[bot.id]?.boxHandoff == nil && loop.runs == 2 && loop.timesLeft == 1, "the box's count wins")
 }

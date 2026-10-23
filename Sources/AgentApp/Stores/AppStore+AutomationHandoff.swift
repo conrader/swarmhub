@@ -88,6 +88,10 @@ extension AppStore {
         }
     }
 
+    /// Pauses the routine (no new round starts), reads the Bot Chat from the box and only then deletes the routine and
+    /// continues here. A read that fails, is skipped or leaves the box's turns unmerged keeps the routine (paused) and the
+    /// handoff, and says why in the chat; the next tick tries again. A round still in flight, or rounds the box counted
+    /// that are not in the chat yet, are waited for (`handoffSettle`), so nothing runs twice and the counts are the box's.
     func reclaim(_ handoff: BoxHandoff, chat id: UUID) async {
         guard let (bot, conversation) = automationConversation(id) else { automations[id] = nil; save(); return }
         guard let client = try? jobsClient(for: bot) else { return }
@@ -96,21 +100,50 @@ extension AppStore {
             let rows = try await client.listAll()
             job = rows.first(where: { $0.id == handoff.jobID }) ?? rows.first(where: { $0.name == handoff.jobName })
             if let found = job, !found.isPaused { job = try await client.pause(found.id) }
-            if let found = job { try await client.delete(found.id) }
         } catch HermesJobsError.notFound {
-        } catch { return }
-        await reconcile(bot, reason: .schedule)
-        labelDeliveredRows(in: bot)
-        let replies = boxReplies(in: bot, jobName: handoff.jobName, after: handoff.handedAt)
+        } catch { return handoffBlocked(id, in: conversation, HandoffCopy.unreachable(handoff.kind)) }
+        let resumable = handoff.kind == .loop ? loop(in: conversation) != nil : goal(in: conversation)?.isActive == true
+        var replies: [ChatMessage] = []
+        if resumable {
+            let report = await reconcile(bot, reason: .schedule, chatOnly: true)
+            if report.unreachable || !report.problems.isEmpty || report.notMerged {
+                return handoffBlocked(id, in: conversation, HandoffCopy.notReconciled(handoff.kind))
+            }
+            labelDeliveredRows(in: bot)
+            replies = boxReplies(in: bot, jobName: handoff.jobName, after: handoff.handedAt)
+            let behind = (job?.runsCompleted ?? 0) > replies.count
+            if report.skipped || job?.isRunning == true || behind {
+                let since = handoff.waitingSince ?? now()
+                if handoff.waitingSince == nil { automations[id]?.boxHandoff?.waitingSince = since; save() }
+                if report.skipped || now().timeIntervalSince(since) < Self.handoffSettle { return }
+            }
+        }
+        if let found = job {
+            do { try await client.delete(found.id) } catch HermesJobsError.notFound {
+            } catch { return handoffBlocked(id, in: conversation, HandoffCopy.unreachable(handoff.kind)) }
+        }
         automations[id]?.boxHandoff = nil
         save()
-        let rounds = replies.count, lastRun = job?.lastRunAt.flatMap(RoutineTime.date)
-        switch handoff.kind {
-        case .loop: resumeLoop(in: conversation, bot: bot, rounds: rounds, last: replies.last, lastRun: lastRun)
-        case .goal: resumeGoal(in: conversation, bot: bot, rounds: rounds, last: replies.last)
-        case .heartbeat: break
+        // The box's own count wins: a round it ran whose reply never reached the chat still counts.
+        let rounds = max(replies.count, job?.runsCompleted ?? 0), lastRun = job?.lastRunAt.flatMap(RoutineTime.date)
+        if resumable {
+            switch handoff.kind {
+            case .loop: resumeLoop(in: conversation, bot: bot, rounds: rounds, last: replies.last, lastRun: lastRun)
+            case .goal: resumeGoal(in: conversation, bot: bot, rounds: rounds, last: replies.last)
+            case .heartbeat: break
+            }
         }
         pruneAutomations(conversation)
+    }
+
+    /// How long a reclaim waits for a box round in flight (or counted but not yet in the chat) before it continues anyway.
+    static let handoffSettle: TimeInterval = 1_200
+
+    /// The handoff stays (its routine paused on the box); a new reason is said once in the chat.
+    private func handoffBlocked(_ id: UUID, in conversation: any Conversation, _ reason: String) {
+        guard automations[id]?.boxHandoff != nil, automations[id]?.boxHandoff?.lastError != reason else { return }
+        automations[id]?.boxHandoff?.lastError = reason
+        commandLine(reason, in: conversation)
     }
 
     /// The bot's replies to the routine's deliveries since the handoff, oldest first.
@@ -159,5 +192,11 @@ enum HandoffCopy {
     }
     static func goalRan(_ count: Int) -> String {
         "While SwarmHub was closed, the box ran \(count == 1 ? "one round" : "\(count) rounds") of this goal. It continues here now."
+    }
+    static func unreachable(_ kind: AutomationKind) -> String {
+        "SwarmHub can't reach the box to take this \(kind.rawValue) back yet. It stays on the box and SwarmHub tries again."
+    }
+    static func notReconciled(_ kind: AutomationKind) -> String {
+        "SwarmHub couldn't read this chat's history from the box, so this \(kind.rawValue) stays paused there and SwarmHub tries again."
     }
 }
