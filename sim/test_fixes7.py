@@ -125,7 +125,10 @@ class LimitedModeSuitesTests(LimitedBase):
     def test_forced_fallback_child_sigterm_timeout_killpg_and_host_denials(self):
         (self.repo / 'signals.py').write_text(SIGNAL_SUITE)
         # $PPID inside the verifier is the launcher; the runner and its group are the host side of the boundary.
-        result = self.run_verify('/usr/bin/python3 signals.py $PPID %d %d' % (os.getpid(), os.getpgrp()))
+        group = subprocess.Popen(['sleep', '30'], start_new_session=True)  # getpgrp() is 0 in the harness namespace
+        self.addCleanup(group.wait)
+        self.addCleanup(group.kill)
+        result = self.run_verify('/usr/bin/python3 signals.py $PPID %d %d' % (os.getpid(), os.getpgrp() or group.pid))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('Ran 5 tests', result.stderr)
 

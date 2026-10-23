@@ -1,6 +1,6 @@
 """Fixes16: a determiner followed by modifiers before a homograph ("the nightly build") is a noun object.
 
-The same phrases live in GoalTests.swift. Compatible with Python 3.9.
+The same phrases live in GoalClassificationTests.swift. Compatible with Python 3.9.
 """
 import sim_isolation  # noqa: F401  Exits unless isolated (PID namespace / macOS signal guard); keep it the first import.
 import unittest

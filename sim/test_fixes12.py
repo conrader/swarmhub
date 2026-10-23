@@ -59,7 +59,7 @@ class GoalClassifierTests(unittest.TestCase):
             self.assertFalse(goal_classifier.looks_like_coding(phrase), phrase)
 
     def test_every_phrase_is_in_the_swift_goal_table(self):
-        source = (ROOT / 'Tests/AgentAppTests/GoalTests.swift').read_text()
+        source = (ROOT / 'Tests/AgentAppTests/GoalClassificationTests.swift').read_text()
         for phrase in EXPLAIN_THEN_FIX + EXPLANATIONS:
             self.assertIn('"%s"' % phrase, source)
 

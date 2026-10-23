@@ -117,7 +117,7 @@ class DarwinWithheldEnvironmentTests(unittest.TestCase):
             self.assertEqual(boundary.children_by_home(self.marker[5:]), [child])
 
     def listings(self):
-        me = os.getpid()
+        me = 899999  # not os.getpid(): pid 1 in the harness namespace would adopt the ppid-1 orphans
         rows = [(me, 1, "S", "/usr/bin/python3 -m unittest", "HOME=/Users/k PATH=/usr/bin:/bin"),
                 (900001, me, "S", "/bin/sleep 60", None),                    # withheld child
                 (900002, 900001, "S", "/bin/sh -c sleep 5", None),           # withheld grandchild
@@ -140,7 +140,7 @@ class DarwinWithheldEnvironmentTests(unittest.TestCase):
 
         with patch.object(boundary.Path, "exists", return_value=False), \
                 patch.object(boundary.subprocess, "run", side_effect=run):
-            return boundary._children_by_home_ps(self.marker, os.getpid())
+            return boundary._children_by_home_ps(self.marker, 899999)
 
     def test_withheld_environment_descendants_are_found_with_marked_processes(self):
         self.assertEqual(sorted(self.discover()), [900001, 900002, 900004, 900006, 900007])

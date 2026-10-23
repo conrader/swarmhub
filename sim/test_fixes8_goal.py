@@ -1,6 +1,6 @@
 """Fixes8 item 2: the /goal classifier lets a clear coding request anywhere in the text win.
 
-No Swift toolchain runs here, so the Swift test table (Tests/AgentAppTests/GoalTests.swift,
+No Swift toolchain runs here, so the Swift test table (Tests/AgentAppTests/GoalClassificationTests.swift,
 plainGoalsAreClassifiedByTheRequestedAction) is read from the source and run through the Python port
 (sim/goal_classifier.py), whose word lists are read from ChatAutomation.swift itself. Pure text, no processes.
 """
@@ -16,7 +16,7 @@ except ImportError:  # `python3 -m unittest discover` from inside sim/
     import goal_classifier
 
 ROOT = Path(__file__).resolve().parents[1]
-GOAL_TESTS = ROOT / 'Tests/AgentAppTests/GoalTests.swift'
+GOAL_TESTS = ROOT / 'Tests/AgentAppTests/GoalClassificationTests.swift'
 
 # The 24 phrases of fixes7, independent of the Swift file: they must keep their classification.
 FIXES7_CODING = ["fix the failing build", "Refactor the parser", "open a pull request for it",
