@@ -12,10 +12,12 @@ final class BotSuggestionBook {
 /// recs1 (Konrad, 2026-10-23): a recommendation is a normal message from the bot in its own chat, with suggested replies.
 /// When an ask repeats (`RepeatedAskDetector`) and no routine covers it, the bot asks whether to run it on a schedule.
 /// The answer, a chip or anything typed, goes to the bot as a normal message with the question as its lead, and the bot
-/// makes the routine with its own cron tool; when its reply used no cron tool, the prefilled routine editor opens.
+/// makes the routine with its own cron tool; when no routine that does it can be read afterwards, the routine editor opens
+/// prefilled with what the conversation settled on.
 extension AppStore {
     static let suggestionsEnabledKey = "suggestions.enabled", suggestionLedgerKey = "suggestions.ledger"
-    /// A message counts as the answer only this soon after the question; later it is just the next message.
+    /// A typed message counts as the answer only this soon after the question (or the last answer to it); later it is just
+    /// the next message. A chip on the question counts however late: the chips show until something answers it.
     static let suggestionAnswerWindow: TimeInterval = 12 * 3600
 
     /// Settings → Advanced → Chats → Suggestions (on by default).
@@ -46,10 +48,14 @@ extension AppStore {
 
     // MARK: Suggested replies (any bot message)
 
-    /// A message's chips work while it is a finished bot row that nothing in its chat has answered yet.
+    /// A message's chips work while it is a finished bot row that nothing in its chat has answered yet; a suggestion's
+    /// while its record still waits for an answer (so no chip shows whose answer would not count).
     func canSendSuggestedReply(on message: ChatMessage, target: ConversationActionTarget) -> Bool {
         guard message.role == .assistant, !message.isStreaming, !message.suggestedReplies.isEmpty,
               let (_, conversation) = actionConversation(target), let index = conversation.messages.firstIndex(where: { $0.id == message.id }) else { return false }
+        if message.presentation == .suggestion {
+            guard let id = message.metadata[SuggestionKey.record], suggestionLedger.records.contains(where: { $0.id.uuidString == id && $0.state == .asked }) else { return false }
+        }
         return !conversation.messages[(index + 1)...].contains { $0.role == .user }
     }
 
@@ -58,29 +64,34 @@ extension AppStore {
         guard message.suggestedReplies.contains(reply), canSendSuggestedReply(on: message, target: target),
               let (bot, conversation) = actionConversation(target) else { return false }
         if let group = conversation as? GroupChat { return send(text: reply, to: group, recipientIDs: [message.authorID ?? bot.id]) }
-        return send(text: reply, bot: bot, conversation: conversation, replyToID: nil, metadata: [SuggestionKey.chip: "1"])
+        return send(text: reply, bot: bot, conversation: conversation, replyToID: nil,
+                    metadata: [SuggestionKey.chip: "1", SuggestionKey.chipRow: message.id.uuidString])
     }
 
     // MARK: The answer
 
-    /// The suggestion `user` may answer: the bot's newest suggestion row, asked at most 12 hours ago, with nothing but
-    /// answers to it (the conversation about it) between it and `user`. `answered`: an earlier answer already carried the
-    /// question to the bot.
+    /// The suggestion `user` may answer: the bot's newest suggestion row, with nothing but answers to it (the conversation
+    /// about it) between it and `user`. A chip under it always may; a typed message within 12 hours of the question or the
+    /// last answer; a chip under another message never. `answered`: an earlier answer already carried the question to the bot.
     func openSuggestion(in bot: Bot, for user: ChatMessage) -> (row: ChatMessage, id: UUID, answered: Bool)? {
         guard let index = bot.messages.lastIndex(where: { $0.presentation == .suggestion }) else { return nil }
         let row = bot.messages[index]
-        guard now().timeIntervalSince(row.createdAt) <= Self.suggestionAnswerWindow,
-              let id = row.metadata[SuggestionKey.record].flatMap(UUID.init(uuidString:)) else { return nil }
+        guard let id = row.metadata[SuggestionKey.record].flatMap(UUID.init(uuidString:)) else { return nil }
         let between = bot.messages[(index + 1)...].filter { $0.role == .user && $0.id != user.id }
         guard between.allSatisfy({ $0.metadata[SuggestionKey.answers] == id.uuidString }) else { return nil }
+        if user.metadata[SuggestionKey.chip] != nil {
+            guard user.metadata[SuggestionKey.chipRow] == row.id.uuidString else { return nil }
+        } else {
+            guard now().timeIntervalSince(between.last?.createdAt ?? row.createdAt) <= Self.suggestionAnswerWindow else { return nil }
+        }
         return (row, id, !between.isEmpty)
     }
 
     /// Called as `user` joins `conversation`. An answer to the open suggestion carries the record and the answer; the first
     /// one also carries the lead (the question and the routine offered) that the bot reads before the text. A no declines
     /// that request for good; a yes accepts it; "Different time" or a reply about the time, days or wording keeps the
-    /// conversation about it open. Not an answer: the same request asked again (the question was ignored) or another
-    /// subject; those go to the bot as they are.
+    /// conversation about it open; a time or days named in a yes or such a reply change the record's routine. Not an
+    /// answer: the same request asked again (the question was ignored) or another subject; those go to the bot as they are.
     func noteSuggestionAnswer(_ user: ChatMessage, bot: Bot, in conversation: any Conversation) {
         guard conversation === bot, user.role == .user, let open = openSuggestion(in: bot, for: user) else { return }
         var ledger = suggestionLedger
@@ -98,6 +109,7 @@ extension AppStore {
         case .yes: ledger.records[index].state = .accepted
         case .other: break
         }
+        if answer != .no { ledger.records[index].draft = ledger.records[index].draft.adjusted(by: user.content) }
         suggestionLedger = ledger
     }
 
@@ -114,8 +126,10 @@ extension AppStore {
         }
     }
 
-    /// The turn `reply` ends answered a suggestion (true). After a yes, a cron tool step means the bot made the routine
-    /// (the routines are read again); without one, the routine editor opens prefilled in the bot's chat (the fallback).
+    /// The turn `reply` ends answered a suggestion (true). After a yes the routines are read again: one that does the ask
+    /// means the bot made it (none did when it was asked); otherwise, or when they cannot be read, the routine editor opens
+    /// in the bot's chat prefilled with the routine the conversation settled on (the fallback). A cron tool step alone proves
+    /// nothing: it may only have listed the jobs.
     @discardableResult func followThroughSuggestion(bot: Bot, reply: ChatMessage) async -> Bool {
         guard let position = bot.messages.firstIndex(where: { $0.id == reply.id }),
               let user = bot.messages[..<position].last(where: { $0.role == .user }), let answer = user.metadata[SuggestionKey.answer] else { return false }
@@ -123,12 +137,8 @@ extension AppStore {
               let id = user.metadata[SuggestionKey.answers].flatMap(UUID.init(uuidString:)),
               let record = suggestionLedger.records.first(where: { $0.id == id }) else { return true }
         user.metadata[SuggestionKey.followed] = "1"; save()
-        let usedCron = reply.activity?.steps.contains { RoutineWatch.isCronTool($0.name) && !$0.failed } == true
-        if usedCron {
-            if bot.backend == .hermes { await refreshRoutines(for: bot) }
-        } else {
-            suggestions.editor = record.draft; objectWillChange.send()
-        }
+        let made = await knownRoutineTexts(for: bot)?.contains { AskText.covered(Set(record.stems), by: AskText.stems($0)) } == true
+        if !made { suggestions.editor = record.draft; objectWillChange.send() }
         return true
     }
 
@@ -171,13 +181,12 @@ extension AppStore {
     }
 
     /// Name and prompt of every routine that could already cover an ask: the server's jobs, read now, for a Hermes bot
-    /// (plus routines not on the server yet), the local list otherwise. Nil when the jobs cannot be read, so a duplicate
-    /// is never offered.
+    /// (plus routines not on the server yet), the local list otherwise. Nil when the jobs cannot be read now (the list kept
+    /// from an earlier read does not count), so a duplicate is never offered.
     func knownRoutineTexts(for bot: Bot) async -> [String]? {
         let local = bot.routines.map { $0.name + "\n" + $0.prompt }
         guard bot.backend == .hermes else { return local }
-        await refreshRoutines(for: bot)
-        guard let jobs = routines.state(for: bot.id).jobs.value else { return nil }
+        guard await refreshRoutines(for: bot), let jobs = routines.state(for: bot.id).jobs.value else { return nil }
         return local + jobs.map { $0.name + "\n" + $0.prompt }
     }
 }

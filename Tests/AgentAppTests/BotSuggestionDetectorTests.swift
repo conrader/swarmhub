@@ -125,6 +125,23 @@ private func repeated(_ dates: [Date], text: String = "Summarize my inbox?") -> 
     #expect(!SuggestionAnswer.isAboutTheOffer("What's the weather in Warsaw?"))
 }
 
+/// recs1b-fix 4: the time and days a reply asks for change the routine; anything else leaves it as offered.
+@Test func aReplyAboutTheOfferChangesItsTimeAndDays() {
+    let draft = RoutineDraft(botID: UUID(), name: "Inbox", schedule: "0 9 * * 1-5", prompt: "Summarize my inbox", weekdaysOnly: true, hour: 9)
+    let half = draft.adjusted(by: "Make it 7:30 instead")
+    #expect(half.schedule == "30 7 * * 1-5" && half.hour == 7 && half.minute == 30 && half.when == "every weekday at 7:30" && half.prompt == draft.prompt)
+    #expect(draft.adjusted(by: "sure, but at 8pm").schedule == "0 20 * * 1-5")
+    #expect(draft.adjusted(by: "at 18").schedule == "0 18 * * 1-5")
+    let daily = draft.adjusted(by: "6am every day")
+    #expect(daily.schedule == "0 6 * * *" && !daily.weekdaysOnly && daily.when == "every day at 6:00")
+    #expect(draft.adjusted(by: "weekends only, 10.15").when == "every weekend day at 10:15")
+    #expect(draft.adjusted(by: "noon").schedule == "0 12 * * 1-5")
+    #expect(daily.adjusted(by: "Yes, but not on weekends").schedule == "0 6 * * 1-5")
+    #expect(draft.adjusted(by: "Different time") == draft && draft.adjusted(by: "Yes, every weekday at 9:00") == draft && draft.adjusted(by: "Yes") == draft)
+    #expect(OfferChange.time(in: "3 times a day") == nil && OfferChange.time(in: "12:30 am")?.hour == 0 && OfferChange.time(in: "12pm")?.hour == 12)
+    #expect(BotSuggestionCopy.lead(question: "Q?", draft: half, timeZone: TimeZone(identifier: "UTC")!).contains("(cron, 7:30 in my time zone UTC)"))
+}
+
 @Test func theQuestionAndItsRepliesReadNaturally() {
     let week = repeated([at(19, 9, 30), at(20, 9, 30), at(21, 9, 30)], text: "Summarize my inbox.")
     let draft = RoutineDraft.make(for: week, botID: UUID(), calendar: utcCalendar())

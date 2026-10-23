@@ -109,8 +109,14 @@ struct RoutineDraft: Codable, Equatable, Identifiable, Sendable {
                             prompt: repeated.anchor.text, weekdaysOnly: weekdaysOnly, hour: hour)
     }
 
-    /// "every weekday at 8:00" / "every day at 18:00".
-    var when: String { "\(weekdaysOnly ? "every weekday" : "every day") at \(hour):00" }
+    /// The schedule's minute and day-of-week fields ("30 7 * * 1-5" → 30, "1-5").
+    var minute: Int { schedule.split(separator: " ").first.flatMap { Int($0) } ?? 0 }
+    var days: String { schedule.split(separator: " ").count == 5 ? String(schedule.split(separator: " ")[4]) : "*" }
+    /// "8:00", "7:30".
+    var time: String { "\(hour):" + String(format: "%02d", minute) }
+
+    /// "every weekday at 8:00" / "every day at 18:00" / "every weekend day at 10:30".
+    var when: String { "\(days == "1-5" ? "every weekday" : days == "0,6" ? "every weekend day" : "every day") at \(time)" }
 
     /// The ask's first line without its closing punctuation, first letter capitalised, at most 60 characters.
     static func routineName(_ text: String) -> String {

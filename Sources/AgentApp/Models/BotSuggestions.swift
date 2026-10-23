@@ -8,8 +8,8 @@ enum SuggestionKey {
     static let record = "suggestion.record"
     /// On the user's answer: the record it answers, `yes` / `no` / `other`, and the lead sent to the bot before the text.
     static let answers = "suggestion.answers", answer = "suggestion.answer", lead = "suggestion.lead"
-    /// On a user row a suggested-reply chip sent ("1").
-    static let chip = "suggestion.chip"
+    /// On a user row a suggested-reply chip sent ("1"), and the id of the message the chip was under.
+    static let chip = "suggestion.chip", chipRow = "suggestion.chipRow"
     /// On the user's yes once its turn was followed through ("1"), so it happens once.
     static let followed = "suggestion.followed"
 }
@@ -104,6 +104,61 @@ enum SuggestionAnswer: String, Sendable {
     }
 }
 
+/// The time and days a reply about the offer asks for ("Make it 7:30 instead", "8pm", "daily", "weekends only"), so the
+/// routine the conversation settled on is the one the editor opens with. Only the user's words are read.
+enum OfferChange {
+    private static let clock = try! NSRegularExpression(pattern: #"\b([01]?\d|2[0-3])[:.]([0-5]\d)\s*(am|pm)?\b"#)
+    private static let meridiem = try! NSRegularExpression(pattern: #"\b(1[0-2]|0?[1-9])\s*(am|pm)\b"#)
+    private static let bareHour = try! NSRegularExpression(pattern: #"\b(?:at|o)\s+([01]?\d|2[0-3])\b(?![:.]\d)"#)
+
+    /// Hour and minute (24 h) named in `text`, if any.
+    static func time(in text: String) -> (hour: Int, minute: Int)? {
+        let lower = text.lowercased(), range = NSRange(lower.startIndex..., in: lower)
+        func group(_ match: NSTextCheckingResult, _ index: Int) -> String? {
+            Range(match.range(at: index), in: lower).map { String(lower[$0]) }
+        }
+        func hour24(_ hour: Int, _ suffix: String?) -> Int {
+            suffix == "pm" ? hour % 12 + 12 : suffix == "am" ? hour % 12 : hour
+        }
+        if let match = clock.firstMatch(in: lower, range: range), let hour = group(match, 1).flatMap({ Int($0) }), let minute = group(match, 2).flatMap({ Int($0) }) {
+            let suffix = group(match, 3)
+            if suffix != nil, hour > 12 { return nil }
+            return (hour24(hour, suffix), minute)
+        }
+        if let match = meridiem.firstMatch(in: lower, range: range), let hour = group(match, 1).flatMap({ Int($0) }) { return (hour24(hour, group(match, 2)), 0) }
+        if let match = bareHour.firstMatch(in: lower, range: range), let hour = group(match, 1).flatMap({ Int($0) }) { return (hour, 0) }
+        let words = Set(AskText.normalized(text).split(separator: " ").map(String.init))
+        return words.contains("noon") || words.contains("midday") ? (12, 0) : nil
+    }
+
+    /// The cron day-of-week field `text` asks for: `1-5` (weekdays), `0,6` (weekends) or `*` (every day), if any.
+    static func days(in text: String) -> String? {
+        let normalized = AskText.normalized(text), words = Set(normalized.split(separator: " ").map(String.init)), padded = " \(normalized) "
+        let weekend = !words.isDisjoint(with: ["weekend", "weekends", "saturday", "saturdays", "sunday", "sundays"])
+        let weekday = !words.isDisjoint(with: ["weekday", "weekdays", "workday", "workdays"]) || [" work day", " working day", " monday to friday "].contains { padded.contains($0) }
+        let daily = !words.isDisjoint(with: ["daily", "everyday", "codziennie"]) || [" every day ", " each day ", " all week "].contains { padded.contains($0) }
+        let negated = !words.isDisjoint(with: ["not", "no", "except", "without", "skip"])
+        if weekend && negated { return "1-5" }
+        if daily || (weekend && weekday) { return "*" }
+        if weekend { return "0,6" }
+        return weekday ? "1-5" : nil
+    }
+}
+
+extension RoutineDraft {
+    /// This routine with the time and days `text` asks for; unchanged when it names neither.
+    func adjusted(by text: String) -> RoutineDraft {
+        let time = OfferChange.time(in: text), days = OfferChange.days(in: text)
+        guard time != nil || days != nil else { return self }
+        var draft = self
+        draft.hour = time?.hour ?? hour
+        let minute = time?.minute ?? self.minute, day = days ?? self.days
+        draft.weekdaysOnly = day == "1-5"
+        draft.schedule = "\(minute) \(draft.hour) * * \(day)"
+        return draft
+    }
+}
+
 /// The words of a suggestion: the bot's question, its quick replies and the lead that goes to the bot with the answer.
 enum BotSuggestionCopy {
     static let differentTime = "Different time", noThanks = "No thanks"
@@ -129,7 +184,7 @@ enum BotSuggestionCopy {
     static func lead(question: String, draft: RoutineDraft, timeZone: TimeZone, app: String = AppConstants.name) -> String {
         """
         (\(app) asked this in your chat for you: "\(question)" The routine it offered: name "\(draft.name)", schedule `\(draft.schedule)` \
-        (cron, \(draft.hour):00 in my time zone \(timeZone.identifier)), prompt "\(draft.prompt)". If my answer below is yes, create that routine now \
+        (cron, \(draft.time) in my time zone \(timeZone.identifier)), prompt "\(draft.prompt)". If my answer below is yes, create that routine now \
         with your cron tool, with any change I ask for, without asking me to confirm again. If I want another time or wording, settle it with me \
         first. If I say no, just acknowledge it. Create nothing without my yes. My answer:)
         """

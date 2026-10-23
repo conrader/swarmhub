@@ -119,20 +119,106 @@ import Testing
         #expect(bot.messages.last { $0.role == .user }?.metadata[SuggestionKey.followed] == "1")
     }
 
-    @Test func aYesTheBotActedOnLeavesTheEditorClosed() async {
-        let (store, bot) = repeatingStore()
+    /// recs1b-fix 1: a cron step is not proof (it may only have listed the jobs); the jobs read again after the turn are.
+    @Test func aYesIsDoneOnlyWhenTheJobsReadAgainHoldTheRoutine() async throws {
+        let server = FakeJobsServer()
+        let (store, bot, _) = routinesStore(server)
         let draft = RoutineDraft(botID: bot.id, name: "Summarize my inbox", schedule: "0 9 * * 1-5", prompt: "Summarize my inbox", weekdaysOnly: true, hour: 9)
-        let record = BotSuggestionRecord(botID: bot.id, stems: ["inbox", "summa"], example: "Summarize my inbox", askedAt: Self.date(21, 10), state: .accepted,
-                                         messageID: UUID(), draft: draft)
+        let record = BotSuggestionRecord(botID: bot.id, stems: AskText.stems("Summarize my inbox").sorted(), example: "Summarize my inbox", askedAt: Self.date(21, 10),
+                                         state: .accepted, messageID: UUID(), draft: draft)
         store.suggestionLedger = BotSuggestionLedger(records: [record])
-        let yes = ChatMessage(role: .user, content: "Yes", metadata: [SuggestionKey.answers: record.id.uuidString, SuggestionKey.answer: "yes"])
-        let reply = ChatMessage(role: .assistant, content: "Done: it runs every weekday at 9:00.")
-        var activity = ToolActivity()
-        activity.steps = [ToolStep(name: "cronjob", preview: nil, startedAt: Self.date(21, 10), finishedAt: Self.date(21, 10))]
-        reply.activity = activity
-        bot.messages += [yes, reply]
-        #expect(await store.followThroughSuggestion(bot: bot, reply: reply))
-        #expect(store.suggestions.editor == nil && yes.metadata[SuggestionKey.followed] == "1")
+        func yesTurn(reply text: String) -> (ChatMessage, ChatMessage) {
+            let yes = ChatMessage(role: .user, content: "Yes", metadata: [SuggestionKey.answers: record.id.uuidString, SuggestionKey.answer: "yes"])
+            let reply = ChatMessage(role: .assistant, content: text)
+            var activity = ToolActivity()
+            activity.steps = [ToolStep(name: "cronjob", preview: nil, startedAt: Self.date(21, 10), finishedAt: Self.date(21, 10))]
+            reply.activity = activity
+            bot.messages += [yes, reply]
+            return (yes, reply)
+        }
+        // The bot's cron step only listed the jobs: nothing on the server does the ask, so the editor opens.
+        let (listed, listing) = yesTurn(reply: "You have no routines yet.")
+        #expect(await store.followThroughSuggestion(bot: bot, reply: listing))
+        #expect(store.suggestions.editor == draft && listed.metadata[SuggestionKey.followed] == "1")
+        store.suggestions.editor = nil
+        // The bot made it: the jobs read now hold it, so the editor stays closed.
+        server.add(jobPayload(id: "a1", name: "Inbox summary", schedule: "0 9 * * 1-5", prompt: "Summarize my inbox and flag anything urgent"))
+        let (made, done) = yesTurn(reply: "Done: it runs every weekday at 9:00.")
+        #expect(await store.followThroughSuggestion(bot: bot, reply: done))
+        #expect(store.suggestions.editor == nil && made.metadata[SuggestionKey.followed] == "1")
+        // The jobs cannot be read: not proof either, the editor opens.
+        server.listStatus = 500
+        let (unread, unreadReply) = yesTurn(reply: "Done.")
+        #expect(await store.followThroughSuggestion(bot: bot, reply: unreadReply))
+        #expect(store.suggestions.editor == draft && unread.metadata[SuggestionKey.followed] == "1")
+    }
+
+    /// recs1b-fix 2: when the jobs cannot be read now, the list kept from an earlier read does not count.
+    @Test func jobsThatCannotBeReadNowAskNothing() async throws {
+        let server = FakeJobsServer()
+        let (store, bot, _) = routinesStore(server)
+        store.heartbeatTimeZone = Self.utc; store.now = { Self.date(21, 10) }
+        bot.messages = Self.week()
+        let read = await store.refreshRoutines(for: bot)
+        #expect(read && store.routines.state(for: bot.id).jobs.value?.isEmpty == true, "an earlier read: no jobs")
+        server.listStatus = 500
+        #expect(await store.suggestRoutineIfRepeated(bot: bot) == nil, "the routine may have been made since")
+        #expect(!bot.messages.contains { $0.presentation == .suggestion })
+        server.listStatus = 200
+        #expect(await store.suggestRoutineIfRepeated(bot: bot) != nil, "read again, still none: it asks")
+    }
+
+    /// recs1b-fix 3: the chips show until something answers the question, so a tap counts however late it comes.
+    @Test func aChipCountsHoweverLateItIsTapped() async throws {
+        let target = { (bot: Bot) in ConversationActionTarget.bot(botID: bot.id, threadID: nil) }
+        let (store, bot) = repeatingStore()
+        let row = try #require(await store.suggestRoutineIfRepeated(bot: bot))
+        store.now = { Self.date(23, 10) }
+        #expect(store.canSendSuggestedReply(on: row, target: target(bot)), "two days later the chips still show")
+        #expect(store.sendSuggestedReply("No thanks", on: row, target: target(bot)))
+        try await waitUntil { !store.anyTurnRunning }
+        let no = try #require(bot.messages.last { $0.role == .user })
+        #expect(no.metadata[SuggestionKey.answer] == "no" && no.outgoingText.hasPrefix("(SwarmHub asked this in your chat for you:"))
+        #expect(store.suggestionLedger.records.first?.state == .declined, "a late no is still for good")
+
+        let (yesStore, yesBot) = repeatingStore()
+        let yesRow = try #require(await yesStore.suggestRoutineIfRepeated(bot: yesBot))
+        yesStore.now = { Self.date(23, 10) }
+        #expect(yesStore.sendSuggestedReply("Yes, every weekday at 9:00", on: yesRow, target: target(yesBot)))
+        try await waitUntil { yesStore.suggestions.editor != nil }
+        let yes = try #require(yesBot.messages.last { $0.role == .user })
+        #expect(yes.metadata[SuggestionKey.answer] == "yes" && yes.outgoingText.hasPrefix("(SwarmHub asked this in your chat for you:"))
+        #expect(yesStore.suggestions.editor?.schedule == "0 9 * * 1-5" && yesStore.suggestionLedger.records.first?.state == .accepted)
+    }
+
+    /// recs1b-fix 3: a typed answer counts within 12 hours of the last answer, not only of the question; a chip under
+    /// another message is not an answer, and a question whose record is gone shows no chips.
+    @Test func theConversationAboutItStaysOpenFromItsLastAnswer() async throws {
+        let (store, bot) = repeatingStore()
+        _ = try #require(await store.suggestRoutineIfRepeated(bot: bot))
+        let id = try #require(store.suggestionLedger.records.first?.id)
+        let later = ChatMessage(role: .user, content: "Make it 7:30 instead", createdAt: Self.date(21, 21),
+                                metadata: [SuggestionKey.answers: id.uuidString, SuggestionKey.answer: "other"])
+        bot.messages += [later, ChatMessage(role: .assistant, content: "7:30 on weekdays, then?", createdAt: Self.date(21, 21, 1))]
+        store.now = { Self.date(22, 8) }
+        let yes = ChatMessage(role: .user, content: "Yes", createdAt: Self.date(22, 8))
+        bot.messages.append(yes); store.noteSuggestionAnswer(yes, bot: bot, in: bot)
+        #expect(yes.metadata[SuggestionKey.answer] == "yes" && store.suggestionLedger.records.first?.state == .accepted, "22 h after the question, 11 h after the last answer")
+
+        let (other, otherBot) = repeatingStore()
+        _ = try #require(await other.suggestRoutineIfRepeated(bot: otherBot))
+        let card = ChatMessage(role: .assistant, content: "Tea or coffee?"); card.suggestedReplies = ["Tea", "No thanks"]
+        otherBot.messages.append(card)
+        let tapped = ChatMessage(role: .user, content: "No thanks", metadata: [SuggestionKey.chip: "1", SuggestionKey.chipRow: card.id.uuidString])
+        otherBot.messages.append(tapped); other.noteSuggestionAnswer(tapped, bot: otherBot, in: otherBot)
+        #expect(tapped.metadata[SuggestionKey.answer] == nil && other.suggestionLedger.records.first?.state == .asked)
+
+        let (gone, goneBot) = repeatingStore()
+        let goneRow = try #require(await gone.suggestRoutineIfRepeated(bot: goneBot))
+        let goneTarget = ConversationActionTarget.bot(botID: goneBot.id, threadID: nil)
+        #expect(gone.canSendSuggestedReply(on: goneRow, target: goneTarget))
+        gone.suggestionLedger = BotSuggestionLedger()
+        #expect(!gone.canSendSuggestedReply(on: goneRow, target: goneTarget), "its answer could not be recorded, so no chips")
     }
 
     @Test func aTypedAnswerCarriesTheQuestion() async throws {
@@ -152,6 +238,10 @@ import Testing
         let yes = try #require(bot.messages.last { $0.role == .user })
         #expect(yes.metadata[SuggestionKey.answer] == "yes" && yes.outgoingText == "Yes, do that")
         #expect(store.suggestionLedger.records.first?.state == .accepted)
+        // recs1b-fix 4: the editor opens with what the conversation settled on, not the first offer.
+        let editor = try #require(store.suggestions.editor)
+        #expect(editor.schedule == "30 7 * * 1-5" && editor.hour == 7 && editor.minute == 30 && editor.when == "every weekday at 7:30")
+        #expect(editor.name == "Summarize my inbox" && editor.prompt == "Summarize my inbox" && editor.botID == bot.id)
     }
 
     @Test func anotherSubjectIsNotAnAnswer() async throws {
