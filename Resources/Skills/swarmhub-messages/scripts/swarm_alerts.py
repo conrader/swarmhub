@@ -31,8 +31,7 @@ import swarm_alerts_service as service
 import swarm_alerts_sinks as sinks
 
 SCHEMA = "swarmhub/alerts/1"
-TICK = 30
-RATE_WINDOW, RATE_LIMIT = 600, 6
+TICK, RATE_WINDOW, RATE_LIMIT = 30, 600, 6
 RETRIES, KEEP, HANDOFF_WAIT = 5, 7 * 86400, 1800
 HERE = Path(__file__).resolve().parent
 CODE = ("swarmctl", "swarm_alerts.py", "swarm_alerts_hermes.py", "swarm_alerts_seal.py", "swarm_alerts_service.py",
