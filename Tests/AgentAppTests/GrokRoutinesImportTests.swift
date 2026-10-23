@@ -107,8 +107,48 @@ private func built(_ lines: [String] = entries, name: String = "Atlas") throws -
     let imported = try #require(bot.routines.first)
     #expect(!imported.isEnabled && imported.schedule == "0 8 * * *" && imported.name.contains("[REDACTED]") && !imported.name.contains(token))
     #expect(!imported.prompt.contains(token) && bot.requestedConnectorIDs == ["notion"])
-    #expect(imported.id == AppStore.grokRoutineUUID(sourceID: botID, routineID: "r1"))
+    #expect(imported.id == AppStore.grokRoutineUUID(sourceID: botID, routineID: GrokStagedConfig.routineID("r1")))
     #expect(AppStore.grokRoutineUUID(sourceID: botID, routineID: "r1") != AppStore.grokRoutineUUID(sourceID: "other", routineID: "r1"))
+}
+
+@MainActor @Test func aCredentialShapedRoutineIDFromAFileNeverReachesTheStore() throws {
+    let url = temporaryStore()
+    let store = makeStore(url)
+    let exported = GrokStagedConfig.routineID("a1")
+    var bundle = GrokBotBundle(try built([]))
+    bundle.routines = [.init(id: "ghp_\(token)", name: "Ping", prompt: "", schedule: nil, enabled: false),
+                       .init(id: exported, name: "Morning", prompt: "", schedule: nil, enabled: false),
+                       .init(id: "grok-automation-\(token)", name: "Lookalike", prompt: "", schedule: nil, enabled: false)]
+    try store.importGrokBundles([bundle])
+    try store.importGrokBundles([bundle])
+    let bot = try #require(store.bots.first)
+    #expect(bot.routines.count == 3 && bot.grokRoutineIDs.count == 3)   // hashed ids are stable: no duplicates
+    #expect(bot.grokRoutineIDs.contains(exported) && bot.grokRoutineIDs.contains(GrokStagedConfig.routineID("ghp_\(token)")))
+    #expect(bot.grokRoutineIDs.allSatisfy { $0.wholeMatch(of: #/grok-automation-[0-9a-f]{24}/#) != nil })
+    #expect(!(try String(contentsOf: url, encoding: .utf8)).contains(token))
+}
+
+@MainActor @Test func aRoutineGoneUpstreamDropsOnlyItsPendingRow() throws {
+    let store = makeStore()
+    try store.importGrokBundles([GrokBotBundle(try built())])
+    let bot = try #require(store.bots.first { $0.grokSourceID == botID })
+    let id = { (automation: String) in AppStore.grokRoutineUUID(sourceID: botID, routineID: GrokStagedConfig.routineID(automation)) }
+    // a1 set up (created on the server leaves `routines`, as createRoutineOnServer does), a4 removed by the user,
+    // and a routine of the user's own; a3 is still pending.
+    bot.routines.removeAll { $0.id == id("a1") }
+    store.removePendingRoutine(try #require(bot.routines.first { $0.id == id("a4") }), from: bot)
+    bot.routines.append(BotRoutine(name: "Mine", schedule: "", isEnabled: false, importKind: .cron))
+    #expect(bot.routines.map(\.name) == ["Night", "Mine"])
+
+    // The source deletes every routine: only a3's pending row goes, and only its id is forgotten.
+    let gone = entries + [automation(20, "deleted", "a1"), automation(21, "deleted", "a3"), automation(22, "deleted", "a4")]
+    try store.importGrokBundles([GrokBotBundle(try built(gone))])
+    #expect(bot.routines.map(\.name) == ["Mine"])
+    #expect(bot.grokRoutineIDs == Set(["a1", "a4"].map(GrokStagedConfig.routineID)))
+
+    // A forgotten routine the source lists again comes back; the set-up and removed ones still do not.
+    try store.importGrokBundles([GrokBotBundle(try built(gone + [automation(23, "created", "a3", "Night again")]))])
+    #expect(bot.routines.map(\.name) == ["Mine", "Night again"])
 }
 
 @MainActor @Test func aRoutineWithoutAScheduleIsNeverSentToTheServer() async throws {

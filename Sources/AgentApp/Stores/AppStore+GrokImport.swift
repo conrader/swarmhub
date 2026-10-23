@@ -173,8 +173,8 @@ struct PreparedGrokBundle: Sendable {
     let name: String, title: String, description: String, instructions: String
     let members: [(name: String, sourceID: String)]
     let lines: [ArchivedMessage]
-    /// Inert config (`AppStore+GrokStaged.swift`): routine names, prompts and schedules through the filter; a connector
-    /// whose name held a secret is left out.
+    /// Inert config (`AppStore+GrokStaged.swift`): routine names, prompts and schedules through the filter, ids in the
+    /// exported `grok-automation-` form (`GrokStagedConfig.safeRoutineID`); a connector whose name held a secret is left out.
     let routines: [GrokStagedRoutine]
     let connectors: [String]
 
@@ -189,7 +189,7 @@ struct PreparedGrokBundle: Sendable {
         lines = ArchivedMessage.from(bundle)
         routines = (bundle.routines ?? []).map { routine in
             let name = clean(routine.name), schedule = clean(routine.schedule ?? "")
-            return GrokStagedRoutine(id: routine.id, name: name.isEmpty ? GrokStagedConfig.unnamedRoutine : name,
+            return GrokStagedRoutine(id: GrokStagedConfig.safeRoutineID(routine.id), name: name.isEmpty ? GrokStagedConfig.unnamedRoutine : name,
                                      prompt: clean(routine.prompt ?? ""), schedule: schedule)
         }
         connectors = (bundle.connectors ?? []).reduce(into: [String]()) { names, connector in

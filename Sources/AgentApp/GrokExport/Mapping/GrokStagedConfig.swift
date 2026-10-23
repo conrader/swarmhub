@@ -64,6 +64,15 @@ struct GrokStagedConfig {
         routinePrefix + SHA256.hash(data: Data(automationID.utf8)).map { String(format: "%02x", $0) }.joined().prefix(24)
     }
 
+    /// A routine id as the importer keeps it (`grokRoutineIDs` lands in store.json): an exported `grok-automation-` id
+    /// as is; anything else, as a hand-made or older bundle file may carry, hashed like a raw `automationId`, so a
+    /// credential-shaped id never survives into the store.
+    static func safeRoutineID(_ id: String) -> String {
+        let hex = id.dropFirst(routinePrefix.count)
+        let exported = id.hasPrefix(routinePrefix) && hex.count == 24 && hex.unicodeScalars.allSatisfy { "0123456789abcdef".unicodeScalars.contains($0) }
+        return exported ? id : routineID(id)
+    }
+
     /// ASCII letters lowercased, digits kept, every other run of characters one `-`, trimmed, at most 64 characters.
     static func connectorName(_ raw: String) -> String {
         var name = "", dash = false

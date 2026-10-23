@@ -9,8 +9,17 @@ extension AppStore {
     /// not-on-server row (`importKind: .cron`; one without a schedule needs setup before "Create on server" shows), and
     /// connectors only join `requestedConnectorIDs`, the suggestions next to this bot's connected-app switches, which
     /// stay off until the user turns one on. Re-importing never duplicates: a routine is keyed by bot and Grok routine id,
-    /// its pending row takes the latest name, and one already created on the server or removed never comes back.
+    /// its pending row takes the latest name, and one already created on the server or removed never comes back. A
+    /// pending row whose routine is gone from the latest import is dropped and its id forgotten (it may return if the
+    /// source lists it again). Pending rows have no editor: setting one up moves it to the server, out of `routines`.
     func mergeGrokStaged(_ prepared: PreparedGrokBundle, into bot: Bot) {
+        let latest = Set(prepared.routines.map(\.id))
+        for gone in bot.grokRoutineIDs.subtracting(latest) {
+            let id = Self.grokRoutineUUID(sourceID: prepared.bundle.sourceId, routineID: gone)
+            if let index = bot.routines.firstIndex(where: { $0.id == id && $0.importKind == .cron && !$0.isEnabled }) {
+                bot.routines.remove(at: index); bot.grokRoutineIDs.remove(gone)
+            }
+        }
         for routine in prepared.routines {
             let id = Self.grokRoutineUUID(sourceID: prepared.bundle.sourceId, routineID: routine.id)
             if let index = bot.routines.firstIndex(where: { $0.id == id }) {
