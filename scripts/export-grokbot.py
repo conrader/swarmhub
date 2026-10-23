@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import grokbot_server  # noqa: E402
+from grokbot_staged import CONNECTORS_LIMITATION, ROUTINES_LIMITATION, StagedConfig  # noqa: E402
 
 FORMAT = "agentapp-bot-bundle/v1"
 DEFAULT_CACHE = "~/Library/Application Support/Grok Bot/sand-client-persistence"
@@ -220,9 +221,10 @@ def attachment_ref(message):
     return [{"file": "attachments/" + safe, "available": False}]
 
 
-def map_entries(bot_id, bot_name, entries, names, redact, stats):
+def map_entries(bot_id, bot_name, entries, names, redact, stats, staged=None):
+    staged = staged if staged is not None else StagedConfig()
     messages, events = [], []
-    for entry in entries:
+    for index, entry in enumerate(entries):
         kind, seq, entry_id = entry.get("kind"), entry.get("seq"), entry.get("id")
         if not isinstance(seq, int) or not isinstance(entry_id, str):
             stats["tool_entries_dropped"] += 1
@@ -243,6 +245,8 @@ def map_entries(bot_id, bot_name, entries, names, redact, stats):
         elif kind == "send-message":
             message = entry.get("message") or {}
             text = card_text(message)
+            if text is None and message.get("type") == "connector" and staged.connector(message, seq, index):
+                continue
             if text is None:
                 stats["cards_dropped"] += 1
                 continue
@@ -253,6 +257,8 @@ def map_entries(bot_id, bot_name, entries, names, redact, stats):
             base.update(role="system", author=None, text=redact(entry.get("text") or ""))
         elif kind == "event":
             event = entry.get("event") or {}
+            if event.get("type") == "automation-changed" and staged.automation(event, seq, index):
+                continue
             if event.get("type") == "name-changed" and isinstance(event.get("from"), str) and isinstance(event.get("to"), str):
                 events.append({"id": entry_id, "seq": seq, "timestamp_ms": entry.get("timestampMs"),
                                "event": {"type": "name-changed", "from": redact(event["from"]), "to": redact(event["to"])}})
@@ -283,7 +289,8 @@ def build_bundle(row, entries, names, slugs, history=None):
              "events_dropped": 0, "cards_dropped": 0, "hidden_messages": 0}
     name = redact(row.get("name") or "Grok bot")
     is_group = bool(row.get("isGroup"))
-    messages, events = map_entries(row["id"], name, entries, names, redact, stats)
+    staged = StagedConfig()
+    messages, events = map_entries(row["id"], name, entries, names, redact, stats, staged)
     stats["messages"], stats["events"] = len(messages), len(events)
     stats["hidden_messages"] = sum(1 for m in messages if m["hidden"])
     description = redact(row.get("description") or "")
@@ -301,13 +308,19 @@ def build_bundle(row, entries, names, slugs, history=None):
         limitations.append("Interactive cards (secret requests, connectors, forms, approvals) were not exported.")
     if stats["events_dropped"]:
         limitations.append("Automation lifecycle events were not exported.")
+    title = redact(row.get("title") or "")
+    routines, connectors = staged.routines(redact), staged.connector_names(redact)
+    if routines:
+        limitations.append(ROUTINES_LIMITATION)
+    if connectors:
+        limitations.append(CONNECTORS_LIMITATION)
     bundle = {
         "format": FORMAT, "source_id": row["id"], "slug": slugs.get(row["id"]) or slugify(name), "name": name,
-        "description": description, "title": redact(row.get("title") or ""),
+        "description": description, "title": title,
         "avatar": {"shape": avatar_value(row.get("avatarShape")), "colour": avatar_value(row.get("avatarColor"))},
         "instructions": description or None, "instructions_source": "profile.description" if description else None,
         "profile": profile, "is_group": is_group, "members": members,
-        "memory_facts": [], "routines": [], "skills": [], "messages": messages, "events": events,
+        "memory_facts": [], "routines": routines, "connectors": connectors, "skills": [], "messages": messages, "events": events,
         "source": {"created_at_ms": row.get("createdAt") if isinstance(row.get("createdAt"), int) else None,
                    "harness": row.get("harness") if isinstance(row.get("harness"), str) else None,
                    "notify_on_agent_updates": row.get("notifyOnUpdatesEnabled") if isinstance(row.get("notifyOnUpdatesEnabled"), bool) else None,

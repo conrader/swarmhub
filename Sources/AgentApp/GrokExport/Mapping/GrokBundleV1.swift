@@ -1,6 +1,6 @@
 import Foundation
 
-/// One `agentapp-bot-bundle/v1` bundle as `build_bundle` writes it: the 21 top-level keys of the golden bundles, nulls
+/// One `agentapp-bot-bundle/v1` bundle as `build_bundle` writes it: the 22 top-level keys of the golden bundles, nulls
 /// written as `null` (never omitted). Built in memory by `GrokBundleBuilder`; imported through `GrokBotBundle(v1)`.
 struct GrokBundleV1: Sendable, Equatable, Encodable {
     struct Message: Sendable, Equatable {
@@ -16,6 +16,8 @@ struct GrokBundleV1: Sendable, Equatable, Encodable {
         var from: String; var to: String
     }
     struct Member: Sendable, Equatable { var sourceID: String; var name: String; var profile: String? }
+    /// A Grok automation, inert: Grok Bot keeps no schedule or prompt for it, and an import never enables it.
+    struct Routine: Sendable, Equatable { var id: String; var name: String }
     struct Source: Sendable, Equatable {
         var createdAtMs: Int64?; var harness: String?; var notifyOnAgentUpdates: Bool?; var hiddenFromSidebar: Bool
     }
@@ -31,6 +33,7 @@ struct GrokBundleV1: Sendable, Equatable, Encodable {
     var sourceID: String; var slug: String; var name: String; var description: String; var title: String
     var avatarShape: String?; var avatarColour: String?
     var profile: String?; var isGroup: Bool; var members: [Member]
+    var routines: [Routine] = []; var connectors: [String] = []
     var messages: [Message]; var events: [Event]; var source: Source
     var limitations: [String]; var statistics: Statistics; var redactions: [String: Int]
 
@@ -63,7 +66,12 @@ struct GrokBundleV1: Sendable, Equatable, Encodable {
             "members": .array(members.map {
                 .object(["source_id": .string($0.sourceID), "name": .string($0.name), "profile": string($0.profile)])
             }),
-            "memory_facts": .array([]), "routines": .array([]), "skills": .array([]),
+            "memory_facts": .array([]), "skills": .array([]),
+            "routines": .array(routines.map {
+                .object(["id": .string($0.id), "name": .string($0.name), "prompt": .string(""), "schedule": .null, "trigger": .null,
+                         "timezone": .null, "enabled": .bool(false)])
+            }),
+            "connectors": .array(connectors.map { .object(["name": .string($0)]) }),
             "messages": .array(messages), "events": .array(events),
             "source": .object([
                 "created_at_ms": source.createdAtMs.map(JSONValue.int) ?? .null, "harness": string(source.harness),
@@ -95,6 +103,8 @@ extension GrokBotBundle {
             title: v1.title, avatar: .init(shape: v1.avatarShape, colour: v1.avatarColour), instructions: v1.instructions,
             profile: v1.profile, isGroup: v1.isGroup,
             members: v1.members.map { .init(sourceId: $0.sourceID, name: $0.name, profile: $0.profile) },
+            routines: v1.routines.map { .init(id: $0.id, name: $0.name, prompt: "", schedule: nil, enabled: false) },
+            connectors: v1.connectors.map { .init(name: $0) },
             messages: v1.messages.map { message in
                 .init(id: message.id, seq: message.seq, role: message.role, author: message.author, text: message.text,
                       timestamp: message.timestamp, hidden: message.hidden, channel: message.channel, to: message.to,

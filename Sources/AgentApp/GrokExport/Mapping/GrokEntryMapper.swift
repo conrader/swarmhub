@@ -3,7 +3,8 @@ import Foundation
 /// Cached or fetched transcript entries → bundle messages and rename events (port of `map_entries`, same allowlist and
 /// branch order). Deliberate differences from the script (briefs/P10.md P10a 4): `fromAgent`/`toAgent` present but
 /// `null` count as absent; non-string `content`/`text` is empty; `seq` must be an integer JSON number and `id` a string;
-/// drops are also counted per kind and card or event type.
+/// drops are also counted per kind and card or event type. Automation events and connector cards feed `staged`
+/// (routines and connector requests) instead of being dropped.
 struct GrokEntryMapper {
     /// Roster id → raw roster name (`r.get("name") or "Grok bot"`), redacted where it is used.
     let names: [String: String]
@@ -11,6 +12,12 @@ struct GrokEntryMapper {
     let botName: String
 
     func map(_ entries: [JSONValue], redact: inout GrokRedactor, stats: inout GrokBundleV1.Statistics)
+        -> (messages: [GrokBundleV1.Message], events: [GrokBundleV1.Event]) {
+        var staged = GrokStagedConfig()
+        return map(entries, redact: &redact, stats: &stats, staged: &staged)
+    }
+
+    func map(_ entries: [JSONValue], redact: inout GrokRedactor, stats: inout GrokBundleV1.Statistics, staged: inout GrokStagedConfig)
         -> (messages: [GrokBundleV1.Message], events: [GrokBundleV1.Event]) {
         var messages: [(Int, GrokBundleV1.Message)] = [], events: [(Int, GrokBundleV1.Event)] = []
         func drop(_ key: String, cards: Bool = false, event: Bool = false) {
@@ -39,6 +46,7 @@ struct GrokEntryMapper {
             } else if kind == "send-message" {
                 let card = entry["message"]?.objectValue ?? [:]
                 guard let text = GrokCardText.text(card) else {
+                    if card["type"]?.stringValue == "connector", staged.connector(card, seq: seq, index: index) { continue }
                     drop("send-message/\(card["type"]?.stringValue ?? "unknown")", cards: true); continue
                 }
                 message.role = "assistant"; message.text = redact(text); message.attachments = GrokCardText.attachments(card)
@@ -52,6 +60,7 @@ struct GrokEntryMapper {
                 message.role = "system"; message.text = redact(entry["text"]?.stringValue ?? "")
             } else if kind == "event" {
                 let event = entry["event"]?.objectValue ?? [:]
+                if event["type"]?.stringValue == "automation-changed", staged.automation(event, seq: seq, index: index) { continue }
                 guard event["type"]?.stringValue == "name-changed",
                       let from = event["from"]?.stringValue, let to = event["to"]?.stringValue else {
                     drop("event/\(event["type"]?.stringValue ?? "unknown")", event: true); continue

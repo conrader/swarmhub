@@ -20,6 +20,10 @@ enum GrokBundleBuilder {
         "The Grok Bot app cache holds only the latest entries of each conversation; older history stays on Grok's servers."
     static let cardsLimitation = "Interactive cards (secret requests, connectors, forms, approvals) were not exported."
     static let eventsLimitation = "Automation lifecycle events were not exported."
+    static let routinesLimitation =
+        "Grok Bot routines were imported by name only and paused: Grok Bot keeps no schedule or prompt for them, so each needs setup."
+    static let connectorsLimitation =
+        "Connectors this bot asked for were imported as suggestions only; no account, token or credential was copied."
 
     static func build(_ cache: GrokCache) -> Result { build(roster: cache.roster, transcripts: cache.transcripts) }
 
@@ -53,7 +57,8 @@ enum GrokBundleBuilder {
         let id = row["id"]!.stringValue!
         let name = redact(nonEmpty(row["name"]) ?? "Grok bot")
         let isGroup = row["isGroup"]?.isTruthy ?? false
-        let (messages, events) = GrokEntryMapper(names: names, botName: name).map(entries, redact: &redact, stats: &stats)
+        var staged = GrokStagedConfig()
+        let (messages, events) = GrokEntryMapper(names: names, botName: name).map(entries, redact: &redact, stats: &stats, staged: &staged)
         stats.messages = messages.count; stats.events = events.count
         stats.hiddenMessages = messages.filter(\.hidden).count
         let description = redact(row["description"]?.stringValue ?? "")
@@ -64,11 +69,15 @@ enum GrokBundleBuilder {
         if stats.cardsDropped > 0 { limitations.append(cardsLimitation) }
         if stats.eventsDropped > 0 { limitations.append(eventsLimitation) }
         let title = redact(row["title"]?.stringValue ?? "")
+        let routines = staged.routines(redact: &redact), connectors = staged.connectorNames(redact: &redact)
+        if !routines.isEmpty { limitations.append(routinesLimitation) }
+        if !connectors.isEmpty { limitations.append(connectorsLimitation) }
         return GrokBundleV1(
             sourceID: id, slug: slug.flatMap { $0.isEmpty ? nil : $0 } ?? GrokNaming.slugify(name), name: name,
             description: description, title: title,
             avatarShape: avatarValue(row["avatarShape"]), avatarColour: avatarValue(row["avatarColor"]),
-            profile: isGroup ? nil : profiles[id], isGroup: isGroup, members: members, messages: messages, events: events,
+            profile: isGroup ? nil : profiles[id], isGroup: isGroup, members: members, routines: routines, connectors: connectors,
+            messages: messages, events: events,
             source: .init(createdAtMs: row["createdAt"]?.intValue, harness: row["harness"]?.stringValue,
                           notifyOnAgentUpdates: row["notifyOnUpdatesEnabled"]?.boolValue,
                           hiddenFromSidebar: row["isHiddenFromSidebar"]?.isTruthy ?? false),

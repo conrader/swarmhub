@@ -45,9 +45,9 @@ struct RoutinesView: View {
                 }
             }
             ForEach(bot.routines) { routine in
-                PendingRoutineRow(routine: routine, canCreate: state.jobs.value != nil, busy: state.busy.contains(routine.id.uuidString)) {
-                    Task { await store.createRoutineOnServer(routine, for: bot) }
-                }
+                PendingRoutineRow(routine: routine, canCreate: state.jobs.value != nil, busy: state.busy.contains(routine.id.uuidString),
+                                  create: { Task { await store.createRoutineOnServer(routine, for: bot) } },
+                                  remove: { store.removePendingRoutine(routine, from: bot) })
             }
             if bot.backend != .hermes && bot.routines.isEmpty { Text("No routines yet.").foregroundStyle(.secondary) }
             if store.canManageWebhooks(bot) { Divider().padding(.vertical, 4); WebhooksSection(bot: bot, cache: store.webhooks) }
@@ -114,20 +114,28 @@ enum RoutineRowCopy {
     }
 }
 
-/// A routine stored only in the app (imported, or made before routines lived on the server).
+/// A routine stored only in the app (imported, or made before routines lived on the server). An imported one without a
+/// schedule (a Grok Bot routine: Grok keeps none) needs setup: it can only be removed, or recreated with +.
 private struct PendingRoutineRow: View {
-    let routine: BotRoutine; let canCreate: Bool; let busy: Bool; let create: () -> Void
+    let routine: BotRoutine; let canCreate: Bool; let busy: Bool; let create: () -> Void; let remove: () -> Void
+    var needsSetup: Bool { routine.schedule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(routine.name).fontWeight(.medium).lineLimit(1)
-            Text(RoutineScheduleDraft.describe(routine.schedule)).font(.caption).foregroundStyle(.secondary)
+            if needsSetup {
+                Text("Paused · needs setup: no schedule or prompt was imported. Use + to create it with one.").font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text(RoutineScheduleDraft.describe(routine.schedule)).font(.caption).foregroundStyle(.secondary)
+            }
             Text(routine.importKind == .cron ? "Imported — not on server" : "Local — not on server").font(.caption2).foregroundStyle(.tertiary)
-            if canCreate {
-                HStack {
+            HStack {
+                if canCreate, !needsSetup {
                     Button("Create on server", action: create).font(.caption).buttonStyle(.plain).disabled(busy)
                         .help("Creates this routine on the agent's Hermes server, paused")
-                    if busy { ProgressView().controlSize(.mini) }
                 }
+                Button("Remove", action: remove).font(.caption).buttonStyle(.plain).disabled(busy)
+                    .help("Removes this routine from \(AppConstants.name); nothing on the server changes")
+                if busy { ProgressView().controlSize(.mini) }
             }
         }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(AppColor.raised.opacity(0.6), in: RoundedRectangle(cornerRadius: 9))
     }

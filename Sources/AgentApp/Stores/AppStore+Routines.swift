@@ -92,7 +92,9 @@ extension AppStore {
     /// Imported routines reach the server only from here, and arrive paused: create, then pause. If the pause fails the
     /// new job is deleted again so an imported routine never runs unasked.
     @discardableResult func createRoutineOnServer(_ routine: BotRoutine, for bot: Bot) async -> String? {
-        await performRoutineAction(bot, token: routine.id.uuidString) { client in
+        // A Grok routine has no schedule until set up; it is never sent half-made.
+        guard !routine.schedule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "This routine needs a schedule first." }
+        return await performRoutineAction(bot, token: routine.id.uuidString) { client in
             let created: HermesJob
             do { created = try await client.create(name: routine.name, schedule: routine.schedule, prompt: routine.prompt) }
             catch HermesJobsError.schedulerUnavailable(let id?) { created = try await client.get(id) }

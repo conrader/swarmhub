@@ -84,7 +84,7 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(roles["j9"][0], "system")
         stats = bundle["statistics"]
         self.assertEqual(stats["cards_dropped"], 1)
-        self.assertEqual(stats["events_dropped"], 1)
+        self.assertEqual(stats["events_dropped"], 0)  # the automation event became a routine
         self.assertEqual(stats["tool_entries_dropped"], 1)
         self.assertTrue(bundle["messages"][0]["timestamp"].endswith("Z"))
 

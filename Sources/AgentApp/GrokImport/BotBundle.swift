@@ -5,6 +5,10 @@ import Foundation
 struct GrokBotBundle: Decodable, Equatable, Sendable {
     struct Avatar: Decodable, Equatable, Sendable { var shape: String?; var colour: String? }
     struct Member: Decodable, Equatable, Sendable { var sourceId: String; var name: String; var profile: String? }
+    /// The spec's routine contract; `trigger` and `timezone` are not read (nothing maps them yet).
+    struct Routine: Decodable, Equatable, Sendable { var id: String; var name: String; var prompt: String?; var schedule: String?; var enabled: Bool? }
+    /// A connector the conversation asked for: a name only, never an account, server id or credential.
+    struct Connector: Decodable, Equatable, Sendable { var name: String }
     struct Attachment: Decodable, Equatable, Sendable { var file: String; var available: Bool? }
     struct Message: Decodable, Equatable, Sendable {
         var id: String; var seq: Int64; var role: String; var author: String?; var text: String
@@ -34,6 +38,8 @@ struct GrokBotBundle: Decodable, Equatable, Sendable {
     var profile: String?
     var isGroup: Bool?
     var members: [Member]?
+    var routines: [Routine]?
+    var connectors: [Connector]?
     var messages: [Message]
     var events: [Event]
     var source: Source?

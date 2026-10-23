@@ -26,7 +26,7 @@ private func encoded(_ bundle: GrokBundleV1) throws -> JSONValue { try GrokJSON.
         let golden = try GrokJSON.parse(Data(contentsOf: grokGoldenExport.appending(path: path)))
         let mine = try #require(native.first { $0.sourceID == entry["source_id"]?.stringValue })
         #expect(try encoded(mine) == golden, "\(path)")
-        #expect(mine.json.objectValue?.count == 21)
+        #expect(mine.json.objectValue?.count == 22)
         #expect(GrokParity.differences(mine.json, golden).isEmpty)
         // The importer's view equals what the loader decodes from the golden file.
         #expect(GrokBotBundle(mine) == (try GrokBundleLoader.load(from: grokGoldenExport.appending(path: path))).first)
@@ -63,8 +63,10 @@ private func encoded(_ bundle: GrokBundleV1) throws -> JSONValue { try GrokJSON.
     #expect(roles["j3"] == ["assistant", "agent", "Jarvis", "Finance Controller"])
     #expect(roles["j4"] == ["assistant", "agent", "Finance Controller", "Jarvis"])
     #expect(roles["j9"]?.first == "system")
-    #expect(j.statistics.cardsDropped == 1 && j.statistics.eventsDropped == 1 && j.statistics.toolEntriesDropped == 1)
-    #expect(j.statistics.droppedByKind == ["send-message/secret-request": 1, "event/automation-changed": 1, "tool-call": 1])
+    #expect(j.statistics.cardsDropped == 1 && j.statistics.eventsDropped == 0 && j.statistics.toolEntriesDropped == 1)
+    #expect(j.statistics.droppedByKind == ["send-message/secret-request": 1, "tool-call": 1])
+    // The `automation-changed` event became a paused routine with a hashed id.
+    #expect(j.routines == [.init(id: GrokStagedConfig.routineID("a1"), name: "Daily")] && j.connectors.isEmpty)
     #expect(j.messages.filter(\.hidden).map(\.id) == ["j10"])
     #expect(j.events == [.init(id: "j7", seq: 7, timestampMs: .int(1_760_000_008_000), from: "Jarv", to: "Jarvis")])
     let text = String(decoding: try JSONEncoder().encode(j), as: UTF8.self)

@@ -13,7 +13,7 @@
     "messages": 8,
     "events": 1,
     "tool_entries_dropped": 1,
-    "events_dropped": 1,
+    "events_dropped": 0,
     "cards_dropped": 1,
     "hidden_messages": 1
    }

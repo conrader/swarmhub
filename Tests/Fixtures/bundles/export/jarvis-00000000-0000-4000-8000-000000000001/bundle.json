@@ -15,7 +15,18 @@
  "is_group": false,
  "members": [],
  "memory_facts": [],
- "routines": [],
+ "routines": [
+  {
+   "id": "grok-automation-f55ff16f66f43360266b95db",
+   "name": "Daily",
+   "prompt": "",
+   "schedule": null,
+   "trigger": null,
+   "timezone": null,
+   "enabled": false
+  }
+ ],
+ "connectors": [],
  "skills": [],
  "messages": [
   {
@@ -157,14 +168,14 @@
  "limitations": [
   "The Grok Bot app cache holds only the latest entries of each conversation; older history stays on Grok's servers.",
   "Interactive cards (secret requests, connectors, forms, approvals) were not exported.",
-  "Automation lifecycle events were not exported."
+  "Grok Bot routines were imported by name only and paused: Grok Bot keeps no schedule or prompt for them, so each needs setup."
  ],
  "statistics": {
   "transcript_rows": 12,
   "messages": 8,
   "events": 1,
   "tool_entries_dropped": 1,
-  "events_dropped": 1,
+  "events_dropped": 0,
   "cards_dropped": 1,
   "hidden_messages": 1
  },

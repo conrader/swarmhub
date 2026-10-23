@@ -173,6 +173,10 @@ struct PreparedGrokBundle: Sendable {
     let name: String, title: String, description: String, instructions: String
     let members: [(name: String, sourceID: String)]
     let lines: [ArchivedMessage]
+    /// Inert config (`AppStore+GrokStaged.swift`): routine names, prompts and schedules through the filter; a connector
+    /// whose name held a secret is left out.
+    let routines: [GrokStagedRoutine]
+    let connectors: [String]
 
     init(_ bundle: GrokBotBundle) {
         let clean = { (text: String) in
@@ -183,5 +187,15 @@ struct PreparedGrokBundle: Sendable {
         instructions = clean(bundle.instructions ?? bundle.description ?? "")
         members = (bundle.members ?? []).map { (clean($0.name), $0.sourceId) }
         lines = ArchivedMessage.from(bundle)
+        routines = (bundle.routines ?? []).map { routine in
+            let name = clean(routine.name), schedule = clean(routine.schedule ?? "")
+            return GrokStagedRoutine(id: routine.id, name: name.isEmpty ? GrokStagedConfig.unnamedRoutine : name,
+                                     prompt: clean(routine.prompt ?? ""), schedule: schedule)
+        }
+        connectors = (bundle.connectors ?? []).reduce(into: [String]()) { names, connector in
+            guard SecretFilter.redacted(connector.name, replacement: GrokRedactor.marker) == connector.name else { return }
+            let name = GrokStagedConfig.connectorName(connector.name)
+            if !name.isEmpty, !names.contains(name) { names.append(name) }
+        }
     }
 }
