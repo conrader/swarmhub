@@ -139,7 +139,7 @@ private func repeated(_ dates: [Date], text: String = "Summarize my inbox?") -> 
     #expect(daily.adjusted(by: "Yes, but not on weekends").schedule == "0 6 * * 1-5")
     #expect(draft.adjusted(by: "Different time") == draft && draft.adjusted(by: "Yes, every weekday at 9:00") == draft && draft.adjusted(by: "Yes") == draft)
     #expect(OfferChange.time(in: "3 times a day") == nil && OfferChange.time(in: "12:30 am")?.hour == 0 && OfferChange.time(in: "12pm")?.hour == 12)
-    #expect(BotSuggestionCopy.lead(question: "Q?", draft: half, timeZone: TimeZone(identifier: "UTC")!).contains("(cron, 7:30 in my time zone UTC)"))
+    #expect(BotSuggestionCopy.lead(question: "Q?", draft: half, timeZone: TimeZone(identifier: "Europe/Warsaw")!).contains("(cron, 7:30 in my time zone Europe/Warsaw)"))
 }
 
 @Test func theQuestionAndItsRepliesReadNaturally() {
