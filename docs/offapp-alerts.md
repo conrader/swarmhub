@@ -103,13 +103,18 @@ requests on a detached task):
 At launch, on every routine poll tick until none is left:
 1. **Pause first.** No run starts after this point. A box that cannot be reached keeps the routine. Nothing runs in the
    app meanwhile, so nothing runs twice. The next tick tries again.
-2. The Bot Chat is read from the box (this chat only, not its threads). If the read fails, is skipped or the box's
-   turns cannot be merged, the routine stays on the box, paused, and the handoff stays. The chat says why, once. The
-   next tick tries again.
-3. The box's rounds are counted: each delivery row since the handoff that has a reply. If a run is still in flight, or
-   Hermes counted more runs (`repeat.completed`) than the chat has replies, the app waits up to 20 minutes for them
-   (an hour while a run is in flight: Hermes counts a run only after its delivery). After that the box's count is used.
-   A read that cannot merge keeps failing until the user stops the loop or goal; the chat line says so.
+2. The Bot Chat is read from the box (this chat only, not its threads). The app goes on only when that read
+   happened and merged, or when the box says it has no session for the chat and the routine never ran (no
+   `repeat.completed`, no `last_run_at`, nothing in flight). Otherwise (the read fails, the box has no session reads,
+   the box's turns cannot be merged, or the session is missing although the routine ran) the routine stays on the box,
+   paused, and the handoff stays. The chat says why, once. The next tick tries again. A chat that is busy is read on
+   the next tick, silently.
+3. The box's rounds are counted: each delivery row since the handoff that has a reply. If Hermes counted more runs
+   (`repeat.completed`) than the chat has replies, the app waits up to 20 minutes for them; after that the box's count
+   is used. A run still in flight is never taken over, however long it runs: Hermes counts a run only after its
+   delivery, so taking it back then could run that round twice. After an hour the chat says it is still waiting and
+   that stopping the loop or goal ends it. A read that cannot merge keeps failing until the user stops the loop or
+   goal; the chat line says so.
 4. The routine is deleted. Only then is the handoff cleared. A delete that fails keeps everything for the next tick.
 5. The loop's run count and `--times` are updated, and its next run is one interval after the box's last run. An
    `--until` met on the box ends the loop.

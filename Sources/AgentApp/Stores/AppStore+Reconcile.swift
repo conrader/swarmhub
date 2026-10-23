@@ -33,6 +33,8 @@ struct ReconcileReport: Sendable {
     var diverged = false
     /// A Bot Chat whose box history was left unmerged (it diverges, or the box session is empty): nothing was adopted.
     var notMerged = false
+    /// A unit was not read because the box has no session reads (legacy transport); one the box has no session for.
+    var legacy = false, missing = false
     /// Per the last unit read: box time of its oldest row (nil = whole session), the box clock minus the Mac's, whether
     /// an unpaired box turn is newer than the last paired one.
     var coversFrom: Date?; var skew: TimeInterval = 0; var newerUnmatched = false
@@ -111,13 +113,13 @@ extension AppStore {
     private func reconcileUnit(_ unit: ReconcileUnit, full: Bool, ignoringStream: Bool, into report: inout ReconcileReport) async {
         guard !needsKey(unit.bot), let activeBackend = try? backend(for: unit.bot) else { report.problems.append("\(unit.name): no readable key"); return }
         // A box that answered (e.g. 401 for a rejected key, P28 D6) is not "unreachable": no quick retries for it.
-        do { if try await activeBackend.sessionTransport() == .legacyChatCompletions { return } } catch { report.unreachable = !(error is BackendError); report.problems.append("\(unit.name): read failed"); return }
+        do { if try await activeBackend.sessionTransport() == .legacyChatCompletions { report.legacy = true; return } } catch { report.unreachable = !(error is BackendError); report.problems.append("\(unit.name): read failed"); return }
         let snapshot = unit.conversation.messages.map(HistoryReconciler.LocalRow.init)
         let oldestNeeded = snapshot.filter { $0.role == .assistant && ($0.state == .incomplete || $0.state == .notSent || ($0.isEmpty && $0.state != .finished && $0.state != .stopped)) }.map(\.createdAt).min()
         let read: SessionRead
         do { read = try await readSession(activeBackend, sessionID: unit.sessionID, needBackTo: oldestNeeded, full: full) }
         catch { report.unreachable = !(error is BackendError); report.problems.append("\(unit.name): read failed"); turns.failureStreak += report.unreachable ? 1 : 0; return }
-        report.read += 1
+        report.read += 1; report.missing = report.missing || read.missing
         if turns.failureStreak > 0 { turns.failureStreak = 0 }
         var active: Set<UUID> = []
         for row in snapshot where row.role == .assistant && row.state == .incomplete {

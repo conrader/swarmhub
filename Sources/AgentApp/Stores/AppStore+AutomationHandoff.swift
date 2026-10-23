@@ -89,9 +89,10 @@ extension AppStore {
     }
 
     /// Pauses the routine (no new round starts), reads the Bot Chat from the box and only then deletes the routine and
-    /// continues here. A read that fails, is skipped or leaves the box's turns unmerged keeps the routine (paused) and the
-    /// handoff, and says why in the chat; the next tick tries again. A round still in flight, or rounds the box counted
-    /// that are not in the chat yet, are waited for (`handoffSettle`), so nothing runs twice and the counts are the box's.
+    /// continues here. A read that fails, did not happen (no session reads) or leaves the box's turns unmerged keeps the
+    /// routine (paused) and the handoff, and says why in the chat; a busy chat is read next tick. A round still in flight
+    /// is waited for however long it runs; rounds the box counted that are not in the chat yet for `handoffSettle`. So
+    /// nothing runs twice and the counts are the box's.
     func reclaim(_ handoff: BoxHandoff, chat id: UUID) async {
         guard let (bot, conversation) = automationConversation(id) else { automations[id] = nil; save(); return }
         guard let client = try? jobsClient(for: bot) else { return }
@@ -106,19 +107,30 @@ extension AppStore {
         var replies: [ChatMessage] = []
         if resumable {
             let report = await reconcile(bot, reason: .schedule, chatOnly: true)
-            if report.total == 0 || report.unreachable || !report.problems.isEmpty || report.notMerged {
+            if report.unreachable || !report.problems.isEmpty || report.notMerged || report.legacy {
+                return handoffBlocked(id, in: conversation, HandoffCopy.notReconciled(handoff.kind))
+            }
+            if report.skipped { return } // the chat is busy: read again next tick
+            // Only a chat actually read and merged goes on, or one the box has no session for while the routine never
+            // ran (nothing of it can be missing). Anything else is unknown: kept, said, tried again.
+            let neverRan = job.map { !$0.isRunning && ($0.runsCompleted ?? 0) == 0 && $0.lastRunAt == nil } ?? true
+            guard report.total > 0, report.read == report.total, !report.missing || neverRan else {
                 return handoffBlocked(id, in: conversation, HandoffCopy.notReconciled(handoff.kind))
             }
             labelDeliveredRows(in: bot)
             replies = boxReplies(in: bot, jobName: handoff.jobName, after: handoff.handedAt)
-            if report.skipped { return } // the chat is busy: read again next tick
             let inFlight = job?.isRunning == true, behind = (job?.runsCompleted ?? 0) > replies.count
             if inFlight || behind {
                 let since = handoff.waitingSince ?? now()
                 if handoff.waitingSince == nil { automations[id]?.boxHandoff?.waitingSince = since; save() }
-                // A run in flight is not counted yet (Hermes counts it after its delivery): deleting it then could run
-                // that round twice, so it gets far longer (a fire claim that never clears must not hold it forever).
-                if now().timeIntervalSince(since) < (inFlight ? 3 * Self.handoffSettle : Self.handoffSettle) { return }
+                let waited = now().timeIntervalSince(since)
+                // A run in flight is not counted yet (Hermes counts it after its delivery): deleting it then could run that
+                // round twice, so it is never taken over. Past the long wait the chat says so once; a stop ends it.
+                if inFlight {
+                    if waited >= 3 * Self.handoffSettle { handoffBlocked(id, in: conversation, HandoffCopy.stillRunning(handoff.kind)) }
+                    return
+                }
+                if waited < Self.handoffSettle { return }
             }
         }
         if let found = job {
@@ -139,7 +151,8 @@ extension AppStore {
         pruneAutomations(conversation)
     }
 
-    /// How long a reclaim waits for rounds the box counted but the chat lacks (a run in flight: three times this).
+    /// How long a reclaim waits for rounds the box counted but the chat lacks (a run in flight is waited for as long as
+    /// it runs; after three times this the chat says so).
     static let handoffSettle: TimeInterval = 1_200
 
     /// The handoff stays (its routine paused on the box); a new reason is said once in the chat.
@@ -198,6 +211,9 @@ enum HandoffCopy {
     }
     static func unreachable(_ kind: AutomationKind) -> String {
         "SwarmHub can't reach the box to take this \(kind.rawValue) back yet. It stays on the box and SwarmHub tries again."
+    }
+    static func stillRunning(_ kind: AutomationKind) -> String {
+        "The box has been running a round of this \(kind.rawValue) for over an hour. SwarmHub waits for it to finish before taking the \(kind.rawValue) back, so nothing runs twice. Stop the \(kind.rawValue) to end it."
     }
     static func notReconciled(_ kind: AutomationKind) -> String {
         "SwarmHub couldn't read this chat's history from the box, so this \(kind.rawValue) stays paused there and SwarmHub tries again. Stop the \(kind.rawValue) to end it."
