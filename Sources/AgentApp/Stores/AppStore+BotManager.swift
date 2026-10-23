@@ -172,7 +172,7 @@ extension AppStore {
             boundBot(name, manager: manager)?.boxInstructions = BoxInstructions(text: text, fetchedAt: now())
         case .botRetired(let name):
             guard let bot = boundBot(name, manager: manager), bot.id != manager.id else { return }
-            bot.retiredOnBox = true; setHidden(bot, true)
+            bot.retiredOnBox = true; setHidden(bot, true); alertProfilesLeft(bot)
         case .skillsInstalled(let profile, let installed):
             guard manager.backend == .hermes else { return }
             recordInstalled(installed, profile: profile, manager: manager)

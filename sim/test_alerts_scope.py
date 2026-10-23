@@ -155,5 +155,42 @@ class DispatchScope(AlertsBase):
         self.assertEqual(sorted(value[1] for value in state["sent"].values()), ["out of scope"] * 3 + ["sent"])
 
 
+class Revision(AlertsBase):
+    """recsfix3: an automatic push of the app names the revision it last saw (`if_revision`). Settings saved since (from
+    another Mac) are newer and win: the push changes nothing, not even a pause. A save by the user always applies."""
+
+    def save(self, **fields):
+        public = seal.public(seal.box_key(alerts.paths()["folder"]))
+        config = dict({"v": 1, "enabled": True, "ntfy": {"url": "https://ntfy.example/topic", "token": TOKEN},
+                       "profiles": ["jarvis"]}, **fields)
+        return alerts.panel("configure", seal.seal(public, json.dumps(config).encode()))
+
+    def test_an_automatic_push_over_newer_settings_is_refused(self):
+        self.assertEqual(self.save()["config"]["revision"], 1, "this Mac's save")
+        newer = self.save(profiles=["default"], ntfy={"url": "https://ntfy.example/other", "token": TOKEN})
+        self.assertEqual(newer["config"]["revision"], 2, "another Mac's save")
+        with patch.object(alerts, "pause_handoffs") as pause:
+            answer = self.save(enabled=False, profiles=[], if_revision=1)
+        self.assertEqual(answer["result"], {"saved": False, "stale": True})
+        pause.assert_not_called()
+        kept = json.loads(alerts.paths()["config"].read_text())
+        self.assertEqual((kept["enabled"], kept["profiles"], kept["ntfy"]["url"], kept["revision"]),
+                         (True, ["default"], "https://ntfy.example/other", 2))
+        self.assertEqual(answer["config"]["revision"], 2, "the app learns the box's revision")
+
+    def test_an_automatic_push_over_the_settings_it_saw_applies(self):
+        self.save()
+        answer = self.save(profiles=[], if_revision=1)
+        self.assertTrue(answer["result"]["saved"])
+        self.assertEqual((answer["config"]["profiles"], answer["config"]["revision"]), ([], 2))
+
+    def test_settings_saved_before_revisions_count_as_revision_zero(self):
+        self.configure(profiles=["jarvis"])  # Written without a revision, as an older skill did.
+        self.assertEqual(alerts.panel("status")["config"]["revision"], 0)
+        self.assertTrue(self.save(profiles=["default", "jarvis"], if_revision=0)["result"]["saved"])
+        self.assertEqual(alerts.panel("status")["config"]["revision"], 1)
+        self.assertEqual(self.save(if_revision=0)["result"], {"saved": False, "stale": True})
+
+
 if __name__ == "__main__":
     unittest.main()

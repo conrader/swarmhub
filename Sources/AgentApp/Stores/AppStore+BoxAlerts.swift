@@ -8,8 +8,8 @@ import Foundation
 /// jobs API every `presenceRenewal` for `presenceLease`); the box sends nothing while the lease is fresh. Quit ends it.
 extension AppStore {
     static let presenceRenewal: TimeInterval = 120, presenceLease: TimeInterval = 300, presenceIdle: TimeInterval = 600
-    /// recsfix2: a push of the profile allowlist the box did not confirm is tried again after this long.
-    static let profilesRetry: TimeInterval = 900
+    /// recsfix2/3: an automatic push the box did not confirm is tried again after this long, doubling up to the cap.
+    static let profilesRetry: TimeInterval = 900, profilesRetryCap: TimeInterval = 6 * 3600
 
     // MARK: Settings (no secret in UserDefaults)
 
@@ -59,20 +59,31 @@ extension AppStore {
 
     /// Keeps the settings (secrets in the Keychain), seals them to the box's key and sends them; the box saves them and
     /// starts (or stops) its service. A box key not read yet costs one status call first. `runner`: the agent that runs
-    /// the command when the server has none left (`syncAlertProfiles` after the last one was deleted).
-    @discardableResult func saveAlerts(_ settings: AlertSettings, ntfyToken: String, emailPassword: String, on target: String, via runner: Bot? = nil) async -> Bool {
+    /// the command when the server has none left (`syncAlertProfiles` after the last one was deleted or retired).
+    /// `ifRevision` (recsfix3): an automatic push, applied by the box only over that revision of its settings; this Mac
+    /// keeps its settings only once the box took them. False when the box holds newer ones (another Mac's), which win.
+    @discardableResult func saveAlerts(_ settings: AlertSettings, ntfyToken: String, emailPassword: String, on target: String, via runner: Bot? = nil,
+                                       ifRevision: Int? = nil) async -> Bool {
         guard !settings.enabled || settings.hasSink else { boxAlerts.update(target) { $0.error = AlertsCopy.needSink }; return false }
-        defaults.set(try? JSONEncoder().encode(settings), forKey: "alerts.settings." + target)
-        keyStore.setKey(ntfyToken, for: Self.alertSecretAccount("ntfy", target: target))
-        keyStore.setKey(emailPassword, for: Self.alertSecretAccount("smtp", target: target))
+        if ifRevision == nil {
+            defaults.set(try? JSONEncoder().encode(settings), forKey: "alerts.settings." + target)
+            keyStore.setKey(ntfyToken, for: Self.alertSecretAccount("ntfy", target: target))
+            keyStore.setKey(emailPassword, for: Self.alertSecretAccount("smtp", target: target))
+        }
         var boxKey = boxAlerts.state(for: target).panel?.boxKey
         if boxKey == nil { boxKey = await performAlerts(.status, on: target, via: runner)?.boxKey }
         guard let boxKey else { return false }
         let blob: String, profiles = alertProfiles(on: target)
-        do { blob = try AlertSeal.seal(settings.boxJSON(ntfyToken: ntfyToken, emailPassword: emailPassword, profiles: profiles), to: boxKey) }
+        do { blob = try AlertSeal.seal(settings.boxJSON(ntfyToken: ntfyToken, emailPassword: emailPassword, profiles: profiles, ifRevision: ifRevision), to: boxKey) }
         catch { boxAlerts.update(target) { $0.error = (error as? BoxAlertsError)?.errorDescription ?? AlertsCopy.sealFailed }; return false }
         guard let panel = await performAlerts(.configure(blob), on: target, secrets: [ntfyToken, emailPassword], via: runner) else { return false }
+        if panel.result?.stale == true { boxAlerts.update(target) { $0.notice = AlertsCopy.newerOnBox }; return false }
+        if ifRevision != nil { defaults.set(try? JSONEncoder().encode(settings), forKey: "alerts.settings." + target) }
         defaults.set(profiles, forKey: "alerts.profiles." + target)  // The list the box now holds (`syncAlertProfiles`).
+        defaults.set(panel.config.revision ?? 0, forKey: "alerts.revision." + target)  // The box's settings are this Mac's.
+        if var push = alertPushes[target] {  // Owed no more, unless the agents changed while it went.
+            if profiles == alertProfiles(on: target) { alertPushes[target] = nil } else { push.next = .distantPast; alertPushes[target] = push }
+        }
         boxAlerts.presenceWritten[target] = nil  // The lease goes out at the next poll tick.
         boxAlerts.update(target) { state in
             if let reason = panel.result?.error { state.notice = AlertsCopy.serviceError(ToolEvent.redacted(reason)) }
@@ -92,6 +103,7 @@ extension AppStore {
             let panel = try await runAlertsPanel(arguments, for: bot)
             boxAlerts.update(target) { $0.busy = nil; $0.panel = panel }
             defaults.set(panel.config.enabled, forKey: "alerts.on." + target)
+            defaults.set(panel.config.revision ?? 0, forKey: "alerts.boxRevision." + target)
             return panel
         } catch {
             let reason = BotInfoCache.describe(error, secrets: secrets.filter { !$0.isEmpty })
@@ -115,31 +127,58 @@ extension AppStore {
     // MARK: Profile allowlist
 
     /// recsfix2 (#14): the box's allowlist follows this Mac's connections, not only a save. On each server with alerts on
-    /// whose settings this Mac saved (another Mac's are never overwritten), when the connected profiles differ from the
-    /// list last sent (a bot connected, archived, retired or deleted; or settings saved by 0.6.5, which sent none), the
-    /// saved settings go again with the new list. `leaving`: a bot just deleted, which runs the command when its server
-    /// has no agent left (its profile then leaves the list too). An unconfirmed push is retried after `profilesRetry`.
-    func syncAlertProfiles(now: Date = .now, leaving: Bot? = nil) async {
-        var targets = alertServers
-        let left = leaving.map(connection(of:))
-        if let left, !targets.contains(left), defaults.bool(forKey: "alerts.on." + left) { targets.append(left) }
+    /// whose settings this Mac saved, when the connected profiles differ from the list last sent (a bot connected,
+    /// archived, retired or deleted; or settings saved by 0.6.5, which sent none), the saved settings go again with the
+    /// new list. recsfix3: a push stays owed (`alertPushes`, kept across launches) until the box confirms it, retried with
+    /// backoff, also for a server with no agent left: there it is a revocation (alerts off), run by the bot that left.
+    /// Every automatic push names the box's revision this Mac saved; when the box holds newer settings (another Mac's,
+    /// seen in any answer or refused by the box), nothing is pushed and nothing stays owed: the newer settings win.
+    func syncAlertProfiles(now: Date = .now) async {
+        let servers = alertServers
+        let targets = servers + alertPushes.keys.sorted().filter { !servers.contains($0) }
         for target in targets {
-            guard defaults.data(forKey: "alerts.settings." + target) != nil, alertSettings(for: target).enabled,
-                  defaults.stringArray(forKey: "alerts.profiles." + target) != alertProfiles(on: target) else { continue }
-            if let tried = boxAlerts.profilesTried[target], now.timeIntervalSince(tried) < Self.profilesRetry { continue }
-            boxAlerts.profilesTried[target] = now
-            let runner = target == left && alertRunner(for: target) == nil ? leaving : nil
-            if await saveAlerts(alertSettings(for: target), ntfyToken: alertSecret("ntfy", target: target),
-                                emailPassword: alertSecret("smtp", target: target), on: target, via: runner) {
-                boxAlerts.profilesTried[target] = nil  // Confirmed: a list that changed meanwhile goes at the next tick.
+            let owed = alertPushes[target]
+            guard defaults.data(forKey: "alerts.settings." + target) != nil, alertSettingsAreNewest(on: target) else {
+                if owed != nil { alertPushes[target] = nil }
+                continue
             }
+            let profiles = alertProfiles(on: target)
+            var settings = alertSettings(for: target)
+            guard owed != nil || (settings.enabled && defaults.stringArray(forKey: "alerts.profiles." + target) != profiles) else { continue }
+            var push = owed ?? AlertsPush()
+            guard now >= push.next else { continue }
+            push.attempts += 1
+            push.next = now.addingTimeInterval(min(Self.profilesRetry * pow(2, Double(push.attempts - 1)), Self.profilesRetryCap))
+            alertPushes[target] = push  // Owed before it is tried: a quit or a failure meanwhile retries it.
+            if profiles.isEmpty { settings.enabled = false }  // No agent of this Mac left there: alerts off.
+            let runner = alertRunner(for: target) == nil ? push.runner?.bot : nil
+            await saveAlerts(settings, ntfyToken: alertSecret("ntfy", target: target), emailPassword: alertSecret("smtp", target: target),
+                             on: target, via: runner, ifRevision: defaults.integer(forKey: "alerts.revision." + target))
+            if !alertSettingsAreNewest(on: target) { alertPushes[target] = nil }
         }
     }
 
-    /// A deleted Hermes bot: its server's allowlist goes at once, not at the next tick (none comes when it was the last).
+    /// The box's settings are the ones this Mac saved last (no other Mac saved since), as far as its answers tell.
+    func alertSettingsAreNewest(on target: String) -> Bool {
+        defaults.integer(forKey: "alerts.boxRevision." + target) == defaults.integer(forKey: "alerts.revision." + target)
+    }
+
+    /// recsfix3: the automatic pushes still owed, per server (UserDefaults, no secret).
+    var alertPushes: [String: AlertsPush] {
+        get { defaults.data(forKey: "alerts.pushes").flatMap { try? JSONDecoder().decode([String: AlertsPush].self, from: $0) } ?? [:] }
+        set { defaults.set(try? JSONEncoder().encode(newValue), forKey: "alerts.pushes") }
+    }
+
+    /// A deleted or retired (archived) Hermes bot: its server's settings are owed at once, not at the next tick; when it
+    /// was the server's last agent, it runs the revocation (no tick reaches a server without agents).
     func alertProfilesLeft(_ bot: Bot) {
-        guard bot.backend == .hermes, defaults.bool(forKey: "alerts.on." + connection(of: bot)) else { return }
-        Task { await syncAlertProfiles(leaving: bot) }
+        let target = connection(of: bot)
+        guard bot.backend == .hermes, defaults.bool(forKey: "alerts.on." + target), defaults.data(forKey: "alerts.settings." + target) != nil else { return }
+        var push = alertPushes[target] ?? AlertsPush()
+        push.next = .distantPast
+        if alertRunner(for: target) == nil { push.runner = AlertsPush.Runner(bot) }
+        alertPushes[target] = push
+        Task { await syncAlertProfiles() }
     }
 
     // MARK: Presence lease
@@ -183,6 +222,19 @@ extension AppStore {
             return (client, id)
         }
     }
+}
+
+/// recsfix3: an automatic push of a server's alert settings still owed to the box: how often it was tried, when it may
+/// be tried again, and the bot to run it with when the server has no agent left (the one deleted or retired last).
+struct AlertsPush: Codable, Equatable {
+    struct Runner: Codable, Equatable {
+        var name: String, profile: String?, baseURL: String?
+        init(_ bot: Bot) { name = bot.name; profile = bot.hermesProfile; baseURL = bot.hermesBaseURL }
+        var bot: Bot { let bot = Bot(name: name, backend: .hermes, hermesProfile: profile); bot.hermesBaseURL = baseURL; return bot }
+    }
+    var attempts = 0
+    var next = Date.distantPast
+    var runner: Runner?
 }
 
 /// The app's presence lease on a box: a paused routine the alert service reads (`swarm_alerts_hermes.presence_until`).

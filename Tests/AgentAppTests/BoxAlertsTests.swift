@@ -32,10 +32,12 @@ private func openSealed(_ blob: String, with key: Curve25519.KeyAgreement.Privat
 }
 
 func alertsPanelJSON(action: String, boxKey: String = vectorBoxPublic, configured: Bool = false, enabled: Bool = false, running: Bool = false,
-                     result: [String: Any]? = nil) -> String {
+                     result: [String: Any]? = nil, revision: Int? = nil) -> String {
+    var config: [String: Any] = ["configured": configured, "enabled": enabled, "window": true, "sinks": configured ? ["ntfy"] : []]
+    if let revision { config["revision"] = revision }
     let object: [String: Any] = [
         "schema": "swarmhub/alerts/1", "action": action, "result": result ?? NSNull(), "box_key": boxKey,
-        "config": ["configured": configured, "enabled": enabled, "window": true, "sinks": configured ? ["ntfy"] : []],
+        "config": config,
         "service": ["manager": "systemd", "installed": running, "service": running ? "active" : "not installed", "running": running,
                     "detail": running ? "Running." : "The alert service is not installed on this box.", "logs": "journalctl --user -u swarmhub-alerts.service",
                     "heartbeat": NSNull(), "last_error": NSNull(), "last_error_at": NSNull(), "last_sent_at": running ? 1_800_000_000 : NSNull(),
@@ -270,6 +272,162 @@ func alertsPanelJSON(action: String, boxKey: String = vectorBoxPublic, configure
     idle = 5
     store.handOffForQuit(budget: 5)
     #expect((server.job(id)?["prompt"] as? String)?.hasSuffix("until=0") == true, "quit ends the lease at once")
+}
+
+// MARK: recsfix3: owed pushes, revocation, newer settings win
+
+/// A box that keeps a revision of its settings and refuses an automatic push over an older one, as swarm_alerts.py does.
+@MainActor private final class RevisionBox {
+    var revision = 0, refuse = false
+    var calls: [(profile: String?, action: String)] = [], sealed: [[String: Any]] = []
+
+    func answer(_ bot: Bot, _ arguments: [String]) throws -> String {
+        calls.append((bot.hermesProfile, arguments[2]))
+        guard arguments[2] == "configure" else {
+            return alertsPanelJSON(action: arguments[2], configured: true, enabled: true, running: true, revision: revision)
+        }
+        if refuse { throw WebhookPanelError.refusal("swarmctl: try again later\n") }
+        guard let blob = arguments.last, let settings = try JSONSerialization.jsonObject(with: try openSealed(blob)) as? [String: Any] else {
+            throw WebhookPanelError.refusal("unsealed\n")
+        }
+        if let expected = settings["if_revision"] as? Int, expected != revision {
+            return alertsPanelJSON(action: "configure", configured: true, enabled: true, running: true, result: ["saved": false, "stale": true], revision: revision)
+        }
+        revision += 1; sealed.append(settings)
+        let enabled = settings["enabled"] as? Bool ?? true
+        return alertsPanelJSON(action: "configure", configured: true, enabled: enabled, running: enabled, result: ["saved": true], revision: revision)
+    }
+}
+
+@MainActor private func revisionStore(_ box: RevisionBox, keys: InMemoryKeyStore, defaults: UserDefaults = isolatedDefaults()) -> AppStore {
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults)
+    store.alertsControl = { bot, arguments in try box.answer(bot, arguments) }
+    store.boxAlerts.idleSeconds = { 10_000 }  // Away from the Mac: no presence lease, the settings only.
+    return store
+}
+
+private func boxBot(_ name: String, profile: String) -> Bot {
+    let bot = Bot(name: name, backend: .hermes, hermesProfile: profile); bot.hermesBaseURL = "https://box.example.invalid/v1"; return bot
+}
+
+private func ntfySettings() -> AlertSettings { var settings = AlertSettings(); settings.ntfyURL = "https://ntfy.sh/konrad-alerts"; return settings }
+
+/// Waits for a push the store started on its own (a deletion or a retirement) to be answered and handled.
+@MainActor private func settle(_ store: AppStore, _ target: String, until done: () -> Bool) async throws {
+    for _ in 0..<300 where !done() { try await Task.sleep(for: .milliseconds(10)) }
+    for _ in 0..<300 where store.boxAlerts.state(for: target).busy != nil { try await Task.sleep(for: .milliseconds(10)) }
+}
+
+/// recsfix3: deleting a server's last agent revokes the box's alerts (off, no profile), through that agent. When the box
+/// does not confirm it, it stays owed across a relaunch (no agent on that server any more) and is retried with backoff
+/// (15 min, then 30) until it is confirmed; then nothing more goes.
+@Test @MainActor func aRevocationTheBoxRefusedIsRetriedWithBackoffAcrossALaunch() async throws {
+    let box = RevisionBox(), keys = InMemoryKeyStore([:])
+    let store = revisionStore(box, keys: keys)
+    let reporter = boxBot("Reporter", profile: "reporter")
+    store.bots = [reporter]
+    let target = store.connection(of: reporter)
+    #expect(await store.saveAlerts(ntfySettings(), ntfyToken: "tk_secret_123", emailPassword: "", on: target))
+    box.refuse = true; box.calls = []
+    let start = Date()
+    store.delete(reporter)
+    try await settle(store, target) { box.calls.contains { $0.action == "configure" } }
+    #expect(box.calls.map { $0.action } == ["configure"] && box.calls.last?.profile == "reporter", "tried at once, through the deleted bot")
+
+    let later = revisionStore(box, keys: keys, defaults: store.defaults)
+    #expect(later.alertRunner(for: target) == nil, "no agent on that server any more")
+    box.calls = []
+    await later.renewAlertPresenceIfDue(now: start.addingTimeInterval(60))
+    #expect(box.calls.isEmpty, "refused: not at every tick")
+    await later.renewAlertPresenceIfDue(now: start.addingTimeInterval(1_000))
+    #expect(box.calls.map { $0.action } == ["status", "configure"] && box.calls.allSatisfy { $0.profile == "reporter" })
+    box.calls = []
+    await later.renewAlertPresenceIfDue(now: start.addingTimeInterval(2_000))
+    #expect(box.calls.isEmpty, "refused again: it waits twice as long")
+    box.refuse = false
+    await later.renewAlertPresenceIfDue(now: start.addingTimeInterval(2_900))
+    #expect(box.calls.map { $0.action } == ["configure"])
+    let revoked = try #require(box.sealed.last)
+    #expect(revoked["enabled"] as? Bool == false && revoked["profiles"] as? [String] == [] && box.sealed.count == 2)
+    #expect(!later.alertSettings(for: target).enabled && !later.defaults.bool(forKey: "alerts.on." + target))
+    box.calls = []
+    await later.renewAlertPresenceIfDue(now: start.addingTimeInterval(90_000))
+    #expect(box.calls.isEmpty, "confirmed: nothing owed")
+}
+
+/// recsfix3: a revocation the store could not even send (another alerts call on that server in flight) goes at a later tick.
+@Test @MainActor func aRevocationThrottledWhileTheServerWasBusyGoesAtALaterTick() async throws {
+    let box = RevisionBox()
+    let store = revisionStore(box, keys: InMemoryKeyStore([:]))
+    let reporter = boxBot("Reporter", profile: "reporter")
+    store.bots = [reporter]
+    let target = store.connection(of: reporter)
+    #expect(await store.saveAlerts(ntfySettings(), ntfyToken: "", emailPassword: "", on: target))
+    store.boxAlerts.update(target) { $0.busy = .status }
+    box.calls = []
+    store.delete(reporter)
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(box.calls.isEmpty)
+    store.boxAlerts.update(target) { $0.busy = nil }
+    await store.renewAlertPresenceIfDue(now: Date().addingTimeInterval(3_600))
+    #expect(box.calls.map { $0.action } == ["configure"] && box.calls.last?.profile == "reporter")
+    #expect(box.sealed.last?["enabled"] as? Bool == false && box.sealed.last?["profiles"] as? [String] == [])
+}
+
+/// recsfix3: retiring (archiving) a bot sends the server's new list at once, not only at a later change.
+@Test @MainActor func retiringABotSendsTheNewListAtOnce() async throws {
+    let box = RevisionBox()
+    let store = revisionStore(box, keys: InMemoryKeyStore([:]))
+    let reporter = boxBot("Reporter", profile: "reporter"), jarvis = boxBot("Jarvis", profile: "grok-jarvis")
+    reporter.canManageBots = true
+    store.bots = [reporter, jarvis]
+    let target = store.connection(of: reporter)
+    #expect(await store.saveAlerts(ntfySettings(), ntfyToken: "", emailPassword: "", on: target))
+    #expect(box.sealed.last?["profiles"] as? [String] == ["grok-jarvis", "reporter"])
+    box.calls = []
+    await store.apply(.botRetired(name: "grok-jarvis"), manager: reporter)
+    try await settle(store, target) { box.calls.contains { $0.action == "configure" } }
+    #expect(jarvis.retiredOnBox && box.calls.map { $0.action } == ["configure"])
+    #expect(box.sealed.last?["profiles"] as? [String] == ["reporter"] && box.sealed.last?["enabled"] as? Bool == true)
+}
+
+/// recsfix3: an automatic push names the revision this Mac saved. Settings another Mac saved since are newer: the box
+/// refuses the push, and it is not tried again; once a refresh has shown them, nothing goes at all. A save by the user
+/// always applies, and automatic pushes follow it again.
+@Test @MainActor func anAutomaticPushNeverOverwritesNewerSettingsFromAnotherMac() async throws {
+    let box = RevisionBox()
+    let store = revisionStore(box, keys: InMemoryKeyStore([:]))
+    let reporter = boxBot("Reporter", profile: "reporter")
+    store.bots = [reporter]
+    let target = store.connection(of: reporter)
+    #expect(await store.saveAlerts(ntfySettings(), ntfyToken: "", emailPassword: "", on: target))
+    #expect(box.revision == 1 && box.sealed.last?["if_revision"] == nil, "a save by the user names no revision")
+
+    box.revision = 2  // Another Mac saved; this one has not read the box since.
+    let jarvis = boxBot("Jarvis", profile: "grok-jarvis")
+    store.bots.append(jarvis)
+    box.calls = []
+    let start = Date(timeIntervalSince1970: 1_800_000_000)
+    await store.renewAlertPresenceIfDue(now: start)
+    #expect(box.calls.map { $0.action } == ["configure"])
+    #expect(box.revision == 2 && box.sealed.count == 1, "refused by the box: the newer settings stay")
+    box.calls = []
+    await store.renewAlertPresenceIfDue(now: start.addingTimeInterval(86_400))
+    #expect(box.calls.isEmpty, "and not tried again")
+
+    #expect(await store.saveAlerts(ntfySettings(), ntfyToken: "", emailPassword: "", on: target))
+    #expect(box.revision == 3)
+    box.calls = []
+    store.delete(jarvis)
+    try await settle(store, target) { box.calls.contains { $0.action == "configure" } }
+    #expect(box.sealed.last?["if_revision"] as? Int == 3 && box.revision == 4 && box.sealed.last?["profiles"] as? [String] == ["reporter"])
+
+    box.revision = 7  // Another Mac again; this time a refresh shows it before the agents change.
+    await store.refreshAlerts(on: target)
+    store.bots.append(boxBot("Twin", profile: "twin"))
+    box.calls = []
+    await store.renewAlertPresenceIfDue(now: start.addingTimeInterval(2 * 86_400))
+    #expect(box.calls.isEmpty && box.revision == 7)
 }
 
 @MainActor @Test func alertsShotsRenderTheSection() async throws {

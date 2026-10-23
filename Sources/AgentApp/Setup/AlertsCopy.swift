@@ -38,6 +38,7 @@ enum AlertsCopy {
     static let needSink = "Turn on ntfy or email and fill in its address."
     static let saved = "Saved. The box sends alerts from now on."
     static let off = "Alerts are off on this server."
+    static let newerOnBox = "Another Mac saved newer alert settings on this server; they were kept."
     static let running = "Running"
     static let notRunning = "Not running"
     static let notSetUp = "Not set up on this server yet."
