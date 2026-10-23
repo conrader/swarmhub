@@ -579,7 +579,38 @@ expect "read retries and identity refusal pass (got $RC)" [ "$RC" -eq 0 ]
 done_case
 }
 
-for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24}; do
+# 25
+case_25() {
+new_case "a refused identity read at a deadline is retried (agent 124, verifier 124)" claude codex; mode claude tree; mode codex ok; with_control
+# A ps stand-in first on PATH prints nothing for the first identity read (`-o sess=`, what kill_tree uses), so the
+# first kill_tree refuses. Each deadline must try again on the next tick instead of letting the 60 s sleep run out.
+cat > "$C/bin/ps" <<'PS'
+#!/bin/sh
+case "$*" in *sess=*) mkdir "$STUB_STATE/ps-failed-once" 2>/dev/null && exit 0 ;; esac
+exec /bin/ps "$@"
+PS
+chmod 755 "$C/bin/ps"
+t0=$(date +%s)
+managed --bot jarvis --order claude,codex --timeout 1 --dir "$C/work" -- "$TASK"; RC=$?
+took=$(( $(date +%s) - t0 ))
+expect "agent: shim refused one read" [ -d "$C/state/ps-failed-once" ]
+expect "agent: exit 124 (got $RC)" [ "$RC" -eq 124 ]
+expect "agent: stopped soon after 1 s despite a refused read (took ${took}s)" [ "$took" -lt 30 ]
+expect "agent: refusal on the job's stderr" has "$C/err" "code-job: not signalling pid"
+expect "agent pid gone" sh -c "! kill -0 $(cat "$C/state/claude.pid") 2>/dev/null"
+expect "agent's child gone" sh -c "! kill -0 $(cat "$C/state/claude.child") 2>/dev/null"
+rmdir "$C/state/ps-failed-once" 2>/dev/null
+CALLER_ENV=CODE_JOB_VERIFY_TIMEOUT=1 CASE_VERIFY='sleep 60'; t0=$(date +%s)
+job --bot jarvis --order codex --dir "$C/work" -- "$TASK"; RC=$?
+took=$(( $(date +%s) - t0 )); CALLER_ENV=; unset CASE_VERIFY
+expect "verifier: shim refused one read" [ -d "$C/state/ps-failed-once" ]
+expect "verifier: exit 66 (got $RC)" [ "$RC" -eq 66 ]
+expect "verifier: verify exit 124 (got $(rec verify-exit))" [ "$(rec verify-exit)" = 124 ]
+expect "verifier: stopped soon after 1 s despite a refused read (took ${took}s)" [ "$took" -lt 30 ]
+done_case
+}
+
+for n in ${CODE_JOB_CASES:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25}; do
   over_limit && break
   "case_$n"
 done

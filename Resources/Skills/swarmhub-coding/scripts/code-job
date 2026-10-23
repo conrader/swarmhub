@@ -179,9 +179,11 @@ collect_evidence() {
     VPID=$!
     now; t0=$NOW VEXIT=
     while kill -0 "$VPID" 2>/dev/null; do
-      if [ -z "$VEXIT" ] && [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ]; then VEXIT=125; kill_tree "$VPID"; fi
+      [ -z "$VEXIT" ] && [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ] && VEXIT=125
       now
-      if [ -z "$VEXIT" ] && [ $(( NOW - t0 )) -gt "$VTIMEOUT" ]; then VEXIT=124; kill_tree "$VPID"; fi
+      [ -z "$VEXIT" ] && [ $(( NOW - t0 )) -gt "$VTIMEOUT" ] && VEXIT=124
+      # Cancelled or late: every tick tries again until the verifier is gone (a refused identity read must not end it).
+      [ -n "$VEXIT" ] && kill_tree "$VPID"
       sleep "${CODE_JOB_TICK:-1}"
     done
     wait "$VPID"; rc=$?
@@ -413,19 +415,21 @@ run_agent() {
   APID=$!
   printf '%s\n' "$APID" > "$JOB/cli-pid"
   # Watchdog and sampler: every tick (1 s; CODE_JOB_TICK for tests) check the deadline (more than TIMEOUT whole seconds
-  # on the clock), every 2 ticks add up the tree's RSS.
+  # on the clock), every 2 ticks add up the tree's RSS. Once cancelled or late, every tick tries kill_tree again until the
+  # agent is gone: one refused or late identity read must not let it run on. Refusals reach the job's stderr.
   (
-    now; t=0 peak=0 t0=$NOW
+    now; t=0 peak=0 t0=$NOW stop=
     while kill -0 "$APID" 2>/dev/null; do
-      if [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ]; then : > "$T/cancelled"; kill_tree "$APID"; break; fi
+      [ -z "$stop" ] && [ -n "$TASKID" ] && [ -f "$S/cancelled/$TASKID" ] && { : > "$T/cancelled"; stop=1; }
       if [ $((t % 2)) -eq 0 ]; then
         read_output tree_rss "$APID"; r=${READ_OUTPUT:-0}; [ "$r" -gt "$peak" ] && { peak=$r; echo "$peak" > "$T/peak"; }
       fi
       now
-      if [ $(( NOW - t0 )) -gt "$TIMEOUT" ]; then : > "$T/timedout"; kill_tree "$APID"; break; fi
+      [ -z "$stop" ] && [ $(( NOW - t0 )) -gt "$TIMEOUT" ] && { : > "$T/timedout"; stop=1; }
+      [ -n "$stop" ] && kill_tree "$APID"
       sleep "${CODE_JOB_TICK:-1}"; t=$((t + 1))
     done
-  ) < /dev/null > /dev/null 2>&1 &
+  ) < /dev/null > /dev/null &
   MPID=$!
   now; ran0=$NOW
   wait "$APID"; RC=$?
