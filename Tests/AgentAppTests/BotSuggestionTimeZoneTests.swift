@@ -85,7 +85,7 @@ import Testing
         let (store, bot, server) = warsawStore(now: Self.utc(10, 21, 10))
         let row = try #require(await store.suggestRoutineIfRepeated(bot: bot))
         _ = yes(to: row, store: store, bot: bot)
-        server.add(Self.utcJob("a1a1a1a1a1a1", schedule: "0 9 * * 1-5")  // A Hermes id (12 hex): the client moves no other)
+        server.add(Self.utcJob("a1a1a1a1a1a1", schedule: "0 9 * * 1-5"))  // A Hermes id (12 hex): the client moves no other.
         let reply = ChatMessage(role: .assistant, content: "Done: every weekday at 11:00 your time.")
         bot.messages.append(reply)
         #expect(await store.followThroughSuggestion(bot: bot, reply: reply))
