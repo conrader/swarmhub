@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Settings → Advanced → Chats (P45): how long a chat's `/goal` may run before SwarmHub stops sending rounds.
+/// Settings → Advanced → Chats (P45): how long a chat's `/goal` may run before SwarmHub stops sending rounds; recs1: whether
+/// bots may suggest a routine for a request you keep repeating.
 struct SettingsChatsPane: View {
     @EnvironmentObject private var store: AppStore
     var body: some View {
@@ -11,6 +12,11 @@ struct SettingsChatsPane: View {
             Text("A goal ends when the bot reports it done or blocked, when you pause, clear or stop it, after a failed turn, or at whichever limit comes first. New goals use these limits.")
                 .font(.caption).foregroundStyle(.secondary)
         }.accessibilityIdentifier("chats.goalBudget")
+        Section("Suggestions") {
+            Toggle("Bots suggest routines", isOn: Binding(get: { store.suggestionsEnabled }, set: { store.suggestionsEnabled = $0 }))
+            Text("When you ask a bot for the same thing on three days within two weeks, it may ask in its chat whether to do it on a schedule. At most three a day across all bots, none between 23:00 and 08:00. Answering no stops it for that request; no answer, for a week.")
+                .font(.caption).foregroundStyle(.secondary)
+        }.accessibilityIdentifier("chats.suggestions")
     }
     private func setBudget(rounds: Int? = nil, hours: Double? = nil) {
         if let rounds { store.defaults.set(rounds, forKey: GoalProtocol.roundsKey) }

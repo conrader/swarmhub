@@ -31,6 +31,12 @@ struct ReconcileReport: Sendable {
     var changed = false, unreachable = false, skipped = false, activeRun = false
     var changedRows: Set<UUID> = []
     var diverged = false
+    /// A Bot Chat whose box history was left unmerged (it diverges, or the box session is empty): nothing was adopted.
+    var notMerged = false
+    /// A unit was not read because the box has no session reads (legacy transport); one the box has no session for.
+    var legacy = false, missing = false
+    /// Routines with a box delivery turn this pass did not bring into the chat (`HistoryReconciler.Plan.leftOut`).
+    var leftOut: [String: Date] = [:]
     /// Per the last unit read: box time of its oldest row (nil = whole session), the box clock minus the Mac's, whether
     /// an unpaired box turn is newer than the last paired one.
     var coversFrom: Date?; var skew: TimeInterval = 0; var newerUnmatched = false
@@ -85,10 +91,12 @@ extension AppStore {
     }
 
     /// One pass over a conversation. Automatic passes keep a floor per session and never raise `errorMessage`.
-    @discardableResult func reconcile(_ conversation: any Conversation, reason: ReconcileReason, full: Bool = false, ignoringStream: Bool = false, member: UUID? = nil) async -> ReconcileReport {
+    /// `chatOnly`: a bot's own chat without its threads.
+    @discardableResult func reconcile(_ conversation: any Conversation, reason: ReconcileReason, full: Bool = false, ignoringStream: Bool = false, member: UUID? = nil,
+                                      chatOnly: Bool = false) async -> ReconcileReport {
         var report = ReconcileReport()
         guard ignoringStream || !isStreamingIn(conversation) else { report.skipped = true; return report }
-        for unit in reconcileUnits(for: conversation) where (member == nil || unit.bot.id == member) && (reason != .retry || unit.conversation === conversation) {
+        for unit in reconcileUnits(for: conversation) where (member == nil || unit.bot.id == member) && (reason != .retry && !chatOnly || unit.conversation === conversation) {
             report.total += 1
             // P39: a thread can stream while its bot's chat is read; its own turn is never adopted mid-stream.
             if !ignoringStream, unit.conversation !== conversation, isStreamingIn(unit.conversation) { report.skipped = true; continue }
@@ -107,13 +115,13 @@ extension AppStore {
     private func reconcileUnit(_ unit: ReconcileUnit, full: Bool, ignoringStream: Bool, into report: inout ReconcileReport) async {
         guard !needsKey(unit.bot), let activeBackend = try? backend(for: unit.bot) else { report.problems.append("\(unit.name): no readable key"); return }
         // A box that answered (e.g. 401 for a rejected key, P28 D6) is not "unreachable": no quick retries for it.
-        do { if try await activeBackend.sessionTransport() == .legacyChatCompletions { return } } catch { report.unreachable = !(error is BackendError); report.problems.append("\(unit.name): read failed"); return }
+        do { if try await activeBackend.sessionTransport() == .legacyChatCompletions { report.legacy = true; return } } catch { report.unreachable = !(error is BackendError); report.problems.append("\(unit.name): read failed"); return }
         let snapshot = unit.conversation.messages.map(HistoryReconciler.LocalRow.init)
         let oldestNeeded = snapshot.filter { $0.role == .assistant && ($0.state == .incomplete || $0.state == .notSent || ($0.isEmpty && $0.state != .finished && $0.state != .stopped)) }.map(\.createdAt).min()
         let read: SessionRead
         do { read = try await readSession(activeBackend, sessionID: unit.sessionID, needBackTo: oldestNeeded, full: full) }
         catch { report.unreachable = !(error is BackendError); report.problems.append("\(unit.name): read failed"); turns.failureStreak += report.unreachable ? 1 : 0; return }
-        report.read += 1
+        report.read += 1; report.missing = report.missing || read.missing
         if turns.failureStreak > 0 { turns.failureStreak = 0 }
         var active: Set<UUID> = []
         for row in snapshot where row.role == .assistant && row.state == .incomplete {
@@ -123,7 +131,7 @@ extension AppStore {
         if !active.isEmpty { report.activeRun = true }
         let skew = read.serverDate.map { $0.timeIntervalSinceNow } ?? 0
         let plan = HistoryReconciler.plan(.init(local: snapshot, server: read.rows, mode: unit.mode, now: .now, skew: skew, coversFrom: read.coversFrom, activeRuns: active, notSentAge: reconcileTiming.notSentAge))
-        report.segments.append((unit.name, plan.counts))
+        report.segments.append((unit.name, plan.counts)); report.leftOut.merge(plan.leftOut) { max($0, $1) }
         report.coversFrom = read.coversFrom; report.skew = skew; report.newerUnmatched = plan.newerUnmatched
         guard ignoringStream || !isStreamingIn(unit.conversation) else { report.skipped = true; return }
         let isBotChat: Bool; if case .chat(true) = unit.mode { isBotChat = true } else { isBotChat = false }
@@ -131,8 +139,10 @@ extension AppStore {
             // Real divergence only: the box holds turns and none match a reply this chat already has. An empty box session
             // (it lacks the turn) or unmatched box turns against only unsent rows (newerUnmatched) leave retry to decide.
             report.diverged = plan.diverged && snapshot.contains { $0.role == .assistant && !$0.isEmpty }
+            report.notMerged = true
             let note = "Hermes history was not merged because it diverges from this local conversation."
-            if unit.conversation.messages.last?.content != note { unit.conversation.messages.append(ChatMessage(role: .system, content: note)); report.changed = true }
+            // App-only lines after it (e.g. why a handoff waits) do not make it new again.
+            if unit.conversation.messages.last(where: { $0.metadata[SlashKey.line] == nil })?.content != note { unit.conversation.messages.append(ChatMessage(role: .system, content: note)); report.changed = true }
             return
         }
         apply(plan, snapshot: snapshot, to: unit, report: &report)

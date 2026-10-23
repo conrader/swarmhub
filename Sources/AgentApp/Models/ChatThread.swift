@@ -83,9 +83,11 @@ extension ChatMessage {
     var isSteer: Bool { metadata[SteerKey.steer] != nil }
     /// P28: a correction sent as its own message after the answer was stopped (a turn of its own, unlike a steer).
     var isCorrection: Bool { metadata[SteerKey.correction] != nil }
-    /// The text Hermes receives for this message: typed text plus inline text files; a correction carries its lead line.
+    /// The text Hermes receives for this message: typed text plus inline text files; a correction carries its lead line,
+    /// and an answer to a suggestion the question it answers (recs1).
     var outgoingText: String {
         let text = AttachmentEncoder.compose(text: content, attachments: attachments)
-        return isCorrection ? SteerCopy.lead + "\n" + text : text
+        if isCorrection { return SteerCopy.lead + "\n" + text }
+        return metadata[SuggestionKey.lead].map { $0 + "\n" + text } ?? text
     }
 }

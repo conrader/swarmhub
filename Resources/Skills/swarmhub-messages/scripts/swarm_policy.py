@@ -113,14 +113,18 @@ def acknowledge_turn_policy(profile, session, turn):
             db.execute("DELETE FROM policy_turns WHERE profile=? AND session=? AND turn=?", (profile, session, str(turn)))
 
 
-def reporting_targets(at=None):
-    rule = policy()
+def in_report_window(at=None, rule=None):
+    """The owner's reporting window (policy timezone, start inclusive, end exclusive; start == end is all day)."""
+    rule = rule or policy()
     moment = datetime.fromtimestamp(time.time() if at is None else at, ZoneInfo(rule["timezone"]))
     minute = moment.hour * 60 + moment.minute
     start, end = rule["start"], rule["end"]
-    in_window = (start <= minute < end if start < end else minute >= start or minute < end)
-    if start == end:
-        in_window = True
+    return start == end or (start <= minute < end if start < end else minute >= start or minute < end)
+
+
+def reporting_targets(at=None):
+    rule = policy()
+    in_window = in_report_window(at, rule)
     coordinator = rule.get("coordinator")
     if not coordinator:
         raise ValueError("configure coordinator before reporting")

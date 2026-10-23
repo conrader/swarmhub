@@ -14,11 +14,12 @@ struct RoutineEditorSheet: View {
     @State private var saving = false
     @State private var error: String?
 
-    init(bot: Bot, job: HermesJob?, schedule: String? = nil) {
+    /// `schedule`, `name` and `prompt` prefill a new routine (recs1: a suggestion the bot did not make itself).
+    init(bot: Bot, job: HermesJob?, schedule: String? = nil, name: String = "", prompt: String = "") {
         self.bot = bot; self.job = job
-        _name = State(initialValue: job?.name ?? "")
+        _name = State(initialValue: job?.name ?? name)
         _schedule = State(initialValue: RoutineScheduleEditor(schedule: job?.schedule ?? schedule))
-        _prompt = State(initialValue: job?.prompt ?? "")
+        _prompt = State(initialValue: job?.prompt ?? prompt)
     }
 
     /// Limits from `api_server.py` (`_MAX_NAME_LENGTH`, `_MAX_PROMPT_LENGTH`).

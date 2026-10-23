@@ -65,7 +65,23 @@ def main(args):
         targets = control.reporting_targets()
         ids = [control.enqueue(sender, target, text) for target in targets]
         start()
+        import swarm_alerts
+        swarm_alerts.emit("report", "report:" + ids[0], f"{sender} reported", text)  # Off-app alert; never fails the report.
         return {"pending": ids, "targets": targets}
+    if command == "alerts":
+        # Off-app alerts (swarm_alerts.py). The app's call: panel status|test|install|uninstall|configure <sealed blob>;
+        # the blob is sealed to this box's key, so the settings' secrets never appear in a command line in clear.
+        import swarm_alerts
+        verb, *rest = args
+        if verb == "panel":
+            if not rest:
+                raise ValueError("alerts panel status|configure <sealed>|test|install|uninstall")
+            return swarm_alerts.panel(rest[0], rest[1] if len(rest) > 1 else None)
+        if verb == "run":
+            sys.exit(swarm_alerts.run(fallback="--fallback" in rest, once="--once" in rest))
+        if verb == "status":
+            return swarm_alerts.status()
+        raise ValueError("alerts panel|run|status")
     if command == "enqueue":
         sender, target, task, text = args
         ident = control.enqueue(sender, target, text, task)

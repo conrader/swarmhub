@@ -331,3 +331,18 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
     try await waitUntil { general.goal(in: generalBot)?.state == .done }
     #expect(generalBot.messages.last?.metadata[AutomationKey.detail]?.contains("Unverified (general goal)") == true)
 }
+
+/// `/goal takeover` and `/loop takeover` when the box has nothing of that kind to take over (no handoff, or the other
+/// kind's) answer with one line; they never start a goal or loop named "takeover".
+@MainActor @Test func takeoverWithNothingToTakeOverNeverStartsAGoalOrLoop() {
+    for handoff in [nil, AutomationKind.goal, .loop] {
+        for (command, kind) in [("/goal takeover", AutomationKind.goal), ("/loop takeover", .loop)] where kind != handoff {
+            let (store, bot) = goalStore(ScriptedTurnBackend())
+            if let handoff { store.automations[bot.id] = ChatAutomation(boxHandoff: BoxHandoff(kind: handoff, jobName: "routine", handedAt: store.now())) }
+            #expect(store.submitComposer(text: command))
+            #expect(store.goal(in: bot) == nil && store.loop(in: bot) == nil, "\(command) with handoff \(String(describing: handoff))")
+            #expect(bot.messages.count == 1 && bot.messages.last?.metadata[SlashKey.line] == "1", "one chat line, nothing sent")
+            #expect(bot.messages.last?.content == HandoffCopy.nothingOnTheBox(kind))
+        }
+    }
+}

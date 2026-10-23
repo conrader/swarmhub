@@ -49,8 +49,10 @@ extension AppStore {
         for (index, row) in messages.enumerated() where row.role == .user && row.metadata[AutomationKey.woken] == nil {
             guard let name = CronDeliveryRow.jobName(row.content) else { continue }
             let heartbeat = isHeartbeatName(name, bot: bot)
-            row.metadata[AutomationKey.woken] = heartbeat ? AutomationKind.heartbeat.rawValue : "routine \(name)"
-            row.metadata[AutomationKey.display] = heartbeat ? "Heartbeat" : "Routine: \(name)"
+            // A loop or goal the box ran while SwarmHub was closed (`AppStore+AutomationHandoff.swift`).
+            let handed: AutomationKind? = name.hasPrefix("swarmhub-loop-") ? .loop : name.hasPrefix("swarmhub-goal-") ? .goal : nil
+            row.metadata[AutomationKey.woken] = handed?.rawValue ?? (heartbeat ? AutomationKind.heartbeat.rawValue : "routine \(name)")
+            row.metadata[AutomationKey.display] = handed.map { $0 == .loop ? "Loop (on the box)" : "Goal (on the box)" } ?? (heartbeat ? "Heartbeat" : "Routine: \(name)")
             let replies = messages[(index + 1)...].prefix { $0.role != .user }.filter { $0.role == .assistant }
             if !replies.isEmpty, replies.allSatisfy(\.isSilent) {
                 row.metadata[AutomationKey.silent] = "1"; replies.forEach { $0.metadata[AutomationKey.silent] = "1" }
