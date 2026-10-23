@@ -302,7 +302,7 @@ import Testing
         let answer = try #require(bot.messages.last { $0.role == .user })
         #expect(answer.metadata[SuggestionKey.answer] == "other" && answer.outgoingText.hasPrefix("(SwarmHub asked"))
         #expect(store.send(text: "yes", bot: bot, conversation: bot, replyToID: nil))
-        try await waitUntil(timeout: .seconds(30)) { store.suggestions.editor != nil }
+        try await waitUntil { store.suggestions.editor != nil }
         #expect(store.suggestionLedger.records.first?.state == .accepted)
         return (answer, try #require(store.suggestions.editor))
     }
