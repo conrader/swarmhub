@@ -85,11 +85,11 @@ import Testing
         let (store, bot, server) = warsawStore(now: Self.utc(10, 21, 10))
         let row = try #require(await store.suggestRoutineIfRepeated(bot: bot))
         _ = yes(to: row, store: store, bot: bot)
-        server.add(Self.utcJob("a1", schedule: "0 9 * * 1-5"))
+        server.add(Self.utcJob("a1a1a1a1a1a1", schedule: "0 9 * * 1-5")  // A Hermes id (12 hex): the client moves no other)
         let reply = ChatMessage(role: .assistant, content: "Done: every weekday at 11:00 your time.")
         bot.messages.append(reply)
         #expect(await store.followThroughSuggestion(bot: bot, reply: reply))
-        func onBox() -> String? { (server.job("a1")?["schedule"] as? [String: Any])?["expr"] as? String }
+        func onBox() -> String? { (server.job("a1a1a1a1a1a1")?["schedule"] as? [String: Any])?["expr"] as? String }
         func read(at now: Date) async { store.now = { now }; _ = await store.refreshRoutines(for: bot) }
         #expect(onBox() == "0 9 * * 1-5")
         await read(at: Self.utc(10, 23, 6))  // Friday 8:00 in Warsaw: today's 11:00 run is still in summer time.
@@ -101,7 +101,7 @@ import Testing
         await read(at: Self.utc(3, 26, 12, year: 2027))  // Friday 26 March 2027 after its run; summer time from Sunday 28.
         #expect(onBox() == "0 9 * * 1-5", "back to 9:00 for summer time")
 
-        server.set("a1", ["schedule": ["kind": "cron", "expr": "0 6 * * 1-5", "display": "0 6 * * 1-5"], "schedule_display": "0 6 * * 1-5"])
+        server.set("a1a1a1a1a1a1", ["schedule": ["kind": "cron", "expr": "0 6 * * 1-5", "display": "0 6 * * 1-5"], "schedule_display": "0 6 * * 1-5"])
         await read(at: Self.utc(10, 30, 10, year: 2027))  // Past the October 2027 change: a routine changed since is left alone.
         #expect(onBox() == "0 6 * * 1-5")
     }
