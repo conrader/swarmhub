@@ -93,6 +93,9 @@ struct MessageView: View {
         case .approvalDecision: ApprovalDecisionLine(message: message)
         case .review: ReviewCard(message: message)
         case .automation: AutomationCard(message: message, actionTarget: actionTarget)
+        case .suggestion:
+            MarkdownContent(message: message)
+            SuggestedRepliesRow(message: message, target: actionTarget)
         case .text:
             if message.role == .system {
                 Label(message.content, systemImage: message.metadata[TurnKey.tone] == "warning" ? "exclamationmark.triangle" : message.metadata[TurnWaitCopy.key] == "line" ? "clock" : message.metadata[SlashKey.line] != nil ? "command" : "checkmark.circle").font(.caption).foregroundStyle(.secondary).padding(.vertical, 4).textSelection(.enabled)
@@ -105,6 +108,7 @@ struct MessageView: View {
             } else {
                 OrderedReply(message: message, actionTarget: actionTarget, stepsExpanded: stepsExpanded, botRepliesExpanded: botRepliesExpanded)
                 BotMessageChipsRow(message: message)
+                SuggestedRepliesRow(message: message, target: actionTarget)
             }
         }
     }

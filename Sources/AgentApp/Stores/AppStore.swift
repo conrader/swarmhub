@@ -129,6 +129,8 @@ import SwarmHubCore
     let webhooks = WebhooksCache()
     /// Off-app alerts per server and the presence lease (`AppStore+BoxAlerts.swift`).
     let boxAlerts = BoxAlertsCache()
+    /// recs1: suggestion state (the ledger, a prefilled routine editor to open); `AppStore+BotSuggestions.swift`.
+    let suggestions = BotSuggestionBook()
     let approvalKeys: any DeviceApprovalKeyStore
     let keyStore: any HermesKeyStore; let defaults: UserDefaults; let hermesSession: URLSession
     /// P16: turn bookkeeping, the token autosave interval, the connectivity events and the reconcile timing (injectable).
@@ -330,6 +332,7 @@ import SwarmHubCore
         historyLoadTokens[bot.id] = nil; steerHint = nil
         captureAttachments(user, readers: [bot.id])
         conversation.messages.append(user)
+        noteSuggestionAnswer(user, bot: bot, in: conversation)
         if let reason = full ?? (hasWaitingTurn(in: conversation) ? TurnWaitCopy.behind : nil) { return waitForTurn(user, in: conversation, reason: reason) }
         startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
         return true

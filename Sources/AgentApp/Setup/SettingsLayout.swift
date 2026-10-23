@@ -62,6 +62,8 @@ enum SettingsLayout {
                         "voice.dictationKey", "voice.live",
                         // P45: /goal's budget (rounds and hours).
                         "chats.goalBudget",
+                        // recs1: bots suggest a routine for a repeated ask (on by default).
+                        "chats.suggestions",
                         // P46: the heartbeat template and each bot's heartbeat.
                         "heartbeat.template", "heartbeat.bots",
                         // P49: orientation for new bots (on/off, coordinator) and the quiet hours.
@@ -87,6 +89,7 @@ enum SettingsLayout {
         ("account.serviceURL", .advanced(.account)), ("reports.list", .advanced(.reports)),
         ("apps.chatgpt", .advanced(.apps)), ("apps.composio", .advanced(.apps)), ("apps.botAccess", .advanced(.apps)), ("apps.background", .advanced(.apps)),
         ("voice.dictationKey", .advanced(.voice)), ("voice.live", .advanced(.voice)), ("chats.goalBudget", .advanced(.chats)),
+        ("chats.suggestions", .advanced(.chats)),
         ("heartbeat.template", .advanced(.heartbeat)), ("heartbeat.bots", .advanced(.heartbeat)),
         ("orientation.newBots", .advanced(.orientation)), ("orientation.quietHours", .advanced(.orientation)),
         ("about.build", .advanced(.about)), ("about.autoDownload", .advanced(.about)), ("about.acknowledgements", .advanced(.about))
