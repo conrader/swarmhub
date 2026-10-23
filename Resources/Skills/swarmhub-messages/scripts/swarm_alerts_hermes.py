@@ -195,6 +195,14 @@ def pause(profile, env, job_id):
     return call(profile, env, f"api/jobs/{job_id}/pause", method="POST", body={}) is not None
 
 
+def confirm_paused(profile, env, job_id):
+    """The job is confirmed not to run again: its pause went through, or the box lists it disabled or not at all."""
+    if pause(profile, env, job_id):
+        return True
+    rows = jobs(profile, env)
+    return rows is not None and not any(row["id"] == job_id and row.get("enabled", True) is not False for row in rows)
+
+
 def block_status(text):
     """("loop"|"goal", status) of the last ```swarmhub block in a reply that ends a loop or a goal, else None."""
     found = None

@@ -33,9 +33,7 @@ import swarm_alerts_sinks as sinks
 SCHEMA = "swarmhub/alerts/1"
 TICK = 30
 RATE_WINDOW, RATE_LIMIT = 600, 6
-RETRIES = 5
-KEEP = 7 * 86400
-HANDOFF_WAIT = 1800
+RETRIES, KEEP, HANDOFF_WAIT = 5, 7 * 86400, 1800
 HERE = Path(__file__).resolve().parent
 CODE = ("swarmctl", "swarm_alerts.py", "swarm_alerts_hermes.py", "swarm_alerts_seal.py", "swarm_alerts_service.py",
         "swarm_alerts_sinks.py", "swarm_intake.py", "swarm_policy.py", "swarm_store.py", "swarm_webhook_receiver.py")
@@ -231,6 +229,10 @@ def follow_handoffs(data, now):
     envs = dict(hermes.profiles())
     for key, item in list(data["handoff"].items()):
         env = envs.get(item.get("profile"))
+        if item.get("ending"):  # Fails closed: past HANDOFF_WAIT, its pause is retried until confirmed, then alerted.
+            if env is not None and hermes.confirm_paused(item["profile"], env, item["job"]):
+                queue(data, data["handoff"].pop(key)["ending"])
+            continue
         if env is None or now > item.get("until", 0):
             del data["handoff"][key]
             continue
@@ -244,11 +246,12 @@ def follow_handoffs(data, now):
             item["since"] = when
             block = hermes.block_status(text)
             ended = block is not None and block[0] == kind and (block[1] == "done" or kind == "goal")
-            if ended:
-                hermes.pause(item["profile"], env, item["job"])
             visible = hermes.FENCE.sub("", text).strip() or (f"{kind.capitalize()} {block[1]}." if block else "")
             title = f"{'Goal' if kind == 'goal' else 'Loop'} on the box ({item['profile']})" + (f": {block[1]}" if ended else "")
-            queue(data, {"id": f"{kind}:{key}:{when}", "kind": kind, "title": title, "body": visible})
+            item["ending"] = {"id": f"{kind}:{key}:{when}", "kind": kind, "title": title, "body": visible}
+            if ended and not hermes.confirm_paused(item["profile"], env, item["job"]):
+                break  # Still scheduled: kept, and paused (then alerted) on a later tick.
+            queue(data, item.pop("ending"))
         else:
             del data["handoff"][key]
 

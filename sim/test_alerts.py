@@ -281,6 +281,27 @@ class Sources(AlertsBase):
         self.tick()
         self.assertEqual(len(self.sent), 1)
 
+    def test_a_refused_pause_at_the_end_keeps_the_handoff_and_retries_it_before_done_is_alerted(self):
+        run_at = self.handed_off_loop()
+        self.hermes.messages["chat1"] = [self.delivery("swarmhub-loop-0123abcd", run_at - 30),
+                                         {"role": "assistant", "timestamp": run_at - 20,
+                                          "content": 'Build is green.\n```swarmhub\n{"op":"loop","status":"done"}\n```'}]
+        self.hermes.refuse_pause = {"dddddddddddd"}
+        pauses = lambda: [r for r in self.hermes.requests if r[0] == "POST" and r[2].endswith("/pause")]  # noqa: E731
+        state = self.tick()
+        self.assertEqual((self.sent, self.hermes.paused, len(pauses())), ([], [], 1))
+        self.assertEqual(list(state["handoff"]), ["jarvis/dddddddddddd"])
+        state = self.tick(advance=alerts.HANDOFF_WAIT + 60)  # Still refused, past the wait: kept and retried.
+        self.assertEqual((self.sent, self.hermes.paused, len(pauses())), ([], [], 2))
+        self.assertEqual(list(state["handoff"]), ["jarvis/dddddddddddd"])
+        self.hermes.refuse_pause = set()
+        state = self.tick()
+        self.assertEqual(self.sent, [("Loop on the box (jarvis): done", "Build is green.")])
+        self.assertEqual(self.hermes.paused, [("jarvis", "dddddddddddd")])
+        self.assertEqual(state["handoff"], {})
+        self.tick()
+        self.assertEqual((len(self.sent), len(pauses())), (1, 3))
+
     def test_replies_that_are_not_the_jobs_own_never_end_the_wait_alert_or_pause(self):
         run_at = self.handed_off_loop()
         done = 'Done.\n```swarmhub\n{"op":"loop","status":"done"}\n```'

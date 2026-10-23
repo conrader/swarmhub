@@ -98,7 +98,9 @@ requests on a detached task):
   the delivery row Hermes writes (`[Cronjob "<name>" output — …]`, the name holds the chat id) and by time: after this
   job was made and after its previous run. Any other reply in the chat, however new, is not this routine's: it never
   ends the wait, sends an alert or pauses the routine. The service pauses the routine when a matched reply carries the
-  loop's done block or the goal's done or blocked block.
+  loop's done block or the goal's done or blocked block. That end is alerted only once the pause is confirmed (it went
+  through, or the box lists the routine disabled or gone). Until then the service keeps the handoff, past its 30-minute
+  wait, and tries the pause again on every tick.
 
 At launch, on every routine poll tick until none is left:
 1. **Pause first.** No run starts after this point. A box that cannot be reached keeps the routine. Nothing runs in the
