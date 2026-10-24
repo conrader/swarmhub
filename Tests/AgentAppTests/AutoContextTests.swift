@@ -168,6 +168,8 @@ private func installedBlock(_ version: String) -> String {
     }
     let row = try #require(bot.messages.last { $0.role == .assistant })
     #expect(row.turnState == .notSent && store.canRetry(row))
+    // The first send's error line is dismissed, so whatever error is left came from the Retry.
+    store.errorMessage = nil
     store.retry(row); store.retry(row)
     try await waitUntil { !store.anyTurnRunning && row.turnState == .finished }
     try await Task.sleep(for: .milliseconds(300))
@@ -181,7 +183,8 @@ private let failedManager = "SWARMHUB_DEV_FAILED:grok-jarvis/swarmhub-manager\n"
     let (store, jarvis, row) = try await retriedInstall(.reply(installedBlock("1.2.0")), relaunch: relaunch)
     #expect(jarvis.installedSkills["swarmhub-manager"] == "1.2.0")
     #expect(jarvis.skillInstallFailures.isEmpty && !store.skillInstallBackingOff(skill, for: jarvis))
-    #expect(store.skillInstallResults[jarvis.id]?.status == .installed && store.errorMessage == nil)
+    #expect(store.skillInstallResults[jarvis.id]?.status == .installed)
+    #expect(store.errorMessage == nil)
     #expect(row.metadata[ContextKey.setupText] == nil && row.metadata[ContextKey.setupChecks] == nil)
 }
 
