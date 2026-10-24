@@ -112,7 +112,8 @@ private func installedBlock(_ version: String) -> String {
     let row = try #require(jarvis.messages.last { $0.role == .assistant })
     #expect(row.turnState == .notSent && store.canRetry(row) && streams(host).count == 3)
     store.retry(row); store.retry(row)
-    try await waitUntil { !store.anyTurnRunning }
+    // The reply's skills block is applied after the turn ends (`handleManagerReply`), so wait for the record too.
+    try await waitUntil { !store.anyTurnRunning && jarvis.installedSkills["swarmhub-manager"] != nil }
     let sent = streams(host).map(\.session)
     #expect(sent.count == 4 && Set(sent).count == 4 && !sent.contains("s-main") && sent.allSatisfy { $0.contains("agentapp_setup_") })
     // The install's own instructions went again (not only the line the chat shows), and its result was recorded.
