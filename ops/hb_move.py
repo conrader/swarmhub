@@ -24,6 +24,7 @@ from pathlib import Path
 import secrets
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -43,6 +44,7 @@ GROUP = "swarmhub-peer"
 SKILL = "skills/swarmhub/swarmhub-messages/scripts"
 PLUGIN = "plugins/swarmhub-peer"
 HEALTH_TRIES = 30
+RESTORE_MARK = ".swarmhub-hb-undo"  # one-time token an undo puts in the profile it restores; gone at the end
 
 
 class Failed(Exception):
@@ -170,8 +172,18 @@ def set_aside(box, path, backup):
 
 
 def inode(path):
-    stat = os.lstat(path)
-    return [stat.st_dev, stat.st_ino]
+    info = os.lstat(path)
+    return [info.st_dev, info.st_ino]
+
+
+def restored_here(path, data):
+    """The profile in place is still the folder an earlier undo renamed there: a real folder, journaled inode, token."""
+    try:
+        if not stat.S_ISDIR(os.lstat(path).st_mode) or inode(path) != data.get("restore_inode"):
+            return False
+        return "restore_token" in data and (path / RESTORE_MARK).read_text().strip() == data["restore_token"]
+    except OSError:
+        return False
 
 
 def render_nginx(box):
@@ -355,10 +367,16 @@ def undo(box, profile):
     restore = box.path(shared.home) / ".hermes/profiles" / profile
     in_place = restore.exists() or restore.is_symlink()
     undone = data.get("undone", [])
-    # An earlier undo's restore landed (the rename keeps the journaled inode): this run picks up after it.
-    landed = "restored" in undone or (in_place and "restore_inode" in data and inode(restore) == data["restore_inode"])
-    if "retired" in steps and in_place and not landed:
+    moved = box.path(account.home) / ".hermes/profiles" / profile if account else None
+    # An earlier undo's restore landed only if the profile in place is still the folder it renamed there; the journal
+    # alone is no proof, the profile may have gone or been replaced since. Then this run picks up after it.
+    landed = in_place and restored_here(restore, data)
+    if ("retired" in steps or "restoring" in undone) and in_place and not landed:
         raise Failed(f"{restore} exists again; refusing to overwrite it")
+    if not in_place and ("restored" in undone or (data.get("restore_from") == "dedicated" and not
+                                                  (moved is not None and moved.is_dir()))):
+        raise Failed(f"{restore} was restored by an earlier undo and is gone again; refusing to finish. Copies: "
+                     f"{data.get('backup')}, {backups(shared)}/{profile}.<n>.dedicated; {shared_unit} may be stopped")
     if "unit" in steps and "unit" not in undone:
         box.run(["systemctl", "disable", "--now", unit])
         box.out(f"+ rm -r /etc/systemd/system/{unit}.d")
@@ -371,7 +389,6 @@ def undo(box, profile):
         box.run(["runuser", "-u", user, "--", "env", f"HOME={account.home}", "PATH=/usr/bin:/bin",
                  "PYTHONDONTWRITEBYTECODE=1", "/usr/bin/python3", "-B", swarmctl, "webhook", "receiver", "uninstall"])
         journal.undone("receiver")
-    moved = box.path(account.home) / ".hermes/profiles" / profile if account else None
     if "retiring" in steps and (landed or not in_place):
         # The original left the shared account. The bot's state since the move comes back with it (else the retired
         # original does); the dedicated copy is kept as another numbered backup, never deleted.
@@ -388,10 +405,12 @@ def undo(box, profile):
             if dedicated and (source / PLUGIN).is_dir():  # an install in the bot account may have named its home
                 box.write(f"{shared.home}/.hermes/profiles/.{profile}.hb-undo/{PLUGIN}/__init__.py",
                           hb_render.plugin_loader(f"{SKILL}/peer-runtime.py"), 0o600)
+            token = secrets.token_hex(16)
+            box.write(f"{shared.home}/.hermes/profiles/.{profile}.hb-undo/{RESTORE_MARK}", token + "\n", 0o600)
             box.run(["chown", "-R", f"{shared.name}:{shared.name}", temp])
             if not box.dry:
                 journal.undone("restoring", restore_from="dedicated" if dedicated else "backup",
-                               restore_inode=inode(temp))
+                               restore_inode=inode(temp), restore_token=token)
             box.out(f"+ mv {temp} {restore}")
             if not box.dry:
                 os.rename(temp, restore)
@@ -422,6 +441,10 @@ def undo(box, profile):
     box.out(f"+ mv {journal.path} {journal.path}.undone.{stamp}")
     if not box.dry:
         os.replace(journal.path, journal.path.with_name(f"{profile}.json.undone.{stamp}"))
+    if "restoring" in data.get("undone", []) and restored_here(restore, data):  # after the journal: a crash leaves it
+        box.out(f"+ rm {restore}/{RESTORE_MARK}")
+        if not box.dry:
+            (restore / RESTORE_MARK).unlink(missing_ok=True)
     box.out(f"undone {profile}. The account {user} stays (remove it with `userdel -r {user}` once the shared profile "
             "answers again); restore wake.env.<stamp> and re-register the 8745 routine (ops/README.md).")
 

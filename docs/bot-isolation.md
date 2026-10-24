@@ -90,8 +90,10 @@ with `env_reset` and `!use_pty`.
 
 Undo journals its own progress (`undone` in the journal). If it fails part way, for example on the shared unit's
 restart or `nginx -t` after the profile is back, fix the cause and run `--undo` again: it continues from where it
-stopped, without copying the profile again. A profile restored by an interrupted undo is recognised by its journaled
-inode; any other profile that reappeared in `~hermes` is still refused.
+stopped, without copying the profile again. Each run checks the profile in `~hermes` again: it counts as restored
+only if it is still the folder the earlier undo put there (its journaled inode and the one-time token
+`.swarmhub-hb-undo` inside, removed when the undo finishes). Any other profile that reappeared is refused, and so is
+a restored profile that has gone missing since; nothing else runs then, and the journal stays.
 
 Three things stay manual: the account itself (`userdel -r hb-<slug>` once the shared profile answers again),
 `wake.env.<stamp>`, and the 8745 routine.

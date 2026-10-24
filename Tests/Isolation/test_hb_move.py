@@ -415,6 +415,49 @@ class HbMove(unittest.TestCase):
         self.assertTrue((self.root / "home/.swarmhub-hb-move/grok-swarmhub.1.dedicated").is_dir())
         self.assertFalse((self.root / "home/.swarmhub-hb-move/grok-swarmhub.2.dedicated").exists())
 
+    def test_a_retry_after_a_partial_undo_rechecks_the_restored_profile(self):
+        def gone(path):
+            shutil.rmtree(path)
+
+        def replaced(path):  # same content, another folder
+            os.rename(path, self.root / "elsewhere")
+            shutil.copytree(self.root / "elsewhere", path, symlinks=True)
+
+        def token_gone(path):
+            (path / getattr(hb_move, "RESTORE_MARK", ".swarmhub-hb-undo")).unlink(missing_ok=True)
+        for change, refusal in ((gone, "is gone again"), (replaced, "exists again"), (token_gone, "exists again")):
+            with self.subTest(change.__name__):
+                self.doCleanups()
+                self.setUp()
+                self.assertEqual(self.move()[0], 0)
+                real = hb_move.Box.run
+
+                def run(box, argv):
+                    if " ".join(map(str, argv)) == "systemctl restart hermes-gateway.service":
+                        raise hb_move.Failed("systemctl exited 1: down")
+                    return real(box, argv)
+                with mock.patch.object(hb_move.Box, "run", run):
+                    self.assertEqual(self.hb("--undo", "grok-swarmhub")[0], 1)
+                journal = self.root / "var/lib/swarmhub/hb-move/grok-swarmhub.json"
+                self.assertIn("restored", json.loads(journal.read_text())["undone"])
+                change(self.root / "home/hermes/.hermes/profiles/grok-swarmhub")
+                before = len(self.commands())
+                rc, out, err = self.hb("--undo", "grok-swarmhub")
+                self.assertEqual(rc, 1, err + out)
+                self.assertIn(refusal, err)
+                again = [c for c in self.commands()[before:] if not c.startswith("getent ")]
+                self.assertEqual(again, [])  # no restart of the shared gateway, no cleanup
+                self.assertTrue(journal.exists())
+                self.assertIn("grok-swarmhub", swarmhub_registry.load(self.root / "etc/swarmhub/bots.json")["bots"])
+                self.assertTrue((self.root / "etc/sudoers.d/swarmhub-peer-bridge").exists())
+
+    def test_a_finished_undo_leaves_no_restore_token(self):
+        self.assertEqual(self.move()[0], 0)
+        self.assertEqual(self.hb("--undo", "grok-swarmhub")[0], 0)
+        restored = self.root / "home/hermes/.hermes/profiles/grok-swarmhub"
+        self.assertTrue((restored / ".env").is_file())
+        self.assertEqual(list(restored.glob(".swarmhub-hb-*")), [])
+
     def test_undo_still_refuses_a_profile_that_reappeared(self):
         self.assertEqual(self.move()[0], 0)
         (self.root / "home/hermes/.hermes/profiles/grok-swarmhub").mkdir()
