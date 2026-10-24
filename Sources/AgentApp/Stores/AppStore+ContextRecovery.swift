@@ -1,9 +1,10 @@
 import Foundation
 
 /// autoctx1 metadata: `setup` marks the rows of an app-internal turn (never history, never reconciled against the chat's
-/// session); `setupText` is the text that turn sends, kept on its reply row while it may be retried; `boundary` marks the
-/// line where a chat continued in a new session (history sent before it is not resent).
-enum ContextKey { static let setup = "setupTurn", setupText = "setupText", boundary = "sessionBoundary" }
+/// session); `setupText` is the text that turn sends and `setupChecks` what it asks to install, both kept on its reply row
+/// while it may be retried; `boundary` marks the line where a chat continued in a new session (history sent before it is
+/// not resent).
+enum ContextKey { static let setup = "setupTurn", setupText = "setupText", setupChecks = "setupChecks", boundary = "sessionBoundary" }
 
 enum ContextRecovery {
     enum Step: Equatable { case none, compacted, newSession }
@@ -32,11 +33,15 @@ extension AppStore {
 
     /// The turn `managementText` just gave an install's text is marked on its rows (and saved) before anything is sent,
     /// so it runs in a throwaway session however it is sent again: Retry, also after a relaunch, reads the mark and the
-    /// text from the row. A signed install's text belongs to its in-memory transfer, so it is not kept (no Retry).
+    /// text from the row, and its install checks too, so the result is recorded as for the first send. A signed install's
+    /// text belongs to its in-memory transfer, so it is not kept (no Retry).
     func claimSetupTurn(_ assistant: ChatMessage, in conversation: any Conversation, bot: Bot, text: String?) {
         guard turns.setupTurns.remove(bot.id) != nil, conversation === bot else { return }
         markSetupTurn(assistant, in: conversation)
-        if let text, boxInstallTransport.attempts[bot.id] == nil { assistant.metadata[ContextKey.setupText] = text }
+        if let text, boxInstallTransport.attempts[bot.id] == nil {
+            assistant.metadata[ContextKey.setupText] = text
+            assistant.metadata[ContextKey.setupChecks] = pendingSkillChecks[bot.id].flatMap { try? JSONEncoder().encode($0) }.map { String(decoding: $0, as: UTF8.self) }
+        }
         save()
     }
 

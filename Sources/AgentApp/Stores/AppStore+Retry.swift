@@ -140,6 +140,7 @@ extension AppStore {
         let history = chatHistory(conversation, upTo: trigger, excluding: row)
         let managementText = setupText ?? self.managementText(for: bot, text: trigger.content, conversation: conversation)
         if setupText == nil { claimSetupTurn(row, in: conversation, bot: bot, text: managementText) }
+        else { restoreSkillInstallChecks(from: row, manager: bot) }
         await runChatTurn(bot: bot, conversation: conversation, assistant: row, history: history, images: images, systemPrompt: bot.outboundPersona,
                           managementText: managementText, backend: activeBackend, token: token)
     }

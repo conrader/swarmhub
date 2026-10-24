@@ -14,10 +14,14 @@ private let hermesCopy = "This conversation has grown too long for gpt-6.1-sol t
 
 /// One scripted answer per chat turn, in order.
 private enum ScriptedTurn {
-    case reply(String), overflow(String, code: String? = nil), stepsThenOverflow(String), status(Int)
+    case reply(String), overflow(String, code: String? = nil), stepsThenOverflow(String), status(Int), stepThenReply(output: String, String)
     var reply: ChatParityServer.Reply {
         switch self {
         case .reply(let text): return .sse([("assistant.delta", ["delta": text]), ("assistant.completed", ["content": text, "completed": true]), ("run.completed", ["completed": true])])
+        case .stepThenReply(let output, let text):
+            return .sse([("tool.started", ["tool_name": "terminal", "tool_call_id": "i1", "args": ["command": "install"]]),
+                         ("tool.completed", ["tool_name": "terminal", "tool_call_id": "i1", "result": ["output": output, "exit_code": 0]]),
+                         ("assistant.delta", ["delta": text]), ("assistant.completed", ["content": text, "completed": true]), ("run.completed", ["completed": true])])
         case .overflow(let text, let code):
             var failed: [String: Any] = ["content": text, "completed": false, "partial": true, "failed": true]
             if let code { failed["failure_reason"] = code }
@@ -142,6 +146,57 @@ private func installedBlock(_ version: String) -> String {
     let last = ChatParityServer.requests(host).last { $0.path.hasSuffix("/chat/stream") }
     #expect((last?.body?["instructions"] as? String)?.contains("pressed Install") == true)
     #expect(row.turnState == .finished && row.metadata[ContextKey.setup] == "1")
+}
+
+/// An install that never reached the box (three 503s: a failure with its backoff), then Retry (two taps) answered by
+/// `retried`; with `relaunch`, the Retry runs in a new window over the same store.json. Waits until the turn ended and
+/// the reply's block (applied in a task after it) had its chance.
+@MainActor private func retriedInstall(_ retried: ScriptedTurn, devMode: Bool = false, relaunch: Bool = false) async throws -> (AppStore, Bot, ChatMessage) {
+    let (first, jarvis, _) = scriptedStore([.status(503), .status(503), .status(503), retried], boxHistory: true)
+    if devMode { first.setSkillDevMode(true, for: jarvis) }
+    #expect(first.installSkills(for: jarvis))
+    try await waitUntil { !first.anyTurnRunning && jarvis.skillInstallFailures["swarmhub-manager"] != nil }
+    #expect(first.skillInstallBackingOff(skill, for: jarvis))
+    var store = first, bot = jarvis
+    if relaunch {
+        first.save()
+        let backend = try first.backend(for: jarvis)
+        store = AppStore(storeURL: first.fileURL, autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(["hermes.grok-jarvis": "k"]), defaults: isolatedDefaults())
+        store.managerTemplateOverride = first.managerTemplateOverride; store.skillLibraryOverride = [skill]; store.setupRetrySleep = { _ in }
+        bot = try #require(store.bots.first { $0.name == "Jarvis" })
+        #expect(bot.skillInstallFailures["swarmhub-manager"] != nil && bot.skillDevMode == devMode)
+    }
+    let row = try #require(bot.messages.last { $0.role == .assistant })
+    #expect(row.turnState == .notSent && store.canRetry(row))
+    store.retry(row); store.retry(row)
+    try await waitUntil { !store.anyTurnRunning && row.turnState == .finished }
+    try await Task.sleep(for: .milliseconds(300))
+    return (store, bot, row)
+}
+
+private let keptManager = "SWARMHUB_DEV_KEPT:grok-jarvis/swarmhub-manager\n"
+private let failedManager = "SWARMHUB_DEV_FAILED:grok-jarvis/swarmhub-manager\n"
+
+@Test(arguments: [false, true]) @MainActor func aSuccessfulInstallRetryClearsTheFailureAndItsBackoff(relaunch: Bool) async throws {
+    let (store, jarvis, row) = try await retriedInstall(.reply(installedBlock("1.2.0")), relaunch: relaunch)
+    #expect(jarvis.installedSkills["swarmhub-manager"] == "1.2.0")
+    #expect(jarvis.skillInstallFailures.isEmpty && !store.skillInstallBackingOff(skill, for: jarvis))
+    #expect(store.skillInstallResults[jarvis.id]?.status == .installed && store.errorMessage == nil)
+    #expect(row.metadata[ContextKey.setupText] == nil && row.metadata[ContextKey.setupChecks] == nil)
+}
+
+@Test(arguments: [false, true]) @MainActor func aRetriedDevModeInstallTheBoxKeptIsNotRecordedAsInstalled(relaunch: Bool) async throws {
+    let (store, jarvis, _) = try await retriedInstall(.stepThenReply(output: keptManager, installedBlock("1.2.0")), devMode: true, relaunch: relaunch)
+    #expect(jarvis.installedSkills["swarmhub-manager"] == nil, "the block was written before the box kept the bot's own copy")
+    #expect(jarvis.skillsModifiedLocally == ["swarmhub-manager"] && jarvis.skillInstallFailures.isEmpty)
+    #expect(!store.skillInstallBackingOff(skill, for: jarvis))
+}
+
+@Test(arguments: [false, true]) @MainActor func aRetriedDevModeInstallWhoseGuardFailedIsAFailure(relaunch: Bool) async throws {
+    let (store, jarvis, _) = try await retriedInstall(.stepThenReply(output: failedManager, installedBlock("1.2.0")), devMode: true, relaunch: relaunch)
+    #expect(jarvis.installedSkills["swarmhub-manager"] == nil && jarvis.skillsModifiedLocally.isEmpty)
+    #expect(jarvis.skillInstallFailures["swarmhub-manager"]?.count == 2 && store.skillInstallBackingOff(skill, for: jarvis))
+    #expect(store.skillInstallResults[jarvis.id]?.status == .failed)
 }
 
 @Test @MainActor func retryingAnInstallRowStillSendsThatMessage() async throws {
