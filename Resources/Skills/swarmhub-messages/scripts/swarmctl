@@ -82,11 +82,15 @@ def main(args):
         if verb == "status":
             return swarm_alerts.status()
         raise ValueError("alerts panel|run|status")
-    if command == "enqueue":
-        sender, target, task, text = args
-        ident = control.enqueue(sender, target, text, task)
+    if command in ("enqueue", "enqueue-stdin"):
+        # enqueue-stdin: the text on stdin, never in argv (peer-bridge's durable verb, from another account).
+        sender, target, task, text = args if command == "enqueue" else (*args, sys.stdin.read())
+        ident = control.enqueue(sender, target, text, task, bridged=command == "enqueue-stdin")
         start()
         return "pending:" + ident
+    if command == "route":
+        import swarm_store
+        return swarm_store.route(args[0])
     if command == "plan":
         return control.coding_plan(args[0], args[1] == "1")
     if command == "model":

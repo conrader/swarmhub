@@ -55,12 +55,13 @@ def database():
         db.execute("""CREATE TABLE IF NOT EXISTS inbox (
             id TEXT PRIMARY KEY, sender TEXT NOT NULL, recipient TEXT NOT NULL,
             text TEXT NOT NULL, created REAL NOT NULL, claim TEXT, expires REAL, delivered REAL)""")
-        if "task" not in {row[1] for row in db.execute("PRAGMA table_info(inbox)")}:
-            try:
-                db.execute("ALTER TABLE inbox ADD COLUMN task TEXT NOT NULL DEFAULT ''")
-            except sqlite3.OperationalError:
-                if "task" not in {row[1] for row in db.execute("PRAGMA table_info(inbox)")}:
-                    raise
+        for column in ("task", "tier"):  # tier: "shared" when peer-bridge brought it from the shared account.
+            if column not in {row[1] for row in db.execute("PRAGMA table_info(inbox)")}:
+                try:
+                    db.execute(f"ALTER TABLE inbox ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+                except sqlite3.OperationalError:
+                    if column not in {row[1] for row in db.execute("PRAGMA table_info(inbox)")}:
+                        raise
         with db:
             yield db
     finally:
@@ -71,8 +72,8 @@ def valid(name):
     return bool(NAME.fullmatch(name))
 
 
-def hold(sender, recipient, text, task=""):
-    if not valid(sender) or not valid(recipient):
+def hold(sender, recipient, text, task="", tier=""):
+    if not valid(sender) or not valid(recipient) or tier not in ("", "dedicated", "shared"):
         raise ValueError("invalid profile")
     if not text or len(text) > HELD_MAX:
         raise ValueError(f"held message must have 1–{HELD_MAX} characters; use --priority or --durable for more")
@@ -83,13 +84,13 @@ def hold(sender, recipient, text, task=""):
         raise ValueError("unknown recipient")
     ident = uuid.uuid4().hex
     with database() as db:
-        db.execute("INSERT INTO inbox(id,sender,recipient,text,created,task) VALUES(?,?,?,?,?,?)",
-                   (ident, sender, recipient, text, time.time(), task))
+        db.execute("INSERT INTO inbox(id,sender,recipient,text,created,task,tier) VALUES(?,?,?,?,?,?,?)",
+                   (ident, sender, recipient, text, time.time(), task, "shared" if tier == "shared" else ""))
     return ident
 
 
-def render(ident, sender, text):
-    return f"[Message from {sender} via SwarmHub]\n[Held message id={ident}]\n{text}"
+def render(ident, sender, text, tier=""):
+    return f"[Message from {sender} via SwarmHub{' (shared)' if tier else ''}]\n[Held message id={ident}]\n{text}"
 
 
 def before_turn(profile, session_id, turn_id, user_message=None):
@@ -115,10 +116,10 @@ def before_turn(profile, session_id, turn_id, user_message=None):
     now = time.time()
     with database() as db:
         db.execute("BEGIN IMMEDIATE")
-        rows = db.execute("""SELECT id,sender,text,claim,task FROM inbox
+        rows = db.execute("""SELECT id,sender,text,claim,task,tier FROM inbox
             WHERE recipient=? AND delivered IS NULL ORDER BY created,id""", (profile,)).fetchall()
         batch, size = [], len(prefix) + len(HEADER)
-        for ident, sender, text, owner, task in rows:
+        for ident, sender, text, owner, task, tier in rows:
             if task and not control.active(task):
                 db.execute("UPDATE inbox SET delivered=? WHERE id=?", (now, ident))
                 continue
@@ -126,7 +127,7 @@ def before_turn(profile, session_id, turn_id, user_message=None):
                 expiry = db.execute("SELECT expires FROM inbox WHERE id=?", (ident,)).fetchone()[0]
                 if expiry > now and json.loads(owner)[0] != session_id:
                     continue
-            piece = render(ident, sender, text)
+            piece = render(ident, sender, text, tier)
             if size + len(piece) + 2 > BATCH_MAX:
                 if batch:
                     break
@@ -475,8 +476,8 @@ if __name__ == "__main__":
     os.umask(0o077)
     try:
         command = sys.argv[1]
-        if command == "hold":
-            print("held:" + hold(*sys.argv[2:]))
+        if command in ("hold", "hold-stdin"):  # hold-stdin: <sender> <recipient> <task> <tier>, text on stdin.
+            print("held:" + hold(*(sys.argv[2:] if command == "hold" else (*sys.argv[2:4], sys.stdin.read(), *sys.argv[4:]))))
         elif command == "worker":
             # Direct CLI workers also need a private group for delivery children.
             if os.getpgrp() != os.getpid():

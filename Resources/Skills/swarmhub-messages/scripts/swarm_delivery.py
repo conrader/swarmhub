@@ -34,8 +34,10 @@ def delivery_ids(message):
     return list(dict.fromkeys(TAG_PATTERN.findall(message)))
 
 
-def enqueue(sender, target, text, task="", ident=None):
-    if not profile_exists(sender) or not profile_exists(target) or not text or len(text) > TEXT_LIMIT:
+def enqueue(sender, target, text, task="", ident=None, bridged=False):
+    # bridged: peer-bridge (as root) vouched for a sender that lives in another account, so it is not a local profile.
+    known = bool(NAME.fullmatch(sender)) if bridged else profile_exists(sender)
+    if not known or not profile_exists(target) or not text or len(text) > TEXT_LIMIT:
         raise ValueError("invalid durable message")
     if task and not active(task):
         raise ValueError("task is not approved/active")

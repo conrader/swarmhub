@@ -1,0 +1,3 @@
+#!/bin/sh
+# Move one Hermes profile into its own unix account and gateway (see hb_move.py). Run as root on the box.
+exec /usr/bin/python3 -I -B "$(dirname "$0")/hb_move.py" "$@"

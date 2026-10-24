@@ -1,0 +1,7 @@
+# /etc/sudoers.d/swarmhub-peer-bridge (root 0440), installed by ops/hb-move; check with `visudo -cf`.
+# Bot accounts (hb-*) and the shared account (hermes) are in group swarmhub-peer. They may run exactly one
+# root-owned program, with no environment passed through. The bridge itself decides who the sender is (SUDO_UID),
+# checks it against /etc/swarmhub/bots.json and drops to the recipient's account before it reads a key.
+# !use_pty: a pty would SIGHUP a background stream when the caller exits (swapdesign3 §3).
+Defaults!/usr/local/lib/swarmhub/peer-bridge !use_pty, env_reset, !setenv
+%swarmhub-peer ALL=(root) NOPASSWD: /usr/local/lib/swarmhub/peer-bridge

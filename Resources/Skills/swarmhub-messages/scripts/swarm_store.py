@@ -122,6 +122,46 @@ def profile_exists(profile):
         (Path.home() / ".hermes/profiles" / profile).is_dir())
 
 
+REGISTRY = "/etc/swarmhub/bots.json"
+
+
+def registry_bots():
+    """Profiles that run in their own unix account (ops/isolation registry), or None without a usable registry.
+
+    A routing hint for bot-msg only: peer-bridge re-reads and checks it as root, so a wrong file here can only
+    misroute this account's own send. SWARMHUB_REGISTRY points tests at another file.
+    """
+    try:
+        data = json.loads(Path(os.environ.get("SWARMHUB_REGISTRY") or REGISTRY).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    bots = data.get("bots") if isinstance(data, dict) and data.get("version") == 1 else None
+    if not isinstance(bots, dict):
+        return None
+    return {name: bot for name, bot in bots.items() if isinstance(name, str) and NAME.fullmatch(name)
+            and isinstance(bot, dict)}
+
+
+def route(target):
+    """`<local|bridge|none> <own slug or -> <own gateway port or ->` for bot-msg.
+
+    local: the profile is in this account. bridge: it is a registered bot elsewhere, or this account is a registered
+    bot and the target may be a shared profile (the bridge decides). none: unknown here, or no registry (fails closed).
+    """
+    if not isinstance(target, str) or not NAME.fullmatch(target):
+        raise ValueError("invalid profile")
+    bots = registry_bots()
+    me = next((name for name, bot in (bots or {}).items() if bot.get("uid") == os.getuid()), None)
+    port = (bots or {}).get(me, {}).get("gateway_port") if me else None
+    if profile_exists(target):
+        mode = "local"
+    elif bots is not None and (target in bots or me):
+        mode = "bridge"
+    else:
+        mode = "none"
+    return f"{mode} {me or '-'} {port if isinstance(port, int) else '-'}"
+
+
 def invoking_profile(environ=None):
     """The profile whose gateway runs this process, read from HERMES_HOME; never from argv.
 
@@ -211,7 +251,7 @@ def terminate(pid):
     for child in reversed(sorted(ids)):
         try:
             os.kill(child, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):  # A root-owned `sudo peer-bridge` stops on stdin EOF instead.
             pass
     time.sleep(.1)
     current = process_snapshot()
@@ -223,7 +263,7 @@ def terminate(pid):
         if same_process(before, after, adopters=adopters if child != pid else ()):
             try:
                 os.kill(child, signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
         elif child != pid and after and same_process(before, after, adopters=(after[0],)):
             print(f"swarm_store: leaving pid {child}: adopted by {after[0]}, not this process or one of its ancestors",

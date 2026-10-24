@@ -1,0 +1,3 @@
+#!/bin/sh
+# Test stand-in for sudo in Tests/Isolation only (bot-msg uses it through SWARMHUB_SUDO). See fake_sudo.py.
+exec /usr/bin/python3 -I -B "$(dirname "$0")/fake_sudo.py" "$@"
