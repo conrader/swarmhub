@@ -93,8 +93,8 @@ class NginxReceiverTests(unittest.TestCase):
         return json.loads(result.stdout)
 
     def test_v2_a_e_and_v6_real_origin_bodies_and_buffered_te(self):
-        p = probe.Probe(None, "pilot", "", "127.0.0.1", 8745, self.port, "", "", "", self.home / "evidence",
-                        message_status=400)
+        # The fixture runs this checkout's receiver, which has PR 2's `message` fallback: 202, not 400.
+        p = probe.Probe(None, "pilot", "", "127.0.0.1", 8745, self.port, "", "", "", self.home / "evidence")
         p.matrix(self.client, self.path, "V2", origin="127.0.0.1")
         p.negatives(self.client, self.path, "V6.origin", origin="127.0.0.1")
         self.assertEqual(len(p.records), 12)
