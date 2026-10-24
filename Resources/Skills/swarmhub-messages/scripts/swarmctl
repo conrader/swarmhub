@@ -120,18 +120,30 @@ def main(args):
             # The app's call: panel <profile> list|register|rotate|delete|receiver-install [routine] [--key-hash h].
             return control.webhook.panel(rest[0], rest[1], *rest[2:3], key_hash=key_hash)
         if verb == "receiver":
-            # Supervised loopback receiver: install (idempotent; enable + start), status, uninstall.
-            action = rest[0] if rest else "status"
-            if action not in ("install", "status", "uninstall"):
-                raise ValueError("webhook receiver install|status|uninstall")
-            return getattr(control.receiver, action)()
+            # Supervised loopback receiver: install (idempotent; enable + start), status, uninstall. `--port N` gives
+            # this account its own loopback port (one receiver per bot account); later installs keep it.
+            action, port = (rest[0] if rest else "status"), None
+            if "--port" in rest[1:]:
+                at = rest.index("--port", 1)
+                value = rest[at + 1] if at + 1 < len(rest) else ""
+                if not value.isdigit():
+                    raise ValueError("webhook receiver --port needs a number from 1 to 65535")
+                port = int(value)
+                del rest[at:at + 2]
+            uninstall_port = action == "uninstall" and port is not None
+            if action not in ("install", "status", "uninstall") or len(rest) > 1 or uninstall_port:
+                raise ValueError("webhook receiver install [--port N]|status [--port N]|uninstall")
+            if action == "uninstall":
+                return control.receiver.uninstall()
+            return getattr(control.receiver, action)(port)
         if verb == "fire":
             # Stdin JSON {"key": ..., "text": ...}: the key comes from the caller's copy, never from this box's file.
             payload = json.load(sys.stdin)
             if not isinstance(payload, dict):
                 raise ValueError("webhook payload must be an object")
             try:
-                result = control.webhook.fire(rest[0], rest[1], rest[2], payload.get("key", ""), payload.get("text", ""))
+                result = control.webhook.fire(rest[0], rest[1], rest[2], payload.get("key", ""),
+                                              control.webhook.payload_text(payload))
             except PermissionError:
                 print("swarmctl: webhook rejected", file=sys.stderr)
                 sys.exit(77)

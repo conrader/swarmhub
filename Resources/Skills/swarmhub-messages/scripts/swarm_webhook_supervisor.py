@@ -75,10 +75,25 @@ def spawn(python, port):
     store.spawn([python, "-B", str(Path(__file__).resolve()), str(int(port))])
 
 
-def start(python, port):
+def start(python, port, sleep=time.sleep):
     """Record the fallback and start the supervisor unless one already runs (the lock makes a second one exit); a
-    running one whose receiver started on other code than its swarmctl folder now holds gets that receiver restarted."""
+    running one whose receiver started on other code than its swarmctl folder now holds gets that receiver restarted.
+    A new port (`receiver install --port`) retires the running supervisor first, through its marker like uninstall,
+    because a supervisor keeps the port it was started with; nothing is signalled."""
     marker = paths()["marker"]
+    try:
+        before = json.loads(marker.read_text())
+    except (OSError, ValueError):
+        before = None
+    if isinstance(before, dict) and before.get("port") != int(port) and holder() is not None:
+        marker.unlink(missing_ok=True)
+        for _ in range(150):  # It terminates its receiver (up to 10 s) and releases the lock.
+            if holder() is None:
+                break
+            sleep(0.1)
+        else:
+            marker.write_text(json.dumps(before) + "\n")
+            raise ValueError("the running receiver supervisor did not stop for the port change; try again")
     marker.write_text(json.dumps({"port": int(port), "python": python}) + "\n")
     if holder() is None:
         spawn(python, port)
