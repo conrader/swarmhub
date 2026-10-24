@@ -55,13 +55,12 @@ def database():
         db.execute("""CREATE TABLE IF NOT EXISTS inbox (
             id TEXT PRIMARY KEY, sender TEXT NOT NULL, recipient TEXT NOT NULL,
             text TEXT NOT NULL, created REAL NOT NULL, claim TEXT, expires REAL, delivered REAL)""")
-        for column in ("task", "tier"):  # tier: "shared" when peer-bridge brought it from the shared account.
-            if column not in {row[1] for row in db.execute("PRAGMA table_info(inbox)")}:
-                try:
-                    db.execute(f"ALTER TABLE inbox ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
-                except sqlite3.OperationalError:
-                    if column not in {row[1] for row in db.execute("PRAGMA table_info(inbox)")}:
-                        raise
+        for column in [c for c in ("task", "tier") if c not in {r[1] for r in db.execute("PRAGMA table_info(inbox)")}]:
+            try:  # tier: "shared" when peer-bridge brought the message from the shared account.
+                db.execute(f"ALTER TABLE inbox ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                if column not in {row[1] for row in db.execute("PRAGMA table_info(inbox)")}:
+                    raise
         with db:
             yield db
     finally:
