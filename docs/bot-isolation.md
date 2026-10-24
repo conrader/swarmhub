@@ -67,7 +67,7 @@ with `env_reset` and `!use_pty`.
      bots are briefly down during this.
    - The original is renamed (atomically) to `<shared home's parent>/.swarmhub-hb-move/<profile>.<n>` (root 0700).
    - The copy's peer plugin (`plugins/swarmhub-peer/__init__.py`) is rewritten to load the copy's own skill. Loaders
-     written before swarmhub-messages 1.4.15 name the shared account's path, which is retired. From 1.4.15 the loader
+     written before swarmhub-messages 1.4.16 name the shared account's path, which is retired. From 1.4.16 the loader
      names the skill relative to the plugin, so it keeps working wherever the profile lives.
 3. The move stops at the first red step and journals what it did in `/var/lib/swarmhub/hb-move/<profile>.json`. It
    prints no key. The checks it makes are: `/health` on the gateway port; the receiver's health on its port (this

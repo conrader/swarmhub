@@ -14,7 +14,7 @@ SKILLS = ROOT / 'Resources/Skills'
 TESTS = ROOT / 'Tests/AgentAppTests'
 # skill -> (version installed before this change, bundled now, the Swift test that pins it)
 BUMPS = {'swarmhub-coding': ('1.3.14', '1.3.15', 'CodingSkillTests.swift'),  # kill_tree retries until the tree is gone reach existing installs
-         'swarmhub-messages': ('1.4.14', '1.4.15', 'BotMessageSkillTests.swift')}  # bot-msg reaches bots in their own accounts (swapdesign PR 5)
+         'swarmhub-messages': ('1.4.15', '1.4.16', 'BotMessageSkillTests.swift')}  # bot-msg reaches bots in their own accounts (swapdesign PR 5), after 1.4.15's receiver fixes
 
 
 def semver(text):
