@@ -112,6 +112,8 @@ sudoers text is checked by the real `visudo`.
   - the late reply still arrives from a tty (test L9 covers the shell part).
 - **OAuth logins.** Model provider logins live in the shared Hermes root and are not copied. The pilot must show the
   moved bot still answers, or use the narrow credential transfer or a fresh login.
+- **Bridge and skill versions.** bot-msg's `--no-wait` waits for the bridge's `bridge: session ok` line. With an
+  older installed bridge it waits up to 25 s, then prints the session id as before. hb-move installs both together.
 - **The shared gateway's unit name** on the box was not read. Pass it explicitly; hb-move never guesses it.
 - **Durable messages from a shared profile** arrive through the bridge without the `(shared)` prefix. The bridge log
   records `tier=shared`, and a shared profile can never use a registry slug. Held and priority messages carry the

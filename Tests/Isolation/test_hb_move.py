@@ -161,7 +161,7 @@ class HbMove(unittest.TestCase):
         self.assertFalse((self.root / "etc/sudoers.d/swarmhub-peer-bridge").exists())
         self.assertFalse((self.root / "etc/systemd/system/hermes-bot@swarmhub.service.d").exists())
         commands = self.commands()
-        for expected in ("systemctl disable --now hermes-bot@swarmhub.service", f"chown -R hermes:hermes {restored}",
+        for expected in ("systemctl disable --now hermes-bot@swarmhub.service", f"chown -R hermes:hermes {restored.with_name('.grok-swarmhub.hb-undo')}",
                          "systemctl restart hermes-gateway.service"):
             self.assertIn(expected, commands)
         self.assertTrue(any("webhook receiver uninstall" in c for c in commands))
@@ -205,9 +205,12 @@ class HbMove(unittest.TestCase):
         self.assertIn("systemctl start hermes-gateway.service", self.commands())
         original = self.root / "home/hermes/.hermes/profiles/grok-swarmhub"
         self.assertTrue((original / ".env").is_file())
+        before = len(self.commands())
         rc, _, err = self.hb("--undo", "grok-swarmhub")
         self.assertEqual(rc, 0, err)
         self.assertTrue((original / ".env").is_file())
+        # Undo restarts the shared unit whenever the move had stopped it (a hard crash skips the move's finally).
+        self.assertIn("systemctl restart hermes-gateway.service", self.commands()[before:])
         partial = self.root / "home/.swarmhub-hb-move/grok-swarmhub.1.partial"
         self.assertEqual((partial / "half").read_text(), "partial")
         self.assertFalse((self.root / "home/hb-swarmhub/.hermes/profiles/grok-swarmhub").exists())
@@ -226,9 +229,14 @@ class HbMove(unittest.TestCase):
         original = self.root / "home/hermes/.hermes/profiles/grok-swarmhub"
         self.assertFalse(original.exists())
         self.assertIn("systemctl start hermes-gateway.service", self.commands())
+        stale = original.with_name(".grok-swarmhub.hb-undo")  # left by an earlier undo that crashed mid-copy
+        stale.mkdir()
+        (stale / "torn").write_text("x")
         rc, _, err = self.hb("--undo", "grok-swarmhub")
         self.assertEqual(rc, 0, err)
         self.assertEqual((original / "memories/MEMORY.md").read_text(), "remember this\n")
+        self.assertFalse((original / "torn").exists())
+        self.assertFalse(stale.exists())
         self.assertTrue((self.root / "home/.swarmhub-hb-move/grok-swarmhub.1").is_dir())
         self.assertTrue((self.root / "home/.swarmhub-hb-move/grok-swarmhub.1.dedicated").is_dir())
 

@@ -299,6 +299,8 @@ class Bridge:
                 return self.status("stream", code, rc, work, " stage=create")
             print("bridge: session ok", file=self.stderr, flush=True)  # bot-msg --no-wait returns from here on.
             (work / "headers").unlink(missing_ok=True)
+            if cancelled.is_set():
+                return self.status("stream", code, 130, work, " cancelled")  # Before the chat: nothing submitted.
             message = f"[Message from {self.sender} via SwarmHub{shared}]\n{text}"
             (work / "chat.json").write_text(json.dumps({"input": message}, ensure_ascii=False), encoding="utf-8")
             chat = start(["-N", "--max-time", str(max_time), "-H", "Accept: text/event-stream", "-X", "POST",

@@ -355,15 +355,24 @@ def undo(box, profile):
         # The original left the shared account. The bot's state since the move comes back with it (else the retired
         # original does); the dedicated copy is kept as another numbered backup, never deleted.
         source = moved if moved is not None and moved.is_dir() and "copied" in steps else box.path(data["backup"])
-        box.run(["cp", "-a", source, restore])
-        box.run(["chown", "-R", f"{shared.name}:{shared.name}", restore])
+        # Copied beside the target and renamed into place, so a crashed undo never leaves a truncated profile that a
+        # second undo would take for the original. A leftover temp copy is only ever a copy of `source`.
+        temp = restore.with_name(f".{profile}.hb-undo")
+        if not box.dry and temp.exists():
+            shutil.rmtree(temp)
+        box.run(["cp", "-a", source, temp])
+        box.run(["chown", "-R", f"{shared.name}:{shared.name}", temp])
+        box.out(f"+ mv {temp} {restore}")
+        if not box.dry:
+            os.rename(temp, restore)
         if source == moved:
             set_aside(box, moved, next_backup(box, backups(shared), profile, ".dedicated"))
-        if shared_unit != "none":
-            box.run(["systemctl", "restart", shared_unit])  # so the shared gateway serves the profile again
     elif moved is not None and moved.exists() and "copying" in steps:
         # Never retired: the original is still in place, and the (maybe partial) copy is only set aside.
         set_aside(box, moved, next_backup(box, backups(shared), profile, ".partial"))
+    if shared_unit != "none" and ("shared-stopped" in steps or "retiring" in steps):
+        # Also after a hard crash that skipped the move's own restart; serves the restored profile again.
+        box.run(["systemctl", "restart", shared_unit])
     path = box.path(registry.PATH)
     if path.exists() and profile in load_registry(box)["bots"]:
         box.out(f"+ registry: remove {profile}")
