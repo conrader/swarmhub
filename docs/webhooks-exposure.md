@@ -75,6 +75,7 @@ server {
     location /swarmhub/webhook/ {
         limit_except POST { deny all; }
         client_max_body_size 32k;
+        proxy_request_buffering on;       # receiver refuses passed-through Transfer-Encoding
         proxy_pass http://127.0.0.1:8745;   # no trailing slash: the path is passed unchanged
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
@@ -117,17 +118,25 @@ Cloudflare terminates TLS. Restrict the hostname to `POST` with a WAF rule if yo
 ## Checking it
 
 On the box: `swarmctl webhook receiver status` (or the app's Webhooks section) should say `running`. From outside,
-a POST with a wrong key must answer 403 (no key at all: 400) and one with the key 202. These POST answers and the
-receiver's GET answers use `application/json`. An unsupported method such as PUT gets Python's own 501 HTML error
-page. The proxy can also return HTML (for example, a 502); check the method, status, Content-Type and body together:
+a POST with a wrong key must answer 403 (no key at all: 400) and one with the key 202. A wrong slug on an existing
+routine also gets 403. These POST answers and the receiver's GET answers use `application/json`. An unsupported method
+such as PUT gets Python's own 501 HTML error page. The proxy can also return HTML (for example, a 502); check the
+method, status, Content-Type and body together. Health's external 404 alone does not prove proxying:
 
 ```sh
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
   -H 'X-SwarmHub-Key: wrong' -d '{"text":"ping"}' \
   https://hooks.example.com/swarmhub/webhook/<profile>/<routine>/<slug>   # 403
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
+  -d '{"text":"ping"}' https://hooks.example.com/swarmhub/webhook/<profile>/<routine>/<slug>   # 400
 ```
 
 A 502 from the proxy means the receiver is not running. `swarmctl webhook receiver status` names its log:
 `journalctl --user -u swarmhub-webhook.service` (systemd user unit), `~/.hermes/swarmhub/logs/webhook-receiver.log`
 (the fallback supervisor used where the box account has no systemd user manager) or
 `~/Library/Logs/SwarmHub/webhook-receiver.log` (macOS).
+
+For migrated accounts, route `/swarmhub/webhook/<profile>/` to that account's receiver port and retain
+8745 for shared profiles. The automated [V1–V6 probe, enrollment and DNS-only fallback](../ops/README.md)
+check account ownership with a dummy-key absent-routine POST and verify the delivery/receipt journals.
+They also distinguish nginx HTML errors from receiver JSON errors and check header presence through Cloudflare.

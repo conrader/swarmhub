@@ -1,0 +1,62 @@
+#!/usr/bin/env -S python3 -B
+"""Run V1–V6 against a temporary canary; stop on red and write private dated evidence."""
+import argparse
+from datetime import datetime, timezone
+from pathlib import Path
+import re
+import sys
+from urllib.parse import urlsplit
+
+from webhook_ops import box_arguments, box_from, public_base
+from webhook_probe import Curl, Probe, verify_evidence
+
+
+def main():
+    # Private on-box wrong-account control: fixed loopback, dummy key, no writes/wakes.
+    if len(sys.argv) > 1 and sys.argv[1] == "--wrong-account":
+        import json
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--wrong-account", required=True)
+        parser.add_argument("--path", required=True)
+        args = parser.parse_args()
+        if not re.fullmatch(r"/swarmhub/webhook/" + re.escape(args.wrong_account) + r"/absent-[0-9a-f]+/x", args.path):
+            raise ValueError("invalid control path")
+        print(json.dumps(Curl("http://127.0.0.1:8745", "probe").request(args.path)))
+        return
+    if len(sys.argv) == 3 and sys.argv[1] == "--verify":
+        if not verify_evidence(sys.argv[2]):
+            raise ValueError("incomplete or failed evidence")
+        print("webhook evidence verified")
+        return
+    parser = argparse.ArgumentParser(description=__doc__)
+    box_arguments(parser)
+    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--origin-ip", required=True)
+    parser.add_argument("--dns-only", action="store_true", help="verify the DNS-only fallback; V4 is explicitly inapplicable")
+    parser.add_argument("--receiver-port", type=int, required=True)
+    parser.add_argument("--presence-log", required=True)
+    parser.add_argument("--access-log", required=True)
+    parser.add_argument("--error-log", required=True)
+    parser.add_argument("--message-status", choices=(400, 202), type=int, default=202,
+                        help="400 before receiver PR 2; 202 after it (default)")
+    parser.add_argument("--evidence", type=Path,
+                        default=Path("webhook-probe-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ") + ".json"))
+    args = parser.parse_args()
+    args.base_url = public_base(args.base_url)
+    if urlsplit(args.base_url).path:
+        raise ValueError("automated probes require a public origin without a path prefix")
+    if not 1 <= args.receiver_port <= 65535 or args.receiver_port == 8745:
+        raise ValueError("a migrated bot needs a separate receiver port")
+    probe = Probe(box_from(args), args.profile, args.base_url, args.origin_ip, 8745, args.receiver_port,
+                  args.access_log, args.error_log, args.presence_log, args.evidence, args.message_status,
+                  dns_only=args.dns_only)
+    probe.run()
+    print("webhook probe passed; dated private evidence saved" + (" (DNS-only; V4 inapplicable)" if args.dns_only else ""))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        print("webhook probe failed; rollout stopped (inspect private evidence; keys withheld)", file=sys.stderr)
+        sys.exit(1)
