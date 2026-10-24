@@ -1,0 +1,89 @@
+#!/usr/bin/env -S python3 -B
+"""Register job-done in the bot's account and atomically enroll its sb wake on this host."""
+import argparse
+from datetime import datetime, timezone
+import fcntl
+import os
+from pathlib import Path
+import re
+import shlex
+import sys
+import tempfile
+
+from webhook_ops import box_arguments, box_from, public_base
+
+
+def private_write(path, data):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as output:
+        output.write(data)
+        output.flush()
+        os.fsync(output.fileno())
+
+
+def update_env(path, profile, url, key, key_in="header", shadow=None):
+    path = Path(path)
+    path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    lock = path.with_name(path.name + ".lock")
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "r+") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            raise ValueError("wake.env must be a regular file, not a symlink")
+        old = path.read_bytes() if path.exists() else b""
+        # Match sb-codejob's agent_key(), which removes punctuation and spaces.
+        prefix = "WAKE_AGENT_" + re.sub(r"[^A-Z0-9]", "", profile.upper())
+        values = {prefix + "_URL": url, prefix + "_KEY": key,
+                  prefix + "_AUTH_HEADER": "X-SwarmHub-Key", prefix + "_KEY_IN": key_in}
+        if shadow is not None:
+            values[prefix + "_SHADOW_URL"] = shadow
+        lines = old.decode().splitlines(keepends=True)
+        pattern = re.compile(r"\s*(?:export\s+)?(" + "|".join(map(re.escape, values)) + r")\s*=")
+        kept = "".join(line for line in lines if not pattern.match(line))
+        if kept and not kept.endswith("\n"):
+            kept += "\n"
+        updated = (kept + "".join(f"{k}={shlex.quote(v)}\n" for k, v in values.items())).encode()
+        # A first enrollment also gets an empty pre-image, so rollback is always explicit.
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        backup = path.with_name(path.name + "." + stamp)
+        private_write(backup, old)
+        temp_fd, temporary = tempfile.mkstemp(prefix=".wake-env-", dir=path.parent)
+        try:
+            with os.fdopen(temp_fd, "wb") as output:
+                output.write(updated)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, path)
+            parent_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(parent_fd)
+            finally:
+                os.close(parent_fd)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+        return backup
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    box_arguments(parser)
+    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--wake-env", type=Path, default=Path.home() / ".config/sb-jobs/wake.env")
+    parser.add_argument("--key-in", choices=("header", "body"), default="header")
+    parser.add_argument("--shadow-url")
+    args = parser.parse_args()
+    args.base_url = public_base(args.base_url)
+    if args.shadow_url is not None:
+        args.shadow_url = public_base(args.shadow_url)
+    record = box_from(args).rpc("register", profile=args.profile, routine="job-done")
+    url = f"{args.base_url}/swarmhub/webhook/{args.profile}/job-done/{record['slug']}"
+    update_env(args.wake_env, args.profile, url, record["key"], args.key_in, args.shadow_url)
+    print("wake enrollment saved; private timestamped backup created")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        print("wake enrollment failed (details withheld to protect keys)", file=sys.stderr)
+        sys.exit(1)

@@ -12,3 +12,5 @@ Torvli Grok Export/
 /out/
 __pycache__/
 .DS_Store
+# Private webhook verification responses belong outside version control.
+/webhook-probe-*.json
