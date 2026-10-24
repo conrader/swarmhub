@@ -110,3 +110,43 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     let store = launch(url, defaults)
     #expect(store.storeRestoreOffer == nil && store.bots.map(\.name) == ["Mine"])
 }
+
+@Test @MainActor func startFreshAfterAnUnreadableStoreSavesAgainAndKeepsTheUnreadableFile() throws {
+    let (url, defaults) = try setup()
+    let directory = url.deletingLastPathComponent()
+    let backup = try writeStore(["Boppy", "Jarvis"], as: "store.json.backup-reconcile-1", beside: url, modified: Date(timeIntervalSinceNow: -3_600))
+    let unreadable = Data("{ not json".utf8)
+    try unreadable.write(to: url)
+    let store = launch(url, defaults)
+    let corrupt = try #require(try FileManager.default.contentsOfDirectory(atPath: directory.path).first(where: { $0.hasPrefix("store.json.corrupt-") }))
+    #expect(store.storeRestoreOffer != nil && store.bots.isEmpty)
+    store.declineStoreRestore()
+    // Saving is back: the seeded start is on disk, and so is a change made after it.
+    #expect(store.bots.map(\.name) == ["Hermes"] && FileManager.default.fileExists(atPath: url.path))
+    store.addBot(name: "Fresh", persona: "", backend: .hermes, avatarName: nil)
+    let next = launch(url, defaults)
+    #expect(Set(next.bots.map(\.name)) == ["Hermes", "Fresh"] && next.storeRestoreOffer == nil)
+    // The unreadable file and the backup are where they were, unchanged.
+    #expect(try Data(contentsOf: directory.appending(path: corrupt)) == unreadable)
+    #expect(FileManager.default.fileExists(atPath: backup.path))
+}
+
+@Test @MainActor func newerUnusableCopiesNeverHideAnOlderGoodBackup() throws {
+    let (url, defaults) = try setup()
+    let directory = url.deletingLastPathComponent()
+    _ = try writeStore(["Boppy", "Jarvis"], as: "store.json.backup-old", beside: url, modified: Date(timeIntervalSinceNow: -86_400 * 30))
+    // Eight newer copies this build cannot use: seven unreadable ones and one that holds no bots.
+    _ = try writeStore([], as: "store.json.backup-empty", beside: url, modified: Date(timeIntervalSinceNow: -600))
+    for index in 0..<7 {
+        let bad = directory.appending(path: "store.json.corrupt-2026-10-2\(index)T00-00-00Z")
+        try Data("{ not json \(index)".utf8).write(to: bad)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -Double(index) * 60)], ofItemAtPath: bad.path)
+    }
+    let store = launch(url, defaults)
+    #expect(store.storeRestoreOffer?.url.lastPathComponent == "store.json.backup-old" && store.storeRestoreOffer?.botCount == 2)
+    #expect(store.bots.isEmpty)
+    // The bounds: only the `limit` newest files are tried, and none bigger than `maxBytes`.
+    #expect(StoreRestore.offer(directory: directory, store: url, current: [], limit: 8) == nil)
+    #expect(StoreRestore.offer(directory: directory, store: url, current: [], limit: 9)?.url.lastPathComponent == "store.json.backup-old")
+    #expect(StoreRestore.offer(directory: directory, store: url, current: [], maxBytes: 64) == nil)
+}

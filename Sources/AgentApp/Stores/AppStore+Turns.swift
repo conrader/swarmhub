@@ -148,8 +148,8 @@ extension AppStore {
     /// while it does not reach the box; a turn the model cannot fit is compacted once, then continued in a new session.
     func runChatTurn(bot: Bot, conversation: any Conversation, assistant: ChatMessage, history: [(role: String, content: String)], images: [String],
                      systemPrompt: String, managementText: String? = nil, backend activeBackend: any AgentBackend, token: UUID) async {
-        let setup = conversation === bot && turns.setupTurns.remove(bot.id) != nil
-        if setup { markSetupTurn(assistant, in: conversation) }
+        // The mark is on the row (`claimSetupTurn`), so a Retry of a setup row is a setup turn too.
+        let setup = Self.isSetupRow(assistant, in: conversation, bot: bot)
         var end: TurnEnd
         var history = setup ? Self.lastUserOnly(history) : history
         var recovery = ContextRecovery.Step.none, setupFailures = 0, plainReason: String?
@@ -184,6 +184,7 @@ extension AppStore {
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
         let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation, backend: activeBackend, plainReason: plainReason)
+        if setup, assistant.turnState != .notSent { assistant.metadata[ContextKey.setupText] = nil }
         // P54: a turn that still ends with an app request shows it folded (P51) with this line: never raw, never silent.
         if TechnicalRow.isAppRequest(assistant.content) { addWarning(AppRequestMarker.notRun, in: conversation, after: assistant) }
         let abandoned = approvals.filter { !$0.isManaged && $0.botID == bot.id && ($0.sessionID == nil || $0.sessionID == sessionID || $0.sessionID == conversation.hermesSessionID) }

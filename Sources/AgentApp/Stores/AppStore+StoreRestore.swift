@@ -39,11 +39,13 @@ extension AppStore {
 
     var declinedRestores: Set<String> { Set(defaults.stringArray(forKey: StoreRestore.declinedKey) ?? []) }
 
-    /// The set-aside file stays where it is; it is not offered again.
+    /// The set-aside file stays where it is; it is not offered again. A window whose store.json was unreadable saves again
+    /// (store.json is new; the unreadable copy and every backup are left as they are) and starts as a fresh launch would.
     func declineStoreRestore() {
         guard let offer = storeRestoreOffer else { return }
         storeRestoreOffer = nil
         defaults.set(Array(declinedRestores.union([offer.url.lastPathComponent])).sorted(), forKey: StoreRestore.declinedKey)
+        resumeSavingAfterSetAside()
         if bots.isEmpty, persistenceEnabled, hermesConfigured, !FileManager.default.fileExists(atPath: fileURL.path) {
             seedDefaultHermesBot(); selectVisibleChat()
         }

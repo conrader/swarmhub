@@ -151,6 +151,8 @@ import SwarmHubCore
     @Published var botPromptSyncWarning: String?
     /// autoctx1: a set-aside store (`store.json.corrupt-*`, a backup) this launch offers to restore (`AppStore+StoreRestore.swift`).
     @Published var storeRestoreOffer: StoreRestore.Offer?; @Published var storeRestoreNote: String?
+    /// autoctx1: this launch moved an unreadable store.json aside (so saving is off until Restore or Start fresh).
+    private(set) var unreadableStoreSetAside = false
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     var historyLoadTokens: [UUID: UUID] = [:]
     /// Prepended to every session id the app creates (chat, thread, group); `--e2e` sets `AppConstants.selfTestPrefix`.
@@ -224,7 +226,7 @@ import SwarmHubCore
                 persistenceEnabled = false
                 let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
                 let backup = fileURL.deletingLastPathComponent().appending(path: "store.json.corrupt-\(stamp)")
-                do { try FileManager.default.moveItem(at: fileURL, to: backup) }
+                do { try FileManager.default.moveItem(at: fileURL, to: backup); unreadableStoreSetAside = true }
                 catch { errorMessage = "Could not read or back up store.json: \(error.localizedDescription)" }
                 if errorMessage == nil { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent); saving is disabled for this launch." }
             }
@@ -281,9 +283,16 @@ import SwarmHubCore
     }
     /// autoctx1: a restored store is this launch's store again, saved as store.json.
     func adoptRestoredStore(_ file: StoreFile) {
-        persistenceEnabled = true
+        persistenceEnabled = true; unreadableStoreSetAside = false
         adoptStoreFile(file)
         if hermesConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
+    }
+    /// autoctx1: Start fresh after an unreadable store.json was moved aside: this window saves again, as a fresh install
+    /// would. Never while a store.json is there (the move failed, or another window wrote one): saving would replace it.
+    func resumeSavingAfterSetAside() {
+        guard !persistenceEnabled, unreadableStoreSetAside, !FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        persistenceEnabled = true; unreadableStoreSetAside = false
+        if errorMessage?.hasPrefix("The saved store could not be decoded.") == true { errorMessage = nil }
     }
     func seedDefaultHermesBot() {
         let bot = Bot(name: "Hermes", title: "Hermes Agent", description: StoreRestore.seedDescription, backend: .hermes, hermesProfile: "default")
@@ -372,6 +381,7 @@ import SwarmHubCore
         let streamToken = turn.token
         let managementText = isTeamThread(conversation) ? nil : self.managementText(for: bot, text: user.content, conversation: conversation)
         let history = chatHistory(conversation, excluding: assistant)
+        claimSetupTurn(assistant, in: conversation, bot: bot, text: managementText)
         turn.task = Task { [weak self] in
             await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.outboundPersona,
                                     managementText: managementText, backend: activeBackend, token: streamToken)

@@ -65,6 +65,8 @@ extension AppStore {
             return group.messages.last { $0.role == .assistant && $0.authorID == id } === row
         }
         guard let bot = owner(of: conversation), !isRetiredWorkflowThread((conversation as? ChatThread)?.id ?? bot.id), !needsKey(bot), (try? backend(for: bot)) != nil else { return false }
+        // autoctx1: a setup row is sent again only with the text it kept (a signed install keeps none: press Install again).
+        if Self.isSetupRow(row, in: conversation, bot: bot) { return row.metadata[ContextKey.setupText] != nil }
         return !isLegacyTransport(bot, session: conversation.hermesSessionID)
     }
 
@@ -105,18 +107,24 @@ extension AppStore {
     }
 
     private func performRetry(_ row: ChatMessage, content: String, bot: Bot, trigger: ChatMessage, conversation: any Conversation, group: GroupChat?, run: GroupRun?, token: UUID, sendAnyway: Bool) async {
-        let report = await reconcile(conversation, reason: .retry, ignoringStream: true, member: group == nil ? nil : bot.id)
+        // autoctx1: a setup turn ran in a throwaway session, so the chat's own session cannot say whether it ran; its row
+        // is sent again as it was (its kept text, in a fresh throwaway session), never into the chat's session.
+        let setupText = group == nil && Self.isSetupRow(row, in: conversation, bot: bot) ? row.metadata[ContextKey.setupText] : nil
+        var report: ReconcileReport?
+        if setupText == nil { report = await reconcile(conversation, reason: .retry, ignoringStream: true, member: group == nil ? nil : bot.id) }
         if row.metadata[TurnKey.check] == "checking" { row.metadata[TurnKey.check] = nil }
         guard !Task.isCancelled, isCurrent(token), !(run?.stopped ?? false) else { return }
         // The box had the turn (adopted, or still running): nothing is sent.
         guard row.turnState == .notSent, row.content == content else { return }
-        let covers = report.coversFrom.map { $0 <= row.createdAt.addingTimeInterval(report.skew) } ?? true
-        guard report.total == 1, report.read == 1, !report.skipped, !report.diverged, !report.unreachable, covers else {
-            addWarning("\(bot.name): Can't reach the box; nothing was sent.", in: conversation, after: row); return
-        }
-        if report.newerUnmatched && !sendAnyway {
-            row.metadata[TurnKey.retry] = "blocked"
-            addWarning("\(bot.name): Can't match the box's newest message; nothing was sent.", in: conversation, after: row); return
+        if let report {
+            let covers = report.coversFrom.map { $0 <= row.createdAt.addingTimeInterval(report.skew) } ?? true
+            guard report.total == 1, report.read == 1, !report.skipped, !report.diverged, !report.unreachable, covers else {
+                addWarning("\(bot.name): Can't reach the box; nothing was sent.", in: conversation, after: row); return
+            }
+            if report.newerUnmatched && !sendAnyway {
+                row.metadata[TurnKey.retry] = "blocked"
+                addWarning("\(bot.name): Can't match the box's newest message; nothing was sent.", in: conversation, after: row); return
+            }
         }
         let images: [String]
         do { try validateArtifactAccess(trigger, botID: bot.id); images = try trigger.attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) }
@@ -130,7 +138,8 @@ extension AppStore {
         row.turnState = .incomplete; row.isStreaming = true
         [TurnKey.why, TurnKey.ambiguous, TurnKey.retry, TurnKey.end].forEach { row.metadata[$0] = nil }
         let history = chatHistory(conversation, upTo: trigger, excluding: row)
-        let managementText = self.managementText(for: bot, text: trigger.content, conversation: conversation)
+        let managementText = setupText ?? self.managementText(for: bot, text: trigger.content, conversation: conversation)
+        if setupText == nil { claimSetupTurn(row, in: conversation, bot: bot, text: managementText) }
         await runChatTurn(bot: bot, conversation: conversation, assistant: row, history: history, images: images, systemPrompt: bot.outboundPersona,
                           managementText: managementText, backend: activeBackend, token: token)
     }

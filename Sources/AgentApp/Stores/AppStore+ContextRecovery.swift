@@ -1,8 +1,9 @@
 import Foundation
 
 /// autoctx1 metadata: `setup` marks the rows of an app-internal turn (never history, never reconciled against the chat's
-/// session); `boundary` marks the line where a chat continued in a new session (history sent before it is not resent).
-enum ContextKey { static let setup = "setupTurn", boundary = "sessionBoundary" }
+/// session); `setupText` is the text that turn sends, kept on its reply row while it may be retried; `boundary` marks the
+/// line where a chat continued in a new session (history sent before it is not resent).
+enum ContextKey { static let setup = "setupTurn", setupText = "setupText", boundary = "sessionBoundary" }
 
 enum ContextRecovery {
     enum Step: Equatable { case none, compacted, newSession }
@@ -27,6 +28,21 @@ extension AppStore {
     func markSetupTurn(_ assistant: ChatMessage, in conversation: any Conversation) {
         assistant.metadata[ContextKey.setup] = "1"
         conversation.messages.last { $0.role == .user && $0.createdAt <= assistant.createdAt }?.metadata[ContextKey.setup] = "1"
+    }
+
+    /// The turn `managementText` just gave an install's text is marked on its rows (and saved) before anything is sent,
+    /// so it runs in a throwaway session however it is sent again: Retry, also after a relaunch, reads the mark and the
+    /// text from the row. A signed install's text belongs to its in-memory transfer, so it is not kept (no Retry).
+    func claimSetupTurn(_ assistant: ChatMessage, in conversation: any Conversation, bot: Bot, text: String?) {
+        guard turns.setupTurns.remove(bot.id) != nil, conversation === bot else { return }
+        markSetupTurn(assistant, in: conversation)
+        if let text, boxInstallTransport.attempts[bot.id] == nil { assistant.metadata[ContextKey.setupText] = text }
+        save()
+    }
+
+    /// A row of an app-internal turn in the manager's own chat.
+    static func isSetupRow(_ row: ChatMessage, in conversation: any Conversation, bot: Bot) -> Bool {
+        conversation === bot && row.metadata[ContextKey.setup] != nil
     }
 
     /// A fresh session for this setup attempt (`agentapp_setup_<uuid>`), listed for deletion before it is created.

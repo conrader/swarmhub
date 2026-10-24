@@ -31,10 +31,12 @@ private enum ScriptedTurn {
 }
 
 /// Jarvis (manager, `grok-jarvis`) already talking in session `s-main`; the server answers chat turns from `script`.
-@MainActor private func scriptedStore(_ script: [ScriptedTurn]) -> (AppStore, Bot, String) {
+/// `boxHistory`: session reads answer with an empty transcript (so a Retry's read of the chat succeeds), else 404.
+@MainActor private func scriptedStore(_ script: [ScriptedTurn], boxHistory: Bool = false) -> (AppStore, Bot, String) {
     let counter = LockedTrace()
     let (host, hermes) = ChatParityServer.serve(features: ["session_chat_streaming": true]) { request, body in
         let path = request.url!.path
+        if boxHistory, request.httpMethod == "GET", path.hasPrefix("/api/sessions/"), path.hasSuffix("/messages") { return .json(200, ["object": "list", "data": [Any]()]) }
         if path.hasSuffix("/chat/stream") {
             counter.add("turn"); let index = counter.read().count - 1
             return (index < script.count ? script[index] : .reply("extra")).reply
@@ -100,6 +102,45 @@ private func installedBlock(_ version: String) -> String {
     #expect(sent.count == 2 && Set(sent).count == 2 && !sent.contains("s-main"))
     #expect(jarvis.installedSkills == ["swarmhub-manager": "1.2.0"])
     #expect(!jarvis.messages.contains { $0.content.contains("Service unavailable") })
+}
+
+@Test @MainActor func retryingAFailedInstallRunsInAFreshSessionNeverTheMainOne() async throws {
+    // Three attempts that never reach the box leave the install unsent; Retry (two taps: a 503 is ambiguous) sends it again.
+    let (store, jarvis, host) = scriptedStore([.status(503), .status(503), .status(503), .reply(installedBlock("1.2.0"))], boxHistory: true)
+    #expect(store.installSkills(for: jarvis))
+    try await waitUntil { !store.anyTurnRunning }
+    let row = try #require(jarvis.messages.last { $0.role == .assistant })
+    #expect(row.turnState == .notSent && store.canRetry(row) && streams(host).count == 3)
+    store.retry(row); store.retry(row)
+    try await waitUntil { !store.anyTurnRunning }
+    let sent = streams(host).map(\.session)
+    #expect(sent.count == 4 && Set(sent).count == 4 && !sent.contains("s-main") && sent.allSatisfy { $0.contains("agentapp_setup_") })
+    // The install's own instructions went again (not only the line the chat shows), and its result was recorded.
+    let last = ChatParityServer.requests(host).last { $0.path.hasSuffix("/chat/stream") }
+    #expect((last?.body?["instructions"] as? String)?.contains("pressed Install") == true)
+    #expect(row.turnState == .finished && jarvis.installedSkills["swarmhub-manager"] == "1.2.0" && jarvis.hermesSessionID == "s-main")
+    #expect(row.metadata[ContextKey.setup] == "1" && store.chatHistory(jarvis, excluding: ChatMessage(role: .assistant, content: "")).isEmpty)
+}
+
+@Test @MainActor func aFailedInstallIsStillIsolatedWhenRetriedAfterARelaunch() async throws {
+    let (store, jarvis, host) = scriptedStore([.status(503), .status(503), .status(503), .reply(installedBlock("1.2.0"))], boxHistory: true)
+    #expect(store.installSkills(for: jarvis))
+    try await waitUntil { !store.anyTurnRunning }
+    store.save()
+    // A new window over the same store.json, talking to the same box: only what was saved on the rows is left.
+    let backend = try store.backend(for: jarvis)
+    let next = AppStore(storeURL: store.fileURL, autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(["hermes.grok-jarvis": "k"]), defaults: isolatedDefaults())
+    next.setupRetrySleep = { _ in }
+    let reopened = try #require(next.bots.first { $0.name == "Jarvis" })
+    let row = try #require(reopened.messages.last { $0.role == .assistant })
+    #expect(row.turnState == .notSent && reopened.hermesSessionID == "s-main")
+    next.retry(row); next.retry(row)
+    try await waitUntil { !next.anyTurnRunning }
+    let sent = streams(host).map(\.session)
+    #expect(sent.count == 4 && !sent.contains("s-main") && sent.last?.contains("agentapp_setup_") == true)
+    let last = ChatParityServer.requests(host).last { $0.path.hasSuffix("/chat/stream") }
+    #expect((last?.body?["instructions"] as? String)?.contains("pressed Install") == true)
+    #expect(row.turnState == .finished && row.metadata[ContextKey.setup] == "1")
 }
 
 @Test @MainActor func retryingAnInstallRowStillSendsThatMessage() async throws {

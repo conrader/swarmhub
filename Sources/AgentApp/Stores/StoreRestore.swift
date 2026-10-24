@@ -7,8 +7,9 @@ enum StoreRestore {
     static let seedDescription = "Default Hermes profile"
     /// Files never offered: what a restore set aside itself, and partial writes.
     static let excludedMarkers = [".before-restore-", ".tmp", ".partial"]
-    /// At most this many of the newest candidates are decoded at launch.
-    static let candidateLimit = 5
+    /// Every candidate is tried, newest first, so newer unusable copies never hide an older good one. The bounds only keep
+    /// a directory full of junk from stalling launch: at most this many files, none bigger than this.
+    static let candidateLimit = 500, maxCandidateBytes = 512 << 20
 
     struct Offer: Equatable, Identifiable {
         let url: URL; let botNames: [String]; let modified: Date?
@@ -20,10 +21,12 @@ enum StoreRestore {
     /// UserDefaults: the set-aside files the user answered "Start fresh" to (file names), never offered again.
     static let declinedKey = "storeRestore.declined"
 
-    static func offer(directory: URL, store: URL, current: [Bot], declined: Set<String> = [], fileManager: FileManager = .default) -> Offer? {
+    static func offer(directory: URL, store: URL, current: [Bot], declined: Set<String> = [], fileManager: FileManager = .default,
+                      limit: Int = candidateLimit, maxBytes: Int = maxCandidateBytes) -> Offer? {
         guard current.filter({ !$0.isDemo }).isEmpty || onlySeed(current) else { return nil }
-        for url in candidates(directory: directory, store: store, fileManager: fileManager).filter({ !declined.contains($0.lastPathComponent) }).prefix(candidateLimit) {
-            guard let file = try? StoreFile.decode(Data(contentsOf: url)) else { continue }
+        for url in candidates(directory: directory, store: store, fileManager: fileManager).filter({ !declined.contains($0.lastPathComponent) }).prefix(limit) {
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            guard size <= maxBytes, let file = try? StoreFile.decode(Data(contentsOf: url)) else { continue }
             let real = file.bots.filter { !$0.isDemo }
             guard !real.isEmpty, !onlySeed(real) else { continue }
             if !current.isEmpty, real.count <= current.filter({ !$0.isDemo }).count { continue }
@@ -36,7 +39,7 @@ enum StoreRestore {
     /// `store.json.*` siblings (corrupt copies, backups), newest first.
     static func candidates(directory: URL, store: URL, fileManager: FileManager = .default) -> [URL] {
         let name = store.lastPathComponent
-        let urls = (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey])) ?? []
+        let urls = (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey, .fileSizeKey])) ?? []
         return urls.filter { url in
             let file = url.lastPathComponent
             return file.hasPrefix(name + ".") && !excludedMarkers.contains { file.contains($0) }
