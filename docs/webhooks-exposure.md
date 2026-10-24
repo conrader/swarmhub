@@ -14,7 +14,7 @@ page is a recipe only: nothing here is deployed by Swarm Hub, and the receiver i
 - Keep the `X-SwarmHub-Key` header and the JSON body as they are. The receiver accepts bodies up to 32,000 bytes.
 - Use HTTPS. The key travels in a header, so plain HTTP on the internet exposes it.
 - Don't log request headers at the proxy (the key is in one). Access logs with method, path and status are fine:
-  the path holds an unguessable slug but no key, and a call without the key is refused (403).
+  the path holds an unguessable slug but no key, and a call without the key is refused (400).
 
 ## Then publish the public address
 
@@ -63,6 +63,7 @@ server {
     location /swarmhub/webhook/ {
         limit_except POST { deny all; }
         client_max_body_size 32k;
+        proxy_request_buffering on;       # receiver refuses passed-through Transfer-Encoding
         proxy_pass http://127.0.0.1:8745;   # no trailing slash: the path is passed unchanged
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
@@ -105,14 +106,20 @@ Cloudflare terminates TLS. Restrict the hostname to `POST` with a WAF rule if yo
 ## Checking it
 
 On the box: `swarmctl webhook receiver status` (or the app's Webhooks section) should say `running`. From outside,
-a call without the key must answer 403 and one with the key 202:
+a call without the key must answer 400 JSON and one with the key 202 JSON. A wrong non-empty key or
+wrong slug on an existing routine gives 403 JSON. Health's external 404 alone does not prove proxying:
 
 ```sh
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
-  -d '{"text":"ping"}' https://hooks.example.com/swarmhub/webhook/<profile>/<routine>/<slug>   # 403
+  -d '{"text":"ping"}' https://hooks.example.com/swarmhub/webhook/<profile>/<routine>/<slug>   # 400
 ```
 
 A 502 from the proxy means the receiver is not running. `swarmctl webhook receiver status` names its log:
 `journalctl --user -u swarmhub-webhook.service` (systemd user unit), `~/.hermes/swarmhub/logs/webhook-receiver.log`
 (the fallback supervisor used where the box account has no systemd user manager) or
 `~/Library/Logs/SwarmHub/webhook-receiver.log` (macOS).
+
+For migrated accounts, route `/swarmhub/webhook/<profile>/` to that account's receiver port and retain
+8745 for shared profiles. The automated [V1–V6 probe, enrollment and DNS-only fallback](../ops/README.md)
+check account ownership with a dummy-key absent-routine POST and verify the delivery/receipt journals.
+They also distinguish nginx HTML errors from receiver JSON errors and check header presence through Cloudflare.
