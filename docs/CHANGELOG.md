@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.7 (build 32)
+
+- Installs in a throwaway session: installing or restoring a skill (one bot, all bots, an imported skill, adoption, key restore) runs in its own short-lived Hermes session, created for the turn and deleted after it, so a long manager conversation can no longer make an install fail, and the manager's main chat is never touched. An install that did not reach the box retries by itself (2 s, then 8 s) in a fresh session; Retry on a failed install, also after a relaunch, runs and checks the same way as the first send.
+- Context overflow recovers by itself: when a chat's conversation is too long for the model, the app tries the same session once more (Hermes compacts at the start of a turn), then continues in a new session with the message resent; the transcript is kept and an inline note says what happened. A reply whose tool steps already ran is never resent.
+- Store restore: when store.json is missing, unreadable or only the untouched seeded bot, the newest backup that loads is offered in a prompt ("Restore my N bots" / "Start fresh"); the current file is moved aside, never deleted.
+- Friendly errors: Hermes' "/new or /compress" advice is no longer shown; when recovery runs out the chat gets a plain line.
+- Off-app alerts stay switched off (as in 0.6.6). Ships without the embedded baseline (P1b pending), like 0.6.0–0.6.6. Release text: [releases/v0.6.7.md](releases/v0.6.7.md).
+
 ## 0.6.6 (build 31)
 
 - Routine suggestions: the routine a yes asks for is converted to the box's time zone (read from its jobs' times, UTC when none say), at the offset of its next run, so DST and runs that cross midnight land on the time offered; the user still sees their own time. A routine the bot made on the converted schedule, or on the unconverted one a 0.6.5 lead asked for, counts as made, so the editor no longer invites a duplicate. The bot is asked for `deliver 'local'`.
