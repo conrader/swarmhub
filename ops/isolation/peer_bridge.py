@@ -9,8 +9,9 @@ text means cancel: the bridge stops its curl and exits, so no signal ever crosse
 
 As root it reads only the registry and, for a shared sender, whether the sender's profile folder exists. It then drops
 to the recipient's account and runs that account's own skill (`held`, `durable`) or the outbound chat (`stream`), with
-the recipient's key read as the recipient and handed to curl on stdin only. The reply stream goes to stdout; the last
-stderr line of `stream` is `bridge: http=<code> rc=<rc>`. The reply leg back to the sender is the sender's own
+the recipient's key read as the recipient and handed to curl on stdin only. The reply stream goes to stdout; `stream`
+writes `bridge: session ok` to stderr once the session exists, and its last stderr line is `bridge: http=<code>
+rc=<rc>`. The reply leg back to the sender is the sender's own
 business (bot-msg's deliver_late, in the sender's account with the sender's key).
 
 The sender is (account, profile): the account from SUDO_UID (never SUDO_USER), the profile from --from-profile.
@@ -296,6 +297,7 @@ class Bridge:
                 return self.status("stream", code, 130, work, " cancelled")  # Nothing was submitted.
             if code not in ("200", "201", "409"):
                 return self.status("stream", code, rc, work, " stage=create")
+            print("bridge: session ok", file=self.stderr, flush=True)  # bot-msg --no-wait returns from here on.
             (work / "headers").unlink(missing_ok=True)
             message = f"[Message from {self.sender} via SwarmHub{shared}]\n{text}"
             (work / "chat.json").write_text(json.dumps({"input": message}, ensure_ascii=False), encoding="utf-8")

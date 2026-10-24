@@ -43,6 +43,11 @@ sudo -n /usr/local/lib/swarmhub/peer-bridge <held|durable|stream> <to> --from-pr
   - The sender keeps the bridge's stdin open through a holder process that the sender owns. Cancelling a task ends
     the holder, and so does a dying sender. The pipe closes and the bridge stops. No signal crosses a uid.
   - A late reply is delivered by the sender's own bot-msg, in the sender's account, with the sender's key.
+- **`default`.** In a registered account, `--to default` means the box's shared default bot, reached through the
+  bridge. It never means the account's own default profile, which exists only for its gateway.
+- **Unreachable.** When the recipient's gateway is down, a `--priority` send is queued in the recipient's own
+  durable queue (bridge `durable`). A task-bound message is not queued. `--no-wait` waits until the bridge has opened
+  the session, so a refusal (77), an unknown bot (2) or an unreachable gateway (3) is still an exit code.
 - **Logs.** Each delivery is logged in the recipient's `~/.hermes/swarmhub/peer-bridge.log`: time, verb, sender, tier,
   recipient and result. The log never contains the text or a key.
 
@@ -55,7 +60,12 @@ with `env_reset` and `!use_pty`.
    `include /etc/nginx/snippets/swarmhub-bots.conf;`. Then run `nginx -t`. hb-move refuses to start without the
    include.
 2. Run a dry run first, then the real move:
-   `sudo ops/hb-move grok-<slug> --gateway-port 8651 --receiver-port 8751 --control-port 8761 --dry-run`
+   `sudo ops/hb-move grok-<slug> --gateway-port 8651 --receiver-port 8751 --control-port 8761 --shared-unit <unit> --dry-run`
+   - `--shared-unit` names the shared gateway's systemd unit. Use `none` only when it is already stopped. hb-move
+     stops that unit from the copy until the original is retired, and always starts it again. Without the stop, the
+     shared gateway would keep writing into the retired copy, and a live database could be copied torn. All shared
+     bots are briefly down during this.
+   - The original is renamed (atomically) to `<shared home's parent>/.swarmhub-hb-move/<profile>.<n>` (root 0700).
 3. The move stops at the first red step and journals what it did in `/var/lib/swarmhub/hb-move/<profile>.json`. It
    prints no key. The checks it makes are: `/health` on the gateway port; the receiver's health on its port (this
    needs `receiver install --port` from swarmhub PR #26, and an older skill silently uses 8745); `nginx -t`; and
@@ -68,7 +78,9 @@ with `env_reset` and `!use_pty`.
 
 - stops and disables the unit and removes its drop-in;
 - uninstalls the account's receiver;
-- copies the bot's current profile back to `~hermes` (owner `hermes`) and keeps the dedicated copy as `<profile>.<n>.dedicated`;
+- copies the bot's current profile back to `~hermes` (owner `hermes`), keeps the dedicated copy as
+  `<profile>.<n>.dedicated` and restarts the shared unit. If the move stopped before the original was retired, the
+  original is untouched and the (maybe partial) copy is set aside as `<profile>.<n>.partial`. Nothing is deleted;
 - removes the registry entry and re-renders nginx;
 - removes sudoers when no bot is left.
 
@@ -100,6 +112,9 @@ sudoers text is checked by the real `visudo`.
   - the late reply still arrives from a tty (test L9 covers the shell part).
 - **OAuth logins.** Model provider logins live in the shared Hermes root and are not copied. The pilot must show the
   moved bot still answers, or use the narrow credential transfer or a fresh login.
-- **The shared gateway** keeps a moved profile loaded until it restarts. hb-move does not restart it.
+- **The shared gateway's unit name** on the box was not read. Pass it explicitly; hb-move never guesses it.
+- **Durable messages from a shared profile** arrive through the bridge without the `(shared)` prefix. The bridge log
+  records `tier=shared`, and a shared profile can never use a registry slug. Held and priority messages carry the
+  prefix.
 - **The nginx `/p/` block** copies typical SSE proxy settings. Compare it with the site's existing `/p/` location
   (`nginx -T`) before the pilot.

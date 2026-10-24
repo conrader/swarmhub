@@ -1,6 +1,7 @@
 """hb-move: move one Hermes profile into its own unix account and stock gateway (swapdesign2 §2, PR 5).
 
-    sudo ops/hb-move <profile> --gateway-port N --receiver-port N --control-port N [--user hb-<slug>] [--dry-run]
+    sudo ops/hb-move <profile> --gateway-port N --receiver-port N --control-port N --shared-unit <unit|none>
+                     [--user hb-<slug>] [--dry-run]
     sudo ops/hb-move --undo <profile> [--dry-run]
     sudo ops/hb-move --render-nginx
 
@@ -10,8 +11,9 @@ what was done; a red check stops the move where it is, and --undo takes it back.
 (tests only).
 
 Move: group swarmhub-peer (hermes and the bot account in it) -> account hb-<slug> (home 0700, ~/.ssh 0700) -> copy of
-the profile into ~hb-<slug>/.hermes/profiles/<profile>/ -> the shared original moved to a numbered backup in
-/var/backups/swarmhub-hb-move/ -> registry entry -> peer-bridge + sudoers (visudo -cf) -> hermes-bot@<slug> with its
+the profile into ~hb-<slug>/.hermes/profiles/<profile>/ and the shared original renamed to a numbered backup in
+<shared home's parent>/.swarmhub-hb-move/ (root 0700), with the shared gateway (--shared-unit) stopped in between and
+always started again -> registry entry -> peer-bridge + sudoers (visudo -cf) -> hermes-bot@<slug> with its
 port drop-in, started and answering /health -> the account's own webhook receiver on its port (needs the receiver's
 `--port`, swarmhub PR #26; checked by probing that port) -> the nginx snippet (nginx -t, reload).
 """
@@ -36,7 +38,6 @@ LIB = "/usr/local/lib/swarmhub"
 BRIDGE_FILES = (("peer-bridge", 0o755), ("peer_bridge.py", 0o644), ("swarmhub_registry.py", 0o644))
 SUDOERS = "/etc/sudoers.d/swarmhub-peer-bridge"
 UNIT = "/etc/systemd/system/hermes-bot@.service"
-BACKUPS = "/var/backups/swarmhub-hb-move"
 JOURNAL = "/var/lib/swarmhub/hb-move"
 GROUP = "swarmhub-peer"
 SKILL = "skills/swarmhub/swarmhub-messages/scripts"
@@ -141,12 +142,24 @@ def port_free(port):
     return True
 
 
-def next_backup(box, profile, suffix=""):
-    folder = box.path(BACKUPS)
+def backups(shared):
+    """Root-only folder for retired profiles, next to the shared home, so retiring is an atomic rename."""
+    return Path(shared.home).parent / ".swarmhub-hb-move"
+
+
+def next_backup(box, folder, profile, suffix=""):
+    """The first free <folder>/<profile>.<n><suffix>, as a path on the box (not under --root)."""
     n = 1
-    while (folder / f"{profile}.{n}{suffix}").exists():
+    while box.path(folder / f"{profile}.{n}{suffix}").exists():
         n += 1
     return folder / f"{profile}.{n}{suffix}"
+
+
+def set_aside(box, path, backup):
+    box.out(f"+ mv {path} {backup}")
+    if not box.dry:
+        box.path(backup).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        shutil.move(str(path), str(box.path(backup)))
 
 
 def render_nginx(box):
@@ -221,11 +234,12 @@ def preflight(box, profile, user, ports, shared_user):
     return shared, source
 
 
-def move(box, profile, user, ports, shared_user="hermes"):
+def move(box, profile, user, ports, shared_unit, shared_user="hermes"):
     shared, source = preflight(box, profile, user, ports, shared_user)
     instance = user[3:]
     journal = Journal(box, profile)
-    journal.start(profile=profile, user=user, instance=instance, ports=ports, shared_user=shared_user)
+    journal.start(profile=profile, user=user, instance=instance, ports=ports, shared_user=shared_user,
+                  shared_unit=shared_unit)
     rc, _ = box.query(["getent", "group", GROUP])
     if rc != 0:
         box.run(["groupadd", "--system", GROUP])
@@ -248,17 +262,33 @@ def move(box, profile, user, ports, shared_user="hermes"):
         for folder in (home, home / ".hermes", home / ".hermes/profiles", home / ".ssh"):
             folder.mkdir(mode=0o700, parents=True, exist_ok=True)
             folder.chmod(0o700)
-    box.run(["cp", "-a", source, target])
-    if not box.dry and sorted(p.relative_to(source) for p in source.rglob("*")) != \
-            sorted(p.relative_to(target) for p in target.rglob("*")):
-        raise Failed("the copy does not match the original; nothing retired")
-    journal.done("copied", target=str(target))
-    backup = next_backup(box, profile)
-    box.out(f"+ mv {source} {backup}")
-    if not box.dry:
-        box.path(BACKUPS).mkdir(mode=0o700, parents=True, exist_ok=True)
-        shutil.move(str(source), str(backup))
-    journal.done("retired", backup=str(backup))
+    # The shared gateway writes into the profile (sessions, memory) and would keep writing into the retired copy, so
+    # it is stopped from the copy until the original is retired, and always started again. Intent is journaled before
+    # each step, so --undo knows a half-done copy or retire.
+    stopped = False
+    try:
+        if shared_unit != "none":
+            box.run(["systemctl", "stop", shared_unit])
+            stopped = True
+            journal.done("shared-stopped")
+        journal.done("copying", target=str(target))
+        box.run(["cp", "-a", source, target])
+        if not box.dry and sorted(p.relative_to(source) for p in source.rglob("*")) != \
+                sorted(p.relative_to(target) for p in target.rglob("*")):
+            raise Failed("the copy does not match the original; nothing retired")
+        journal.done("copied")
+        backup = next_backup(box, backups(shared), profile)
+        journal.done("retiring", backup=str(backup))
+        box.out(f"+ mv {source} {backup}")
+        if not box.dry:
+            box.path(backups(shared)).mkdir(mode=0o700, parents=True, exist_ok=True)
+            box.path(backups(shared)).chmod(0o700)
+            os.rename(source, box.path(backup))  # atomic: the backups sit next to the shared home, same filesystem
+        journal.done("retired")
+    finally:
+        if stopped:
+            box.run(["systemctl", "start", shared_unit])
+            journal.done("shared-started")
     bot = dict(user=user, uid=account.uid, **ports)
     if not (home / ".hermes/.env").exists():
         box.write(f"{account.home}/.hermes/.env", hb_render.default_env(bot, secrets.token_hex(24)), 0o600)
@@ -303,8 +333,12 @@ def undo(box, profile):
     data, steps = journal.data, journal.data["steps"]
     user, unit = data["user"], f"hermes-bot@{data['instance']}.service"
     shared, account = box.account(data["shared_user"]), box.account(user)
+    if shared is None:
+        raise Failed(f"no shared account {data['shared_user']}; the original is in {data.get('backup', '(not retired)')}")
+    shared_unit = data.get("shared_unit", "none")
     restore = box.path(shared.home) / ".hermes/profiles" / profile
-    if "retired" in steps and restore.exists():
+    in_place = restore.exists() or restore.is_symlink()
+    if "retired" in steps and in_place:
         raise Failed(f"{restore} exists again; refusing to overwrite it")
     if "unit" in steps:
         box.run(["systemctl", "disable", "--now", unit])
@@ -316,17 +350,20 @@ def undo(box, profile):
         swarmctl = f"{account.home}/.hermes/profiles/{profile}/{SKILL}/swarmctl"
         box.run(["runuser", "-u", user, "--", "env", f"HOME={account.home}", "PATH=/usr/bin:/bin",
                  "PYTHONDONTWRITEBYTECODE=1", "/usr/bin/python3", "-B", swarmctl, "webhook", "receiver", "uninstall"])
-    if "retired" in steps:
-        moved = box.path(account.home) / ".hermes/profiles" / profile if account else None
-        source = moved if moved is not None and moved.is_dir() else Path(data["backup"])
-        # The bot's state since the move comes back with it; the dedicated copy is kept as another numbered backup.
+    moved = box.path(account.home) / ".hermes/profiles" / profile if account else None
+    if "retiring" in steps and not in_place:
+        # The original left the shared account. The bot's state since the move comes back with it (else the retired
+        # original does); the dedicated copy is kept as another numbered backup, never deleted.
+        source = moved if moved is not None and moved.is_dir() and "copied" in steps else box.path(data["backup"])
         box.run(["cp", "-a", source, restore])
         box.run(["chown", "-R", f"{shared.name}:{shared.name}", restore])
         if source == moved:
-            kept = next_backup(box, profile, ".dedicated")
-            box.out(f"+ mv {moved} {kept}")
-            if not box.dry:
-                shutil.move(str(moved), str(kept))
+            set_aside(box, moved, next_backup(box, backups(shared), profile, ".dedicated"))
+        if shared_unit != "none":
+            box.run(["systemctl", "restart", shared_unit])  # so the shared gateway serves the profile again
+    elif moved is not None and moved.exists() and "copying" in steps:
+        # Never retired: the original is still in place, and the (maybe partial) copy is only set aside.
+        set_aside(box, moved, next_backup(box, backups(shared), profile, ".partial"))
     path = box.path(registry.PATH)
     if path.exists() and profile in load_registry(box)["bots"]:
         box.out(f"+ registry: remove {profile}")
@@ -357,6 +394,7 @@ def main(argv=None):
     for name in registry.PORTS:
         parser.add_argument("--" + name.replace("_", "-"), type=int)
     parser.add_argument("--shared-user", default="hermes")
+    parser.add_argument("--shared-unit", help="the shared gateway's systemd unit, stopped during the copy (or none)")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--root", default="/", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -370,8 +408,10 @@ def main(argv=None):
             undo(box, args.profile)
         elif args.profile and all(getattr(args, name) for name in registry.PORTS):
             slug = args.profile[5:] if args.profile.startswith("grok-") else args.profile
+            if not args.shared_unit:
+                parser.error("--shared-unit <the shared gateway's systemd unit> is required (none: already stopped)")
             move(box, args.profile, args.user or f"hb-{slug.lower()}", {n: getattr(args, n) for n in registry.PORTS},
-                 args.shared_user)
+                 args.shared_unit, args.shared_user)
         else:
             parser.error("give <profile> with all three ports, --undo <profile>, or --render-nginx")
     except (Failed, registry.RegistryError, OSError) as exc:

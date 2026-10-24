@@ -85,7 +85,7 @@ class HbMove(unittest.TestCase):
 
     def move(self, *extra):
         ports = [f"--{k.replace('_', '-')}={v}" for k, v in self.ports.items()]
-        return self.hb("grok-swarmhub", *ports, *extra)
+        return self.hb("grok-swarmhub", *ports, "--shared-unit", "hermes-gateway.service", *extra)
 
     def commands(self):
         path = self.root / "commands"
@@ -98,7 +98,8 @@ class HbMove(unittest.TestCase):
         moved = home / ".hermes/profiles/grok-swarmhub"
         self.assertEqual((moved / "memories/MEMORY.md").read_text(), "remember this\n")
         self.assertFalse((self.root / "home/hermes/.hermes/profiles/grok-swarmhub").exists())
-        backup = self.root / "var/backups/swarmhub-hb-move/grok-swarmhub.1"
+        backup = self.root / "home/.swarmhub-hb-move/grok-swarmhub.1"
+        self.assertEqual(backup.parent.stat().st_mode & 0o777, 0o700)
         self.assertEqual((backup / ".env").read_text(), "API_SERVER_KEY=sk-profile-key-1234\n")
         for folder in (home, home / ".hermes", home / ".hermes/profiles", home / ".ssh"):
             self.assertEqual(folder.stat().st_mode & 0o777, 0o700, folder)
@@ -153,14 +154,15 @@ class HbMove(unittest.TestCase):
         restored = self.root / "home/hermes/.hermes/profiles/grok-swarmhub"
         self.assertEqual((restored / "memories/MEMORY.md").read_text(), "learned while dedicated\n")
         self.assertFalse(moved.exists())
-        self.assertTrue((self.root / "var/backups/swarmhub-hb-move/grok-swarmhub.1.dedicated").is_dir())
-        self.assertTrue((self.root / "var/backups/swarmhub-hb-move/grok-swarmhub.1").is_dir())
+        self.assertTrue((self.root / "home/.swarmhub-hb-move/grok-swarmhub.1.dedicated").is_dir())
+        self.assertTrue((self.root / "home/.swarmhub-hb-move/grok-swarmhub.1").is_dir())
         self.assertEqual(swarmhub_registry.load(self.root / "etc/swarmhub/bots.json")["bots"], {})
         self.assertNotIn("grok-swarmhub", (self.root / "etc/nginx/snippets/swarmhub-bots.conf").read_text())
         self.assertFalse((self.root / "etc/sudoers.d/swarmhub-peer-bridge").exists())
         self.assertFalse((self.root / "etc/systemd/system/hermes-bot@swarmhub.service.d").exists())
         commands = self.commands()
-        for expected in ("systemctl disable --now hermes-bot@swarmhub.service", f"chown -R hermes:hermes {restored}"):
+        for expected in ("systemctl disable --now hermes-bot@swarmhub.service", f"chown -R hermes:hermes {restored}",
+                         "systemctl restart hermes-gateway.service"):
             self.assertIn(expected, commands)
         self.assertTrue(any("webhook receiver uninstall" in c for c in commands))
         self.assertFalse(any(c.startswith("userdel") for c in commands))  # the account stays; removing it is manual
@@ -168,7 +170,77 @@ class HbMove(unittest.TestCase):
         self.assertFalse((self.root / "var/lib/swarmhub/hb-move/grok-swarmhub.json").exists())
         rc, _, err = self.move()  # and it can be moved again: backups are numbered
         self.assertEqual(rc, 0, err)
-        self.assertTrue((self.root / "var/backups/swarmhub-hb-move/grok-swarmhub.2").is_dir())
+        self.assertTrue((self.root / "home/.swarmhub-hb-move/grok-swarmhub.2").is_dir())
+
+    def test_the_shared_gateway_is_stopped_only_around_copy_and_retire(self):
+        self.assertEqual(self.move()[0], 0)
+        commands = self.commands()
+        stop, start = commands.index("systemctl stop hermes-gateway.service"), commands.index(
+            "systemctl start hermes-gateway.service")
+        self.assertLess(stop, start)
+        self.assertLess(start, commands.index("systemctl enable --now hermes-bot@swarmhub.service"))
+        steps = json.loads((self.root / "var/lib/swarmhub/hb-move/grok-swarmhub.json").read_text())["steps"]
+        self.assertLess(steps.index("shared-stopped"), steps.index("copying"))
+        self.assertLess(steps.index("retired"), steps.index("shared-started"))
+        err = io.StringIO()
+        with redirect_stderr(err), self.assertRaises(SystemExit) as exited:  # --shared-unit is required, never guessed
+            hb_move.main(["--root", str(self.root), "grok-other",
+                          *[f"--{k.replace('_', '-')}={v}" for k, v in self.ports.items()]])
+        self.assertEqual(exited.exception.code, 2)
+        self.assertIn("--shared-unit", err.getvalue())
+
+    def test_a_failed_copy_restarts_the_shared_gateway_and_undo_sets_the_copy_aside(self):
+        real = hb_move.Box.run
+
+        def run(box, argv):
+            if argv[0] == "cp":
+                Path(argv[3]).mkdir(parents=True)
+                (Path(argv[3]) / "half").write_text("partial")
+                raise hb_move.Failed("cp exited 1: disk full")
+            return real(box, argv)
+        with mock.patch.object(hb_move.Box, "run", run):
+            rc, _, err = self.move()
+        self.assertEqual(rc, 1)
+        self.assertIn("disk full", err)
+        self.assertIn("systemctl start hermes-gateway.service", self.commands())
+        original = self.root / "home/hermes/.hermes/profiles/grok-swarmhub"
+        self.assertTrue((original / ".env").is_file())
+        rc, _, err = self.hb("--undo", "grok-swarmhub")
+        self.assertEqual(rc, 0, err)
+        self.assertTrue((original / ".env").is_file())
+        partial = self.root / "home/.swarmhub-hb-move/grok-swarmhub.1.partial"
+        self.assertEqual((partial / "half").read_text(), "partial")
+        self.assertFalse((self.root / "home/hb-swarmhub/.hermes/profiles/grok-swarmhub").exists())
+        self.assertEqual(self.move()[0], 0)  # and the move can run again
+
+    def test_a_crash_right_after_the_retire_is_undone_from_the_copy(self):
+        real = hb_move.Journal.done
+
+        def done(journal, step, **fields):
+            if step == "retired":
+                raise OSError("power cut")
+            return real(journal, step, **fields)
+        with mock.patch.object(hb_move.Journal, "done", done):
+            rc, _, err = self.move()
+        self.assertEqual(rc, 1)
+        original = self.root / "home/hermes/.hermes/profiles/grok-swarmhub"
+        self.assertFalse(original.exists())
+        self.assertIn("systemctl start hermes-gateway.service", self.commands())
+        rc, _, err = self.hb("--undo", "grok-swarmhub")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual((original / "memories/MEMORY.md").read_text(), "remember this\n")
+        self.assertTrue((self.root / "home/.swarmhub-hb-move/grok-swarmhub.1").is_dir())
+        self.assertTrue((self.root / "home/.swarmhub-hb-move/grok-swarmhub.1.dedicated").is_dir())
+
+    def test_undo_without_the_shared_account_fails_cleanly(self):
+        self.assertEqual(self.move()[0], 0)
+        (self.root / "etc/passwd").write_text("".join(line + "\n" for line in
+                                              (self.root / "etc/passwd").read_text().splitlines()
+                                              if not line.startswith("hermes:")))
+        rc, _, err = self.hb("--undo", "grok-swarmhub")
+        self.assertEqual(rc, 1)
+        self.assertIn("no shared account hermes", err)
+        self.assertIn(".swarmhub-hb-move/grok-swarmhub.1", err)
 
     def test_dry_run_changes_nothing(self):
         before = sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*"))

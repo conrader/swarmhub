@@ -153,8 +153,8 @@ def route(target):
     bots = registry_bots()
     me = next((name for name, bot in (bots or {}).items() if bot.get("uid") == os.getuid()), None)
     port = (bots or {}).get(me, {}).get("gateway_port") if me else None
-    if profile_exists(target):
-        mode = "local"
+    if profile_exists(target) and not (me and target == "default"):
+        mode = "local"  # In a registered account "default" is the box's shared default bot, never its own stub.
     elif bots is not None and (target in bots or me):
         mode = "bridge"
     else:

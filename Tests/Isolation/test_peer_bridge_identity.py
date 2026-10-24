@@ -193,6 +193,16 @@ class ThreeModes(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), "Hi from b")
         self.assertEqual([c["session"] for c in w.chats("b")], ["swarmhub-from-a"])
 
+    def test_default_from_a_dedicated_account_is_the_shared_default(self):
+        # A registered account's own ~/.hermes is only its gateway's stub default; "default" is the box's default bot.
+        w = self.w
+        r = w.bot_msg("a", "--to", "default", "--priority", "--", "for the main bot")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        (chat,) = w.chats("shared")
+        self.assertEqual((chat["profile"], chat["key"], chat["session"]), ("default", "hermes-default", "swarmhub-from-a"))
+        self.assertEqual(w.query("hb-a", "peer-inbox.sqlite", "SELECT * FROM inbox"), [])
+        self.assertEqual(w.chats("a"), [])
+
     def test_text_never_reaches_sudo_argv(self):
         w = self.w
         argv_log = w.root / "sudo-argv"

@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import socket
 import sqlite3
 import subprocess
 import tempfile
@@ -26,6 +27,18 @@ UIDS = {"hermes": 2000, "hb-a": 2001, "hb-b": 2002, "hb-x": 2009}
 PROFILES = {"hermes": ["s1", "s2"], "hb-a": ["a"], "hb-b": ["b"], "hb-x": []}
 OWNER = {"a": "hb-a", "b": "hb-b", "s1": "hermes", "s2": "hermes"}
 STUBS = ("a", "b", "shared", "s1", "s2")
+
+
+def free_ports(n):
+    """n distinct loopback ports that were free a moment ago."""
+    sockets = [socket.socket() for _ in range(n)]
+    try:
+        for item in sockets:
+            item.bind(("127.0.0.1", 0))
+        return [item.getsockname()[1] for item in sockets]
+    finally:
+        for item in sockets:
+            item.close()
 
 
 class World:
@@ -74,11 +87,13 @@ class World:
         folder = self.root / "etc/swarmhub"
         folder.mkdir(parents=True, exist_ok=True)
         folder.chmod(0o755)
-        data = data or {"version": 1, "shared": {"user": "hermes", "gateway_port": self.port("shared")},
-                        "bots": {"a": {"user": "hb-a", "uid": 2001, "gateway_port": self.port("a"),
-                                       "receiver_port": 20001, "control_port": 20002},
-                                 "b": {"user": "hb-b", "uid": 2002, "gateway_port": self.port("b"),
-                                       "receiver_port": 20003, "control_port": 20004}}}
+        if data is None:
+            spare = free_ports(4)  # the host's loopback is shared with the sandbox: never a fixed port
+            data = {"version": 1, "shared": {"user": "hermes", "gateway_port": self.port("shared")},
+                    "bots": {"a": {"user": "hb-a", "uid": 2001, "gateway_port": self.port("a"),
+                                   "receiver_port": spare[0], "control_port": spare[1]},
+                             "b": {"user": "hb-b", "uid": 2002, "gateway_port": self.port("b"),
+                                   "receiver_port": spare[2], "control_port": spare[3]}}}
         path = folder / "bots.json"
         path.write_text(json.dumps(data))
         path.chmod(0o644)

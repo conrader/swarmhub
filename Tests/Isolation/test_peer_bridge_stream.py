@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sim"))
 import sim_isolation  # noqa: F401,E402  Exits unless isolated (sim/ISOLATION.md); keep it the first import.
+import json  # noqa: E402
 import os  # noqa: E402
 import shlex  # noqa: E402
 import signal  # noqa: E402
@@ -17,7 +18,7 @@ import time  # noqa: E402
 import unittest  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from world import KEYS, World  # noqa: E402
+from world import KEYS, World, free_ports  # noqa: E402
 
 LATE = "and its reply will reach you as a new message"
 
@@ -110,6 +111,24 @@ class StreamTests(unittest.TestCase):
         late = w.until(lambda: self.late_chats("a", "b"), timeout=12)
         self.assertEqual([c["key"] for c in late], ["a"])
         self.assert_no_crossed_keys()
+
+    def test_l3_no_wait_still_reports_what_the_bridge_refused_or_could_not_reach(self):
+        w = self.w
+        r = w.bot_msg("a", "--to", "ghost", "--priority", "--no-wait", "--", "anyone?")
+        self.assertEqual((r.returncode, r.stdout), (2, ""), r.stderr)
+        self.assertIn("no bot named ghost", r.stderr)
+        # B's gateway is down: nothing was submitted, so the message waits in B's own durable queue.
+        data = json.loads(w.registry.read_text())
+        data["bots"]["b"]["gateway_port"] = free_ports(1)[0]
+        w.write_registry(data)
+        r = w.bot_msg("a", "--to", "b", "--priority", "--no-wait", "--", "when you are back")
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("unreachable; pending:delivery.", r.stderr)
+        self.assertEqual(w.query("hb-b", "control.sqlite", "SELECT sender,target,text FROM deliveries"),
+                         [("a", "b", "when you are back")])
+        w.registry.chmod(0o666)
+        r = w.bot_msg("a", "--to", "b", "--priority", "--no-wait", "--", "refused")
+        self.assertEqual(r.returncode, 77, r.stderr)
 
     def test_l4_cancel_ends_the_bridge_without_a_signal_across_accounts(self):
         w = self.w

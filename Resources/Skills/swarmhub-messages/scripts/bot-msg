@@ -78,10 +78,10 @@ if [ -f "${SWARMHUB_REGISTRY:-/etc/swarmhub/bots.json}" ]; then
   [ "$ROUTE" = bridge ] && [ -n "$SELF" ] && FROM=$SELF
 fi
 # held/durable into another account: the bridge runs the recipient's own skill there. The text never enters argv.
-bridge_once() {
+bridge_pipe() {
   { printf '%s' "$TEXT" | wc -c | tr -d ' '; printf '%s' "$TEXT"; } | "${SWARMHUB_SUDO:-sudo}" -n "$BRIDGE" "$1" "$TO" --from-profile "$FROM"
-  exit $?
 }
+bridge_once() { bridge_pipe "$1"; exit $?; }
 
 if [ -n "$DURABLE" ]; then
   [ "$ROUTE" = bridge ] && bridge_once durable
@@ -165,7 +165,13 @@ api() {
 queue_unreachable() {
   # No chat was submitted yet, so admission to the retry queue cannot repeat an
   # already-running model action. --durable journals before *any* network I/O.
-  if [ -z "$RETRY_ATTEMPT" ]; then
+  # Across accounts the queue is the recipient's own (bridge durable), which retries once its gateway is back; a
+  # task-bound message is not queued there, because that account cannot see this one's task being stopped.
+  if [ -n "$RETRY_ATTEMPT" ]; then return; fi
+  if [ "$ROUTE" = bridge ]; then
+    [ -z "$TASKID" ] && receipt=$(bridge_pipe durable 2>/dev/null) &&
+      echo "bot-msg: unreachable; $receipt (not delivered)" >&2
+  else
     receipt=$(python3 "$(dirname "$0")/swarmctl" enqueue "$FROM" "$TO" "$TASKID" "$TEXT") &&
       echo "bot-msg: unreachable; $receipt (not delivered)" >&2
   fi
@@ -328,7 +334,7 @@ if [ "$ROUTE" = bridge ]; then
     esac
     if [ -n "$line" ]; then code=${line#*http=}; code=${code%% *}; rc=${line#*rc=}; rc=${rc%% *}
     else code=000; rc=$(cat "$F/brc"); fi
-    grep -v '^bridge: http=' "$F/bridge.err" > "$F/curl.err"
+    grep -v -e '^bridge: http=' -e '^bridge: session ok' "$F/bridge.err" > "$F/curl.err"
     echo "$code" > "$F/code"; echo "$rc" > "$F/rc"
     if ! mkdir "$F/decided" 2>/dev/null; then
       [ -n "$FOLLOW" ] && deliver_late
@@ -362,9 +368,24 @@ else
 fi
 
 if [ -n "$NOWAIT" ]; then
-  mkdir "$F/decided"
-  echo "$SID"
-  finish 0
+  if [ "$ROUTE" = bridge ]; then
+    # As on the local path, a refusal, an unknown bot or an unreachable gateway is an exit code, not a silent drop:
+    # wait until the bridge has opened the session or ended (and then for the background's decision).
+    n=0
+    while [ ! -e "$F/brc" ] && ! grep -q '^bridge: session ok' "$F/bridge.err" 2>/dev/null && [ $n -lt 125 ]; do
+      sleep 0.2; n=$((n + 1))
+    done
+    n=0
+    while [ -e "$F/brc" ] && [ ! -d "$F/decided" ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+  fi
+  if mkdir "$F/decided" 2>/dev/null; then echo "$SID"; finish 0; fi
+  # The chat already ended and the background left it to this side: a reply still arrives as a late one; an error
+  # falls through and is reported like a waited send.
+  if [ "$(cat "$F/code" 2>/dev/null)" = 200 ] && [ "$(cat "$F/rc" 2>/dev/null)" = 0 ]; then
+    echo "$SID"
+    ( trap '' HUP; [ -n "$FOLLOW" ] && deliver_late; rm -rf "$F" ) < /dev/null > /dev/null 2>&1 &
+    finish 0
+  fi
 fi
 
 n=0 limit=$(( WAIT * 5 ))
