@@ -447,7 +447,7 @@ class PeerTests(unittest.TestCase):
         peer.install("recipient")
         folder = self.home / ".hermes/profiles/recipient/plugins/swarmhub-peer"
         self.assertIn("version: 1.3.3\n", (folder / "plugin.yaml").read_text())
-        namespace = {}
+        namespace = {"__file__": str(folder / "__init__.py")}  # Hermes imports it from its file
         exec((folder / "__init__.py").read_text(), namespace)
         hooks = {}
         class Context:

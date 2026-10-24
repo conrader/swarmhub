@@ -60,3 +60,14 @@ def default_env(bot, key):
     return ("# Written by ops/hb-move. The default profile of this bot's own account.\n"
             "API_SERVER_ENABLED=true\nAPI_SERVER_HOST=127.0.0.1\n"
             f"API_SERVER_PORT={bot['gateway_port']}\nAPI_SERVER_KEY={key}\n")
+
+
+def plugin_loader(script):
+    """The moved profile's plugins/swarmhub-peer/__init__.py, loading its own skill's peer-runtime.py at `script`
+    (relative to the profile). The same text as the skill's swarm_control.plugin_loader writes for a skill inside the
+    profile, so the profile loads in the bot's account and again after --undo."""
+    return ("import os, runpy, sys\n"
+            "script = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "
+            f"{str(script)!r})\n"
+            "sys.path.insert(0, os.path.dirname(script))\n"
+            "register = runpy.run_path(script)[\"register\"]\n")

@@ -34,22 +34,26 @@ def delivery_ids(message):
     return list(dict.fromkeys(TAG_PATTERN.findall(message)))
 
 
-def enqueue(sender, target, text, task="", ident=None, bridged=False):
+def enqueue(sender, target, text, task="", ident=None, bridged=False, tier=""):
     # bridged: peer-bridge (as root) vouched for a sender that lives in another account, so it is not a local profile.
+    # tier "shared": that sender is in the shared account; the delivered message says so, like a held one.
     known = bool(NAME.fullmatch(sender)) if bridged else profile_exists(sender)
-    if not known or not profile_exists(target) or not text or len(text) > TEXT_LIMIT:
+    if not known or not profile_exists(target) or not text or len(text) > TEXT_LIMIT or \
+            tier not in ("", "dedicated", "shared"):
         raise ValueError("invalid durable message")
+    tier = "shared" if tier == "shared" else ""
     if task and not active(task):
         raise ValueError("task is not approved/active")
     ident = ident or "delivery." + uuid.uuid4().hex
     if not NAME.fullmatch(ident):
         raise ValueError("invalid delivery id")
     with database() as db:
-        existing = db.execute("SELECT sender,target,text,task FROM deliveries WHERE id=?", (ident,)).fetchone()
-        if existing and tuple(existing) != (sender, target, text, task):
+        existing = db.execute("SELECT sender,target,text,task,COALESCE(tier,'') FROM deliveries WHERE id=?",
+                              (ident,)).fetchone()
+        if existing and tuple(existing) != (sender, target, text, task, tier):
             raise ValueError("delivery id already binds different content")
-        db.execute("INSERT OR IGNORE INTO deliveries(id,sender,target,text,task,status) VALUES(?,?,?,?,?,'pending')",
-                   (ident, sender, target, text, task))
+        db.execute("INSERT OR IGNORE INTO deliveries(id,sender,target,text,task,status,tier) "
+                   "VALUES(?,?,?,?,?,'pending',?)", (ident, sender, target, text, task, tier))
     return ident
 
 
@@ -96,7 +100,7 @@ def receipt_ack(profile, session, turn):
                    (profile, session, str(turn)))
 
 
-def deliver(sender, target, text, ident, task=""):
+def deliver(sender, target, text, ident, task="", tier=""):
     if task and not active(task):
         return 125
     token = receipt_claim(target, ident, sender)
@@ -108,6 +112,8 @@ def deliver(sender, target, text, ident, task=""):
                "--from", sender, "--to", target, "--wait", "3600"]
     if task:
         command += ["--task-id", task]
+    if tier == "shared":
+        command.append("--shared")
     try:
         rc = lifecycle.call(command + ["--", tagged(ident, text)], timeout=3700)
     except (OSError, subprocess.TimeoutExpired):
@@ -126,7 +132,7 @@ def retry_deliveries():
         rows = db.execute("SELECT * FROM deliveries WHERE status='pending' AND due<=? ORDER BY rowid", (time.time(),)).fetchall()
     for row in rows:
         try:
-            rc = deliver(row["sender"], row["target"], row["text"], row["id"], row["task"])
+            rc = deliver(row["sender"], row["target"], row["text"], row["id"], row["task"], row["tier"] or "")
         except ValueError:
             rc = 125
         except OSError:

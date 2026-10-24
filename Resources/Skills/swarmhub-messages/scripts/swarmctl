@@ -83,9 +83,11 @@ def main(args):
             return swarm_alerts.status()
         raise ValueError("alerts panel|run|status")
     if command in ("enqueue", "enqueue-stdin"):
-        # enqueue-stdin: the text on stdin, never in argv (peer-bridge's durable verb, from another account).
-        sender, target, task, text = args if command == "enqueue" else (*args, sys.stdin.read())
-        ident = control.enqueue(sender, target, text, task, bridged=command == "enqueue-stdin")
+        # enqueue-stdin <sender> <target> <task> <tier>: the text on stdin, never in argv (peer-bridge's durable verb,
+        # from another account; tier "shared" marks a sender from the shared account).
+        sender, target, task, *rest = args
+        text, tier = (*rest, "") if command == "enqueue" else (sys.stdin.read(), *(rest or [""]))
+        ident = control.enqueue(sender, target, text, task, bridged=command == "enqueue-stdin", tier=tier)
         start()
         return "pending:" + ident
     if command == "route":

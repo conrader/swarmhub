@@ -29,7 +29,7 @@
 
 usage() { echo "usage: bot-msg --to <bot> [--from <bot>] [--held | --priority [--wait <seconds> | --no-wait]] -- \"<text>\"" >&2; exit 64; }
 
-TO= FROM= WAIT=300 NOWAIT= PRIORITY= NOREPLY= DURABLE= TASKID= STREAM_PID= RETRY_ATTEMPT=
+TO= FROM= WAIT=300 NOWAIT= PRIORITY= NOREPLY= DURABLE= TASKID= STREAM_PID= RETRY_ATTEMPT= SHARED=
 RUNTIME=$(dirname "$0")/peer-runtime.py
 if [ "${1:-}" = --retry ]; then
   exec python3 "$RUNTIME" start
@@ -46,6 +46,7 @@ while [ $# -gt 0 ]; do
     --no-reply) NOREPLY=1; shift ;;
     --durable) DURABLE=1; PRIORITY=1; shift ;;
     --retry-attempt) RETRY_ATTEMPT=1; shift ;;
+    --shared) SHARED=' (shared)'; shift ;;  # a durable retry of a message peer-bridge brought from the shared account
     --) shift; break ;;
     *) usage ;;
   esac
@@ -192,7 +193,7 @@ if [ "$ROUTE" != bridge ]; then
   printf '{"id":"%s","title":%s,"source":"api_server"}' "$SID" "$TITLE" > "$T/create.json"
   created "$(api "$T/create.out" --max-time 20 -X POST --data-binary @"$T/create.json" "$URL/api/sessions")"
 
-  { printf '[Message from %s via SwarmHub]\n' "$FROM"; printf '%s\n' "$TEXT"; } | json_string > "$T/input"
+  { printf '[Message from %s via SwarmHub%s]\n' "$FROM" "$SHARED"; printf '%s\n' "$TEXT"; } | json_string > "$T/input"
   { printf '{"input":'; cat "$T/input"; printf '}'; } > "$T/chat.json"
   rm -f "$T/input"
 fi

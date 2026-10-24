@@ -185,6 +185,12 @@ class ThreeModes(unittest.TestCase):
         chats = w.until(lambda: w.chats("b"), timeout=20)
         self.assertTrue(chats and chats[0]["input"].startswith("[Message from a via SwarmHub]\n"), chats)
         self.assertEqual(chats[0]["key"], "b")
+        # From the shared account the delivered message carries the same (shared) marker as a held one.
+        r = w.bot_msg("s1", "--to", "b", "--durable", "--", "shared and durable")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(("s1", "shared"), w.query("hb-b", "control.sqlite", "SELECT sender,tier FROM deliveries"))
+        chats = w.until(lambda: [c for c in w.chats("b") if "shared and durable" in c["input"]], timeout=20)
+        self.assertTrue(chats and chats[0]["input"].startswith("[Message from s1 via SwarmHub (shared)]\n"), chats)
 
     def test_priority(self):
         w = self.w

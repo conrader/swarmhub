@@ -236,7 +236,8 @@ class Bridge:
                           text)
 
     def durable(self, text):
-        return self.local("durable", [self.skill("swarmctl"), "enqueue-stdin", self.sender, self.to, ""], text)
+        return self.local("durable", [self.skill("swarmctl"), "enqueue-stdin", self.sender, self.to, "", self.tier],
+                          text)
 
     def run_curl(self, key, args, work, stdout):
         config = f'header = "Authorization: Bearer {key}"\n'.encode()

@@ -41,6 +41,7 @@ UNIT = "/etc/systemd/system/hermes-bot@.service"
 JOURNAL = "/var/lib/swarmhub/hb-move"
 GROUP = "swarmhub-peer"
 SKILL = "skills/swarmhub/swarmhub-messages/scripts"
+PLUGIN = "plugins/swarmhub-peer"
 HEALTH_TRIES = 30
 
 
@@ -118,6 +119,12 @@ class Journal:
         self.data.update(fields)
         self.save()
 
+    def undone(self, step, **fields):
+        """Undo's own progress, so an undo that failed part way (a restart, nginx) runs again from where it stopped."""
+        self.data.setdefault("undone", []).append(step)
+        self.data.update(fields)
+        self.save()
+
     def save(self):
         if self.box.dry:
             return
@@ -160,6 +167,11 @@ def set_aside(box, path, backup):
     if not box.dry:
         box.path(backup).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         shutil.move(str(path), str(box.path(backup)))
+
+
+def inode(path):
+    stat = os.lstat(path)
+    return [stat.st_dev, stat.st_ino]
 
 
 def render_nginx(box):
@@ -277,6 +289,10 @@ def move(box, profile, user, ports, shared_unit, shared_user="hermes"):
                 sorted(p.relative_to(target) for p in target.rglob("*")):
             raise Failed("the copy does not match the original; nothing retired")
         journal.done("copied")
+        if (source / PLUGIN).is_dir():
+            # An older skill's loader names the shared account's path, which is retired next: load the copy's own.
+            box.write(f"{account.home}/.hermes/profiles/{profile}/{PLUGIN}/__init__.py",
+                      hb_render.plugin_loader(f"{SKILL}/peer-runtime.py"), 0o600)
         backup = next_backup(box, backups(shared), profile)
         journal.done("retiring", backup=str(backup))
         box.out(f"+ mv {source} {backup}")
@@ -338,41 +354,57 @@ def undo(box, profile):
     shared_unit = data.get("shared_unit", "none")
     restore = box.path(shared.home) / ".hermes/profiles" / profile
     in_place = restore.exists() or restore.is_symlink()
-    if "retired" in steps and in_place:
+    undone = data.get("undone", [])
+    # An earlier undo's restore landed (the rename keeps the journaled inode): this run picks up after it.
+    landed = "restored" in undone or (in_place and "restore_inode" in data and inode(restore) == data["restore_inode"])
+    if "retired" in steps and in_place and not landed:
         raise Failed(f"{restore} exists again; refusing to overwrite it")
-    if "unit" in steps:
+    if "unit" in steps and "unit" not in undone:
         box.run(["systemctl", "disable", "--now", unit])
         box.out(f"+ rm -r /etc/systemd/system/{unit}.d")
         if not box.dry:
             shutil.rmtree(box.path(f"/etc/systemd/system/{unit}.d"), ignore_errors=True)
         box.run(["systemctl", "daemon-reload"])
-    if "receiver" in steps and account is not None:
+        journal.undone("unit")
+    if "receiver" in steps and "receiver" not in undone and account is not None:
         swarmctl = f"{account.home}/.hermes/profiles/{profile}/{SKILL}/swarmctl"
         box.run(["runuser", "-u", user, "--", "env", f"HOME={account.home}", "PATH=/usr/bin:/bin",
                  "PYTHONDONTWRITEBYTECODE=1", "/usr/bin/python3", "-B", swarmctl, "webhook", "receiver", "uninstall"])
+        journal.undone("receiver")
     moved = box.path(account.home) / ".hermes/profiles" / profile if account else None
-    if "retiring" in steps and not in_place:
+    if "retiring" in steps and (landed or not in_place):
         # The original left the shared account. The bot's state since the move comes back with it (else the retired
         # original does); the dedicated copy is kept as another numbered backup, never deleted.
-        source = moved if moved is not None and moved.is_dir() and "copied" in steps else box.path(data["backup"])
-        # Copied beside the target and renamed into place, so a crashed undo never leaves a truncated profile that a
-        # second undo would take for the original. A leftover temp copy is only ever a copy of `source`.
-        temp = restore.with_name(f".{profile}.hb-undo")
-        if not box.dry and temp.exists():
-            shutil.rmtree(temp)
-        box.run(["cp", "-a", source, temp])
-        box.run(["chown", "-R", f"{shared.name}:{shared.name}", temp])
-        box.out(f"+ mv {temp} {restore}")
-        if not box.dry:
-            os.rename(temp, restore)
-        if source == moved:
+        dedicated = data.get("restore_from") == "dedicated" if landed else \
+            moved is not None and moved.is_dir() and "copied" in steps
+        if not landed:
+            source = moved if dedicated else box.path(data["backup"])
+            # Copied beside the target and renamed into place, so a crashed undo never leaves a truncated profile that
+            # a second undo would take for the original. A leftover temp copy is only ever a copy of `source`.
+            temp = restore.with_name(f".{profile}.hb-undo")
+            if not box.dry and temp.exists():
+                shutil.rmtree(temp)
+            box.run(["cp", "-a", source, temp])
+            if dedicated and (source / PLUGIN).is_dir():  # an install in the bot account may have named its home
+                box.write(f"{shared.home}/.hermes/profiles/.{profile}.hb-undo/{PLUGIN}/__init__.py",
+                          hb_render.plugin_loader(f"{SKILL}/peer-runtime.py"), 0o600)
+            box.run(["chown", "-R", f"{shared.name}:{shared.name}", temp])
+            if not box.dry:
+                journal.undone("restoring", restore_from="dedicated" if dedicated else "backup",
+                               restore_inode=inode(temp))
+            box.out(f"+ mv {temp} {restore}")
+            if not box.dry:
+                os.rename(temp, restore)
+        if dedicated and moved is not None and moved.exists():
             set_aside(box, moved, next_backup(box, backups(shared), profile, ".dedicated"))
+        journal.undone("restored")
     elif moved is not None and moved.exists() and "copying" in steps:
         # Never retired: the original is still in place, and the (maybe partial) copy is only set aside.
         set_aside(box, moved, next_backup(box, backups(shared), profile, ".partial"))
-    if shared_unit != "none" and ("shared-stopped" in steps or "retiring" in steps):
+    if shared_unit != "none" and ("shared-stopped" in steps or "retiring" in steps) and "shared" not in undone:
         # Also after a hard crash that skipped the move's own restart; serves the restored profile again.
         box.run(["systemctl", "restart", shared_unit])
+        journal.undone("shared")
     path = box.path(registry.PATH)
     if path.exists() and profile in load_registry(box)["bots"]:
         box.out(f"+ registry: remove {profile}")

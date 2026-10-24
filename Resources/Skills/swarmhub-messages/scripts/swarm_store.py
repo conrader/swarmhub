@@ -19,6 +19,7 @@ NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\Z", re.ASCII)
 # Columns added after the first schema; applied with ALTER TABLE when missing.
 ACTION_COLUMNS = {"decided_by": "TEXT", "decided_pid": "INTEGER", "decided_at": "REAL",
                   "pid_start": "TEXT", "launched": "TEXT"}
+DELIVERY_COLUMNS = {"tier": "TEXT"}  # "shared": a bridged sender from the shared account (ops/isolation)
 
 
 def spawn(command):
@@ -92,14 +93,15 @@ def database():
           CREATE TABLE IF NOT EXISTS webhooks(profile TEXT, routine TEXT, slug TEXT, key_file TEXT,
             created REAL, rotated REAL, fired INTEGER DEFAULT 0, PRIMARY KEY(profile,routine));
         """)
-        present = {row[1] for row in db.execute("PRAGMA table_info(actions)")}
-        for column, kind in ACTION_COLUMNS.items():
-            if column not in present:
-                try:
-                    db.execute(f"ALTER TABLE actions ADD COLUMN {column} {kind}")
-                except sqlite3.OperationalError:
-                    if column not in {row[1] for row in db.execute("PRAGMA table_info(actions)")}:
-                        raise
+        for table, columns in (("actions", ACTION_COLUMNS), ("deliveries", DELIVERY_COLUMNS)):
+            present = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+            for column, kind in columns.items():
+                if column not in present:
+                    try:
+                        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+                    except sqlite3.OperationalError:
+                        if column not in {row[1] for row in db.execute(f"PRAGMA table_info({table})")}:
+                            raise
         with db:
             yield db
         # Durable outbox: filesystem effects happen only after the transaction commits.

@@ -66,6 +66,9 @@ with `env_reset` and `!use_pty`.
      shared gateway would keep writing into the retired copy, and a live database could be copied torn. All shared
      bots are briefly down during this.
    - The original is renamed (atomically) to `<shared home's parent>/.swarmhub-hb-move/<profile>.<n>` (root 0700).
+   - The copy's peer plugin (`plugins/swarmhub-peer/__init__.py`) is rewritten to load the copy's own skill. Loaders
+     written before swarmhub-messages 1.4.15 name the shared account's path, which is retired. From 1.4.15 the loader
+     names the skill relative to the plugin, so it keeps working wherever the profile lives.
 3. The move stops at the first red step and journals what it did in `/var/lib/swarmhub/hb-move/<profile>.json`. It
    prints no key. The checks it makes are: `/health` on the gateway port; the receiver's health on its port (this
    needs `receiver install --port` from swarmhub PR #26, and an older skill silently uses 8745); `nginx -t`; and
@@ -78,11 +81,17 @@ with `env_reset` and `!use_pty`.
 
 - stops and disables the unit and removes its drop-in;
 - uninstalls the account's receiver;
-- copies the bot's current profile back to `~hermes` (owner `hermes`), keeps the dedicated copy as
-  `<profile>.<n>.dedicated` and restarts the shared unit. If the move stopped before the original was retired, the
-  original is untouched and the (maybe partial) copy is set aside as `<profile>.<n>.partial`. Nothing is deleted;
+- copies the bot's current profile back to `~hermes` (owner `hermes`, peer plugin loader rewritten), keeps the
+  dedicated copy as `<profile>.<n>.dedicated` and restarts the shared unit. If the move stopped before the original
+  was retired, the original is untouched and the (maybe partial) copy is set aside as `<profile>.<n>.partial`.
+  Nothing is deleted;
 - removes the registry entry and re-renders nginx;
 - removes sudoers when no bot is left.
+
+Undo journals its own progress (`undone` in the journal). If it fails part way, for example on the shared unit's
+restart or `nginx -t` after the profile is back, fix the cause and run `--undo` again: it continues from where it
+stopped, without copying the profile again. A profile restored by an interrupted undo is recognised by its journaled
+inode; any other profile that reappeared in `~hermes` is still refused.
 
 Three things stay manual: the account itself (`userdel -r hb-<slug>` once the shared profile answers again),
 `wake.env.<stamp>`, and the 8745 routine.
@@ -115,8 +124,5 @@ sudoers text is checked by the real `visudo`.
 - **Bridge and skill versions.** bot-msg's `--no-wait` waits for the bridge's `bridge: session ok` line. With an
   older installed bridge it waits up to 25 s, then prints the session id as before. hb-move installs both together.
 - **The shared gateway's unit name** on the box was not read. Pass it explicitly; hb-move never guesses it.
-- **Durable messages from a shared profile** arrive through the bridge without the `(shared)` prefix. The bridge log
-  records `tier=shared`, and a shared profile can never use a registry slug. Held and priority messages carry the
-  prefix.
 - **The nginx `/p/` block** copies typical SSE proxy settings. Compare it with the site's existing `/p/` location
   (`nginx -T`) before the pilot.

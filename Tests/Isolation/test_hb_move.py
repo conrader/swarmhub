@@ -320,6 +320,109 @@ class HbMove(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(snippet.read_text(), before)
 
+    def old_plugin(self):
+        """A peer plugin as 1.4.14 installed it: absolute paths into the shared account."""
+        profile = self.root / "home/hermes/.hermes/profiles/grok-swarmhub"
+        script = profile / "skills/swarmhub/swarmhub-messages/scripts/peer-runtime.py"
+        folder = profile / "plugins/swarmhub-peer"
+        folder.mkdir(parents=True)
+        (folder / "plugin.yaml").write_text("name: swarmhub-peer\nversion: 1.3.3\n")
+        (folder / "__init__.py").write_text(f"import runpy, sys\nsys.path.insert(0, {str(script.parent)!r})\n"
+                                            f"register = runpy.run_path({str(script)!r})[\"register\"]\n")
+        return script
+
+    def loads(self, profile):
+        """The peer-runtime.py the profile's plugin loads, as Hermes would import it from there (runpy stubbed)."""
+        seen = []
+        plugin = profile / "plugins/swarmhub-peer/__init__.py"
+        with mock.patch("runpy.run_path", lambda path: seen.append(path) or {"register": None}), \
+                mock.patch.object(sys, "path", list(sys.path)):
+            exec(plugin.read_text(), {"__file__": str(plugin)})
+        return Path(seen[0])
+
+    def test_the_moved_profile_loads_its_own_peer_plugin(self):
+        old = self.old_plugin()
+        self.assertEqual(self.move()[0], 0)
+        self.assertFalse(old.exists())  # retired: the old absolute loader would find nothing
+        moved = self.root / "home/hb-swarmhub/.hermes/profiles/grok-swarmhub"
+        script = moved / "skills/swarmhub/swarmhub-messages/scripts/peer-runtime.py"
+        self.assertEqual(self.loads(moved), script)
+        self.assertTrue(script.is_file())
+        self.assertEqual((moved / "plugins/swarmhub-peer/__init__.py").read_text(),
+                         hb_render.plugin_loader("skills/swarmhub/swarmhub-messages/scripts/peer-runtime.py"))
+        self.assertIn(f"chown -R hb-swarmhub:hb-swarmhub {self.root / 'home/hb-swarmhub'}", self.commands())
+        # A 1.4.14 skill reinstalling the plugin in the bot account names that account's home; undo rewrites it.
+        (moved / "plugins/swarmhub-peer/__init__.py").write_text(
+            f"import runpy\nregister = runpy.run_path({str(script)!r})[\"register\"]\n")
+        self.assertEqual(self.hb("--undo", "grok-swarmhub")[0], 0)
+        restored = self.root / "home/hermes/.hermes/profiles/grok-swarmhub"
+        self.assertEqual(self.loads(restored), old)  # back in the shared account, the restored copy loads there
+        self.assertTrue(old.is_file())
+
+    def test_a_profile_without_the_plugin_gets_none(self):
+        self.assertEqual(self.move()[0], 0)
+        self.assertFalse((self.root / "home/hb-swarmhub/.hermes/profiles/grok-swarmhub/plugins").exists())
+
+    def test_an_undo_that_fails_after_the_restore_runs_again_to_the_end(self):
+        for failing in ("systemctl restart hermes-gateway.service", "nginx -t"):
+            with self.subTest(failing):
+                self.doCleanups()
+                self.setUp()
+                self.assertEqual(self.move()[0], 0)
+                real, calls = hb_move.Box.run, []
+
+                def run(box, argv):
+                    if " ".join(map(str, argv)) == failing and not calls:
+                        calls.append(argv)
+                        raise hb_move.Failed(f"{argv[0]} exited 1: down")
+                    return real(box, argv)
+                with mock.patch.object(hb_move.Box, "run", run):
+                    rc, _, err = self.hb("--undo", "grok-swarmhub")
+                self.assertEqual(rc, 1)
+                restored = self.root / "home/hermes/.hermes/profiles/grok-swarmhub"
+                self.assertTrue((restored / ".env").is_file())
+                journal = self.root / "var/lib/swarmhub/hb-move/grok-swarmhub.json"
+                self.assertIn("restored", json.loads(journal.read_text())["undone"])
+                before = len(self.commands())
+                rc, out, err = self.hb("--undo", "grok-swarmhub")
+                self.assertEqual(rc, 0, err + out)
+                again = self.commands()[before:]
+                self.assertNotIn("systemctl disable --now hermes-bot@swarmhub.service", again)
+                self.assertFalse(any("receiver uninstall" in c or c.startswith("chown") for c in again), again)
+                if failing.startswith("systemctl"):
+                    self.assertIn(failing, again)
+                else:
+                    self.assertNotIn("systemctl restart hermes-gateway.service", again)
+                self.assertIn("nginx -t", again)
+                self.assertEqual((restored / "memories/MEMORY.md").read_text(), "remember this\n")
+                backups = sorted(p.name for p in (self.root / "home/.swarmhub-hb-move").iterdir())
+                self.assertEqual(backups, ["grok-swarmhub.1", "grok-swarmhub.1.dedicated"])
+                self.assertEqual(swarmhub_registry.load(self.root / "etc/swarmhub/bots.json")["bots"], {})
+                self.assertNotIn("grok-swarmhub", (self.root / "etc/nginx/snippets/swarmhub-bots.conf").read_text())
+                self.assertFalse((self.root / "etc/sudoers.d/swarmhub-peer-bridge").exists())
+                self.assertFalse(journal.exists())
+
+    def test_a_crash_right_after_the_undo_rename_resumes_from_the_inode(self):
+        self.assertEqual(self.move()[0], 0)
+        with mock.patch.object(hb_move, "set_aside", side_effect=OSError("power cut")):
+            self.assertEqual(self.hb("--undo", "grok-swarmhub")[0], 1)
+        self.assertTrue((self.root / "home/hermes/.hermes/profiles/grok-swarmhub/.env").is_file())
+        moved = self.root / "home/hb-swarmhub/.hermes/profiles/grok-swarmhub"
+        self.assertTrue(moved.is_dir())  # the rename landed; the dedicated copy is not set aside yet
+        rc, out, err = self.hb("--undo", "grok-swarmhub")
+        self.assertEqual(rc, 0, err + out)
+        self.assertFalse(moved.exists())
+        self.assertTrue((self.root / "home/.swarmhub-hb-move/grok-swarmhub.1.dedicated").is_dir())
+        self.assertFalse((self.root / "home/.swarmhub-hb-move/grok-swarmhub.2.dedicated").exists())
+
+    def test_undo_still_refuses_a_profile_that_reappeared(self):
+        self.assertEqual(self.move()[0], 0)
+        (self.root / "home/hermes/.hermes/profiles/grok-swarmhub").mkdir()
+        rc, _, err = self.hb("--undo", "grok-swarmhub")
+        self.assertEqual(rc, 1)
+        self.assertIn("exists again", err)
+        self.assertNotIn("systemctl disable --now hermes-bot@swarmhub.service", self.commands())
+
     def test_bad_sudoers_never_lands(self):
         broken = self.root / "broken-ops"
         shutil.copytree(REPO / "ops", broken)

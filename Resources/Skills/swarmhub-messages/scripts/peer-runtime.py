@@ -462,10 +462,8 @@ def install(profile):
     (folder / "plugin.yaml").write_text(
         "name: swarmhub-peer\nversion: 1.3.3\ndescription: SwarmHub held peer inbox and coding completion recovery\n"
         "provides_hooks:\n  - pre_llm_call\n  - post_llm_call\n")
-    (folder / "__init__.py").write_text(
-        "import runpy, sys\n" +
-        "sys.path.insert(0, " + repr(str(Path(__file__).resolve().parent)) + ")\n" +
-        "register = runpy.run_path(" + repr(str(Path(__file__).resolve())) + ")[\"register\"]\n")
+    # Named relative to the plugin when the skill is in this home, so a profile moved by ops/hb-move still loads.
+    (folder / "__init__.py").write_text(control.plugin_loader(Path(__file__).resolve(), home.resolve()))
     # Registration refers to the gateway's existing .env. No key is exposed or copied.
     control.register(profile)
     control.receiver.ensure()  # One webhook receiver per box account; idempotent, so batches over profiles stay cheap.
