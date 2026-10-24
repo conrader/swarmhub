@@ -21,6 +21,29 @@ struct SkillInstallCheck: Equatable {
     var usesCopy: Bool { copySource != nil }
 }
 
+/// autoctx1: an install's checks are kept on its reply row (`ContextKey.setupChecks`), so a Retry, also after a relaunch,
+/// checks the result as the first send did. The version travels as its text.
+extension SkillInstallCheck: Codable {
+    private enum CodingKeys: String, CodingKey { case botID, profile, skill, version, variant, copySource }
+
+    init(from decoder: any Decoder) throws {
+        let row = try decoder.container(keyedBy: CodingKeys.self)
+        guard let version = SkillVersion(try row.decode(String.self, forKey: .version)) else {
+            throw DecodingError.dataCorruptedError(forKey: .version, in: row, debugDescription: "Not a skill version")
+        }
+        self.init(botID: try row.decode(UUID.self, forKey: .botID), profile: try row.decode(String.self, forKey: .profile),
+                  skill: try row.decode(String.self, forKey: .skill), version: version,
+                  variant: try row.decodeIfPresent(String.self, forKey: .variant), copySource: try row.decodeIfPresent(String.self, forKey: .copySource))
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var row = encoder.container(keyedBy: CodingKeys.self)
+        try row.encode(botID, forKey: .botID); try row.encode(profile, forKey: .profile); try row.encode(skill, forKey: .skill)
+        try row.encode(version.description, forKey: .version)
+        try row.encodeIfPresent(variant, forKey: .variant); try row.encodeIfPresent(copySource, forKey: .copySource)
+    }
+}
+
 extension AppStore {
     /// The failure recorded for this skill's bundled version and this bot's variant; nil when there is none. On a staged
     /// connection the signed bundle decides the version and only its send verifies it, so any version's failure counts here;
@@ -57,6 +80,18 @@ extension AppStore {
             skills.map { SkillInstallCheck(botID: bot.id, profile: profile(of: bot), skill: $0.name, version: $0.version,
                                           variant: SkillLibrary.variant(of: $0, codingOrder: codingOrder(for: bot)), copySource: copies[bot.id]?[$0.name]?.profile) }
         }
+    }
+
+    /// The checks the install turn behind `row` asked for, as `claimSetupTurn` kept them; nil when it kept none.
+    static func keptSkillInstallChecks(_ row: ChatMessage) -> [SkillInstallCheck]? {
+        row.metadata[ContextKey.setupChecks].flatMap { try? JSONDecoder().decode([SkillInstallCheck].self, from: Data($0.utf8)) }
+    }
+
+    /// A Retry of an install row is checked like its first send: that send's end consumed the checks, so they come back
+    /// from the row, with nothing left over from that send (its tool results, a batch to split).
+    func restoreSkillInstallChecks(from row: ChatMessage, manager: Bot) {
+        peerEnableCalls[manager.id] = nil; skillDevOutcomes[manager.id] = nil; allBotsSkillBatch[manager.id] = nil
+        pendingSkillChecks[manager.id] = Self.keptSkillInstallChecks(row)
     }
 
     /// The manager's install turn ended. Each skill its block reports at the version and variant asked for clears its
@@ -218,7 +253,10 @@ extension AppStore {
     static func skillInstallFailureReason(_ end: TurnEnd, reply: ChatMessage) -> String {
         switch end {
         case .stoppedByUser: return "The install turn was stopped."
-        case .failedByBox(let why): return "The install turn failed: \(why)"
+        // autoctx1: Hermes' "type /new or /compress" copy is never passed on; every install already starts a fresh session.
+        case .failedByBox(let why) where ContextOverflow.hasSlashAdvice(why): return "The install turn failed: \(TurnErrorCopy.installContextFull)"
+        case .failedByBox(let why): return "The install turn failed: \(ContextOverflow.untagged(why))"
+        case .error(let error) where ContextOverflow.hasSlashAdvice(error.localizedDescription): return "The install turn failed: \(TurnErrorCopy.installContextFull)"
         case .error(let error): return "The install turn failed: \(error.localizedDescription)"
         case .endedWithoutTerminal: return "The install turn ended before it finished."
         case .completed:

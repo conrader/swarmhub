@@ -93,7 +93,7 @@ extension AppStore {
         }
         let taskToCancel = turn.task
         let stoppedAssistantID = turn.assistant?.id
-        let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
+        let sessionID = turnSessionID(streamToken, in: conversation, bot: bot)
         let server = bot.backend.shortName // "Hermes" texts stay byte-identical (P12)
         Task {
             do {

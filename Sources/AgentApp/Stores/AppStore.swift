@@ -120,6 +120,8 @@ import SwarmHubCore
     var peerEnableCalls: [UUID: PeerPluginEnablement.Call] = [:]
     /// The task that redraws when the next failed install's backoff ends, and its sleep (tests return at once).
     var skillRetryRedraw: Task<Void, Never>?; var skillRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// autoctx1: the pause before a setup turn's next attempt (tests return at once).
+    var setupRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     lazy var boxInstallTransport = BoxInstallTransport(configurationURL: fileURL.deletingLastPathComponent().appending(path: "Updates/box-transport.json"))
     /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()
@@ -147,6 +149,10 @@ import SwarmHubCore
     let fileURL: URL
     var botPromptSync: BotPromptSyncStore?
     @Published var botPromptSyncWarning: String?
+    /// autoctx1: a set-aside store (`store.json.corrupt-*`, a backup) this launch offers to restore (`AppStore+StoreRestore.swift`).
+    @Published var storeRestoreOffer: StoreRestore.Offer?; @Published var storeRestoreNote: String?
+    /// autoctx1: this launch moved an unreadable store.json aside (so saving is off until Restore or Start fresh).
+    private(set) var unreadableStoreSetAside = false
     private(set) lazy var grokHistory = GrokHistoryStore(directory: fileURL.deletingLastPathComponent().appending(path: "grok-history", directoryHint: .isDirectory))
     var historyLoadTokens: [UUID: UUID] = [:]
     /// Prepended to every session id the app creates (chat, thread, group); `--e2e` sets `AppConstants.selfTestPrefix`.
@@ -215,46 +221,23 @@ import SwarmHubCore
             loadDemoData(includeActivity: true)
         } else if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
-                let file = try StoreFile.decode(Data(contentsOf: fileURL)); bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
-                globalApprovalRoutes = file.approvalRoutes ?? []; globalReviewAfter = file.reviewAfter ?? []
-                boxReadings = file.boxReadings ?? [:]; botMessages.marks = file.botMessageMarks ?? [:]
-                approvals = file.managedApprovals ?? []
-                restoreAutomations(file.automations); heartbeatSettings = file.heartbeat ?? .init(); chatScroll.restore(file.scrollPositions)
-                turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
-                if !migrateArchivedGroups().isEmpty { save() }
-                var migratedLegacyApprovalRules = false
-                for bot in bots {
-                    let legacyRules = bot.approvalRules.filter {
-                        $0.actionPattern == "read*" && $0.commandPattern == "*" && $0.outcome == .allow
-                    }
-                    guard !legacyRules.isEmpty else { continue }
-                    let legacyRuleIDs = Set(legacyRules.map(\.id))
-                    bot.approvalRules.removeAll { legacyRuleIDs.contains($0.id) }
-                    for rule in legacyRules {
-                        bot.approvalAudit.append(.init(
-                            approvalID: rule.id,
-                            actionKind: rule.actionPattern,
-                            outcome: .denied,
-                            decidedBy: "system:migration",
-                            reason: "Migration removed legacy broad read*/* automatic-allow rule."
-                        ))
-                    }
-                    if bot.approvalAudit.count > 500 { bot.approvalAudit.removeFirst(bot.approvalAudit.count - 500) }
-                    migratedLegacyApprovalRules = true
-                }
-                if migratedLegacyApprovalRules { save() }
+                adoptStoreFile(try StoreFile.decode(Data(contentsOf: fileURL)))
             } catch {
                 persistenceEnabled = false
                 let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
                 let backup = fileURL.deletingLastPathComponent().appending(path: "store.json.corrupt-\(stamp)")
-                do { try FileManager.default.moveItem(at: fileURL, to: backup) }
+                do { try FileManager.default.moveItem(at: fileURL, to: backup); unreadableStoreSetAside = true }
                 catch { errorMessage = "Could not read or back up store.json: \(error.localizedDescription)" }
                 if errorMessage == nil { errorMessage = "The saved store could not be decoded. It was moved to \(backup.lastPathComponent); saving is disabled for this launch." }
             }
             if hermesConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
+            // autoctx1: a store set aside unreadable (or one that holds only the seeded bot) is offered back, never replaced.
+            storeRestoreOffer = StoreRestore.offer(directory: directory, store: fileURL, current: persistenceEnabled ? bots : [], declined: declinedRestores)
+        } else if let offer = StoreRestore.offer(directory: directory, store: fileURL, current: [], declined: declinedRestores) {
+            // autoctx1: never seed a default 127.0.0.1 bot over a store that can be restored; the prompt asks first.
+            storeRestoreOffer = offer
         } else if hermesConfigured {
-            let bot = Bot(name: "Hermes", title: "Hermes Agent", description: "Default Hermes profile", backend: .hermes, hermesProfile: "default")
-            bots = [bot]; save()
+            seedDefaultHermesBot()
         }
         // P21 D3: a fresh install starts empty; the setup window or "Look around with sample agents" fills it.
         if !demoMode { migrateManagerRole(); migrateSampleBots(); loadOpenClawGateways() }
@@ -267,6 +250,54 @@ import SwarmHubCore
         if connectivity != nil { listenForConnectivity() }
     }
 
+    /// The decoded store becomes this window's state (launch, and autoctx1's restore of a set-aside store).
+    func adoptStoreFile(_ file: StoreFile) {
+        bots = file.bots; groups = file.groups; modelDefaults = file.modelDefaults ?? .init()
+        globalApprovalRoutes = file.approvalRoutes ?? []; globalReviewAfter = file.reviewAfter ?? []
+        boxReadings = file.boxReadings ?? [:]; botMessages.marks = file.botMessageMarks ?? [:]
+        approvals = file.managedApprovals ?? []
+        restoreAutomations(file.automations); heartbeatSettings = file.heartbeat ?? .init(); chatScroll.restore(file.scrollPositions)
+        turns.roundsAtLaunch = Set(groups.filter { $0.round != nil }.map(\.id))
+        if !migrateArchivedGroups().isEmpty { save() }
+        var migratedLegacyApprovalRules = false
+        for bot in bots {
+            let legacyRules = bot.approvalRules.filter {
+                $0.actionPattern == "read*" && $0.commandPattern == "*" && $0.outcome == .allow
+            }
+            guard !legacyRules.isEmpty else { continue }
+            let legacyRuleIDs = Set(legacyRules.map(\.id))
+            bot.approvalRules.removeAll { legacyRuleIDs.contains($0.id) }
+            for rule in legacyRules {
+                bot.approvalAudit.append(.init(
+                    approvalID: rule.id,
+                    actionKind: rule.actionPattern,
+                    outcome: .denied,
+                    decidedBy: "system:migration",
+                    reason: "Migration removed legacy broad read*/* automatic-allow rule."
+                ))
+            }
+            if bot.approvalAudit.count > 500 { bot.approvalAudit.removeFirst(bot.approvalAudit.count - 500) }
+            migratedLegacyApprovalRules = true
+        }
+        if migratedLegacyApprovalRules { save() }
+    }
+    /// autoctx1: a restored store is this launch's store again, saved as store.json.
+    func adoptRestoredStore(_ file: StoreFile) {
+        persistenceEnabled = true; unreadableStoreSetAside = false
+        adoptStoreFile(file)
+        if hermesConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
+    }
+    /// autoctx1: Start fresh after an unreadable store.json was moved aside: this window saves again, as a fresh install
+    /// would. Never while a store.json is there (the move failed, or another window wrote one): saving would replace it.
+    func resumeSavingAfterSetAside() {
+        guard !persistenceEnabled, unreadableStoreSetAside, !FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        persistenceEnabled = true; unreadableStoreSetAside = false
+        if errorMessage?.hasPrefix("The saved store could not be decoded.") == true { errorMessage = nil }
+    }
+    func seedDefaultHermesBot() {
+        let bot = Bot(name: "Hermes", title: "Hermes Agent", description: StoreRestore.seedDescription, backend: .hermes, hermesProfile: "default")
+        bots = [bot]; save()
+    }
     func addBot(name: String, persona: String, backend: BackendKind, avatarName: BotAvatarName?, avatar: AvatarChoice = .unpicked, approvalMode: ApprovalMode = .ask, approvalRules: [ApprovalRule] = ApprovalRule.sensibleDefaults, reviewerBotID: UUID? = nil, openClaw: OpenClawBinding? = nil) { let bot = Bot(name: name, persona: persona, backend: backend, avatarName: avatarName, approvalMode: approvalMode, approvalRules: approvalRules, reviewerBotID: reviewerBotID); bot.openClaw = backend == .openClaw ? openClaw : nil; avatar.apply(to: bot); bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save() }
     @discardableResult func importTemplate(_ plan: TemplateImportPlan) -> Bot {
         let manifest = plan.manifest
@@ -350,6 +381,7 @@ import SwarmHubCore
         let streamToken = turn.token
         let managementText = isTeamThread(conversation) ? nil : self.managementText(for: bot, text: user.content, conversation: conversation)
         let history = chatHistory(conversation, excluding: assistant)
+        claimSetupTurn(assistant, in: conversation, bot: bot, text: managementText)
         turn.task = Task { [weak self] in
             await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.outboundPersona,
                                     managementText: managementText, backend: activeBackend, token: streamToken)

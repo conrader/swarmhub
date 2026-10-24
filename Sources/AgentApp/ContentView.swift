@@ -28,6 +28,7 @@ struct ContentView: View {
                         .overlay(alignment: .top) { if store.sidebarHidden { WindowDragArea().frame(height: ChromeMetrics.titleRow).chromeProbe("empty_strip") } }
                 }
             }.ignoresSafeArea(.container, edges: .top)
+            .overlay(alignment: .top) { StoreRestorePrompt() }
         }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let warning = store.botPromptSyncWarning {

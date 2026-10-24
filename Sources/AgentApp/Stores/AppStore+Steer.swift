@@ -71,7 +71,7 @@ extension AppStore {
         guard attachments.isEmpty else { errorMessage = "Attachments can’t be added to a running turn; send them after it finishes."; return false }
         guard !value.isEmpty, !turns.correcting.contains(turn.token), let row = turn.assistant, let activeBackend = try? backend(for: bot) else { return false }
         noteFirstSteer()
-        let sessionID = conversation.hermesSessionID ?? bot.id.uuidString
+        let sessionID = turnSessionID(turn.token, in: conversation, bot: bot)
         switch SteerRoute.choose(activity: row.activity) {
         case .queued: deliverSteer(value, into: conversation, sessionID: sessionID, backend: activeBackend)
         case .stopAndSend: stopAndSend(value, bot: bot, conversation: conversation, turn: turn, sessionID: sessionID, backend: activeBackend)

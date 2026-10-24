@@ -379,11 +379,11 @@ struct HermesBackend: AgentBackend {
 
     private func parseLegacy(_ event: String, _ json: [String: Any], _ continuation: EventSink) {
         if event == "hermes.tool.progress" { continuation.yield(.tool(legacyTool(json))); return }
-        if event == "hermes.failed" { continuation.yield(.failed(failureMessage(json))); return }
+        if event == "hermes.failed" { continuation.yield(.failed(taggedFailure(json, failureMessage(json)))); return }
         let choice = (json["choices"] as? [[String: Any]])?.first
         if let delta = choice?["delta"] as? [String: Any], let content = delta["content"] as? String { continuation.yield(.token(content)) }
         if (choice?["finish_reason"] as? String) == "error" || Self.resultFailed(json) || json["error"] is [String: Any] || json["error"] is String {
-            continuation.yield(.failed(failureMessage(json, fallback: "Hermes ended the reply with an error.")))
+            continuation.yield(.failed(taggedFailure(json, failureMessage(json, fallback: "Hermes ended the reply with an error."))))
         }
     }
 
@@ -397,7 +397,7 @@ struct HermesBackend: AgentBackend {
             if !emittedAssistantDelta, let content = json["content"] as? String, !content.isEmpty { continuation.yield(.token(content)) }
             if let text = json["pending_steer"] as? String, !text.isEmpty { continuation.yield(.steer(.returned(text))) }
             if Self.resultFailed(json) {
-                continuation.yield(.failed(failureMessage(json, fallback: continuation.failureReason ?? json["content"] as? String ?? "Hermes did not complete the reply.")))
+                continuation.yield(.failed(taggedFailure(json, failureMessage(json, fallback: continuation.failureReason ?? json["content"] as? String ?? "Hermes did not complete the reply."))))
             } else { continuation.yield(.completed) }
         case "approval.request":
             // v0.21.7 emits `command` at the top level. Pollable run status and some
@@ -425,13 +425,13 @@ struct HermesBackend: AgentBackend {
             continuation.yield(.approval(.init(id: UUID(), title: json["description"] as? String ?? "Hermes needs approval", summary: command ?? displayCommandSource?.0 ?? "Command unknown", draft: nil, command: command, runID: runID, requestID: requestID, actionKind: actionKind)))
         case "run.completed":
             if let text = json["pending_steer"] as? String, !text.isEmpty { continuation.yield(.steer(.returned(text))) }
-            if Self.resultFailed(json) { continuation.yield(.failed(failureMessage(json, fallback: continuation.failureReason ?? "Hermes did not complete the reply."))) }
+            if Self.resultFailed(json) { continuation.yield(.failed(taggedFailure(json, failureMessage(json, fallback: continuation.failureReason ?? "Hermes did not complete the reply.")))) }
             else { continuation.yield(.completed) }
         // P28: the box queued a steer for this run (it lands after the current tool batch).
         case "run.steered": continuation.yield(.steer(.accepted))
         // The box closed the run without a full answer (another client's Stop); the reconcile reads what it kept.
         case "run.cancelled": continuation.yield(.failed("The box cancelled this run."))
-        case "run.failed", "error": continuation.yield(.failed(failureMessage(json, fallback: continuation.failureReason ?? "Hermes run failed.")))
+        case "run.failed", "error": continuation.yield(.failed(taggedFailure(json, failureMessage(json, fallback: continuation.failureReason ?? "Hermes run failed."))))
         default: break
         }
     }
