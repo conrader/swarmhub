@@ -17,9 +17,12 @@ enum StoreRestore {
     }
 
     /// The offer for this launch, or nil. `current` is what the store holds now (empty when missing or unreadable).
-    static func offer(directory: URL, store: URL, current: [Bot], fileManager: FileManager = .default) -> Offer? {
+    /// UserDefaults: the set-aside files the user answered "Start fresh" to (file names), never offered again.
+    static let declinedKey = "storeRestore.declined"
+
+    static func offer(directory: URL, store: URL, current: [Bot], declined: Set<String> = [], fileManager: FileManager = .default) -> Offer? {
         guard current.filter({ !$0.isDemo }).isEmpty || onlySeed(current) else { return nil }
-        for url in candidates(directory: directory, store: store, fileManager: fileManager).prefix(candidateLimit) {
+        for url in candidates(directory: directory, store: store, fileManager: fileManager).filter({ !declined.contains($0.lastPathComponent) }).prefix(candidateLimit) {
             guard let file = try? StoreFile.decode(Data(contentsOf: url)) else { continue }
             let real = file.bots.filter { !$0.isDemo }
             guard !real.isEmpty, !onlySeed(real) else { continue }

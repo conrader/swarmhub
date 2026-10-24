@@ -94,11 +94,22 @@ private func installedBlock(_ version: String) -> String {
 @Test @MainActor func anInstallThatCouldNotReachTheBoxIsRetriedInAFreshSession() async throws {
     let (store, jarvis, host) = scriptedStore([.status(503), .reply(installedBlock("1.2.0"))])
     #expect(store.installSkills(for: jarvis))
-    try await waitUntil { !store.anyTurnRunning && jarvis.installedSkills["swarmhub-manager"] != nil }
+    // The retries happen inside the one turn: it ends only after the attempt that reached the box.
+    try await waitUntil { !store.anyTurnRunning }
     let sent = streams(host).map(\.session)
     #expect(sent.count == 2 && Set(sent).count == 2 && !sent.contains("s-main"))
     #expect(jarvis.installedSkills == ["swarmhub-manager": "1.2.0"])
     #expect(!jarvis.messages.contains { $0.content.contains("Service unavailable") })
+}
+
+@Test @MainActor func retryingAnInstallRowStillSendsThatMessage() async throws {
+    let (store, jarvis, _) = scriptedStore([.reply(installedBlock("1.2.0"))])
+    #expect(store.installSkills(for: jarvis))
+    try await waitUntil { !store.anyTurnRunning }
+    // Retry rebuilds history up to the row it retries: a setup row is history for that one request.
+    let trigger = try #require(jarvis.messages.first { $0.role == .user })
+    let history = store.chatHistory(jarvis, upTo: trigger, excluding: ChatMessage(role: .assistant, content: ""))
+    #expect(history.count == 1 && history.last?.content == trigger.outgoingText)
 }
 
 // MARK: Overflow in the user's conversation

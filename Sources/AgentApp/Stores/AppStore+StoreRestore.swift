@@ -7,13 +7,21 @@ extension AppStore {
     @discardableResult func restoreSetAsideStore() -> Bool {
         guard let offer = storeRestoreOffer else { return false }
         let manager = FileManager.default
+        let directory = fileURL.deletingLastPathComponent()
+        let staged = directory.appending(path: "store.json.restoring-\(UUID().uuidString).tmp")
+        defer { try? manager.removeItem(at: staged) }
         do {
             let file = try StoreFile.decode(Data(contentsOf: offer.url))
+            // The copy is made first; store.json is only moved aside once it exists, and put back if the swap fails.
+            try manager.copyItem(at: offer.url, to: staged)
+            var setAside: URL?
             if manager.fileExists(atPath: fileURL.path) {
                 let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
-                try manager.moveItem(at: fileURL, to: fileURL.deletingLastPathComponent().appending(path: "store.json.before-restore-\(stamp)"))
+                let aside = directory.appending(path: "store.json.before-restore-\(stamp)")
+                try manager.moveItem(at: fileURL, to: aside); setAside = aside
             }
-            try manager.copyItem(at: offer.url, to: fileURL)
+            do { try manager.moveItem(at: staged, to: fileURL) }
+            catch { if let setAside { try? manager.moveItem(at: setAside, to: fileURL) }; throw error }
             storeRestoreOffer = nil
             adoptRestoredStore(file)
             migrateManagerRole(); migrateSampleBots()
@@ -29,9 +37,13 @@ extension AppStore {
         }
     }
 
+    var declinedRestores: Set<String> { Set(defaults.stringArray(forKey: StoreRestore.declinedKey) ?? []) }
+
+    /// The set-aside file stays where it is; it is not offered again.
     func declineStoreRestore() {
-        guard storeRestoreOffer != nil else { return }
+        guard let offer = storeRestoreOffer else { return }
         storeRestoreOffer = nil
+        defaults.set(Array(declinedRestores.union([offer.url.lastPathComponent])).sorted(), forKey: StoreRestore.declinedKey)
         if bots.isEmpty, persistenceEnabled, hermesConfigured, !FileManager.default.fileExists(atPath: fileURL.path) {
             seedDefaultHermesBot(); selectVisibleChat()
         }

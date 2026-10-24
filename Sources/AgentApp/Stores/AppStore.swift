@@ -230,8 +230,8 @@ import SwarmHubCore
             }
             if hermesConfigured { bots.filter(\.isDemo).forEach { $0.isHidden = true } }
             // autoctx1: a store set aside unreadable (or one that holds only the seeded bot) is offered back, never replaced.
-            storeRestoreOffer = StoreRestore.offer(directory: directory, store: fileURL, current: persistenceEnabled ? bots : [])
-        } else if let offer = StoreRestore.offer(directory: directory, store: fileURL, current: []) {
+            storeRestoreOffer = StoreRestore.offer(directory: directory, store: fileURL, current: persistenceEnabled ? bots : [], declined: declinedRestores)
+        } else if let offer = StoreRestore.offer(directory: directory, store: fileURL, current: [], declined: declinedRestores) {
             // autoctx1: never seed a default 127.0.0.1 bot over a store that can be restored; the prompt asks first.
             storeRestoreOffer = offer
         } else if hermesConfigured {

@@ -78,13 +78,11 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
 
 @Test @MainActor func aStoreHoldingOnlyTheSeededBotIsOfferedTheSetAsideOne() throws {
     let (url, defaults) = try setup()
-    // What 0.6.6 left behind (botloss1): the corrupt copy, then a fresh store seeded with one default bot.
-    _ = try writeStore(["Boppy", "Jarvis", "Swarmhub"], as: "store.json.corrupt-2026-10-23T04-45-18Z", beside: url)
+    // What 0.6.6 left behind (botloss1): a fresh store seeded with one default bot, and the set-aside copy beside it.
     let seeded = launch(url, defaults)
-    #expect(seeded.storeRestoreOffer != nil)
-    seeded.declineStoreRestore()
     #expect(seeded.bots.map(\.name) == ["Hermes"] && FileManager.default.fileExists(atPath: url.path))
-    // Next launch: store.json holds only the seed, so the offer comes back; restoring moves the seed aside.
+    _ = try writeStore(["Boppy", "Jarvis", "Swarmhub"], as: "store.json.corrupt-2026-10-23T04-45-18Z", beside: url)
+    // Next launch: store.json holds only the seed, so the copy is offered; restoring moves the seed aside.
     let store = launch(url, defaults)
     #expect(store.storeRestoreOffer?.botCount == 3)
     #expect(store.restoreSetAsideStore())
@@ -101,6 +99,8 @@ private func setup() throws -> (url: URL, defaults: UserDefaults) {
     store.declineStoreRestore()
     #expect(store.storeRestoreOffer == nil && store.bots.map(\.name) == ["Hermes"])
     #expect(FileManager.default.fileExists(atPath: corrupt.path))
+    // Answered once: the next launch opens the seeded store without asking again.
+    #expect(launch(url, defaults).storeRestoreOffer == nil)
 }
 
 @Test @MainActor func aStoreWithRealBotsIsNeverOfferedAnything() throws {

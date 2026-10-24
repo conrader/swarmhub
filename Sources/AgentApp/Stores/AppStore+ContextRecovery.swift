@@ -68,10 +68,11 @@ extension AppStore {
         return Self.setupRetryDelays[failures]
     }
 
+    /// Only failures that prove the box did not start the install: a timeout or a dropped stream may have, and is not retried.
     static func isTransient(_ error: Error) -> Bool {
-        if let broken = error as? StreamBreak { return !broken.delivered && isTransient(broken.underlying) }
-        if let url = error as? URLError { return TurnOutcome.certainlyUnsentCodes.contains(url.code) || url.code == .timedOut || url.code == .networkConnectionLost }
-        if case BackendError.http(let code, _) = error { return [429, 502, 503, 504].contains(code) }
+        if let broken = error as? StreamBreak { return !broken.delivered && (broken.requestStarted == false || isTransient(broken.underlying)) }
+        if let url = error as? URLError { return TurnOutcome.certainlyUnsentCodes.contains(url.code) }
+        if case BackendError.http(let code, _) = error { return [429, 503].contains(code) }
         return false
     }
 
