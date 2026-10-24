@@ -98,6 +98,8 @@ extension AppStore {
         guard isManager(bot), conversation === bot else { return nil }
         if bot.backend == .hermes, let install = pendingSkillInstalls.removeValue(forKey: bot.id) {
             managementExchanges[bot.id] = ManagementExchange(openedAt: now())
+            // autoctx1: an install (or other app-internal setup) turn runs in a throwaway session, never this chat's own.
+            turns.setupTurns.insert(bot.id)
             return install.instructions
         }
         let decision = ManagementExchange.decide(text: text, exchange: managementExchanges[bot.id], now: now())

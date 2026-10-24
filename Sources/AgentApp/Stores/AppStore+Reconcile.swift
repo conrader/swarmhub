@@ -116,7 +116,8 @@ extension AppStore {
         guard !needsKey(unit.bot), let activeBackend = try? backend(for: unit.bot) else { report.problems.append("\(unit.name): no readable key"); return }
         // A box that answered (e.g. 401 for a rejected key, P28 D6) is not "unreachable": no quick retries for it.
         do { if try await activeBackend.sessionTransport() == .legacyChatCompletions { report.legacy = true; return } } catch { report.unreachable = !(error is BackendError); report.problems.append("\(unit.name): read failed"); return }
-        let snapshot = unit.conversation.messages.map(HistoryReconciler.LocalRow.init)
+        // autoctx1: a setup turn ran in its own throwaway session; this chat's session never holds it.
+        let snapshot = unit.conversation.messages.filter { $0.metadata[ContextKey.setup] == nil }.map(HistoryReconciler.LocalRow.init)
         let oldestNeeded = snapshot.filter { $0.role == .assistant && ($0.state == .incomplete || $0.state == .notSent || ($0.isEmpty && $0.state != .finished && $0.state != .stopped)) }.map(\.createdAt).min()
         let read: SessionRead
         do { read = try await readSession(activeBackend, sessionID: unit.sessionID, needBackTo: oldestNeeded, full: full) }

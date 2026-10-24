@@ -218,7 +218,10 @@ extension AppStore {
     static func skillInstallFailureReason(_ end: TurnEnd, reply: ChatMessage) -> String {
         switch end {
         case .stoppedByUser: return "The install turn was stopped."
-        case .failedByBox(let why): return "The install turn failed: \(why)"
+        // autoctx1: Hermes' "type /new or /compress" copy is never passed on; every install already starts a fresh session.
+        case .failedByBox(let why) where ContextOverflow.hasSlashAdvice(why): return "The install turn failed: \(TurnErrorCopy.installContextFull)"
+        case .failedByBox(let why): return "The install turn failed: \(ContextOverflow.untagged(why))"
+        case .error(let error) where ContextOverflow.hasSlashAdvice(error.localizedDescription): return "The install turn failed: \(TurnErrorCopy.installContextFull)"
         case .error(let error): return "The install turn failed: \(error.localizedDescription)"
         case .endedWithoutTerminal: return "The install turn ended before it finished."
         case .completed:

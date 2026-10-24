@@ -52,6 +52,11 @@ extension HermesBackend {
         diagnosticText(errorDetail(json) ?? fallback, fallback: "Hermes run failed.")
     }
 
+    /// autoctx1: a failure the box coded as a context overflow carries `ContextOverflow.tag`, whatever its wording.
+    func taggedFailure(_ json: [String: Any], _ text: String) -> String {
+        ContextOverflow.hasCode(json) && !text.hasPrefix(ContextOverflow.tag) ? ContextOverflow.tag + text : text
+    }
+
     func errorDetail(_ json: [String: Any]) -> String? {
         let error = json["error"] as? [String: Any] ?? [:]
         let hermes = json["hermes"] as? [String: Any] ?? [:]
