@@ -52,11 +52,17 @@ class ProbeMatrixBase(ReceiverTestBase):
         body = json.dumps({"text": "probe"} if payload is None else payload).encode()
         return self.send("POST", path or f"/swarmhub/webhook/recipient/{ROUTINE}/{self.slug}", body, key, **kw)
 
-    def assertJSON(self, answer, status, body=None):
+    def assertJSON(self, answer, status, body):
         self.assertEqual((answer.status, answer.headers.get("content-type")), (status, "application/json"), answer.body)
-        if body is not None:
-            self.assertEqual(answer.json(), body)
+        self.assertEqual(answer.json(), body)
         self.assertNotIn(self.key.encode(), answer.body, "no answer ever echoes the key")
+
+    def assertAccepted(self, answer):
+        # Bind the whole response to the durable delivery, including the generated ID.
+        with webhook.database() as db:
+            ident = db.execute("SELECT id FROM deliveries ORDER BY rowid DESC LIMIT 1").fetchone()["id"]
+        self.assertJSON(answer, 202, {"profile": "recipient", "routine": ROUTINE,
+                                      "delivery": ident, "status": "pending"})
 
     def deliveries(self):
         with webhook.database() as db:
@@ -68,8 +74,7 @@ class StatusMatrixTests(ProbeMatrixBase):
 
     def test_a_the_right_key_is_accepted_and_journalled(self):
         answer = self.post(key=self.key)
-        self.assertJSON(answer, 202)
-        self.assertEqual((answer.json()["status"], answer.json()["routine"]), ("pending", ROUTINE))
+        self.assertAccepted(answer)
         self.assertEqual(self.deliveries(), [f"[Webhook routine {ROUTINE} for recipient]\nprobe"])
         self.assertEqual(self.fired, [1])
 
@@ -122,13 +127,20 @@ class StatusMatrixTests(ProbeMatrixBase):
     def test_put_is_the_stdlib_501_html_page(self):
         answer = self.send("PUT", f"/swarmhub/webhook/recipient/{ROUTINE}/{self.slug}", b'{"text":"probe"}', self.key)
         self.assertEqual(answer.status, 501)
-        self.assertTrue(answer.headers.get("content-type", "").startswith("text/html"), answer.headers)
-        self.assertEqual(self.deliveries(), [])
+        self.assertEqual(answer.headers.get("content-type"), "text/html;charset=utf-8")
+        self.assertTrue(answer.body.startswith(b"<!DOCTYPE HTML>"), answer.body)
+        self.assertIn(b"<p>Error code: 501</p>", answer.body)
+        self.assertIn(b"<p>Message: Unsupported method ('PUT').</p>", answer.body)
+        self.assertIn(b"Server does not support this operation", answer.body)
+        self.assertNotIn(self.key.encode(), answer.body)
+        self.assertEqual((self.deliveries(), self.fired), ([], []))
 
     def test_health_and_get_answer_json_from_the_receiver_itself(self):
         # What nginx must hide (V6): the receiver's own health is 200 JSON, its GET on a routine is 404 JSON.
         self.assertJSON(self.send("GET", "/swarmhub/webhook/health", body=None), 200, {"ok": True, "service": "swarmhub-webhook"})
-        self.assertJSON(self.send("GET", f"/swarmhub/webhook/recipient/{ROUTINE}/{self.slug}", body=None), 404)
+        self.assertJSON(self.send("GET", f"/swarmhub/webhook/recipient/{ROUTINE}/{self.slug}", body=None), 404,
+                        {"error": "unknown webhook"})
+        self.assertEqual((self.deliveries(), self.fired), ([], []))
 
     def test_not_a_json_object_is_400(self):
         for body in (b"[1]", b"probe", b'"probe"', b"[" * 30_000):  # The last one is too deep for json.loads.
@@ -138,9 +150,9 @@ class StatusMatrixTests(ProbeMatrixBase):
 
 class BodyFallbackTests(ProbeMatrixBase):
     def test_message_is_read_when_text_is_missing(self):
-        self.assertJSON(self.post(payload={"message": "job done"}, key=self.key), 202)
-        self.assertJSON(self.post(payload={"text": "  ", "message": "blank text"}, key=self.key), 202)
-        self.assertJSON(self.post(payload={"text": "wins", "message": "ignored"}, key=self.key), 202)
+        self.assertAccepted(self.post(payload={"message": "job done"}, key=self.key))
+        self.assertAccepted(self.post(payload={"text": "  ", "message": "blank text"}, key=self.key))
+        self.assertAccepted(self.post(payload={"text": "wins", "message": "ignored"}, key=self.key))
         prefix = f"[Webhook routine {ROUTINE} for recipient]\n"
         self.assertEqual(self.deliveries(), [prefix + "job done", prefix + "blank text", prefix + "wins"])
 
@@ -150,9 +162,9 @@ class BodyFallbackTests(ProbeMatrixBase):
         self.assertEqual(self.deliveries(), [])
 
     def test_a_body_key_is_used_only_when_the_header_is_missing(self):
-        self.assertJSON(self.post(payload={"text": "a", "key": self.key}), 202)  # The header was stripped.
-        self.assertJSON(self.post(payload={"text": "b", "key": self.key}, key=""), 202)  # Present but emptied.
-        self.assertJSON(self.post(payload={"message": "c", "key": self.key}), 202)  # sb-codejob's shape.
+        self.assertAccepted(self.post(payload={"text": "a", "key": self.key}))  # The header was stripped.
+        self.assertAccepted(self.post(payload={"text": "b", "key": self.key}, key=""))  # Present but emptied.
+        self.assertAccepted(self.post(payload={"message": "c", "key": self.key}))  # sb-codejob's shape.
         self.assertJSON(self.post(payload={"text": "x", "key": "wrong"}), 403, {"error": "webhook rejected"})
         self.assertJSON(self.post(payload={"text": "x", "key": self.key}, key="wrong"), 403,
                         {"error": "webhook rejected"})  # A header that arrived is never second-guessed by the body.
@@ -161,7 +173,9 @@ class BodyFallbackTests(ProbeMatrixBase):
         path = "/swarmhub/webhook/recipient/absent-20261024/x"
         self.assertJSON(self.post(path, payload={"text": "x", "key": "probe"}), 404, {"error": "unknown webhook"})
         texts = self.deliveries()
-        self.assertEqual(len(texts), 3)
+        prefix = f"[Webhook routine {ROUTINE} for recipient]\n"
+        self.assertEqual(texts, [prefix + text for text in ("a", "b", "c")])
+        self.assertEqual(self.fired, [1, 1, 1])
         self.assertFalse([text for text in texts if self.key in text], "the body key never reaches the journal")
 
     def test_cli_fire_also_reads_message(self):

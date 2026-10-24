@@ -1,7 +1,7 @@
 # Exposing Swarm Hub webhooks (optional)
 
 The webhook receiver (`swarmctl webhook serve`, run by the `swarmhub-webhook.service` systemd user unit, its fallback
-supervisor, or the `com.swarmhub.webhook` LaunchAgent) listens on **127.0.0.1:8745 only**. Out of the box a webhook works from the box
+supervisor, or the `com.swarmhub.webhook` LaunchAgent) listens on **127.0.0.1 only**, port **8745 by default**. Out of the box a webhook works from the box
 itself: `curl` on the box, a local cron job, another service on the same machine. To let an outside service (GitHub,
 Stripe, Zapier, a phone shortcut…) call it, the box owner puts a reverse proxy or a tunnel in front of that port. This
 page is a recipe only: nothing here is deployed by Swarm Hub, and the receiver itself never binds a public address.
@@ -117,8 +117,9 @@ Cloudflare terminates TLS. Restrict the hostname to `POST` with a WAF rule if yo
 ## Checking it
 
 On the box: `swarmctl webhook receiver status` (or the app's Webhooks section) should say `running`. From outside,
-a call with a wrong key must answer 403 (no key at all: 400) and one with the key 202. Every receiver answer is JSON;
-an HTML page came from the proxy:
+a POST with a wrong key must answer 403 (no key at all: 400) and one with the key 202. These POST answers and the
+receiver's GET answers use `application/json`. An unsupported method such as PUT gets Python's own 501 HTML error
+page. The proxy can also return HTML (for example, a 502); check the method, status, Content-Type and body together:
 
 ```sh
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
