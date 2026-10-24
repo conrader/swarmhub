@@ -26,6 +26,7 @@ from pathlib import Path
 import pwd
 import re
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -110,6 +111,18 @@ def parse(argv):
     return verb, to, profile, int(max_time)
 
 
+def shared_profile(account, name):
+    """True for a real folder <home>/.hermes/profiles/<name>, with no symlink anywhere below the home. Root answers
+    nothing about paths outside the shared account, so a planted link cannot probe another account's 0700 home."""
+    home = os.path.realpath(account.home)
+    path = os.path.join(home, ".hermes", "profiles", name)
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISDIR(info.st_mode) and os.path.realpath(path) == path
+
+
 def identify(reg, environ, accounts, profile):
     """(sender profile, tier, caller account) from SUDO_UID and --from-profile, or Stop(77)."""
     raw = environ.get("SUDO_UID", "")
@@ -128,7 +141,7 @@ def identify(reg, environ, accounts, profile):
         raise Stop(REFUSED, f"uid {caller.uid} is neither a registered bot nor the shared account")
     if profile in reg["bots"]:
         raise Stop(REFUSED, f"{profile} has its own account; the shared account cannot send as it")
-    if profile != "default" and not (Path(shared.home) / ".hermes/profiles" / profile).is_dir():
+    if profile != "default" and not shared_profile(shared, profile):
         raise Stop(REFUSED, f"the shared account has no profile {profile}")
     return profile, "shared", shared
 
@@ -142,7 +155,7 @@ def recipient(reg, accounts, to):
             raise Stop(REFUSED, f"the account of {to} does not match the registry")
         return account, bot["gateway_port"]
     shared = accounts.by_name(reg["shared"]["user"])
-    if shared is not None and (to == "default" or (Path(shared.home) / ".hermes/profiles" / to).is_dir()):
+    if shared is not None and (to == "default" or shared_profile(shared, to)):
         return shared, reg["shared"]["gateway_port"]
     raise Stop(UNKNOWN, f"no bot named {to} on this box")
 
@@ -249,36 +262,45 @@ class Bridge:
         base = f"http://127.0.0.1:{self.port}" + ("" if self.to == "default" else f"/p/{self.to}")
         sid = f"swarmhub-from-{self.sender}"
         shared = " (shared)" if self.tier == "shared" else ""
+        # Cancel (stdin EOF, TERM, INT) is watched from the start, so it also ends a session create in progress.
+        cancelled, running = threading.Event(), []
+
+        def cancel(*_):
+            cancelled.set()
+            for proc in running:
+                if proc.poll() is None:
+                    proc.terminate()
+
+        def watch():
+            while os.read(stdin.fileno(), 65536):
+                pass
+            cancel()
+        signal.signal(signal.SIGTERM, cancel)
+        signal.signal(signal.SIGINT, cancel)
+        threading.Thread(target=watch, daemon=True).start()
+
+        def start(args, out):
+            proc = self.run_curl(key, args, work, out)
+            running.append(proc)
+            if cancelled.is_set():
+                cancel()
+            return proc
         work = Path(tempfile.mkdtemp(prefix="peer-bridge."))
         try:
             (work / "create.json").write_text(json.dumps({"id": sid, "title": f"From {self.sender}",
                                                           "source": "api_server"}))
-            create = self.run_curl(key, ["-o", str(work / "create.out"), "--max-time", "20", "-H",
-                                         "Accept: application/json", "-X", "POST", "--data-binary", "@create.json",
-                                         base + "/api/sessions"], work, subprocess.DEVNULL)
+            create = start(["-o", str(work / "create.out"), "--max-time", "20", "-H", "Accept: application/json",
+                            "-X", "POST", "--data-binary", "@create.json", base + "/api/sessions"], subprocess.DEVNULL)
             rc, code = create.wait(), self.http_code(work)
+            if cancelled.is_set():
+                return self.status("stream", code, 130, work, " cancelled")  # Nothing was submitted.
             if code not in ("200", "201", "409"):
                 return self.status("stream", code, rc, work, " stage=create")
             (work / "headers").unlink(missing_ok=True)
             message = f"[Message from {self.sender} via SwarmHub{shared}]\n{text}"
             (work / "chat.json").write_text(json.dumps({"input": message}, ensure_ascii=False), encoding="utf-8")
-            chat = self.run_curl(key, ["-N", "--max-time", str(max_time), "-H", "Accept: text/event-stream", "-X",
-                                       "POST", "--data-binary", "@chat.json", f"{base}/api/sessions/{sid}/chat/stream"],
-                                 work, self.stdout)
-            cancelled = threading.Event()
-
-            def cancel(*_):
-                cancelled.set()
-                if chat.poll() is None:
-                    chat.terminate()
-
-            def watch():
-                while os.read(stdin.fileno(), 65536):
-                    pass
-                cancel()
-            signal.signal(signal.SIGTERM, cancel)
-            signal.signal(signal.SIGINT, cancel)
-            threading.Thread(target=watch, daemon=True).start()
+            chat = start(["-N", "--max-time", str(max_time), "-H", "Accept: text/event-stream", "-X", "POST",
+                          "--data-binary", "@chat.json", f"{base}/api/sessions/{sid}/chat/stream"], self.stdout)
             rc = chat.wait()
             return self.status("stream", self.http_code(work), 130 if cancelled.is_set() else rc, work,
                                " cancelled" if cancelled.is_set() else "")

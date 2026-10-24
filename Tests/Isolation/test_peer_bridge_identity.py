@@ -89,6 +89,22 @@ class SharedSenders(unittest.TestCase):
         self.assertFalse((w.root / "drops.log").exists())
         self.assertEqual(w.query("hb-b", "peer-inbox.sqlite", "SELECT * FROM inbox"), [])
 
+    def test_planted_symlinks_answer_nothing_about_other_homes(self):
+        # Root follows no link the shared account planted: a link to a real folder in hb-a's 0700 home is refused
+        # exactly like a missing one, so the answer reveals nothing about that home.
+        w = self.w
+        profiles = w.home("hermes") / ".hermes/profiles"
+        (profiles / "probe").symlink_to(w.profile("a") / "skills")
+        self.assertIn("no profile probe", self.refused("hermes", ["stream", "b", "--from-profile", "probe"]))
+        r = w.bridge_call("hb-a", ["stream", "probe", "--from-profile", "a"])
+        self.assertEqual(r.returncode, 2, r.stderr)
+        hermes = w.home("hermes") / ".hermes"
+        hermes.rename(w.home("hermes") / ".hermes-real")
+        hermes.symlink_to(w.home("hermes") / ".hermes-real")  # an intermediate link: s1 is real, its path is not
+        self.assertIn("no profile s1", self.refused("hermes", ["stream", "b", "--from-profile", "s1"]))
+        for stub in STUBS:
+            self.assertEqual(w.requests(stub), [], stub)
+
     def test_bad_requests(self):
         w = self.w
         cases = [(["stream", "a", "--from-profile", "a"], 64, "own account"),

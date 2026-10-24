@@ -4,7 +4,8 @@
 #
 # <state>/keys: "<profile> <key>" lines this gateway accepts (/p/<profile>/… else "default"). <all-keys>: "<owner>
 # <key>" for every key in the test, so a request can be logged with WHOSE key it carried (key=<owner>|none|unknown).
-# <state>/mode, read per chat: ok | noreply | fail | delay:<seconds> | never; <state>/reply, if present, is the reply.
+# <state>/mode, read per chat: ok | noreply | fail | delay:<seconds> | never; <state>/reply, if present, is the reply;
+# <state>/create-delay: seconds before a session create answers.
 # delay/never send SSE comments every 0.2 s and log "left <session>" when the client goes away. Writes <state>/port,
 # appends to <state>/requests and writes each chat as JSON {"session", "input", "profile", "key"} to <state>/input.<n>.
 import json
@@ -64,6 +65,7 @@ def serve(state):
                 record(f"POST {path} key={who} 401")
                 return self.send(401, '{"error":{"message":"Invalid API key"}}')
             if rest == "/api/sessions":
+                time.sleep(float(read(f"{state}/create-delay", "0")))
                 sid = body.get("id", "")
                 with lock:
                     exists = (profile, sid) in sessions

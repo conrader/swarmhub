@@ -150,6 +150,21 @@ class StreamTests(unittest.TestCase):
         self.assertLessEqual(time.monotonic() - started, 1.0)
         self.assertTrue(w.until(lambda: any(line.startswith("left swarmhub-from-a") for line in w.requests("b")), 3))
 
+    def test_l5_a_cancel_during_session_create_submits_nothing(self):
+        w = self.w
+        (w.root / "gw/b/create-delay").write_text("10")
+        proc = w.start_bot_msg("a", "--to", "b", "--priority", "--wait", "60", "--", "never sent")
+        self.assertTrue(w.until(self.bridges, timeout=10))
+        time.sleep(0.5)  # the bridge is now waiting on the session create
+        os.killpg(proc.pid, signal.SIGKILL)  # the test-owned bot-msg tree
+        proc.communicate(timeout=10)
+        started = time.monotonic()
+        self.assertTrue(w.until(lambda: not self.bridges(), timeout=5, step=0.02))
+        self.assertLessEqual(time.monotonic() - started, 1.0)
+        time.sleep(1)
+        self.assertFalse(any(" chat=" in line for line in w.requests("b")), w.requests("b"))
+        self.assertTrue(any("http=000 rc=130 cancelled" in line for line in w.bridge_log("hb-b")), w.bridge_log("hb-b"))
+
     def test_l6_a_forged_sender_is_delivered_as_the_real_one(self):
         w = self.w
         r = w.bot_msg("a", "--from", "c", "--to", "b", "--priority", "--wait", "20", "--",
