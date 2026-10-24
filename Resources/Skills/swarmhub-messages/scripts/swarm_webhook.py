@@ -59,7 +59,8 @@ def matches(stored, key):
 
 
 def url(profile, routine, slug):
-    base = policy().get("webhook_base") or f"http://127.0.0.1:{DEFAULT_PORT}"
+    import swarm_webhook_receiver as receiver  # This account's receiver port (`receiver install --port`), else 8745.
+    base = policy().get("webhook_base") or f"http://127.0.0.1:{receiver.configured_port()}"
     return base.rstrip("/") + f"/swarmhub/webhook/{profile}/{routine}/{slug}"
 
 
@@ -194,6 +195,21 @@ def fire(profile, routine, slug, key, text):
     return {"profile": profile, "routine": routine, "delivery": ident, "status": "pending"}
 
 
+def presented_key(headers, payload):
+    """The X-SwarmHub-Key header; only when it is missing or empty (a proxy that strips it), the body's `key`
+    (a sender's KEY_IN=body). A header that is present is never second-guessed by the body."""
+    header = headers.get("X-SwarmHub-Key", "")
+    return header if header else payload.get("key", "")
+
+
+def payload_text(payload):
+    """`text`, falling back to `message` (what sb-codejob's job-done wake has sent) when `text` is missing or blank."""
+    text = payload.get("text")
+    if text is None or (isinstance(text, str) and not text.strip()):
+        return payload.get("message", "")
+    return text
+
+
 def request_handler(on_fire=None):
     """Build the HTTP handler separately so protocol validation can be tested without sockets."""
     from http.server import BaseHTTPRequestHandler
@@ -227,7 +243,7 @@ def request_handler(on_fire=None):
                 payload = json.loads(self.rfile.read(length) or b"{}")
                 if not isinstance(payload, dict):
                     raise ValueError("expected object")
-                result = fire(*match.groups(), self.headers.get("X-SwarmHub-Key", ""), payload.get("text", ""))
+                result = fire(*match.groups(), presented_key(self.headers, payload), payload_text(payload))
             except PermissionError:
                 return self.answer(403, {"error": "webhook rejected"})
             except UnknownWebhook:
@@ -244,7 +260,8 @@ def request_handler(on_fire=None):
 
 
 def serve(port=DEFAULT_PORT, once=False, ready=None, on_fire=None):
-    """Loopback receiver: POST <url> with X-SwarmHub-Key and JSON {"text": ...}; never logs keys.
+    """Loopback receiver: POST <url> with X-SwarmHub-Key (or a body `key` when the header is missing) and JSON
+    {"text": ...} (or {"message": ...}); never logs keys.
 
     `on_fire` runs after each accepted call (swarmctl passes the delivery worker's idempotent start)."""
     from http.server import ThreadingHTTPServer

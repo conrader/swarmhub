@@ -4,7 +4,7 @@ appends the receiver's own output (its start line and any crash; requests are ne
 ~/.hermes/swarmhub/logs/webhook-receiver.log. The marker file records that this account uses it, so the peer plugin
 resumes it at every gateway start; removing the marker (`webhook receiver uninstall`) stops the receiver and the
 supervisor within a couple of seconds. A pidfile records the running receiver and the digest of the code it started
-with; installing again after a skill update terminates that one receiver (its exact pid, checked against `ps`), and the
+with; installing again after a skill update or on another port terminates that one receiver (its exact pid, checked against `ps`), and the
 supervisor starts it again on the new code. A supervisor from before the pidfile records nothing: its receiver is found
 as its one direct child running exactly that supervisor's receiver command, and restarted once if it started before the
 code on disk appeared. Only the supervisor's own child is ever signalled.
@@ -167,18 +167,29 @@ def refresh_legacy():
 
 
 def refresh():
-    """Terminate the running receiver when its code changed on disk since it started; the supervisor starts it again.
+    """Terminate the running receiver when its code changed on disk since it started, or the marker names another port;
+    the supervisor starts it again.
     True when a receiver was signalled."""
     if not paths()["pid"].exists():
         return refresh_legacy()
     pid, record = receiver_pid()
-    if pid is None or len(record.get("cmd", [])) < 3 or record.get("code") == digest(Path(record["cmd"][2]).parent):
+    if pid is None or len(record.get("cmd", [])) < 3:
         return False
+    serving = record["cmd"][-1]
+    if record.get("code") == digest(Path(record["cmd"][2]).parent) and str(marker_port(serving)) == serving:
+        return False  # Same code and the marker's port (`receiver install --port` changes it): nothing to restart.
     try:
         os.kill(pid, signal.SIGTERM)  # This receiver's exact pid only, never a group.
     except ProcessLookupError:
         return False
     return True
+
+
+def marker_port(default):
+    try:
+        return int(json.loads(paths()["marker"].read_text())["port"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return default
 
 
 def resume():
@@ -221,6 +232,7 @@ def supervise(port, python=None, sleep=time.sleep, popen=subprocess.Popen):
             began = time.monotonic()
             if p["log"].exists() and p["log"].stat().st_size > 1_000_000:
                 os.replace(p["log"], p["log"].with_name(p["log"].name + ".1"))  # A crash loop keeps two small files.
+            port = marker_port(port)  # A port changed by a later install applies from the next start.
             argv = [python or sys.executable, "-B", str(HERE / "swarmctl"), "webhook", "serve", str(int(port))]
             code = digest(HERE)  # before the start: a change while it starts reads as changed, so it is restarted
             with p["log"].open("ab") as log:

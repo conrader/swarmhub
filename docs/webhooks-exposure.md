@@ -14,7 +14,19 @@ page is a recipe only: nothing here is deployed by Swarm Hub, and the receiver i
 - Keep the `X-SwarmHub-Key` header and the JSON body as they are. The receiver accepts bodies up to 32,000 bytes.
 - Use HTTPS. The key travels in a header, so plain HTTP on the internet exposes it.
 - Don't log request headers at the proxy (the key is in one). Access logs with method, path and status are fine:
-  the path holds an unguessable slug but no key, and a call without the key is refused (403).
+  the path holds an unguessable slug but no key, a call without a key is refused (400) and one with a wrong key too (403).
+- If a proxy in the path strips `X-SwarmHub-Key`, a sender may put the key in the JSON body as `"key"` instead. The
+  receiver reads it only when the header is missing or empty; a header that arrives is never overridden by the body.
+  Don't log request bodies either. The text may come as `"text"` or, when `text` is missing or blank, `"message"`.
+
+## One receiver per account, on its own port
+
+Each box account runs one receiver for the profiles in its own home. Profiles moved into their own account get their
+own port: `swarmctl webhook receiver install --port <n>` writes it into the unit, LaunchAgent or fallback supervisor,
+and later installs (skill setup, the app) keep it. `webhook receiver status` reports it and, without `webhook_base`,
+printed addresses use it. Route each profile path to its account's port at the proxy. A profile the receiver's own
+account doesn't hold answers 400, so a 400 where you expected 404 for an unknown routine means the request reached the
+wrong account's receiver.
 
 ## Then publish the public address
 
@@ -105,11 +117,13 @@ Cloudflare terminates TLS. Restrict the hostname to `POST` with a WAF rule if yo
 ## Checking it
 
 On the box: `swarmctl webhook receiver status` (or the app's Webhooks section) should say `running`. From outside,
-a call without the key must answer 403 and one with the key 202:
+a call with a wrong key must answer 403 (no key at all: 400) and one with the key 202. Every receiver answer is JSON;
+an HTML page came from the proxy:
 
 ```sh
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
-  -d '{"text":"ping"}' https://hooks.example.com/swarmhub/webhook/<profile>/<routine>/<slug>   # 403
+  -H 'X-SwarmHub-Key: wrong' -d '{"text":"ping"}' \
+  https://hooks.example.com/swarmhub/webhook/<profile>/<routine>/<slug>   # 403
 ```
 
 A 502 from the proxy means the receiver is not running. `swarmctl webhook receiver status` names its log:

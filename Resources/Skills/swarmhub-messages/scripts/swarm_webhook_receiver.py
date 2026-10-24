@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import plistlib
 import pwd
+import re
 import shutil
 import subprocess
 import sys
@@ -89,6 +90,36 @@ def current_target(kind):
     return None
 
 
+def check_port(port):
+    if isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
+        raise ValueError("receiver port must be a number from 1 to 65535")
+    return port
+
+
+def installed_port(kind=None):
+    """The port the installed unit, LaunchAgent or fallback marker already serves, else None. A later install without
+    --port (skill setup, the app's panel) keeps it, so an account given its own port never falls back to 8745."""
+    kind = kind or manager()
+    path = unit_path(kind)
+    try:
+        text = path.read_text() if path and path.exists() else ""
+        if kind == "systemd" and text:
+            found = re.search(r"^ExecStart=.* webhook serve (\d+)$", text, re.M)
+            return check_port(int(found.group(1))) if found else None
+        if kind == "launchd" and text:
+            argv = plistlib.loads(text.encode()).get("ProgramArguments") or []
+            return check_port(int(argv[-1])) if argv[-3:-1] == ["webhook", "serve"] else None
+        if kind != "none" and fallback.enabled():
+            return check_port(int(json.loads(fallback.paths()["marker"].read_text()).get("port")))
+    except (OSError, ValueError, TypeError, AttributeError, plistlib.InvalidFileException):
+        return None
+    return None
+
+
+def configured_port(port=None):
+    return check_port(port) if port is not None else installed_port() or PORT
+
+
 def systemd_text(python, swarmctl, port=PORT):
     return f"""# Swarm Hub webhook receiver (loopback {port}); written by `swarmctl webhook receiver install`.
 # swarmctl: {swarmctl}
@@ -156,9 +187,11 @@ def lingering():
     return not (code == 0 and output.strip().splitlines()[-1:] == ["no"])
 
 
-def install(port=PORT):
-    """Write the service file if it changed, then enable and start it. Raises ValueError when the manager refuses."""
+def install(port=None):
+    """Write the service file if it changed, then enable and start it. Raises ValueError when the manager refuses.
+    `port` (`receiver install --port`) gives this account its own loopback port; without it the installed one stays."""
     kind = manager()
+    port = configured_port(port)
     path = unit_path(kind)
     if path is None:
         raise ValueError("no supported service manager for this account here (systemd user units or launchd, with HOME as "
@@ -241,7 +274,8 @@ def probe(port=PORT, timeout=2):
         return False
 
 
-def status(port=PORT):
+def status(port=None):
+    port = configured_port(port)
     kind = manager()
     path = unit_path(kind)
     installed = bool(path and path.exists())
