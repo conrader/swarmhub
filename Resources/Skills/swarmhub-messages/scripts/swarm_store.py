@@ -19,6 +19,7 @@ NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\Z", re.ASCII)
 # Columns added after the first schema; applied with ALTER TABLE when missing.
 ACTION_COLUMNS = {"decided_by": "TEXT", "decided_pid": "INTEGER", "decided_at": "REAL",
                   "pid_start": "TEXT", "launched": "TEXT"}
+DELIVERY_COLUMNS = {"tier": "TEXT"}  # "shared": a bridged sender from the shared account (ops/isolation)
 
 
 def spawn(command):
@@ -92,14 +93,15 @@ def database():
           CREATE TABLE IF NOT EXISTS webhooks(profile TEXT, routine TEXT, slug TEXT, key_file TEXT,
             created REAL, rotated REAL, fired INTEGER DEFAULT 0, PRIMARY KEY(profile,routine));
         """)
-        present = {row[1] for row in db.execute("PRAGMA table_info(actions)")}
-        for column, kind in ACTION_COLUMNS.items():
-            if column not in present:
-                try:
-                    db.execute(f"ALTER TABLE actions ADD COLUMN {column} {kind}")
-                except sqlite3.OperationalError:
-                    if column not in {row[1] for row in db.execute("PRAGMA table_info(actions)")}:
-                        raise
+        for table, columns in (("actions", ACTION_COLUMNS), ("deliveries", DELIVERY_COLUMNS)):
+            present = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+            for column, kind in columns.items():
+                if column not in present:
+                    try:
+                        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+                    except sqlite3.OperationalError:
+                        if column not in {row[1] for row in db.execute(f"PRAGMA table_info({table})")}:
+                            raise
         with db:
             yield db
         # Durable outbox: filesystem effects happen only after the transaction commits.
@@ -120,6 +122,46 @@ def database():
 def profile_exists(profile):
     return isinstance(profile, str) and bool(NAME.fullmatch(profile)) and (profile == "default" or
         (Path.home() / ".hermes/profiles" / profile).is_dir())
+
+
+REGISTRY = "/etc/swarmhub/bots.json"
+
+
+def registry_bots():
+    """Profiles that run in their own unix account (ops/isolation registry), or None without a usable registry.
+
+    A routing hint for bot-msg only: peer-bridge re-reads and checks it as root, so a wrong file here can only
+    misroute this account's own send. SWARMHUB_REGISTRY points tests at another file.
+    """
+    try:
+        data = json.loads(Path(os.environ.get("SWARMHUB_REGISTRY") or REGISTRY).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    bots = data.get("bots") if isinstance(data, dict) and data.get("version") == 1 else None
+    if not isinstance(bots, dict):
+        return None
+    return {name: bot for name, bot in bots.items() if isinstance(name, str) and NAME.fullmatch(name)
+            and isinstance(bot, dict)}
+
+
+def route(target):
+    """`<local|bridge|none> <own slug or -> <own gateway port or ->` for bot-msg.
+
+    local: the profile is in this account. bridge: it is a registered bot elsewhere, or this account is a registered
+    bot and the target may be a shared profile (the bridge decides). none: unknown here, or no registry (fails closed).
+    """
+    if not isinstance(target, str) or not NAME.fullmatch(target):
+        raise ValueError("invalid profile")
+    bots = registry_bots()
+    me = next((name for name, bot in (bots or {}).items() if bot.get("uid") == os.getuid()), None)
+    port = (bots or {}).get(me, {}).get("gateway_port") if me else None
+    if profile_exists(target) and not (me and target == "default"):
+        mode = "local"  # In a registered account "default" is the box's shared default bot, never its own stub.
+    elif bots is not None and (target in bots or me):
+        mode = "bridge"
+    else:
+        mode = "none"
+    return f"{mode} {me or '-'} {port if isinstance(port, int) else '-'}"
 
 
 def invoking_profile(environ=None):
@@ -211,7 +253,7 @@ def terminate(pid):
     for child in reversed(sorted(ids)):
         try:
             os.kill(child, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):  # A root-owned `sudo peer-bridge` stops on stdin EOF instead.
             pass
     time.sleep(.1)
     current = process_snapshot()
@@ -223,7 +265,7 @@ def terminate(pid):
         if same_process(before, after, adopters=adopters if child != pid else ()):
             try:
                 os.kill(child, signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
         elif child != pid and after and same_process(before, after, adopters=(after[0],)):
             print(f"swarm_store: leaving pid {child}: adopted by {after[0]}, not this process or one of its ancestors",

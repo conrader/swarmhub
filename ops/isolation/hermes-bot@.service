@@ -1,0 +1,31 @@
+# /etc/systemd/system/hermes-bot@.service, installed by ops/hb-move. One stock Hermes gateway per migrated bot:
+# instance <slug> runs as user hb-<slug> with HERMES_HOME in that account, so no other bot's process can read its
+# keys. Hermes code is unchanged; the gateway serves /p/<profile>/ for the profile moved into that home.
+# Ports come from the per-instance drop-in hermes-bot@<slug>.service.d/10-ports.conf (from /etc/swarmhub/bots.json).
+[Unit]
+Description=Hermes gateway for SwarmHub bot %i (own account hb-%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hb-%i
+Group=hb-%i
+WorkingDirectory=/home/hb-%i
+Environment=HOME=/home/hb-%i
+Environment=HERMES_HOME=/home/hb-%i/.hermes
+Environment=API_SERVER_HOST=127.0.0.1
+Environment=PYTHONDONTWRITEBYTECODE=1
+# The stock gateway from the sealed core. PYTHONDONTWRITEBYTECODE keeps .pyc files out of the pinned tree.
+ExecStart=/opt/hermes-core/current/bin/hermes gateway run
+Restart=on-failure
+RestartSec=5
+MemoryMax=1500M
+UMask=0077
+# bot-msg (a tool subprocess of this gateway) reaches other accounts through `sudo peer-bridge`, which needs setuid.
+NoNewPrivileges=no
+ProtectSystem=full
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

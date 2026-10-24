@@ -1,0 +1,19 @@
+#!/usr/bin/python3 -IB
+"""Root entry point of peer-bridge (see peer_bridge.py). Installed root-owned 0755 in /usr/local/lib/swarmhub/ by
+ops/hb-move, next to peer_bridge.py and swarmhub_registry.py, and reachable only through
+/etc/sudoers.d/swarmhub-peer-bridge."""
+import os
+import stat
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+for item in (HERE, os.path.join(HERE, "peer_bridge.py"), os.path.join(HERE, "swarmhub_registry.py")):
+    info = os.lstat(item)
+    if info.st_uid != 0 or info.st_mode & 0o022 or stat.S_ISLNK(info.st_mode):
+        print(f"peer-bridge: {item} must be root-owned and writable only by root", file=sys.stderr)
+        sys.exit(77)
+sys.path.insert(0, HERE)
+import peer_bridge  # noqa: E402
+
+sys.exit(peer_bridge.main(sys.argv[1:], os.environ, sys.stdin.buffer, sys.stdout, sys.stderr,
+                          peer_bridge.PasswdAccounts(), peer_bridge.drop_privileges))
