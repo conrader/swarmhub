@@ -7,12 +7,12 @@ import json
 import os
 from pathlib import Path
 import plistlib
-import signal
+import socket
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from test_webhooks_live import SWARMCTL, Connection, ReceiverTestBase, control, fallback, receiver
+from test_webhooks_live import Connection, ReceiverTestBase, control, fallback, receiver
 
 webhook = control.webhook
 ROUTINE = "canary-20261024"
@@ -131,7 +131,7 @@ class StatusMatrixTests(ProbeMatrixBase):
         self.assertJSON(self.send("GET", f"/swarmhub/webhook/recipient/{ROUTINE}/{self.slug}", body=None), 404)
 
     def test_not_a_json_object_is_400(self):
-        for body in (b"[1]", b"probe", b'"probe"'):
+        for body in (b"[1]", b"probe", b'"probe"', b"[" * 30_000):  # The last one is too deep for json.loads.
             answer = self.send("POST", f"/swarmhub/webhook/recipient/{ROUTINE}/{self.slug}", body, self.key)
             self.assertJSON(answer, 400, {"error": "bad request"})
 
@@ -243,33 +243,46 @@ class ReceiverPortTests(ReceiverTestBase):
 
 
 class SupervisorPortTests(ReceiverTestBase):
-    def test_a_new_port_restarts_the_supervised_receiver_once(self):
-        scripts = SWARMCTL.resolve().parent
-        record = {"cmd": ["/usr/bin/python3", "-B", str(scripts / "swarmctl"), "webhook", "serve", "8745"],
-                  "code": fallback.digest(scripts)}
-        fallback.paths()["pid"].write_text("{}")
-        sent = []
-        with patch.object(fallback, "receiver_pid", return_value=(4_000_000, record)), \
-                patch.object(fallback.os, "kill", side_effect=lambda pid, sig: sent.append((pid, sig))):
-            fallback.paths()["marker"].write_text('{"port": 8745}')
-            self.assertFalse(fallback.refresh(), "same code, same port: left alone")
-            fallback.paths()["marker"].write_text('{"port": 8805}')
-            self.assertTrue(fallback.refresh())
-        self.assertEqual(sent, [(4_000_000, signal.SIGTERM)], "only that receiver's exact pid")
+    """A supervisor keeps the port it was started with (one from an older skill too), so a new port retires it through
+    its marker and starts a fresh one. The installer signals nothing."""
 
-    def test_the_supervisor_starts_the_receiver_on_the_markers_port(self):
-        fallback.paths()["marker"].write_text('{"port": 8806}')
-        starts = []
+    def free_port(self):
+        try:
+            with socket.socket() as probe:
+                probe.bind(("127.0.0.1", 0))
+                return probe.getsockname()[1]
+        except PermissionError:
+            self.skipTest("sandbox forbids loopback sockets")
 
-        class Crashed:
-            pid = 4_000_000  # Above any pid_max: never a live process.
+    def test_a_real_supervisor_moves_to_the_new_port(self):
+        first, second = self.free_port(), self.free_port()
+        fallback.start("/usr/bin/python3", first)
+        self.addCleanup(lambda: (fallback.stop(), self.eventually(lambda: fallback.holder() is None)))
+        self.eventually(lambda: receiver.probe(first, timeout=0.5))
+        old = fallback.holder()
+        with patch.object(fallback.os, "kill", side_effect=AssertionError("the installer never signals")):
+            fallback.start("/usr/bin/python3", second)
+        self.eventually(lambda: receiver.probe(second, timeout=0.5))
+        self.assertFalse(receiver.probe(first, timeout=0.5), "the old port is closed")
+        self.assertNotIn(fallback.holder(), (None, old), "a fresh supervisor holds the lock")
+        self.assertEqual(json.loads(fallback.paths()["marker"].read_text())["port"], second)
 
-            def poll(self):
-                return 1
+    def test_the_same_port_keeps_the_running_supervisor(self):
+        fallback.paths()["marker"].write_text('{"port": 8745, "python": "/usr/bin/python3"}')
+        with patch.object(fallback, "holder", return_value=4_000_000), patch.object(fallback, "refresh") as refresh, \
+                patch.object(fallback, "spawn") as spawn:
+            fallback.start("/usr/bin/python3", 8745, sleep=lambda s: self.fail("waited"))
+        refresh.assert_called_once_with()
+        spawn.assert_not_called()
 
-        self.assertEqual(fallback.supervise(8745, sleep=lambda s: fallback.stop(),
-                                            popen=lambda argv, **kw: (starts.append(argv), Crashed())[1]), 0)
-        self.assertEqual(starts[0][-3:], ["webhook", "serve", "8806"])
+    def test_a_supervisor_that_does_not_stop_keeps_its_marker_and_the_install_fails(self):
+        before = {"port": 8745, "python": "/usr/bin/python3"}
+        fallback.paths()["marker"].write_text(json.dumps(before))
+        with patch.object(fallback, "holder", return_value=4_000_000), patch.object(fallback, "spawn") as spawn:
+            with self.assertRaisesRegex(ValueError, "did not stop for the port change"):
+                fallback.start("/usr/bin/python3", 8808, sleep=lambda s: None)
+        self.assertEqual(json.loads(fallback.paths()["marker"].read_text()), before)
+        spawn.assert_not_called()
 
 
 if __name__ == "__main__":

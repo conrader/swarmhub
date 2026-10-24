@@ -248,7 +248,7 @@ def request_handler(on_fire=None):
                 return self.answer(403, {"error": "webhook rejected"})
             except UnknownWebhook:
                 return self.answer(404, {"error": "unknown webhook"})
-            except (ValueError, OSError):
+            except (ValueError, OSError, RecursionError):  # RecursionError: deeply nested JSON.
                 return self.answer(400, {"error": "bad request"})
             self.answer(202, result)
             if on_fire:
