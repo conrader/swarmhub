@@ -2,8 +2,10 @@
 
 The key lives only in an owner-only file (0600 under the 0700 state folder) and is never
 printed, journaled or returned by any command. The URL carries an unguessable slug, not the
-key; callers present the key in the `X-SwarmHub-Key` header. The app instead generates the key on the owner's Mac,
-shows it there once and sends only `sha256:<hex>` (`--key-hash`), so the key never reaches this box, a turn or a log;
+key; callers present the key in the `X-SwarmHub-Key` header, or as a JSON body field `key` when no header arrives
+(a proxy in front, e.g. Cloudflare, may strip it; a header that does arrive always wins). The wake text is the body's
+`text`, else its `message` (what sb-codejob posted before it sent `text` too). The app instead generates the key on
+the owner's Mac, shows it there once and sends only `sha256:<hex>` (`--key-hash`), so the key never reaches this box, a turn or a log;
 the key file then holds that digest and calls are checked against it. A fired routine becomes a
 durable self-delivery to the profile, so it survives restarts and is acknowledged like any
 other wake. The loopback receiver binds 127.0.0.1 only; exposing it is the reverse proxy's job.
@@ -59,7 +61,10 @@ def matches(stored, key):
 
 
 def url(profile, routine, slug):
-    base = policy().get("webhook_base") or f"http://127.0.0.1:{DEFAULT_PORT}"
+    base = policy().get("webhook_base")
+    if not base:
+        import swarm_webhook_receiver as receiver  # The loopback address follows `receiver install --port`.
+        base = f"http://127.0.0.1:{receiver.installed_port() or DEFAULT_PORT}"
     return base.rstrip("/") + f"/swarmhub/webhook/{profile}/{routine}/{slug}"
 
 
@@ -194,6 +199,19 @@ def fire(profile, routine, slug, key, text):
     return {"profile": profile, "routine": routine, "delivery": ident, "status": "pending"}
 
 
+def body_text(payload):
+    """`text`, else `message` when `text` is absent or blank; anything else reaches fire() and fails its checks."""
+    text = payload.get("text")
+    if text is None or (isinstance(text, str) and not text.strip()):
+        return payload.get("message", "" if text is None else text)
+    return text
+
+
+def presented_key(header, payload):
+    """The header's key; the body's `key` only when the header is missing or empty (KEY_IN=body)."""
+    return header if header else payload.get("key", "")
+
+
 def request_handler(on_fire=None):
     """Build the HTTP handler separately so protocol validation can be tested without sockets."""
     from http.server import BaseHTTPRequestHandler
@@ -227,7 +245,8 @@ def request_handler(on_fire=None):
                 payload = json.loads(self.rfile.read(length) or b"{}")
                 if not isinstance(payload, dict):
                     raise ValueError("expected object")
-                result = fire(*match.groups(), self.headers.get("X-SwarmHub-Key", ""), payload.get("text", ""))
+                key = presented_key(self.headers.get("X-SwarmHub-Key", ""), payload)
+                result = fire(*match.groups(), key, body_text(payload))
             except PermissionError:
                 return self.answer(403, {"error": "webhook rejected"})
             except UnknownWebhook:
@@ -244,7 +263,7 @@ def request_handler(on_fire=None):
 
 
 def serve(port=DEFAULT_PORT, once=False, ready=None, on_fire=None):
-    """Loopback receiver: POST <url> with X-SwarmHub-Key and JSON {"text": ...}; never logs keys.
+    """Loopback receiver: POST <url> with X-SwarmHub-Key (or a body `key`) and JSON {"text": ...}; never logs keys.
 
     `on_fire` runs after each accepted call (swarmctl passes the delivery worker's idempotent start)."""
     from http.server import ThreadingHTTPServer

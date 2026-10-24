@@ -4,9 +4,11 @@ Linux: a systemd user unit (~/.config/systemd/user/swarmhub-webhook.service), re
 user journal; where no systemd user manager is reachable (Hermes as a system service without lingering), the
 lock-guarded fallback supervisor in swarm_webhook_supervisor.py, resumed at each gateway start. macOS: a LaunchAgent (~/Library/LaunchAgents/com.swarmhub.webhook.plist), restarted on failure,
 logging to ~/Library/Logs/SwarmHub/webhook-receiver.log. Installing is idempotent: the file is rewritten only when
-its text changes (a new skill version changes it), and an unchanged running service is left alone. The receiver
-binds 127.0.0.1 only; exposing it is the owner's reverse proxy (docs/webhooks-exposure.md). The unit carries no key
-and the receiver logs no request, so neither the service file nor its log can hold a secret.
+its text changes (a new skill version changes it), and an unchanged running service is left alone. The port is 8745
+unless `install --port` chose another (one receiver per account, so per-bot accounts each get their registry port); a
+later install or status without a port keeps the one already installed. The receiver binds 127.0.0.1 only; exposing
+it is the owner's reverse proxy (docs/webhooks-exposure.md). The unit carries no key and the receiver logs no request,
+so neither the service file nor its log can hold a secret.
 """
 import json
 import os
@@ -89,6 +91,46 @@ def current_target(kind):
     return None
 
 
+def valid_port(port):
+    if isinstance(port, bool) or not isinstance(port, (int, str)) or not str(port).isdigit() \
+            or not 0 < int(port) < 65536:
+        raise ValueError("receiver port must be a number from 1 to 65535")
+    return int(port)
+
+
+def installed_port(kind=None):
+    """The port an installed unit, LaunchAgent or recorded fallback serves on, else None."""
+    kind = kind or manager()
+    path = unit_path(kind)
+    found = None
+    try:
+        if kind == "systemd":
+            for line in path.read_text().splitlines():
+                words = line.split()
+                if line.startswith("ExecStart=") and words[-3:-1] == ["webhook", "serve"]:
+                    found = words[-1]
+        elif kind == "launchd":
+            words = plistlib.loads(path.read_bytes())["ProgramArguments"]
+            if isinstance(words, list) and words[-3:-1] == ["webhook", "serve"]:
+                found = str(words[-1])
+    except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError, plistlib.InvalidFileException):
+        found = None
+    if found is None and kind != "none" and fallback.enabled():
+        try:
+            found = str(json.loads(fallback.paths()["marker"].read_text()).get("port"))
+        except (OSError, ValueError, AttributeError):
+            found = None
+    try:
+        return valid_port(found)
+    except ValueError:
+        return None
+
+
+def chosen_port(port, kind=None):
+    """An explicit port, else the installed one, else the default."""
+    return valid_port(port) if port is not None else installed_port(kind) or PORT
+
+
 def systemd_text(python, swarmctl, port=PORT):
     return f"""# Swarm Hub webhook receiver (loopback {port}); written by `swarmctl webhook receiver install`.
 # swarmctl: {swarmctl}
@@ -156,9 +198,12 @@ def lingering():
     return not (code == 0 and output.strip().splitlines()[-1:] == ["no"])
 
 
-def install(port=PORT):
-    """Write the service file if it changed, then enable and start it. Raises ValueError when the manager refuses."""
+def install(port=None):
+    """Write the service file if it changed, then enable and start it. Raises ValueError when the manager refuses.
+
+    Without `port` an installed receiver keeps its port, so the setup path never moves a per-bot account back to 8745."""
     kind = manager()
+    port = chosen_port(port, kind)
     path = unit_path(kind)
     if path is None:
         raise ValueError("no supported service manager for this account here (systemd user units or launchd, with HOME as "
@@ -241,8 +286,9 @@ def probe(port=PORT, timeout=2):
         return False
 
 
-def status(port=PORT):
+def status(port=None):
     kind = manager()
+    port = chosen_port(port, kind)
     path = unit_path(kind)
     installed = bool(path and path.exists())
     logs = log_hint(kind)

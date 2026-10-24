@@ -12,6 +12,11 @@ page is a recipe only: nothing here is deployed by Swarm Hub, and the receiver i
   refused. `GET /swarmhub/webhook/health` is for the box itself (the app's status check); it reveals nothing, but
   there is no reason to publish it.
 - Keep the `X-SwarmHub-Key` header and the JSON body as they are. The receiver accepts bodies up to 32,000 bytes.
+  If a proxy in front strips the header (Cloudflare has done so for other services), the caller can send the key as a
+  JSON body field `key` instead; a header that arrives always wins. The wake text is the body's `text`, or its
+  `message` when `text` is absent or blank.
+- One receiver runs per box account. `swarmctl webhook receiver install --port <n>` puts an account's receiver on its
+  own port (later installs and the app keep that port); forward that account's webhooks there.
 - Use HTTPS. The key travels in a header, so plain HTTP on the internet exposes it.
 - Don't log request headers at the proxy (the key is in one). Access logs with method, path and status are fine:
   the path holds an unguessable slug but no key, and a call without the key is refused (403).
@@ -105,11 +110,12 @@ Cloudflare terminates TLS. Restrict the hostname to `POST` with a WAF rule if yo
 ## Checking it
 
 On the box: `swarmctl webhook receiver status` (or the app's Webhooks section) should say `running`. From outside,
-a call without the key must answer 403 and one with the key 202:
+a call without the key must answer 400, one with a wrong key 403 and one with the key 202. Every answer from the
+receiver is JSON; an HTML page means the proxy answered:
 
 ```sh
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
-  -d '{"text":"ping"}' https://hooks.example.com/swarmhub/webhook/<profile>/<routine>/<slug>   # 403
+  -d '{"text":"ping"}' https://hooks.example.com/swarmhub/webhook/<profile>/<routine>/<slug>   # 400
 ```
 
 A 502 from the proxy means the receiver is not running. `swarmctl webhook receiver status` names its log:
