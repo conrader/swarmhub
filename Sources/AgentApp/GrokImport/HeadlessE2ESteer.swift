@@ -30,7 +30,9 @@ extension HeadlessE2E {
             step.detail = "session \(bot.hermesSessionID ?? "-") | steer not offered (run_steer=\(store.canSteer(in: bot)))"; return step
         }
         await finish(store, timing: timing)
-        // A steer the box handed back starts a follow-up turn; let it end too.
+        // A steer the box handed back starts a follow-up turn; let it end too. uxfix1-e2e: so does one whose request was
+        // answered only after the turn ended, so wait for that answer first.
+        _ = await wait(timing.request, poll: timing.poll) { !bot.messages.contains { $0.metadata[SteerKey.steer] == "sent" } }
         await finish(store, timing: timing)
         let outcome = steerTextOutcome(messages: bot.messages, partial: partial)
         step.passed = outcome.passed; step.detail = "session \(bot.hermesSessionID ?? "-") | \(outcome.detail)"
@@ -56,7 +58,9 @@ extension HeadlessE2E {
             step.detail = "session \(bot.hermesSessionID ?? "-") | steer not offered (run_steer=\(store.canSteer(in: bot)))"; return step
         }
         await finish(store, timing: timing)
-        // A steer the box handed back starts a follow-up turn; let it end too.
+        // A steer the box handed back starts a follow-up turn; let it end too. uxfix1-e2e: so does one whose request was
+        // answered only after the turn ended, so wait for that answer first.
+        _ = await wait(timing.request, poll: timing.poll) { !bot.messages.contains { $0.metadata[SteerKey.steer] == "sent" } }
         await finish(store, timing: timing)
         let outcome = steerToolOutcome(messages: bot.messages, tool: tool)
         step.passed = outcome.passed; step.detail = "session \(bot.hermesSessionID ?? "-") | \(outcome.detail)"
