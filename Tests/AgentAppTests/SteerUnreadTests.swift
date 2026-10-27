@@ -43,3 +43,16 @@ import Testing
             "a lost connection may have reached the box: no blind resend")
     #expect(!TransientNetwork.isTransient(NSError(domain: "kCFErrorDomainCFNetwork", code: 301)), "bad credentials are not network trouble")
 }
+
+@MainActor @Test func afterTheUsersStopAnUnreadSteerIsOfferedNotSent() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot) = steerStore(backend)
+    try await startSteerableTurn(store, backend, running: false)
+    #expect(store.send(text: "use metric"))
+    try await waitUntil { bot.messages.last?.metadata["steer"] == "queued" }
+    store.stop(); try await waitUntil { !store.anyTurnRunning }
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(!(await backend.calls.all.contains { $0.hasPrefix("send:\(SteerCopy.lead)") }), "Stop means stop: nothing goes by itself")
+    let bubble = try #require(bot.messages.first { $0.content == "use metric" })
+    #expect(store.canSendAsNextMessage(bubble), "Send as next message is offered")
+}

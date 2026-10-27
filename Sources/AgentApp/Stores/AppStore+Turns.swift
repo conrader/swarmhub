@@ -220,7 +220,7 @@ extension AppStore {
             AvatarReactions.shared.completed(bot)
             if !isTeamThread(conversation) { notifyIfNeeded(bot: bot, message: technicalLine(assistant, botName: bot.name)) }
         }
-        resendReturnedSteers(steers, bot: bot)
+        resendReturnedSteers(steers, bot: bot, finished: outcome.state == .finished)
         sendQueuedNextMessage()
         if outcome.state == .finished {
             // Gap closures after live pass 4: managed approvals become cards; a secret request opens the entry sheet.

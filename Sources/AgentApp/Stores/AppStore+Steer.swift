@@ -193,9 +193,17 @@ extension AppStore {
 
     /// After a turn: steers the box handed back are sent as the next message of a 1:1 chat or thread; in a group (and
     /// when another turn already runs in that chat) they are marked not delivered. At the turn limit the message waits.
-    func resendReturnedSteers(_ pending: PendingSteer?, bot: Bot?) {
-        // OpenClaw keeps its own steer queue (`queueMode: "steer"`): only what it handed back is sent again there.
-        guard let pending, pending.returned || (bot?.backend == .hermes && pending.unread) else { return }
+    /// uxfix1-e2e: an unread steer (`PendingSteer.unread`) goes too, after a Hermes answer that `finished` (never after the
+    /// user's Stop or a failure). OpenClaw keeps its own steer queue (`queueMode: "steer"`): only what it handed back goes.
+    func resendReturnedSteers(_ pending: PendingSteer?, bot: Bot?, finished: Bool = false) {
+        guard let pending else { return }
+        guard pending.returned || (finished && bot?.backend == .hermes && pending.unread) else {
+            // A stopped or failed Hermes answer: a steer it never read is offered as "Send as next message", never sent later by itself.
+            if !finished, bot?.backend == .hermes, !pending.stepEndedSinceAccepted {
+                pending.bubbles.filter { ["sent", "queued"].contains($0.metadata[SteerKey.steer] ?? "") }.forEach { $0.metadata[SteerKey.steer] = "failed" }
+            }
+            return
+        }
         // A steer still in flight ("sent") is left to its own answer: a refusal offers "Send as next message".
         let waiting = pending.bubbles.filter { (pending.returned ? ["sent", "queued"] : ["queued"]).contains($0.metadata[SteerKey.steer]) }
         guard let last = waiting.last else { return }
