@@ -5,8 +5,8 @@ import Security
 /// `SwarmHub --e2e-live <dir>` (uxfix1-e2e): the normal app, window on screen, run against a throwaway store in `<dir>`
 /// that holds fresh copies of every Hermes bot in the real store (profile, server, persona, manager role; no messages,
 /// no sessions, no recorded skills). The real store is read once and never written; settings go to their own defaults
-/// suite; keys are read from the Keychain silently and never written. Hermes traffic goes through `E2ELiveRelay`, a
-/// loopback tunnel the run can cut to drop the connection for real. The run drives the same `AppStore` calls the
+/// suite; keys are read from the Keychain silently and never written. Hermes traffic goes through `E2ELiveNetwork`, a
+/// real session the run can take offline (in-flight requests lost, new ones refused) the way macOS reports a drop. The run drives the same `AppStore` calls the
 /// buttons and the composer make, writes `<dir>/report.txt` and quits. Every session it opens is `swarmhub-selftest-…`.
 @MainActor enum E2ELive {
     static let flag = "--e2e-live"
@@ -19,10 +19,10 @@ import Security
 
     /// The run's state, kept for the report and read by the monitor.
     final class Run {
-        let directory: URL; let relay: E2ELiveRelay
+        let directory: URL; let network: E2ELiveNetwork
         var lines: [String] = []; var failed = 0
         var modals: [String] = []; var sheets = 0; var notices: Set<String> = []
-        init(directory: URL, relay: E2ELiveRelay) { self.directory = directory; self.relay = relay }
+        init(directory: URL, network: E2ELiveNetwork) { self.directory = directory; self.network = network }
         func note(_ text: String) {
             lines.append(text); print(text); fflush(stdout)
             try? (lines.joined(separator: "\n") + "\n").write(to: directory.appending(path: "report.txt"), atomically: true, encoding: .utf8)
@@ -45,19 +45,18 @@ import Security
         }
         let saved: StoreFile
         do { saved = try StoreFile.decode(Data(contentsOf: realURL)) } catch { print("E2E-LIVE STOP: cannot read the real store: \(error.localizedDescription)"); return nil }
-        let relay = E2ELiveRelay(allowedHost: "konrad.agenthut.net")
-        guard let port = relay.start() else { print("E2E-LIVE STOP: the loopback relay did not start"); return nil }
+        let network = E2ELiveNetwork.shared
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         guard let defaults = UserDefaults(suiteName: defaultsSuite) else { print("E2E-LIVE STOP: no defaults suite"); return nil }
         defaults.removePersistentDomain(forName: defaultsSuite)
         let store = AppStore(storeURL: directory.appending(path: "store.json"), autoConfigureHermes: false, keyStore: E2ELiveKeys(defaults: defaults),
-                             defaults: defaults, hermesSession: relay.session(port: port))
+                             defaults: defaults, hermesSession: network.session())
         store.sessionNamespace = HeadlessE2E.namespace
         let sources = saved.bots.filter { $0.backend == .hermes && !$0.isReadOnlyArchive && !$0.isGrokHistoryOnly }
         store.bots = sources.map(copy); store.groups = []; store.selectedBot = store.bots.first { $0.canManageBots }
         store.save()
-        current = Run(directory: directory, relay: relay)
-        current?.note("E2E-LIVE: store \(directory.path) with \(store.bots.count) bot copies of \(saved.bots.count) in the real store (read only); relay 127.0.0.1:\(port)")
+        current = Run(directory: directory, network: network)
+        current?.note("E2E-LIVE: store \(directory.path) with \(store.bots.count) bot copies of \(saved.bots.count) in the real store (read only); Hermes traffic through the e2e network")
         return store
     }
 
@@ -79,7 +78,7 @@ import Security
             run.note("E2E-LIVE: \(run.lines.filter { $0.hasPrefix("PASS") }.count) passed, \(run.failed) failed")
             run.note("E2E-LIVE RESULT: \(run.failed == 0 ? "PASS" : "FAIL")")
             UserDefaults.standard.removePersistentDomain(forName: defaultsSuite)
-            run.relay.stop()
+            run.network.stop()
             NSApp.terminate(nil)
         }
     }

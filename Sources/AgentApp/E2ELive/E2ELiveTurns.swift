@@ -1,7 +1,7 @@
 import Foundation
 
 /// uxfix1-e2e turns, each in a fresh `swarmhub-selftest-…` session of a copy (never a bot's own chat): a steer typed
-/// mid-turn lands without stopping the turn (`--e2e` b1 and b2), and two real connection drops (`E2ELiveRelay`): one
+/// mid-turn lands without stopping the turn (`--e2e` b1 and b2), and two network drops (`E2ELiveNetwork`: in-flight requests lost, new ones offline): one
 /// in the middle of a streaming reply, one while a message is being sent. Neither may open the alert; both must recover.
 extension E2ELive {
     static func turnSteps(store: AppStore, manager: Bot, run: Run) async {
@@ -28,15 +28,15 @@ extension E2ELive {
         let reply = store.turn(in: bot)?.assistant
         let streaming = await HeadlessE2E.wait(.seconds(120), poll: .milliseconds(50)) { store.isIdle(bot) || !(reply?.content.isEmpty ?? true) }
         guard streaming, !store.isIdle(bot) else { await HeadlessE2E.finish(store, timing: timing); run.check("net.midstream", false, "no streaming reply to cut"); return }
-        run.relay.drop(for: 8)
-        run.note("E2E-LIVE: dropped mid-stream (\(run.relay.counts))")
+        run.network.drop(for: 8)
+        run.note("E2E-LIVE: dropped mid-stream (\(run.network.counts))")
         let ended = await HeadlessE2E.wait(.seconds(300), poll: .milliseconds(100)) { store.isIdle(bot) }
         let sameTurn = reply.map { "\($0.turnState.map { "\($0)" } ?? "-") \(HeadlessE2E.snippet(HeadlessE2E.oneLine($0.content)))" } ?? "-"
-        _ = await HeadlessE2E.wait(.seconds(15), poll: .milliseconds(200)) { !run.relay.isDown }
+        _ = await HeadlessE2E.wait(.seconds(15), poll: .milliseconds(200)) { !run.network.isDown }
         let next = await HeadlessE2E.turn(store: store, text: HeadlessE2E.message("Reply with exactly: E2E-NET-AFTER"), conversation: bot, timing: timing)
         let cleared = await HeadlessE2E.wait(.seconds(10), poll: .milliseconds(100)) { store.connectionNotice == nil }
         let ok = ended && run.modals.count == before && next.error == nil && next.reply.contains("E2E-NET-AFTER") && cleared
-        run.check("net.midstream", ok, "cut turn ended=\(ended) [\(sameTurn)]; next turn: \(next.error ?? HeadlessE2E.snippet(next.reply)); connection line cleared=\(cleared); alerts during=\(run.modals.count - before); \(run.relay.counts)")
+        run.check("net.midstream", ok, "cut turn ended=\(ended) [\(sameTurn)]; next turn: \(next.error ?? HeadlessE2E.snippet(next.reply)); connection line cleared=\(cleared); alerts during=\(run.modals.count - before); \(run.network.counts)")
     }
 
     /// The tunnel goes down for 6 s and a message is sent at once: it must be resent by itself ("Reconnecting…") and answered.
@@ -44,7 +44,7 @@ extension E2ELive {
         let bot = HeadlessE2E.copy(source, name: "\(source.name) offline"); bot.notificationsEnabled = false
         store.bots.append(bot); HeadlessE2E.select(bot, in: store)
         let before = run.modals.count
-        run.relay.drop(for: 6)
+        run.network.drop(for: 6)
         let seen = Seen()
         let watcher = Task { @MainActor in
             while !Task.isCancelled {
@@ -56,7 +56,7 @@ extension E2ELive {
         watcher.cancel()
         let cleared = await HeadlessE2E.wait(.seconds(10), poll: .milliseconds(100)) { store.connectionNotice == nil }
         let ok = turn.error == nil && turn.reply.contains("E2E-OFFLINE") && turn.assistant?.turnState == .finished && run.modals.count == before && cleared
-        run.check("net.offline-send", ok, "reply: \(turn.error ?? HeadlessE2E.snippet(turn.reply)); state=\(turn.assistant?.turnState.map { "\($0)" } ?? "-"); showed Reconnecting=\(seen.reconnecting); connection line cleared=\(cleared); alerts during=\(run.modals.count - before); \(run.relay.counts)")
+        run.check("net.offline-send", ok, "reply: \(turn.error ?? HeadlessE2E.snippet(turn.reply)); state=\(turn.assistant?.turnState.map { "\($0)" } ?? "-"); showed Reconnecting=\(seen.reconnecting); connection line cleared=\(cleared); alerts during=\(run.modals.count - before); \(run.network.counts)")
     }
 
     @MainActor final class Seen { var reconnecting = false }
