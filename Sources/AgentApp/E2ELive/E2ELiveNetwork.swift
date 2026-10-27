@@ -69,7 +69,7 @@ final class E2ELiveNetwork: NSObject, URLSessionDataDelegate, @unchecked Sendabl
 /// One request of the e2e store. Client calls go back to the thread that started the load, as URLProtocol requires.
 final class E2ELiveLoading: URLProtocol {
     private let lock = NSLock()
-    private var task: URLSessionDataTask?
+    private var realTask: URLSessionDataTask?
     private var done = false
     private var loop: CFRunLoop?
 
@@ -87,19 +87,20 @@ final class E2ELiveLoading: URLProtocol {
             real.httpBodyStream = nil; real.httpBody = body
         }
         guard let task = E2ELiveNetwork.shared.start(real, for: self) else { fail(URLError(.notConnectedToInternet)); return }
-        lock.withLock { self.task = task }
+        lock.withLock { realTask = task }
+        if isDone { task.cancel(); return }
         task.resume()
     }
 
     override func stopLoading() {
-        let task = lock.withLock { () -> URLSessionDataTask? in done = true; return self.task }
+        let task = lock.withLock { () -> URLSessionDataTask? in done = true; return realTask }
         if let task { E2ELiveNetwork.shared.forget(task); task.cancel() }
     }
 
     func fail(_ error: Error) {
         let task = lock.withLock { () -> URLSessionDataTask? in
             guard !done else { return nil }
-            done = true; return self.task
+            done = true; return realTask
         }
         task?.cancel()
         deliver { $0.client?.urlProtocol($0, didFailWithError: error) }
