@@ -23,7 +23,8 @@ extension E2ELive {
         for bot in store.bots where store.skills(for: bot).contains(where: { store.skillState($0, for: bot).needsAction }) {
             let wanted = store.skills(for: bot).filter { store.skillState($0, for: bot).needsAction }.map(\.name)
             let sent = store.installSkills(for: bot)
-            let done = sent ? await HeadlessE2E.wait(.seconds(15 * 60), poll: .milliseconds(250)) { installIdle(store, manager) } : false
+            var done = false
+            if sent { done = await HeadlessE2E.wait(.seconds(15 * 60), poll: .milliseconds(250)) { installIdle(store, manager) } }
             run.note("E2E-LIVE: install \(bot.name) \(wanted.joined(separator: ",")): sent=\(sent) done=\(done) \(store.skillInstallResults[bot.id].map { "\($0.status) \($0.detail.prefix(160))" } ?? "")")
         }
 

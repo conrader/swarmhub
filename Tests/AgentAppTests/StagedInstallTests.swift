@@ -393,8 +393,9 @@ private final class StagedClock { var date = Date(timeIntervalSince1970: 1_792_4
             #expect(bot.skillInstallFailures[stagedManager.name] == failure, "deferral must not extend the cooldown")
             #expect(eligible.skillInstallFailures[stagedFeedback.name] == nil, "no attempt was made for the eligible skill")
             #expect(store.defaults.data(forKey: "updates.transport.floor." + store.connection(of: bot)) == nil)
-            #expect(store.errorMessage?.contains("default/swarmhub-manager") == true)
-            #expect(store.errorMessage?.contains("Signed skill installs run together") == true)
+            // uxfix1-e2e: said in the manager's chat, never the alert.
+            #expect(store.errorMessage == nil)
+            #expect(bot.messages.contains { $0.role == .system && $0.content.contains("default/swarmhub-manager") && $0.content.contains("Signed skill installs run together") })
         }
         // The updater also rerenders saved selections omitted by this caller. Sending only the eligible subset
         // must not bypass the same cooldown, including when an all-bots caller drops a fully backed-off profile.

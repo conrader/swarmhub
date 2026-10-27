@@ -45,10 +45,10 @@ extension E2ELive {
         store.bots.append(bot); HeadlessE2E.select(bot, in: store)
         let before = run.modals.count
         run.relay.drop(for: 6)
-        var reconnecting = false
+        let seen = Seen()
         let watcher = Task { @MainActor in
             while !Task.isCancelled {
-                if store.turn(in: bot)?.assistant?.metadata["status"] == TurnErrorCopy.reconnecting || store.turn(in: bot)?.assistant?.metadata[TurnKey.reconnecting] != nil { reconnecting = true }
+                if store.turn(in: bot)?.assistant?.metadata["status"] == TurnErrorCopy.reconnecting || store.turn(in: bot)?.assistant?.metadata[TurnKey.reconnecting] != nil { seen.reconnecting = true }
                 try? await Task.sleep(for: .milliseconds(50))
             }
         }
@@ -56,6 +56,8 @@ extension E2ELive {
         watcher.cancel()
         let cleared = await HeadlessE2E.wait(.seconds(10), poll: .milliseconds(100)) { store.connectionNotice == nil }
         let ok = turn.error == nil && turn.reply.contains("E2E-OFFLINE") && turn.assistant?.turnState == .finished && run.modals.count == before && cleared
-        run.check("net.offline-send", ok, "reply: \(turn.error ?? HeadlessE2E.snippet(turn.reply)); state=\(turn.assistant?.turnState.map { "\($0)" } ?? "-"); showed Reconnecting=\(reconnecting); connection line cleared=\(cleared); alerts during=\(run.modals.count - before); \(run.relay.counts)")
+        run.check("net.offline-send", ok, "reply: \(turn.error ?? HeadlessE2E.snippet(turn.reply)); state=\(turn.assistant?.turnState.map { "\($0)" } ?? "-"); showed Reconnecting=\(seen.reconnecting); connection line cleared=\(cleared); alerts during=\(run.modals.count - before); \(run.relay.counts)")
     }
+
+    @MainActor final class Seen { var reconnecting = false }
 }

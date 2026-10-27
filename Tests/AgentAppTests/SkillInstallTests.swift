@@ -203,7 +203,8 @@ private let toolSkill = BundledSkill(name: "swarmhub-tool", version: SkillVersio
     #expect(throws: SkillInstallError.self) { try store.skillInstallInstructions([inline], profile: "grok-jarvis", botName: "Jarvis") }
     store.skillLibraryOverride = [skill, bad]
     #expect(!store.installSkills(for: jarvis))
-    #expect(store.errorMessage?.contains("scripts/run contains SWARMHUB_EOF") == true)
+    // uxfix1-e2e: said in the manager's chat, never the alert.
+    #expect(store.errorMessage == nil && jarvis.messages.contains { $0.role == .system && $0.content.contains("scripts/run contains SWARMHUB_EOF") })
     #expect(store.pendingSkillInstalls.isEmpty && sentInstructions(host).isEmpty, "nothing reaches the manager")
 }
 
