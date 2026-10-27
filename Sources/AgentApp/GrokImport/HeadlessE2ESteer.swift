@@ -24,7 +24,8 @@ extension HeadlessE2E {
             step.detail = "session \(bot.hermesSessionID ?? "-") | " + (tokens ? "turn ended before the first tokens could be steered" : "no tokens within \(timing.steerStart)") + (store.errorMessage.map { " (\($0))" } ?? "")
             return step
         }
-        guard store.send(text: message(steerCorrection)) else {
+        // uxfix1: without steer a send would only wait for the turn; this step checks steering itself.
+        guard store.canSteer(in: bot), store.send(text: message(steerCorrection)) else {
             await finish(store, timing: timing)
             step.detail = "session \(bot.hermesSessionID ?? "-") | steer not offered (run_steer=\(store.canSteer(in: bot)))"; return step
         }
@@ -50,7 +51,7 @@ extension HeadlessE2E {
             step.detail = "session \(bot.hermesSessionID ?? "-") | " + (running ? "no tool step ran (\(snippet(oneLine(reply?.content ?? ""))))" : "no tool step within \(timing.steerStart)")
             return step
         }
-        guard store.send(text: message("After that step, reply with exactly: \(steerToken)")) else {
+        guard store.canSteer(in: bot), store.send(text: message("After that step, reply with exactly: \(steerToken)")) else {
             await finish(store, timing: timing)
             step.detail = "session \(bot.hermesSessionID ?? "-") | steer not offered (run_steer=\(store.canSteer(in: bot)))"; return step
         }

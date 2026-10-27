@@ -235,20 +235,22 @@ private let blockedReply = "I can't go on.\n```swarmhub\n{\"op\":\"goal\",\"stat
     #expect(store.submitComposer(text: "keep the public API"))
     try await backend.calls.wait { $0.contains("steer:keep the public API") }
     #expect(store.goal(in: bot)?.state == .running)
-    // No step running: the text stops the answer and goes as a correction; that stop does not end the goal.
+    // uxfix1: no step running: the text steers this round too, nothing is stopped, and the round goes on.
     await backend.emit(step(.completed))
     try await waitUntil { store.soleTurn?.assistant?.activity?.current == nil }
     #expect(store.submitComposer(text: "and keep it small"))
-    try await waitUntil { await backend.streamCount == 2 }
-    #expect(store.goal(in: bot)?.state == .running && bot.messages.last { $0.role == .user }?.content == "and keep it small")
+    try await backend.calls.wait { $0.contains("steer:and keep it small") }
+    let calls = await backend.calls.all
+    #expect(store.goal(in: bot)?.state == .running && !calls.contains { $0.hasPrefix("stop") })
+    #expect(await backend.streamCount == 1, "the round was not stopped and restarted")
     await finish(backend, "Smaller now.")
-    try await waitUntil { await backend.streamCount == 3 }
-    #expect(store.goal(in: bot)?.round == 2, "the correction's turn led to the next round")
+    try await waitUntil { await backend.streamCount == 2 }
+    #expect(store.goal(in: bot)?.round == 2, "the steered round led to the next one")
     #expect(store.submitComposer(text: "/stop"))
     try await waitUntil { !store.anyTurnRunning }
     #expect(store.goal(in: bot)?.state == .ended && bot.messages.contains { $0.content == "Goal stopped" })
     try await Task.sleep(for: .milliseconds(30))
-    #expect(await backend.streamCount == 3, "nothing runs after Stop")
+    #expect(await backend.streamCount == 2, "nothing runs after Stop")
 }
 
 @MainActor @Test func aFailedTurnEndsTheGoal() async throws {
