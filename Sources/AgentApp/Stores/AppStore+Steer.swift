@@ -49,6 +49,12 @@ struct PendingSteer {
     var boundary = false
     /// The box handed the text back undelivered (`pending_steer`).
     var returned = false
+    /// uxfix1-e2e: a tool step ended after the box accepted the steer, so it may have been read with that step's result.
+    var stepEndedSinceAccepted = false
+    /// Hermes reads a steer only with a tool step's result, else hands it back as `pending_steer`. A steer the box accepted
+    /// too late for either (live run, 27 Oct: a text-only reply ended with the steer still queued) was never read: it is
+    /// sent as the next message like a handed-back one, never dropped.
+    var unread: Bool { returned || (!stepEndedSinceAccepted && bubbles.contains { $0.metadata[SteerKey.steer] == "queued" }) }
 }
 
 extension AppStore {
@@ -104,19 +110,37 @@ extension AppStore {
     func deliverSteer(_ value: String, into conversation: any Conversation, sessionID: String, backend activeBackend: any AgentBackend, bubble: ChatMessage? = nil) {
         let message = bubble ?? ChatMessage(role: .user, content: value, metadata: [SteerKey.steer: "sent"])
         if bubble == nil { conversation.messages.append(message) }
-        if let origin = streamingTurnOrigin(in: conversation) { turns.steers[origin, default: PendingSteer(conversation: conversation)].bubbles.append(message) }
+        if let origin = streamingTurnOrigin(in: conversation) {
+            turns.steers[origin, default: PendingSteer(conversation: conversation)].bubbles.append(message)
+            turns.steers[origin]?.stepEndedSinceAccepted = false
+        }
         objectWillChange.send(); save()
         Task {
             do {
                 try await activeBackend.steer(sessionID: sessionID, text: value)
                 if message.metadata[SteerKey.steer] == "sent" { message.metadata[SteerKey.steer] = "queued" }
+                // uxfix1-e2e: accepted only after its turn ended: the box can no longer read it, so it goes as the next message.
+                if activeBackend.kind == .hermes, message.metadata[SteerKey.steer] == "queued", !steerHeldByTurn(message) { sendLateSteer(message, in: conversation) }
             } catch {
+                // Already sent again as the next message (the box handed it back first): nothing more to do.
+                guard ["sent", "queued"].contains(message.metadata[SteerKey.steer] ?? "") else { return }
+                let ended = activeBackend.kind == .hermes && !steerHeldByTurn(message)
                 message.metadata[SteerKey.steer] = "failed"
                 for key in turns.steers.keys { turns.steers[key]?.bubbles.removeAll { $0 === message } }
-                addWarning(error.localizedDescription, in: conversation, after: message)
+                // The run it was meant for is over (the box refuses a steer then): it goes as the next message instead.
+                if ended { sendLateSteer(message, in: conversation) } else { addWarning(error.localizedDescription, in: conversation, after: message) }
             }
             objectWillChange.send(); save()
         }
+    }
+
+    /// The bubble still belongs to a running turn's steer bookkeeping.
+    func steerHeldByTurn(_ bubble: ChatMessage) -> Bool { turns.steers.values.contains { $0.bubbles.contains { $0 === bubble } } }
+
+    /// A steer its turn can no longer read goes as the chat's next message ("Sent after the answer finished").
+    private func sendLateSteer(_ bubble: ChatMessage, in conversation: any Conversation) {
+        bubble.metadata[SteerKey.steer] = "failed"
+        if !sendAsNextMessage(bubble) { addWarning(SteerCopy.endedFirst, in: conversation, after: bubble) }
     }
 
     /// Stream bookkeeping for queued steers (`consumeTurn`). Returns the row the event belongs in: after a step ended,
@@ -127,12 +151,13 @@ extension AppStore {
         switch event {
         case .steer(.accepted):
             pending.bubbles.filter { $0.metadata[SteerKey.steer] == "sent" }.forEach { $0.metadata[SteerKey.steer] = "queued" }
+            pending.stepEndedSinceAccepted = false
             return row
         case .steer(.returned):
             pending.returned = true; return row
         case .tool(let tool) where tool.phase == .completed || tool.phase == .failed:
             // Checked before the event is applied: the step that ends now is the last one running.
-            pending.boundary = (row.activity?.steps.filter(\.isRunning).count ?? 0) <= 1; return row
+            pending.boundary = (row.activity?.steps.filter(\.isRunning).count ?? 0) <= 1; pending.stepEndedSinceAccepted = true; return row
         case .tool(let tool) where tool.phase != .started: return row
         case .token, .replace, .tool:
             let boundary = pending.boundary; pending.boundary = false
@@ -169,8 +194,10 @@ extension AppStore {
     /// After a turn: steers the box handed back are sent as the next message of a 1:1 chat or thread; in a group (and
     /// when another turn already runs in that chat) they are marked not delivered. At the turn limit the message waits.
     func resendReturnedSteers(_ pending: PendingSteer?, bot: Bot?) {
-        guard let pending, pending.returned else { return }
-        let waiting = pending.bubbles.filter { ["sent", "queued"].contains($0.metadata[SteerKey.steer]) }
+        // OpenClaw keeps its own steer queue (`queueMode: "steer"`): only what it handed back is sent again there.
+        guard let pending, pending.returned || (bot?.backend == .hermes && pending.unread) else { return }
+        // A steer still in flight ("sent") is left to its own answer: a refusal offers "Send as next message".
+        let waiting = pending.bubbles.filter { (pending.returned ? ["sent", "queued"] : ["queued"]).contains($0.metadata[SteerKey.steer]) }
         guard let last = waiting.last else { return }
         guard let bot, !(pending.conversation is GroupChat), isIdle(pending.conversation), let activeBackend = try? backend(for: bot) else {
             waiting.forEach { $0.metadata[SteerKey.steer] = "failed" }

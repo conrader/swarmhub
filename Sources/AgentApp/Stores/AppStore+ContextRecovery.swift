@@ -113,7 +113,9 @@ extension AppStore {
         if let broken = error as? StreamBreak { return !broken.delivered && (broken.requestStarted == false || isTransient(broken.underlying)) }
         if let url = error as? URLError { return TurnOutcome.certainlyUnsentCodes.contains(url.code) }
         if case BackendError.http(let code, _) = error { return [429, 503].contains(code) }
-        return false
+        // uxfix1-e2e: the proxy in front of the network was unreachable, so nothing reached the box.
+        let ns = error as NSError
+        return ns.domain == TransientNetwork.cfNetworkDomain && TransientNetwork.cfProxyCodes.contains(ns.code)
     }
 
     /// The row goes back to streaming for the next attempt, empty, with `status` until text arrives.

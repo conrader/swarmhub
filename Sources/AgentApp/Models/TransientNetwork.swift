@@ -11,6 +11,12 @@ enum TransientNetwork {
     /// Socket errors a dropped connection reports: EPIPE, ENETDOWN, ENETUNREACH, ECONNABORTED, ECONNRESET, ENOTCONN,
     /// ETIMEDOUT, EHOSTUNREACH.
     static let posixCodes: Set<Int> = [32, 50, 51, 53, 54, 57, 60, 65]
+    /// uxfix1-e2e: CFNetwork's own codes for the same trouble, which arrive unbridged (not as URLError): 302 connection
+    /// lost, 306 HTTP proxy and 310 HTTPS proxy unreachable, 311 the proxy refused the tunnel (a Mac behind a proxy).
+    static let cfNetworkDomain = "kCFErrorDomainCFNetwork"
+    static let cfNetworkCodes: Set<Int> = [302, 306, 310, 311]
+    /// The proxy codes alone: the request never reached the box.
+    static let cfProxyCodes: Set<Int> = [306, 310, 311]
     /// A proxy in front of the box (Cloudflare, nginx) answering while the box restarts.
     static let gatewayStatuses: Set<Int> = [502, 503, 504]
 
@@ -22,6 +28,7 @@ enum TransientNetwork {
         let ns = error as NSError
         if ns.domain == NSURLErrorDomain { return codes.contains(URLError.Code(rawValue: ns.code)) }
         if ns.domain == NSPOSIXErrorDomain { return posixCodes.contains(ns.code) }
+        if ns.domain == cfNetworkDomain, cfNetworkCodes.contains(ns.code) { return true }
         if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? Error { return isTransient(underlying) }
         return false
     }
@@ -32,6 +39,7 @@ enum TransientNetwork {
         var words = ["The network connection was lost.", "The request timed out.", "Could not connect to the server.",
                      "The Internet connection appears to be offline.", "A server with the specified hostname could not be found.",
                      StreamBreak.EndOfStream().localizedDescription]
+        words += cfNetworkCodes.sorted().map { "\(cfNetworkDomain) error \($0)." }
         for code in codes {
             words.append("NSURLErrorDomain error \(code.rawValue).")
             let text = URLError(code).localizedDescription

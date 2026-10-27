@@ -3,7 +3,7 @@ import Network
 
 /// uxfix1-e2e: a loopback HTTPS proxy (HTTP CONNECT tunnels) for `--e2e-live`, so the run can drop the app's
 /// connection to the box for real: `drop(for:)` closes every open tunnel (the app sees "The network connection was
-/// lost.") and refuses new ones until the time is up (the app sees the box as unreachable). Only `allowedHost:443` is
+/// lost.") and, until the time is up, closes each new tunnel as soon as it opens (the same, never a failed proxy). Only `allowedHost:443` is
 /// tunnelled; bytes pass through untouched (TLS stays end to end).
 final class E2ELiveRelay: @unchecked Sendable {
     let allowedHost: String
@@ -57,7 +57,6 @@ final class E2ELiveRelay: @unchecked Sendable {
     // MARK: Tunnels (on `queue`)
 
     private func accept(_ client: NWConnection) {
-        guard Date() >= downUntil else { refused += 1; client.cancel(); return }
         client.start(queue: queue)
         readHead(client, buffer: Data())
     }
@@ -69,8 +68,13 @@ final class E2ELiveRelay: @unchecked Sendable {
             guard error == nil, !complete || head.range(of: Data("\r\n\r\n".utf8)) != nil, head.count < 16_384 else { client.cancel(); return }
             guard head.range(of: Data("\r\n\r\n".utf8)) != nil else { readHead(client, buffer: head); return }
             let line = String(decoding: head.prefix { $0 != 13 }, as: UTF8.self).split(separator: " ")
-            guard line.count >= 2, line[0] == "CONNECT", line[1].lowercased() == "\(allowedHost):443", Date() >= downUntil else {
+            guard line.count >= 2, line[0] == "CONNECT", line[1].lowercased() == "\(allowedHost):443" else {
                 refused += 1; client.send(content: Data("HTTP/1.1 403 Forbidden\r\n\r\n".utf8), completion: .contentProcessed { _ in client.cancel() }); return
+            }
+            // Down: the tunnel opens and closes at once, so the app sees the connection to the box drop (as offline, -1005),
+            // never a failed proxy (CFNetwork 310), which URLSession then keeps refusing for a while.
+            guard Date() >= downUntil else {
+                refused += 1; client.send(content: Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8), completion: .contentProcessed { _ in client.cancel() }); return
             }
             let upstream = NWConnection(host: .init(allowedHost), port: 443, using: .tcp)
             let key = ObjectIdentifier(client)
