@@ -126,7 +126,11 @@ actor EndingBackend: AgentBackend {
             #expect(line.role == .system && line.metadata["tone"] == "warning" && line.content.hasPrefix("Echo: "))
         }
         if state == .notSent { #expect(reply.metadata["why"] == alertOrWhy) }
-        if case .eof = ending { #expect(store.errorMessage == nil, "EOF never raised the alert before P16") } else if state != .finished { #expect(store.errorMessage != nil, "D3: the alert stays for the user's own sends") }
+        // uxfix1: a dropped, timed-out or offline turn never raises the modal alert (its row and warning line say it).
+        let transient: Bool
+        switch ending { case .eof, .cutAfterToken, .throwBeforeHeaders: transient = true; default: transient = false }
+        if transient { #expect(store.errorMessage == nil && store.modalErrorMessage == nil, "no alert for \(ending)") }
+        else if state != .finished { #expect(store.errorMessage != nil, "D3: the alert stays for the user's own sends") }
         #expect((AvatarReactions.shared.completions[bot.id] != nil) == (state == .finished), "only finished completes and notifies")
         if case .boxError = ending { #expect(store.errorMessage == "box failed") }
     }

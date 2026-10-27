@@ -83,13 +83,24 @@ extension AppStore {
 
     private func setupCleanupKey(_ target: String) -> String { "setup.sessions.cleanup." + target }
 
-    /// The wait before another attempt of a setup turn that did not reach the box (or found it briefly unable); nil = no retry.
+    /// The wait before another attempt of a setup turn that did not reach the box, found it briefly unable, or lost the
+    /// connection on the way; nil = no retry. uxfix1: a timeout or a dropped stream is retried too. An install only writes
+    /// files (mkdir and whole-file heredocs, or the updater's signed bundle), so sending it again is safe, and Hermes stops
+    /// a native chat stream's run when its client goes, so the dropped attempt does not finish on its own.
     func setupRetryDelay(after end: TurnEnd, failures: Int) -> Duration? {
-        guard failures < Self.setupRetryDelays.count, case .error(let error) = end, Self.isTransient(error) else { return nil }
+        guard failures < Self.setupRetryDelays.count, case .error(let error) = end,
+              Self.isTransient(error) || TransientNetwork.isTransient(error) else { return nil }
         return Self.setupRetryDelays[failures]
     }
 
-    /// Only failures that prove the box did not start the install: a timeout or a dropped stream may have, and is not retried.
+    /// uxfix1: the wait before a user's turn that never left the Mac is sent again (`sendRetryDelays`); nil = no retry.
+    /// Only failures that prove the box never got it: a timeout or a dropped stream may have, and is reconciled instead.
+    func sendRetryDelay(after end: TurnEnd, failures: Int) -> Duration? {
+        guard failures < sendRetryDelays.count, case .error(let error) = end, Self.isTransient(error) else { return nil }
+        return sendRetryDelays[failures]
+    }
+
+    /// Only failures that prove the box did not start the turn: a timeout or a dropped stream may have.
     static func isTransient(_ error: Error) -> Bool {
         if let broken = error as? StreamBreak { return !broken.delivered && (broken.requestStarted == false || isTransient(broken.underlying)) }
         if let url = error as? URLError { return TurnOutcome.certainlyUnsentCodes.contains(url.code) }

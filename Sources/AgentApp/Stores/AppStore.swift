@@ -122,6 +122,8 @@ import SwarmHubCore
     var skillRetryRedraw: Task<Void, Never>?; var skillRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// autoctx1: the pause before a setup turn's next attempt (tests return at once).
     var setupRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// uxfix1: waits before a user's turn that never left the Mac is sent again (none in tests unless a test sets them).
+    var sendRetryDelays: [Duration] = TestRunGuard.isTestRun ? [] : [.seconds(1), .seconds(3), .seconds(8), .seconds(15)]
     lazy var boxInstallTransport = BoxInstallTransport(configurationURL: fileURL.deletingLastPathComponent().appending(path: "Updates/box-transport.json"))
     /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()
@@ -330,8 +332,8 @@ import SwarmHubCore
         }
     }
     /// Sends into the open thread or the main chat. While that chat's turn streams, the text steers it when the
-    /// server has `run_steer`; otherwise sending there stays disabled until its turn ends. Other chats never block it
-    /// (P39); when the turn limit is reached the message waits as the chat's next message.
+    /// server has `run_steer`; otherwise (uxfix1) it waits as the chat's next message, and the turn is never stopped.
+    /// Other chats never block it (P39); when the turn limit is reached the message waits as the chat's next message.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
         guard let bot = selectedBot, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }

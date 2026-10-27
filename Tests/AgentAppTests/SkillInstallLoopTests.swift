@@ -80,7 +80,9 @@ private func installed(_ rows: String) -> String {
     let failure = try #require(store.skillInstallFailure(managerSkill, for: jarvis))
     #expect(failure.count == 1 && failure.version == "1.2.0" && failure.reason == "The manager did not confirm the install: “\(refused)”")
     #expect(jarvis.skillInstallFailures.keys.sorted() == ["swarmhub-feedback", "swarmhub-manager"] && jarvis.installedSkills.isEmpty)
-    #expect(store.errorMessage?.hasPrefix("SwarmHub’s instructions were not installed (swarmhub-feedback for Jarvis, swarmhub-manager for Jarvis)") == true)
+    // uxfix1: never the modal alert; the manager's chat says it.
+    #expect(store.errorMessage == nil)
+    #expect(jarvis.messages.contains { $0.role == .system && $0.content.hasPrefix("SwarmHub’s instructions were not installed (swarmhub-feedback for Jarvis, swarmhub-manager for Jarvis)") })
     // Backing off: a press sends nothing, and the banner stays to show why.
     #expect(store.skillInstallBackingOff(managerSkill, for: jarvis) && !store.installSkills(for: jarvis) && installTurns(host).count == 1)
     let banner = try #require(store.skillBanner(for: jarvis))

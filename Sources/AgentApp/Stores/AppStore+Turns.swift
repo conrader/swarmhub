@@ -18,9 +18,8 @@ import Foundation
     var didLaunchRecovery = false; var roundsAtLaunch: Set<UUID> = []
     var pathDown = false
     var connectivityTask: Task<Void, Never>?; var terminateObserver: NSObjectProtocol?
-    /// P28: queued steers per turn (keyed by the turn's first reply row), the row a split turn now streams into, and the
-    /// turns whose answer is being stopped for a correction (P39: one per chat, by turn token).
-    var steers: [UUID: PendingSteer] = [:]; var parts: [UUID: ChatMessage] = [:]; var correcting: Set<UUID> = []
+    /// P28: queued steers per turn (keyed by the turn's first reply row) and the row a split turn now streams into.
+    var steers: [UUID: PendingSteer] = [:]; var parts: [UUID: ChatMessage] = [:]
     /// P32: failed steers sent as the next message once the running turn ends (`AppStore+NextMessage.swift`).
     var nextMessages: [QueuedNextMessage] = []
     /// autoctx1: managers whose next main-chat turn is app-internal setup, and the session a running turn uses when it is
@@ -111,7 +110,8 @@ extension AppStore {
         if overflow, case .failedByBox(let text) = end, Self.isFailureCopy(assistant.content, of: text) { assistant.content = "" }
         switch end {
         case .failedByBox(let text) where alert: errorMessage = alertPrefix + (plain ?? text)
-        case .error(let error) where alert: errorMessage = alertPrefix + (plain ?? error.localizedDescription)
+        // uxfix1: a dropped or timed-out connection is the row's footer and warning line (and the cut-turn reconcile), never the alert.
+        case .error(let error) where alert && !TransientNetwork.isTransient(error): errorMessage = alertPrefix + (plain ?? error.localizedDescription)
         default: break
         }
         if warn, let reason = plain ?? outcome.reason {
@@ -152,11 +152,19 @@ extension AppStore {
         let setup = Self.isSetupRow(assistant, in: conversation, bot: bot)
         var end: TurnEnd
         var history = setup ? Self.lastUserOnly(history) : history
-        var recovery = ContextRecovery.Step.none, setupFailures = 0, plainReason: String?
+        var recovery = ContextRecovery.Step.none, setupFailures = 0, sendFailures = 0, plainReason: String?
         while true {
             end = await streamChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: systemPrompt,
                                        managementText: managementText, setup: setup, backend: activeBackend, token: token)
             if Task.isCancelled { end = .stoppedByUser }
+            // uxfix1: a turn that never left the Mac (offline, box unreachable) is sent again by itself: "Reconnecting…".
+            if !setup, let delay = sendRetryDelay(after: end, failures: sendFailures), isCurrent(token) {
+                sendFailures += 1
+                resetForResend(assistant, status: TurnErrorCopy.reconnecting)
+                do { try await setupRetrySleep(delay) } catch { end = .stoppedByUser; break }
+                if Task.isCancelled { end = .stoppedByUser; break }
+                continue
+            }
             if setup {
                 guard let delay = setupRetryDelay(after: end, failures: setupFailures), isCurrent(token) else { break }
                 setupFailures += 1
@@ -208,8 +216,6 @@ extension AppStore {
             AvatarReactions.shared.completed(bot)
             if !isTeamThread(conversation) { notifyIfNeeded(bot: bot, message: technicalLine(assistant, botName: bot.name)) }
         }
-        // P45: a stop for a typed correction (P28) is not the user stopping the goal; the correction's own turn continues it.
-        let corrected = turns.correcting.contains(token)
         resendReturnedSteers(steers, bot: bot)
         sendQueuedNextMessage()
         if outcome.state == .finished {
@@ -217,7 +223,7 @@ extension AppStore {
             routeManagedApprovals(in: assistant, bot: bot)
             routeSecretRequests(in: assistant, bot: bot, conversation: conversation)
         }
-        automationTurnEnded(in: conversation, bot: bot, reply: assistant, outcome: outcome, corrected: corrected)
+        automationTurnEnded(in: conversation, bot: bot, reply: assistant, outcome: outcome)
         if conversation.id == bot.id { continueAllBotsSkillInstall(manager: bot, end: end, token: token) }
     }
 
@@ -284,6 +290,7 @@ extension AppStore {
     func flushNow() { suspendTeamClock(); save() }
 
     func noteBoxSuccess() {
+        clearConnectionNotice()
         guard turns.failureStreak > 0 else { return }
         turns.failureStreak = 0
         reconcileAttention(reason: .recovered)

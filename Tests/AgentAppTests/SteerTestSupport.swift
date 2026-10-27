@@ -7,11 +7,12 @@ actor ScriptedTurnBackend: AgentBackend {
     nonisolated let kind = BackendKind.hermes
     nonisolated let calls = AwaitableLog<String>()
     private var streams: [AsyncThrowingStream<AgentEvent, Error>.Continuation] = []
-    private let stopFails: Bool, steerFails: Bool
-    init(stopFails: Bool = false, steerFails: Bool = false) { self.stopFails = stopFails; self.steerFails = steerFails }
+    private let stopFails: Bool, steerFails: Bool, steerless: Bool
+    /// `steerless`: a runtime without `run_steer` (uxfix1: a message typed during its turn waits for the turn to end).
+    init(stopFails: Bool = false, steerFails: Bool = false, steerless: Bool = false) { self.stopFails = stopFails; self.steerFails = steerFails; self.steerless = steerless }
 
     func sessionTransport() async throws -> HermesTransport? { .nativeSessions }
-    func features() async throws -> Set<String> { ["session_chat_streaming", "run_steer"] }
+    func features() async throws -> Set<String> { steerless ? ["session_chat_streaming"] : ["session_chat_streaming", "run_steer"] }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: AgentEvent.self)
         streams.append(continuation)
@@ -58,5 +59,6 @@ func step(_ phase: ToolEvent.Phase, _ name: String = "terminal", id: String = "c
     try await backend.calls.wait { $0.contains("send:\(text)") }
     await backend.emit(.token("Before. "))
     if running { await backend.emit(step(.started)) }
-    try await waitUntil { (store.soleTurn?.steerAvailable == true) && store.soleTurn?.assistant?.content == "Before. " && (store.soleTurn?.assistant?.activity?.current != nil) == running }
+    let steers = await backend.features().contains("run_steer")
+    try await waitUntil { (store.soleTurn?.steerAvailable == steers) && store.soleTurn?.assistant?.content == "Before. " && (store.soleTurn?.assistant?.activity?.current != nil) == running }
 }

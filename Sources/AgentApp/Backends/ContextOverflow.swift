@@ -72,4 +72,6 @@ enum TurnErrorCopy {
     static let stoppedTooLong = "This reply stopped because the conversation got too long for the model."
     static let installContextFull = "the model’s context was full. The next install starts in a fresh session."
     static let setupRetry = "Couldn’t reach the box; trying again…"
+    /// uxfix1: the row's status while a turn that never left the Mac waits to be sent again.
+    static let reconnecting = "Reconnecting…"
 }

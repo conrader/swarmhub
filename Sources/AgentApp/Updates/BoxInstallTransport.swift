@@ -109,7 +109,7 @@ extension AppStore {
         guard let attempt = boxInstallTransport.attempts.removeValue(forKey: manager.id) else { return }
         if SkillInstallPayloadError.isPayloadError(end) {
             let reason = "Client-side install payload error; signed skill installation was not confirmed. Install backoff unchanged."
-            errorMessage = reason
+            noteInstallProblem(reason, manager: manager)
             for profile in attempt.package.profiles {
                 guard let bot = boundBot(profile.name, manager: manager) else { continue }
                 recordSkillInstallResult(.init(status: .clientPayloadError, detail: reason), bot: bot, manager: manager)
@@ -118,7 +118,7 @@ extension AppStore {
         }
         guard attempt.staged, let status = attempt.status, status.accepted(attempt.package) else {
             let reason = attempt.status?.detail ?? "No matching updater status received; skill installation is unconfirmed."
-            errorMessage = reason
+            noteInstallProblem(reason, manager: manager)
             noteStagedSkillResults(attempt.package, status: nil, reason: reason, manager: manager)
             return
         }
@@ -128,8 +128,8 @@ extension AppStore {
         }
         noteStagedSkillResults(attempt.package, status: status, reason: "Updater: \(status.state). \(status.detail) Requested skills are not yet confirmed.", manager: manager)
         if !installed || status.state != "current" || status.reload_pending {
-            errorMessage = "Updater: \(status.state). \(status.detail)" +
-                (!installed ? " Requested skills are not yet confirmed." : "") + (status.reload_pending ? " Reload pending." : "")
+            noteInstallProblem("Updater: \(status.state). \(status.detail)" +
+                (!installed ? " Requested skills are not yet confirmed." : "") + (status.reload_pending ? " Reload pending." : ""), manager: manager)
         }
     }
 

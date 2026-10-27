@@ -9,9 +9,16 @@ struct SkillInstallFailure: Codable, Equatable {
     var count: Int
     var lastAt: Date
     var reason: String
+    /// uxfix1: the last attempt failed only because the connection dropped (its in-turn retries ran out).
+    var transient: Bool? = nil
 
-    /// No retry before this: 15 minutes after the first failure, doubling with each one, at most a day.
-    var retryAt: Date { lastAt.addingTimeInterval(min(900 * pow(2, Double(max(count, 1) - 1)), 86_400)) }
+    /// No retry before this: 15 minutes after the first failure, doubling with each one, at most a day. A dropped
+    /// connection says nothing about the install, so it waits two minutes only.
+    var retryAt: Date {
+        if transient == true { return lastAt.addingTimeInterval(Self.transientRetry) }
+        return lastAt.addingTimeInterval(min(900 * pow(2, Double(max(count, 1) - 1)), 86_400))
+    }
+    static let transientRetry: TimeInterval = 120
 }
 
 /// One skill an install turn asked the manager to write, checked against that turn's `skills_installed` block.
@@ -115,7 +122,7 @@ extension AppStore {
                 guard let bot = bots.first(where: { $0.id == id }) else { continue }
                 recordSkillInstallResult(.init(status: .clientPayloadError, detail: reason), bot: bot, manager: manager)
             }
-            errorMessage = reason
+            noteInstallProblem(reason, manager: manager)
             return
         }
         var reported: [String: [SwarmhubOp.InstalledSkill]] = [:]
@@ -126,6 +133,7 @@ extension AppStore {
             }
         }
         let reason = Self.skillInstallFailureReason(end, reply: reply)
+        let transient = Self.isConnectionDrop(end)
         var failed: [String] = []
         var failedBots: Set<UUID> = []
         var peerBlocked = false
@@ -148,7 +156,7 @@ extension AppStore {
             if !check.usesCopy && outcome == nil && enableIssue && (check.skill == "swarmhub-messages" || reported[check.profile] == nil) { continue }
             // An unconfirmed source must not make every remaining batch fail once before falling back to full writes.
             if let source = check.copySource { allBotsSkillBadSources[manager.id, default: []].insert(source) }
-            noteSkillInstallFailure(check.skill, version: check.version.description, variant: check.variant, reason: reason, on: bot)
+            noteSkillInstallFailure(check.skill, version: check.version.description, variant: check.variant, reason: reason, on: bot, transient: transient)
             failed.append("\(check.skill) for \(bot.name)")
             failedBots.insert(bot.id)
         }
@@ -168,14 +176,16 @@ extension AppStore {
         // Only an attempt that ran counts: a skipped enable never extends the window, a verified one ends it.
         if receipts.values.contains(where: \.verified) { notePeerEnableBlocked(false, on: connection(of: manager)) }
         else if peerBlocked { notePeerEnableBlocked(true, on: connection(of: manager)) }
-        if !failed.isEmpty { errorMessage = "SwarmHub’s instructions were not installed (\(failed.joined(separator: ", "))): \(reason)" }
+        // uxfix1: never the modal alert; the manager's chat (open for the install) and the skill banner say it.
+        if !failed.isEmpty { noteInstallProblem("SwarmHub’s instructions were not installed (\(failed.joined(separator: ", "))): \(reason)", manager: manager) }
         objectWillChange.send(); save()
     }
 
     /// Counts one more failure of this version and variant (a different one starts at one) and logs it.
-    func noteSkillInstallFailure(_ skill: String, version: String, variant: String?, reason: String, on bot: Bot) {
+    func noteSkillInstallFailure(_ skill: String, version: String, variant: String?, reason: String, on bot: Bot, transient: Bool = false) {
         let previous = bot.skillInstallFailures[skill].flatMap { $0.version == version && $0.variant == variant ? $0.count : nil } ?? 0
-        bot.skillInstallFailures[skill] = SkillInstallFailure(version: version, variant: variant, count: previous + 1, lastAt: now(), reason: reason)
+        bot.skillInstallFailures[skill] = SkillInstallFailure(version: version, variant: variant, count: previous + 1, lastAt: now(), reason: reason,
+                                                              transient: transient ? true : nil)
         SwarmhubBlock.log.error("Skill install failed: \(skill, privacy: .public) \(version, privacy: .public) on \(bot.hermesProfile ?? "default", privacy: .public) (\(previous + 1)x)")
         scheduleSkillRetryRedraw()
     }
@@ -257,6 +267,7 @@ extension AppStore {
         case .failedByBox(let why) where ContextOverflow.hasSlashAdvice(why): return "The install turn failed: \(TurnErrorCopy.installContextFull)"
         case .failedByBox(let why): return "The install turn failed: \(ContextOverflow.untagged(why))"
         case .error(let error) where ContextOverflow.hasSlashAdvice(error.localizedDescription): return "The install turn failed: \(TurnErrorCopy.installContextFull)"
+        case .error(let error) where isConnectionDrop(end): return "The connection to the box dropped during the install (\(error.localizedDescription))."
         case .error(let error): return "The install turn failed: \(error.localizedDescription)"
         case .endedWithoutTerminal: return "The install turn ended before it finished."
         case .completed:
@@ -265,6 +276,15 @@ extension AppStore {
             return line.isEmpty ? "The manager did not confirm the install." : "The manager did not confirm the install: “\(line)”"
         }
     }
+
+    /// uxfix1: the install ended on transient network trouble (after its in-turn retries), not on anything the box said.
+    static func isConnectionDrop(_ end: TurnEnd) -> Bool {
+        if case .error(let error) = end { return TransientNetwork.isTransient(error) || isTransient(error) }
+        return false
+    }
+
+    /// uxfix1: an install problem is a warning line in the manager's chat (the install opened it), never the modal alert.
+    func noteInstallProblem(_ text: String, manager: Bot) { addWarning(text, in: manager, after: nil) }
 
     /// Plain words for a failure: what failed, how often, why, and when it may be retried.
     func skillFailureText(_ failure: SkillInstallFailure, skill: BundledSkill) -> String {

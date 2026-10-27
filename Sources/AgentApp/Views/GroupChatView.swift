@@ -100,8 +100,8 @@ struct GroupChatView: View {
             if store.startTeamRequest(value, origin: group, coordinator: coordinator, recipient: recipient, roster: roster) { draft = "" }
             return
         }
-        let steering = !store.isIdle(group)
-        if store.send(text: value, attachments: steering ? [] : intake.items, to: group) { draft = ""; if !steering { intake.items = [] } }
+        // uxfix1: during a round the attachments go too (the message waits for the round to end).
+        if store.send(text: value, attachments: intake.items, to: group) { draft = ""; intake.items = [] }
     }
 }
 

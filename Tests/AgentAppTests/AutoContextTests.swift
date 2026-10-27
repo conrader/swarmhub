@@ -15,6 +15,8 @@ private let hermesCopy = "This conversation has grown too long for gpt-6.1-sol t
 /// One scripted answer per chat turn, in order.
 private enum ScriptedTurn {
     case reply(String), overflow(String, code: String? = nil), stepsThenOverflow(String), status(Int), stepThenReply(output: String, String)
+    /// uxfix1: the stream ends after the headers and some text, without a terminal event (a dropped connection).
+    case cut(String)
     var reply: ChatParityServer.Reply {
         switch self {
         case .reply(let text): return .sse([("assistant.delta", ["delta": text]), ("assistant.completed", ["content": text, "completed": true]), ("run.completed", ["completed": true])])
@@ -30,6 +32,7 @@ private enum ScriptedTurn {
             return .sse([("tool.started", ["tool_name": "terminal", "tool_call_id": "c1"]), ("tool.completed", ["tool_name": "terminal", "tool_call_id": "c1"]),
                          ("assistant.completed", ["content": text, "completed": false, "partial": true, "failed": true]), ("run.failed", ["completed": false])])
         case .status(let code): return .json(code, ["error": ["message": "Service unavailable"]])
+        case .cut(let text): return .sse([("assistant.delta", ["delta": text])])
         }
     }
 }
@@ -106,6 +109,32 @@ private func installedBlock(_ version: String) -> String {
     #expect(sent.count == 2 && Set(sent).count == 2 && !sent.contains("s-main"))
     #expect(jarvis.installedSkills == ["swarmhub-manager": "1.2.0"])
     #expect(!jarvis.messages.contains { $0.content.contains("Service unavailable") })
+}
+
+/// uxfix1: Hermes stops a native stream's run when its client goes, and an install only writes files, so an install whose
+/// stream dropped is sent again in a fresh session inside the same turn, with no alert.
+@Test @MainActor func anInstallWhoseStreamDroppedIsSentAgainInAFreshSession() async throws {
+    let (store, jarvis, host) = scriptedStore([.cut("Writing the skill…"), .reply(installedBlock("1.2.0"))])
+    #expect(store.installSkills(for: jarvis))
+    try await waitUntil { !store.anyTurnRunning && jarvis.installedSkills["swarmhub-manager"] != nil }
+    let sent = streams(host).map(\.session)
+    #expect(sent.count == 2 && Set(sent).count == 2 && !sent.contains("s-main"))
+    #expect(jarvis.installedSkills == ["swarmhub-manager": "1.2.0"] && jarvis.skillInstallFailures.isEmpty)
+    #expect(store.errorMessage == nil, "no alert")
+}
+
+/// uxfix1: when every attempt drops, the failure is recorded as a dropped connection: a short wait before Retry (not the
+/// 15-minute backoff), one warning line in the manager's chat, and never the modal alert.
+@Test @MainActor func anInstallThatKeepsDroppingWaitsBrieflyAndSaysSoInline() async throws {
+    let (store, jarvis, host) = scriptedStore([.cut("a"), .cut("b"), .cut("c")])
+    #expect(store.installSkills(for: jarvis))
+    try await waitUntil { !store.anyTurnRunning && jarvis.skillInstallFailures["swarmhub-manager"] != nil }
+    #expect(streams(host).count == 3, "the first send and two retries")
+    let failure = try #require(jarvis.skillInstallFailures["swarmhub-manager"])
+    #expect(failure.transient == true && failure.reason.hasPrefix("The connection to the box dropped during the install"))
+    #expect(failure.retryAt == failure.lastAt.addingTimeInterval(SkillInstallFailure.transientRetry), "two minutes, not fifteen")
+    #expect(store.errorMessage == nil && store.modalErrorMessage == nil, "never the modal alert")
+    #expect(jarvis.messages.contains { $0.role == .system && $0.content.hasPrefix("SwarmHub’s instructions were not installed") })
 }
 
 @Test @MainActor func retryingAFailedInstallRunsInAFreshSessionNeverTheMainOne() async throws {

@@ -240,7 +240,7 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
         #expect(store.installSkills(for: bot))
         try await waitUntil { !store.anyTurnRunning }
         #expect(bot.installedSkills.isEmpty)
-        #expect(store.errorMessage?.contains("unconfirmed") == true)
+        #expect(store.errorMessage?.contains("unconfirmed") != true && store.bots.contains { $0.messages.contains { $0.role == .system && $0.content.contains("unconfirmed") } }, "uxfix1: inline, not the alert")
     }
 }
 
@@ -252,7 +252,7 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     #expect(store.installSkills(for: bot))
     try await waitUntil { !store.anyTurnRunning }
     #expect(bot.installedSkills == ["swarmhub-manager": "1.2.0"])
-    #expect(store.errorMessage?.contains("pending_confirm") == true)
+    #expect(store.errorMessage?.contains("pending_confirm") != true && store.bots.contains { $0.messages.contains { $0.role == .system && $0.content.contains("pending_confirm") } }, "uxfix1: inline, not the alert")
     let (down, other, _) = stagedStore(source: source, status: nil, down: true)
     other.installedSkills = ["swarmhub-manager": "1.2.0"]
     await down.refreshInstalledSkills(for: other)
@@ -325,7 +325,7 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     #expect(store.installSkills(for: bot))
     try await waitUntil { !store.anyTurnRunning }
     #expect(bot.installedSkills.isEmpty)
-    #expect(store.errorMessage?.contains("unconfirmed") == true)
+    #expect(store.errorMessage?.contains("unconfirmed") != true && store.bots.contains { $0.messages.contains { $0.role == .system && $0.content.contains("unconfirmed") } }, "uxfix1: inline, not the alert")
     #expect(store.boxInstallTransport.status[store.connection(of: bot)]?.state == "failed")
 }
 
@@ -345,7 +345,7 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
         #expect(store.installSkills(for: bot))
         try await waitUntil { !store.anyTurnRunning }
         #expect(bot.installedSkills.isEmpty, "the later old successful status cannot confirm this turn")
-        #expect(store.errorMessage?.contains(reason) == true)
+        #expect(store.errorMessage?.contains(reason) != true && store.bots.contains { $0.messages.contains { $0.role == .system && $0.content.contains(reason) } }, "uxfix1: inline, not the alert")
         let cached = try #require(store.boxInstallTransport.status[store.connection(of: bot)])
         #expect(cached.state == state && cached.detail.contains(reason))
         #expect(!cached.accepted(package))
@@ -361,7 +361,7 @@ private func stagedStatus(_ package: StagedInstall.Package, state: String = "cur
     store.boxInstallTransport.status[store.connection(of: bot)] = BoxUpdaterStatus.decode(try stagedStatus(package, version: "1.0.0"))
     #expect(store.installSkills(for: bot))
     try await waitUntil { !store.anyTurnRunning }
-    #expect(store.errorMessage?.contains("Transfer failed: transfer part hash mismatch") == true)
+    #expect(store.errorMessage?.contains("Transfer failed: transfer part hash mismatch") != true && store.bots.contains { $0.messages.contains { $0.role == .system && $0.content.contains("Transfer failed: transfer part hash mismatch") } }, "uxfix1: inline, not the alert")
     await store.refreshInstalledSkills(for: bot)
     #expect(bot.installedSkills == ["swarmhub-manager": "1.0.0"])
     #expect(store.boxInstallTransport.status[store.connection(of: bot)]?.state == "failed")
