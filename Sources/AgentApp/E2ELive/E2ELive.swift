@@ -36,7 +36,7 @@ import Security
 
     static var current: Run?
     /// Hermes refuses a second session with the same title: the manager's copy and every copy a turn step makes carry it.
-    static let tag = String(UUID().uuidString.prefix(8)).lowercased()
+    nonisolated static let tag = String(UUID().uuidString.prefix(8)).lowercased()
 
     /// The throwaway store, or nil (with the reason printed) when the run cannot start safely.
     static func makeStore(directory: URL) -> AppStore? {
