@@ -20,6 +20,7 @@ import Security
     /// The run's state, kept for the report and read by the monitor.
     final class Run {
         let directory: URL; let network: E2ELiveNetwork
+        var tag: String { E2ELive.tag }
         var lines: [String] = []; var failed = 0
         var modals: [String] = []; var sheets = 0; var notices: Set<String> = []
         init(directory: URL, network: E2ELiveNetwork) { self.directory = directory; self.network = network }
@@ -34,6 +35,8 @@ import Security
     }
 
     static var current: Run?
+    /// Hermes refuses a second session with the same title: the manager's copy and every copy a turn step makes carry it.
+    static let tag = String(UUID().uuidString.prefix(8)).lowercased()
 
     /// The throwaway store, or nil (with the reason printed) when the run cannot start safely.
     static func makeStore(directory: URL) -> AppStore? {
@@ -62,7 +65,8 @@ import Security
 
     /// A copy that talks to the same profile with the same key: persona, manager role and model settings; nothing else.
     static func copy(_ bot: Bot) -> Bot {
-        let copy = HeadlessE2E.copy(bot)
+        // Only the manager's copy opens a chat session of its own (queued A and B); its title must be new on every run.
+        let copy = HeadlessE2E.copy(bot, name: bot.canManageBots ? "\(bot.name) \(HeadlessE2E.namespace)\(tag)" : nil)
         copy.canManageBots = bot.canManageBots; copy.modelSettings = bot.modelSettings
         copy.notificationsEnabled = false
         return copy

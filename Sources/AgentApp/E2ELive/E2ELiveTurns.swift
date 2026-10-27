@@ -6,9 +6,11 @@ import Foundation
 extension E2ELive {
     static func turnSteps(store: AppStore, manager: Bot, run: Run) async {
         let timing = HeadlessE2E.Timing()
-        for step in [await HeadlessE2E.steerTextStep(store: store, jarvis: manager, timing: timing),
-                     await HeadlessE2E.steerToolStep(store: store, jarvis: manager, timing: timing)] {
-            let bot = store.bots.last { $0.name.hasPrefix("\(manager.name) steer") && $0.hermesSessionID != nil && step.detail.contains($0.hermesSessionID!) }
+        // The steer steps copy this (never added to the store), so their session titles are new on every run.
+        let base = HeadlessE2E.copy(manager, name: "\(manager.name) \(HeadlessE2E.namespace)\(run.tag)")
+        for step in [await HeadlessE2E.steerTextStep(store: store, jarvis: base, timing: timing),
+                     await HeadlessE2E.steerToolStep(store: store, jarvis: base, timing: timing)] {
+            let bot = store.bots.last { $0.name.hasPrefix("\(base.name) steer") && $0.hermesSessionID != nil && step.detail.contains($0.hermesSessionID!) }
             let stopped = bot?.messages.filter { $0.role == .assistant && $0.turnState == .stopped }.count ?? -1
             run.check("steer.\(step.id)", step.passed && stopped == 0, "\(step.name): \(step.detail); stopped replies=\(stopped)")
         }
@@ -19,7 +21,7 @@ extension E2ELive {
 
     /// The tunnel is cut while the reply streams and stays down 8 s; then the chat must work again by itself.
     static func dropMidStream(store: AppStore, source: Bot, run: Run, timing: HeadlessE2E.Timing) async {
-        let bot = HeadlessE2E.copy(source, name: "\(source.name) net"); bot.notificationsEnabled = false
+        let bot = HeadlessE2E.copy(source, name: "\(source.name) net \(run.tag)"); bot.notificationsEnabled = false
         store.bots.append(bot); HeadlessE2E.select(bot, in: store)
         let before = run.modals.count
         guard store.send(text: HeadlessE2E.message("Count slowly from 1 to 40, one number per line, then write E2E-NET")) else {
@@ -41,7 +43,7 @@ extension E2ELive {
 
     /// The tunnel goes down for 6 s and a message is sent at once: it must be resent by itself ("Reconnecting…") and answered.
     static func dropWhileSending(store: AppStore, source: Bot, run: Run, timing: HeadlessE2E.Timing) async {
-        let bot = HeadlessE2E.copy(source, name: "\(source.name) offline"); bot.notificationsEnabled = false
+        let bot = HeadlessE2E.copy(source, name: "\(source.name) offline \(run.tag)"); bot.notificationsEnabled = false
         store.bots.append(bot); HeadlessE2E.select(bot, in: store)
         let before = run.modals.count
         run.network.drop(for: 6)
