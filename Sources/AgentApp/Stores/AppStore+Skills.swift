@@ -174,7 +174,10 @@ extension AppStore {
             } else {
                 let folders = Set(files.map { ($0.path as NSString).deletingLastPathComponent }.filter { !$0.isEmpty })
                 body.append("mkdir -p " + ([folder] + folders.sorted().map { "\(folder)/\($0)" }).joined(separator: " "))
-                for file in files {
+                // uxfix1-e2e: files shipped unchanged come from the build's commit on the box; the model types one command.
+                let fetch = devMode || !reset.isEmpty ? nil : SkillFetch.plan(skill: skill, rendered: files, folder: folder, sourceSHA: skillSourceSHA)
+                if let fetch { body.append(SkillFetch.command(fetch)) }
+                for file in files where !(fetch?.names.contains(file.path) ?? false) {
                     body.append("cat > \(folder)/\(file.path) <<'\(Self.heredocEnd)'\n\(SkillSync.written(file.content))\(Self.heredocEnd)")
                 }
             }

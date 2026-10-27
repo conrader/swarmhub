@@ -107,6 +107,8 @@ import SwarmHubCore
     var appConfig = AppConfig.compiled
     /// P27: tests' skill library instead of the bundled one; an Install waiting for its manager turn (per manager bot); what
     /// that turn asked for, checked when it ends (`AppStore+SkillInstallChecks.swift`).
+    /// uxfix1-e2e: the commit unchanged skill files are fetched from on the box (`SkillFetch`); nil writes every file as a heredoc.
+    var skillSourceSHA: String? = SkillFetch.buildCommit()
     var skillLibraryOverride: [BundledSkill]?; var pendingSkillInstalls: [UUID: SkillInstallTurn] = [:]; var pendingSkillChecks: [UUID: [SkillInstallCheck]] = [:]
     /// Skill dev mode: per manager, what the box did with each "profile/skill" of the running legacy install turn.
     var skillDevOutcomes: [UUID: [String: SkillDevMode.Outcome]] = [:]

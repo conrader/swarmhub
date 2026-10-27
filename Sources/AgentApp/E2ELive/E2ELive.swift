@@ -100,8 +100,12 @@ import Security
         _ = await HeadlessE2E.wait(.seconds(30), poll: .milliseconds(200)) { NSApp.windows.contains { $0.isVisible } }
         guard let manager = store.bots.first(where: { store.isManager($0) }) else { run.check("setup", false, "no manager bot among the copies"); return }
         run.note("E2E-LIVE: manager \(manager.name) (\(manager.hermesProfile ?? "default")); \(store.bots.count) bots on \(Set(store.bots.map(store.connection(of:))).count) connection(s)")
-        await installSteps(store: store, manager: manager, run: run)
+        // Turns first (minutes), then installs (the long part). The turn steps' extra copies leave before the installs.
+        let copies = Set(store.bots.map(\.id))
         await turnSteps(store: store, manager: manager, run: run)
+        _ = await HeadlessE2E.wait(.seconds(300), poll: .milliseconds(200)) { !store.anyTurnRunning }
+        store.bots.removeAll { !copies.contains($0.id) }; HeadlessE2E.select(manager, in: store)
+        await installSteps(store: store, manager: manager, run: run)
     }
 }
 
