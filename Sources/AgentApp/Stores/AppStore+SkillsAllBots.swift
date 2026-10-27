@@ -96,7 +96,7 @@ extension AppStore {
             for gap in gaps {
                 recordSkillInstallResult(.init(status: .notSent, detail: "Install not sent: \(error.localizedDescription)"), bot: gap.bot, manager: manager)
             }
-            errorMessage = error.localizedDescription; return false
+            noteInstallProblem("Skill install not sent: \(error.localizedDescription)", manager: manager); return false
         }
         managementExchanges[manager.id] = nil
         open(manager); openThreadID = nil
@@ -125,17 +125,21 @@ extension AppStore {
                 allBotsSkillBatch[manager.id] = gaps
                 managementExchanges[manager.id] = nil
                 // Explicit destination: switching chats during the batch must not redirect the next turn.
+                let shown = errorMessage
                 if send(text: AllBotsSkillCopy.request(gaps.count), bot: manager, conversation: manager, replyToID: nil) {
                     allBotsSkillTurn[manager.id] = turn(in: manager)?.token; return true
                 }
-                throw BackendError.unavailable(errorMessage ?? "The manager could not start the install turn.")
+                // uxfix1-e2e: why the turn could not start goes to the install line below, not the alert.
+                let reason = errorMessage != shown ? errorMessage : nil
+                if reason != nil { errorMessage = shown }
+                throw BackendError.unavailable(reason ?? "The manager could not start the install turn.")
             } catch {
                 allBotsSkillQueue[manager.id] = Array(queue.dropFirst(gaps.count)); allBotsSkillBatch[manager.id] = nil
                 pendingSkillInstalls[manager.id] = nil; pendingSkillChecks[manager.id] = nil; peerEnableCalls[manager.id] = nil
                 for gap in gaps {
                     recordSkillInstallResult(.init(status: .notSent, detail: "Install not sent: \(error.localizedDescription)"), bot: gap.bot, manager: manager)
                 }
-                errorMessage = error.localizedDescription
+                noteInstallProblem("Skill install not sent: \(error.localizedDescription)", manager: manager)
             }
         }
         allBotsSkillQueue[manager.id] = nil; allBotsSkillSolo[manager.id] = nil

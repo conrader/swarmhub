@@ -53,7 +53,7 @@ extension AppStore {
             for name in bot.skillInstallFailures.keys.sorted() {
                 guard let version = package.versions[name], stagedSkillBackingOff(name, version: version, bot: bot),
                       let failure = bot.skillInstallFailures[name] else { continue }
-                errorMessage = "Signed skill install deferred: \(self.profile(of: bot))/\(name) is backing off until \(failure.retryAt.formatted()). Signed skill installs run together."
+                noteInstallProblem("Signed skill install deferred: \(self.profile(of: bot))/\(name) is backing off until \(failure.retryAt.formatted()). Signed skill installs run together.", manager: manager)
                 return nil
             }
         }

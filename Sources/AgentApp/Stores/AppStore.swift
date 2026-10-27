@@ -372,9 +372,11 @@ import SwarmHubCore
         startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
         return true
     }
-    /// Starts the 1:1 or thread turn answering `user`, which is already the last user row of `conversation`.
+    /// Starts the 1:1 or thread turn answering `user`, a row of `conversation`. The reply goes right under it and the turn
+    /// sends the chat only up to it: messages queued after it (uxfix1-e2e) wait below and go in their own turns.
     func startChatTurn(bot: Bot, conversation: any Conversation, user: ChatMessage, images: [String] = [], backend activeBackend: any AgentBackend) {
-        let assistant = ChatMessage(id: intendedTeamReply(in: conversation) ?? UUID(), role: .assistant, content: "", isStreaming: true, turnState: .incomplete); conversation.messages.append(assistant)
+        let assistant = ChatMessage(id: intendedTeamReply(in: conversation) ?? UUID(), role: .assistant, content: "", isStreaming: true, turnState: .incomplete)
+        if let index = conversation.messages.firstIndex(where: { $0 === user }) { conversation.messages.insert(assistant, at: index + 1) } else { conversation.messages.append(assistant) }
         #if DEBUG
         if QAMode.enabled { assistant.metadata.merge(user.metadata, uniquingKeysWith: { _, source in source }) }
         #endif
@@ -382,7 +384,7 @@ import SwarmHubCore
         objectWillChange.send(); save()
         let streamToken = turn.token
         let managementText = isTeamThread(conversation) ? nil : self.managementText(for: bot, text: user.content, conversation: conversation)
-        let history = chatHistory(conversation, excluding: assistant)
+        let history = chatHistory(conversation, upTo: conversation.messages.contains { $0 === user } ? user : nil, excluding: assistant)
         claimSetupTurn(assistant, in: conversation, bot: bot, text: managementText)
         turn.task = Task { [weak self] in
             await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.outboundPersona,
@@ -393,7 +395,7 @@ import SwarmHubCore
         #if DEBUG
         if QAMode.enabled || UIAcceptanceMode.requested { return }
         #endif
-        guard !SilentReply.isSilent(message), Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
+        guard E2ELive.current == nil, !SilentReply.isSilent(message), Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
         let content = UNMutableNotificationContent(); content.title = bot.name; content.body = String(message.prefix(140)); content.sound = .default
         UNUserNotificationCenter.current().add(.init(identifier: UUID().uuidString, content: content, trigger: nil))
     }

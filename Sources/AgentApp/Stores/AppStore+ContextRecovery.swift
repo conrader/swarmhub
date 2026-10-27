@@ -28,7 +28,15 @@ extension AppStore {
 
     func markSetupTurn(_ assistant: ChatMessage, in conversation: any Conversation) {
         assistant.metadata[ContextKey.setup] = "1"
-        conversation.messages.last { $0.role == .user && $0.createdAt <= assistant.createdAt }?.metadata[ContextKey.setup] = "1"
+        userRow(answeredBy: assistant, in: conversation)?.metadata[ContextKey.setup] = "1"
+    }
+
+    /// The user row `assistant` answers: the nearest one above it. A message queued below it (uxfix1-e2e) is not it.
+    func userRow(answeredBy assistant: ChatMessage, in conversation: any Conversation) -> ChatMessage? {
+        guard let index = conversation.messages.firstIndex(where: { $0 === assistant }) else {
+            return conversation.messages.last { $0.role == .user && $0.createdAt <= assistant.createdAt }
+        }
+        return conversation.messages[..<index].last { $0.role == .user }
     }
 
     /// The turn `managementText` just gave an install's text is marked on its rows (and saved) before anything is sent,
@@ -141,7 +149,7 @@ extension AppStore {
             resetForResend(assistant, status: TurnErrorCopy.compacting)
             return .resend(.compacted)
         }
-        let user = conversation.messages.last { $0.role == .user && $0.createdAt <= assistant.createdAt }
+        let user = userRow(answeredBy: assistant, in: conversation)
         if !ranSteps { resetForResend(assistant, status: TurnErrorCopy.startingNew) }
         do { try await continueInNewSession(bot: bot, conversation: conversation, before: user ?? assistant, backend: backend, resent: !ranSteps) }
         catch { return nil }

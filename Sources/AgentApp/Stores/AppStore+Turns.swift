@@ -194,7 +194,8 @@ extension AppStore {
         let (assistant, steers) = endTurnParts(assistant)
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
-        let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation, backend: activeBackend, plainReason: plainReason)
+        // uxfix1-e2e: an install (setup) turn never opens the alert; its failure is the chat line and the skill banner.
+        let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation, backend: activeBackend, alert: !setup, plainReason: plainReason)
         if setup, assistant.turnState != .notSent { assistant.metadata[ContextKey.setupText] = nil; assistant.metadata[ContextKey.setupChecks] = nil }
         // P54: a turn that still ends with an app request shows it folded (P51) with this line: never raw, never silent.
         if TechnicalRow.isAppRequest(assistant.content) { addWarning(AppRequestMarker.notRun, in: conversation, after: assistant) }

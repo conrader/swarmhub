@@ -103,7 +103,8 @@ extension AppStore {
             }
         } catch {
             SwarmhubBlock.log.error("Skill install refused: \(error.localizedDescription, privacy: .public)")
-            errorMessage = error.localizedDescription; return false
+            // uxfix1-e2e: install problems are a line in the manager's chat, never the alert.
+            noteInstallProblem("Skill install not sent: \(error.localizedDescription)", manager: manager); return false
         }
         pendingSkillInstalls[manager.id] = SkillInstallTurn(profile: profile, instructions: instructions)
         managementExchanges[manager.id] = nil

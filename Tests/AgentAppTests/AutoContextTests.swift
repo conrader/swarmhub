@@ -137,6 +137,17 @@ private func installedBlock(_ version: String) -> String {
     #expect(jarvis.messages.contains { $0.role == .system && $0.content.hasPrefix("SwarmHub’s instructions were not installed") })
 }
 
+/// uxfix1-e2e: an install the box refuses, or that fails for any reason that is not the connection, is a line in the
+/// manager's chat and the skill banner, never the modal alert.
+@Test(arguments: [0, 1]) @MainActor func anInstallThatFailsOnTheBoxNeverOpensTheAlert(_ kind: Int) async throws {
+    let failure: ScriptedTurn = kind == 0 ? .overflow("The model provider refused the request.") : .status(400)
+    let (store, jarvis, _) = scriptedStore([failure, failure, failure])
+    #expect(store.installSkills(for: jarvis))
+    try await waitUntil { !store.anyTurnRunning && jarvis.skillInstallFailures["swarmhub-manager"] != nil }
+    #expect(store.errorMessage == nil && store.modalErrorMessage == nil, "never the modal alert")
+    #expect(jarvis.messages.contains { $0.role == .system && $0.metadata[TurnKey.tone] == "warning" }, "the failure is a line in the chat")
+}
+
 @Test @MainActor func retryingAFailedInstallRunsInAFreshSessionNeverTheMainOne() async throws {
     // Three attempts that never reach the box leave the install unsent; Retry (two taps: a 503 is ambiguous) sends it again.
     let (store, jarvis, host) = scriptedStore([.status(503), .status(503), .status(503), .reply(installedBlock("1.2.0"))], boxHistory: true)
