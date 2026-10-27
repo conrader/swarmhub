@@ -35,7 +35,7 @@ import Testing
     #expect(await backend.calls.all == ["send:go", "steer:use metric"], "it may have been read with the step's result: not sent twice")
 }
 
-@Test func anUnreachableProxyIsNetworkTroubleThatNeverReachedTheBox() {
+@MainActor @Test func anUnreachableProxyIsNetworkTroubleThatNeverReachedTheBox() {
     let proxy = NSError(domain: "kCFErrorDomainCFNetwork", code: 310)
     #expect(TransientNetwork.isTransient(proxy) && AppStore.isTransient(proxy), "retried as unsent, never the alert")
     #expect(TransientNetwork.isTransient(text: "The install turn failed: The operation couldn’t be completed. (kCFErrorDomainCFNetwork error 310.)"))
