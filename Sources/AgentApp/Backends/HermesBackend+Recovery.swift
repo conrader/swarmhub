@@ -94,7 +94,7 @@ extension HermesBackend {
                         try Task.checkCancellation()
                         guard recovery.replaySubmission(after: error) else { throw error }
                         // uxfix1: the row's status says it; no warning line is written for a reconnect that may well work.
-                        continuation.yield(.status("Reconnecting…"))
+                        continuation.yield(.status(TurnErrorCopy.reconnecting))
                         try await recoveryTiming.sleep(recoveryTiming.delays.first ?? .zero)
                         try Task.checkCancellation()
                         do { runID = try await admitRun(submission) }
@@ -187,7 +187,7 @@ extension HermesBackend {
                 guard HermesRunRecovery.transient(error) || pathChanged || subscriptionMissing else { throw error }
                 if let connectedAt, connectedAt.duration(to: recoveryTiming.now()) >= recoveryTiming.stableInterval { attempt = 0 }
                 guard attempt < recoveryTiming.delays.count else { throw StreamBreak(delivered: true, underlying: error) }
-                continuation.yield(.status("Reconnecting…"))
+                continuation.yield(.status(TurnErrorCopy.reconnecting))
                 try await recoveryTiming.sleep(recoveryTiming.delays[attempt])
                 attempt += 1
                 // Poll after the delay: the run may have finished while the Mac was offline. Output is authoritative.

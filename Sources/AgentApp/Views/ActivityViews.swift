@@ -74,7 +74,11 @@ struct ActivityRow: View {
 
     @ViewBuilder private func status(now: Date) -> some View {
         let activity = message.activity
-        if streaming {
+        if streaming, message.metadata[TurnKey.reconnecting] != nil {
+            // uxfix1: a dropped connection is this small state, never an alert.
+            ProgressView().controlSize(.mini)
+            Text(TurnErrorCopy.reconnecting).accessibilityIdentifier("reply.reconnecting")
+        } else if streaming {
             ProgressView().controlSize(.mini)
             Text(ActivityCopy.liveLine(activity, since: message.createdAt, lastText: message.lastTextAt, now: now)).monospacedDigit()
             if ChatActivityPhase.current(activity, lastText: message.lastTextAt, now: now) == .working,

@@ -114,6 +114,7 @@ extension AppStore {
         assistant.turnState = .incomplete; assistant.isStreaming = true
         [TurnKey.run, TurnKey.why, TurnKey.ambiguous, TurnKey.toolTokens].forEach { assistant.metadata[$0] = nil }
         assistant.metadata["status"] = status
+        assistant.metadata[TurnKey.reconnecting] = status == TurnErrorCopy.reconnecting ? "1" : nil
         objectWillChange.send()
     }
 

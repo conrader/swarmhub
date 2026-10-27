@@ -49,12 +49,15 @@ extension AppStore {
                 try noteTeamEvent(in: conversation, assistant: assistant, runID: assistant.metadata[TurnKey.run], event: event)
             }
             row = steerRow(for: event, origin: assistant, row: row)
+            // uxfix1: anything the box sends again ends a reconnect.
+            if case .status = event {} else if row.metadata[TurnKey.reconnecting] != nil { row.metadata[TurnKey.reconnecting] = nil; objectWillChange.send() }
             switch event {
             case .token(let token):
                 row.content += token
                 if !token.isEmpty { row.lastTextAt = now() }
                 objectWillChange.send(); autosaveIfDue()
             case .replace(let text): row.content = text; row.lastTextAt = text.isEmpty ? nil : now(); objectWillChange.send(); autosaveIfDue()
+            case .status(let value) where value == TurnErrorCopy.reconnecting: row.metadata[TurnKey.reconnecting] = "1"; objectWillChange.send()
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
                 if conversation?.id == bot.id { noteStagedSkillTool(tool, manager: bot); noteSkillDevTool(tool, manager: bot); notePeerEnableTool(tool, manager: bot) }
@@ -96,7 +99,7 @@ extension AppStore {
                                        alertPrefix: String = "", warn: Bool = true, alert: Bool = true, plainReason: String? = nil) -> TurnOutcome {
         assistant.isStreaming = false
         // P43: the live "first tool" status ends with the turn.
-        assistant.metadata["status"] = nil
+        assistant.metadata["status"] = nil; assistant.metadata[TurnKey.reconnecting] = nil
         if var activity = assistant.activity { activity.finish(at: now()); assistant.activity = activity }
         if assistant.turnState == .stopped { return TurnOutcome.classify(.stoppedByUser) }
         let outcome = TurnOutcome.classify(end)

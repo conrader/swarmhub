@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- No "The network connection was lost." popups: transient network errors (-1005, -1001, -1004, -1009, dropped streams) never open the Backend Error alert. A turn that never left the Mac is sent again by itself (1, 3, 8, 15 s) with "Reconnecting…" on its row; a dropped reply reconnects as before, now without a warning line per reconnect; what is left after the retries is one small line at the bottom of the window that clears when the box answers again.
+- Skill installs: an install whose stream dropped or timed out is sent again in a fresh setup session (Hermes stops a native stream's run when its client disconnects, and installs only write files). A failure that was only the connection waits two minutes before Retry instead of the 15-minute backoff. Install problems are a line in the manager's chat, not an alert.
+- Steer, don't interrupt: a message typed while a bot answers steers the running turn (Hermes `run_steer`, OpenClaw `queueMode: "steer"`) whatever it is doing; the old "stop the answer and send the correction" path is gone. Without steer, during an install, or with attachments, the message waits and goes when the turn ends.
+
 ## 0.6.7 (build 32)
 
 - Installs in a throwaway session: installing or restoring a skill (one bot, all bots, an imported skill, adoption, key restore) runs in its own short-lived Hermes session, created for the turn and deleted after it, so a long manager conversation can no longer make an install fail, and the manager's main chat is never touched. An install that did not reach the box retries by itself (2 s, then 8 s) in a fresh session; Retry on a failed install, also after a relaunch, runs and checks the same way as the first send.

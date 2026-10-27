@@ -92,6 +92,7 @@ private actor FlakyBackend: AgentBackend {
     #expect(await backend.sends == 3 && pauses.current == [.seconds(1), .seconds(3)], "two backed-off resends")
     let reply = try #require(bot.messages.first { $0.role == .assistant })
     #expect(reply.content == "answer" && reply.turnState == .finished && store.errorMessage == nil)
+    #expect(reply.metadata[TurnKey.reconnecting] == nil, "the Reconnecting… state ended with the turn")
     #expect(!bot.messages.contains { $0.role == .system }, "no warning line for a send that went through")
     #expect(bot.messages.filter { $0.role == .user }.count == 1, "one message, sent once it could be")
 }
@@ -108,4 +109,20 @@ private actor FlakyBackend: AgentBackend {
     let reply = try #require(bot.messages.first { $0.role == .assistant })
     #expect(reply.turnState == .notSent && reply.metadata[TurnKey.why] == "offline")
     #expect(store.modalErrorMessage == nil, "after the retries it is the row's footer and a warning line, never the alert")
+}
+
+@MainActor @Test func aReconnectIsTheRowsLiveStateUntilTheBoxSendsAgain() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot) = steerStore(backend)
+    try await startSteerableTurn(store, backend, running: false)
+    let row = bot.messages[1]
+    await backend.emit(.status(TurnErrorCopy.reconnecting))
+    try await waitUntil { row.metadata[TurnKey.reconnecting] == "1" }
+    #expect(row.content == "Before. " && row.isStreaming, "the reply so far stays; no warning line, no alert")
+    #expect(!bot.messages.contains { $0.role == .system } && store.errorMessage == nil)
+    await backend.emit(.token("after."))
+    try await waitUntil { row.metadata[TurnKey.reconnecting] == nil }
+    await backend.emit(.completed); await backend.end()
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(row.content == "Before. after." && row.turnState == .finished)
 }
