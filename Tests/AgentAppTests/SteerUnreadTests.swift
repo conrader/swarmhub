@@ -56,3 +56,21 @@ import Testing
     let bubble = try #require(bot.messages.first { $0.content == "use metric" })
     #expect(store.canSendAsNextMessage(bubble), "Send as next message is offered")
 }
+
+@MainActor @Test func aSteerAnsweredOnlyAfterItsTurnEndedIsSentAsTheNextMessage() async throws {
+    let backend = ScriptedTurnBackend()
+    await backend.holdSteers()
+    let (store, bot) = steerStore(backend)
+    try await startSteerableTurn(store, backend, running: false)
+    #expect(store.send(text: "use metric"))
+    try await backend.calls.wait { $0.contains("steer-held:use metric") }
+    await backend.emit(.token("Done."), .completed); await backend.end()
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(bot.messages.first { $0.content == "use metric" }?.metadata["steer"] == "sent", "still on its way when the answer ended")
+    await backend.releaseSteers()
+    try await backend.calls.wait { $0.contains("send:use metric") }
+    await backend.emit(.token("Metric."), .completed); await backend.end()
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(await backend.calls.all == ["send:go", "steer-held:use metric", "steer:use metric", "send:use metric"], "accepted too late to be read: sent once, as the next message")
+    #expect(bot.messages.last?.content == "Metric.")
+}

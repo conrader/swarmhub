@@ -19,7 +19,12 @@ actor ScriptedTurnBackend: AgentBackend {
         calls.append("send:\(request.messages.last?.content ?? "")")
         return stream
     }
+    /// uxfix1-e2e: while held, a steer's answer waits for `releaseSteers()` (a request answered after its turn ended).
+    private var holdSteer = false, steerWaiters: [CheckedContinuation<Void, Never>] = []
+    func holdSteers() { holdSteer = true }
+    func releaseSteers() { holdSteer = false; steerWaiters.forEach { $0.resume() }; steerWaiters = [] }
     func steer(sessionID: String, text: String) async throws {
+        if holdSteer { calls.append("steer-held:\(text)"); await withCheckedContinuation { steerWaiters.append($0) } }
         if steerFails { calls.append("steer-failed:\(text)"); throw BackendError.http(409, "no run to steer") }
         calls.append("steer:\(text)")
     }
