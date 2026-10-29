@@ -47,6 +47,8 @@ struct SkillInstallResult: Equatable {
     var isInfo: Bool { status == .installed || detail.hasPrefix(Self.unconfirmedLead) }
 
     static let unconfirmedLead = "Skills installed."
+    /// The bot a result line in the manager's chat is about; such a line is never history (`chatHistory`).
+    static let lineKey = "skill-install-result"
     /// uxfix3: Hermes 0.22's session stream carries no tool output, so the peer-plugin enable receipt is never readable on
     /// this API (uxfix1-e2e: all 17 bots). The skills are in; this is a note, not a warning line per bot.
     static func unconfirmedPeerEnable(profile: String) -> SkillInstallResult {
@@ -59,7 +61,7 @@ extension AppStore {
     func recordSkillInstallResult(_ result: SkillInstallResult, bot: Bot, manager: Bot) {
         skillInstallResults[bot.id] = result
         manager.messages.append(ChatMessage(role: .system, content: "\(bot.name) (\(profile(of: bot))): \(result.detail)",
-                                           metadata: result.isInfo ? ["skill-install-result": bot.id.uuidString] : [TurnKey.tone: "warning", "skill-install-result": bot.id.uuidString]))
+                                           metadata: result.isInfo ? [SkillInstallResult.lineKey: bot.id.uuidString] : [TurnKey.tone: "warning", SkillInstallResult.lineKey: bot.id.uuidString]))
         objectWillChange.send(); save()
     }
 }

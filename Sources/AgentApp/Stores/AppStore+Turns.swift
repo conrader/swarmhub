@@ -279,7 +279,7 @@ extension AppStore {
         if let last, let index = rows.firstIndex(where: { $0.id == last.id }) { rows = Array(rows[...index]) }
         // autoctx1: a chat continued in a new session sends nothing from before that line; setup turns are never history.
         if let boundary = rows.lastIndex(where: { $0.metadata[ContextKey.boundary] != nil }) { rows = Array(rows[boundary...]) }
-        return rows.filter { $0.id != reply.id && ($0.metadata[ContextKey.setup] == nil || $0.id == last?.id) && $0.metadata[ContextKey.boundary] == nil && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && $0.metadata[SlashKey.line] == nil && $0.metadata[TechnicalKey.appRequest] == nil && $0.presentation != .automation && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
+        return rows.filter { $0.id != reply.id && ($0.metadata[ContextKey.setup] == nil || $0.id == last?.id) && $0.metadata[ContextKey.boundary] == nil && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && $0.metadata[SkillInstallResult.lineKey] == nil && $0.metadata[SlashKey.line] == nil && $0.metadata[TechnicalKey.appRequest] == nil && $0.presentation != .automation && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
             .map { (role: $0.role.rawValue, content: $0.outgoingText) }
     }
 

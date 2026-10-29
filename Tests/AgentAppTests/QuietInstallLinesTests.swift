@@ -14,6 +14,7 @@ import Testing
     #expect(quiet.status == .peerEnableUnverified && quiet.isInfo && quiet.detail.contains("hermes -p grok-boppy plugins list"))
     store.recordSkillInstallResult(quiet, bot: bot, manager: manager)
     #expect(manager.messages.last?.metadata[TurnKey.tone] == nil, "no warning triangle")
+    #expect(store.chatHistory(manager, excluding: ChatMessage(role: .assistant, content: "")).isEmpty, "a result line is never sent to the model")
     for loud in [SkillInstallResult(status: .failed, detail: "Skills not fully installed: x"),
                  SkillInstallResult(status: .peerEnableBlocked, detail: PeerPluginEnablement.blockedDetail),
                  SkillInstallResult(status: .peerEnableUnverified, detail: "Peer plugin installed; enablement not verified (enable exit 1, list exit 0).")] {
