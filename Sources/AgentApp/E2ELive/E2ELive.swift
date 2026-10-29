@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import Security
 
-/// `SwarmHub --e2e-live <dir>` (uxfix1-e2e): the normal app, window on screen, run against a throwaway store in `<dir>`
+/// `SwarmHub --e2e-live <dir>` (uxfix1-e2e): the normal app (uxfix3: hidden, off screen), run against a throwaway store in `<dir>`
 /// that holds fresh copies of every Hermes bot in the real store (profile, server, persona, manager role; no messages,
 /// no sessions, no recorded skills). The real store is read once and never written; settings go to their own defaults
 /// suite; keys are read from the Keychain silently and never written. Hermes traffic goes through `E2ELiveNetwork`, a
@@ -22,7 +22,7 @@ import Security
         let directory: URL; let network: E2ELiveNetwork
         var tag: String { E2ELive.tag }
         var lines: [String] = []; var failed = 0
-        var modals: [String] = []; var sheets = 0; var notices: Set<String> = []
+        var modals: [String] = []; var sheets = 0; var notices: Set<String> = []; var onScreen = 0
         init(directory: URL, network: E2ELiveNetwork) { self.directory = directory; self.network = network }
         func note(_ text: String) {
             lines.append(text); print(text); fflush(stdout)
@@ -75,10 +75,14 @@ import Security
     static func start(store: AppStore) {
         guard let run = current else { return }
         Task { @MainActor in
+            keepOffScreen()
             let monitor = Task { @MainActor in await watch(store: store, run: run) }
             await steps(store: store, run: run)
+            _ = await HeadlessE2E.wait(.seconds(300), poll: .milliseconds(200)) { !store.anyTurnRunning }
+            await cleanSelfTestSessions(store: store, run: run, phase: "after")
             monitor.cancel()
             run.check("modal", run.modals.isEmpty && run.sheets == 0, "alerts shown: \(run.modals.count) \(run.modals.prefix(3)); sheets seen: \(run.sheets); connection lines seen: \(run.notices.count)")
+            run.check("offscreen", run.onScreen == 0, "samples with a window on screen: \(run.onScreen)")
             run.note("E2E-LIVE: \(run.lines.filter { $0.hasPrefix("PASS") }.count) passed, \(run.failed) failed")
             run.note("E2E-LIVE RESULT: \(run.failed == 0 ? "PASS" : "FAIL")")
             UserDefaults.standard.removePersistentDomain(forName: defaultsSuite)
@@ -95,13 +99,16 @@ import Security
             if let notice = store.connectionNotice { run.notices.insert(notice) }
             last = store.modalErrorMessage
             if NSApp.windows.contains(where: { $0.attachedSheet != nil }) { run.sheets += 1 }
+            if windowsOnScreen > 0 { run.onScreen += 1 }
+            keepOffScreen()
             try? await Task.sleep(for: .milliseconds(100))
         }
     }
 
     static func steps(store: AppStore, run: Run) async {
-        _ = await HeadlessE2E.wait(.seconds(30), poll: .milliseconds(200)) { NSApp.windows.contains { $0.isVisible } }
+        _ = await HeadlessE2E.wait(.seconds(30), poll: .milliseconds(200)) { !NSApp.windows.isEmpty }
         guard let manager = store.bots.first(where: { store.isManager($0) }) else { run.check("setup", false, "no manager bot among the copies"); return }
+        await cleanSelfTestSessions(store: store, run: run, phase: "before")
         run.note("E2E-LIVE: manager \(manager.name) (\(manager.hermesProfile ?? "default")); \(store.bots.count) bots on \(Set(store.bots.map(store.connection(of:))).count) connection(s)")
         // Turns first (minutes), then installs (the long part). The turn steps' extra copies leave before the installs.
         let copies = Set(store.bots.map(\.id))

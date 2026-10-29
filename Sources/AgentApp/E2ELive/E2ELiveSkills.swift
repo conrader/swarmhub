@@ -20,12 +20,18 @@ extension E2ELive {
         run.check("install.all.finish", allDone, allDone ? "batch ended; \(results(store))" : "batch still running after \(installTimeout)")
         await checkQueued(store: store, manager: manager, run: run)
 
-        for bot in store.bots where store.skills(for: bot).contains(where: { store.skillState($0, for: bot).needsAction }) {
-            let wanted = store.skills(for: bot).filter { store.skillState($0, for: bot).needsAction }.map(\.name)
-            let sent = store.installSkills(for: bot)
-            var done = false
-            if sent { done = await HeadlessE2E.wait(.seconds(15 * 60), poll: .milliseconds(250)) { installIdle(store, manager) } }
-            run.note("E2E-LIVE: install \(bot.name) \(wanted.joined(separator: ",")): sent=\(sent) done=\(done) \(store.skillInstallResults[bot.id].map { "\($0.status) \($0.detail.prefix(160))" } ?? "")")
+        // Each bot's Install for what is left; uxfix3: a second pass (after the 2-minute transient backoff) for any still missing.
+        for pass in 1...2 {
+            let left = store.bots.filter { bot in store.skills(for: bot).contains { store.skillState($0, for: bot).needsAction } }
+            guard !left.isEmpty else { break }
+            if pass > 1 { run.note("E2E-LIVE: retry pass for \(left.map(\.name).joined(separator: ", "))"); try? await Task.sleep(for: .seconds(130)) }
+            for bot in left {
+                let wanted = store.skills(for: bot).filter { store.skillState($0, for: bot).needsAction }.map(\.name)
+                let sent = store.installSkills(for: bot)
+                var done = false
+                if sent { done = await HeadlessE2E.wait(.seconds(15 * 60), poll: .milliseconds(250)) { installIdle(store, manager) } }
+                run.note("E2E-LIVE: install \(bot.name) \(wanted.joined(separator: ",")): sent=\(sent) done=\(done) \(store.skillInstallResults[bot.id].map { "\($0.status) \($0.detail.prefix(160))" } ?? "")")
+            }
         }
 
         var missing: [String] = []
