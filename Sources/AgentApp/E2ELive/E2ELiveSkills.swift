@@ -18,12 +18,14 @@ extension E2ELive {
         await queueTwo(store: store, manager: manager, run: run)
         let allDone = await HeadlessE2E.wait(installTimeout, poll: .milliseconds(250)) { installIdle(store, manager) }
         run.check("install.all.finish", allDone, allDone ? "batch ended; \(results(store))" : "batch still running after \(installTimeout)")
+        await waitForBox(store: store, bot: manager, run: run, before: "the queued check")
         await checkQueued(store: store, manager: manager, run: run)
 
         // Each bot's Install for what is left; uxfix3: a second pass (after the 2-minute transient backoff) for any still missing.
         for pass in 1...2 {
             let left = store.bots.filter { bot in store.skills(for: bot).contains { store.skillState($0, for: bot).needsAction } }
             guard !left.isEmpty else { break }
+            await waitForBox(store: store, bot: manager, run: run, before: "install pass \(pass)")
             if pass > 1 { run.note("E2E-LIVE: retry pass for \(left.map(\.name).joined(separator: ", "))"); try? await Task.sleep(for: .seconds(130)) }
             for bot in left {
                 let wanted = store.skills(for: bot).filter { store.skillState($0, for: bot).needsAction }.map(\.name)
@@ -40,6 +42,7 @@ extension E2ELive {
             for (name, failure) in bot.skillInstallFailures { missing.append("\(bot.name)/\(name) failed: \(failure.reason.prefix(160))") }
         }
         let total = store.bots.reduce(0) { $0 + store.skills(for: $1).count }
+        await waitForBox(store: store, bot: manager, run: run, before: "the box check")
         run.check("install.record", missing.isEmpty, "\(total - missing.count)/\(total) skills current on \(store.bots.count) bots" + (missing.isEmpty ? "" : "; " + missing.prefix(12).joined(separator: "; ")))
         await checkBox(store: store, run: run)
     }

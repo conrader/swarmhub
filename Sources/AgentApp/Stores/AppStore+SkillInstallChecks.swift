@@ -186,7 +186,13 @@ extension AppStore {
         let previous = bot.skillInstallFailures[skill].flatMap { $0.version == version && $0.variant == variant ? $0.count : nil } ?? 0
         bot.skillInstallFailures[skill] = SkillInstallFailure(version: version, variant: variant, count: previous + 1, lastAt: now(), reason: reason,
                                                               transient: transient ? true : nil)
-        SwarmhubBlock.log.error("Skill install failed: \(skill, privacy: .public) \(version, privacy: .public) on \(bot.hermesProfile ?? "default", privacy: .public) (\(previous + 1)x)")
+        // uxfix3: a network drop is retried by design (no alert); it is a notice, not an error in the system log.
+        let network = transient || TransientNetwork.isTransient(text: reason)
+        if network {
+            SwarmhubBlock.log.notice("Skill install interrupted by the network, retried later: \(skill, privacy: .public) \(version, privacy: .public) on \(bot.hermesProfile ?? "default", privacy: .public) (\(previous + 1)x)")
+        } else {
+            SwarmhubBlock.log.error("Skill install failed: \(skill, privacy: .public) \(version, privacy: .public) on \(bot.hermesProfile ?? "default", privacy: .public) (\(previous + 1)x)")
+        }
         scheduleSkillRetryRedraw()
     }
 

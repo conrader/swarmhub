@@ -79,6 +79,7 @@ import Security
             let monitor = Task { @MainActor in await watch(store: store, run: run) }
             await steps(store: store, run: run)
             _ = await HeadlessE2E.wait(.seconds(300), poll: .milliseconds(200)) { !store.anyTurnRunning }
+            if let manager = store.bots.first(where: { store.isManager($0) }) { await waitForBox(store: store, bot: manager, run: run, before: "the cleanup") }
             await cleanSelfTestSessions(store: store, run: run, phase: "after")
             monitor.cancel()
             run.check("modal", run.modals.isEmpty && run.sheets == 0, "alerts shown: \(run.modals.count) \(run.modals.prefix(3)); sheets seen: \(run.sheets); connection lines seen: \(run.notices.count)")

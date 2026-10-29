@@ -56,6 +56,26 @@ extension E2ELive {
         return rows
     }
 
+    // MARK: The Mac's own network
+
+    /// uxfix3 (round 1: the MacBook itself went offline for the rest of the run): before a step that reads or writes the
+    /// box, wait up to `limit` for one read-only `GET /v1/skills` to answer. Notes how long the box was unreachable.
+    @discardableResult static func waitForBox(store: AppStore, bot: Bot, run: Run, before step: String, limit: Duration = .seconds(20 * 60)) async -> Bool {
+        guard let backend = try? store.backend(for: bot) as? HermesBackend else { return false }
+        let clock = ContinuousClock(), start = clock.now
+        var lastError = ""
+        while clock.now - start < limit {
+            do {
+                _ = try await backend.skills()
+                if !lastError.isEmpty { run.note("E2E-LIVE: the box answered again before \(step) after \(clock.now - start) (\(lastError))") }
+                return true
+            } catch { lastError = error.localizedDescription }
+            try? await Task.sleep(for: .seconds(15))
+        }
+        run.note("E2E-LIVE: the box did not answer for \(limit) before \(step): \(lastError)")
+        return false
+    }
+
     // MARK: Off screen
 
     /// No Dock icon, hidden, and every window transparent and click-through.
