@@ -30,14 +30,17 @@ struct AgentAppMain: App {
     init() {
         if UIAcceptanceMode.requested { UIAcceptanceMode.refuse("Use the debug acceptance launcher; normal startup is forbidden.") }
         if let code = HeadlessCommands.runIfRequested() { exit(code) }
-        SidebarWidth.dropStaleSavedWidths()
+        if E2ELive.directory() == nil { SidebarWidth.dropStaleSavedWidths() }
         snapshotAppearance = ProcessInfo.processInfo.environment["AGENTAPP_APPEARANCE"]
         let integration = ProcessInfo.processInfo.environment["AGENTAPP_HERMES_INTEGRATION"] == "1"
         let integrationStoreURL = integration ? FileManager.default.temporaryDirectory.appending(path: "AgentApp-Hermes-\(UUID().uuidString)/store.json") : nil
-        let appStore = SetupPreview.isRequested() ? SetupPreview.makeStore()
-            : AppStore(demoMode: ProcessInfo.processInfo.environment["AGENTAPP_SNAPSHOT"] != nil, storeURL: integrationStoreURL, autoConfigureHermes: !integration)
+        let live = E2ELive.directory().map { E2ELive.makeStore(directory: $0) }
+        if let live, live == nil { exit(2) }
+        let appStore = live.flatMap { $0 } ?? (SetupPreview.isRequested() ? SetupPreview.makeStore()
+            : AppStore(demoMode: ProcessInfo.processInfo.environment["AGENTAPP_SNAPSHOT"] != nil, storeURL: integrationStoreURL, autoConfigureHermes: !integration))
         _store = StateObject(wrappedValue: appStore)
         if let path = UISmoke.reportPath() { UISmoke.start(store: appStore, path: path) }
+        if live != nil { E2ELive.start(store: appStore) }
         PerformanceMetrics.reportReady()
         if integration {
             Task { exit(await Self.runHermesIntegration(storeURL: integrationStoreURL!) ? 0 : 1) }

@@ -2,22 +2,9 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-// P28: steer that actually lands. D1 route choice, Stop and send, the Stop-failure fallback, bubble copy, D5 order on
-// screen (store, reload, history, sidebar) and the box handing a steer back. Synthetic backends only.
-
-// MARK: D1 route
-
-@Test func theRouteFollowsWhatTheTurnIsDoing() {
-    let at = Date(timeIntervalSince1970: 1_800_000_000)
-    var activity = ToolActivity()
-    #expect(SteerRoute.choose(activity: nil) == .stopAndSend, "text only (or thinking): no tool batch will come")
-    activity.apply(ToolEvent(phase: .started, name: "terminal", callID: "c1"), at: at)
-    #expect(SteerRoute.choose(activity: activity) == .queued, "a running step: the steer lands after it")
-    activity.apply(ToolEvent(phase: .completed, name: "terminal", callID: "c1"), at: at)
-    #expect(SteerRoute.choose(activity: activity) == .stopAndSend, "steps that all ended are not running")
-    activity.apply(ToolEvent(phase: .started, name: "_thinking"), at: at)
-    #expect(SteerRoute.choose(activity: activity) == .stopAndSend, "internal tools are not steps")
-}
+// P28: steer that actually lands. uxfix1: a message typed during a turn never stops it: it steers the turn, or waits and
+// goes when the turn ends (no steer on the runtime, attachments). Bubble copy, D5 order on screen (store, reload, history,
+// sidebar) and the box handing a steer back. Synthetic backends only.
 
 @Test func bubbleCopyPerPath() {
     func caption(_ metadata: [String: String]) -> String? { SteerCopy.caption(ChatMessage(role: .user, content: "x", metadata: metadata)) }
@@ -27,55 +14,86 @@ import Testing
     #expect(caption(["steer": "delivered"]) == "Delivered")
     #expect(caption(["steer": "failed"]) == "Steer not delivered")
     #expect(SteerCopy.endedFirst == "The answer ended first.", "the line under a failed steer gives only the reason")
+    // Rows saved before uxfix1 still read as they did.
     #expect(caption(["correction": "stopping"]) == "Stopping the answer…")
     #expect(caption(["correction": "stopped"]) == "Stopped the answer and sent your correction")
     #expect(caption(["correction": "followup"]) == "Sent after the answer finished")
     #expect(SteerCopy.placeholder == "Add to this answer…")
-    #expect(SteerCopy.hint == "Corrections land after the current step, or stop the answer and continue.")
+    #expect(SteerCopy.hint == "Your message steers this answer without stopping it; if the answer ends first, it goes as the next message.")
 }
 
-// MARK: Stop and send
+// MARK: Steer, never stop (uxfix1)
 
-@MainActor @Test func steeringTextStopsTheAnswerThenSendsTheCorrection() async throws {
+@MainActor @Test func textTypedWhileTheAnswerOnlyWritesSteersItWithoutStoppingIt() async throws {
     let backend = ScriptedTurnBackend()
-    let defaults = isolatedDefaults()
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: defaults)
-    let bot = Bot(name: "Steer", backend: .hermes, hermesProfile: "default", hermesSessionID: "session-steer"); store.bots = [bot]; store.selectedBot = bot
+    let (store, bot) = steerStore(backend)
     try await startSteerableTurn(store, backend, running: false)
     #expect(store.steerHint == nil)
     #expect(store.send(text: " use metric "))
     #expect(store.steerHint == SteerCopy.hint, "the first steer shows the one-time caption")
-    let lead = "send:\(SteerCopy.lead)\nuse metric"
-    try await backend.calls.wait { $0.contains(lead) }
-    let calls = await backend.calls.all
-    #expect(calls == ["send:go", "stop:run-1", lead], "Stop is requested before the correction is sent")
-    #expect(bot.messages.map(\.role) == [.user, .assistant, .user, .assistant])
-    let (partial, bubble) = (bot.messages[1], bot.messages[2])
-    #expect(partial.content == "Before. " && partial.turnState == .stopped && !partial.isStreaming, "the partial stays, marked stopped")
-    #expect(bubble.content == "use metric" && bubble.isCorrection && !bubble.isSteer, "the lead line is only in the sent text")
-    #expect(SteerCopy.caption(bubble) == "Stopped the answer and sent your correction")
-    #expect(bubble.outgoingText == SteerCopy.lead + "\nuse metric")
-    #expect(!bot.messages.contains { $0.role == .system }, "no extra Stop line between the partial and the correction")
-    // The correction's turn answers below it.
+    try await backend.calls.wait { $0.contains("steer:use metric") }
+    try await waitUntil { bot.messages.last?.metadata["steer"] == "queued" }
+    #expect(await backend.calls.all == ["send:go", "steer:use metric"], "no Stop is ever requested")
+    let partial = bot.messages[1]
+    #expect(store.anyTurnRunning && partial.turnState == .incomplete && partial.isStreaming, "the answer keeps streaming")
+    // The answer ends before a step boundary: the box hands the steer back and it goes as the next message.
+    await backend.emit(.token("still writing."), .steer(.returned("use metric")), .completed); await backend.end()
+    let followUp = "send:\(SteerCopy.lead)\nuse metric"
+    try await backend.calls.wait { $0.contains(followUp) }
+    #expect(partial.content == "Before. still writing." && partial.turnState == .finished, "the first answer finished whole")
+    let bubble = try #require(bot.messages.first { $0.content == "use metric" })
+    #expect(bubble.isCorrection && SteerCopy.caption(bubble) == "Sent after the answer finished")
     await backend.emit(.token("Metric it is."), .completed); await backend.end()
     try await waitUntil { !store.anyTurnRunning }
     #expect(bot.messages.last?.content == "Metric it is." && bot.messages.last?.turnState == .finished)
-    // A later plain send clears the caption; it is shown once per install.
-    #expect(store.send(text: "thanks")); #expect(store.steerHint == nil)
+    #expect(await backend.calls.all.filter { $0.hasPrefix("stop") }.isEmpty)
+}
+
+@MainActor @Test func withoutSteerAMessageWaitsAndGoesWhenTheAnswerEnds() async throws {
+    let backend = ScriptedTurnBackend(steerless: true)
+    let (store, bot) = steerStore(backend)
+    try await startSteerableTurn(store, backend, running: false)
+    #expect(!store.canSteer(in: bot))
+    #expect(store.send(text: "and then this"), "sending during the turn is accepted, not refused")
+    let waiting = try #require(bot.messages.first { $0.content == "and then this" })
+    #expect(waiting.metadata[TurnWaitCopy.key] == "waiting" && store.hasWaitingTurn(in: bot))
+    #expect(bot.messages.contains { $0.role == .system && $0.content == SteerCopy.afterTurn })
+    #expect(await backend.calls.all == ["send:go"], "nothing is steered or stopped")
+    #expect(bot.messages[1].turnState == .incomplete && bot.messages[1].isStreaming, "the answer keeps streaming")
+    await backend.emit(.token("Done."), .completed); await backend.end()
+    try await backend.calls.wait { $0.contains("send:and then this") }
+    #expect(bot.messages[1].content == "Before. Done." && bot.messages[1].turnState == .finished, "the first answer finished whole")
+    #expect(waiting.metadata[TurnWaitCopy.key] == nil && !bot.messages.contains { $0.content == SteerCopy.afterTurn }, "the wait line goes")
+    await backend.emit(.token("Second."), .completed); await backend.end()
+    try await waitUntil { !store.anyTurnRunning }
+    #expect(bot.messages.filter { $0.role == .assistant }.map(\.content) == ["Before. Done.", "Second."])
+    #expect(await backend.calls.all.filter { $0.hasPrefix("stop") || $0.hasPrefix("steer") }.isEmpty)
+}
+
+@MainActor @Test func anAttachmentTypedDuringATurnWaitsForItInsteadOfBeingRefused() async throws {
+    let backend = ScriptedTurnBackend()
+    let (store, bot) = steerStore(backend)
+    try await startSteerableTurn(store, backend, running: true)
+    let file = ChatAttachment(id: UUID(), kind: .text, name: "notes.txt", mimeType: "text/plain", byteCount: 5, text: "notes")
+    #expect(store.send(text: "see this", attachments: [file]))
+    #expect(store.errorMessage == nil, "no alert")
+    let waiting = try #require(bot.messages.first { $0.content == "see this" })
+    #expect(waiting.attachments.map(\.name) == ["notes.txt"] && waiting.metadata[TurnWaitCopy.key] == "waiting")
+    #expect(await backend.calls.all == ["send:go"])
+    await backend.emit(step(.completed), .token("Done."), .completed); await backend.end()
+    try await backend.calls.wait { $0.contains { $0.hasPrefix("send:") && $0.contains("see this") } }
     store.stop(); try await waitUntil { !store.anyTurnRunning }
 }
 
-@MainActor @Test func aFailedStopFallsBackToTheQueuedSteerAndSaysSo() async throws {
-    let backend = ScriptedTurnBackend(stopFails: true)
+@MainActor @Test func aFailedSteerKeepsTheAnswerRunning() async throws {
+    let backend = ScriptedTurnBackend(steerFails: true)
     let (store, bot) = steerStore(backend)
     try await startSteerableTurn(store, backend, running: false)
     #expect(store.send(text: "shorter"))
-    try await backend.calls.wait { $0.contains("steer:shorter") }
-    #expect(await backend.calls.all == ["send:go", "stop-failed", "steer:shorter"])
-    try await waitUntil { bot.messages.contains { $0.metadata["steer"] == "queued" } }
+    try await waitUntil { bot.messages.contains { $0.metadata["steer"] == "failed" } }
+    #expect(await backend.calls.all == ["send:go", "steer-failed:shorter"], "no Stop")
     let bubble = try #require(bot.messages.first { $0.content == "shorter" })
-    #expect(bubble.isSteer && !bubble.isCorrection && SteerCopy.caption(bubble) == "Delivered after the current step")
-    #expect(bot.messages.contains { $0.role == .system && $0.content == SteerCopy.stopFailed })
+    #expect(store.canSendAsNextMessage(bubble), "Send as next message is offered")
     #expect(store.anyTurnRunning && bot.messages[1].turnState == .incomplete, "the answer keeps streaming")
     store.stop(); try await waitUntil { !store.anyTurnRunning }
 }

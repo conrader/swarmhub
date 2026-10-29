@@ -147,10 +147,9 @@ struct ChatView: View {
     private func attach(_ urls: [URL]) { intake.attach(urls, store: store) }
     private func send() {
         let value = draft; guard !intake.isReading, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !intake.items.isEmpty else { return }
-        let steering = !store.isIdle(store.currentConversation(of: bot))
-        // P50: sending always goes to the bottom.
+        // P50: sending always goes to the bottom. uxfix1: during a turn the attachments go too (the message waits for it).
         store.chatScroll.toBottom(store.currentConversation(of: bot).id)
-        if store.submitComposer(text: value, attachments: steering ? [] : intake.items) { draft = ""; if !steering { intake.items = [] } }
+        if store.submitComposer(text: value, attachments: intake.items) { draft = ""; intake.items = [] }
     }
 }
 

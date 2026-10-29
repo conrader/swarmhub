@@ -19,13 +19,14 @@ import Foundation
 ///   AgentApp --grok-probe [--live] [--report <file>]   (Grok Bot drift check; see HeadlessGrok.swift)
 ///   AgentApp --grok-parity <python export folder> [--cache <folder>]   (see HeadlessGrokParity.swift)
 ///   AgentApp --render-setup <dir>     (every setup step and the simple Settings page from a synthetic store; see HeadlessSetup.swift)
-/// Launch arguments of the normal app (window shown): `--ui-smoke <report.json>` and `--setup-preview` (SetupPreview.swift).
+/// Launch arguments of the normal app (window shown): `--ui-smoke <report.json>`, `--setup-preview` (SetupPreview.swift) and
+/// `--e2e-live <new folder>` (live end-to-end run on copies of every bot; E2ELive.swift).
 @MainActor enum HeadlessCommands {
     /// Every flag the app recognises; the dispatcher below and the launch arguments read this list.
     static let flags = ["--check-bots", "--check-server", "--check-reports", "--check-account-names", "--check-openclaw", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--capture-events", "--grok-fetch", "--grok-probe",
-                        "--grok-parity", "--import-grok", "--import-keys", "--ui-smoke", "--setup-preview", "--render-setup"]
+                        "--grok-parity", "--import-grok", "--import-keys", "--ui-smoke", "--setup-preview", "--render-setup", E2ELive.flag]
     /// The flags that run without a window and exit.
-    static let headless = flags.filter { $0 != "--ui-smoke" && $0 != "--setup-preview" }
+    static let headless = flags.filter { $0 != "--ui-smoke" && $0 != "--setup-preview" && $0 != E2ELive.flag }
 
     /// Returns an exit code when a headless command was requested, otherwise nil.
     static func runIfRequested(arguments: [String] = CommandLine.arguments) -> Int32? {

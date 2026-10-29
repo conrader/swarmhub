@@ -83,7 +83,7 @@ flowchart TD
 
 ### Messages waiting to be sent
 
-A steer that could not be delivered offers **Send as next message**, and a review card offers to send its notes; both wait until the running answer ends. Waiting messages survive a quit: when SwarmHub reopens they resume in order once your server has been checked. If an earlier reply is still unconfirmed, or the waiting text changed, the message is not sent; a line says why and its button returns, so you can **Refresh** that reply and send it again. A group round the quit interrupted keeps its finished replies; members not yet asked show **Retry**.
+Typing while a bot answers never stops the answer: the message steers it, or, when the bot's server cannot steer (or the message has attachments), it waits and goes when the answer ends. A steer that could not be delivered offers **Send as next message**, and a review card offers to send its notes; both wait until the running answer ends. Waiting messages survive a quit: when SwarmHub reopens they resume in order once your server has been checked. If an earlier reply is still unconfirmed, or the waiting text changed, the message is not sent; a line says why and its button returns, so you can **Refresh** that reply and send it again. A group round the quit interrupted keeps its finished replies; members not yet asked show **Retry**.
 
 ### Coordinate work across bots
 

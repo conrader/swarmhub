@@ -28,7 +28,15 @@ extension AppStore {
 
     func markSetupTurn(_ assistant: ChatMessage, in conversation: any Conversation) {
         assistant.metadata[ContextKey.setup] = "1"
-        conversation.messages.last { $0.role == .user && $0.createdAt <= assistant.createdAt }?.metadata[ContextKey.setup] = "1"
+        userRow(answeredBy: assistant, in: conversation)?.metadata[ContextKey.setup] = "1"
+    }
+
+    /// The user row `assistant` answers: the nearest one above it. A message queued below it (uxfix1-e2e) is not it.
+    func userRow(answeredBy assistant: ChatMessage, in conversation: any Conversation) -> ChatMessage? {
+        guard let index = conversation.messages.firstIndex(where: { $0 === assistant }) else {
+            return conversation.messages.last { $0.role == .user && $0.createdAt <= assistant.createdAt }
+        }
+        return conversation.messages[..<index].last { $0.role == .user }
     }
 
     /// The turn `managementText` just gave an install's text is marked on its rows (and saved) before anything is sent,
@@ -83,18 +91,32 @@ extension AppStore {
 
     private func setupCleanupKey(_ target: String) -> String { "setup.sessions.cleanup." + target }
 
-    /// The wait before another attempt of a setup turn that did not reach the box (or found it briefly unable); nil = no retry.
+    /// The wait before another attempt of a setup turn that did not reach the box, found it briefly unable, or lost the
+    /// connection on the way; nil = no retry. uxfix1: a timeout or a dropped stream is retried too. An install only writes
+    /// files (mkdir and whole-file heredocs, or the updater's signed bundle), so sending it again is safe, and Hermes stops
+    /// a native chat stream's run when its client goes, so the dropped attempt does not finish on its own.
     func setupRetryDelay(after end: TurnEnd, failures: Int) -> Duration? {
-        guard failures < Self.setupRetryDelays.count, case .error(let error) = end, Self.isTransient(error) else { return nil }
+        guard failures < Self.setupRetryDelays.count, case .error(let error) = end,
+              Self.isTransient(error) || TransientNetwork.isTransient(error) else { return nil }
         return Self.setupRetryDelays[failures]
     }
 
-    /// Only failures that prove the box did not start the install: a timeout or a dropped stream may have, and is not retried.
+    /// uxfix1: the wait before a user's turn that never left the Mac is sent again (`sendRetryDelays`); nil = no retry.
+    /// Only failures that prove the box never got it: a timeout or a dropped stream may have, and is reconciled instead.
+    func sendRetryDelay(after end: TurnEnd, failures: Int) -> Duration? {
+        guard failures < sendRetryDelays.count, case .error(let error) = end, Self.isTransient(error) else { return nil }
+        return sendRetryDelays[failures]
+    }
+
+    /// Only failures that prove the box did not start the turn: a timeout or a dropped stream may have.
     static func isTransient(_ error: Error) -> Bool {
         if let broken = error as? StreamBreak { return !broken.delivered && (broken.requestStarted == false || isTransient(broken.underlying)) }
         if let url = error as? URLError { return TurnOutcome.certainlyUnsentCodes.contains(url.code) }
         if case BackendError.http(let code, _) = error { return [429, 503].contains(code) }
-        return false
+        // uxfix1-e2e: the proxy in front of the network was unreachable, so nothing reached the box.
+        let ns = error as NSError
+        guard ns.domain == TransientNetwork.cfNetworkDomain else { return false }
+        return TransientNetwork.cfProxyCodes.contains(ns.code) || TurnOutcome.certainlyUnsentCodes.contains(URLError.Code(rawValue: ns.code))
     }
 
     /// The row goes back to streaming for the next attempt, empty, with `status` until text arrives.
@@ -103,6 +125,7 @@ extension AppStore {
         assistant.turnState = .incomplete; assistant.isStreaming = true
         [TurnKey.run, TurnKey.why, TurnKey.ambiguous, TurnKey.toolTokens].forEach { assistant.metadata[$0] = nil }
         assistant.metadata["status"] = status
+        assistant.metadata[TurnKey.reconnecting] = status == TurnErrorCopy.reconnecting ? "1" : nil
         objectWillChange.send()
     }
 
@@ -129,7 +152,7 @@ extension AppStore {
             resetForResend(assistant, status: TurnErrorCopy.compacting)
             return .resend(.compacted)
         }
-        let user = conversation.messages.last { $0.role == .user && $0.createdAt <= assistant.createdAt }
+        let user = userRow(answeredBy: assistant, in: conversation)
         if !ranSteps { resetForResend(assistant, status: TurnErrorCopy.startingNew) }
         do { try await continueInNewSession(bot: bot, conversation: conversation, before: user ?? assistant, backend: backend, resent: !ranSteps) }
         catch { return nil }

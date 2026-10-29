@@ -3,9 +3,9 @@ import Testing
 import SwarmHubCore
 @testable import AgentApp
 
-// P28 D3: OpenClaw's steer (`chat.send` with `queueMode:"steer"`) also lands only after the current tool batch (docs:
-// concepts/queue-steering, "Runtime boundary"), so the same rule applies: a running step queues the steer, text only
-// stops the run (`chat.abort`) and sends the correction as the next `chat.send`. Fake Gateway only.
+// P28 D3: OpenClaw's steer (`chat.send` with `queueMode:"steer"`) lands after the current tool batch (docs:
+// concepts/queue-steering, "Runtime boundary"). uxfix1: it is used whatever the run is doing; the run is never aborted
+// (`chat.abort` only on the user's Stop). Fake Gateway only.
 
 /// A store whose OpenClaw bot answers `chat.send` with `run-1`, `run-2`, … and streams nothing by itself.
 @MainActor private func steerableClaw() async throws -> (AppStore, Bot, FakeGateway, String) {
@@ -26,17 +26,16 @@ import SwarmHubCore
     return (store, bot, fake, key)
 }
 
-@MainActor @Test func anOpenClawSteerDuringTextStopsTheRunAndSendsTheCorrection() async throws {
+@MainActor @Test func anOpenClawSteerDuringTextSteersTheRunWithoutAbortingIt() async throws {
     let (store, bot, fake, key) = try await steerableClaw()
     #expect(store.send(text: "stop counting"))
     try await waitUntil { fake.requestsFor("chat.send").count == 2 }
     let log = fake.requestLog.all.filter { $0.hasPrefix("chat.") }
-    #expect(log == ["chat.send", "chat.abort", "chat.send"], "the abort goes out before the correction")
-    #expect(fake.requestsFor("chat.abort").first?["runId"] == "run-1")
-    let correction = try #require(fake.requestsFor("chat.send").last)
-    #expect(correction["queueMode"] == nil && correction["message"]?.string.map(BotSystemPrompt.stripEnvelope) == SteerCopy.lead + "\nstop counting" && correction["sessionKey"]?.string == key)
-    #expect(bot.messages[1].content == "1 2 " && bot.messages[1].turnState == .stopped)
-    #expect(bot.messages[2].isCorrection && bot.messages[2].content == "stop counting")
+    #expect(log == ["chat.send", "chat.send"], "no chat.abort: the run goes on")
+    let steer = try #require(fake.requestsFor("chat.send").last)
+    #expect(steer["queueMode"] == "steer" && steer["message"] == "stop counting" && steer["sessionKey"]?.string == key)
+    try await waitUntil { bot.messages.last?.metadata["steer"] == "queued" }
+    #expect(bot.messages[1].content == "1 2 " && bot.messages[1].turnState == .incomplete && bot.messages[1].isStreaming)
     store.stop(); try await waitUntil { !store.anyTurnRunning }
 }
 

@@ -54,11 +54,13 @@ import Testing
     let (store, bot, box, row) = unsentChat()
     box.with { $0.scripts = [.reply(chunks: ["sent ", "now"])] }
     store.retry(row); store.retry(row)
-    #expect(store.send(text: "typed meanwhile") == false, "a Send during the read sees a turn in progress")
-    try await waitUntil { !store.anyTurnRunning && row.turnState == .finished }
-    #expect(box.chatPosts.count == 1 && row.content == "sent now")
-    #expect(SessionServer.inputText(box.chatPosts[0].body?["input"]) == "please answer", "the original row's text")
-    #expect(bot.messages.filter { $0.role == .user }.count == 1 && bot.messages.filter { $0.role == .assistant }.count == 1)
+    // uxfix1: a Send during the read waits for the turn in progress (never beside it, never stopping it), then goes.
+    #expect(store.send(text: "typed meanwhile"), "a Send during the read waits for the turn in progress")
+    try await waitUntil { !store.anyTurnRunning && row.turnState == .finished && box.chatPosts.count == 2 }
+    #expect(row.content == "sent now")
+    #expect(SessionServer.inputText(box.chatPosts[0].body?["input"]) == "please answer", "the original row's text, first")
+    #expect(SessionServer.inputText(box.chatPosts[1].body?["input"]) == "typed meanwhile", "the typed message after it")
+    #expect(bot.messages.filter { $0.role == .user }.count == 2 && bot.messages.filter { $0.role == .assistant }.count == 2)
 }
 
 @MainActor @Test func aChatWithoutASessionCannotAuthorizeRetry() async throws {

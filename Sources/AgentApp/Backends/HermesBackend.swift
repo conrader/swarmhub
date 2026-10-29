@@ -128,9 +128,9 @@ struct HermesBackend: AgentBackend {
     /// `POST /v1/runs/{run_id}/steer` with `{"input": text}`; Hermes answers 409 when the run no longer takes input.
     func steer(sessionID: String, text: String) async throws {
         guard try await features().contains("run_steer") else { throw BackendError.unavailable("This Hermes server cannot steer a running turn.") }
-        guard let runID = await HermesRunRegistry.shared.get(sessionID, scope: capabilityScope) else { throw BackendError.unavailable("Hermes has not reported a run for this turn yet.") }
+        guard let runID = await HermesRunRegistry.shared.get(sessionID, scope: capabilityScope) else { throw BackendError.unavailable(Self.noRunYet) }
         let json = try await jsonRequest(path: "v1/runs/\(runID)/steer", method: "POST", body: ["input": text], timeout: timeouts.control)
-        if (json["accepted"] as? Bool) == false { throw BackendError.unavailable("Hermes did not accept the steer message.") }
+        if (json["accepted"] as? Bool) == false { throw BackendError.unavailable(Self.steerNotAccepted) }
     }
 
     /// `POST /api/sessions/{id}/fork` with an optional `id`; Hermes copies the whole transcript into the new
@@ -186,14 +186,21 @@ struct HermesBackend: AgentBackend {
     func createSession(title: String, systemPrompt: String, id: String? = nil) async throws -> String {
         guard try await transport() == .nativeSessions else { throw BackendError.unavailable("Legacy Hermes servers do not support durable sessions.") }
         // Keep the saved persona intact. The app policy is ephemeral, supplied only on each turn.
-        var body: [String: Any] = ["title": title, "system_prompt": systemPrompt, "source": "api_server"]
-        if let id { body["id"] = id }
-        let json: [String: Any]
-        do { json = try await jsonRequest(path: "api/sessions", method: "POST", body: body, timeout: timeouts.read) }
-        catch BackendError.http(let code, _) where code == 409 && id != nil { return id! }
-        guard let session = json["session"] as? [String: Any], let id = session["id"] as? String else { throw BackendError.unavailable("Hermes returned no session ID.") }
-        return id
+        // uxfix3: a title another session holds is refused (`invalid_title`): the same session goes with a unique title,
+        // then with none, never as an alert (live 27 Oct: "Title 'Jarvis' is already in use by session swarmhub-selftest-…").
+        for candidate in Self.sessionTitles(title, id: id) {
+            var body: [String: Any] = ["title": candidate, "system_prompt": systemPrompt, "source": "api_server"]
+            if let id { body["id"] = id }
+            let json: [String: Any]
+            do { json = try await jsonRequest(path: "api/sessions", method: "POST", body: body, timeout: timeouts.read) }
+            catch BackendError.http(let code, let text) where Self.isTitleClash(code, text) { continue }
+            catch BackendError.http(let code, _) where code == 409 && id != nil { return id! }
+            guard let session = json["session"] as? [String: Any], let id = session["id"] as? String else { throw BackendError.unavailable("Hermes returned no session ID.") }
+            return id
+        }
+        throw BackendError.unavailable("Hermes refused every title for the new session.")
     }
+
 
     func cancel(sessionID: String) async throws -> StopOutcome {
         try await requestStop(stopTarget(sessionID: sessionID))

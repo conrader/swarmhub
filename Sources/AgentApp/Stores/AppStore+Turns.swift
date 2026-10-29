@@ -18,11 +18,12 @@ import Foundation
     var didLaunchRecovery = false; var roundsAtLaunch: Set<UUID> = []
     var pathDown = false
     var connectivityTask: Task<Void, Never>?; var terminateObserver: NSObjectProtocol?
-    /// P28: queued steers per turn (keyed by the turn's first reply row), the row a split turn now streams into, and the
-    /// turns whose answer is being stopped for a correction (P39: one per chat, by turn token).
-    var steers: [UUID: PendingSteer] = [:]; var parts: [UUID: ChatMessage] = [:]; var correcting: Set<UUID> = []
+    /// P28: queued steers per turn (keyed by the turn's first reply row) and the row a split turn now streams into.
+    var steers: [UUID: PendingSteer] = [:]; var parts: [UUID: ChatMessage] = [:]
     /// P32: failed steers sent as the next message once the running turn ends (`AppStore+NextMessage.swift`).
     var nextMessages: [QueuedNextMessage] = []
+    /// uxfix3: steer bubbles of a turn the user stopped: offered as the next message, never sent by themselves.
+    var stoppedSteers: Set<UUID> = []
     /// autoctx1: managers whose next main-chat turn is app-internal setup, and the session a running turn uses when it is
     /// not its chat's own (a setup turn's throwaway session), by turn token.
     var setupTurns: Set<UUID> = []; var sessions: [UUID: String] = [:]
@@ -50,12 +51,15 @@ extension AppStore {
                 try noteTeamEvent(in: conversation, assistant: assistant, runID: assistant.metadata[TurnKey.run], event: event)
             }
             row = steerRow(for: event, origin: assistant, row: row)
+            // uxfix1: anything the box sends again ends a reconnect.
+            if case .status = event {} else if row.metadata[TurnKey.reconnecting] != nil { row.metadata[TurnKey.reconnecting] = nil; objectWillChange.send() }
             switch event {
             case .token(let token):
                 row.content += token
                 if !token.isEmpty { row.lastTextAt = now() }
                 objectWillChange.send(); autosaveIfDue()
             case .replace(let text): row.content = text; row.lastTextAt = text.isEmpty ? nil : now(); objectWillChange.send(); autosaveIfDue()
+            case .status(let value) where value == TurnErrorCopy.reconnecting: row.metadata[TurnKey.reconnecting] = "1"; objectWillChange.send()
             case .status(let value): if row.content.isEmpty { row.metadata["status"] = value }
             case .tool(let tool):
                 if conversation?.id == bot.id { noteStagedSkillTool(tool, manager: bot); noteSkillDevTool(tool, manager: bot); notePeerEnableTool(tool, manager: bot) }
@@ -97,7 +101,7 @@ extension AppStore {
                                        alertPrefix: String = "", warn: Bool = true, alert: Bool = true, plainReason: String? = nil) -> TurnOutcome {
         assistant.isStreaming = false
         // P43: the live "first tool" status ends with the turn.
-        assistant.metadata["status"] = nil
+        assistant.metadata["status"] = nil; assistant.metadata[TurnKey.reconnecting] = nil
         if var activity = assistant.activity { activity.finish(at: now()); assistant.activity = activity }
         if assistant.turnState == .stopped { return TurnOutcome.classify(.stoppedByUser) }
         let outcome = TurnOutcome.classify(end)
@@ -111,7 +115,8 @@ extension AppStore {
         if overflow, case .failedByBox(let text) = end, Self.isFailureCopy(assistant.content, of: text) { assistant.content = "" }
         switch end {
         case .failedByBox(let text) where alert: errorMessage = alertPrefix + (plain ?? text)
-        case .error(let error) where alert: errorMessage = alertPrefix + (plain ?? error.localizedDescription)
+        // uxfix1: a dropped or timed-out connection is the row's footer and warning line (and the cut-turn reconcile), never the alert.
+        case .error(let error) where alert && !TransientNetwork.isTransient(error): errorMessage = alertPrefix + (plain ?? error.localizedDescription)
         default: break
         }
         if warn, let reason = plain ?? outcome.reason {
@@ -152,11 +157,19 @@ extension AppStore {
         let setup = Self.isSetupRow(assistant, in: conversation, bot: bot)
         var end: TurnEnd
         var history = setup ? Self.lastUserOnly(history) : history
-        var recovery = ContextRecovery.Step.none, setupFailures = 0, plainReason: String?
+        var recovery = ContextRecovery.Step.none, setupFailures = 0, sendFailures = 0, plainReason: String?
         while true {
             end = await streamChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: systemPrompt,
                                        managementText: managementText, setup: setup, backend: activeBackend, token: token)
             if Task.isCancelled { end = .stoppedByUser }
+            // uxfix1: a turn that never left the Mac (offline, box unreachable) is sent again by itself: "Reconnecting…".
+            if !setup, let delay = sendRetryDelay(after: end, failures: sendFailures), isCurrent(token) {
+                sendFailures += 1
+                resetForResend(assistant, status: TurnErrorCopy.reconnecting)
+                do { try await setupRetrySleep(delay) } catch { end = .stoppedByUser; break }
+                if Task.isCancelled { end = .stoppedByUser; break }
+                continue
+            }
             if setup {
                 guard let delay = setupRetryDelay(after: end, failures: setupFailures), isCurrent(token) else { break }
                 setupFailures += 1
@@ -183,7 +196,8 @@ extension AppStore {
         let (assistant, steers) = endTurnParts(assistant)
         let cancelled: Bool; if case .stoppedByUser = end { cancelled = true } else { cancelled = false }
         if cancelled, assistant.turnState != .stopped { assistant.turnState = .stopped }
-        let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation, backend: activeBackend, plainReason: plainReason)
+        // uxfix1-e2e: an install (setup) turn never opens the alert; its failure is the chat line and the skill banner.
+        let outcome = finishTurn(end, assistant: assistant, bot: bot, in: conversation, backend: activeBackend, alert: !setup, plainReason: plainReason)
         if setup, assistant.turnState != .notSent { assistant.metadata[ContextKey.setupText] = nil; assistant.metadata[ContextKey.setupChecks] = nil }
         // P54: a turn that still ends with an app request shows it folded (P51) with this line: never raw, never silent.
         if TechnicalRow.isAppRequest(assistant.content) { addWarning(AppRequestMarker.notRun, in: conversation, after: assistant) }
@@ -208,16 +222,14 @@ extension AppStore {
             AvatarReactions.shared.completed(bot)
             if !isTeamThread(conversation) { notifyIfNeeded(bot: bot, message: technicalLine(assistant, botName: bot.name)) }
         }
-        // P45: a stop for a typed correction (P28) is not the user stopping the goal; the correction's own turn continues it.
-        let corrected = turns.correcting.contains(token)
-        resendReturnedSteers(steers, bot: bot)
+        resendReturnedSteers(steers, bot: bot, finished: outcome.state == .finished)
         sendQueuedNextMessage()
         if outcome.state == .finished {
             // Gap closures after live pass 4: managed approvals become cards; a secret request opens the entry sheet.
             routeManagedApprovals(in: assistant, bot: bot)
             routeSecretRequests(in: assistant, bot: bot, conversation: conversation)
         }
-        automationTurnEnded(in: conversation, bot: bot, reply: assistant, outcome: outcome, corrected: corrected)
+        automationTurnEnded(in: conversation, bot: bot, reply: assistant, outcome: outcome)
         if conversation.id == bot.id { continueAllBotsSkillInstall(manager: bot, end: end, token: token) }
     }
 
@@ -236,7 +248,7 @@ extension AppStore {
                 let plan = try await prepareModel(for: bot, backend: activeBackend, note: note)
                 // P38 D: a workflow thread is a fresh session of its own, not a fork of the bot's chat.
                 let id = workflowThread ? "\(sessionNamespace)agentapp_workflow_\((conversation as? ChatThread)?.id.uuidString.lowercased() ?? "")" : "\(sessionNamespace)agentapp_\(bot.id.uuidString.lowercased())"
-                let created = try await activeBackend.createSession(title: workflowThread ? "\(bot.name) · workflow" : bot.name, systemPrompt: bot.outboundPersona, id: id)
+                let created = try await activeBackend.createSession(title: sessionTitle(workflowThread ? "\(bot.name) · workflow" : bot.name, id: id), systemPrompt: bot.outboundPersona, id: id)
                 if let plan { try await applyModel(plan, bot: bot, sessionID: created, record: !workflowThread, note: note) }
                 conversation.hermesSessionID = created
                 save()
@@ -267,8 +279,14 @@ extension AppStore {
         if let last, let index = rows.firstIndex(where: { $0.id == last.id }) { rows = Array(rows[...index]) }
         // autoctx1: a chat continued in a new session sends nothing from before that line; setup turns are never history.
         if let boundary = rows.lastIndex(where: { $0.metadata[ContextKey.boundary] != nil }) { rows = Array(rows[boundary...]) }
-        return rows.filter { $0.id != reply.id && ($0.metadata[ContextKey.setup] == nil || $0.id == last?.id) && $0.metadata[ContextKey.boundary] == nil && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && $0.metadata[SlashKey.line] == nil && $0.metadata[TechnicalKey.appRequest] == nil && $0.presentation != .automation && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
+        return rows.filter { $0.id != reply.id && ($0.metadata[ContextKey.setup] == nil || $0.id == last?.id) && $0.metadata[ContextKey.boundary] == nil && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && $0.metadata[SkillInstallResult.lineKey] == nil && $0.metadata[SlashKey.line] == nil && $0.metadata[TechnicalKey.appRequest] == nil && $0.presentation != .automation && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
             .map { (role: $0.role.rawValue, content: $0.outgoingText) }
+    }
+
+    /// uxfix3: a self-test store's sessions (`sessionNamespace` set) never take a bot's real title: "[selftest] Jarvis 1a2b3c4d".
+    func sessionTitle(_ title: String, id: String) -> String {
+        guard !sessionNamespace.isEmpty else { return title }
+        return "[selftest] \(title) \(id.lowercased().filter { $0.isLetter || $0.isNumber }.suffix(8))"
     }
 
     // MARK: Saves
@@ -284,6 +302,7 @@ extension AppStore {
     func flushNow() { suspendTeamClock(); save() }
 
     func noteBoxSuccess() {
+        clearConnectionNotice()
         guard turns.failureStreak > 0 else { return }
         turns.failureStreak = 0
         reconcileAttention(reason: .recovered)

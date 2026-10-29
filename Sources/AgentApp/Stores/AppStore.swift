@@ -107,6 +107,8 @@ import SwarmHubCore
     var appConfig = AppConfig.compiled
     /// P27: tests' skill library instead of the bundled one; an Install waiting for its manager turn (per manager bot); what
     /// that turn asked for, checked when it ends (`AppStore+SkillInstallChecks.swift`).
+    /// uxfix1-e2e: the commit unchanged skill files are fetched from on the box (`SkillFetch`); nil writes every file as a heredoc.
+    var skillSourceSHA: String? = SkillFetch.buildCommit()
     var skillLibraryOverride: [BundledSkill]?; var pendingSkillInstalls: [UUID: SkillInstallTurn] = [:]; var pendingSkillChecks: [UUID: [SkillInstallCheck]] = [:]
     /// Skill dev mode: per manager, what the box did with each "profile/skill" of the running legacy install turn.
     var skillDevOutcomes: [UUID: [String: SkillDevMode.Outcome]] = [:]
@@ -122,6 +124,8 @@ import SwarmHubCore
     var skillRetryRedraw: Task<Void, Never>?; var skillRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     /// autoctx1: the pause before a setup turn's next attempt (tests return at once).
     var setupRetrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    /// uxfix1: waits before a user's turn that never left the Mac is sent again (none in tests unless a test sets them).
+    var sendRetryDelays: [Duration] = TestRunGuard.isTestRun ? [] : [.seconds(1), .seconds(3), .seconds(8), .seconds(15)]
     lazy var boxInstallTransport = BoxInstallTransport(configurationURL: fileURL.deletingLastPathComponent().appending(path: "Updates/box-transport.json"))
     /// P20: unsent composer text per chat, read by the sidebar's "Draft:" line.
     let drafts = ComposerDrafts()
@@ -330,8 +334,8 @@ import SwarmHubCore
         }
     }
     /// Sends into the open thread or the main chat. While that chat's turn streams, the text steers it when the
-    /// server has `run_steer`; otherwise sending there stays disabled until its turn ends. Other chats never block it
-    /// (P39); when the turn limit is reached the message waits as the chat's next message.
+    /// server has `run_steer`; otherwise (uxfix1) it waits as the chat's next message, and the turn is never stopped.
+    /// Other chats never block it (P39); when the turn limit is reached the message waits as the chat's next message.
     @discardableResult func send(text: String, attachments: [ChatAttachment] = []) -> Bool {
         guard let bot = selectedBot, !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
         if let blocked = openClawBlock(bot) { errorMessage = blocked; return false }
@@ -370,9 +374,11 @@ import SwarmHubCore
         startChatTurn(bot: bot, conversation: conversation, user: user, images: images, backend: activeBackend)
         return true
     }
-    /// Starts the 1:1 or thread turn answering `user`, which is already the last user row of `conversation`.
+    /// Starts the 1:1 or thread turn answering `user`, a row of `conversation`. The reply goes right under it and the turn
+    /// sends the chat only up to it: messages queued after it (uxfix1-e2e) wait below and go in their own turns.
     func startChatTurn(bot: Bot, conversation: any Conversation, user: ChatMessage, images: [String] = [], backend activeBackend: any AgentBackend) {
-        let assistant = ChatMessage(id: intendedTeamReply(in: conversation) ?? UUID(), role: .assistant, content: "", isStreaming: true, turnState: .incomplete); conversation.messages.append(assistant)
+        let assistant = ChatMessage(id: intendedTeamReply(in: conversation) ?? UUID(), role: .assistant, content: "", isStreaming: true, turnState: .incomplete)
+        if let index = conversation.messages.firstIndex(where: { $0 === user }) { conversation.messages.insert(assistant, at: index + 1) } else { conversation.messages.append(assistant) }
         #if DEBUG
         if QAMode.enabled { assistant.metadata.merge(user.metadata, uniquingKeysWith: { _, source in source }) }
         #endif
@@ -380,7 +386,7 @@ import SwarmHubCore
         objectWillChange.send(); save()
         let streamToken = turn.token
         let managementText = isTeamThread(conversation) ? nil : self.managementText(for: bot, text: user.content, conversation: conversation)
-        let history = chatHistory(conversation, excluding: assistant)
+        let history = chatHistory(conversation, upTo: conversation.messages.contains { $0 === user } ? user : nil, excluding: assistant)
         claimSetupTurn(assistant, in: conversation, bot: bot, text: managementText)
         turn.task = Task { [weak self] in
             await self?.runChatTurn(bot: bot, conversation: conversation, assistant: assistant, history: history, images: images, systemPrompt: bot.outboundPersona,
@@ -391,7 +397,7 @@ import SwarmHubCore
         #if DEBUG
         if QAMode.enabled || UIAcceptanceMode.requested { return }
         #endif
-        guard !SilentReply.isSilent(message), Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
+        guard E2ELive.current == nil, !SilentReply.isSilent(message), Bundle.main.bundleIdentifier != nil, bot.notificationsEnabled, UserDefaults.standard.bool(forKey: "notifications"), let app = NSApp, !app.isActive else { return }
         let content = UNMutableNotificationContent(); content.title = bot.name; content.body = String(message.prefix(140)); content.sound = .default
         UNUserNotificationCenter.current().add(.init(identifier: UUID().uuidString, content: content, trigger: nil))
     }

@@ -4,7 +4,7 @@ import Foundation
 enum UpdateConfiguration {
     static func unavailableReason(bundleURL: URL, info: [String: Any], environment: [String: String], arguments: [String] = []) -> String? {
         if environment["SWARMHUB_DISABLE_UPDATES"] == "1" || environment["XCTestConfigurationFilePath"] != nil ||
-            arguments.contains("--ui-smoke") || arguments.contains("--setup-preview") || environment.keys.contains(where: { $0.hasPrefix("AGENTAPP_") &&
+            arguments.contains("--ui-smoke") || arguments.contains("--setup-preview") || arguments.contains("--e2e-live") || environment.keys.contains(where: { $0.hasPrefix("AGENTAPP_") &&
                 ($0.contains("SNAPSHOT") || $0.contains("SMOKE") || $0.contains("BENCHMARK") || $0.contains("INTEGRATION")) }) {
             return "Automatic updates are disabled for this run."
         }
