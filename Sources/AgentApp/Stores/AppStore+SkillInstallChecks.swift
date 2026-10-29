@@ -168,7 +168,7 @@ extension AppStore {
             } else if checks.contains(where: { $0.botID == id && $0.skill == "swarmhub-messages" }) {
                 if let peer = receipts[profile(of: bot)] { result = peer.result }
                 else if !bot.skillDevMode && reportedPeerBlock { result = .init(status: .peerEnableBlocked, detail: PeerPluginEnablement.blockedDetail) }
-                else { result = .init(status: .peerEnableUnverified, detail: "Skills installed; peer-plugin enablement unverified. Held delivery is not confirmed; verify with hermes -p \(profile(of: bot)) plugins list before requesting a gateway reload.") }
+                else { result = .unconfirmedPeerEnable(profile: profile(of: bot)) }
             } else { result = .init(status: .installed, detail: "Skills installed.") }
             recordSkillInstallResult(result, bot: bot, manager: manager)
             if result.status == .peerEnableBlocked, receipts[profile(of: bot)]?.skipped != true { peerBlocked = true }
