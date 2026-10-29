@@ -23,7 +23,7 @@ turns may request the fixed local operations. `NO_REPLY`, mismatched evidence or
 stopped without preventing the other from being exercised. P01/P04 use four real CLI calls;
 P07 adds a cancellation and replacement (six CLI invocations beyond the unchanged 24-turn Hermes cap).
 Without an authenticated CLI the chains fail as untested. The runner never installs or
-replaces a CLI. All outbound remains FAKE. See [GAPS-REPORT.md](../GAPS-REPORT.md) for verification boundaries.
+replaces a CLI. All outbound remains FAKE. See [GAPS-REPORT.md](../docs/archive/reports/GAPS-REPORT.md) for verification boundaries.
 
 `live_cli_probe.py --output <fresh evidence directory> --execution-path <description>` repeats the gaps3
 real-CLI acceptance probe with source auth/config assertions. Use an available plain box shell for coding
@@ -37,7 +37,7 @@ held-inbox plugin callbacks and durable coding-completion outbox. The LIVE3 runn
 now explicitly uses `--priority` for action asks and checks that a held FYI starts
 no upstream turn. It marks next-turn held delivery blocked because its temporary
 HOME and namespace bridge do not install the peer plugin on the remote gateway.
-See [PEER-REPORT.md](../PEER-REPORT.md) for installation and validation limits.
+See [PEER-REPORT.md](../docs/archive/reports/PEER-REPORT.md) for installation and validation limits.
 
 For the ten real team interaction patterns recorded in `grokbot-observed.md`, use
 `live_observed.py --usage-db /workspace/ermes/qa-swarmhub/home/state.db --output
@@ -46,7 +46,7 @@ unchanged bundled `bot-msg` through a temporary namespace-only loopback bridge t
 real Hermes sessions; the runner initiates sends. It does not provision backend
 agents or certify native app, coding-job, approval or overnight behavior. Exit 2
 means coverage remains blocked. This consumes shared model quota; reserve calls
-before another run. See [LIVE-REPORT-3.md](../LIVE-REPORT-3.md) for the observed
+before another run. See [LIVE-REPORT-3.md](../docs/archive/reports/LIVE-REPORT-3.md) for the observed
 patterns, precise grades, bridge boundaries, accounting and verified cleanup.
 
 For generated-output testing on the working isolated Hermes, use the focused
@@ -70,7 +70,7 @@ sessions after checking their run status. A requested tool-call bound is also
 included in prompts; it is not a server-enforced quota cap. Exit 1 means an assertion
 failed. App-only branches remain blocked regardless of that exit status.
 
-See [LIVE-REPORT-2.md](../LIVE-REPORT-2.md) for per-scenario scope, 27 observed
+See [LIVE-REPORT-2.md](../docs/archive/reports/LIVE-REPORT-2.md) for per-scenario scope, 27 observed
 provider attempts, upstream findings and the corrected assertion audit. Preserve
 the original captures: [adjudicated results](results/live-2/adjudicated-results.json)
 explain three harness assertion corrections made without re-running model turns.
@@ -93,7 +93,7 @@ Requests and turn creation are bounded; no server configuration or tools are cha
 It retains raw responses and source-derived Swift projections separately: Swift
 and the app are **not executed** on Linux. Exit 1 means an observed server bug or
 source-confirmed compatibility failure; exit 2 means remaining blocked checks.
-See [LIVE-REPORT-1.md](../LIVE-REPORT-1.md) and
+See [LIVE-REPORT-1.md](../docs/archive/reports/LIVE-REPORT-1.md) and
 [live evidence](results/live-1/RESULTS.md). Existing app QA attestation gates below
 remain required for real app scenarios.
 That older suite expects the pass-1 missing-provider failure and retains historical

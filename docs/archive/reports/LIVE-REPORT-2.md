@@ -12,7 +12,7 @@ deleted and individually verified absent. All **20 observed run IDs** reached a
 remote terminal status. Both final health checks report **0 active API runs,
 0 active agents, gateway_busy=false**.
 
-The authoritative [adjudicated checks](sim/results/live-2/adjudicated-results.json)
+The authoritative [adjudicated checks](../../../sim/results/live-2/adjudicated-results.json)
 contain **84 PASS / 1 FAIL** across 85 low-level assertions, including creation and
 cleanup. These are not 85 product scenarios. The failure is ignored session persona
 configuration, an upstream Hermes issue. The scenario tables below explicitly mark
@@ -39,17 +39,17 @@ attestation. No alternative available model was supplied for cross-model review.
 
 Evidence:
 
-- [Core requests and raw responses](sim/results/live-2/results.json), run
+- [Core requests and raw responses](../../../sim/results/live-2/results.json), run
   `QA-LIVE2-20261019T085018-fc2eae`, 08:50:18–08:52:11 UTC.
-- [Distinct edge variants](sim/results/live-2-edges/results.json), run
+- [Distinct edge variants](../../../sim/results/live-2-edges/results.json), run
   `QA-LIVE2-20261019T085320-01fd3e`, 08:53:20–08:53:29 UTC.
-- [Capabilities, health, tool inventory and absent profile routes](sim/results/live-2-discovery/results.json).
-- [Correctly paged history reads](sim/results/live-2/history-recovery.json) and
-  [the valid clarify answer](sim/results/live-2-clarify-correction/results.json).
-- Usage snapshots before deletion: [core](sim/results/live-2/usage-snapshots.json),
-  [edges](sim/results/live-2-edges/usage-snapshots.json).
-- [Provenance/hashes](sim/results/live-2/QA-provenance.json),
-  [Python validation](sim/results/live-2/QA-harness-tests.txt).
+- [Capabilities, health, tool inventory and absent profile routes](../../../sim/results/live-2-discovery/results.json).
+- [Correctly paged history reads](../../../sim/results/live-2/history-recovery.json) and
+  [the valid clarify answer](../../../sim/results/live-2-clarify-correction/results.json).
+- Usage snapshots before deletion: [core](../../../sim/results/live-2/usage-snapshots.json),
+  [edges](../../../sim/results/live-2-edges/usage-snapshots.json).
+- [Provenance/hashes](../../../sim/results/live-2/QA-provenance.json),
+  [Python validation](../../../sim/results/live-2/QA-harness-tests.txt).
 
 The Python harness talks to real Hermes directly. It does not bypass or claim to
 exercise `sim/run.py`'s separately gated macOS QA adapter. No old, now-stale Python
@@ -192,8 +192,8 @@ The uncorrected core/edge process exits were 1; the adjudicated result retains
 one real FAIL, the session persona defect. The low-level 84/1 totals do not erase
 blocked app branches or the source-confirmed integration findings above.
 
-Added [live_behavior.py](sim/live_behavior.py),
-[live_usage.py](sim/live_usage.py), and [oracle/isolation tests](sim/test_live_behavior.py).
+Added [live_behavior.py](../../../sim/live_behavior.py),
+[live_usage.py](../../../sim/live_usage.py), and [oracle/isolation tests](../../../sim/test_live_behavior.py).
 The runner uses bounded requests/turns, no uncertain chat retry, exact ownership,
 checkpointed redacted evidence and terminal-run cleanup. The optional usage DB
 reader is read-only and queries only exactly registered QA IDs. The five new tests

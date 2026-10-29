@@ -1,6 +1,6 @@
 # Shared core: Plan A versus Plan B
 
-Compared against checkout `749d826`, [Plan A](CORE-PLAN-A-central.md), [Plan B](CORE-PLAN.md), and [Konrad's latest direction](CORE-ADDENDUM.md). The 20 October 2026, 07:49 Warsaw direction supersedes A: apps must reach Hermes directly, the central service must only distribute updates, and Hermes must remain unchanged. Both plans leave Hermes unchanged; only B meets the runtime requirement.
+Compared against checkout `749d826`, [Plan A](CORE-PLAN-A-central.md), [Plan B](../../../CORE-PLAN.md), and [Konrad's latest direction](CORE-ADDENDUM.md). The 20 October 2026, 07:49 Warsaw direction supersedes A: apps must reach Hermes directly, the central service must only distribute updates, and Hermes must remain unchanged. Both plans leave Hermes unchanged; only B meets the runtime requirement.
 
 | Area | A: central runtime backend | B: signed update service |
 | --- | --- | --- |
