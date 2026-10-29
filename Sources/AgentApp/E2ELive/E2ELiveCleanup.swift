@@ -8,7 +8,7 @@ import Foundation
 /// Screen: the app runs hidden with no Dock icon; its windows stay transparent and click-through even if it is unhidden.
 extension E2ELive {
     nonisolated static let runStart = Date()
-    static let otherRunQuiet: TimeInterval = 20 * 60
+    nonisolated static let otherRunQuiet: TimeInterval = 20 * 60
 
     static func cleanSelfTestSessions(store: AppStore, run: Run, phase: String) async {
         var scopes: Set<String> = []; var deleted = 0, kept = 0; var failed: [String] = []
