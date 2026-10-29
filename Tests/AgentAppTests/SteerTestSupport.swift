@@ -7,9 +7,12 @@ actor ScriptedTurnBackend: AgentBackend {
     nonisolated let kind = BackendKind.hermes
     nonisolated let calls = AwaitableLog<String>()
     private var streams: [AsyncThrowingStream<AgentEvent, Error>.Continuation] = []
-    private let stopFails: Bool, steerFails: Bool, steerless: Bool
+    private let stopFails: Bool, steerFails: Bool, steerless: Bool, steerError: BackendError
     /// `steerless`: a runtime without `run_steer` (uxfix1: a message typed during its turn waits for the turn to end).
-    init(stopFails: Bool = false, steerFails: Bool = false, steerless: Bool = false) { self.stopFails = stopFails; self.steerFails = steerFails; self.steerless = steerless }
+    /// `steerError`: what a failing steer throws; uxfix3: a refusal meaning the run is over goes as the next message by itself.
+    init(stopFails: Bool = false, steerFails: Bool = false, steerless: Bool = false, steerError: BackendError = .http(500, "steer broke (steer_failed)")) {
+        self.stopFails = stopFails; self.steerFails = steerFails; self.steerless = steerless; self.steerError = steerError
+    }
 
     func sessionTransport() async throws -> HermesTransport? { .nativeSessions }
     func features() async throws -> Set<String> { steerless ? ["session_chat_streaming"] : ["session_chat_streaming", "run_steer"] }
@@ -25,7 +28,7 @@ actor ScriptedTurnBackend: AgentBackend {
     func releaseSteers() { holdSteer = false; steerWaiters.forEach { $0.resume() }; steerWaiters = [] }
     func steer(sessionID: String, text: String) async throws {
         if holdSteer { calls.append("steer-held:\(text)"); await withCheckedContinuation { steerWaiters.append($0) } }
-        if steerFails { calls.append("steer-failed:\(text)"); throw BackendError.http(409, "no run to steer") }
+        if steerFails { calls.append("steer-failed:\(text)"); throw steerError }
         calls.append("steer:\(text)")
     }
     func stopTarget(sessionID: String) async throws -> StopTarget { .serverRun("run-\(streams.count)") }

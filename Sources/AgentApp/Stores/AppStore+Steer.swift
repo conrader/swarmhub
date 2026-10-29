@@ -124,11 +124,17 @@ extension AppStore {
             } catch {
                 // Already sent again as the next message (the box handed it back first): nothing more to do.
                 guard ["sent", "queued"].contains(message.metadata[SteerKey.steer] ?? "") else { return }
-                let ended = activeBackend.kind == .hermes && !steerHeldByTurn(message)
+                let hermes = activeBackend.kind == .hermes
+                let ended = hermes && !steerHeldByTurn(message)
+                // uxfix3: the box says the run no longer takes input (it is finishing): the text goes as the next message too.
+                let refused = hermes && Self.runTakesNoSteer(error)
                 message.metadata[SteerKey.steer] = "failed"
                 for key in turns.steers.keys { turns.steers[key]?.bubbles.removeAll { $0 === message } }
                 // The run it was meant for is over (the box refuses a steer then): it goes as the next message instead.
-                if ended { sendLateSteer(message, in: conversation) } else { addWarning(error.localizedDescription, in: conversation, after: message) }
+                // Never after the user's Stop: then it is only offered ("Send as next message").
+                if (ended || refused), !turns.stoppedSteers.contains(message.id), turn(in: conversation)?.stopping != true {
+                    sendLateSteer(message, in: conversation)
+                } else if !refused { addWarning(error.localizedDescription, in: conversation, after: message) }
             }
             objectWillChange.send(); save()
         }
@@ -140,7 +146,27 @@ extension AppStore {
     /// A steer its turn can no longer read goes as the chat's next message ("Sent after the answer finished").
     private func sendLateSteer(_ bubble: ChatMessage, in conversation: any Conversation) {
         bubble.metadata[SteerKey.steer] = "failed"
-        if !sendAsNextMessage(bubble) { addWarning(SteerCopy.endedFirst, in: conversation, after: bubble) }
+        if !sendAsNextMessage(bubble, automatic: true) { addWarning(SteerCopy.endedFirst, in: conversation, after: bubble) }
+    }
+
+    /// uxfix3: Hermes refusals that mean the run takes no more input: 409 `run_not_accepting_steer` (finishing) or
+    /// `steer_not_accepted`, 404 `run_not_found`, or no run reported yet. Anything else (a 500, a network drop) is shown.
+    nonisolated static func runTakesNoSteer(_ error: Error) -> Bool {
+        switch error {
+        case BackendError.http(let code, let text):
+            return (code == 409 || code == 404) && ["run_not_accepting_steer", "steer_not_accepted", "run_not_found", "no run"].contains { text.contains($0) }
+        case BackendError.unavailable(let text): return text == HermesBackend.noRunYet || text == HermesBackend.steerNotAccepted
+        default: return false
+        }
+    }
+
+    /// uxfix3: the user's Stop: the turn's unsent steers, and the ones already waiting by themselves as its next message,
+    /// are only offered from now on (`Send as next message`), never sent by themselves.
+    func holdSteersAtStop(in conversation: any Conversation, origin: UUID?) {
+        if let origin, let pending = turns.steers[origin] { pending.bubbles.forEach { turns.stoppedSteers.insert($0.id) } }
+        let automatic = turns.nextMessages.filter { $0.automatic && $0.conversation === conversation && !$0.restored }
+        turns.nextMessages.removeAll { next in automatic.contains { $0.id == next.id } }
+        automatic.forEach { turns.stoppedSteers.insert($0.bubble.id); giveBack($0) }
     }
 
     /// Stream bookkeeping for queued steers (`consumeTurn`). Returns the row the event belongs in: after a step ended,

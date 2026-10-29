@@ -62,7 +62,7 @@ extension AppStore {
             if group.session(for: bot.id) == nil, try await activeBackend.sessionTransport() == .nativeSessions {
                 let note = { [unowned self] (text: String) in insertNote(text, in: group, before: assistant) }
                 let plan = try await prepareModel(for: bot, backend: activeBackend, note: note)
-                let created = try await activeBackend.createSession(title: "\(group.name) · \(bot.name)", systemPrompt: bot.outboundPersona, id: wanted)
+                let created = try await activeBackend.createSession(title: sessionTitle("\(group.name) · \(bot.name)", id: wanted), systemPrompt: bot.outboundPersona, id: wanted)
                 if let plan { try await applyModel(plan, bot: bot, sessionID: created, record: false, note: note) }
                 group.hermesSessionID = created
                 save()

@@ -22,6 +22,8 @@ import Foundation
     var steers: [UUID: PendingSteer] = [:]; var parts: [UUID: ChatMessage] = [:]
     /// P32: failed steers sent as the next message once the running turn ends (`AppStore+NextMessage.swift`).
     var nextMessages: [QueuedNextMessage] = []
+    /// uxfix3: steer bubbles of a turn the user stopped: offered as the next message, never sent by themselves.
+    var stoppedSteers: Set<UUID> = []
     /// autoctx1: managers whose next main-chat turn is app-internal setup, and the session a running turn uses when it is
     /// not its chat's own (a setup turn's throwaway session), by turn token.
     var setupTurns: Set<UUID> = []; var sessions: [UUID: String] = [:]
@@ -246,7 +248,7 @@ extension AppStore {
                 let plan = try await prepareModel(for: bot, backend: activeBackend, note: note)
                 // P38 D: a workflow thread is a fresh session of its own, not a fork of the bot's chat.
                 let id = workflowThread ? "\(sessionNamespace)agentapp_workflow_\((conversation as? ChatThread)?.id.uuidString.lowercased() ?? "")" : "\(sessionNamespace)agentapp_\(bot.id.uuidString.lowercased())"
-                let created = try await activeBackend.createSession(title: workflowThread ? "\(bot.name) · workflow" : bot.name, systemPrompt: bot.outboundPersona, id: id)
+                let created = try await activeBackend.createSession(title: sessionTitle(workflowThread ? "\(bot.name) · workflow" : bot.name, id: id), systemPrompt: bot.outboundPersona, id: id)
                 if let plan { try await applyModel(plan, bot: bot, sessionID: created, record: !workflowThread, note: note) }
                 conversation.hermesSessionID = created
                 save()
@@ -279,6 +281,12 @@ extension AppStore {
         if let boundary = rows.lastIndex(where: { $0.metadata[ContextKey.boundary] != nil }) { rows = Array(rows[boundary...]) }
         return rows.filter { $0.id != reply.id && ($0.metadata[ContextKey.setup] == nil || $0.id == last?.id) && $0.metadata[ContextKey.boundary] == nil && !$0.isSteer && $0.metadata[TurnKey.tone] != "warning" && $0.metadata[SlashKey.line] == nil && $0.metadata[TechnicalKey.appRequest] == nil && $0.presentation != .automation && !($0.role == .assistant && $0.turnState != nil && $0.content.isEmpty) }
             .map { (role: $0.role.rawValue, content: $0.outgoingText) }
+    }
+
+    /// uxfix3: a self-test store's sessions (`sessionNamespace` set) never take a bot's real title: "[selftest] Jarvis 1a2b3c4d".
+    func sessionTitle(_ title: String, id: String) -> String {
+        guard !sessionNamespace.isEmpty else { return title }
+        return "[selftest] \(title) \(id.lowercased().filter { $0.isLetter || $0.isNumber }.suffix(8))"
     }
 
     // MARK: Saves

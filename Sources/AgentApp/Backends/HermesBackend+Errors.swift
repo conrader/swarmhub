@@ -79,3 +79,19 @@ extension HermesBackend {
         return redacted.count > Self.diagnosticLimit ? String(redacted.prefix(Self.diagnosticLimit - 1)) + "…" : redacted
     }
 }
+
+/// uxfix3: refusals the app answers by itself (a steer the run cannot take any more, a session title already in use).
+extension HermesBackend {
+    static let noRunYet = "Hermes has not reported a run for this turn yet."
+    static let steerNotAccepted = "Hermes did not accept the steer message."
+
+    /// The title, the title with a short tag of the session (or a random one), then no title.
+    static func sessionTitles(_ title: String, id: String?) -> [String] {
+        guard !title.isEmpty else { return [""] }
+        let tag = String((id ?? UUID().uuidString).lowercased().filter { $0.isLetter || $0.isNumber }.suffix(8))
+        return [title, "\(title) · \(tag)", ""]
+    }
+
+    /// Hermes answers 400 `invalid_title` when the title is taken (some versions 409); a 409 `session_exists` is not one.
+    static func isTitleClash(_ code: Int, _ text: String) -> Bool { (code == 400 || code == 409) && text.contains("invalid_title") }
+}

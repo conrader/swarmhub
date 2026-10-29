@@ -32,7 +32,8 @@ extension HeadlessE2E {
         await finish(store, timing: timing)
         // A steer the box handed back starts a follow-up turn; let it end too. uxfix1-e2e: so does one whose request was
         // answered only after the turn ended, so wait for that answer first.
-        _ = await wait(timing.request, poll: timing.poll) { !bot.messages.contains { $0.metadata[SteerKey.steer] == "sent" } }
+        // uxfix3: a steer the box refused (the run was finishing) waits as the next message ("next") and then goes.
+        _ = await wait(timing.request, poll: timing.poll) { !bot.messages.contains { ["sent", "next"].contains($0.metadata[SteerKey.steer] ?? "") } }
         await finish(store, timing: timing)
         let outcome = steerTextOutcome(messages: bot.messages, partial: partial)
         step.passed = outcome.passed; step.detail = "session \(bot.hermesSessionID ?? "-") | \(outcome.detail)"

@@ -83,6 +83,7 @@ extension AppStore {
         let streamToken = turn.token
         let bot = turn.botID.flatMap { id in bots.first { $0.id == id } }
         turn.assistant?.isStreaming = false; turn.steerAvailable = false
+        holdSteersAtStop(in: conversation, origin: streamingTurnOrigin(in: conversation))
         // P16: the row is `stopped` at once and never extended; a Retry still reading the box keeps its `notSent` row.
         if let row = turn.assistant, row.turnState != .notSent { row.turnState = .stopped; row.metadata[TurnKey.why] = "stopped" }
         objectWillChange.send()
