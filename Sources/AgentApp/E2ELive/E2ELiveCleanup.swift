@@ -2,19 +2,30 @@ import AppKit
 import Foundation
 
 /// uxfix3: the run leaves nothing behind on the box and nothing on the screen.
-/// Sessions: before and after the run, every `swarmhub-selftest-…` session (`AppConstants.selfTestPrefixes`) on each
-/// profile the copies use is deleted through the box's normal API (`GET /api/sessions`, `DELETE /api/sessions/{id}`).
-/// No other session is touched; a left-over one active in the last 20 minutes (another job's run) is left alone.
+/// Sessions: every session this run opens carries its own prefix `runNamespace` (`swarmhub-selftest-r<tag>-…`). Before
+/// and after the run, self-test sessions (`AppConstants.selfTestPrefixes`) on each profile the copies use are deleted
+/// through the box's normal API (`GET /api/sessions`, `DELETE /api/sessions/{id}`): this run's own always, any other
+/// (another job's run, or one left over) only when it has been quiet for 20 minutes. No other session is touched.
+/// A profile whose sessions cannot be listed, before or after the deletes, fails the check.
 /// Screen: the app runs hidden with no Dock icon; its windows stay transparent and click-through even if it is unhidden.
 extension E2ELive {
-    nonisolated static let runStart = Date()
+    nonisolated static let runNamespace = "\(AppConstants.selfTestPrefix)r\(tag)-"
     nonisolated static let otherRunQuiet: TimeInterval = 20 * 60
 
     static func cleanSelfTestSessions(store: AppStore, run: Run, phase: String) async {
-        var scopes: Set<String> = []; var deleted = 0, kept = 0; var failed: [String] = []
+        var backends: [String: HermesBackend] = [:]
         for bot in store.bots {
-            guard let backend = try? store.backend(for: bot) as? HermesBackend,
-                  scopes.insert("\(backend.baseURL.absoluteString)|\(backend.profile)").inserted else { continue }
+            guard let backend = try? store.backend(for: bot) as? HermesBackend else { continue }
+            let scope = "\(backend.baseURL.absoluteString)|\(backend.profile)"
+            if backends[scope] == nil { backends[scope] = backend }
+        }
+        await cleanSelfTestSessions(Array(backends.values), run: run, phase: phase)
+    }
+
+    /// One pass over distinct profiles: delete, then read back.
+    static func cleanSelfTestSessions(_ backends: [HermesBackend], run: Run, phase: String) async {
+        var deleted = 0, kept = 0; var failed: [String] = []
+        for backend in backends {
             let rows: [[String: Any]]
             do { rows = try await selfTestRows(backend) } catch { failed.append("\(backend.profile): GET /api/sessions \(error.localizedDescription)"); continue }
             for row in rows {
@@ -24,22 +35,24 @@ extension E2ELive {
                 catch { failed.append("\(backend.profile)/\(id): \(error.localizedDescription)") }
             }
         }
-        // Read back: what is left must be only the sessions another run may still be using.
+        // Read back on every profile: what is left must be only the sessions another run may still be using. A profile
+        // that cannot be read back is a failure, never an empty list.
         var left = 0
-        for bot in store.bots {
-            guard let backend = try? store.backend(for: bot) as? HermesBackend else { continue }
-            left += ((try? await selfTestRows(backend)) ?? []).filter { isDeletable($0, now: Date()) }.count
-            if left > 0 { break }
+        for backend in backends {
+            do { left += try await selfTestRows(backend).filter { isDeletable($0, now: Date()) }.count }
+            catch { failed.append("\(backend.profile): read-back GET /api/sessions \(error.localizedDescription)") }
         }
-        run.check("cleanup.\(phase)", failed.isEmpty && left == 0,
-                  "\(deleted) self-test sessions deleted on \(scopes.count) profile(s), \(kept) kept (active in another run), \(left) left" + (failed.isEmpty ? "" : "; " + failed.prefix(6).joined(separator: "; ")))
+        run.check("cleanup.\(phase)", !backends.isEmpty && failed.isEmpty && left == 0,
+                  "\(deleted) self-test sessions deleted on \(backends.count) profile(s), \(kept) kept (another run's, active in the last 20 min), \(left) left" + (failed.isEmpty ? "" : "; " + failed.prefix(6).joined(separator: "; ")))
     }
 
-    /// The run's own sessions always; an older one only when it has been quiet for `otherRunQuiet`.
-    nonisolated static func isDeletable(_ row: [String: Any], now: Date) -> Bool {
+    /// This run's own sessions (id under `runNamespace`) always; any other only when it has been quiet for `otherRunQuiet`.
+    /// When it started does not make a session this run's: another run may have started after this one.
+    nonisolated static func isDeletable(_ row: [String: Any], now: Date, owner: String = runNamespace) -> Bool {
+        guard let id = row["id"] as? String, AppConstants.isSelfTestSession(id) else { return false }
+        if id.hasPrefix(owner) { return true }
         func time(_ key: String) -> Double? { (row[key] as? NSNumber)?.doubleValue }
-        if let started = time("started_at"), started >= runStart.timeIntervalSince1970 - 5 { return true }
-        let last = time("last_active") ?? time("started_at") ?? 0
+        guard let last = time("last_active") ?? time("started_at") else { return false }
         return now.timeIntervalSince1970 - last > otherRunQuiet
     }
 

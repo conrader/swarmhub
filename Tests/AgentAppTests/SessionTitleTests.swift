@@ -56,10 +56,50 @@ import Testing
 }
 
 @Test func theE2ECleanupDeletesOnlyItsOwnOrQuietSelfTestSessions() {
-    let now = Date()
-    let mine: [String: Any] = ["id": "swarmhub-selftest-a", "started_at": E2ELive.runStart.timeIntervalSince1970 + 30, "last_active": now.timeIntervalSince1970]
-    let old: [String: Any] = ["id": "swarmhub-selftest-b", "started_at": now.timeIntervalSince1970 - 86_400, "last_active": now.timeIntervalSince1970 - 3_600]
-    let busy: [String: Any] = ["id": "swarmhub-selftest-c", "started_at": E2ELive.runStart.timeIntervalSince1970 - 600, "last_active": now.timeIntervalSince1970 - 60]
-    #expect(E2ELive.isDeletable(mine, now: now) && E2ELive.isDeletable(old, now: now))
+    let now = Date(), mine = E2ELive.runNamespace
+    #expect(mine.hasPrefix(AppConstants.selfTestPrefix) && mine != AppConstants.selfTestPrefix, "the run's sessions are self-test sessions with a prefix of their own")
+    let own: [String: Any] = ["id": "\(mine)agentapp_a", "started_at": now.timeIntervalSince1970 - 60, "last_active": now.timeIntervalSince1970]
+    let old: [String: Any] = ["id": "swarmhub-selftest-agentapp_b", "started_at": now.timeIntervalSince1970 - 86_400, "last_active": now.timeIntervalSince1970 - 3_600]
+    let busy: [String: Any] = ["id": "swarmhub-selftest-agentapp_c", "started_at": now.timeIntervalSince1970 - 600, "last_active": now.timeIntervalSince1970 - 60]
+    // Codex review of uxfix3-e2e: another run that started after this one is not this run's.
+    let later: [String: Any] = ["id": "swarmhub-selftest-rffffffff-agentapp_d", "started_at": now.timeIntervalSince1970 - 30, "last_active": now.timeIntervalSince1970 - 5]
+    let undated: [String: Any] = ["id": "swarmhub-selftest-agentapp_e"]
+    let real: [String: Any] = ["id": "agentapp_f", "started_at": now.timeIntervalSince1970 - 86_400, "last_active": now.timeIntervalSince1970 - 86_400]
+    #expect(E2ELive.isDeletable(own, now: now) && E2ELive.isDeletable(old, now: now))
     #expect(!E2ELive.isDeletable(busy, now: now), "another run's session that is still active is left alone")
+    #expect(!E2ELive.isDeletable(later, now: now), "a run that started after this one keeps its sessions")
+    #expect(!E2ELive.isDeletable(undated, now: now), "a stranger with no times is never taken as quiet")
+    #expect(!E2ELive.isDeletable(real, now: now), "a bot's real session is never touched")
+}
+
+// Codex review of uxfix3-e2e: a read-back that cannot list the sessions fails the check; it is never an empty list.
+@MainActor @Test func theE2ECleanupFailsWhenItCannotReadBack() async throws {
+    let lists = ListCount(), now = Date().timeIntervalSince1970
+    let own = "\(E2ELive.runNamespace)agentapp_a", other = "swarmhub-selftest-rffffffff-agentapp_b"
+    let rows: [[String: Any]] = [["id": own, "started_at": now - 60, "last_active": now],
+                                 ["id": other, "started_at": now - 30, "last_active": now - 5],
+                                 ["id": "agentapp_real", "started_at": now - 86_400, "last_active": now - 86_400]]
+    let page = (try? JSONSerialization.data(withJSONObject: ["data": rows])) ?? Data()
+    let (host, backend) = ChatParityServer.serve(features: [:]) { request, _ in
+        let path = request.url?.path ?? ""
+        if request.httpMethod == "DELETE", path.contains("/api/sessions/") { return .json(200, ["ok": true]) }
+        guard request.httpMethod == "GET", path.hasSuffix("/api/sessions") else { return .json(404, ["error": "no route"]) }
+        if lists.next() > 1 { return .json(500, ["error": "down"]) }
+        return .init(body: page)
+    }
+    let directory = FileManager.default.temporaryDirectory.appending(path: "e2e-cleanup-\(UUID().uuidString)", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let run = E2ELive.Run(directory: directory, network: E2ELiveNetwork.shared)
+    await E2ELive.cleanSelfTestSessions([backend], run: run, phase: "after")
+    let deletes = ChatParityServer.requests(host).filter { $0.method == "DELETE" }.map { $0.path }
+    #expect(deletes.count == 1 && deletes.first?.hasSuffix(own) == true, "only this run's own session is deleted: \(deletes)")
+    #expect(run.failed == 1 && run.lines.last?.hasPrefix("FAIL cleanup.after") == true && run.lines.last?.contains("read-back") == true, "\(run.lines)")
+    await E2ELive.cleanSelfTestSessions([], run: run, phase: "none")
+    #expect(run.failed == 2, "no profile to read back is not a pass")
+}
+
+private final class ListCount: @unchecked Sendable {
+    private let lock = NSLock(); private var value = 0
+    func next() -> Int { lock.withLock { value += 1; return value } }
 }

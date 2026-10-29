@@ -7,7 +7,7 @@ import Security
 /// no sessions, no recorded skills). The real store is read once and never written; settings go to their own defaults
 /// suite; keys are read from the Keychain silently and never written. Hermes traffic goes through `E2ELiveNetwork`, a
 /// real session the run can take offline (in-flight requests lost, new ones refused) the way macOS reports a drop. The run drives the same `AppStore` calls the
-/// buttons and the composer make, writes `<dir>/report.txt` and quits. Every session it opens is `swarmhub-selftest-…`.
+/// buttons and the composer make, writes `<dir>/report.txt` and quits. Every session it opens is `swarmhub-selftest-r<tag>-…` (`runNamespace`).
 @MainActor enum E2ELive {
     static let flag = "--e2e-live"
     static let defaultsSuite = "com.konrad.agentapp.e2e-live"
@@ -54,7 +54,7 @@ import Security
         defaults.removePersistentDomain(forName: defaultsSuite)
         let store = AppStore(storeURL: directory.appending(path: "store.json"), autoConfigureHermes: false, keyStore: E2ELiveKeys(defaults: defaults),
                              defaults: defaults, hermesSession: network.session())
-        store.sessionNamespace = HeadlessE2E.namespace
+        store.sessionNamespace = runNamespace
         let sources = saved.bots.filter { $0.backend == .hermes && !$0.isReadOnlyArchive && !$0.isGrokHistoryOnly }
         store.bots = sources.map(copy); store.groups = []; store.selectedBot = store.bots.first { $0.canManageBots }
         store.save()
