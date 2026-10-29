@@ -74,3 +74,18 @@ import Testing
     #expect(await backend.calls.all == ["send:go", "steer-held:use metric", "steer:use metric", "send:use metric"], "accepted too late to be read: sent once, as the next message")
     #expect(bot.messages.last?.content == "Metric.")
 }
+
+@MainActor @Test func everyCFNetworkDropIsNetworkTroubleNeverTheAlert() {
+    for code in [1, 2, 302, 306, 308, 310, 311, -1005, -1009, -1001] {
+        let error = NSError(domain: "kCFErrorDomainCFNetwork", code: code)
+        #expect(TransientNetwork.isTransient(error), "CFNetwork \(code)")
+        #expect(TransientNetwork.isTransient(text: "The operation couldn’t be completed. (kCFErrorDomainCFNetwork error \(code).)"), "text \(code)")
+    }
+    #expect(AppStore.isTransient(NSError(domain: "kCFErrorDomainCFNetwork", code: -1009)) && AppStore.isTransient(NSError(domain: "kCFErrorDomainCFNetwork", code: 1)),
+            "never reached the box: resent by itself")
+    #expect(!AppStore.isTransient(NSError(domain: "kCFErrorDomainCFNetwork", code: -1005)), "a lost connection may have reached the box")
+    #expect(!TransientNetwork.isTransient(NSError(domain: "kCFErrorDomainCFNetwork", code: 303)), "a parse failure is not network trouble")
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: isolatedDefaults())
+    store.errorMessage = "The operation couldn’t be completed. (kCFErrorDomainCFNetwork error 310.)"
+    #expect(store.modalErrorMessage == nil && store.connectionNotice != nil, "an inline reconnect line, no modal")
+}

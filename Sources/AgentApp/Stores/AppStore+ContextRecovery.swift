@@ -115,7 +115,8 @@ extension AppStore {
         if case BackendError.http(let code, _) = error { return [429, 503].contains(code) }
         // uxfix1-e2e: the proxy in front of the network was unreachable, so nothing reached the box.
         let ns = error as NSError
-        return ns.domain == TransientNetwork.cfNetworkDomain && TransientNetwork.cfProxyCodes.contains(ns.code)
+        guard ns.domain == TransientNetwork.cfNetworkDomain else { return false }
+        return TransientNetwork.cfProxyCodes.contains(ns.code) || TurnOutcome.certainlyUnsentCodes.contains(URLError.Code(rawValue: ns.code))
     }
 
     /// The row goes back to streaming for the next attempt, empty, with `status` until text arrives.
