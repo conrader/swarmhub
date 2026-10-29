@@ -222,7 +222,11 @@ extension AppStore {
     /// uxfix1-e2e: an unread steer (`PendingSteer.unread`) goes too, after a Hermes answer that `finished` (never after the
     /// user's Stop or a failure). OpenClaw keeps its own steer queue (`queueMode: "steer"`): only what it handed back goes.
     func resendReturnedSteers(_ pending: PendingSteer?, bot: Bot?, finished: Bool = false) {
-        guard let pending else { return }
+        guard var pending else { return }
+        // uxfix3: steers of a turn the user stopped never go by themselves, even when the box hands them back.
+        let held = !pending.returned ? [] : pending.bubbles.filter { turns.stoppedSteers.contains($0.id) && ["sent", "queued"].contains($0.metadata[SteerKey.steer] ?? "") }
+        held.forEach { $0.metadata[SteerKey.steer] = "failed" }
+        pending.bubbles.removeAll { bubble in held.contains { $0 === bubble } }
         guard pending.returned || (finished && bot?.backend == .hermes && pending.unread) else {
             // A stopped or failed Hermes answer: a steer it never read is offered as "Send as next message", never sent later by itself.
             if !finished, bot?.backend == .hermes, !pending.stepEndedSinceAccepted {
