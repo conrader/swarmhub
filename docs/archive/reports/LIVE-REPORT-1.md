@@ -12,15 +12,15 @@ three confirmed bug classes below, plus an unresolved health/cleanup discrepancy
 The live suite exited 1, as expected for observed failures. The 46 Python harness
 tests passed.
 
-Evidence: [all checks](sim/results/live-1/RESULTS.md),
-[requests, headers and raw response bodies](sim/results/live-1/results.json),
-[later health observations](sim/results/live-1/health-followup.json).
+Evidence: [all checks](../../../sim/results/live-1/RESULTS.md),
+[requests, headers and raw response bodies](../../../sim/results/live-1/results.json),
+[later health observations](../../../sim/results/live-1/health-followup.json).
 Run ID: `QA-LIVE1-20261019T083207-c7329d`; main suite 08:32:07–08:32:10 UTC
 (10:32 Warsaw), follow-up through 08:33:00 UTC.
 
 ## Scope and method
 
-Added [sim/live_transport.py](sim/live_transport.py), a dependency-free direct
+Added [sim/live_transport.py](../../../sim/live_transport.py), a dependency-free direct
 Hermes transport suite. The existing `sim/run.py --mode live` intentionally
 requires the macOS DEBUG app and its attested gateway; those gates were preserved.
 This suite is explicitly authorized by the throwaway-server brief and does not
@@ -103,13 +103,13 @@ becomes the generic `Hermes run failed.`
 `[DONE]`. `parseLegacy` emits `.failed`, but `readEvents` unconditionally emits
 `.completed` for `[DONE]`.
 
-In both cases [AppStore+Turns.swift:79](Sources/AgentApp/Stores/AppStore+Turns.swift#L79)
+In both cases [AppStore+Turns.swift:79](../../../Sources/AgentApp/Stores/AppStore+Turns.swift#L79)
 checks `completed` before `boxFailure`; the final result is `.completed` and
 `TurnOutcome.classify` maps it to `.finished`. This also bypasses the intended
 failure warning/reconciliation path. Relevant transport code:
-[HermesBackend.swift](Sources/AgentApp/Backends/HermesBackend.swift),
+[HermesBackend.swift](../../../Sources/AgentApp/Backends/HermesBackend.swift),
 `readEvents` line 376, `parseLegacy` line 397, `parseNative` lines 406–409/441;
-[TurnState.swift:42](Sources/AgentApp/Models/TurnState.swift#L42).
+[TurnState.swift:42](../../../Sources/AgentApp/Models/TurnState.swift#L42).
 
 Repro: create an exactly named `QA-…` session using Swift's create body, then
 POST `{"input":[{"type":"text","text":"[QA-TEST] Reply QA-OK. Do not use tools."}],"instructions":"[QA-TEST] Do not use tools."}`
@@ -247,10 +247,10 @@ App changes for QA-BUG-01 and QA-BUG-03 are now implemented in this worktree:
   as an HTTP error, preserves its plain-text diagnostic, and keeps the existing
   ambiguous delivery classification rather than reporting a finished reply.
 
-Implementation: [HermesBackend.swift](Sources/AgentApp/Backends/HermesBackend.swift),
-[HermesBackend+Errors.swift](Sources/AgentApp/Backends/HermesBackend+Errors.swift),
-and [AppStore+Turns.swift](Sources/AgentApp/Stores/AppStore+Turns.swift).
-Regression tests: [HermesLiveRegressionTests.swift](Tests/AgentAppTests/HermesLiveRegressionTests.swift).
+Implementation: [HermesBackend.swift](../../../Sources/AgentApp/Backends/HermesBackend.swift),
+[HermesBackend+Errors.swift](../../../Sources/AgentApp/Backends/HermesBackend+Errors.swift),
+and [AppStore+Turns.swift](../../../Sources/AgentApp/Stores/AppStore+Turns.swift).
+Regression tests: [HermesLiveRegressionTests.swift](../../../Tests/AgentAppTests/HermesLiveRegressionTests.swift).
 The Swift tests embed the exact captured native/legacy SSE bodies, 400/401 JSON
 bodies and plain-text 500 body from this report's evidence. They exercise backend
 parsing and AppStore reply state, alerts and warning rows. Additional cases cover

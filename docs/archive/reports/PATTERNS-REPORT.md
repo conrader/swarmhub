@@ -7,7 +7,7 @@ provider call, real provisioning, outbound send or credential change was made.
 All **P01–P10 grade `matches` in the offline managed-runtime replay**. These are
 bounded acceptance results using shipped scripts with synthetic CLI/curl I/O,
 not a regrading of the historical live capture or universal app certification.
-Results: [patterns-20261019/results.json](sim/results/patterns-20261019/results.json).
+Results: [patterns-20261019/results.json](../../../sim/results/patterns-20261019/results.json).
 
 | Pattern | Implemented behavior and replay evidence |
 | --- | --- |
@@ -155,7 +155,7 @@ patterns match universally in a deployed product.
 
 ## Codex cross-review (2026-10-19)
 
-Cross-review of `07fd5d4`: [REVIEW-FIX-CODEX.md](REVIEW-FIX-CODEX.md). Closed the
+Cross-review of `07fd5d4`: [REVIEW-FIX-CODEX.md](../reviews/REVIEW-FIX-CODEX.md). Closed the
 remaining first-message/legacy-policy spill paths and the direct `code-job`
 FAKE admission bypass, including direct peer sends bound to FAKE task IDs. Corrected Swift priority-call expectations and scoped
 app-side run tracking by connection and session. Both affected skills and the

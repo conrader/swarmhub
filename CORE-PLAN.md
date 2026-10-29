@@ -1,6 +1,6 @@
 # Shared-core plan: an update service only (core7)
 
-Baseline: detached `749d826` (`swarmhub/peer-delivery`), 2026-10-20. I worked from the source only. No app, test, installer or service was run, and nothing was provisioned. References are repository-relative `path:line`. Input: Konrad's direction of 2026-10-20 07:49 (`CORE-ADDENDUM.md`), which supersedes the core1–core4 runtime-backend design. **[A]** marks an assumption.
+Baseline: detached `749d826` (`swarmhub/peer-delivery`), 2026-10-20. I worked from the source only. No app, test, installer or service was run, and nothing was provisioned. References are repository-relative `path:line`. Input: Konrad's direction of 2026-10-20 07:49 (`docs/archive/plans/CORE-ADDENDUM.md`), which supersedes the core1–core4 runtime-backend design. **[A]** marks an assumption.
 
 **Recommendation.** The "core" is a **signed release pipeline plus static hosting**. It is not a server in the runtime path:
 
@@ -214,7 +214,7 @@ Other costs: two hardware keys for the roots and release key (~€100–150 one-
 
 ## Decision (Oct 20, 2026)
 
-Konrad approved plan B (this document) with every recommendation. This supersedes plan A (`CORE-PLAN-A-central.md`); `COMPARE.md` records the comparison.
+Konrad approved plan B (this document) with every recommendation. This supersedes plan A (`docs/archive/plans/CORE-PLAN-A-central.md`); `docs/archive/plans/COMPARE.md` records the comparison.
 
 1. **Key custody: §10 decision 1(b).** Two offline recovery (root) keys on hardware, stored apart, sign the key manifest (1-of-2 threshold, §2.1). They delegate to one publishing (release) key on a hardware token. The bundle keys stay separate from Sparkle's `SUPublicEDKey`.
 2. **Apply policy: §10 decision 2(b), per component** (Konrad: "settings/UI auto-apply, box code needs per-box local confirm").
