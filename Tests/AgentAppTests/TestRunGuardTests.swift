@@ -144,17 +144,40 @@ private func probeRequest(_ probe: String, _ url: String = "https://konrad.agent
 
 /// A test settings suite with a plain name lands in ~/Library/Preferences as `<name>.plist` and stays there (7,000+ had
 /// piled up on the MacBook). Test sources may open a suite only through `isolatedDefaults()` (TestSupport.swift) or, in
-/// SwarmHubCore, `DeviceApprovalFixtures.defaults()`, which both use an absolute path in the temporary folder.
+/// SwarmHubCore, `DeviceApprovalFixtures.defaults()`, which both use an absolute path in the temporary folder. Any
+/// `suiteName:` outside comments (`UserDefaults(suiteName:`, `.init(suiteName:`, split over lines) elsewhere fails.
 @Test func testSuitesNeverOpenAPlainNamedSettingsSuite() throws {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    let allowed: Set<String> = ["TestSupport.swift", "DeviceApprovalCoreTests.swift", "TestRunGuardTests.swift"]
-    var offenders: [String] = []
-    for folder in ["Tests", "Packages"] {
-        let files = try #require(FileManager.default.enumerator(at: root.appending(path: folder), includingPropertiesForKeys: nil))
-            .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" && $0.path.contains("/Tests/") && !$0.path.contains("/.build/") }
-        for file in files where !allowed.contains(file.lastPathComponent) {
-            if try String(contentsOf: file, encoding: .utf8).contains("UserDefaults(suiteName:") { offenders.append(file.lastPathComponent) }
+    let allowed: Set<String> = ["Tests/AgentAppTests/TestSupport.swift", "Tests/AgentAppTests/TestRunGuardTests.swift",
+                                "Packages/SwarmHubCore/Tests/SwarmHubCoreTests/DeviceApprovalCoreTests.swift"]
+    let packages = try FileManager.default.contentsOfDirectory(atPath: root.appending(path: "Packages").path)
+    let roots = ["Tests"] + packages.filter { !$0.hasPrefix(".") }.map { "Packages/\($0)/Tests" }
+    let opening = try NSRegularExpression(pattern: #"\bsuiteName\s*:"#)
+    var offenders: [String] = [], scanned = 0
+    for folder in roots where FileManager.default.fileExists(atPath: root.appending(path: folder).path) {
+        // .skipsHiddenFiles also prunes .build* folders before descending into them.
+        let files = try #require(FileManager.default.enumerator(at: root.appending(path: folder), includingPropertiesForKeys: nil,
+                                                               options: [.skipsHiddenFiles])).compactMap { $0 as? URL }
+        for file in files where file.pathExtension == "swift" {
+            let relative = folder + file.standardizedFileURL.path.dropFirst(root.appending(path: folder).standardizedFileURL.path.count)
+            scanned += 1
+            guard !allowed.contains(relative) else { continue }
+            let code = try String(contentsOf: file, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+            if opening.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil { offenders.append(relative) }
         }
     }
+    #expect(scanned > 100, "the scan found the test sources")
     #expect(offenders.isEmpty, "use isolatedDefaults() instead of a named suite: \(offenders.sorted())")
+}
+
+/// The guard's pattern catches the constructor forms a plain search for `UserDefaults(suiteName:` would miss.
+@Test func plainSuiteGuardCatchesEveryConstructorForm() throws {
+    let opening = try NSRegularExpression(pattern: #"\bsuiteName\s*:"#)
+    for code in ["UserDefaults(suiteName: \"x\")", "UserDefaults.init(suiteName: s)", "let d: UserDefaults? = .init(suiteName: s)",
+                 "UserDefaults(\n    suiteName : s)"] {
+        #expect(opening.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)) != nil, "\(code)")
+    }
+    let unrelated = "removePersistentDomain(forName: s); isolatedDefaults()"
+    #expect(opening.firstMatch(in: unrelated, range: NSRange(unrelated.startIndex..., in: unrelated)) == nil)
 }
