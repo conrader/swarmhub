@@ -22,11 +22,34 @@ enum DeviceApprovalFixtures {
         let keys = try #require(try DeviceApprovalJSON.parse(data("TEST-device-keys.json"))["keys"]?.arrayValue)
         return try DeviceApprovalIdentity(seed: hex(try #require(keys[number]["seed"]?.stringValue)), keyID: keyID)
     }
-    static func defaults() -> UserDefaults {
-        let suite = "p5d-tests-" + UUID().uuidString
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        return defaults
+    static func defaults() -> UserDefaults { IsolatedApprovalDefaults() }
+}
+
+/// A throwaway settings suite that removes itself when the test lets go of it. A plain suite name left a
+/// `p5d-tests-<uuid>.plist` in ~/Library/Preferences on every run (cfprefsd writes it back even after
+/// removePersistentDomain), so the suite is an absolute path in its own temporary folder, and deinit drops the domain
+/// and deletes that folder. The shared folder is still swept at the start of a run, for a test that crashed.
+final class IsolatedApprovalDefaults: UserDefaults, @unchecked Sendable {
+    static let folder: URL = {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("SwarmHubCoreTests-defaults")
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }()
+    let directory: URL
+    private let name: String
+    init() {
+        let id = UUID().uuidString
+        directory = Self.folder.appendingPathComponent(id, isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        name = directory.appendingPathComponent("p5d-tests-" + id).path
+        super.init(suiteName: name)!
+        removePersistentDomain(forName: name)
+    }
+    override init?(suiteName: String?) { fatalError("use DeviceApprovalFixtures.defaults()") }
+    deinit {
+        removePersistentDomain(forName: name)
+        try? FileManager.default.removeItem(at: directory)
     }
 }
 
@@ -98,6 +121,23 @@ struct DeviceApprovalCoreTests {
         #expect(try settings.attempt(origin: origin, task: task) == signed)
         try settings.clearRefusedAttempt(origin: origin, task: task)
         #expect(!settings.hasAttempt(origin: origin, task: task))
+    }
+
+    /// Cleanup happens at teardown, not on the next run: once a test lets go of its settings, the suite's folder is
+    /// gone and stays gone (cfprefsd writes back asynchronously), and nothing of it reached ~/Library/Preferences.
+    @Test func approvalSettingsLeaveNothingBehindWhenReleased() async throws {
+        var defaults: IsolatedApprovalDefaults? = IsolatedApprovalDefaults()
+        let directory = try #require(defaults?.directory)
+        defaults?.set("x", forKey: "probe")
+        #expect(defaults?.string(forKey: "probe") == "x")
+        #expect(FileManager.default.fileExists(atPath: directory.path))
+        defaults = nil
+        #expect(!FileManager.default.fileExists(atPath: directory.path), "removed when the test let go of it")
+        try await Task.sleep(for: .seconds(1))
+        #expect(!FileManager.default.fileExists(atPath: directory.path), "not written back afterwards")
+        let preferences = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Preferences").path
+        let leaked = ((try? FileManager.default.contentsOfDirectory(atPath: preferences)) ?? []).filter { $0.contains(directory.lastPathComponent) }
+        #expect(leaked.isEmpty, "in ~/Library/Preferences: \(leaked)")
     }
 
     @Test(arguments: ["https://Box.Example.Invalid/v1/", "https://box.example.invalid:8443", "https://box.example.invalid:444/v1"])
