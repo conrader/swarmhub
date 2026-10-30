@@ -34,14 +34,16 @@ def bounded_text(value, name, maximum=8192):
     return value
 
 
-def private_read(path, maximum):
-    """No links, devices or unlimited reads, including when the file changes during open."""
+def private_read(path, maximum, *, tail=False):
+    """Read a regular file within the limit, optionally its tail; refuse links and devices."""
     import stat
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, 'rb') as f:
         if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
             raise ValueError('expected a regular file')
-        data = f.read(maximum + 1)
+        if tail:
+            f.seek(max(0, os.fstat(f.fileno()).st_size - maximum))
+        data = f.read(maximum if tail else maximum + 1)
     if len(data) > maximum:
         raise ValueError('file exceeds limit')
     return data
@@ -248,7 +250,8 @@ class Commands:
         texts = []
         for suffix in ('.log', '-report.md'):
             try:
-                raw = private_read(root / (job_id + suffix), 1 << 20).decode('utf-8', 'replace')
+                # Each artifact is independent; growing logs must not hide the report.
+                raw = private_read(root / (job_id + suffix), 1 << 20, tail=True).decode('utf-8', 'replace')
                 texts.append(redact(raw))
             except FileNotFoundError:
                 continue

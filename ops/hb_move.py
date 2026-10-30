@@ -32,6 +32,7 @@ import urllib.request
 
 HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE), str(HERE / "isolation")]
+from hb_move_journal import JOURNAL, Journal  # noqa: E402
 import hb_render  # noqa: E402
 import swarmhub_registry as registry  # noqa: E402
 
@@ -39,7 +40,6 @@ LIB = "/usr/local/lib/swarmhub"
 BRIDGE_FILES = (("peer-bridge", 0o755), ("peer_bridge.py", 0o644), ("swarmhub_registry.py", 0o644))
 SUDOERS = "/etc/sudoers.d/swarmhub-peer-bridge"
 UNIT = "/etc/systemd/system/hermes-bot@.service"
-JOURNAL = "/var/lib/swarmhub/hb-move"
 GROUP = "swarmhub-peer"
 SKILL = "skills/swarmhub/swarmhub-messages/scripts"
 PLUGIN = "plugins/swarmhub-peer"
@@ -105,36 +105,6 @@ class Box:
             if attempt + 1 < tries:
                 time.sleep(1)
         return False
-
-
-class Journal:
-    def __init__(self, box, profile):
-        self.box, self.path = box, box.path(JOURNAL) / f"{profile}.json"
-        self.data = json.loads(self.path.read_text()) if self.path.exists() else None
-
-    def start(self, **fields):
-        self.data = dict(fields, steps=[], started=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-        self.save()
-
-    def done(self, step, **fields):
-        self.data["steps"].append(step)
-        self.data.update(fields)
-        self.save()
-
-    def undone(self, step, **fields):
-        """Undo's own progress, so an undo that failed part way (a restart, nginx) runs again from where it stopped."""
-        self.data.setdefault("undone", []).append(step)
-        self.data.update(fields)
-        self.save()
-
-    def save(self):
-        if self.box.dry:
-            return
-        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        temp = self.path.with_suffix(".tmp")
-        temp.write_text(json.dumps(self.data, indent=2, sort_keys=True) + "\n")
-        temp.chmod(0o600)
-        os.replace(temp, self.path)
 
 
 def load_registry(box):

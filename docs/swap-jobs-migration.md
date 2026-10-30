@@ -186,3 +186,13 @@ This offline undo never undoes a live hb-move, wake enrollment, key activation o
 No server, nginx, service, sudo policy, OAuth, production install, deployment, release or Mac access was performed
 for this change. Linux fixture checks do not certify real uid separation, OAuth, Cloudflare/nginx behavior,
 running service identity, Mac queue installation, owner reporting delivery or a successful migration pilot.
+
+CLI contracts were checked from installed OVH sources on 2026-10-30, without running
+submissions. `sb-msg send` accepts `--by`; `sb-park` accepts the requester/reason/change/reverse
+flags and literal argv after `--`; `sb-codejob notify` accepts every `report-jarvis` flag
+and reads the report from stdin. `sb-macjob queue --json` delegates to `job_process.py`
+with the fixed queue directory. Parser-only snapshots with source hashes and regression
+tests live in `ops/jobroute/tests/sb_cli_contracts.py` and `test_swap_regressions.py`.
+These checks verify the installed interface; transport delivery and Mac execution remain
+part of the later approved pilot. Owned status reports read bounded artifact tails,
+redact them, then return at most 16 KiB; missing logs/reports are handled independently.
