@@ -141,3 +141,20 @@ private func probeRequest(_ probe: String, _ url: String = "https://konrad.agent
     let added = testPlists().subtracting(before)
     #expect(added.isEmpty, "new in ~/Library/Preferences: \(added.sorted())")
 }
+
+/// A test settings suite with a plain name lands in ~/Library/Preferences as `<name>.plist` and stays there (7,000+ had
+/// piled up on the MacBook). Test sources may open a suite only through `isolatedDefaults()` (TestSupport.swift) or, in
+/// SwarmHubCore, `DeviceApprovalFixtures.defaults()`, which both use an absolute path in the temporary folder.
+@Test func testSuitesNeverOpenAPlainNamedSettingsSuite() throws {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let allowed: Set<String> = ["TestSupport.swift", "DeviceApprovalCoreTests.swift", "TestRunGuardTests.swift"]
+    var offenders: [String] = []
+    for folder in ["Tests", "Packages"] {
+        let files = try #require(FileManager.default.enumerator(at: root.appending(path: folder), includingPropertiesForKeys: nil))
+            .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" && $0.path.contains("/Tests/") && !$0.path.contains("/.build/") }
+        for file in files where !allowed.contains(file.lastPathComponent) {
+            if try String(contentsOf: file, encoding: .utf8).contains("UserDefaults(suiteName:") { offenders.append(file.lastPathComponent) }
+        }
+    }
+    #expect(offenders.isEmpty, "use isolatedDefaults() instead of a named suite: \(offenders.sorted())")
+}

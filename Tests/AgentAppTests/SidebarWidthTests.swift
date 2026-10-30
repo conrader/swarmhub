@@ -12,10 +12,8 @@ private func frames(_ width: Double) -> [String] { ["0.000000, 0.000000, \(width
     #expect(SidebarWidth.range == 240...320)
 }
 
-@MainActor @Test func staleSavedWidthsAreDroppedAndGoodOnesKept() throws {
-    let suite = "SidebarWidthTests-\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suite))
-    defer { defaults.removePersistentDomain(forName: suite) }
+@MainActor @Test func staleSavedWidthsAreDroppedAndGoodOnesKept() {
+    let defaults = isolatedDefaults() // a plain suite name left a SidebarWidthTests-<uuid>.plist in ~/Library/Preferences
     let old = "NSSplitView Subview Frames workspace-AppWindow-1, SidebarNavigationSplitView"
     let good = "NSSplitView Subview Frames workspace-AppWindow-2, SidebarNavigationSplitView"
     let wide = "NSSplitView Subview Frames workspace-AppWindow-3, SidebarNavigationSplitView"

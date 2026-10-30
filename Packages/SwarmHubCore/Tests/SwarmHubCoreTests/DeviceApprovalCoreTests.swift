@@ -22,8 +22,17 @@ enum DeviceApprovalFixtures {
         let keys = try #require(try DeviceApprovalJSON.parse(data("TEST-device-keys.json"))["keys"]?.arrayValue)
         return try DeviceApprovalIdentity(seed: hex(try #require(keys[number]["seed"]?.stringValue)), keyID: keyID)
     }
+    /// An absolute-path suite in a temporary folder: a plain suite name left a `p5d-tests-<uuid>.plist` in
+    /// ~/Library/Preferences on every run (cfprefsd writes it back even after removePersistentDomain). The folder's
+    /// leftovers are swept on the next run.
+    static let defaultsFolder: URL = {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("SwarmHubCoreTests-defaults")
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }()
     static func defaults() -> UserDefaults {
-        let suite = "p5d-tests-" + UUID().uuidString
+        let suite = defaultsFolder.appendingPathComponent("p5d-tests-" + UUID().uuidString).path
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         return defaults
