@@ -23,6 +23,7 @@ STUB_ENGINE = HERE / "stub-engine"
 
 CONFIG = """
 [route]
+submissions_enabled = true
 state_dir = "{tmp}/state"
 sb_codejob = "{sb_codejob}"
 job_root = "{tmp}/work"
@@ -41,6 +42,7 @@ claude = ["claude", "-p", "--permission-mode", "acceptEdits"]
 codex = ["codex", "exec", "--skip-git-repo-check", "-m", "gpt-6.1-sol", "-"]
 stub = ["{stub_engine}"]
 [defaults]
+submissions_enabled = true
 engines = ["claude", "codex"]
 max_per_hour = {per_hour}
 max_per_day = 20

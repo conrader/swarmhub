@@ -1,0 +1,3 @@
+#!/bin/sh
+# Offline export -> private staging tree. No remote connections or system commands.
+exec /usr/bin/python3 -I -B "$(dirname "$0")/swap_migrate.py" "$@"

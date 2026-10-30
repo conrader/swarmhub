@@ -16,7 +16,8 @@ if not re.fullmatch(r'[0-9a-f]{40}', sha):
 
 # Every file the installed route runs or reads, including the uninstaller used at rollback.
 PINNED = ('jobroute', 'jobroute_core.py', 'jobroute_jobs.py', 'jobroute_trust.py', 'allowlist.toml',
-          'check-hermes-tools', 'uninstall.py')
+          'check-hermes-tools', 'uninstall.py', 'jobroute_commands.py', 'secretscan.py',
+          'mac-dispatch', 'mac-worker.py', 'isolation_check.py', 'check-jobroute-iso')
 
 
 def blob(name):

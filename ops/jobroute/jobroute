@@ -8,8 +8,10 @@ line, never from the client:
 SSH_ORIGINAL_COMMAND is the only thing the client chooses:
   (empty) | mcp                                     MCP over stdio: submit_job, job_status
   submit engine=E label=L [workdir=W] [agent=A]     the brief is read from stdin
-  status [job=ID] [limit=N]                         this profile's own jobs only
+  status [job=ID] [limit=N] [report=1]                         this profile's own jobs only
   list                                              same as status
+  launch | park | approve-wait | msg | msg-send | macjob | queue | report-jarvis
+      opt-in commands; read a bounded JSON object from stdin
   help
 A character outside [A-Za-z0-9 ._/=-], a command over 512 chars, an unknown verb or key,
 a repeated key or a token without '=' is refused. It is never handed to a shell.
@@ -27,10 +29,11 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from jobroute_commands import SCHEMAS
 from jobroute_core import Refused, Route  # noqa: E402
 
 CMD_RX = re.compile(r"[A-Za-z0-9 ._/=-]{0,512}")
-KEYS = {"submit": {"engine", "label", "workdir", "agent"}, "status": {"job", "limit"}, "list": {"job", "limit"}}
+KEYS = {"submit": {"engine", "label", "workdir", "agent"}, "status": {"job", "limit", "report"}, "list": {"job", "limit", "report"}, **{op: set() for op in SCHEMAS}}
 CLI_TIMEOUT = 120
 MAX_LINE = 1 << 20
 HASH_CAP = 16 << 20        # an oversize CLI brief is hashed (not kept) up to this many bytes
@@ -89,7 +92,7 @@ def cli_refusal_fields(cmd: str) -> dict:
     """Extract bounded metadata for audit only; this never accepts or executes a command."""
     fields = {"cmd_sha256": hashlib.sha256(cmd.encode("utf-8", "replace")).hexdigest()}
     tokens = cmd.split()
-    if tokens and tokens[0] == "submit":
+    if tokens and tokens[0] in ("submit", "launch"):
         fields.update(label=None, engine=None, workdir_requested=None, workdir=None)
         for t in tokens[1:]:
             key, sep, value = t.partition("=")
@@ -148,7 +151,7 @@ def connect_refusal_fields(cmd: str) -> dict:
 
 
 def run_cli(route: Route, cmd: str) -> int:
-    signal.alarm(CLI_TIMEOUT)
+    signal.alarm(720)  # bounded 600-second approve-wait plus input/backend time
     try:
         op, kv = parse_cli(cmd)
     except Refused as e:
@@ -158,19 +161,33 @@ def run_cli(route: Route, cmd: str) -> int:
         emit({"ok": True, "profile": route.profile, "agent": route.agent, "engines": route.allowed_engines,
               "workdirs": route.workdirs, "usage": __doc__.split("\n\n")[2]})
         return 0
+    if op in SCHEMAS:
+        raw, meta = read_brief(route.max_brief * 2 + 8192, route.brief_read_secs)
+        if meta['end'] != 'eof' or len(raw) > route.max_brief * 2 + 8191:
+            route.audit(op, 'cli', 'refused', request_sha256=meta['sha256'], reason='payload size or EOF')
+            raise Refused('command payload too large or incomplete')
+        try:
+            args = json.loads(raw)
+        except (ValueError, UnicodeError):
+            route.audit(op, 'cli', 'refused', request_sha256=meta['sha256'], reason='invalid JSON')
+            raise Refused('expected JSON object on stdin')
+        emit(route.command('cli', op, args))
+        return 0
     if op == "submit":
         brief, meta = read_brief(route.max_brief + 1, route.brief_read_secs)
         emit(route.submit("cli", kv.get("engine"), kv.get("label"), kv.get("workdir"), brief, kv.get("agent"),
                           brief_meta=meta))
         return 0
     limit = kv.get("limit", "10")
-    emit(route.status("cli", kv.get("job"), int(limit) if limit.isdigit() else limit))
+    if kv.get('report', '0') not in ('0', '1'):
+        raise Refused('report must be 0 or 1')
+    emit(route.status("cli", kv.get("job"), int(limit) if limit.isdigit() else limit, kv.get('report') == '1'))
     return 0
 
 
 # ---------------------------------------------------------------- MCP over stdio
 def tools(route: Route) -> list[dict]:
-    return [
+    baseline = [
         {"name": "submit_job",
          "description": (f"Start a detached coding job on ovh as sb-codejob agent '{route.agent}'. The brief is the "
                          "whole prompt; the engine runs with fixed flags. Returns a job_id at once; you are woken "
@@ -186,8 +203,13 @@ def tools(route: Route) -> list[dict]:
          "description": "Read-only status of jobs this profile submitted through this route (newest first).",
          "inputSchema": {"type": "object", "additionalProperties": False,
                          "properties": {"job_id": {"type": "string"},
-                                        "limit": {"type": "integer", "minimum": 1, "maximum": 50}}}},
+                                        "limit": {"type": "integer", "minimum": 1, "maximum": 50}, "report": {"type": "boolean"}}}},
     ]
+
+    return baseline + [{'name': op.replace('-', '_'), 'description': 'Opt-in SwarmHub ' + op,
+        'inputSchema': {'type': 'object', 'additionalProperties': False,
+                        'properties': {k: {'type': 'integer' if k == 'timeout' else 'string'} for k in keys}}}
+        for op, keys in SCHEMAS.items() if op in route.enabled_verbs]
 
 
 def call_tool(route: Route, name: str, args: dict) -> dict:
@@ -204,7 +226,10 @@ def _call_tool(route: Route, name: str, args: dict) -> dict:
         raise Refused("arguments must be an object")
     if not isinstance(name, str):
         raise Refused("unknown tool (submit_job, job_status)")
-    allowed = {"submit_job": {"engine", "label", "brief", "workdir"}, "job_status": {"job_id", "limit"}}.get(name)
+    op = name.replace('_', '-')
+    if op in SCHEMAS:
+        return route.command('mcp', op, args)
+    allowed = {"submit_job": {"engine", "label", "brief", "workdir"}, "job_status": {"job_id", "limit", "report"}}.get(name)
     if allowed is None:
         raise Refused("unknown tool (submit_job, job_status)")
     extra = set(args) - allowed
@@ -217,7 +242,7 @@ def _call_tool(route: Route, name: str, args: dict) -> dict:
         # surrogatepass: a lone surrogate reaches check_brief as invalid UTF-8 and is refused + audited
         return route.submit("mcp", args.get("engine"), args.get("label"), args.get("workdir"),
                             brief.encode("utf-8", "surrogatepass"))
-    return route.status("mcp", args.get("job_id"), args.get("limit", 10))
+    return route.status("mcp", args.get("job_id"), args.get("limit", 10), args.get("report", False))
 
 
 def read_lines(stream, on_drop=None):
@@ -269,7 +294,7 @@ def serve_mcp(route: Route) -> int:
             asked = params.get("protocolVersion") if isinstance(params, dict) else None
             result = {"protocolVersion": asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[-1],
                       "capabilities": {"tools": {}},
-                      "serverInfo": {"name": "jobroute", "version": "1.0.0"},
+                      "serverInfo": {"name": "jobroute", "version": "1.1.0"},
                       "instructions": (f"Job route for profile {route.profile} (sb-codejob agent {route.agent}). "
                                        "submit_job starts one detached job; job_status reads your own jobs.")}
         elif method == "tools/list":

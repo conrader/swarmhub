@@ -1,3 +1,9 @@
+> Swap follow-up: this directory reuses #8 at f816454 (including #6), with new opt-in commands.
+> The shipped route now disables submissions globally AND per profile. See
+> [the current command/migration/pilot runbook](../../docs/swap-jobs-migration.md) before using the historical
+> activation examples below. No installer enables keys, jobs, Mac hosts or a pilot. The new account check
+> supplements the old no-tools check; shared-account activation is not supported by the hb client.
+
 # jobroute: Hermes bots → sb-codejob on ovh
 
 A restricted SSH route that lets an allowlisted Hermes profile do exactly two things on

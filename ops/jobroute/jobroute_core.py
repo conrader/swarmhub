@@ -21,6 +21,7 @@ import tomllib
 
 from jobroute_jobs import LABEL_RX, Busy, JobIndex, _append, _launcher, _locked
 from jobroute_trust import launch_problem
+from jobroute_commands import Commands
 
 PROFILE_RX = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 COMPONENT_RX = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
@@ -76,7 +77,7 @@ def _trusted(path: pathlib.Path) -> None:
         raise Refused(f"route misconfigured: {path.name} must be owned by the route user and not group/world-writable", 1)
 
 
-class Route(JobIndex):
+class Route(Commands, JobIndex):
     """One loaded allowlist bound to one profile (the profile comes from the forced command)."""
 
     def __init__(self, config_path: str, profile: str, refused_connect=None):
@@ -97,6 +98,10 @@ class Route(JobIndex):
         self.canonical_work_root = os.path.realpath(self.work_root)
         self.home = _forms(r.get("home", PROD_HOME))
         self.deny = set().union(*(_forms(d) for d in (*BUILTIN_DENY, *r.get("deny_paths", []))))
+        self.backends = r.get('backends', {})
+        self.approvals = pathlib.Path(r.get('approvals', '/nonexistent/jobroute-approvals'))
+        self.route_home = pwd.getpwuid(os.geteuid()).pw_dir
+        self.submissions_enabled = r.get('submissions_enabled', False) is True
         self.extra_env = {str(k): str(v) for k, v in r.get("env", {}).items()}
         self.engines = {k: [str(x) for x in v] for k, v in cfg.get("engines", {}).items()}
         defaults = {**DEFAULTS, **cfg.get("defaults", {})}
@@ -124,6 +129,15 @@ class Route(JobIndex):
         raise err
 
     def _load_profile(self, prof: dict, defaults: dict) -> None:
+        self.enabled_verbs = prof.get('enabled_verbs', [])
+        self.mac_hosts = prof.get('mac_hosts', [])
+        self.command_per_hour = prof.get('command_per_hour', 60)
+        if (not isinstance(self.enabled_verbs, list) or not all(isinstance(v, str) for v in self.enabled_verbs)
+                or not isinstance(self.mac_hosts, list) or not all(v in ('macbook', 'mini') for v in self.mac_hosts)
+                or type(self.command_per_hour) is not int or not 1 <= self.command_per_hour <= 3600):
+            raise _misconfigured('invalid verb/host allowlist or command limit')
+        self.submissions_enabled = (self.submissions_enabled
+                                    and prof.get('submissions_enabled', defaults.get('submissions_enabled', False)) is True)
         self.agent = prof["agent"]
         if not isinstance(self.agent, str) or not self.agent.strip():
             raise _misconfigured(f"profile {self.profile} needs agent = <sb-codejob agent name>")
@@ -263,6 +277,8 @@ class Route(JobIndex):
         if meta["end"] != "eof":
             logged["brief_hash_partial"] = True      # the hash covers only the bytes that arrived
         try:
+            if not self.submissions_enabled:
+                raise Refused('submissions disabled')
             self.check_agent(agent)
             engine = self.check_engine(engine)
             label = self.check_label(label)
@@ -309,7 +325,7 @@ class Route(JobIndex):
 
     def _launch(self, launch: str, cmd: list[str], label: str, workdir: str, brief: bytes, mode: str) -> str:
         argv = [self.sb_codejob, "--agent", self.agent, "--workdir", workdir, "--label", label,
-                "--stdin", "--", *cmd]
+                "--stdin", *(["--review"] if getattr(self, "request_review", False) else []), "--", *cmd]
         home = pwd.getpwuid(os.geteuid()).pw_dir
         env = {"PATH": self.path, "HOME": home, "USER": pwd.getpwuid(os.geteuid()).pw_name,
                "LANG": "C.UTF-8", **self.extra_env}
@@ -342,8 +358,12 @@ class Route(JobIndex):
                 reason += f"; job {job['id']} did start, see job_status"
         return Refused(reason, 1)
 
-    def status(self, mode: str, job_id=None, limit=10) -> dict:
+    def status(self, mode: str, job_id=None, limit=10, report=False) -> dict:
         try:
+            if type(report) is not bool:
+                raise Refused('report must be a boolean')
+            if report and (report is not True or job_id is None or 'report' not in self.enabled_verbs):
+                raise Refused('report requires an enabled verb and an owned job id')
             if job_id is not None and (not isinstance(job_id, str) or not JOB_ID_RX.fullmatch(job_id)):
                 raise Refused("unknown job")
             if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 50:
@@ -365,5 +385,13 @@ class Route(JobIndex):
                 e.audited = True
                 raise e
         out = [self._summary(j) for j in reversed(jobs[-limit:])]
+        if report:
+            try:
+                out[0]['report'] = self.report(job_id)
+            except Exception as exc:
+                self.audit('report', mode, 'refused' if isinstance(exc, Refused) else 'error',
+                           job_id=job_id, reason=exc.reason if isinstance(exc, Refused) else type(exc).__name__)
+                exc.audited = True
+                raise
         self.audit("status", mode, "ok", count=len(out))
         return {"ok": True, "profile": self.profile, "agent": self.agent, "jobs": out}

@@ -60,7 +60,7 @@ remove_plain(state_dir / '.lock')
 profiles = state_dir / 'profiles'
 if profiles.is_dir() and not profiles.is_symlink():
     for entry in profiles.iterdir():
-        if re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}\.jsonl', entry.name):
+        if re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}(?:\.commands)?\.jsonl', entry.name):
             remove_plain(entry)
 if a.remove_audit:
     remove_plain(state_dir / 'audit.jsonl')

@@ -19,7 +19,7 @@ installer = stage / 'installer.sh'
 sha = re.search(r'^SHA=([0-9a-f]{40})$', installer.read_text(), re.M)[1]
 pins = dict((name, digest) for digest, name in re.findall(
     r'^([0-9a-f]{64})  (jobroute|jobroute_core\.py|jobroute_jobs\.py|jobroute_trust\.py|allowlist\.toml|'
-    r'check-hermes-tools|uninstall\.py)$', installer.read_text(), re.M))
+    r'check-hermes-tools|uninstall\.py|jobroute_commands\.py|secretscan\.py|mac-dispatch|mac-worker\.py|isolation_check\.py|check-jobroute-iso)$', installer.read_text(), re.M))
 fails = 0
 checks = 0
 os.umask(0o022)
@@ -85,7 +85,7 @@ bash -ex -c "$4"
 
 check('staged installer byte-identical: sha256 ' + expected,
       hashlib.sha256(installer.read_bytes()).hexdigest() == expected)
-check('all seven pins (incl. uninstall.py) found in generated installer', len(pins) == 7)
+check('all thirteen runtime pins found in generated installer', len(pins) == 13)
 print('pinned SHA: ' + sha, flush=True)
 print('namespace uid: ' + str(os.geteuid()) + '; pid: ' + str(os.getpid()), flush=True)
 
@@ -137,7 +137,12 @@ for populated in (False, True):
           [r for r in second if r[0] != '.local/state/jobroute/audit.jsonl'])
     check(name + ': two audited non-allowlisted self-checks',
           len((home / '.local/state/jobroute/audit.jsonl').read_text().splitlines()) == 2)
+    cfg = home / '.config/jobroute/allowlist.toml'
+    preimage = cfg.read_bytes()
+    cfg.write_text(cfg.read_text().replace('submissions_enabled = false', 'submissions_enabled = true')
+                   .replace('[defaults]', '[defaults]\nsubmissions_enabled = true'))
     rc = run(home, USE)
+    cfg.write_bytes(preimage)
     check(name + ': accepted submit through the installed route', rc == 0)
     state = home / '.local/state/jobroute'
     check(name + ': real use created .lock and profiles/grok-admin.jsonl',

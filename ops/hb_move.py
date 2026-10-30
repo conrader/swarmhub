@@ -1,11 +1,11 @@
 """hb-move: move one Hermes profile into its own unix account and stock gateway (swapdesign2 §2, PR 5).
 
     sudo ops/hb-move <profile> --gateway-port N --receiver-port N --control-port N --shared-unit <unit|none>
-                     [--user hb-<slug>] [--dry-run]
-    sudo ops/hb-move --undo <profile> [--dry-run]
+                     [--user hb-<slug>] [--apply|--dry-run]
+    sudo ops/hb-move --undo <profile> [--apply|--dry-run]
     sudo ops/hb-move --render-nginx
 
-Run as root on the box, in a quiet window, one bot at a time (docs/bot-isolation.md). It never changes Hermes code and
+Dry-run is the default; --apply performs changes. Run as root on the box, in a quiet window, one bot at a time (docs/bot-isolation.md). It never changes Hermes code and
 never prints a key. Every step is journaled in /var/lib/swarmhub/hb-move/<profile>.json, so --undo reverses exactly
 what was done; a red check stops the move where it is, and --undo takes it back. --root <dir> prefixes every path
 (tests only).
@@ -259,6 +259,20 @@ def preflight(box, profile, user, ports, shared_user):
 
 
 def move(box, profile, user, ports, shared_unit, shared_user="hermes"):
+    if not registry.NAME.fullmatch(profile) or profile == 'default':
+        raise Failed('a named profile is required')
+    previous = Journal(box, profile).data
+    current = load_registry(box)['bots'].get(profile)
+    if previous and 'verified' in previous.get('steps', []) and not previous.get('undone'):
+        account, shared = box.account(user), box.account(shared_user)
+        if (account and shared and current == dict(user=user, uid=account.uid, **ports)
+                and previous['user'] == user and previous['ports'] == ports
+                and previous['shared_unit'] == shared_unit and previous['shared_user'] == shared_user
+                and (box.path(account.home) / '.hermes/profiles' / profile).is_dir()
+                and not (box.path(shared.home) / '.hermes/profiles' / profile).exists()):
+            box.out(f'already moved {profile}; unchanged')
+            return
+        raise Failed('completed move has drifted; inspect the journal and use --undo')
     shared, source = preflight(box, profile, user, ports, shared_user)
     instance = user[3:]
     journal = Journal(box, profile)
@@ -355,8 +369,13 @@ def move(box, profile, user, ports, shared_unit, shared_user="hermes"):
 
 
 def undo(box, profile):
+    if not registry.NAME.fullmatch(profile) or profile == 'default':
+        raise Failed('a named profile is required')
     journal = Journal(box, profile)
     if journal.data is None:
+        if profile not in load_registry(box)['bots'] and list(box.path(JOURNAL).glob(f'{profile}.json.undone.*')):
+            box.out(f'already undone {profile}; unchanged')
+            return
         raise Failed(f"no journal for {profile} in {JOURNAL}; nothing to undo")
     data, steps = journal.data, journal.data["steps"]
     user, unit = data["user"], f"hermes-bot@{data['instance']}.service"
@@ -459,12 +478,14 @@ def main(argv=None):
         parser.add_argument("--" + name.replace("_", "-"), type=int)
     parser.add_argument("--shared-user", default="hermes")
     parser.add_argument("--shared-unit", help="the shared gateway's systemd unit, stopped during the copy (or none)")
-    parser.add_argument("--dry-run", action="store_true")
+    flags = parser.add_mutually_exclusive_group()
+    flags.add_argument("--dry-run", action="store_true", help="plan only (default)")
+    flags.add_argument("--apply", action="store_true", help="perform the reviewed move/undo/render")
     parser.add_argument("--root", default="/", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.root == "/" and os.geteuid() != 0:
         parser.error("run it as root on the box")
-    box = Box(args.root, args.dry_run)
+    box = Box(args.root, not args.apply)
     try:
         if args.render_nginx:
             render_nginx(box)

@@ -128,7 +128,8 @@ def test_foreign_owned_parent_is_refused(installer):
 
 
 @pytest.mark.parametrize('name', ['jobroute', 'jobroute_core.py', 'jobroute_jobs.py', 'jobroute_trust.py',
-                                  'allowlist.toml', 'check-hermes-tools', 'uninstall.py'])
+                                  'allowlist.toml', 'check-hermes-tools', 'uninstall.py', 'jobroute_commands.py', 'secretscan.py',
+                                  'mac-dispatch', 'mac-worker.py', 'isolation_check.py', 'check-jobroute-iso'])
 def test_reinstall_refuses_each_tampered_installed_pin(installer, name):
     installer.install()
     installed = installer.home / '.local/lib/jobroute/releases' / installer.sha / name

@@ -26,7 +26,9 @@ ROUTE = ('/home/ubuntu/.local/lib/jobroute/current/jobroute --config /home/ubunt
          '--profile grok-admin')
 # The shipped route PATH includes /usr/local/bin: a trusted stub claude is bound there, in the
 # private mount namespace only.
-USE = ('mount --bind "$FAKEBIN" /usr/local/bin; '
+USE = ('sed -i "s/submissions_enabled = false/submissions_enabled = true/" /home/ubuntu/.config/jobroute/allowlist.toml; '
+       'sed -i "/\\[defaults\\]/a submissions_enabled = true" /home/ubuntu/.config/jobroute/allowlist.toml; '
+       'mount --bind "$FAKEBIN" /usr/local/bin; '
        f'out=$(printf "Real use before rollback.\\n" | SSH_ORIGINAL_COMMAND="submit engine=claude label=undo-check" {ROUTE}); '
        'echo "$out"; grep -q \'"ok": true\' <<<"$out"; '
        f'SSH_ORIGINAL_COMMAND=status {ROUTE} | grep -q \'"label": "undo-check"\'')
@@ -49,6 +51,8 @@ def plant_sb_codejob(installer):
 def use(installer, fakebin):
     p = installer.run(f'export FAKEBIN={fakebin}; {USE}')
     assert p.returncode == 0, p.stdout + p.stderr
+    cfg = installer.home / '.config/jobroute/allowlist.toml'
+    cfg.write_text(cfg.read_text().replace('[defaults]\nsubmissions_enabled = true', '[defaults]').replace('submissions_enabled = true', 'submissions_enabled = false'))
     state = installer.home / '.local/state/jobroute'
     assert (state / '.lock').is_file()
     assert 'undo-check' in (state / 'profiles/grok-admin.jsonl').read_text()

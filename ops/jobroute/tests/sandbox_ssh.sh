@@ -20,6 +20,7 @@ asuser() { unshare --user --map-user=1002 --map-group=1003 "$@"; }
 for k in host admin ermes probe far; do ssh-keygen -q -t ed25519 -N '' -C "jobroute-test-$k" -f "$k"; done
 cat > allowlist.toml <<EOF
 [route]
+submissions_enabled = true
 state_dir = "$d/state"
 sb_codejob = "$stage/jobroute/tests/stub-sb-codejob"
 job_root = "$d/work"
@@ -33,6 +34,7 @@ HOME = "$d/home"
 claude = ["claude", "-p", "--permission-mode", "acceptEdits"]
 codex = ["codex", "exec", "--skip-git-repo-check", "-m", "gpt-6.1-sol", "-"]
 [profiles.grok-admin]
+submissions_enabled = true
 agent = "Admin"
 bot = "Admin"
 workdirs = ["$d/work/Admin"]

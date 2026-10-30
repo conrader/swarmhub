@@ -4,6 +4,7 @@
 # here is refused even when its key is in authorized_keys.
 
 [route]
+submissions_enabled = false  # explicit activation only after isolation + trust checks
 state_dir = "/home/ubuntu/.local/state/jobroute"     # audit.jsonl + profiles/<profile>.jsonl
 sb_codejob = "/home/ubuntu/sb/bin/sb-codejob"
 job_root = "/home/ubuntu/work"                       # sb-codejob WORKROOT: <job_root>/<agent>/<job>.json
@@ -19,6 +20,13 @@ max_brief_bytes = 65536
 [engines]
 claude = ["claude", "-p", "--permission-mode", "acceptEdits"]
 codex = ["codex", "exec", "--skip-git-repo-check", "-m", "gpt-6.1-sol", "-"]
+
+# Fixed backend paths are filled only by the reviewed activation script.
+# [route.backends]: park=sb-park, msg=sb-msg, codejob=sb-codejob,
+# mac_dispatch=<release>/mac-dispatch. No backend is configured by this example.
+# route.approvals points to sb/raw/approvals on the route host.
+# Each profile separately opts in with enabled_verbs=["launch", "report", ...],
+# submissions_enabled=true, command_per_hour=60 and mac_hosts=["macbook"] (Mini needs an explicit opt-in).
 
 [defaults]
 engines = ["claude", "codex"]
