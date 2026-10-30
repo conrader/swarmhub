@@ -34,4 +34,3 @@ class Journal:
         temp.write_text(json.dumps(self.data, indent=2, sort_keys=True) + "\n")
         temp.chmod(0o600)
         os.replace(temp, self.path)
-
