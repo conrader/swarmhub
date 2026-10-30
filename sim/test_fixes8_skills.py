@@ -1,4 +1,4 @@
-"""Fixes8 item 3: the coding and messages skills changed in fixes7/fixes8, so their versions were bumped.
+"""The coding and messages skill assertions track the bundled versions and their previous installs.
 
 SkillLibrary.state (Sources/AgentApp/BotManager/SkillLibrary.swift) reports an install as outdated when its semver is
 below the bundled SKILL.md version. No Swift toolchain here: this checks the bundled versions against the previous
@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / 'Resources/Skills'
 TESTS = ROOT / 'Tests/AgentAppTests'
 # skill -> (version installed before this change, bundled now, the Swift test that pins it)
-BUMPS = {'swarmhub-coding': ('1.3.14', '1.3.15', 'CodingSkillTests.swift'),  # kill_tree retries until the tree is gone reach existing installs
+BUMPS = {'swarmhub-coding': ('1.3.15', '1.3.16', 'CodingSkillTests.swift'),  # opt-in swap job commands reach existing installs
          'swarmhub-messages': ('1.4.15', '1.4.16', 'BotMessageSkillTests.swift')}  # bot-msg reaches bots in their own accounts (swapdesign PR 5), after 1.4.15's receiver fixes
 
 
