@@ -1,0 +1,171 @@
+#!/usr/bin/python3 -IB
+"""check-hermes-tools: read-only check that no jobroute profile on the Hermes box can read files
+or run a shell. Per-profile key separation (one ssh key per profile, all owned by unix user
+hermes) only holds while that is true; see README "Known limitations".
+
+Usage:
+  check-hermes-tools [--allowlist PATH] [--ssh-host USER@HOST] [--ssh-key PATH] [--remote-root DIR]
+  check-hermes-tools [--allowlist PATH] --config-dir DIR      # DIR/<profile>/config.yaml, local copy
+
+The profiles come from the jobroute allowlist. Their config.yaml files are fetched with one
+`ssh ... tar -cf -` (nothing on the Hermes box is written) and parsed here; config values are
+never printed, only key and toolset names.
+
+A profile passes when `agent.disabled_toolsets` lists terminal, file and code_execution. Hermes
+(0.22, hermes_cli/tools_config.py) subtracts that list last and per tool, so it strips terminal,
+process_manage, read_file, write_file, patch, search_files and execute_code from every platform
+bundle. Without it a profile gets the platform default bundle, which includes all of them. An MCP
+server whose command is a shell, or whose name/command/args mention a filesystem/shell/terminal
+server, also fails.
+
+Exit 0 all pass; 1 a profile fails (loud, on stderr); 2 cannot check (fetch or parse error).
+"""
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tarfile
+import tomllib
+
+import yaml
+
+REQUIRED_DISABLED = ("terminal", "file", "code_execution")
+SHELLS = {"sh", "bash", "dash", "zsh", "ksh", "fish", "busybox"}
+MCP_RISKY_RX = re.compile(r"filesystem|desktop-commander|shell|terminal", re.I)
+PROFILE_RX = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+HERE = os.path.dirname(os.path.realpath(__file__))
+SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "StrictHostKeyChecking=yes"]
+
+
+class CannotCheck(Exception):
+    pass
+
+
+def profiles_from(allowlist: str) -> list[str]:
+    with open(allowlist, "rb") as f:
+        names = list(tomllib.load(f).get("profiles", {}))
+    bad = [n for n in names if not PROFILE_RX.fullmatch(n)]
+    if not names or bad:
+        raise CannotCheck(f"allowlist {allowlist}: no profiles or invalid names {bad}")
+    return names
+
+
+def string_list(value) -> list[str] | None:
+    """agent.disabled_toolsets as Hermes accepts it: a YAML list or a list-literal string."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value]
+    if isinstance(value, str):
+        with_quotes = value.strip().replace("'", '"')
+        if with_quotes.startswith("["):
+            try:
+                parsed = json.loads(with_quotes)
+            except ValueError:
+                return None
+            return [str(v).strip() for v in parsed] if isinstance(parsed, list) else None
+        return [v.strip() for v in re.split(r"[,\s]+", value) if v.strip()]
+    return None
+
+
+def problems(cfg) -> list[str]:
+    """What lets this profile read files or run a shell; [] when nothing does."""
+    if not isinstance(cfg, dict):
+        return ["config.yaml is not a mapping"]
+    agent = cfg.get("agent") or {}
+    disabled = string_list(agent.get("disabled_toolsets") if isinstance(agent, dict) else None)
+    if disabled is None:
+        return ["agent.disabled_toolsets is unreadable"]
+    out = []
+    missing = [t for t in REQUIRED_DISABLED if t not in disabled]
+    if missing:
+        out.append(f"enabled: {', '.join(missing)} (not in agent.disabled_toolsets)")
+    servers = cfg.get("mcp_servers") or {}
+    for name, srv in (servers.items() if isinstance(servers, dict) else []):
+        srv = srv if isinstance(srv, dict) else {}
+        command = str(srv.get("command") or "")
+        args = srv.get("args") if isinstance(srv.get("args"), list) else []
+        if os.path.basename(command) in SHELLS:
+            out.append(f"mcp_servers.{name}: command is a shell")
+        elif any(MCP_RISKY_RX.search(str(x)) for x in (name, command, *args)):
+            out.append(f"mcp_servers.{name}: looks like a filesystem/shell/terminal server")
+    return out
+
+
+def load_local(config_dir: str, profiles: list[str]) -> dict:
+    out = {}
+    for p in profiles:
+        path = os.path.join(config_dir, p, "config.yaml")
+        try:
+            with open(path, "rb") as f:
+                out[p] = f.read()
+        except OSError as e:
+            raise CannotCheck(f"{p}: cannot read config.yaml ({type(e).__name__})") from None
+    return out
+
+
+def load_remote(ssh: list[str], remote_root: str, profiles: list[str]) -> dict:
+    members = [f"{p}/config.yaml" for p in profiles]
+    remote = f"tar -C {shlex.quote(remote_root)} -cf - -- " + " ".join(shlex.quote(m) for m in members)
+    try:
+        p = subprocess.run([*ssh, remote], capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise CannotCheck(f"ssh failed: {type(e).__name__}") from None
+    out = {}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(p.stdout), mode="r:") as tar:
+            for m in tar.getmembers():
+                if m.isfile() and m.name in members:
+                    out[m.name.split("/")[0]] = tar.extractfile(m).read()
+    except tarfile.TarError:
+        raise CannotCheck(f"no readable tar from the Hermes box (ssh exit {p.returncode})") from None
+    missing = [x for x in profiles if x not in out]
+    if missing:
+        raise CannotCheck(f"config.yaml not found for: {', '.join(missing)}")
+    return out
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--allowlist", default=os.path.join(HERE, "allowlist.toml"))
+    ap.add_argument("--config-dir")
+    ap.add_argument("--ssh-host", default="root@195.201.33.222")
+    ap.add_argument("--ssh-key", default="/home/ubuntu/.ssh/hetzner_operator_ed25519")
+    ap.add_argument("--ssh-bin", default="ssh")
+    ap.add_argument("--remote-root", default="/home/hermes/.hermes/profiles")
+    a = ap.parse_args(argv)
+    try:
+        profiles = profiles_from(a.allowlist)
+        if a.config_dir:
+            raw = load_local(a.config_dir, profiles)
+        else:
+            raw = load_remote([a.ssh_bin, *SSH_OPTS, "-i", a.ssh_key, a.ssh_host], a.remote_root, profiles)
+        found = {}
+        for p in profiles:
+            try:
+                found[p] = problems(yaml.safe_load(raw[p]))
+            except yaml.YAMLError:
+                raise CannotCheck(f"{p}: config.yaml is not valid YAML") from None
+    except (CannotCheck, OSError, tomllib.TOMLDecodeError) as e:
+        print(f"JOBROUTE CHECK CANNOT RUN: {e}", file=sys.stderr)
+        return 2
+    failed = {p: v for p, v in found.items() if v}
+    for p in profiles:
+        print(f"{'FAIL' if p in failed else 'ok  '} {p}" + (": " + "; ".join(found[p]) if p in failed else ""))
+    if failed:
+        print(f"JOBROUTE PRECONDITION BROKEN: {len(failed)}/{len(profiles)} profiles can read files or run a "
+              f"shell ({', '.join(failed)}). Per-profile key separation does not hold; do not add or keep "
+              "jobroute authorized_keys lines for them.", file=sys.stderr)
+        return 1
+    print(f"ok: none of {len(profiles)} jobroute profiles has a file-read, terminal or shell tool")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

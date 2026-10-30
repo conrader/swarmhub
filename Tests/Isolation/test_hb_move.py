@@ -80,7 +80,8 @@ class HbMove(unittest.TestCase):
     def hb(self, *argv):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            rc = hb_move.main(["--root", str(self.root), *map(str, argv)])
+            flags = [] if '--dry-run' in argv else ['--apply']
+            rc = hb_move.main(["--root", str(self.root), *flags, *map(str, argv)])
         return rc, out.getvalue(), err.getvalue()
 
     def move(self, *extra):
@@ -293,9 +294,12 @@ class HbMove(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("--user must be", err)
         self.assertEqual(self.move()[0], 0)
-        rc, _, err = self.move()
-        self.assertEqual(rc, 1)
-        self.assertIn("already moved", err)
+        before = self.commands()
+        rc, out, err = self.move()
+        self.assertEqual(rc, 0, err)
+        self.assertIn("already moved", out)
+        self.assertEqual([c for c in self.commands() if not c.startswith('getent ')],
+                         [c for c in before if not c.startswith('getent ')])
 
     def test_a_red_gateway_stops_before_routing_and_undo_cleans_up(self):
         self.answers.return_value = False
@@ -465,6 +469,22 @@ class HbMove(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("exists again", err)
         self.assertNotIn("systemctl disable --now hermes-bot@swarmhub.service", self.commands())
+
+    def test_completed_undo_is_idempotent(self):
+        self.assertEqual(self.move()[0], 0)
+        self.assertEqual(self.hb('--undo', 'grok-swarmhub')[0], 0)
+        before = self.commands()
+        rc, out, err = self.hb('--undo', 'grok-swarmhub')
+        self.assertEqual(rc, 0, err)
+        self.assertIn('already undone', out)
+        self.assertEqual(self.commands(), before)
+
+    def test_completed_move_drift_is_refused(self):
+        self.assertEqual(self.move()[0], 0)
+        self.ports['gateway_port'] += 1
+        rc, out, err = self.move()
+        self.assertEqual(rc, 1)
+        self.assertIn('drifted', err)
 
     def test_bad_sudoers_never_lands(self):
         broken = self.root / "broken-ops"

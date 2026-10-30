@@ -59,7 +59,7 @@ with `env_reset` and `!use_pty`.
 1. Add the snippet include to the Hermes site's server block, before its generic `/p/` location:
    `include /etc/nginx/snippets/swarmhub-bots.conf;`. Then run `nginx -t`. hb-move refuses to start without the
    include.
-2. Run a dry run first, then the real move:
+2. Run a dry run first (now the default), then repeat with `--apply` for the real move:
    `sudo ops/hb-move grok-<slug> --gateway-port 8651 --receiver-port 8751 --control-port 8761 --shared-unit <unit> --dry-run`
    - `--shared-unit` names the shared gateway's systemd unit. Use `none` only when it is already stopped. hb-move
      stops that unit from the copy until the original is retired, and always starts it again. Without the stop, the
@@ -77,7 +77,7 @@ with `env_reset` and `!use_pty`.
    `hb-<slug>`). hb-move does not start it.
 5. Run `ops/wake-enroll` and `ops/webhook-probe` (PR #27) for the bot. Probe f must now give 400 at 8745.
 
-**Rollback:** `sudo ops/hb-move --undo grok-<slug>`. It does the following:
+**Rollback:** plan with `sudo ops/hb-move --undo grok-<slug>`, then repeat with `--apply`. It does the following:
 
 - stops and disables the unit and removes its drop-in;
 - uninstalls the account's receiver;
@@ -128,3 +128,9 @@ sudoers text is checked by the real `visudo`.
 - **The shared gateway's unit name** on the box was not read. Pass it explicitly; hb-move never guesses it.
 - **The nginx `/p/` block** copies typical SSE proxy settings. Compare it with the site's existing `/p/` location
   (`nginx -T`) before the pilot.
+
+
+The move, undo and `--render-nginx` now default to planning only. `--apply` is required for changes.
+An identical completed move is a no-op; a completed undo is also a no-op. Drift or a partial move still stops for
+inspection/undo. See [the swap jobs and migration runbook](swap-jobs-migration.md) for the offline importer,
+key-bound job commands and the later approved pilot. No migration is run by installing the skill.

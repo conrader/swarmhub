@@ -1,0 +1,13 @@
+#!/usr/bin/python3 -IB
+"""Read-only hb account/key/unit check. No SSH, sudo, systemctl or key contents."""
+import json
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from isolation_check import inspect
+try:
+    if len(sys.argv) != 2: raise ValueError('profile required')
+    print(json.dumps(inspect(sys.argv[1])))
+except (OSError, ValueError, KeyError):
+    print('{"ok":false,"error":"isolation gate failed"}')
+    raise SystemExit(77)

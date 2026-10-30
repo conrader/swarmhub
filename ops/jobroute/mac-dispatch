@@ -1,0 +1,15 @@
+#!/usr/bin/python3 -IB
+"""Fixed host adapter, installed on ovh; never call during Linux tests."""
+import json
+import subprocess
+import sys
+
+if len(sys.argv) != 2 or sys.argv[1] not in ('macbook', 'mini'):
+    raise SystemExit(2)
+raw = sys.stdin.buffer.read(140000)
+a = json.loads(raw)
+if a.get('operation') not in ('queue', 'macjob'):
+    raise SystemExit(2)
+# Host aliases and worker path are operator-controlled SSH config/install, never client data.
+raise SystemExit(subprocess.run(['/usr/bin/ssh', '-T', '-oBatchMode=yes', '-oStrictHostKeyChecking=yes',
+    '-oUpdateHostKeys=no', '--', sys.argv[1], '.local/lib/swarmhub/mac-worker.py'], input=raw).returncode)

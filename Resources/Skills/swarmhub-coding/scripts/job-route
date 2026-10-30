@@ -1,0 +1,60 @@
+#!/usr/bin/python3 -IB
+"""Key-bound jobroute client. Commands/payload are data, and profile identity comes from this uid."""
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import stat
+import subprocess
+import sys
+
+OPS = {'launch', 'park', 'approve-wait', 'msg', 'msg-send', 'macjob', 'queue', 'report-jarvis'}
+
+
+def identity(registry=Path('/etc/swarmhub/bots.json'), uid=None, lookup=pwd.getpwuid, anchor=0):
+    uid = os.geteuid() if uid is None else uid
+    for path in (registry, *registry.parents):
+        st = path.lstat()
+        if stat.S_ISLNK(st.st_mode) or st.st_uid not in (anchor, os.stat('/').st_uid) or (st.st_mode & 0o022 and not (stat.S_ISDIR(st.st_mode) and st.st_mode & stat.S_ISVTX and st.st_uid == os.stat('/').st_uid)):
+            raise ValueError('registry is not trusted')
+    bots = json.loads(registry.read_text())['bots']
+    matches = [(p, b) for p, b in bots.items() if b.get('uid') == uid]
+    if uid <= 0 or len(matches) != 1:
+        raise ValueError('dedicated account required')
+    profile, bot = matches[0]
+    account = lookup(uid)
+    if account.pw_name != bot['user'] or not account.pw_name.startswith('hb-'):
+        raise ValueError('account mismatch')
+    home = Path(account.pw_dir)
+    key = home / '.ssh/jobroute_ed25519'
+    for path, mode, kind in ((home, 0o700, stat.S_ISDIR), (key.parent, 0o700, stat.S_ISDIR), (key, 0o600, stat.S_ISREG)):
+        st = path.lstat()
+        if not kind(st.st_mode) or st.st_uid != uid or stat.S_IMODE(st.st_mode) != mode:
+            raise ValueError('private key or home is not private')
+    return profile, key
+
+
+def main(argv):
+    if not argv or argv[0] not in OPS | {'status', 'list'}:
+        raise ValueError('expected a job command; JSON payload on stdin')
+    op, args = argv[0], argv[1:]
+    if op in OPS and args:
+        raise ValueError('job command takes JSON on stdin')
+    if op in ('status', 'list') and any(not re.fullmatch(r'(job=[A-Za-z0-9_-]{1,96}|limit=[0-9]{1,2}|report=[01])', x) for x in args):
+        raise ValueError('invalid status arguments')
+    _, key = identity()
+    data = sys.stdin.buffer.read(140000) if op in OPS else b''
+    if len(data) >= 140000: raise ValueError('payload too large')
+    # jobroute-ovh is an operator-provisioned alias with a fixed destination/host key.
+    return subprocess.run(['/usr/bin/ssh', '-T', '-oBatchMode=yes', '-oStrictHostKeyChecking=yes',
+        '-oUpdateHostKeys=no', '-oIdentitiesOnly=yes', '-i', str(key), '--', 'jobroute-ovh',
+        ' '.join([op, *args])], input=data, env={'HOME': str(key.parent.parent), 'PATH': '/usr/bin:/bin'}).returncode
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except (OSError, ValueError, KeyError):
+        print('job-route refused: invalid request or isolated account/key not provisioned', file=sys.stderr)
+        raise SystemExit(77)
