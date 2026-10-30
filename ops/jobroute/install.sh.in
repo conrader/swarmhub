@@ -1,0 +1,125 @@
+#!/bin/bash
+# Inert install for conrader/swarmhub PR #6, pinned to @SHA@.
+# No authorized_keys, keys, Hermes config, services or restarts.
+set -euo pipefail
+umask 022
+SHA=@SHA@
+BASE=/home/ubuntu/.local/lib/jobroute
+REL=$BASE/releases/$SHA
+CFG=/home/ubuntu/.config/jobroute/allowlist.toml
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+cat > "$tmp/sums" <<'SUMS'
+@PINS@
+SUMS
+git -c core.sshCommand='ssh -o StrictHostKeyChecking=yes -o UpdateHostKeys=no' \
+    clone -q git@github.com:conrader/swarmhub.git "$tmp/r"
+git -C "$tmp/r" cat-file -e "$SHA^{commit}"
+mkdir "$tmp/x"
+git -C "$tmp/r" archive "$SHA" ops/jobroute | tar -x -C "$tmp/x" --strip-components=2
+(cd "$tmp/x" && sha256sum -c --quiet "$tmp/sums")
+# This code belongs to the pinned installer, not to an existing installed release.
+python3 -I - "$tmp/x" "$tmp/sums" "$REL" <<'PY'
+import hashlib
+import json
+import os
+import pathlib
+import shutil
+import stat
+import sys
+
+source, sums, release = map(pathlib.Path, sys.argv[1:])
+home = pathlib.Path('/home/ubuntu')
+base = home / '.local/lib/jobroute'
+manifest = base / 'install-state.json'
+uid = os.geteuid()
+
+def refuse(message):
+    raise SystemExit('install refused: ' + message)
+
+def trusted(path, directory=True, system=False):
+    st = path.lstat()
+    kind = stat.S_ISDIR if directory else stat.S_ISREG
+    # The filesystem root's owner is the trust anchor (unmapped inside sbtest's user NS).
+    owners = (pathlib.Path('/').stat().st_uid,) if system else (uid,)
+    if not kind(st.st_mode) or st.st_uid not in owners or st.st_mode & 0o022:
+        refuse(f'untrusted ownership/mode/type: {path}')
+    return st
+
+# Include existing ancestors: a safe release is insufficient if its parents are writable.
+for path in (pathlib.Path('/'), pathlib.Path('/home')):
+    trusted(path, system=True)
+trusted(home)
+paths = [home / p for p in ('.local', '.local/lib', '.local/lib/jobroute',
+         '.local/lib/jobroute/releases', '.config', '.config/jobroute',
+         '.local/state', '.local/state/jobroute', '.local/state/jobroute/profiles')]
+for path in paths:
+    if os.path.lexists(path):
+        trusted(path)
+if os.path.lexists(manifest):
+    trusted(manifest, directory=False)
+    state = json.loads(manifest.read_text())
+    if state.get('version') != 1:
+        refuse('unknown install-state version')
+else:
+    state = {'version': 1, 'created_dirs': [], 'config_sha256': None}
+
+for path in paths:
+    if not os.path.lexists(path):
+        path.mkdir(mode=0o700 if '.local/state/jobroute' in str(path) else 0o755)
+        st = trusted(path)
+        state['created_dirs'].append({'path': str(path), 'dev': st.st_dev, 'ino': st.st_ino})
+# Save provenance before self-checks create audit state; reruns preserve the original list.
+def save_state():
+    pending = base / 'install-state.new'
+    # An interrupted earlier run (e.g. ENOSPC) can leave this behind. Replace it only if it is
+    # a plain file we own with a trusted mode; never follow or truncate anything else.
+    if os.path.lexists(pending):
+        trusted(pending, directory=False)
+        pending.unlink()
+    fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        json.dump(state, f, sort_keys=True)
+        f.write('\n')
+    pending.replace(manifest)
+
+save_state()
+if not os.path.lexists(release):
+    shutil.copytree(source, release)
+    for path in [release, *release.rglob('*')]:
+        path.chmod(path.stat().st_mode & ~0o022)
+# Fail before pointing current at or executing any reused release. Reject symlinks too.
+trusted(release)
+for path in release.rglob('*'):
+    trusted(path, directory=path.is_dir())
+for line in sums.read_text().splitlines():
+    digest, name = line.split()
+    path = release / name
+    trusted(path, directory=False)
+    if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+        refuse(f'installed pin mismatch: {name}')
+for name in ('jobroute', 'check-hermes-tools'):
+    if not os.access(release / name, os.X_OK):
+        refuse(f'installed file is not executable: {name}')
+config = home / '.config/jobroute/allowlist.toml'
+if os.path.lexists(config):
+    trusted(config, directory=False)
+else:
+    shutil.copyfile(release / 'allowlist.toml', config)
+    config.chmod(0o644)
+    state['config_sha256'] = hashlib.sha256(config.read_bytes()).hexdigest()
+    save_state()
+current = base / 'current'
+if os.path.lexists(current) and not current.is_symlink():
+    refuse('current is not a symlink')
+# No release code is run until its ownership, modes and every pin pass.
+if current.is_symlink():
+    current.unlink()
+current.symlink_to(release)
+PY
+out=$(SSH_ORIGINAL_COMMAND=help "$BASE/current/jobroute" --config "$CFG" --profile grok-admin)
+grep -q '"ok": true' <<<"$out" || { echo "self-check failed: $out"; exit 1; }
+rc=0
+SSH_ORIGINAL_COMMAND=help "$BASE/current/jobroute" --config "$CFG" --profile grok-ermes >/dev/null || rc=$?
+[ "$rc" = 2 ] || { echo "expected refusal (2) for grok-ermes, got $rc"; exit 1; }
+echo "jobroute installed: $(readlink -f "$BASE/current"); config $CFG; self-check ok"
