@@ -31,8 +31,8 @@ preserves its participants, message direction, quoted fragments and operating
 rules, adds QA annotations, and explicitly labels substituted work. It does not
 claim byte-for-byte reconstruction of unavailable messages or a fresh Grok run.
 
-Added [live_observed.py](sim/live_observed.py). It executes the **unchanged**
-bundled [bot-msg](Resources/Skills/swarmhub-messages/scripts/bot-msg), not a Python
+Added [live_observed.py](../../../sim/live_observed.py). It executes the **unchanged**
+bundled [bot-msg](../../../Resources/Skills/swarmhub-messages/scripts/bot-msg), not a Python
 replacement for its background and reply-handling logic. A temporary loopback
 bridge maps `/p/QA-<role>` and the script's `swarmhub-from-<sender>` IDs onto exact
 `QA-LIVE3-…-QA-<recipient>-from-QA-<sender>` sessions on the single-profile server.
@@ -67,7 +67,7 @@ an execution boundary, not a model or product failure. An unavailable QA tool is
 not by itself evidence that Swarm Hub cannot do the operation on a fully equipped
 server. There is no supported **better** claim.
 
-Trace labels below refer to [raw requests, replies and commands](sim/results/live-3/results.json).
+Trace labels below refer to [raw requests, replies and commands](../../../sim/results/live-3/results.json).
 `P…` labels identify entries in its `commands` array; `QA-bridge-…` labels identify
 actual upstream requests. Saved histories contain authoritative tool receipts.
 
@@ -97,7 +97,7 @@ bot-msg --from QA-Swarmhub --to QA-Ermes --no-wait -- '[QA-TEST] FYI, held until
 The saved `QA-bridge-008` request starts a real model run immediately and returns
 `NO_REPLY`. `QA-bridge-010` has input
 `[Reply from QA-Ermes via SwarmHub]\nNO_REPLY`, starting the sender's model turn.
-The [script log](sim/results/live-3/QA-bot-messages.tsv) records queued and late-reply
+The [script log](../../../sim/results/live-3/QA-bot-messages.tsv) records queued and late-reply
 delivery as successful. This is not a held queue or a quiet no-op. The two model
 turns took 1.499 and 1.698 seconds respectively. The bridge adds no hold or wake
 logic; these requests come from the script itself.
@@ -134,7 +134,7 @@ explicitly said the receipt did **not** confirm QA-review complete. This was not
 a successful two-item queue update, and the runner's P01 PASS only concerns reply
 routing. No rerun was used to conceal or repair the result. P09 supplied distinct
 IDs and the real receipt contains both requested entries. The complete receipts
-are extracted in [audit.json](sim/results/live-3/audit.json).
+are extracted in [audit.json](../../../sim/results/live-3/audit.json).
 
 P04 likewise distinguishes the runner's absent-file observation from the bot's
 own verification. These are useful observed truthful replies under explicit QA
@@ -180,18 +180,18 @@ job. Such unexecuted branches are not claimed to match Grok.
 
 ## Evidence, accounting, validation and cleanup
 
-- [Raw run](sim/results/live-3/results.json): run
+- [Raw run](../../../sim/results/live-3/results.json): run
   `QA-LIVE3-20261019T090236-30ca1f`; **73 HTTP requests**, 15 native turn POSTs,
   eight exactly registered sessions, 15 distinct terminal runs.
-- [Read-only audit](sim/results/live-3/audit.json),
-  [script delivery log](sim/results/live-3/QA-bot-messages.tsv),
-  [process log](sim/results/QA-live3-run-log.txt),
-  [discovery](sim/results/live-3-discovery/results.json),
-  [source/input hashes](sim/results/live-3/QA-provenance.json).
+- [Read-only audit](../../../sim/results/live-3/audit.json),
+  [script delivery log](../../../sim/results/live-3/QA-bot-messages.tsv),
+  [process log](../../../sim/results/QA-live3-run-log.txt),
+  [discovery](../../../sim/results/live-3-discovery/results.json),
+  [source/input hashes](../../../sim/results/live-3/QA-provenance.json).
   Discovery made four additional read-only requests and no model calls. The
   initially tried `/api/capabilities` returned 404; the replay uses the correct
   `/v1/capabilities`. This route correction is not a product defect.
-- [Owned-session usage snapshots](sim/results/live-3/usage-snapshots.json):
+- [Owned-session usage snapshots](../../../sim/results/live-3/usage-snapshots.json):
   **17 recorded API calls, two todo invocations**, 25,759 input tokens excluding
   25,856 separately recorded cache-read tokens, 566 output tokens, 12 reasoning
   tokens (a reported component). Session records identify `gpt-6-astra`; native
@@ -208,8 +208,8 @@ job. Such unexecuted branches are not claimed to match Grok.
   terminal runs and session cleanup. `P03-FYI-wakes-immediately` PASS means the
   held-delivery gap was successfully reproduced, **not** product parity. The
   ten-pattern grades above, rather than raw assertion totals, are the comparison.
-- [56 Python harness tests passed](sim/results/QA-live3-harness-tests.txt),
-  including five new [namespace/refusal tests](sim/test_live_observed.py).
+- [56 Python harness tests passed](../../../sim/results/QA-live3-harness-tests.txt),
+  including five new [namespace/refusal tests](../../../sim/test_live_observed.py).
   They are offline harness tests, not app or Hermes acceptance evidence.
 - Cleanup polled all 15 runs to completed, deleted each exact owned ID, checked
   eight independent 404s, and retained the final idle health response. All local

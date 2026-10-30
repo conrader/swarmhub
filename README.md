@@ -69,6 +69,13 @@ The **iOS and Android apps are in development**. These screenshots show the firs
 
 [Individual screenshots and capture details](docs/ios/screenshots/SCREENSHOTS.md) · [Build the iOS app](Apps/iOS/README.md) · [Full feature specification and drawings](docs/ios/README.md)
 
+## Docs
+
+- [`docs/`](docs/) — user guide, technical reference, feature list, update service and iOS specs.
+- [`PLAN.md`](PLAN.md) — roadmap and open work. [`CORE-PLAN.md`](CORE-PLAN.md) and [`CORE-PHASES.md`](CORE-PHASES.md) — the approved update-service design and its phases. [`KNOWN-GAPS.md`](KNOWN-GAPS.md) — gaps left open on purpose.
+- [`briefs/`](briefs/) — per-phase briefs.
+- [`docs/archive/`](docs/archive/) — old job briefs, reports, reviews and superseded plans. Kept for history; not current.
+
 ## Credits
 
 Bot avatars use [BotAvatarsKit](https://github.com/Jakubantalik/Libraries.dev/tree/a27566557b4def79bcdcedc71858c0fb28020b6d/packages/bot-avatars/ports/ios/BotAvatarsKit) by **Jakub Antalik (Libraries.dev)**, licensed under [MIT](Vendor/BotAvatarsKit/LICENSE).

@@ -9,8 +9,10 @@ struct QueuedNextMessage {
     var kind: NextMessageRecord.Kind = .steer
     var anchorID: UUID
     var restored = false
-    init(id: UUID = UUID(), conversation: any Conversation, bubble: ChatMessage, kind: NextMessageRecord.Kind = .steer, anchorID: UUID? = nil, restored: Bool = false) {
-        self.id = id; self.conversation = conversation; self.bubble = bubble; self.kind = kind; self.anchorID = anchorID ?? bubble.id; self.restored = restored
+    /// uxfix3: queued by the app (a steer the run could no longer read), not by the user's button; the user's Stop takes it back.
+    var automatic = false
+    init(id: UUID = UUID(), conversation: any Conversation, bubble: ChatMessage, kind: NextMessageRecord.Kind = .steer, anchorID: UUID? = nil, restored: Bool = false, automatic: Bool = false) {
+        self.id = id; self.conversation = conversation; self.bubble = bubble; self.kind = kind; self.anchorID = anchorID ?? bubble.id; self.restored = restored; self.automatic = automatic
     }
 }
 
@@ -26,10 +28,11 @@ extension AppStore {
     }
 
     /// "Send as next message" pressed. False when the bubble is not a failed steer or its chat can't send.
-    @discardableResult func sendAsNextMessage(_ bubble: ChatMessage) -> Bool {
+    @discardableResult func sendAsNextMessage(_ bubble: ChatMessage, automatic: Bool = false) -> Bool {
         guard canSendAsNextMessage(bubble), let conversation = conversation(containing: bubble.id) else { return false }
+        if !automatic { turns.stoppedSteers.remove(bubble.id) }
         bubble.metadata[SteerKey.steer] = "next"
-        guard enqueueNextMessage(QueuedNextMessage(conversation: conversation, bubble: bubble)) else { bubble.metadata[SteerKey.steer] = "failed"; return false }
+        guard enqueueNextMessage(QueuedNextMessage(conversation: conversation, bubble: bubble, automatic: automatic)) else { bubble.metadata[SteerKey.steer] = "failed"; return false }
         objectWillChange.send(); save()
         sendQueuedNextMessage()
         return true

@@ -14,8 +14,9 @@ import Testing
     #expect(steps.allSatisfy { $0.passed }, "\(lines)")
     #expect(lines.prefix(8).allSatisfy { $0.hasPrefix("PASS ") })
     #expect(lines.last == "E2E: 8 passed, 0 failed")
-    // P28 D4: b1 stopped the count and sent the correction; b2's steer landed after the terminal step.
-    #expect(steps[1].detail.contains("partial kept") && steps[1].detail.contains("E2E-STEER"))
+    // P28 D4 / uxfix1: b1 steered the count without stopping it (the box handed the steer back, so it went next); b2's
+    // steer landed after the terminal step.
+    #expect(steps[1].detail.contains("answer not stopped") && steps[1].detail.contains("E2E-STEER"))
     #expect(steps[2].detail.contains("after the terminal step") && steps[2].detail.contains("E2E-STEER"))
     // P39 h: both copies answered at once; Stop on the first left the second complete.
     #expect(steps[7].detail.contains("first stopped") && steps[7].detail.contains("second complete: E2E-CONCURRENT"))
@@ -28,10 +29,10 @@ import Testing
     let inputs = requests.filter { $0.path.hasSuffix("/chat/stream") }.map { $0.body?["input"] as? String ?? "" }
     #expect(inputs.count == 9, "a, b1, b1's correction, b2, c, d, e and h's two")
     #expect(inputs.allSatisfy { $0.contains(HeadlessE2E.preamble) })
-    // b1: Stop was requested for the count's run before the correction went out, with its lead line.
-    let stop = try #require(requests.firstIndex { $0.path.hasSuffix("/stop") })
+    // b1: the count's run was steered (never stopped) before the handed-back correction went out, with its lead line.
+    let steer = try #require(requests.firstIndex { $0.path.hasSuffix("/steer") })
     let correction = try #require(requests.firstIndex { ($0.body?["input"] as? String)?.hasPrefix(SteerCopy.lead) == true })
-    #expect(stop < correction)
+    #expect(steer < correction && !requests[..<correction].contains { $0.path.hasSuffix("/stop") })
     #expect(requests.allSatisfy { !$0.path.hasPrefix("/p/grok-achilles/") || $0.method == "GET" }, "Achilles was not mentioned, so nothing is sent to it")
     // Model: switched to the other offered model, then back.
     let locks = requests.filter { $0.path.hasSuffix("/model") }.compactMap { $0.body?["model"] as? String }

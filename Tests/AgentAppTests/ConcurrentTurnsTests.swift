@@ -150,7 +150,7 @@ private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1
         #expect(store.isWorking(bots[0], in: group))
         try await send("direct question", to: bots[0], in: store, backends[0])
         #expect(store.isStreaming(in: group) && store.isStreaming(in: bots[0]))
-        #expect(!store.send(text: "@Alpha again", to: group) || group.messages.last?.isSteer == true, "the group's own turn still steers or refuses")
+        #expect(store.send(text: "@Alpha again", to: group) && group.messages.contains { $0.content == "@Alpha again" && $0.isSteer }, "the group's own turn is steered, never stopped")
         await reply("Direct answer.", backends[0], stream: 2)
         try await waitUntil { store.isIdle(bots[0]) }
         #expect(bots[0].messages.last?.content == "Direct answer." && store.isStreaming(in: group))

@@ -34,10 +34,10 @@ extension AppStore {
 
     // MARK: Turn ends
 
-    /// Called by every 1:1 and thread turn when it has ended (after the next-message queue had its chance). A turn stopped
-    /// for a typed correction counts as still running: the correction's turn ends it.
-    func automationTurnEnded(in conversation: any Conversation, bot: Bot, reply: ChatMessage, outcome: TurnOutcome, corrected: Bool = false) {
-        guard automations[conversation.id] != nil, !corrected else { return }
+    /// Called by every 1:1 and thread turn when it has ended (after the next-message queue had its chance). uxfix1: a typed
+    /// message never stops a turn (it steers it or waits), so every end here is the turn's own.
+    func automationTurnEnded(in conversation: any Conversation, bot: Bot, reply: ChatMessage, outcome: TurnOutcome) {
+        guard automations[conversation.id] != nil else { return }
         loopTurnEnded(in: conversation, reply: reply, outcome: outcome)
         goalTurnEnded(in: conversation, bot: bot, reply: reply, outcome: outcome)
     }

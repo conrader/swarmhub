@@ -96,4 +96,6 @@ enum TurnKey {
     static let part = "part"
     /// P38 E: estimated tokens of the hidden tool and workflow-operation turns inside a reply (`ConnectedAppsChat`).
     static let toolTokens = "toolTokens"
+    /// uxfix1: the connection dropped and the turn is reconnecting (or resending); the live line says "Reconnecting…".
+    static let reconnecting = "reconnecting"
 }

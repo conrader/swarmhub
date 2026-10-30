@@ -11,10 +11,10 @@ restarts, CLI installations/replacements or worktree commits occurred.
    with the same bubblewrap socket-directory error. Both CLI processes exit 0; unchanged shipped `code-job`
    correctly exits **65**, with **report-valid=false**, verification not run and no fabricated artifacts.
    Jobs used disposable git repositories and an isolated copy of the shipped runner/helper with no messaging
-   sibling, so no wake could reach Hermes. See [0.163.0 evidence](sim/results/gaps3/QA-cli-smoke.json),
-   [0.162.1 evidence](sim/results/gaps3/QA-cli-preflight-smoke.json) and
-   [reproduction script](sim/results/gaps3/QA-cli-reproduce.py).
-   A [standalone sandbox probe](sim/results/gaps3/QA-sandbox-probe.json), with zero provider calls, reproduces
+   sibling, so no wake could reach Hermes. See [0.163.0 evidence](../../../sim/results/gaps3/QA-cli-smoke.json),
+   [0.162.1 evidence](../../../sim/results/gaps3/QA-cli-preflight-smoke.json) and
+   [reproduction script](../../../sim/results/gaps3/QA-cli-reproduce.py).
+   A [standalone sandbox probe](../../../sim/results/gaps3/QA-sandbox-probe.json), with zero provider calls, reproduces
    the error with all three private directories at 0700. The default `/tmp/codex-daemon-1000` is visible as mode
    **000** inside the outer sandbox; this appears to be the remaining obstacle. No shared socket directory or
    sandbox protection was altered. Successful file edit + command + accepted fresh report remains unproven;
@@ -36,9 +36,9 @@ restarts, CLI installations/replacements or worktree commits occurred.
 Validation:
 
 - `python3 -B -m unittest discover -s sim -p 'test_*.py' -v`: **128 passed, 0 failed, 0 skipped**
-  ([log](sim/results/gaps3/QA-python-tests.txt)); includes four new regressions and the 43 parser fixture cases.
+  ([log](../../../sim/results/gaps3/QA-python-tests.txt)); includes four new regressions and the 43 parser fixture cases.
 - `bot-msg` socket suite: **14 passed under sh + 14 under dash**, zero failures/skips
-  ([sh](sim/results/gaps3/QA-bot-msg-sh.txt), [dash](sim/results/gaps3/QA-bot-msg-dash.txt)).
+  ([sh](../../../sim/results/gaps3/QA-bot-msg-sh.txt), [dash](../../../sim/results/gaps3/QA-bot-msg-dash.txt)).
 - `git diff --check`: passed. Real CLI acceptance: **0 passed / 2 failed jobs** as retained above.
 - Swift compilation/tests and native approval-card/secret-sheet interaction remain **untested** (Swift absent).
   Python fixtures do not certify native behavior. Model compliance with the revised instructions and the full

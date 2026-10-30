@@ -64,9 +64,9 @@ import Testing
 @MainActor @Test func everyFlagIsListedAndRecognised() {
     let old = ["--check-bots", "--render-snapshot", "--probe-attachment", "--migrate-store", "--e2e", "--grok-fetch", "--grok-probe",
                "--grok-parity", "--import-grok", "--import-keys", "--ui-smoke"]
-    let added = ["--setup-preview", "--render-setup", "--check-server", "--check-openclaw", "--capture-events", "--check-reports", "--check-account-names"] // P21, P21, P13 check-server, P12, P27, P36, P53
+    let added = ["--setup-preview", "--render-setup", "--check-server", "--check-openclaw", "--capture-events", "--check-reports", "--check-account-names", "--e2e-live"] // P21, P21, P13 check-server, P12, P27, P36, P53, uxfix1-e2e
     #expect(Set(HeadlessCommands.flags) == Set(old + added) && HeadlessCommands.flags.count == old.count + added.count)
-    #expect(!HeadlessCommands.headless.contains("--ui-smoke") && !HeadlessCommands.headless.contains("--setup-preview"))
+    #expect(!HeadlessCommands.headless.contains("--ui-smoke") && !HeadlessCommands.headless.contains("--setup-preview") && !HeadlessCommands.headless.contains("--e2e-live"))
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--setup-preview"]) == nil, "a launch argument, not a headless command")
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp"]) == nil)
     #expect(HeadlessCommands.runIfRequested(arguments: ["AgentApp", "--render-setup"]) == 64)

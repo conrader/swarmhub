@@ -31,13 +31,17 @@ struct ContentView: View {
             .overlay(alignment: .top) { StoreRestorePrompt() }
         }.navigationSplitViewStyle(.balanced).tint(AppTheme.accentColor(for: accent)).background(AppColor.chat)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let warning = store.botPromptSyncWarning {
-                HStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle").accessibilityHidden(true)
-                    Text(warning).frame(maxWidth: .infinity, alignment: .leading)
-                    Button("Dismiss") { store.botPromptSyncWarning = nil }
-                        .accessibilityLabel("Dismiss bot prompt sync warning")
-                }.font(.callout).padding(12).background(.regularMaterial)
+            VStack(spacing: 0) {
+                // uxfix1: transient network trouble is this line, never the alert below.
+                if let notice = store.connectionNotice { ConnectionNoticeBar(text: notice) { store.errorMessage = nil } }
+                if let warning = store.botPromptSyncWarning {
+                    HStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle").accessibilityHidden(true)
+                        Text(warning).frame(maxWidth: .infinity, alignment: .leading)
+                        Button("Dismiss") { store.botPromptSyncWarning = nil }
+                            .accessibilityLabel("Dismiss bot prompt sync warning")
+                    }.font(.callout).padding(12).background(.regularMaterial)
+                }
             }
         }
         .task { store.startRoutinePolling(); store.startLaunchWork(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
@@ -62,6 +66,6 @@ struct ContentView: View {
             }
             if let thread = pendingThread { pendingThread = nil; store.openThread(thread) }
         }) { CommandPaletteView(selectCommand: { pendingCommand = $0 }, openSetup: { store.openSetup(openWindow: openWindow) }, openThread: { pendingThread = $0 }) }
-        .alert("Backend Error", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) { Button("OK") { store.errorMessage = nil } } message: { Text(store.errorMessage ?? "") }
+        .alert("Backend Error", isPresented: Binding(get: { store.modalErrorMessage != nil }, set: { if !$0, store.modalErrorMessage != nil { store.errorMessage = nil } })) { Button("OK") { store.errorMessage = nil } } message: { Text(store.modalErrorMessage ?? "") }
     }
 }

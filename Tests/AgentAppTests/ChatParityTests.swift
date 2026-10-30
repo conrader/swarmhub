@@ -48,9 +48,14 @@ import Testing
     try await waitUntil { otherBot.messages.last?.content == "working" }
     let count = otherBot.messages.count
     #expect(!(other.soleTurn?.steerAvailable == true))
-    #expect(!other.send(text: "nudge"))
-    #expect(otherBot.messages.count == count)
+    // uxfix1: without steer the message is not refused: it waits (its line under it) and goes when the turn ends.
+    #expect(other.send(text: "nudge"))
+    #expect(otherBot.messages.count == count + 2 && otherBot.messages[count].metadata[TurnWaitCopy.key] == "waiting")
+    let calls = await plain.recorded()
+    #expect(!calls.contains { $0.hasPrefix("steer:") })
     other.stop()
+    try await plain.calls.wait { $0.contains { $0.hasPrefix("send:") && $0.contains("nudge") } }
+    other.stop(); try await waitUntil { !other.anyTurnRunning }
 }
 
 // MARK: Fork / threads

@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// Text, attachments (paperclip, drag-and-drop on the chat, paste) and Send/Stop. While a turn streams,
-/// Send steers it when the server supports `run_steer`; otherwise only Stop is offered.
+/// Text, attachments (paperclip, drag-and-drop on the chat, paste) and Send/Stop. While a turn streams, Send never
+/// stops it (uxfix1): it steers the turn when the server supports `run_steer`, else the message waits and goes when the
+/// turn ends. Stop stays a separate button.
 struct ComposerView: View {
     @Binding var text: String; @Binding var attachments: [ChatAttachment]
     let isStreaming: Bool; var canSteer = false
@@ -28,7 +29,7 @@ struct ComposerView: View {
     private var slashMatches: [SlashCommand] { slash.matches(for: text, commands: slashCommands) }
     private var slashOpen: Bool { slash.isOpen(for: text, commands: slashCommands) }
     private var dictationBusy: Bool { dictationContext != nil && dictation.isBusy }
-    private var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!attachments.isEmpty && !isStreaming) }
+    private var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
     private var suggestions: [String] {
         guard !mentionNames.isEmpty, let partial = GroupRouting.typedMention(in: text) else { return [] }
         return Array(GroupRouting.suggestions(for: partial, names: mentionNames).prefix(6))
@@ -64,10 +65,10 @@ struct ComposerView: View {
                 if !manageActions.isEmpty { ManageBotsMenu(actions: manageActions, perform: manage) { Image(systemName: "plus") }.composerSlot("composer_manage") }
                 input.chromeProbe("composer_input")
                 if let dictationContext { DictationButton(dictation: dictation, context: dictationContext) { focused = true }.composerSlot("composer_dictation") }
-                if isStreaming && canSteer && hasContent {
+                if isStreaming && hasContent {
                     Button(action: send) { Image(systemName: "arrow.turn.down.right").font(.system(size: 11, weight: .semibold)) }
-                        .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help("Add to this answer").disabled(dictationBusy)
-                        .composerSlot("composer_steer")
+                        .buttonStyle(ComposerRoundButtonStyle(prominent: false)).help(canSteer ? "Add to this answer" : "Send when this answer ends")
+                        .disabled(dictationBusy || !reading.isEmpty).composerSlot("composer_steer")
                 }
                 if isStreaming {
                     Button(action: stop) { Image(systemName: "stop.fill").font(.system(size: 10, weight: .semibold)) }
@@ -112,7 +113,7 @@ struct ComposerView: View {
                 TextEditor(text: $text).font(.body).scrollContentBackground(.hidden)
                     .overlay(alignment: .topLeading) {
                         if text.isEmpty {
-                            Text(isStreaming && canSteer ? SteerCopy.placeholder : "Message " + AppConstants.name + "…").font(.body).foregroundStyle(.tertiary).lineLimit(1)
+                            Text(isStreaming ? (canSteer ? SteerCopy.placeholder : SteerCopy.queuePlaceholder) : "Message " + AppConstants.name + "…").font(.body).foregroundStyle(.tertiary).lineLimit(1)
                                 .allowsHitTesting(false).padding(.top, ComposerMetrics.editorInset).padding(.leading, ComposerMetrics.linePadding)
                         }
                     }
@@ -121,7 +122,7 @@ struct ComposerView: View {
                         if press.modifiers.contains(.shift) { return .ignored }
                         if slashOpen, let command = slash.current(in: slashMatches) { pickSlash(command); return .handled }
                         if let first = suggestions.first { text = GroupRouting.complete(text, with: first); return .handled }
-                        if (!isStreaming || canSteer) && reading.isEmpty && !dictationBusy { send() }; return .handled
+                        if reading.isEmpty && !dictationBusy { send() }; return .handled
                     }
                     .onKeyPress(.upArrow) { guard slashOpen else { return .ignored }; slash.move(-1, count: slashMatches.count); return .handled }
                     .onKeyPress(.downArrow) { guard slashOpen else { return .ignored }; slash.move(1, count: slashMatches.count); return .handled }

@@ -80,7 +80,7 @@ extension AppStore {
         case .pathDown: turns.pathDown = true; suspendTeamClock(); automationTick()
         case .didWake, .pathUp, .pathChanged:
             await HermesEventConnections.shared.changed()
-            turns.pathDown = false; automationTick()
+            turns.pathDown = false; clearConnectionNotice(); automationTick()
             await hermesSession.flush()
             await recoverTeams()
             reconcileAttention(reason: event == .didWake ? .wake : .path)

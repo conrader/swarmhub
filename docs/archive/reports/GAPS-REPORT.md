@@ -96,7 +96,7 @@ this final verification does not rely on that unretained transcript.
 
 ## Tests and packaging
 
-Final Linux results ([retained test output](sim/results/gaps-final/QA-tests.txt)):
+Final Linux results ([retained test output](../../../sim/results/gaps-final/QA-tests.txt)):
 
 - `python3 -B -m unittest discover -s sim -p 'test_*.py' -v`: **124 tests, 123 passed, 1 skipped**, no failures.
   Only the real webhook loopback receiver skips; HTTP handler validation runs separately without sockets.

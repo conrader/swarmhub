@@ -138,17 +138,35 @@ extension AppStore {
         return true
     }
 
-    /// Text typed while a member answers steers that member's running turn (`run_steer`). P28: always queued here (Stop
-    /// would end the whole round); the reply continues below the bubble once the steer lands (D5).
+    /// Text typed while a member answers steers that member's running turn (`run_steer`). P28: never Stop here (it would
+    /// end the whole round); the reply continues below the bubble once the steer lands (D5). uxfix1: what cannot steer
+    /// (no `run_steer`, between members, attachments) waits as the group's next message and goes when the round ends.
     func steer(text: String, attachments: [ChatAttachment], group: GroupChat) -> Bool {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let turn = turn(in: group), turn.steerAvailable, let sessionID = group.hermesSessionID,
-              let bot = turn.botID.flatMap({ id in bots.first { $0.id == id } }) else { return false }
-        guard attachments.isEmpty else { errorMessage = "Attachments can’t be added to a running turn; send them after it finishes."; return false }
-        guard !value.isEmpty, let activeBackend = try? backend(for: bot) else { return false }
-        noteFirstSteer()
-        deliverSteer(value, into: group, sessionID: sessionID, backend: activeBackend)
-        return true
+        if let turn = turn(in: group), turn.steerAvailable, attachments.isEmpty, !value.isEmpty, let sessionID = group.hermesSessionID,
+           let bot = turn.botID.flatMap({ id in bots.first { $0.id == id } }), let activeBackend = try? backend(for: bot) {
+            noteFirstSteer()
+            deliverSteer(value, into: group, sessionID: sessionID, backend: activeBackend)
+            return true
+        }
+        return queueAfterRound(text: text, attachments: attachments, group: group)
+    }
+
+    /// uxfix1: the message goes into the group now and waits there as its next message (`waitForTurn`); the running
+    /// round is never stopped. Mentions are checked as for a send.
+    func queueAfterRound(text: String, attachments: [ChatAttachment], group: GroupChat) -> Bool {
+        let members = routingMembers(of: group)
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty, !members.isEmpty else { return false }
+        let ambiguous = GroupRouting.ambiguousMentions(in: text, members: members)
+        guard ambiguous.isEmpty else {
+            errorMessage = "More than one member is called \(ambiguous.joined(separator: ", ")). Pick one from the @ list (it adds the #id)."; return false
+        }
+        do { _ = try attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) } catch { errorMessage = error.localizedDescription; return false }
+        steerHint = nil
+        let message = ChatMessage(role: .user, content: text, replyToID: replyTo?.id, attachments: attachments)
+        captureAttachments(message, readers: GroupRouting.recipients(of: text, members: members))
+        group.messages.append(message)
+        return waitForTurn(message, in: group, reason: SteerCopy.afterTurn)
     }
 
     /// Approval outcomes land in the chat the run belongs to: the group for `group-…` sessions, else the bot.

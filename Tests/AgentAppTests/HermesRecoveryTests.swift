@@ -105,7 +105,9 @@ private func completed(_ events: [AgentEvent]) -> Bool { events.contains { if ca
     #expect(postCount(state) == 1)
     #expect(state.requests.all.filter { $0.url!.path.hasSuffix("/events") }.map { $0.value(forHTTPHeaderField: "Last-Event-ID") } == ["-1", "0", "1"])
     #expect(await backend.currentRunID(sessionID: "session") == nil)
-    #expect(events.contains { if case .appNotice(let text) = $0 { text.contains("same reply") } else { false } })
+    // uxfix1: a reconnect is the row's "Reconnecting…" status only, never a persisted warning line.
+    #expect(events.contains { if case .status("Reconnecting…") = $0 { true } else { false } })
+    #expect(!events.contains { if case .appNotice = $0 { true } else { false } })
 }
 
 @Test(arguments: ["completed", "failed", "cancelled", "interrupted"]) func runRecoveryPollsAuthoritativeTerminalOutput(status: String) async throws {

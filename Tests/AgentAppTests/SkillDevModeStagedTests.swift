@@ -155,7 +155,8 @@ private func encodedKeys(_ profiles: [StagedInstall.Profile]) throws -> [Set<Str
     let (store, bot, host, clock) = devStagedStore(source: source, status: try devStagedStatus(package, version: "1.2.0", modified: []))
     store.setSkillDevMode(true, for: bot)
     bot.skillInstallFailures["swarmhub-manager"] = SkillInstallFailure(version: "1.2.0", variant: nil, count: 1, lastAt: clock.date, reason: "Refused.")
-    #expect(!store.resetSkillToBundled(devStagedManager, for: bot) && store.errorMessage?.contains("deferred") == true)
+    #expect(!store.resetSkillToBundled(devStagedManager, for: bot))
+    #expect(store.errorMessage == nil && store.bots.contains { $0.messages.contains { $0.role == .system && $0.content.contains("deferred") } }, "uxfix1-e2e: inline, not the alert")
     #expect(ChatParityServer.requests(host).filter { $0.path.hasSuffix("/chat/stream") }.isEmpty)
 }
 
