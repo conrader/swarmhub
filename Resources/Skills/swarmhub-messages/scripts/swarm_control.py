@@ -29,3 +29,20 @@ def resume_services():
     """Gateway start: the box services that run without a systemd user manager come back (each never raises)."""
     receiver.resume()
     alerts_service.resume()
+
+
+def plugin_loader(script, home):
+    """The swarmhub-peer plugin's __init__.py, in <home>/plugins/swarmhub-peer/, loading peer-runtime.py at `script`.
+
+    A skill inside `home` is named relative to the plugin, so the profile can move to another account or back
+    (ops/hb-move, which writes the same text from ops/hb_render.plugin_loader); one outside it stays absolute.
+    """
+    try:
+        script = script.relative_to(home)
+    except ValueError:
+        pass
+    return ("import os, runpy, sys\n"
+            "script = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "
+            f"{str(script)!r})\n"
+            "sys.path.insert(0, os.path.dirname(script))\n"
+            "register = runpy.run_path(script)[\"register\"]\n")

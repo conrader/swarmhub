@@ -19,10 +19,17 @@
 # chat open (up to 30 min) and delivers the reply to the sender as a new message in the sender's own session
 # `swarmhub-from-<recipient>` ("[Reply from <recipient> via SwarmHub]"), which starts the sender's turn. Logged as
 # late-reply (from = the recipient, to = the sender). A message that is itself a delivered reply never gets one.
+#
+# Other accounts (ops/isolation): a bot that /etc/swarmhub/bots.json places in another unix account is reached through
+# `sudo -n /usr/local/lib/swarmhub/peer-bridge <held|durable|stream> <to> --from-profile <me>`, the text on stdin as
+# "<bytes>\n<text>"; this script never reads that bot's key. In a registered account the sender is that account's own
+# profile, whatever --from says. A --priority reply streams back through the bridge; ending the stdin holder cancels
+# it (no signal crosses a uid), and a late reply is delivered here, in this account, with this account's key.
+# Exit 77: the bridge refused the sender (also 2/64 from the bridge, as above).
 
 usage() { echo "usage: bot-msg --to <bot> [--from <bot>] [--held | --priority [--wait <seconds> | --no-wait]] -- \"<text>\"" >&2; exit 64; }
 
-TO= FROM= WAIT=300 NOWAIT= PRIORITY= NOREPLY= DURABLE= TASKID= STREAM_PID= RETRY_ATTEMPT=
+TO= FROM= WAIT=300 NOWAIT= PRIORITY= NOREPLY= DURABLE= TASKID= STREAM_PID= RETRY_ATTEMPT= SHARED=
 RUNTIME=$(dirname "$0")/peer-runtime.py
 if [ "${1:-}" = --retry ]; then
   exec python3 "$RUNTIME" start
@@ -39,6 +46,7 @@ while [ $# -gt 0 ]; do
     --no-reply) NOREPLY=1; shift ;;
     --durable) DURABLE=1; PRIORITY=1; shift ;;
     --retry-attempt) RETRY_ATTEMPT=1; shift ;;
+    --shared) SHARED=' (shared)'; shift ;;  # a durable retry of a message peer-bridge brought from the shared account
     --) shift; break ;;
     *) usage ;;
   esac
@@ -58,32 +66,56 @@ case $FROM in ''|*[!A-Za-z0-9_.-]*|.*) echo "bot-msg: --from must be a bot name 
 case $WAIT in ''|*[!0-9]*|0) echo "bot-msg: --wait must be a number of seconds" >&2; exit 64 ;; esac
 case $TASKID in *[!A-Za-z0-9_.-]*|.*) usage ;; esac
 if [ -n "$TASKID" ]; then python3 "$(dirname "$0")/swarmctl" active "$TASKID" || exit 125; fi
+
+# Where the target lives. Without a registry everything is local, as before; with one, `swarmctl route` says
+# local | bridge | none, plus this account's own registry slug and gateway port when it is a registered bot.
+ROUTE=local SELF= SELFPORT=
+BRIDGE=${SWARMHUB_PEER_BRIDGE:-/usr/local/lib/swarmhub/peer-bridge}
+if [ -f "${SWARMHUB_REGISTRY:-/etc/swarmhub/bots.json}" ]; then
+  set -- $(python3 "$(dirname "$0")/swarmctl" route "$TO" 2>/dev/null)
+  ROUTE=${1:-local} SELF=${2:-} SELFPORT=${3:-}
+  [ "$SELF" = - ] && SELF=
+  case $SELFPORT in *[!0-9]*) SELFPORT= ;; esac
+  [ "$ROUTE" = bridge ] && [ -n "$SELF" ] && FROM=$SELF
+fi
+# held/durable into another account: the bridge runs the recipient's own skill there. The text never enters argv.
+bridge_pipe() {
+  { printf '%s' "$TEXT" | wc -c | tr -d ' '; printf '%s' "$TEXT"; } | "${SWARMHUB_SUDO:-sudo}" -n "$BRIDGE" "$1" "$TO" --from-profile "$FROM"
+}
+bridge_once() { bridge_pipe "$1"; exit $?; }
+
 if [ -n "$DURABLE" ]; then
+  [ "$ROUTE" = bridge ] && bridge_once durable
   exec python3 "$(dirname "$0")/swarmctl" enqueue "$FROM" "$TO" "$TASKID" "$TEXT"
 fi
 
 # Held is the default. No HTTP request, session creation or model turn until the recipient's next turn.
 if [ -z "$PRIORITY" ]; then
+  [ "$ROUTE" = bridge ] && bridge_once held
   if [ "$TO" != default ] && [ ! -d "$HOME/.hermes/profiles/$TO" ]; then echo "bot-msg: no bot named $TO on this box" >&2; exit 2; fi
   exec python3 "$RUNTIME" hold "$FROM" "$TO" "$TEXT" "$TASKID"
 fi
 
 H=$HOME/.hermes
 if [ "$TO" = default ]; then ENVF=$H/.env; else ENVF=$H/profiles/$TO/.env; fi
-if [ "$TO" != default ] && [ ! -d "$H/profiles/$TO" ]; then echo "bot-msg: no bot named $TO on this box" >&2; exit 2; fi
+if [ "$ROUTE" != bridge ] && [ "$TO" != default ] && [ ! -d "$H/profiles/$TO" ]; then echo "bot-msg: no bot named $TO on this box" >&2; exit 2; fi
 
 # Value of NAME= in the .env ($2, else $ENVF; last one wins; optional quotes and a trailing CR dropped).
 env_value() {
   sed -n "s/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}$1=//p" "${2:-$ENVF}" 2>/dev/null | tail -n 1 | tr -d '\r' |
     sed -e 's/^"\(.*\)"[[:space:]]*$/\1/' -e "s/^'\\(.*\\)'[[:space:]]*\$/\\1/" -e 's/[[:space:]]*$//'
 }
-KEY=$(env_value API_SERVER_KEY)
-[ -n "$KEY" ] || { echo "bot-msg: $TO has no API_SERVER_KEY in its .env" >&2; exit 2; }
-case $KEY in *[\"\\]*|*[[:space:]]*) echo "bot-msg: $TO's API_SERVER_KEY is not usable" >&2; exit 2 ;; esac
+if [ "$ROUTE" != bridge ]; then
+  KEY=$(env_value API_SERVER_KEY)
+  [ -n "$KEY" ] || { echo "bot-msg: $TO has no API_SERVER_KEY in its .env" >&2; exit 2; }
+  case $KEY in *[\"\\]*|*[[:space:]]*) echo "bot-msg: $TO's API_SERVER_KEY is not usable" >&2; exit 2 ;; esac
+fi
 
-# The gateway URL of bot $1 whose .env is $2: $SWARMHUB_GATEWAY/p/<bot>, else its own API_SERVER_PORT, else :8642/p/<bot>.
+# The gateway URL of bot $1 whose .env is $2: $SWARMHUB_GATEWAY/p/<bot>, else this registered account's own gateway
+# port for its own profile, else its own API_SERVER_PORT, else :8642/p/<bot>.
 gateway_url() {
   if [ -n "${SWARMHUB_GATEWAY:-}" ]; then base=${SWARMHUB_GATEWAY%/}; prefixed=1
+  elif [ -n "$SELF" ] && [ -n "$SELFPORT" ] && [ "$1" = "$SELF" ]; then base=http://127.0.0.1:$SELFPORT; prefixed=1
   else
     port=$(env_value API_SERVER_PORT "$2")
     case $port in ''|*[!0-9]*) base=http://127.0.0.1:8642; prefixed=1 ;; *) base=http://127.0.0.1:$port; prefixed= ;; esac
@@ -91,7 +123,7 @@ gateway_url() {
   base=${base%/v1}
   if [ -n "$prefixed" ] && [ "$1" != default ]; then echo "$base/p/$1"; else echo "$base"; fi
 }
-URL=$(gateway_url "$TO" "$ENVF")
+[ "$ROUTE" = bridge ] || URL=$(gateway_url "$TO" "$ENVF")
 
 SID=swarmhub-from-$FROM
 S=$H/swarmhub
@@ -134,25 +166,37 @@ api() {
 queue_unreachable() {
   # No chat was submitted yet, so admission to the retry queue cannot repeat an
   # already-running model action. --durable journals before *any* network I/O.
-  if [ -z "$RETRY_ATTEMPT" ]; then
+  # Across accounts the queue is the recipient's own (bridge durable), which retries once its gateway is back; a
+  # task-bound message is not queued there, because that account cannot see this one's task being stopped.
+  if [ -n "$RETRY_ATTEMPT" ]; then return; fi
+  if [ "$ROUTE" = bridge ]; then
+    [ -z "$TASKID" ] && receipt=$(bridge_pipe durable 2>/dev/null) &&
+      echo "bot-msg: unreachable; $receipt (not delivered)" >&2
+  else
     receipt=$(python3 "$(dirname "$0")/swarmctl" enqueue "$FROM" "$TO" "$TASKID" "$TEXT") &&
       echo "bot-msg: unreachable; $receipt (not delivered)" >&2
   fi
 }
-TITLE=$(printf 'From %s' "$FROM" | json_string)
-printf '{"id":"%s","title":%s,"source":"api_server"}' "$SID" "$TITLE" > "$T/create.json"
-code=$(api "$T/create.out" --max-time 20 -X POST --data-binary @"$T/create.json" "$URL/api/sessions")
-case $code in
-  200|201|409) ;;
-  000) echo "bot-msg: the gateway for $TO did not answer: $(head -n 1 "$T/curl.err")" >&2; queue_unreachable; finish 3 ;;
-  502|503|504) echo "bot-msg: the gateway for $TO answered HTTP $code" >&2; queue_unreachable; finish 3 ;;
-  401|403) echo "bot-msg: the gateway for $TO refused its key (HTTP $code)" >&2; finish 3 ;;
-  *) echo "bot-msg: the gateway for $TO answered HTTP $code" >&2; finish 3 ;;
-esac
+# Session-create answers ($1 = HTTP status; nothing was submitted yet). Returns only for a usable session.
+created() {
+  case $1 in
+    200|201|409) ;;
+    000) echo "bot-msg: the gateway for $TO did not answer: $(head -n 1 "$T/curl.err")" >&2; queue_unreachable; finish 3 ;;
+    502|503|504) echo "bot-msg: the gateway for $TO answered HTTP $1" >&2; queue_unreachable; finish 3 ;;
+    401|403) echo "bot-msg: the gateway for $TO refused its key (HTTP $1)" >&2; finish 3 ;;
+    *) echo "bot-msg: the gateway for $TO answered HTTP $1" >&2; finish 3 ;;
+  esac
+}
+# Across accounts the bridge creates the session and builds the input itself (sender and prefix included).
+if [ "$ROUTE" != bridge ]; then
+  TITLE=$(printf 'From %s' "$FROM" | json_string)
+  printf '{"id":"%s","title":%s,"source":"api_server"}' "$SID" "$TITLE" > "$T/create.json"
+  created "$(api "$T/create.out" --max-time 20 -X POST --data-binary @"$T/create.json" "$URL/api/sessions")"
 
-{ printf '[Message from %s via SwarmHub]\n' "$FROM"; printf '%s\n' "$TEXT"; } | json_string > "$T/input"
-{ printf '{"input":'; cat "$T/input"; printf '}'; } > "$T/chat.json"
-rm -f "$T/input"
+  { printf '[Message from %s via SwarmHub%s]\n' "$FROM" "$SHARED"; printf '%s\n' "$TEXT"; } | json_string > "$T/input"
+  { printf '{"input":'; cat "$T/input"; printf '}'; } > "$T/chat.json"
+  rm -f "$T/input"
+fi
 
 # A message that is itself a delivered reply never gets a follow-up (no loops).
 FOLLOW=1
@@ -245,10 +289,10 @@ deliver_late() {
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TO" "$FROM" "swarmhub-from-$TO" late-reply $(( $(now_ms) - START )) "$word" >> "$S/bot-messages.log"
 }
 
-if [ -n "$NOWAIT" ] && [ -z "$FOLLOW" ] && [ -z "$TASKID" ]; then
+if [ -n "$NOWAIT" ] && [ -z "$FOLLOW" ] && [ -z "$TASKID" ] && [ "$ROUTE" != bridge ]; then
   # The run goes on in the background; its reply lands in the thread.
   KEYLINE=$(printf 'header = "Authorization: Bearer %s"' "$KEY")
-  ( printf '%s\n' "$KEYLINE" | curl -sS -K - -o /dev/null --max-time 3600 -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+  ( trap '' HUP; printf '%s\n' "$KEYLINE" | curl -sS -K - -o /dev/null --max-time 3600 -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
       -X POST --data-binary @"$T/chat.json" "$URL/api/sessions/$SID/chat/stream" > /dev/null 2>&1 ) < /dev/null &
   # curl reads the body at start; give it a moment before the folder goes.
   sleep 1
@@ -259,32 +303,90 @@ fi
 # The chat runs in the background into $F (stream, HTTP status, curl exit). Whoever creates $F/decided first decides
 # who handles the reply: this side while it still waits, else the background, which delivers it as a late reply.
 F=$(mktemp -d "${TMPDIR:-/tmp}/bot-msg-late.XXXXXX") || finish 1
-chmod 700 "$F"; cp "$T/chat.json" "$F/chat.json"
-KEYLINE=$(printf 'header = "Authorization: Bearer %s"' "$KEY")
-(
-  printf '%s\n' "$KEYLINE" | curl -sS -K - -o "$F/stream" -w '%{http_code}' --max-time 1800 -N -H 'Content-Type: application/json' \
-    -H 'Accept: text/event-stream' -X POST --data-binary @"$F/chat.json" "$URL/api/sessions/$SID/chat/stream" > "$F/code" 2> "$F/curl.err" &
-  curl_pid=$!
-  if [ -n "$TASKID" ]; then
-    ( while kill -0 "$curl_pid" 2>/dev/null; do
-        if [ -f "$S/cancelled/$TASKID" ]; then kill -TERM "$curl_pid" 2>/dev/null; break; fi
-        sleep 0.2
-      done ) < /dev/null > /dev/null 2>&1 &
-    cancel_pid=$!
-  fi
-  wait "$curl_pid"; echo $? > "$F/rc"
-  [ -n "${cancel_pid:-}" ] && kill "$cancel_pid" 2>/dev/null
-  if ! mkdir "$F/decided" 2>/dev/null; then
-    [ -n "$FOLLOW" ] && deliver_late
-    rm -rf "$F"
-  fi
-) < /dev/null > /dev/null 2>&1 &
-STREAM_PID=$!
+chmod 700 "$F"
+if [ "$ROUTE" = bridge ]; then
+  # The bridge (as the recipient) streams the chat into $F/stream; its last stderr line, "bridge: http=<code>
+  # rc=<rc>", becomes $F/code and $F/rc as curl's would. Its stdin stays open through the holder, which is ours: ending
+  # it, or this process tree dying, closes the pipe and the bridge stops (EOF = cancel).
+  MAXT=${SWARMHUB_PEER_MAX_TIME:-1800}
+  case $MAXT in ''|*[!0-9]*|0) MAXT=1800 ;; esac
+  [ "$MAXT" -gt 1800 ] && MAXT=1800
+  printf '%s' "$TEXT" > "$F/text"
+  mkfifo "$F/in" || finish 1
+  (
+    trap '' HUP  # The caller's terminal closing (exit 124, --no-wait) must not end the stream or its late reply.
+    "${SWARMHUB_SUDO:-sudo}" -n "$BRIDGE" stream "$TO" --from-profile "$FROM" --max-time "$MAXT" < "$F/in" > "$F/stream" 2> "$F/bridge.err" &
+    bridge_pid=$!
+    ( wc -c < "$F/text" | tr -d ' '; cat "$F/text"; exec sleep $((MAXT + 60)) ) > "$F/in" &
+    holder_pid=$!
+    if [ -n "$TASKID" ]; then
+      ( while [ ! -e "$F/brc" ]; do
+          if [ -f "$S/cancelled/$TASKID" ]; then kill -TERM "$holder_pid" 2>/dev/null; break; fi
+          sleep 0.2
+        done ) < /dev/null > /dev/null 2>&1 &
+      cancel_pid=$!
+    fi
+    wait "$bridge_pid"; echo $? > "$F/brc"
+    kill -TERM "$holder_pid" 2>/dev/null
+    [ -n "${cancel_pid:-}" ] && kill "$cancel_pid" 2>/dev/null
+    line=$(grep '^bridge: http=' "$F/bridge.err" | tail -n 1)
+    case $line in
+      *' stage=create'*) : > "$F/stage" ;;
+    esac
+    if [ -n "$line" ]; then code=${line#*http=}; code=${code%% *}; rc=${line#*rc=}; rc=${rc%% *}
+    else code=000; rc=$(cat "$F/brc"); fi
+    grep -v -e '^bridge: http=' -e '^bridge: session ok' "$F/bridge.err" > "$F/curl.err"
+    echo "$code" > "$F/code"; echo "$rc" > "$F/rc"
+    if ! mkdir "$F/decided" 2>/dev/null; then
+      [ -n "$FOLLOW" ] && deliver_late
+      rm -rf "$F"
+    fi
+  ) < /dev/null > /dev/null 2>&1 &
+  STREAM_PID=$!
+else
+  cp "$T/chat.json" "$F/chat.json"
+  KEYLINE=$(printf 'header = "Authorization: Bearer %s"' "$KEY")
+  (
+    trap '' HUP  # As above: a closing terminal must not end the chat or its late reply.
+    printf '%s\n' "$KEYLINE" | curl -sS -K - -o "$F/stream" -w '%{http_code}' --max-time 1800 -N -H 'Content-Type: application/json' \
+      -H 'Accept: text/event-stream' -X POST --data-binary @"$F/chat.json" "$URL/api/sessions/$SID/chat/stream" > "$F/code" 2> "$F/curl.err" &
+    curl_pid=$!
+    if [ -n "$TASKID" ]; then
+      ( while kill -0 "$curl_pid" 2>/dev/null; do
+          if [ -f "$S/cancelled/$TASKID" ]; then kill -TERM "$curl_pid" 2>/dev/null; break; fi
+          sleep 0.2
+        done ) < /dev/null > /dev/null 2>&1 &
+      cancel_pid=$!
+    fi
+    wait "$curl_pid"; echo $? > "$F/rc"
+    [ -n "${cancel_pid:-}" ] && kill "$cancel_pid" 2>/dev/null
+    if ! mkdir "$F/decided" 2>/dev/null; then
+      [ -n "$FOLLOW" ] && deliver_late
+      rm -rf "$F"
+    fi
+  ) < /dev/null > /dev/null 2>&1 &
+  STREAM_PID=$!
+fi
 
 if [ -n "$NOWAIT" ]; then
-  mkdir "$F/decided"
-  echo "$SID"
-  finish 0
+  if [ "$ROUTE" = bridge ]; then
+    # As on the local path, a refusal, an unknown bot or an unreachable gateway is an exit code, not a silent drop:
+    # wait until the bridge has opened the session or ended (and then for the background's decision).
+    n=0
+    while [ ! -e "$F/brc" ] && ! grep -q '^bridge: session ok' "$F/bridge.err" 2>/dev/null && [ $n -lt 125 ]; do
+      sleep 0.2; n=$((n + 1))
+    done
+    n=0
+    while [ -e "$F/brc" ] && [ ! -d "$F/decided" ] && [ $n -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+  fi
+  if mkdir "$F/decided" 2>/dev/null; then echo "$SID"; finish 0; fi
+  # The chat already ended and the background left it to this side: a reply still arrives as a late one; an error
+  # falls through and is reported like a waited send.
+  if [ "$(cat "$F/code" 2>/dev/null)" = 200 ] && [ "$(cat "$F/rc" 2>/dev/null)" = 0 ]; then
+    echo "$SID"
+    ( trap '' HUP; [ -n "$FOLLOW" ] && deliver_late; rm -rf "$F" ) < /dev/null > /dev/null 2>&1 &
+    finish 0
+  fi
 fi
 
 n=0 limit=$(( WAIT * 5 ))
@@ -298,6 +400,15 @@ if mkdir "$F/decided" 2>/dev/null; then
   finish 124
 fi
 code=$(cat "$F/code" 2>/dev/null)
+if [ "$ROUTE" = bridge ]; then
+  cp "$F/curl.err" "$T/curl.err" 2>/dev/null
+  brc=$(cat "$F/brc" 2>/dev/null)
+  # No status line: the bridge refused (77), found no such bot or key (2) or was misused (64), before any request.
+  if [ "$code" = 000 ] && [ "$(cat "$F/rc" 2>/dev/null)" = "$brc" ] && { [ "$brc" = 2 ] || [ "$brc" = 64 ] || [ "$brc" = 77 ]; }; then
+    rm -rf "$F"; echo "bot-msg: $(head -n 1 "$T/curl.err" 2>/dev/null)" >&2; finish "$brc"
+  fi
+  if [ -e "$F/stage" ]; then rm -rf "$F"; created "$code"; finish 3; fi
+fi
 if [ "$(cat "$F/rc" 2>/dev/null)" != 0 ] && [ "$code" != 200 ]; then code=000; cp "$F/curl.err" "$T/curl.err" 2>/dev/null; fi
 case $code in
   200) ;;
