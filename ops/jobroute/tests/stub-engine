@@ -1,0 +1,5 @@
+#!/bin/sh
+# Test engine: prints its argv and the sha256 of the brief it got on stdin. Runs nothing else.
+echo "stub-engine argv: $*"
+printf 'stub-engine brief sha256: '
+sha256sum | cut -d' ' -f1

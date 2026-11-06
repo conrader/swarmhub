@@ -1,0 +1,34 @@
+#!/usr/bin/python3 -IB
+"""Test stub for sb-codejob: records argv, env and stdin, writes a status file, never runs a job.
+
+STUB_RECORD   directory for call records (required)
+STUB_WORKROOT sb-codejob WORKROOT (required)
+STUB_PID      pid written into the status file (default: none -> job reads as "lost"/done)
+STUB_FAIL     exit 1 without printing a status line
+"""
+import datetime, json, os, pathlib, sys, uuid
+
+argv = sys.argv[1:]
+rec_dir = pathlib.Path(os.environ["STUB_RECORD"])
+data = sys.stdin.buffer.read()
+name = uuid.uuid4().hex
+(rec_dir / f"{name}.json").write_text(json.dumps({"argv": argv, "env": dict(os.environ), "cwd": os.getcwd()}))
+(rec_dir / f"{name}.stdin").write_bytes(data)
+if os.environ.get("STUB_FAIL"):
+    sys.exit(1)
+agent = argv[argv.index("--agent") + 1]
+label = argv[argv.index("--label") + 1]
+d = pathlib.Path(os.environ["STUB_WORKROOT"]) / agent
+d.mkdir(parents=True, exist_ok=True)
+ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+n, stem = 1, f"{ts}-{label}"
+while (d / f"{stem}.json").exists():
+    n += 1
+    stem = f"{ts}-{label}-{n}"
+pid = int(os.environ["STUB_PID"]) if os.environ.get("STUB_PID") else None
+cmd = argv[argv.index("--") + 1:]
+(d / f"{stem}.json").write_text(json.dumps({
+    "tool": "sb-codejob", "agent": agent, "pid": pid, "cmd": cmd, "started": ts,
+    "ended": None if pid else ts, "exit_code": None if pid else 0, "minutes": 0.0,
+    "primary_tool": cmd[0], "model": None, "review": "none", "wake": "dormant"}))
+print(f"status {d / (stem + '.json')}\nlog    {d / (stem + '.log')}\npid    {pid or 4242}")
