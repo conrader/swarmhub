@@ -48,19 +48,27 @@ enum AppOnlyLine {
     static let orientationGaveUp = LineTemplate("", " could not be reached for 24 h, so it was not given an orientation.")
     // P37's review card while it waits (it is `presentation: .review`, which is the card's tag from its first build).
     static let reviewing = LineTemplate("", " is reviewing this reply…")
+    // backlog11: `insertNote` lines. A default model that was skipped (app name, model, reason), and a compacted resend.
+    static let modelNotApplied = LineTemplate("", "'s default model ", " was not applied: ", " This chat runs on the agent default.")
+    /// The same note before P17 (2026-10-14) said "box default"; saved rows may still carry it. Never rendered.
+    static let modelNotAppliedBoxDefault = LineTemplate("", "'s default model ", " was not applied: ", " This chat runs on the box default.")
+    static let compacted = LineTemplate("Conversation was compacted to fit the model; your message was sent again.")
 
     /// Every template an untagged saved row is matched against. A row `connected` matches also covers the combined
     /// "Connected A. Couldn’t connect B; …" line.
     static let legacy: [LineTemplate] = [created, couldNotReach, couldNotSee, connected, couldNotConnect, nothingConnected,
-                                         keyRestored, keyRestoreFailed, orientationGaveUp, reviewing]
+                                         keyRestored, keyRestoreFailed, orientationGaveUp, reviewing,
+                                         modelNotApplied, modelNotAppliedBoxDefault, compacted]
 
     static func line(_ text: String) -> ChatMessage { ChatMessage(role: .system, content: text, metadata: [key: "1"]) }
 
     /// Rows the app wrote for the user only: backlog7's reconcile notes, tagged lines, review and bot-work/bot-message
-    /// cards (their `presentation` is saved with them), and untagged lines saved before the tag.
+    /// cards (their `presentation` is saved with them), P39's "Waiting" line (backlog11: one a crash left behind), and
+    /// untagged lines saved before the tag.
     static func isAppOnly(_ row: ChatMessage) -> Bool {
         if ReconcileNote.isNote(row) || row.metadata[key] != nil { return true }
         guard row.role == .system else { return false }
+        if row.metadata[TurnWaitCopy.key] == "line" { return true }
         if row.presentation == .review || row.presentation == .botMessage { return true }
         return row.presentation == .text && !IntentLine.matches(row.content) && legacy.contains { $0.matches(row.content) }
     }

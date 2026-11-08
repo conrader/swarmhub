@@ -53,7 +53,7 @@ extension AppStore {
     /// D3: an override stops the send; a default is skipped with one note and `modelError`.
     private func skipModel(_ choice: ModelChoice, origin: LockOrigin, bot: Bot, reason: String, note: (String) -> Void) throws {
         if origin == .bot { throw ModelRefusal(text: "\(choice.model), this bot's model, was not applied: \(reason) Nothing was sent.") }
-        let text = "\(AppConstants.name)'s default model \(choice.model) was not applied: \(reason) This chat runs on the agent default."
+        let text = AppOnlyLine.modelNotApplied.render(AppConstants.name, choice.model, reason)
         note(text)
         botInfo.finishSwitch(botID: bot.id, error: text)
     }
@@ -68,11 +68,12 @@ extension AppStore {
     }
 
     /// Inserts a system note just before `assistant` (native turns send only the last user message, so notes never
-    /// reach Hermes); one identical note is not repeated back to back.
+    /// reach Hermes); one identical note is not repeated back to back. backlog11: the legacy completions path sends every
+    /// history row, so a note is an app-only line (`AppOnlyLine`), never model-bound history.
     func insertNote(_ text: String, in conversation: any Conversation, before assistant: ChatMessage) {
         guard conversation.messages.last(where: { $0.role == .system })?.content != text else { return }
         let index = conversation.messages.firstIndex { $0.id == assistant.id } ?? conversation.messages.endIndex
-        conversation.messages.insert(ChatMessage(role: .system, content: text), at: index)
+        conversation.messages.insert(AppOnlyLine.line(text), at: index)
         objectWillChange.send()
     }
 

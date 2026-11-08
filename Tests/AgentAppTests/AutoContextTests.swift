@@ -278,6 +278,9 @@ private let failedManager = "SWARMHUB_DEV_FAILED:grok-jarvis/swarmhub-manager\n"
     #expect(jarvis.hermesSessionID == "s-main")
     #expect(jarvis.messages.contains { $0.content == TurnErrorCopy.compacted })
     #expect(jarvis.messages.last { $0.role == .assistant }?.content == "Done.")
+    // backlog11: the note is an app-only line, never model-bound history.
+    #expect(jarvis.messages.contains { $0.content == TurnErrorCopy.compacted && $0.metadata[AppOnlyLine.key] == "1" })
+    #expect(!store.chatHistory(jarvis, excluding: ChatMessage(role: .assistant, content: "")).contains { $0.content == TurnErrorCopy.compacted })
     #expect(noSlashAdvice(jarvis) && store.errorMessage == nil)
 }
 

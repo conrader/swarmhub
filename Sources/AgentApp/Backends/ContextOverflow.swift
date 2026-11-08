@@ -63,7 +63,7 @@ enum ContextOverflow {
 enum TurnErrorCopy {
     static let compacting = "Conversation is too long, compacting…"
     static let startingNew = "Continuing in a new session…"
-    static let compacted = "Conversation was compacted to fit the model; your message was sent again."
+    static let compacted = AppOnlyLine.compacted.render()
     static let newSession = "Conversation continued in a new session (history kept above); your message was sent again."
     static let newSessionNotSent = "Conversation continued in a new session (history kept above). Some steps of that reply had already run, so your message was not sent again; send it again if you still need it."
     static let tooLong = "This message is too long for the model even in a fresh session. Try a shorter message, or a model with a bigger context window."

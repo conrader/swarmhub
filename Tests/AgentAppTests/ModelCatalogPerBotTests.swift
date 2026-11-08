@@ -75,6 +75,9 @@ private let beta = ModelChoice(provider: "lab-one", model: "model-beta")!
     #expect(achilles.hermesModelLock == nil && lines(state).last == "POST /p/grok-achilles/api/sessions/agentapp_\(achilles.id.uuidString.lowercased())/chat/stream")
     let note = "\(AppConstants.name)'s default model model-beta was not applied: model-beta isn't offered by this agent. This chat runs on the agent default."
     #expect(achilles.messages.filter { $0.role == .system }.map(\.content) == [note])
+    // backlog11: the note is an app-only line, never model-bound history.
+    #expect(achilles.messages.filter { $0.role == .system }.allSatisfy { $0.metadata[AppOnlyLine.key] == "1" && AppOnlyLine.isAppOnly($0) })
+    #expect(!store.chatHistory(achilles, excluding: ChatMessage(role: .assistant, content: "")).contains { $0.content == note })
     await store.loadModelRoles()
     #expect(store.modelRoles().offerSummary(beta) == "Offered by 2 of 3 agents; not by Achilles")
 }
