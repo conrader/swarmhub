@@ -228,7 +228,7 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
 | `tests/test_jobroute_p2.py` | pre-launch exec trust check, reservation before launch (killed/timed-out launch recovery), audited misconfigured profile |
 | `tests/test_jobroute_p3.py` | intermediate symlink targets and parent trust, audited refusals, relative targets, loops and missing targets |
 | `tests/test_installer_p2.py` | full undo after a real submit, stale `install-state.new` |
-| `tests/test_mac_queue_fixtures.py` | `mac-worker.py` as a real subprocess against a fixture `sb-macjob` with one flock'd queue: two queued submissions, runner failure/refusal/signal, result propagation through `mac-dispatch` (local ssh stand-in) to job `status` |
+| `tests/test_mac_queue_fixtures.py` | `mac-worker.py` as a real subprocess against a fixture `sb-macjob` with one flock'd queue: two queued submissions, runner failure/refusal/signal, a hung job or queue snapshot stopped at its deadline (TERM, then KILL after the grace) while the waiter behind it runs, result propagation through `mac-dispatch` (local ssh stand-in) to job `status` |
 | `tests/test_check_hermes_tools.py` | the tool check, locally and through a fake `ssh` |
 | `tests/sandbox_ssh.sh` | throwaway sshd in the sandbox: real ssh client against the production options string |
 | `tests/run-sandbox.sh` | runs both, each as `sudo -u sbtest -- unshare -r -p -f --mount-proc …` |

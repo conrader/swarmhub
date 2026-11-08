@@ -89,6 +89,12 @@ uses the host's default shared FIFO directory and gives the job a fresh private 
 checkout is exposed. Mini is denied without an explicit profile allowlist entry. `queue` reads the selected host's
 `sb-macjob queue --json` without flushing wakes.
 
+A job cannot hold the shared queue forever: the worker passes `--queue-wait 7200` and bounds the whole call at
+2 h queue wait + 4 h run. At that deadline it sends TERM, so sb-macjob stops the job's process group and still
+sends its wake; a runner still alive 120 s later is KILLed. The call then exits 124 (job `outcome: failure`,
+`signal: null`) and stderr says `Mac worker: stopped at its 21600 s limit`. `queue` is bounded at 60 s the same way.
+The limits are constants in `mac-worker.py`; no request field changes them.
+
 This deliberately uses the shell execution equivalent of `sb-mac-task --shell` rather than that program's
 LaunchAgent path: the inspected sb-mac-task bypasses sb-macjob, which would bypass the queue. A future sb change can
 put the same runner around its LaunchAgent command. The worker is **not** installed by the ovh route installer.
