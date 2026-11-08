@@ -13,12 +13,18 @@ import sys
 import tempfile
 
 
+def _status(proc):
+    # sb-codejob and jobroute read death by signal n as exit 128+n; exiting with -n would report 256-n.
+    code = proc.returncode
+    return 128 - code if code < 0 else code
+
+
 def run(request, home=None, execute=subprocess.run):
     home = Path(home or Path.home())
     env = {'HOME': str(home), 'PATH': f'{home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin',
            'SB_MACJOB_QUEUE': '1'}
     if request.get('operation') == 'queue' and set(request) == {'operation', 'agent'}:
-        return execute([str(home / '.local/bin/sb-macjob'), 'queue', '--json'], env=env, check=False).returncode
+        return _status(execute([str(home / '.local/bin/sb-macjob'), 'queue', '--json'], env=env, check=False))
     if set(request) != {'operation', 'agent', 'label', 'brief'} or request['operation'] != 'macjob':
         raise ValueError('invalid request')
     for key, rx in [('agent', r'[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}'), ('label', r'[A-Za-z0-9][A-Za-z0-9_-]{0,39}')]:
@@ -33,9 +39,9 @@ def run(request, home=None, execute=subprocess.run):
     with tempfile.TemporaryDirectory(prefix=request['label'] + '-', dir=root) as folder:
         with tempfile.TemporaryFile() as stream:
             stream.write(brief.encode()); stream.seek(0)
-            return execute([str(home / '.local/bin/sb-macjob'), '--agent', request['agent'], '--label', request['label'],
+            return _status(execute([str(home / '.local/bin/sb-macjob'), '--agent', request['agent'], '--label', request['label'],
                 '--workdir', folder, '--', str(home / '.local/bin/claude'), '-p', '--permission-mode', 'acceptEdits'],
-                stdin=stream, env=env, check=False).returncode
+                stdin=stream, env=env, check=False))
 
 
 if __name__ == '__main__':
