@@ -105,16 +105,16 @@ extension AppStore {
                 let outcome = try await activeBackend.requestStop(target)
                 let feedback: String
                 switch outcome {
-                case .requested: feedback = "Stop requested from \(server)."
-                case .disconnectedLegacy: feedback = bot.backend == .openClaw ? "Stopped locally; this OpenClaw Gateway does not offer chat.abort." : "Stopped locally; this Hermes version has no run-control endpoint."
-                case .noActiveRun: feedback = "Stopped locally before \(server) supplied a run ID."
+                case .requested: feedback = IntentLine.stopRequested.render(server)
+                case .disconnectedLegacy: feedback = (bot.backend == .openClaw ? IntentLine.stoppedNoAbort : IntentLine.stoppedNoRunControl).render()
+                case .noActiveRun: feedback = IntentLine.stoppedBeforeRunID.render(server)
                 }
                 insertStopLine(feedback, in: conversation, after: stoppedAssistantID)
             } catch {
                 taskToCancel?.cancel()
-                insertStopLine("\(server) Stop failed: \(error.localizedDescription)", in: conversation, after: stoppedAssistantID)
+                insertStopLine(IntentLine.stopFailed.render(server, error.localizedDescription), in: conversation, after: stoppedAssistantID)
                 if isCurrent(streamToken) {
-                    errorMessage = "\(server) Stop failed: \(error.localizedDescription)"
+                    errorMessage = IntentLine.stopFailed.render(server, error.localizedDescription)
                 }
             }
             save()

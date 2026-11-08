@@ -22,7 +22,7 @@ extension AppStore {
                 try await approvalBackend.resolveApproval(approval, approved: approved)
                 approvals.removeAll { $0.id == approval.id }
                 appendAudit(to: bot, approval: approval, outcome: approved ? .approved : .denied, decidedBy: "user", reason: "User chose " + (approved ? "approve." : "deny."))
-                approvalConversation(approval, bot: bot).messages.append(ChatMessage(role: .system, content: approved ? "Approved: \(approval.title)" : "Declined: \(approval.title)")); objectWillChange.send(); save()
+                approvalConversation(approval, bot: bot).messages.append(ChatMessage(role: .system, content: (approved ? IntentLine.approved : IntentLine.declined).render(approval.title))); objectWillChange.send(); save()
             } catch { errorMessage = error.localizedDescription }
         }
     }

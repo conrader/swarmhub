@@ -230,14 +230,14 @@ extension AppStore {
             bot.hermesBaseURL = manager.hermesBaseURL
             if let avatar { bot.avatarMark = avatar }
             bots.append(bot); removeSampleBots()
-            notice("\(manager.name) created \(bot.name)", in: manager)
+            notice(AppOnlyLine.created.render(manager.name, bot.name), in: manager)
             // P49: a bot the manager really created orients itself once.
             if orient {
                 recordConnectors([.creationUnreported], for: bot)
                 queueOrientation(bot)
             }
         case .rejected, .unreachable:
-            notice("Couldn’t reach \(name) yet", in: manager)
+            notice(AppOnlyLine.couldNotReach.render(name), in: manager)
         }
     }
 
@@ -310,8 +310,8 @@ extension AppStore {
         }
     }
 
-    /// A small line in the manager's chat.
+    /// A small line in the manager's chat. backlog10: app-only, never model-bound history (`AppOnlyLine`).
     func notice(_ text: String, in bot: Bot) {
-        bot.messages.append(ChatMessage(role: .system, content: text)); objectWillChange.send(); save()
+        bot.messages.append(AppOnlyLine.line(text)); objectWillChange.send(); save()
     }
 }

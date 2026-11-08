@@ -16,6 +16,11 @@ import Testing
                     ChatMessage(role: .system, content: ReconcileNote.diverged),
                     ReconcileNote.line(ReconcileNote.uncertainQueuePrefix + "queued text"),
                     ChatMessage(role: .system, content: ReconcileNote.uncertainQueuePrefix + "older queued text"),
+                    // backlog10: the other app-only rows, tagged and as saved before the tag.
+                    AppOnlyLine.line(AppOnlyLine.created.render("Fixture Mgr", "Fixture Scout")),
+                    ChatMessage(role: .system, content: OrientationCopy.gaveUp("Fixture Scout")),
+                    ChatMessage(role: .system, content: AppOnlyLine.reviewing.render("Fixture Rev"), presentation: .review),
+                    ChatMessage(role: .system, content: BotMessageCopy.arrival(from: "Fixture Sender", to: "Fixture Scout"), presentation: .botMessage),
                     ChatMessage(role: .user, content: "now")]
     return (store, bot)
 }
@@ -37,6 +42,7 @@ import Testing
     let messages = try #require(body["messages"] as? [[String: Any]])
     let wire = String(decoding: try JSONSerialization.data(withJSONObject: messages), as: UTF8.self)
     #expect(!wire.contains("not merged") && !wire.contains("Queued message delivery"))
+    #expect(!wire.contains("Fixture"), "backlog10: no notice, orientation, review or bot card text")
     #expect(messages.filter { $0["role"] as? String == "system" }.count == 1, "only the persona")
     #expect(messages.count == 4)
 }

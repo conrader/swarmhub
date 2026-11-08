@@ -23,7 +23,7 @@ extension AppStore {
         guard reply.role == .assistant, !bot.isReadOnlyArchive, let (rule, reviewer) = reviewRule(for: reply, from: bot) else { return nil }
         let summary = ReviewSummary(reply: reply)
         let why = rule.trigger == .botMessage && !(rule.botMessageTo ?? "").isEmpty ? "sent a bot message to \(rule.botMessageTo!)" : "finished \(rule.trigger.title)"
-        let card = ChatMessage(role: .system, content: "\(reviewer.name) is reviewing this reply…", createdAt: now(), presentation: .review,
+        let card = ChatMessage(role: .system, content: AppOnlyLine.reviewing.render(reviewer.name), createdAt: now(), presentation: .review,
                                metadata: [ReviewKey.reviewer: reviewer.id.uuidString, ReviewKey.state: "pending", ReviewKey.reply: reply.id.uuidString,
                                           ReviewKey.rule: rule.id.uuidString, ReviewKey.why: why])
         let index = conversation.messages.firstIndex { $0.id == reply.id }.map { $0 + 1 } ?? conversation.messages.endIndex

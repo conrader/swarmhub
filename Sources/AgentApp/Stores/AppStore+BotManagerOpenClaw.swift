@@ -28,12 +28,12 @@ extension AppStore {
     /// `bot_created` from an OpenClaw manager: bind the new agent, then apply its description and avatar.
     func createOpenClawBot(name: String, description: String, avatar: AvatarMark?, manager: Bot) async {
         guard let bot = await bindListedAgent(name, manager: manager) else {
-            notice("Couldn’t see \(name) yet", in: manager); return
+            notice(AppOnlyLine.couldNotSee.render(name), in: manager); return
         }
         if !description.isEmpty { bot.botDescription = description }
         if let avatar { bot.avatarMark = avatar }
         recordConnectors([.creationUnreported], for: bot)
-        notice("\(manager.name) created \(bot.name)", in: manager)
+        notice(AppOnlyLine.created.render(manager.name, bot.name), in: manager)
     }
 
     /// "Add" on an offer from an OpenClaw manager's `bots` list: binds directly (no key flow).

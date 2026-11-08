@@ -62,12 +62,12 @@ enum BoxCopy {
     static let mainBotKey = "The box’s main bot needs its own key (it is never changed): paste it under Add bots from box."
     static func adopted(added: [String], failed: [String]) -> String {
         var lines: [String] = []
-        if !added.isEmpty { lines.append("Connected \(names(added)).") }
-        if !failed.isEmpty { lines.append("Couldn’t connect \(names(failed)); they are listed under “not connected”.") }
-        return lines.isEmpty ? "Nothing was connected." : lines.joined(separator: " ")
+        if !added.isEmpty { lines.append(AppOnlyLine.connected.render(names(added))) }
+        if !failed.isEmpty { lines.append(AppOnlyLine.couldNotConnect.render(names(failed))) }
+        return lines.isEmpty ? AppOnlyLine.nothingConnected.render() : lines.joined(separator: " ")
     }
-    static func restored(_ name: String) -> String { "\(name)’s old key is back on the box; \(name) is no longer connected here." }
-    static func restoreFailed(_ name: String) -> String { "Couldn’t restore \(name)’s old key; nothing changed here." }
+    static func restored(_ name: String) -> String { AppOnlyLine.keyRestored.render(name, name) }
+    static func restoreFailed(_ name: String) -> String { AppOnlyLine.keyRestoreFailed.render(name) }
     static let restoreButton = "Restore this bot’s old key"
     static var restoreCaption: String { "\(AppConstants.name) connected this bot by giving it a new key (its old key file was backed up on the box). Restoring puts the old key back and disconnects it here." }
 

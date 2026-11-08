@@ -12,7 +12,7 @@ enum OrientationCopy {
     static let enabledKey = "orientationEnabled"
     /// The collapsed user row of the orientation turn.
     static let display = "Orientation"
-    static func gaveUp(_ name: String) -> String { "\(name) could not be reached for 24 h, so it was not given an orientation." }
+    static func gaveUp(_ name: String) -> String { AppOnlyLine.orientationGaveUp.render(name) }
 }
 
 /// P49: a bot that was really created (the manager's `createBot`, a Grok import that makes a new bot) orients itself once:
@@ -57,7 +57,7 @@ extension AppStore {
         guard orientationPending(bot), let queued = bot.orientationQueuedAt, !orientationRun.inFlight.contains(bot.id) else { return }
         if now().timeIntervalSince(queued) >= OrientationRunState.giveUpAfter {
             bot.orientedAt = now(); bot.orientationQueuedAt = nil
-            bot.messages.append(ChatMessage(role: .system, content: OrientationCopy.gaveUp(bot.name)))
+            bot.messages.append(AppOnlyLine.line(OrientationCopy.gaveUp(bot.name)))
             objectWillChange.send(); save(); return
         }
         guard !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly, !needsKey(bot), !turns.pathDown, isIdle(bot), !hasWaitingTurn(in: bot) else { return }
