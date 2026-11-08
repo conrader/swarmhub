@@ -176,7 +176,9 @@ private func untagged(_ text: String) -> ChatMessage { ChatMessage(role: .system
     let body = try #require(ChatParityServer.requests(host).first { $0.path == "/v1/chat/completions" }?.body)
     let messages = try #require(body["messages"] as? [[String: Any]])
     let contents = messages.compactMap { $0["content"] as? String }
-    for text in preBacklog10Lines { #expect(!contents.contains { $0.contains(text) }, "on the wire: \(text)") }
+    // Whole rows: two intent lines quote an app-only line's words on purpose and must still go.
+    for text in preBacklog10Lines { #expect(!contents.contains(text), "on the wire: \(text)") }
+    #expect(!contents.contains { $0.contains("history was not merged") || $0.contains("could not be reached for 24 h") || $0.contains("is reviewing this reply") })
     #expect(!contents.contains { $0.contains("fixture-sender-b10") || $0.contains("wrote to") })
     let systems = messages.filter { $0["role"] as? String == "system" }.compactMap { $0["content"] as? String }
     #expect(systems.count == 1 + intentLines.count && Array(systems.dropFirst()) == intentLines, "the persona, then only the intent lines")
