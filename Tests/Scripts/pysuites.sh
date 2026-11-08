@@ -1,5 +1,5 @@
 #!/bin/bash
-# The Python suites (updater, sim) of a worktree, each in its own log that ends with the command's OWN exit code (no
+# The Python suites (updater, sim, release) of a worktree, each in its own log that ends with the command's OWN exit code (no
 # pipe between the command and $?). Exits with the first failing suite's code, 0 only when every suite passed: a
 # failure is never masked by a later suite, a log line or the final echo (recsfix3).
 #
@@ -26,4 +26,6 @@ run() {
 }
 run updater.log "python3 -B -m unittest discover -s Tests/Updater -p 'test_*.py'"
 run sim.log "cd sim && python3 -B -m unittest discover -v -p 'test_*.py'"
+# The release scripts' suites, among them the bundle layout's pins against the bundled skill versions (backlog8).
+run release.log "python3 -B -m unittest discover -s scripts -p 'test_release_*.py'"
 exit "$status"

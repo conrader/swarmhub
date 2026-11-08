@@ -11,15 +11,16 @@ tmp=$(mktemp -d) || exit 2
 trap 'rm -rf "$tmp"' EXIT
 fails=0
 mkdir -p "$tmp/src/sim" "$tmp/src/Tests/Updater" "$tmp/bin"
-# The runner stub: the sim suite's command has `cd sim`; anything else is the updater suite.
+# The runner stub: the sim suite's command has `cd sim`, the release suite's `-s scripts`; anything else is the updater suite.
 cat > "$tmp/runner.sh" <<'STUB'
 #!/bin/bash
-case "$*" in *"cd sim"*) exit "${SIM_EXIT:-0}" ;; *) exit "${UPDATER_EXIT:-0}" ;; esac
+case "$*" in *"cd sim"*) exit "${SIM_EXIT:-0}" ;; *"-s scripts"*) exit "${RELEASE_EXIT:-0}" ;; *) exit "${UPDATER_EXIT:-0}" ;; esac
 STUB
-# The python3 stub for the run without a runner: in sim/ it is the sim suite.
+# The python3 stub for the run without a runner: in sim/ it is the sim suite, with `-s scripts` the release suite.
 cat > "$tmp/bin/python3" <<'STUB'
 #!/bin/bash
-case "$PWD" in */sim) exit "${SIM_EXIT:-0}" ;; *) exit "${UPDATER_EXIT:-0}" ;; esac
+case "$PWD" in */sim) exit "${SIM_EXIT:-0}" ;; esac
+case "$*" in *"-s scripts"*) exit "${RELEASE_EXIT:-0}" ;; *) exit "${UPDATER_EXIT:-0}" ;; esac
 STUB
 chmod +x "$tmp/runner.sh" "$tmp/bin/python3"
 
@@ -44,5 +45,7 @@ check both-fail-first-code 4 4 1 "$tmp/runner.sh"
 check killed-suite 137 0 137 "$tmp/runner.sh"
 check no-runner-sim-fails nonzero 0 1
 check no-runner-all-pass 0 0 0
+RELEASE_EXIT=5 check release-fails 5 0 0 "$tmp/runner.sh"
+RELEASE_EXIT=6 check no-runner-release-fails 6 0 0
 [ "$fails" -eq 0 ] && echo "PYSUITES TEST: PASS" || echo "PYSUITES TEST: FAIL ($fails)"
 [ "$fails" -eq 0 ]
