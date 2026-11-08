@@ -21,6 +21,8 @@ from test_swap_commands import env  # noqa: E402,F401 (fixture: macjob/queue ena
 
 SRC = Path(__file__).resolve().parents[1]
 WORKER = '.local/lib/swarmhub/mac-worker.py'
+# Worker copies with second-scale limits: a job deadline of QUEUE_WAIT + RUN_LIMIT = 3 s.
+SHORT = {'QUEUE_WAIT': 1, 'RUN_LIMIT': 2, 'GRACE': 3, 'QUEUE_LIMIT': 1}
 
 RUNNER = r'''#!/usr/bin/python3 -I
 import fcntl, json, os, signal, subprocess, sys, time
@@ -42,6 +44,9 @@ mode = open(mode_file).read().strip() if os.path.exists(mode_file) else ''
 if mode == 'refuse':
     print('fixture sb-macjob: runner unavailable', file=sys.stderr); sys.exit(75)
 argv = sys.argv[1:]
+if argv == ['queue', '--json'] and mode == 'queue-hang':
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    time.sleep(30)
 if argv == ['queue', '--json']:
     ev = events()
     started = [e['label'] for e in ev if e['ev'] == 'start']
@@ -50,16 +55,27 @@ if argv == ['queue', '--json']:
     print(json.dumps({'holder': holder[0] if holder else None,
                       'waiting': [e['label'] for e in ev if e['ev'] == 'enqueue' and e['label'] not in started]}))
     sys.exit(0)
-if len(argv) < 8 or argv[0:7:2] != ['--agent', '--label', '--workdir', '--']:
+if len(argv) < 10 or argv[0:9:2] != ['--agent', '--label', '--workdir', '--queue-wait', '--']:
     print('fixture sb-macjob: bad argv', file=sys.stderr); sys.exit(64)
-label, workdir, cmd = argv[3], argv[5], argv[7:]
-log(ev='enqueue', label=label, agent=argv[1], workdir=workdir, env=sorted(os.environ))
+label, workdir, queue_wait, cmd = argv[3], argv[5], int(argv[7]), argv[9:]
+log(ev='enqueue', label=label, agent=argv[1], workdir=workdir, queue_wait=queue_wait, env=sorted(os.environ))
+child = None
+def stop(signum, frame):
+    # Like sb-macjob: TERM stops the job's whole process group, then the runner exits 143.
+    if child is not None:
+        os.killpg(child.pid, signal.SIGKILL)   # no child.wait(): the interrupted wait holds its lock
+    log(ev='stopped', label=label)
+    sys.exit(143)
+signal.signal(signal.SIGTERM, signal.SIG_IGN if mode == 'stubborn' else stop)
 lock = open(os.path.join(qdir, 'lock'), 'w')
 fcntl.flock(lock, fcntl.LOCK_EX)              # FIFO-by-lock: one job at a time
 log(ev='start', label=label)
 if mode == 'kill':
     os.kill(os.getpid(), signal.SIGKILL)
-rc = subprocess.run(cmd, cwd=workdir).returncode
+# A stubborn runner's job outlives its KILL; keep it off the worker's pipes so they still close.
+quiet = {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL} if mode == 'stubborn' else {}
+child = subprocess.Popen(cmd, cwd=workdir, start_new_session=True, **quiet)
+rc = child.wait()
 log(ev='end', label=label, rc=rc)
 sys.exit(rc)
 '''
@@ -101,12 +117,22 @@ def _exe(path, text):
     return path
 
 
-def mac_home(root):
+def install_worker(home, path=WORKER, **limits):
+    """The real worker; `limits` swaps its operator constants (e.g. RUN_LIMIT=1) in this copy only."""
+    text = (SRC / 'mac-worker.py').read_text()
+    for name, value in limits.items():
+        line = next(x for x in text.splitlines() if x.startswith(name + ' = '))
+        assert text.count(line + '\n') == 1
+        text = text.replace(line + '\n', f'{name} = {value!r}\n')
+    return _exe(home / path, text)
+
+
+def mac_home(root, **limits):
     """Scratch Mac HOME with the worker installed where mac-dispatch's ssh command expects it."""
     home = root / 'mac'
     _exe(home / '.local/bin/sb-macjob', RUNNER)
     _exe(home / '.local/bin/claude', CLAUDE)
-    _exe(home / WORKER, (SRC / 'mac-worker.py').read_text())
+    install_worker(home, **limits)
     (home / '.sb-macjob').mkdir(exist_ok=True)
     return home
 
@@ -129,8 +155,8 @@ def caller_env(home):
             'SB_MACJOB_QUEUE_DIR': str(home / 'second-queue')}
 
 
-def start(home, req):
-    p = subprocess.Popen([str(home / WORKER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+def start(home, req, worker=WORKER):
+    p = subprocess.Popen([str(home / worker)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE, env=caller_env(home), cwd=home)
     p.stdin.write(req if isinstance(req, bytes) else json.dumps(req).encode())
     p.stdin.close()
@@ -239,6 +265,65 @@ def test_missing_runner_is_a_refusal(tmp_path):
     assert (rc, out, err) == (2, '', 'Mac worker refused request\n')
 
 
+def test_worker_passes_its_queue_wait_and_keeps_production_limits(tmp_path):
+    home = mac_home(tmp_path)
+    assert run_worker(home, request('plain', 'brief'))[0] == 0
+    [enq] = [e for e in events(home) if e['ev'] == 'enqueue']
+    text = (SRC / 'mac-worker.py').read_text()
+    # The shipped constants: 2 h queue wait (sb-macjob's own cap) + 4 h run, TERM then KILL 2 min later.
+    for line in ('QUEUE_WAIT = 7200\n', 'RUN_LIMIT = 14400\n', 'GRACE = 120\n', 'QUEUE_LIMIT = 60\n'):
+        assert text.count(line) == 1
+    assert enq['queue_wait'] == 7200
+
+
+def test_hung_job_is_stopped_at_its_deadline_and_the_waiting_job_runs(tmp_path):
+    home = mac_home(tmp_path, **SHORT)
+    # The waiting job comes through a worker copy with production limits, so only the hung one times out.
+    install_worker(home, '.local/lib/swarmhub/patient-worker.py')
+    t0 = time.monotonic()
+    a = start(home, request('hung', 'hold forever'))
+    wait_for(home, ('start', 'hung'))
+    b = start(home, request('waiting', 'next'), '.local/lib/swarmhub/patient-worker.py')
+    wait_for(home, ('enqueue', 'waiting'))
+    rc_a, out_a, err_a = finish(a)
+    took = time.monotonic() - t0
+    rc_b, out_b, _ = finish(b)
+    assert (rc_a, out_a) == (124, '') and 'Mac worker: stopped at its 3 s limit' in err_a
+    assert 2.5 < took < 3 + SHORT['GRACE'], took   # TERM worked: no wait for the KILL grace
+    assert (rc_b, out_b) == (0, 'result waiting ok\n')
+    order = [x for x in seen(home) if x[0] in ('start', 'stopped', 'end')]
+    assert order == [('start', 'hung'), ('stopped', 'hung'), ('start', 'waiting'), ('end', 'waiting')]
+    assert_single_queue(home)
+    assert not list((home / 'work/swarmhub-jobs').iterdir())
+
+
+def test_runner_that_ignores_term_is_killed_after_the_grace(tmp_path):
+    home = mac_home(tmp_path, **SHORT)
+    (home / '.sb-macjob/mode').write_text('stubborn')
+    t0 = time.monotonic()
+    try:
+        rc, out, err = run_worker(home, request('stubborn', 'hold forever'))
+        took = time.monotonic() - t0
+    finally:
+        (home / 'release').touch()   # ends the fixture claude the KILLed runner left behind
+    assert (rc, out) == (124, '') and 'stopped at its 3 s limit' in err
+    assert 3 + SHORT['GRACE'] - 0.5 < took < 3 + SHORT['GRACE'] + 5, took
+    assert ('stopped', 'stubborn') not in seen(home)
+    (home / '.sb-macjob/mode').unlink()
+    (home / 'release').unlink()
+    assert run_worker(home, request('after', 'brief'))[0] == 0   # the KILLed runner released the queue
+    assert_single_queue(home)
+
+
+def test_hung_queue_snapshot_is_stopped_at_its_limit(tmp_path):
+    home = mac_home(tmp_path, **SHORT)
+    (home / '.sb-macjob/mode').write_text('queue-hang')
+    t0 = time.monotonic()
+    rc, out, err = run_worker(home, {'operation': 'queue', 'agent': 'Admin'})
+    assert (rc, out) == (124, '') and 'stopped at its 1 s limit' in err
+    assert time.monotonic() - t0 < 1 + SHORT['GRACE']
+
+
 @pytest.mark.parametrize('raw', [
     b'not json',
     json.dumps({**request('x', 'brief'), 'workdir': '/tmp'}).encode(),
@@ -252,8 +337,8 @@ def test_rejected_request_never_reaches_the_runner(tmp_path, raw):
     assert (rc, out, err) == (2, '', 'Mac worker refused request\n') and not events(home)
 
 
-def route_with_mac(env):
-    home = mac_home(env.tmp)
+def route_with_mac(env, **limits):
+    home = mac_home(env.tmp, **limits)
     route = Route(str(env.cfg), 'grok-admin')
     route.backends['mac_dispatch'] = str(dispatcher(env.tmp / 'bin', home))
     return route, home
@@ -273,9 +358,10 @@ def test_queue_snapshot_propagates_through_route_and_dispatch(env):
     ('exit 3', '', 3, 'failure', None),
     ('Shell task', 'refuse', 75, 'failure', None),
     ('Shell task', 'kill', 128 + signal.SIGKILL, 'failure', signal.SIGKILL),
+    ('hold', 'limit', 124, 'failure', None),
 ])
 def test_job_result_propagates_to_job_status(env, brief, mode, code, outcome, sig):
-    route, home = route_with_mac(env)
+    route, home = route_with_mac(env, **(SHORT if mode == 'limit' else {}))
     if mode:
         (home / '.sb-macjob/mode').write_text(mode)
     out = route.command('cli', 'macjob', {'host': 'macbook', 'label': 'mac-check', 'brief': brief})
@@ -296,6 +382,8 @@ def test_job_result_propagates_to_job_status(env, brief, mode, code, outcome, si
     rc, [st] = env.run(f"status job={out['job_id']}")
     [job] = st['jobs']
     assert rc == 0 and (job['exit_code'], job['outcome'], job['signal']) == (code, outcome, sig)
+    if mode == 'limit':
+        assert b'stopped at its 3 s limit' in p.stderr and ('stopped', 'mac-check') in seen(home)
     if mode == 'refuse':
         assert not list(home.rglob('lock')) and not briefs(home)
     else:

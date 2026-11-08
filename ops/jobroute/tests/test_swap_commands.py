@@ -155,11 +155,14 @@ def test_mac_worker_uses_shared_runner_and_fixed_shell_argv(tmp_path):
     spec = importlib.util.spec_from_file_location('mac_worker', Path(__file__).parents[1]/'mac-worker.py')
     worker = importlib.util.module_from_spec(spec); spec.loader.exec_module(worker)
     calls=[]
-    def execute(argv, **kw):
-        calls.append((argv,kw)); assert kw['stdin'].read() == b'hello $(id)'; return SimpleNamespace(returncode=0)
+    def execute(argv, limit, **kw):
+        calls.append((argv,limit,kw)); assert kw['stdin'].read() == b'hello $(id)'; return SimpleNamespace(returncode=0)
     assert worker.run({'operation':'macjob','agent':'Admin','label':'task','brief':'hello $(id)'}, tmp_path, execute) == 0
-    argv, kw = calls[0]
+    argv, limit, kw = calls[0]
     assert argv[0].endswith('/sb-macjob') and '--workdir' in argv and argv[-3:] == ['-p','--permission-mode','acceptEdits']
+    # The worker bounds the whole call: sb-macjob's queue wait (passed explicitly) plus the run limit.
+    assert argv[argv.index('--queue-wait') + 1] == str(worker.QUEUE_WAIT) and argv.index('--queue-wait') < argv.index('--')
+    assert limit == worker.QUEUE_WAIT + worker.RUN_LIMIT == 6 * 3600
     assert kw['env']['SB_MACJOB_QUEUE']=='1' and 'SB_MACJOB_QUEUE_DIR' not in kw['env']
 
 

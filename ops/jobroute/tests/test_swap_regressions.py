@@ -93,8 +93,9 @@ def test_mac_queue_matches_installed_wrapper_and_helper_parser(tmp_path):
     spec.loader.exec_module(worker)
     calls = []
 
-    def execute(argv, **kwargs):
+    def execute(argv, limit, **kwargs):
         calls.append(argv)
+        assert limit == worker.QUEUE_LIMIT == 60
         assert argv[:2] == [str(tmp_path / '.local/bin/sb-macjob'), 'queue']
         # Installed sb-macjob prepends QUEUE_DIR before delegating to job_process.py.
         parsed = queue_parser().parse_args([str(tmp_path / 'fixture-queue'), *argv[2:]])
