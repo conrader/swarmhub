@@ -48,9 +48,9 @@ extension AppStore {
                     try journal().put(with(record, state: .removed), kind: Self.nextMessageKind, id: record.id.uuidString); continue
                 }
                 if record.state == .submitting || record.state == .uncertain {
-                    let warning = "Queued message delivery is uncertain after restart. Refresh server history before sending again: " + record.text
+                    let warning = ReconcileNote.uncertainQueuePrefix + record.text
                     if !conversation.messages.contains(where: { $0.content == warning }) {
-                        conversation.messages.append(ChatMessage(role: .system, content: warning))
+                        conversation.messages.append(ReconcileNote.line(warning))
                     }
                     // Retain the text and operation ID durably; never silently replay an uncertain send.
                     try journal().put(with(record, state: .uncertain), kind: Self.nextMessageKind, id: record.id.uuidString)

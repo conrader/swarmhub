@@ -99,3 +99,18 @@ enum TurnKey {
     /// uxfix1: the connection dropped and the turn is reconnecting (or resending); the live line says "Reconnecting…".
     static let reconnecting = "reconnecting"
 }
+
+/// backlog7: an app-only line about how the box's history was reconciled. It is shown in the chat and never sent as
+/// history: the legacy `v1/chat/completions` path sends every history row, a `system` one included.
+enum ReconcileNote {
+    static let key = "reconcileNote"
+    static let diverged = "Hermes history was not merged because it diverges from this local conversation."
+    static let uncertainQueuePrefix = "Queued message delivery is uncertain after restart. Refresh server history before sending again: "
+
+    static func line(_ text: String) -> ChatMessage { ChatMessage(role: .system, content: text, metadata: [key: "1"]) }
+
+    /// Tagged rows, and untagged ones saved before the tag existed.
+    static func isNote(_ row: ChatMessage) -> Bool {
+        row.metadata[key] != nil || (row.role == .system && (row.content == diverged || row.content.hasPrefix(uncertainQueuePrefix)))
+    }
+}

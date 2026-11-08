@@ -141,9 +141,9 @@ extension AppStore {
             // (it lacks the turn) or unmatched box turns against only unsent rows (newerUnmatched) leave retry to decide.
             report.diverged = plan.diverged && snapshot.contains { $0.role == .assistant && !$0.isEmpty }
             report.notMerged = true
-            let note = "Hermes history was not merged because it diverges from this local conversation."
+            let note = ReconcileNote.diverged
             // App-only lines after it (e.g. why a handoff waits) do not make it new again.
-            if unit.conversation.messages.last(where: { $0.metadata[SlashKey.line] == nil })?.content != note { unit.conversation.messages.append(ChatMessage(role: .system, content: note)); report.changed = true }
+            if unit.conversation.messages.last(where: { $0.metadata[SlashKey.line] == nil })?.content != note { unit.conversation.messages.append(ReconcileNote.line(note)); report.changed = true }
             return
         }
         apply(plan, snapshot: snapshot, to: unit, report: &report)

@@ -177,6 +177,8 @@ private func boxRound(_ box: BoxSession, job: String, reply: String, at date: Da
     #expect(automation.loop?.runs == 0 && automation.loop?.timesLeft == 3, "nothing counted, nothing resumed")
     #expect(bot.messages.filter { $0.content == HandoffCopy.notReconciled(.loop) }.count == 1, "said once")
     #expect(bot.messages.filter { $0.content.hasPrefix("Hermes history was not merged") }.count == 1, "the reconcile's note too")
+    #expect(bot.messages.last { $0.content == ReconcileNote.diverged }?.metadata[ReconcileNote.key] == "1", "tagged as a reconcile note")
+    #expect(!store.chatHistory(bot, excluding: ChatMessage(role: .assistant, content: "")).contains { $0.content == ReconcileNote.diverged }, "never history")
     #expect(!bot.messages.contains { $0.content == HandoffCopy.loopRan(1) })
 }
 
