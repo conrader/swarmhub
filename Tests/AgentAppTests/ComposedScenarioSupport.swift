@@ -42,7 +42,9 @@ actor RetryGate {
 }
 
 /// A Hermes box behind `ChatParityServer` with `run_steer` on: setup sessions (`agentapp_setup_`) answer from
-/// `install`, every other session from `chat`, each in order. It records sessions created and deleted.
+/// `install`, every other session from `chat`, each in order. It records sessions created and deleted. Session history
+/// reads get 404 (as `AutoContextTests`' default): an empty transcript would contradict the turns it just answered and
+/// make the app's reconcile flag the chat as diverged.
 final class ComposedBox: @unchecked Sendable {
     let host: String, backend: HermesBackend, profile: String
     private let lock = NSLock()
@@ -72,7 +74,6 @@ final class ComposedBox: @unchecked Sendable {
         if path.hasSuffix("/steer") { return .json(200, ["accepted": true]) }
         if path == "/api/sessions", request.httpMethod == "POST" { return .json(201, ["session": ["id": body?["id"] as? String ?? "s-new"]]) }
         if request.httpMethod == "DELETE" { return .json(200, ["deleted": true]) }
-        if request.httpMethod == "GET", path.hasPrefix("/api/sessions/"), path.hasSuffix("/messages") { return .json(200, ["object": "list", "data": [Any]()]) }
         return .json(404, ["error": "no route"])
     }
 

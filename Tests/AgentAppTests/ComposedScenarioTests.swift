@@ -148,7 +148,9 @@ import Testing
         #expect(installRow.metadata[ContextKey.setup] == "1" && installRow.turnState == .notSent && store.canRetry(installRow))
         #expect(manager.installedSkills["swarmhub-manager"] == nil && manager.hermesSessionID == world.mainSession)
         #expect(world.managerHistory().map(\.content) == ["are you there?", "Still here."])
-        #expect(!manager.messages.contains { $0.content.contains("Service unavailable") })
+        // The failure is one inline warning line in the manager's chat (never the alert) and never history.
+        let warnings = manager.messages.filter { $0.role == .system && $0.metadata[TurnKey.tone] == "warning" }
+        #expect(!warnings.isEmpty && warnings.allSatisfy { warning in !world.managerHistory().contains { $0.content == warning.content } })
         #expect(world.noPopup(), "an install failure is never the alert")
     }
 }
