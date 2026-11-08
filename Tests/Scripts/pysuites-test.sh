@@ -10,17 +10,24 @@ script=$(cd "$(dirname "${1:-$here/pysuites.sh}")" && pwd)/$(basename "${1:-$her
 tmp=$(mktemp -d) || exit 2
 trap 'rm -rf "$tmp"' EXIT
 fails=0
-mkdir -p "$tmp/src/sim" "$tmp/src/Tests/Updater" "$tmp/bin"
-# The runner stub: the sim suite's command has `cd sim`, the release suite's `-s scripts`; anything else is the updater suite.
+mkdir -p "$tmp/src/sim" "$tmp/src/Tests/Updater" "$tmp/src/scripts" "$tmp/bin"
+: > "$tmp/src/scripts/test_stub.py"  # scripts.log needs a non-release test to list.
+# The runner stub: the sim suite's command has `cd sim`, the release suite's `-s scripts`, isolation and ops their
+# directories, scripts.log `PYTHONPATH=scripts`; anything else is the updater suite.
 cat > "$tmp/runner.sh" <<'STUB'
 #!/bin/bash
-case "$*" in *"cd sim"*) exit "${SIM_EXIT:-0}" ;; *"-s scripts"*) exit "${RELEASE_EXIT:-0}" ;; *) exit "${UPDATER_EXIT:-0}" ;; esac
+case "$*" in *"cd sim"*) exit "${SIM_EXIT:-0}" ;; *"-s scripts"*) exit "${RELEASE_EXIT:-0}" ;; esac
+case "$*" in *Tests/Isolation*) exit "${ISOLATION_EXIT:-0}" ;; *Tests/Ops*) exit "${OPS_EXIT:-0}" ;; esac
+case "$*" in *PYTHONPATH=scripts*) exit "${SCRIPTS_EXIT:-0}" ;; *) exit "${UPDATER_EXIT:-0}" ;; esac
 STUB
-# The python3 stub for the run without a runner: in sim/ it is the sim suite, with `-s scripts` the release suite.
+# The python3 stub for the run without a runner: in sim/ it is the sim suite, with `-s scripts` the release suite,
+# with PYTHONPATH=scripts the scripts suite.
 cat > "$tmp/bin/python3" <<'STUB'
 #!/bin/bash
 case "$PWD" in */sim) exit "${SIM_EXIT:-0}" ;; esac
-case "$*" in *"-s scripts"*) exit "${RELEASE_EXIT:-0}" ;; *) exit "${UPDATER_EXIT:-0}" ;; esac
+[ "${PYTHONPATH:-}" = scripts ] && exit "${SCRIPTS_EXIT:-0}"
+case "$*" in *"-s scripts"*) exit "${RELEASE_EXIT:-0}" ;; *Tests/Isolation*) exit "${ISOLATION_EXIT:-0}" ;; esac
+case "$*" in *Tests/Ops*) exit "${OPS_EXIT:-0}" ;; *) exit "${UPDATER_EXIT:-0}" ;; esac
 STUB
 chmod +x "$tmp/runner.sh" "$tmp/bin/python3"
 
@@ -47,5 +54,15 @@ check no-runner-sim-fails nonzero 0 1
 check no-runner-all-pass 0 0 0
 RELEASE_EXIT=5 check release-fails 5 0 0 "$tmp/runner.sh"
 RELEASE_EXIT=6 check no-runner-release-fails 6 0 0
+# backlog9: the isolation, ops and scripts suites, each failing alone, with and without a runner.
+ISOLATION_EXIT=7 check isolation-fails 7 0 0 "$tmp/runner.sh"
+OPS_EXIT=8 check ops-fails 8 0 0 "$tmp/runner.sh"
+SCRIPTS_EXIT=9 check scripts-fails 9 0 0 "$tmp/runner.sh"
+ISOLATION_EXIT=7 check no-runner-isolation-fails 7 0 0
+OPS_EXIT=8 check no-runner-ops-fails 8 0 0
+SCRIPTS_EXIT=9 check no-runner-scripts-fails 9 0 0
+# No non-release scripts test to list: scripts.log fails instead of running a bare `unittest` (whole-tree discovery).
+rm "$tmp/src/scripts/test_stub.py"
+check no-runner-scripts-empty-list nonzero 0 0
 [ "$fails" -eq 0 ] && echo "PYSUITES TEST: PASS" || echo "PYSUITES TEST: FAIL ($fails)"
 [ "$fails" -eq 0 ]

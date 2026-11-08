@@ -40,7 +40,10 @@ class GapTests(unittest.TestCase):
                               input=json.dumps(payload) if payload is not None else text, timeout=12)
 
     def newest_job(self):
-        return max((peer.state() / "job-completions").glob("job.*"), key=lambda p: p.stat().st_mtime)
+        # By the `ready` marker code-job writes once at the end, not the folder's mtime: the runtime's delivery sweep
+        # keeps writing attempts/next-attempt/delivered into OLDER job folders, which made the previous job look newest.
+        ready = (peer.state() / "job-completions").glob("job.*/ready")
+        return max(ready, key=lambda p: p.stat().st_mtime).parent
 
     def field(self, job, name):
         return (job / name).read_text().strip()
