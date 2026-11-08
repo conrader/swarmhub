@@ -74,7 +74,7 @@ private func untagged(_ text: String) -> ChatMessage { ChatMessage(role: .system
     store.insertNote(TurnErrorCopy.compacted, in: bot, before: assistant)
     #expect(bot.messages.map(\.content) == ["hi", preBacklog11Lines[0], TurnErrorCopy.compacted, ""])
     #expect(bot.messages.filter { $0.role == .system }.allSatisfy { $0.metadata[AppOnlyLine.key] == "1" })
-    #expect(history(store, bot).map(\.content) == ["hi"])
+    #expect(store.chatHistory(bot, excluding: assistant).map(\.content) == ["hi"])
 }
 
 @Test @MainActor func untaggedNotesSavedBeforeBacklog11AreNeverHistory() {
