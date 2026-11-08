@@ -25,6 +25,15 @@ SCHEMAS = {
     'report-jarvis': {'text'},
 }
 ID = re.compile(r'c[0-9a-f]{8}')
+# The queue call waits for mac-worker.py, which stops `sb-macjob queue` at its QUEUE_LIMIT (60 s,
+# mirrored here; a test pins the two together). The route must wait longer than that, or a slow
+# Mac is cut off by the route instead of answering through the worker's own limit. 30 s covers
+# ssh connect + auth + worker start on a slow link (mac-dispatch sets no ConnectTimeout); 15 s is
+# slack for the runner to exit after TERM and the reply to travel back. The worker's GRACE (120 s)
+# is not added: it is the KILL-after-TERM window for a runner that ignores TERM, not a normal path.
+MAC_QUEUE_LIMIT = 60
+QUEUE_TIMEOUT = MAC_QUEUE_LIMIT + 30 + 15
+BACKEND_TIMED_OUT = 'backend timed out; its outcome is unknown'
 
 
 def bounded_text(value, name, maximum=8192):
@@ -107,8 +116,12 @@ class Commands:
         # Output goes to a private file, bounded on read (never a pipe-sized memory allocation).
         import tempfile
         with tempfile.TemporaryFile() as out:
-            p = subprocess.run([cmd[0], *argv], input=data, stdout=out, stderr=subprocess.DEVNULL,
-                               env=env, cwd=cwd, timeout=timeout)
+            try:
+                p = subprocess.run([cmd[0], *argv], input=data, stdout=out, stderr=subprocess.DEVNULL,
+                                   env=env, cwd=cwd, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                # subprocess.run has already killed the backend. Fixed text, no traceback.
+                raise Refused(BACKEND_TIMED_OUT, 1) from None
             out.seek(0)
             text = out.read(16385).decode('utf-8', 'replace')
         if len(text.encode()) > 16384:
@@ -237,7 +250,7 @@ class Commands:
                     self.allowed_engines = old[1]
             # mac-dispatch exits 255 only when ssh fails (mac-worker.py never does): retry later.
             return {'ok': True, 'queue': json.loads(self.backend('mac_dispatch', [host], json.dumps(request).encode(),
-                failures={255: 'Mac host unreachable; retry later'}))}
+                timeout=QUEUE_TIMEOUT, failures={255: 'Mac host unreachable; retry later'}))}
         if op == 'report-jarvis':
             text = bounded_text(a.get('text'), 'text')
             # Use sb-codejob's authenticated wake transport, targeting Jarvis; never accept a URL/key.
