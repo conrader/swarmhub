@@ -303,7 +303,7 @@ class Commands(Flow):
         _, comps = self.release("v1")
         code, out = launch("apply", "--staged", str(self.stage(11, comps)))
         self.assertEqual((code, out["state"]), (0, "pending_confirm"), out)
-        self.assertEqual(out["pins"]["path"], str(prefix / "pins.json"))
+        self.assertEqual(Path(out["pins"]["path"]).resolve(), (prefix / "pins.json").resolve())
         code, out = launch("apply", "--version", "11", direct=False)  # re-executes itself isolated
         self.assertEqual((code, out["state"]), (0, "current"), out)
         self.assertFalse((self.tmp / "POISONED").exists())

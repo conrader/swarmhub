@@ -77,24 +77,30 @@ class TimerPullScope(MacCommand, PullCase):
         return [json.loads(line) for line in self.scopes.read_text().splitlines()] if self.scopes.exists() else []
 
     def test_the_timer_runs_the_install_in_a_scope_of_its_own(self):
-        self.assertEqual(self.land(INVOCATION_ID="0123456789abcdef0123456789abcdef"), [INSTALL + ["in-scope"]],
-                         "run by the timer, the install (and any supervisor it starts) is outside the updater's unit")
-        (scope,) = self.scope_calls()
-        separator = scope.index("--")
-        self.assertEqual(scope[:separator], ["--user", "--scope", "--quiet", "--collect",
-                                             "--description=Swarm Hub webhook receiver install"])
-        live = self.live(MESSAGES) / "scripts/swarmctl"
-        self.assertEqual(scope[separator + 1:], [sys.executable, "-B", str(live)] + INSTALL)
+        linux = sys.platform.startswith("linux")
+        self.assertEqual(self.land(INVOCATION_ID="0123456789abcdef0123456789abcdef"),
+                         [INSTALL + (["in-scope"] if linux else [])],
+                         "the Linux timer gets its own scope; macOS installs directly even with INVOCATION_ID")
+        if linux:
+            (scope,) = self.scope_calls()
+            separator = scope.index("--")
+            self.assertEqual(scope[:separator], ["--user", "--scope", "--quiet", "--collect",
+                                                 "--description=Swarm Hub webhook receiver install"])
+            live = self.live(MESSAGES) / "scripts/swarmctl"
+            self.assertEqual(scope[separator + 1:], [sys.executable, "-B", str(live)] + INSTALL)
+        else:
+            self.assertEqual(self.scope_calls(), [], "non-Linux hosts never invoke systemd-run")
         with mock.patch.dict(os.environ, {"INVOCATION_ID": "fedcba9876543210fedcba9876543210", "PATH": self.path}):
             self.assertEqual(self.pull(self.service.url)[1]["state"], "current")  # the timer's next, unchanged run
-        self.assertEqual(len(self.scope_calls()), 1, "nothing new landed: no second scope")
+        self.assertEqual(len(self.scope_calls()), 1 if linux else 0, "nothing new landed: no second scope")
         self.assertEqual(len(self.calls.read_text().splitlines()), 1, "nothing new landed: no second install")
         self.assert_hermes_unchanged()
 
     def test_without_a_scope_the_install_still_runs_directly(self):
         self.assertEqual(self.land(INVOCATION_ID="0123456789abcdef0123456789abcdef", SCOPE_FAILS="1"), [INSTALL],
                          "a user manager that refuses the scope leaves the direct install, as before")
-        self.assertEqual(len(self.scope_calls()), 1)
+        self.assertEqual(len(self.scope_calls()), 1 if sys.platform.startswith("linux") else 0,
+                         "Linux tries the scope before falling back; macOS never invokes systemd-run")
 
     def test_from_a_shell_the_install_is_not_wrapped(self):
         self.assertEqual(self.land(), [INSTALL], "outside a unit (an owner's `pull`, the Mac over SSH) nothing changes")
