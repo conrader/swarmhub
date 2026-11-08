@@ -159,7 +159,8 @@ class JobIndex:
         outcome: None until the job has ended, then "success" (exit 0 and, when the route asked
         for a report, a nonempty report file), "failure" (nonzero exit, including a signal),
         "missing_report" (exit 0 but the requested report is absent or empty) or "unknown"
-        (no integer exit code). A review verdict is reported separately and, like sb-codejob's
+        (no integer exit code). cause: why a macjob failed, when its exit code proves it
+        (MAC_CAUSES; mac-worker.py reserves those codes), else None. A review verdict is reported separately and, like sb-codejob's
         own exit code, never changes the outcome. Artifacts are checked by lstat only: a
         regular, nonempty, non-symlink file at the job's deterministic path; nothing is read."""
         exit_code = rec.get("exit_code")
@@ -182,9 +183,15 @@ class JobIndex:
             else:
                 outcome = "missing_report" if expected and not report else "success"
         verdict = rec.get("review_verdict")
-        return {"outcome": outcome, "signal": sig,
+        cause = MAC_CAUSES.get(exit_code) if outcome == "failure" and j.get("engine") == "macjob" else None
+        return {"outcome": outcome, "signal": sig, "cause": cause,
                 "review_verdict": verdict if verdict in ("PASS", "CONCERNS", "FAIL") else None,
                 "artifacts": {"log": log, "report": report, "report_expected": expected}}
+
+
+# mac-dispatch exits 255 only for ssh's own failure (the worker never exits 255) and 124 only when
+# mac-worker.py stopped the job at its deadline (a runner's own 124 is reported as 1).
+MAC_CAUSES = {255: "mac_connection_failed", 124: "timed_out"}
 
 
 def _artifact(path: pathlib.Path) -> bool:

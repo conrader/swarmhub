@@ -94,7 +94,7 @@ class Commands:
             return []
         return [json.loads(x) for x in self.command_index.read_text().splitlines()]
 
-    def backend(self, name, argv, data=b'', cwd=None, timeout=60):
+    def backend(self, name, argv, data=b'', cwd=None, timeout=60, failures=None):
         from jobroute_core import Refused
         binary = self.backends.get(name)
         if not isinstance(binary, str):
@@ -114,7 +114,8 @@ class Commands:
         if len(text.encode()) > 16384:
             raise Refused('backend output exceeds limit', 1)
         if p.returncode:
-            raise Refused('backend failed; inspect the private backend ledger', 1)
+            # `failures` names exit codes whose meaning the backend guarantees (fixed text only).
+            raise Refused((failures or {}).get(p.returncode, 'backend failed; inspect the private backend ledger'), 1)
         return text
 
     def approval(self, ident):
@@ -234,7 +235,9 @@ class Commands:
                     else:
                         self.engines['macjob'] = old[0]
                     self.allowed_engines = old[1]
-            return {'ok': True, 'queue': json.loads(self.backend('mac_dispatch', [host], json.dumps(request).encode()))}
+            # mac-dispatch exits 255 only when ssh fails (mac-worker.py never does): retry later.
+            return {'ok': True, 'queue': json.loads(self.backend('mac_dispatch', [host], json.dumps(request).encode(),
+                failures={255: 'Mac host unreachable; retry later'}))}
         if op == 'report-jarvis':
             text = bounded_text(a.get('text'), 'text')
             # Use sb-codejob's authenticated wake transport, targeting Jarvis; never accept a URL/key.

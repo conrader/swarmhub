@@ -11,5 +11,9 @@ a = json.loads(raw)
 if a.get('operation') not in ('queue', 'macjob'):
     raise SystemExit(2)
 # Host aliases and worker path are operator-controlled SSH config/install, never client data.
-raise SystemExit(subprocess.run(['/usr/bin/ssh', '-T', '-oBatchMode=yes', '-oStrictHostKeyChecking=yes',
-    '-oUpdateHostKeys=no', '--', sys.argv[1], '.local/lib/swarmhub/mac-worker.py'], input=raw).returncode)
+# The worker never exits 255 or reports its runner's 124 as-is, so here 255 is ssh's own code:
+# no connection, or the connection dropped (jobroute: cause "mac_connection_failed").
+code = subprocess.run(['/usr/bin/ssh', '-T', '-oBatchMode=yes', '-oStrictHostKeyChecking=yes',
+    '-oUpdateHostKeys=no', '--', sys.argv[1], '.local/lib/swarmhub/mac-worker.py'], input=raw).returncode
+# Death of ssh by signal n is 128+n, the convention sb-codejob and jobroute read (not 256-n).
+raise SystemExit(128 - code if code < 0 else code)

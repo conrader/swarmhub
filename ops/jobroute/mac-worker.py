@@ -20,13 +20,24 @@ QUEUE_WAIT = 7200
 RUN_LIMIT = 14400
 QUEUE_LIMIT = 60
 GRACE = 120
-TIMED_OUT = 124  # GNU timeout's code; jobroute reports it as outcome "failure" with signal null
+TIMED_OUT = 124  # GNU timeout's code; jobroute reports outcome "failure", cause "timed_out"
+# Codes this worker reserves. ssh exits 255 when it cannot connect or the connection drops, so a
+# 255 the route sees must never come from the Mac side; 124 must only mean "stopped at the limit".
+# The runner's own 255 or 124 is reported as RESERVED_SUBSTITUTE, and stderr keeps the real code.
+SSH_FAILED = 255
+RESERVED_SUBSTITUTE = 1
 
 
 def _status(proc):
+    if getattr(proc, 'timed_out', False):
+        return TIMED_OUT
     # sb-codejob and jobroute read death by signal n as exit 128+n; exiting with -n would report 256-n.
     code = proc.returncode
-    return 128 - code if code < 0 else code
+    code = 128 - code if code < 0 else code
+    if code in (TIMED_OUT, SSH_FAILED):
+        print(f'Mac worker: the runner exited {code}; reported as {RESERVED_SUBSTITUTE}', file=sys.stderr)
+        return RESERVED_SUBSTITUTE
+    return code
 
 
 def _bounded(argv, limit, **kw):
@@ -44,7 +55,7 @@ def _bounded(argv, limit, **kw):
         proc.kill()
         proc.wait()
     print(f'Mac worker: stopped at its {limit} s limit', file=sys.stderr)
-    proc.returncode = TIMED_OUT
+    proc.timed_out = True
     return proc
 
 
