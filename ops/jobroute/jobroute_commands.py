@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import signal
 import subprocess
 import time
 from zoneinfo import ZoneInfo
@@ -43,6 +44,36 @@ BACKEND_TIMED_OUT = 'backend timed out; its outcome is unknown'
 MAC_UNREACHABLE = 'Mac host unreachable; retry later'
 MAC_QUEUE_TIMED_OUT = 'Mac worker timed out waiting for the queue; retry later'
 QUEUE_FAILURES = {255: MAC_UNREACHABLE, 124: MAC_QUEUE_TIMED_OUT}
+# On a route timeout the backend gets SIGTERM, then SIGKILL after this many seconds.
+BACKEND_KILL_GRACE = 2
+
+
+def _signal_group(pgid, sig):
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        pass
+
+
+def run_group(argv, *, input, stdout, env, cwd, timeout):
+    """subprocess.run in its own session; on timeout (or any error) end the whole group.
+    subprocess.run alone kills only mac-dispatch, so its ssh child would run on until the remote
+    worker ended (backlog17). TERM first so ssh can close the connection, KILL what remains."""
+    proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=stdout, stderr=subprocess.DEVNULL,
+                            env=env, cwd=cwd, start_new_session=True)
+    try:
+        proc.communicate(input, timeout=timeout)
+    except BaseException:
+        _signal_group(proc.pid, signal.SIGTERM)
+        try:
+            proc.wait(timeout=BACKEND_KILL_GRACE)
+        except subprocess.TimeoutExpired:
+            pass
+        # Even when mac-dispatch obeyed TERM, a child may not have: KILL the rest of the group.
+        _signal_group(proc.pid, signal.SIGKILL)
+        proc.wait()
+        raise
+    return subprocess.CompletedProcess(argv, proc.returncode)
 
 
 def bounded_text(value, name, maximum=8192):
@@ -126,10 +157,9 @@ class Commands:
         import tempfile
         with tempfile.TemporaryFile() as out:
             try:
-                p = subprocess.run([cmd[0], *argv], input=data, stdout=out, stderr=subprocess.DEVNULL,
-                                   env=env, cwd=cwd, timeout=timeout)
+                p = run_group([cmd[0], *argv], input=data, stdout=out, env=env, cwd=cwd, timeout=timeout)
             except subprocess.TimeoutExpired:
-                # subprocess.run has already killed the backend. Fixed text, no traceback.
+                # run_group has already ended the backend's whole process group. Fixed text.
                 raise Refused(BACKEND_TIMED_OUT, 1) from None
             out.seek(0)
             text = out.read(16385).decode('utf-8', 'replace')

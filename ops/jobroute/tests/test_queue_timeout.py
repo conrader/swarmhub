@@ -32,7 +32,7 @@ def stand_in(env, name, body):
 
 
 def recording_run(seen, raise_timeout):
-    """Replace subprocess.run inside jobroute_commands: record the timeout, then time out or answer."""
+    """Replace jobroute_commands.run_group: record the timeout, then time out or answer."""
     def run(argv, **kw):
         seen.append((argv, kw['timeout']))
         if raise_timeout:
@@ -60,7 +60,7 @@ def test_real_backend_timeout_is_fixed_refusal(env):
 
 def test_queue_timeout_is_audited_as_refusal(env, monkeypatch):
     route = route_with_dispatch(env)
-    monkeypatch.setattr(commands.subprocess, 'run', recording_run([], raise_timeout=True))
+    monkeypatch.setattr(commands, 'run_group', recording_run([], raise_timeout=True))
     with pytest.raises(Refused, match='^backend timed out; its outcome is unknown$'):
         route.command('mcp', 'queue', {})
     last = env.audit()[-1]
@@ -68,13 +68,12 @@ def test_queue_timeout_is_audited_as_refusal(env, monkeypatch):
 
 
 DRIVER = r"""
-import importlib.machinery, importlib.util, subprocess, sys, types
+import importlib.machinery, importlib.util, subprocess, sys
 sys.path.insert(0, sys.argv[1])
 import jobroute_commands
 def run(argv, **kw):                      # the backend outlives its timeout
     raise subprocess.TimeoutExpired(argv, kw['timeout'])
-jobroute_commands.subprocess = types.SimpleNamespace(run=run, TimeoutExpired=subprocess.TimeoutExpired,
-                                                     DEVNULL=subprocess.DEVNULL)
+jobroute_commands.run_group = run
 loader = importlib.machinery.SourceFileLoader('jobroute_cli', sys.argv[1] + '/jobroute')
 module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 loader.exec_module(module)
@@ -117,7 +116,7 @@ def test_queue_timeout_exceeds_worker_queue_limit(env, monkeypatch):
     assert commands.MAC_QUEUE_LIMIT == worker.QUEUE_LIMIT  # the mirror cannot drift silently
     seen = []
     route = route_with_dispatch(env)
-    monkeypatch.setattr(commands.subprocess, 'run', recording_run(seen, raise_timeout=False))
+    monkeypatch.setattr(commands, 'run_group', recording_run(seen, raise_timeout=False))
     assert route.command('cli', 'queue', {})['queue'] == {'holder': None, 'waiting': []}
     [(argv, timeout)] = seen
     assert argv[-1] == 'macbook'
