@@ -44,6 +44,8 @@ mode = open(mode_file).read().strip() if os.path.exists(mode_file) else ''
 if mode == 'refuse':
     print('fixture sb-macjob: runner unavailable', file=sys.stderr); sys.exit(75)
 argv = sys.argv[1:]
+if argv == ['queue', '--json'] and mode.startswith('queue-exit-'):   # the runner's own code
+    sys.exit(int(mode[len('queue-exit-'):]))
 if argv == ['queue', '--json'] and mode == 'queue-hang':
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     time.sleep(30)

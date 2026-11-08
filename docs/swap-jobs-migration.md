@@ -100,7 +100,12 @@ or the remote worker dies without an exit status; the worker itself never exits 
 255 or 124 as 1 (stderr keeps the real code). So job `status` adds `cause: mac_connection_failed` for 255 (the job
 may have started on the Mac: check `queue` before resubmitting) and `cause: timed_out` for 124; every other failure,
 and every non-macjob job, has `cause: null`. `outcome` is unchanged. `queue` refuses with
-`Mac host unreachable; retry later` when ssh fails.
+`Mac host unreachable; retry later` when ssh fails, and with
+`Mac worker timed out waiting for the queue; retry later` when the worker stops `sb-macjob queue` at its 60 s limit
+(exit 124; on `queue` nothing else produces 124). `queue` has no job record, so neither case sets a `cause`; the
+audit row says `refused` with that reason. Exit 75 gets no cause and no fixed text: sb-macjob returns 75 when a
+job's queue wait expires (`Busy`), but a job may exit 75 itself, and the only sign of Busy is a `queue: busy:` line
+on stderr, which reaches ovh merged with the job's own output. Telling them apart needs an sb-macjob change.
 
 This deliberately uses the shell execution equivalent of `sb-mac-task --shell` rather than that program's
 LaunchAgent path: the inspected sb-mac-task bypasses sb-macjob, which would bypass the queue. A future sb change can

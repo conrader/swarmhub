@@ -34,6 +34,15 @@ ID = re.compile(r'c[0-9a-f]{8}')
 MAC_QUEUE_LIMIT = 60
 QUEUE_TIMEOUT = MAC_QUEUE_LIMIT + 30 + 15
 BACKEND_TIMED_OUT = 'backend timed out; its outcome is unknown'
+# Exit codes of `mac-dispatch` on `queue` whose meaning the code guarantees. 255 is ssh's own
+# failure (mac-worker.py never exits 255). 124 is mac-worker.py stopping `sb-macjob queue` at
+# its QUEUE_LIMIT: the worker reports a runner's own 124 as 1, ssh itself never exits 124, and a
+# signal-killed ssh is 128+n (>= 129). The job deadline's 124 is a macjob status (cause
+# "timed_out"), never a queue reply. 75 is not here: `sb-macjob queue` does not wait for the
+# queue lock, and sb-macjob's Busy 75 has no marker a job cannot forge (docs/swap-jobs-migration.md).
+MAC_UNREACHABLE = 'Mac host unreachable; retry later'
+MAC_QUEUE_TIMED_OUT = 'Mac worker timed out waiting for the queue; retry later'
+QUEUE_FAILURES = {255: MAC_UNREACHABLE, 124: MAC_QUEUE_TIMED_OUT}
 
 
 def bounded_text(value, name, maximum=8192):
@@ -248,9 +257,9 @@ class Commands:
                     else:
                         self.engines['macjob'] = old[0]
                     self.allowed_engines = old[1]
-            # mac-dispatch exits 255 only when ssh fails (mac-worker.py never does): retry later.
+            # Read-only snapshot, so both fixed refusals (QUEUE_FAILURES) may say "retry later".
             return {'ok': True, 'queue': json.loads(self.backend('mac_dispatch', [host], json.dumps(request).encode(),
-                timeout=QUEUE_TIMEOUT, failures={255: 'Mac host unreachable; retry later'}))}
+                timeout=QUEUE_TIMEOUT, failures=QUEUE_FAILURES))}
         if op == 'report-jarvis':
             text = bounded_text(a.get('text'), 'text')
             # Use sb-codejob's authenticated wake transport, targeting Jarvis; never accept a URL/key.
