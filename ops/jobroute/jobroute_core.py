@@ -332,7 +332,8 @@ class Route(Commands, JobIndex):
                 launch = os.urandom(8).hex()
                 # Reserve before the slow launch: a killed launch still leaves an index + audit row.
                 _append(self.index, {"t": time.time(), "launch": launch, "label": label, "engine": engine,
-                                     "workdir": wd, "cmd": cmd, "launcher": _launcher(), **binding})
+                                     "workdir": wd, "cmd": cmd, "launcher": _launcher(),
+                                     "operation": operation, **binding})
                 self.audit("submit", mode, "launching", launch=launch, **logged)
             job_id = self._launch(launch, cmd, label, wd, brief, mode)
             _append(self.index, {"launch": launch, "id": job_id})

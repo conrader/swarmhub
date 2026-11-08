@@ -37,6 +37,16 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
   - empty or `mcp`: MCP over stdio with the tools `submit_job` and `job_status`;
   - `submit engine=E label=L [workdir=W] [agent=A] [request_id=ID]`, with the brief on stdin;
   - `status [job=ID] [limit=N]` / `list`, which return only this profile's own jobs;
+    each job keeps `state` (`launching`, `running`, `done`, `lost`, `unknown`; every
+    ended job is still `done`) and adds completion evidence:
+    `outcome` — `null` until ended, then `success`, `failure` (nonzero exit, incl. a
+    signal), `missing_report` (exit 0, but a `launch` job's requested
+    `<job>-report.md` is absent, empty, a symlink or not a regular file) or `unknown`
+    (no integer exit code); `signal` — n when sb-codejob recorded exit 128+n
+    (n ≤ 64, inferred from that convention); `review_verdict` — `PASS`/`CONCERNS`/`FAIL`
+    or `null`, never changing `outcome`; `artifacts` — `{log, report, report_expected}`,
+    file checks by lstat only. `report_expected` is true for `launch`, false for `submit`
+    and macjob, `null` for reservations written before the route recorded `operation`;
   - `help`.
 
   Any other verb, key, repeated key, or token without `=` is refused, as is any character

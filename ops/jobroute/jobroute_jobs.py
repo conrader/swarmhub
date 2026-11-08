@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 import re
+import stat
 import time
 
 LOCK_WAIT = 5              # seconds a request waits for the state lock (held only briefly, never over a launch)
@@ -150,7 +151,49 @@ class JobIndex:
                 **({"request_id": j['request_id']} if 'request_id' in j else {}),
                 "started": rec.get("started"), "ended": rec.get("ended"), "exit_code": rec.get("exit_code"),
                 "minutes": rec.get("minutes"), "model": rec.get("model"), "review": rec.get("review"),
-                "wake": rec.get("wake")}
+                "wake": rec.get("wake"), **self._evidence(j, rec, state)}
+
+    def _evidence(self, j: dict, rec: dict, state: str) -> dict:
+        """Additive completion evidence; `state` keeps calling every ended job "done".
+
+        outcome: None until the job has ended, then "success" (exit 0 and, when the route asked
+        for a report, a nonempty report file), "failure" (nonzero exit, including a signal),
+        "missing_report" (exit 0 but the requested report is absent or empty) or "unknown"
+        (no integer exit code). A review verdict is reported separately and, like sb-codejob's
+        own exit code, never changes the outcome. Artifacts are checked by lstat only: a
+        regular, nonempty, non-symlink file at the job's deterministic path; nothing is read."""
+        exit_code = rec.get("exit_code")
+        if type(exit_code) is not int:
+            exit_code = None
+        # sb-codejob records a job killed by signal n as exit 128+n.
+        sig = exit_code - 128 if exit_code is not None and 128 < exit_code <= 128 + 64 else None
+        op = j.get("operation")
+        expected = True if op == "launch" else False if op == "submit" else None
+        log = report = False
+        if j.get("id"):
+            root = self.job_root / self.agent
+            log, report = _artifact(root / (j["id"] + ".log")), _artifact(root / (j["id"] + "-report.md"))
+        outcome = None
+        if state == "done":
+            if exit_code is None:
+                outcome = "unknown"
+            elif exit_code != 0:
+                outcome = "failure"
+            else:
+                outcome = "missing_report" if expected and not report else "success"
+        verdict = rec.get("review_verdict")
+        return {"outcome": outcome, "signal": sig,
+                "review_verdict": verdict if verdict in ("PASS", "CONCERNS", "FAIL") else None,
+                "artifacts": {"log": log, "report": report, "report_expected": expected}}
+
+
+def _artifact(path: pathlib.Path) -> bool:
+    """A regular, nonempty file that is not a symlink (lstat only, never opened)."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISREG(st.st_mode) and st.st_size > 0
 
 
 def _alive(pid) -> bool:
