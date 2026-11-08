@@ -119,11 +119,11 @@ private let fixtureSkill = BundledSkill(name: "swarmhub-manager", version: Skill
         let tag = String(UUID().uuidString.lowercased().prefix(8)), workerProfile = "fixture-worker-\(tag)", gate = RetryGate(), url = temporaryStore()
         let box = ComposedBox(install: install, chat: chat, profile: "fixture-mgr-\(tag)"), worker = ScriptedTurnBackend()
         let store = AppStore(storeURL: url, autoConfigureHermes: false,
-                             backendFactory: { bot in bot.hermesProfile == workerProfile ? worker : box.backend },
+                             backendFactory: { bot -> any AgentBackend in bot.hermesProfile == workerProfile ? worker : box.backend },
                              keyStore: InMemoryKeyStore(["hermes.fixture-mgr-\(tag)": "k", "hermes.\(workerProfile)": "k"]), defaults: isolatedDefaults())
         store.managerTemplateOverride = "COMPOSED-\(tag) you are {{MANAGER}} ({{MANAGER_ENV}})"
         store.skillLibraryOverride = [fixtureSkill]
-        store.setupRetrySleep = { _ in await gate.pass() }
+        store.setupRetrySleep = { (_: Duration) async throws in await gate.pass() }
         let manager = Bot(name: "Fixture Manager \(tag)", persona: "You are a fixture.", backend: .hermes, hermesProfile: "fixture-mgr-\(tag)")
         manager.canManageBots = true; manager.hermesSessionID = "fixture-main-\(tag)"
         let other = Bot(name: "Fixture Worker \(tag)", backend: .hermes, hermesProfile: workerProfile, hermesSessionID: "fixture-worker-\(tag)")
