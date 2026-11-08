@@ -92,8 +92,15 @@ checkout is exposed. Mini is denied without an explicit profile allowlist entry.
 A job cannot hold the shared queue forever: the worker passes `--queue-wait 7200` and bounds the whole call at
 2 h queue wait + 4 h run. At that deadline it sends TERM, so sb-macjob stops the job's process group and still
 sends its wake; a runner still alive 120 s later is KILLed. The call then exits 124 (job `outcome: failure`,
-`signal: null`) and stderr says `Mac worker: stopped at its 21600 s limit`. `queue` is bounded at 60 s the same way.
-The limits are constants in `mac-worker.py`; no request field changes them.
+`signal: null`, `cause: timed_out`) and stderr says `Mac worker: stopped at its 21600 s limit`. `queue` is bounded
+at 60 s the same way. The limits are constants in `mac-worker.py`; no request field changes them.
+
+A failed macjob says why when its exit code proves it. ssh exits 255 when it cannot connect, the connection drops,
+or the remote worker dies without an exit status; the worker itself never exits 255 and reports its runner's own
+255 or 124 as 1 (stderr keeps the real code). So job `status` adds `cause: mac_connection_failed` for 255 (the job
+may have started on the Mac: check `queue` before resubmitting) and `cause: timed_out` for 124; every other failure,
+and every non-macjob job, has `cause: null`. `outcome` is unchanged. `queue` refuses with
+`Mac host unreachable; retry later` when ssh fails.
 
 This deliberately uses the shell execution equivalent of `sb-mac-task --shell` rather than that program's
 LaunchAgent path: the inspected sb-mac-task bypasses sb-macjob, which would bypass the queue. A future sb change can

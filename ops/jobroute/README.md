@@ -44,7 +44,10 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
     `<job>-report.md` is absent, empty, a symlink or not a regular file) or `unknown`
     (no integer exit code); `signal` — n when sb-codejob recorded exit 128+n
     (n ≤ 64, inferred from that convention); `review_verdict` — `PASS`/`CONCERNS`/`FAIL`
-    or `null`, never changing `outcome`; `artifacts` — `{log, report, report_expected}`,
+    or `null`, never changing `outcome`; `cause` — for a failed macjob only,
+    `mac_connection_failed` (exit 255: ssh failed; `mac-worker.py` never exits 255) or
+    `timed_out` (exit 124: the worker's deadline; a runner's own 124 is reported as 1),
+    else `null`; `artifacts` — `{log, report, report_expected}`,
     file checks by lstat only. `report_expected` is true for `launch`, false for `submit`
     and macjob, `null` for reservations written before the route recorded `operation`;
   - `help`.
@@ -229,6 +232,7 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
 | `tests/test_jobroute_p3.py` | intermediate symlink targets and parent trust, audited refusals, relative targets, loops and missing targets |
 | `tests/test_installer_p2.py` | full undo after a real submit, stale `install-state.new` |
 | `tests/test_mac_queue_fixtures.py` | `mac-worker.py` as a real subprocess against a fixture `sb-macjob` with one flock'd queue: two queued submissions, runner failure/refusal/signal, a hung job or queue snapshot stopped at its deadline (TERM, then KILL after the grace) while the waiter behind it runs, result propagation through `mac-dispatch` (local ssh stand-in) to job `status` |
+| `tests/test_mac_failure_cause.py` | reserved exit codes: the worker never passes on a runner's 255/124, an ssh failure reads `cause: mac_connection_failed` (and refuses `queue` with a fixed text), the deadline reads `timed_out`, a killed ssh is 128+n, and no other engine gets a cause |
 | `tests/test_check_hermes_tools.py` | the tool check, locally and through a fake `ssh` |
 | `tests/sandbox_ssh.sh` | throwaway sshd in the sandbox: real ssh client against the production options string |
 | `tests/run-sandbox.sh` | runs both, each as `sudo -u sbtest -- unshare -r -p -f --mount-proc …` |
