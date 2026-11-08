@@ -7,7 +7,7 @@ line, never from the client:
 
 SSH_ORIGINAL_COMMAND is the only thing the client chooses:
   (empty) | mcp                                     MCP over stdio: submit_job, job_status
-  submit engine=E label=L [workdir=W] [agent=A]     the brief is read from stdin
+  submit engine=E label=L [workdir=W] [agent=A] [request_id=ID]   brief on stdin
   status [job=ID] [limit=N] [report=1]                         this profile's own jobs only
   list                                              same as status
   launch | park | approve-wait | msg | msg-send | macjob | queue | report-jarvis
@@ -30,10 +30,10 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from jobroute_commands import SCHEMAS
-from jobroute_core import Refused, Route  # noqa: E402
+from jobroute_core import REQUEST_ID_PATTERN, Refused, Route  # noqa: E402
 
 CMD_RX = re.compile(r"[A-Za-z0-9 ._/=-]{0,512}")
-KEYS = {"submit": {"engine", "label", "workdir", "agent"}, "status": {"job", "limit", "report"}, "list": {"job", "limit", "report"}, **{op: set() for op in SCHEMAS}}
+KEYS = {"submit": {"engine", "label", "workdir", "agent", "request_id"}, "status": {"job", "limit", "report"}, "list": {"job", "limit", "report"}, **{op: set() for op in SCHEMAS}}
 CLI_TIMEOUT = 120
 MAX_LINE = 1 << 20
 HASH_CAP = 16 << 20        # an oversize CLI brief is hashed (not kept) up to this many bytes
@@ -176,7 +176,7 @@ def run_cli(route: Route, cmd: str) -> int:
     if op == "submit":
         brief, meta = read_brief(route.max_brief + 1, route.brief_read_secs)
         emit(route.submit("cli", kv.get("engine"), kv.get("label"), kv.get("workdir"), brief, kv.get("agent"),
-                          brief_meta=meta))
+                          brief_meta=meta, request_id=kv.get('request_id')))
         return 0
     limit = kv.get("limit", "10")
     if kv.get('report', '0') not in ('0', '1'):
@@ -187,6 +187,8 @@ def run_cli(route: Route, cmd: str) -> int:
 
 # ---------------------------------------------------------------- MCP over stdio
 def tools(route: Route) -> list[dict]:
+    request_id_schema = {"type": "string", "pattern": "^" + REQUEST_ID_PATTERN + "$",
+                         "description": "Optional profile-scoped retry ID. Reuse only with the same payload."}
     baseline = [
         {"name": "submit_job",
          "description": (f"Start a detached coding job on ovh as sb-codejob agent '{route.agent}'. The brief is the "
@@ -197,6 +199,7 @@ def tools(route: Route) -> list[dict]:
                              "engine": {"type": "string", "enum": route.allowed_engines},
                              "label": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"},
                              "brief": {"type": "string", "maxLength": route.max_brief},
+                             "request_id": request_id_schema,
                              "workdir": {"type": "string",
                                          "description": f"subdirectory of {route.workdirs[0]} (default: that directory)"}}}},
         {"name": "job_status",
@@ -208,7 +211,8 @@ def tools(route: Route) -> list[dict]:
 
     return baseline + [{'name': op.replace('-', '_'), 'description': 'Opt-in SwarmHub ' + op,
         'inputSchema': {'type': 'object', 'additionalProperties': False,
-                        'properties': {k: {'type': 'integer' if k == 'timeout' else 'string'} for k in keys}}}
+                        'properties': {k: request_id_schema if k == 'request_id' else
+                                       {'type': 'integer' if k == 'timeout' else 'string'} for k in keys}}}
         for op, keys in SCHEMAS.items() if op in route.enabled_verbs]
 
 
@@ -229,7 +233,7 @@ def _call_tool(route: Route, name: str, args: dict) -> dict:
     op = name.replace('_', '-')
     if op in SCHEMAS:
         return route.command('mcp', op, args)
-    allowed = {"submit_job": {"engine", "label", "brief", "workdir"}, "job_status": {"job_id", "limit", "report"}}.get(name)
+    allowed = {"submit_job": {"engine", "label", "brief", "workdir", "request_id"}, "job_status": {"job_id", "limit", "report"}}.get(name)
     if allowed is None:
         raise Refused("unknown tool (submit_job, job_status)")
     extra = set(args) - allowed
@@ -241,7 +245,7 @@ def _call_tool(route: Route, name: str, args: dict) -> dict:
             raise Refused("brief must be a string")
         # surrogatepass: a lone surrogate reaches check_brief as invalid UTF-8 and is refused + audited
         return route.submit("mcp", args.get("engine"), args.get("label"), args.get("workdir"),
-                            brief.encode("utf-8", "surrogatepass"))
+                            brief.encode("utf-8", "surrogatepass"), request_id=args.get('request_id'))
     return route.status("mcp", args.get("job_id"), args.get("limit", 10), args.get("report", False))
 
 

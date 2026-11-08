@@ -6,6 +6,8 @@ killed, times out, exits nonzero or returns no valid receipt leaves its reservat
 toward hourly/daily limits and is matched to the job's sb-codejob status file once its launcher
 is gone or has given up (an audited "recover" row). Only a failure to execute the launcher
 closes the reservation as failed. Unknown reservations do not consume running slots.
+Optional request-ID bindings and response templates live on reservation rows, including
+failed ones. They remain available to retry lookup for the lifetime of this ledger.
 """
 from __future__ import annotations
 
@@ -31,6 +33,13 @@ class JobIndex:
     """Mixed into Route: needs self.index, self.job_root, self.agent and self.audit()."""
 
     def own_jobs(self, recover_mode: str | None = None) -> list[dict]:
+        jobs = [j for j in self.index_jobs() if not j.get("failed")]
+        if recover_mode:
+            self._recover(jobs, recover_mode)
+        return jobs
+
+    def index_jobs(self) -> list[dict]:
+        """Fold the ledger, retaining failed rows for request-ID lookup (never recovery)."""
         jobs, by_launch = [], {}
         with contextlib.suppress(FileNotFoundError):
             for line in self.index.read_text().splitlines():
@@ -57,9 +66,6 @@ class JobIndex:
                             j["id"] = row["id"]
                         elif row.get("failed"):
                             j["failed"] = row["failed"]
-        jobs = [j for j in jobs if not j.get("failed")]   # a failed launch started nothing
-        if recover_mode:
-            self._recover(jobs, recover_mode)
         return jobs
 
     def _recover(self, jobs: list[dict], mode: str) -> None:
@@ -141,6 +147,7 @@ class JobIndex:
         rec = (self.job_record(j["id"]) if j.get("id") else None) or {}
         state = self._state(j)
         return {"job_id": j["id"], "label": j.get("label"), "engine": j.get("engine"), "state": state,
+                **({"request_id": j['request_id']} if 'request_id' in j else {}),
                 "started": rec.get("started"), "ended": rec.get("ended"), "exit_code": rec.get("exit_code"),
                 "minutes": rec.get("minutes"), "model": rec.get("model"), "review": rec.get("review"),
                 "wake": rec.get("wake")}

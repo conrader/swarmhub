@@ -35,6 +35,7 @@ claude = ["claude", "-p", "--permission-mode", "acceptEdits"]
 codex = ["codex", "exec", "--skip-git-repo-check", "-m", "gpt-6.1-sol", "-"]
 [profiles.grok-admin]
 submissions_enabled = true
+enabled_verbs = ["launch"]
 agent = "Admin"
 bot = "Admin"
 workdirs = ["$d/work/Admin"]
@@ -121,6 +122,22 @@ check ssh-mcp-session 'MCP submit + status over ssh -T' "$( [ "$(has "$out" 'job
 n=$(grep '"op": "submit"' "$d/state/audit.jsonl" | grep -c '"result": "ok"')
 l=$(grep '"op": "submit"' "$d/state/audit.jsonl" | grep -c '"result": "launching"')
 check ssh-audit 'every submit audited with sha, launching row first' "$( [ "$n" = 2 ] && [ "$l" = 2 ] && [ "$(grep -c brief_sha256 "$d/state/audit.jsonl")" -ge 4 ]; echo $?)" "submits=$n launching=$l"
+
+first=$(printf 'Retry fixture' | c admin 'submit engine=claude label=retry-ssh request_id=ssh-request-1' 2>&1)
+out=$(printf 'Retry fixture' | c admin 'submit engine=claude label=retry-ssh request_id=ssh-request-1' 2>&1)
+check ssh-request-replay 'same receipt after SSH reconnect' "$( [ "$(has "$first" '"ok": true')" = 0 ] && [ "$out" = "$first" ]; echo $?)" "$out"
+out=$(printf 'Changed fixture' | c admin 'submit engine=claude label=retry-ssh request_id=ssh-request-1' 2>&1); rc=$?
+check ssh-request-conflict 'changed brief refused with exit 2' "$( [ "$rc" = 2 ] && [ "$(has "$out" 'different payload')" = 0 ]; echo $?)" "$out"
+out=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"submit_job","arguments":{"engine":"claude","label":"retry-ssh","brief":"Retry fixture","request_id":"ssh-request-1"}}}' | c admin -T 2>&1)
+check ssh-request-mcp-replay 'CLI receipt also reused over MCP' "$(python3 -c 'import json,sys; first=json.loads(sys.argv[1]); reply=json.loads(sys.argv[2])["result"]; sys.exit(reply["isError"] or json.loads(reply["content"][0]["text"]) != first)' "$first" "$out"; echo $?)" "$out"
+payload='{"engine":"codex","label":"launch-retry-ssh","brief":"Retry launch fixture","review":"claude","request_id":"ssh-request-2"}'
+first=$(printf '%s' "$payload" | c admin launch 2>&1)
+out=$(printf '%s' "$payload" | c admin launch 2>&1)
+check ssh-launch-replay 'launch receipt reused at submission limit' "$( [ "$(has "$first" '"ok": true')" = 0 ] && [ "$out" = "$first" ]; echo $?)" "$out"
+out=$(printf '%s' '{"engine":"codex","label":"launch-retry-ssh","brief":"Retry launch fixture","request_id":"ssh-request-2"}' | c admin launch 2>&1); rc=$?
+check ssh-launch-review-conflict 'changed review refused with exit 2' "$( [ "$rc" = 2 ] && [ "$(has "$out" 'different payload')" = 0 ]; echo $?)" "$out"
+calls=$(ls "$d/calls"/*.stdin 2>/dev/null | wc -l)
+check ssh-request-launch-count 'retries/conflicts started no extra jobs' "$( [ "$calls" = 4 ]; echo $?)" "calls=$calls"
 
 echo "ssh harness: $fails failure(s)"
 exit $((fails > 0))

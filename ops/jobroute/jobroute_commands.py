@@ -15,7 +15,7 @@ from jobroute_trust import launch_problem
 from secretscan import redact
 
 SCHEMAS = {
-    'launch': {'engine', 'label', 'workdir', 'brief', 'review'},
+    'launch': {'engine', 'label', 'workdir', 'brief', 'review', 'request_id'},
     'park': {'script', 'reason', 'changes', 'reverse'},
     'approve-wait': {'id', 'timeout'},
     'msg': {'via', 'to', 'text', 'reason'},
@@ -59,7 +59,10 @@ class Commands:
             if op not in self.enabled_verbs:
                 raise Refused('operation disabled')
             # Persist a request reservation before side effects. Polling is limited too.
-            self.admit_command(op, digest)
+            # Keyed launch retries reuse admission. New ones are admitted under the
+            # same lock as their request-ID reservation, inside submit().
+            if op != 'launch' or args.get('request_id') is None:
+                self.admit_command(op, digest)
             result = self._command(mode, op, args)
         except Exception as exc:
             self.audit(op, mode, 'refused' if isinstance(exc, Refused) else 'error', request_sha256=digest,
@@ -70,13 +73,17 @@ class Commands:
         return result
 
     def admit_command(self, op, digest):
-        from jobroute_core import RateLimited
         with self._lock():
-            history = self.command_history()
-            now = time.time()
-            if sum(now - x['t'] < 3600 for x in history) >= self.command_per_hour:
-                raise RateLimited('command rate limit')
-            _append(self.command_index, {'t': now, 'op': op, 'sha256': digest})
+            self._admit_command(op, digest)
+
+    def _admit_command(self, op, digest):
+        """Caller holds the state lock."""
+        from jobroute_core import RateLimited
+        history = self.command_history()
+        now = time.time()
+        if sum(now - x['t'] < 3600 for x in history) >= self.command_per_hour:
+            raise RateLimited('command rate limit')
+        _append(self.command_index, {'t': now, 'op': op, 'sha256': digest})
 
     @property
     def command_index(self):
@@ -136,7 +143,10 @@ class Commands:
             # sb-codejob --review chooses the opposite engine; no caller-controlled flags.
             self.request_review = review is not None
             try:
-                return self.submit(mode, a.get('engine'), a.get('label'), a.get('workdir'), brief)
+                return self.submit(mode, a.get('engine'), a.get('label'), a.get('workdir'), brief,
+                                   request_id=a.get('request_id'), operation='launch',
+                                   command_digest=(hashlib.sha256(json.dumps(a, sort_keys=True).encode()).hexdigest()
+                                                   if a.get('request_id') is not None else None))
             finally:
                 self.request_review = False
         if op == 'park':

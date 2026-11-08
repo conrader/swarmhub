@@ -35,7 +35,7 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
   A profile missing from `allowlist.toml` is refused even if its key is installed.
 - **Two operations only.** The client controls just `SSH_ORIGINAL_COMMAND`:
   - empty or `mcp`: MCP over stdio with the tools `submit_job` and `job_status`;
-  - `submit engine=E label=L [workdir=W] [agent=A]`, with the brief on stdin;
+  - `submit engine=E label=L [workdir=W] [agent=A] [request_id=ID]`, with the brief on stdin;
   - `status [job=ID] [limit=N]` / `list`, which return only this profile's own jobs;
   - `help`.
 
@@ -97,17 +97,53 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
     itself closes the reservation as `failed`. There is no automatic relaunch or new
     exactly-once guarantee.
   - Exceeding a limit exits with code 3 and is logged as `rate_limited`.
+- **Retry-safe request IDs (optional).** CLI `submit`, MCP `submit_job`, and opt-in
+  `launch` accept `request_id`: 1–64 ASCII characters `[A-Za-z0-9_-]`, starting
+  alphanumeric, case-sensitive. Generate one ID per intended launch and keep it
+  across reconnects. For example, retry the identical command and stdin:
+
+  ```sh
+  printf 'Run the fixture tests.\n' | ssh jobroute-ovh \
+    'submit engine=codex label=fixture request_id=fixture-20261108-1'
+  ```
+
+  The ID is scoped to the forced-command profile, shared by its submit and launch
+  interfaces. Before execution, the locked reservation binds it to a SHA-256 of the
+  operation (`submit` versus `launch`), configured agent, engine name, label, resolved
+  workdir, exact effective brief bytes and review choice. CLI and MCP are equivalent
+  transports; omitted/default/absolute workdirs resolving to the same directory match.
+  `launch` includes its appended report instruction in the brief digest. The brief
+  itself is not stored in the ledger.
+
+  A retry with the same payload returns the original acceptance response and job ID,
+  with `request_id`, without another launch or submission/command quota charge. It
+  works for running and completed jobs, even if the job record has since disappeared;
+  use status for current execution state. A different payload is refused (CLI exit 2).
+  An in-progress launch is refused (exit 3); retry the same ID later. An unresolved
+  outcome is an error (exit 1), retains the binding and never relaunches. Retrying can
+  invoke the existing recovery path and return a discovered job's receipt. A definitive
+  pre-exec failure also retains the binding and returns an error without relaunching.
+  Historical `failed` rows stay unchanged and excluded from status/recovery.
+
+  IDs do not expire while the profile ledger is retained. A new ID or omitted ID is
+  a new submission, so do not change the ID to work around an unresolved outcome.
+  Omitting it (or JSON `null`) preserves legacy behavior. Validation and current
+  profile/submission/verb authorization still apply to retries. Executable trust and
+  admission checks run for new launches; replay needs no executable. This prevents
+  duplicate route launches for a retained binding, not exactly-once engine execution
+  across ledger deletion, storage loss or another launcher.
 - **Audit.** `~/.local/state/jobroute/audit.jsonl` (mode 600) gets one JSON line for every
   submit, status call, parse refusal and refused profile. Each line records `ts`,
   `profile`, `op`, `mode`, `result` (the outcome: `ok`, `refused`, `rate_limited` or
-  `error`; `launching` is written before each launch), `reason` and `peer`. Every submit row, whether accepted or refused (including
+  `error`; `launching` is written before each launch and `replayed` on a request-ID replay), `reason` and `peer`. Every submit row, whether accepted or refused (including
   a CLI or MCP parse refusal of a submit), also records `label`, `engine`,
   `workdir_requested`, `workdir` (the resolved realpath, or `null` if it was never
   resolved), `brief_sha256` and `brief_bytes`. An MCP message over 1 MiB is dropped and
   logged with `line_sha256` and `line_bytes`. Unknown MCP methods, malformed JSON and
   invalid protocol envelopes are also audited, with bounded submit metadata when present.
   Non-allowlisted connects retain supplied CLI metadata or metadata from the first bounded
-  MCP line (at most a 10 s read). The brief itself is never logged.
+  MCP line (at most a 10 s read). Valid request IDs appear in submission audits and
+  owned status summaries. The brief itself is never logged.
   `profiles/<profile>.jsonl` is the list of that profile's own jobs, which `status` reads.
   An allowlisted profile that is misconfigured (bad `agent`, `bot` or `workdirs`) is
   refused with an `error` row (`op` `connect`).
@@ -252,7 +288,7 @@ sudo -u hermes -H hermes -p <profile> mcp add jobs --command ssh --args -T \
 sudo -u hermes -H hermes -p <profile> mcp test jobs
 ```
 
-The bot then sees two tools: `submit_job {engine, label, brief, workdir?}` and
+The bot then sees two tools: `submit_job {engine, label, brief, workdir?, request_id?}` and
 `job_status {job_id?, limit?}`.
 
 ## Install on ovh (prod: parked for Jarvis's sb-approve; pin `SHA`)

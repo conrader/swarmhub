@@ -27,6 +27,8 @@ PROFILE_RX = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 COMPONENT_RX = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 BOT_RX = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}")
 JOB_ID_RX = re.compile(r"[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9_-]{1,40}(-[0-9]{1,2})?")
+REQUEST_ID_PATTERN = r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}"
+REQUEST_ID_RX = re.compile(REQUEST_ID_PATTERN)
 MAX_DEPTH = 8
 LAUNCH_TIMEOUT = 60
 DEFAULTS = {"engines": ["claude", "codex"], "max_per_hour": 4, "max_per_day": 20, "max_running": 2}
@@ -265,7 +267,8 @@ class Route(Commands, JobIndex):
             raise RateLimited(f"rate limit: {self.max_running} jobs already running")
 
     # ------------------------------------------------------------ operations
-    def submit(self, mode: str, engine, label, workdir, brief: bytes, agent=None, brief_meta=None) -> dict:
+    def submit(self, mode: str, engine, label, workdir, brief: bytes, agent=None, brief_meta=None,
+               request_id=None, operation="submit", command_digest=None) -> dict:
         """brief_meta: the CLI reader's {"sha256", "bytes", "end", "problem"?} when it read more than it
         kept (oversize) or stopped early (stdin never closed)."""
         meta = brief_meta or {"sha256": hashlib.sha256(brief).hexdigest(), "bytes": len(brief), "end": "eof"}
@@ -279,6 +282,10 @@ class Route(Commands, JobIndex):
         try:
             if not self.submissions_enabled:
                 raise Refused('submissions disabled')
+            if request_id is not None:
+                if not isinstance(request_id, str) or not REQUEST_ID_RX.fullmatch(request_id):
+                    raise Refused('request_id must be 1-64 chars [A-Za-z0-9_-], starting alphanumeric')
+                logged['request_id'] = request_id
             self.check_agent(agent)
             engine = self.check_engine(engine)
             label = self.check_label(label)
@@ -286,15 +293,46 @@ class Route(Commands, JobIndex):
             if meta.get("problem"):
                 raise Refused(meta["problem"])
             self.check_brief(brief)
-            problem, cmd = launch_problem(self.sb_codejob, self.engines[engine], self.path)
-            if problem:
-                raise _misconfigured(f"launch refused: {problem}")
-            launch = os.urandom(8).hex()
+            response = {"ok": True, "agent": self.agent, "engine": engine, "label": label,
+                        "workdir": wd, "brief_sha256": digest,
+                        "note": "the job runs detached on ovh; sb-codejob wakes this agent when it ends"}
+            binding = {}
+            if request_id is not None:
+                # Hash the validated effective payload, never the transport or caller's profile claim.
+                payload = {"version": 1, "operation": operation, "agent": self.agent,
+                           "engine": engine, "label": label, "workdir": wd,
+                           "brief_sha256": hashlib.sha256(brief).hexdigest(),
+                           "review": bool(getattr(self, 'request_review', False))}
+                fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+                response['request_id'] = request_id
+                binding = {"request_id": request_id, "payload_sha256": fingerprint, "response": response}
             with self._lock():
+                if request_id is not None:
+                    previous = next((j for j in self.index_jobs() if j.get('request_id') == request_id), None)
+                    if previous is not None:
+                        if previous.get('payload_sha256') != fingerprint:
+                            raise Refused('request_id already bound to a different payload')
+                        if previous.get('failed'):
+                            raise Refused(f"request_id launch failed: {previous['failed']}; not relaunched", 1)
+                        # Reuse #36 recovery for interrupted launchers, without ever launching again.
+                        job = next(j for j in self.own_jobs(mode) if j.get('launch') == previous['launch'])
+                        if not job.get('id'):
+                            if self._state(job) == 'launching':
+                                raise RateLimited('request_id launch in progress; retry the same request later')
+                            raise Refused('request_id launch outcome unknown; see job_status; not relaunched', 1)
+                        result = dict(previous['response'], job_id=job['id'])
+                        self.audit('submit', mode, 'replayed', launch=job['launch'], job_id=job['id'], **logged)
+                        return result
+                problem, cmd = launch_problem(self.sb_codejob, self.engines[engine], self.path)
+                if problem:
+                    raise _misconfigured(f"launch refused: {problem}")
                 self.check_rate(self.own_jobs(mode))
+                if command_digest is not None:
+                    self._admit_command('launch', command_digest)
+                launch = os.urandom(8).hex()
                 # Reserve before the slow launch: a killed launch still leaves an index + audit row.
                 _append(self.index, {"t": time.time(), "launch": launch, "label": label, "engine": engine,
-                                     "workdir": wd, "cmd": cmd, "launcher": _launcher()})
+                                     "workdir": wd, "cmd": cmd, "launcher": _launcher(), **binding})
                 self.audit("submit", mode, "launching", launch=launch, **logged)
             job_id = self._launch(launch, cmd, label, wd, brief, mode)
             _append(self.index, {"launch": launch, "id": job_id})
@@ -311,9 +349,7 @@ class Route(Commands, JobIndex):
             e.audited = True
             raise
         self.audit("submit", mode, "ok", job_id=job_id, launch=launch, **logged)
-        return {"ok": True, "job_id": job_id, "agent": self.agent, "engine": engine, "label": label,
-                "workdir": wd, "brief_sha256": digest,
-                "note": "the job runs detached on ovh; sb-codejob wakes this agent when it ends"}
+        return dict(response, job_id=job_id)
 
     @contextlib.contextmanager
     def _lock(self):

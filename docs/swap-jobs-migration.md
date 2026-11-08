@@ -30,14 +30,29 @@ prove the running process's uid or prevent an administrator from later changing 
 
 ## Command contracts
 
-`launch` takes `engine`, `label`, `brief`, optional `workdir` and `review`. The reviewer must be the opposite engine;
+`launch` takes `engine`, `label`, `brief`, optional `workdir`, `review` and `request_id`. The reviewer must be the opposite engine;
 this maps to sb-codejob's existing `--review`. Launch appends a completion instruction to write the report at
 `${SB_CODEJOB%.json}-report.md`, derived from the job's own status path; the full augmented brief must fit the cap. Fixed engines and PR #8's executable/PATH trust checks remain.
 `submit`/`submit_job` remain compatible, subject to the global disabled-by-default submission gate.
 
+For retries after a lost response, supply the same optional `request_id` on every attempt.
+CLI `submit` takes `request_id=ID`; MCP `submit_job` and CLI/MCP `launch` take a JSON
+`request_id` string. IDs are profile-scoped, case-sensitive, 1–64 `[A-Za-z0-9_-]`
+characters starting alphanumeric. The reservation binds the ID to the operation,
+agent, engine, label, resolved workdir, exact effective brief and review choice.
+Transport changes and equivalent workdir spellings match; changed payloads are refused.
+The same ID and payload return the stored acceptance response/job ID without another
+launch or quota charge, even after the job ends. Status remains the source of execution state.
+Concurrent attempts while launch is in progress are refused (CLI exit 3); retry the same
+ID later. Unknown outcomes and pre-exec failures keep the ID bound and never relaunch
+(exit 1); conflicts exit 2. Recovery can resolve an unknown binding on a later retry.
+The bindings persist for the lifetime of the profile ledger; new or omitted IDs are
+new submissions. Current validation, submission gates and verb allowlists still apply.
+See [the route retry contract](../ops/jobroute/README.md) for normalization and storage limits.
+
 A launcher error is not proof that no job started. Nonzero launcher exits and missing, empty, duplicate or
 invalid status receipts preserve the reservation and attempt the same recovery used for a launch timeout.
-The error names the recovered job when available; read `status` / `job_status` before retrying. With no matching
+The error names the recovered job when available; read `status` / `job_status` before retrying without an ID. With no matching
 record yet, status shows `unknown` and subsequent queries retry recovery. Unknown reservations count toward
 hourly/daily limits, not the running-job limit. Recovery never launches a replacement, and a launcher error
 is never reported as job success. Failure to execute the launcher itself remains a closed failed reservation.
