@@ -6,6 +6,8 @@ STUB_WORKROOT sb-codejob WORKROOT (required)
 STUB_PID      pid written into the status file (default: none -> job reads as "lost"/done)
 STUB_FAIL     exit 1 without printing a status line
 STUB_SLEEP    seconds to hang after writing the status file, before printing it (a slow launch)
+STUB_RECEIPT  missing, empty, foreign, duplicate, nul, or extension receipt after writing the record
+STUB_EXIT     launcher exit code after writing the job record (default 0)
 """
 import datetime, json, os, pathlib, re, sys, time, uuid
 
@@ -35,4 +37,17 @@ cmd = argv[argv.index("--") + 1:]
     "primary_tool": cmd[0], "model": None, "review": "none", "wake": "dormant",
     "workdir": argv[argv.index("--workdir") + 1]}))
 time.sleep(float(os.environ.get("STUB_SLEEP") or 0))
-print(f"status {d / (stem + '.json')}\nlog    {d / (stem + '.log')}\npid    {pid or 4242}")
+receipt = os.environ.get("STUB_RECEIPT")
+if receipt == "empty":
+    print("status   ")
+elif receipt == "foreign":
+    print(f"status {d.parent / 'Doc' / (stem + '.json')}")
+elif receipt == "duplicate":
+    print(f"status {d / (stem + '.json')}\nstatus {d / (stem + '.json')}")
+elif receipt == "nul":
+    print(f"status {d}\0/{stem}.json")
+elif receipt == "extension":
+    print(f"status {d / (stem + '.log')}")
+elif receipt != "missing":
+    print(f"status {d / (stem + '.json')}\nlog    {d / (stem + '.log')}\npid    {pid or 4242}")
+sys.exit(int(os.environ.get("STUB_EXIT", "0")))

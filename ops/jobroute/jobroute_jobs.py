@@ -2,8 +2,10 @@
 
 The index holds one reservation row per accepted submit, written under the lock BEFORE the
 launch, then one outcome row ({"launch", "id"} | {"failed"} | {"abandoned"}). A launch that is
-killed or times out leaves its reservation: it counts toward the rate limits and is matched to
-the job's sb-codejob status file once its launcher is gone (an audited "recover" row).
+killed, times out, exits nonzero or returns no valid receipt leaves its reservation: it counts
+toward hourly/daily limits and is matched to the job's sb-codejob status file once its launcher
+is gone or has given up (an audited "recover" row). Only a failure to execute the launcher
+closes the reservation as failed. Unknown reservations do not consume running slots.
 """
 from __future__ import annotations
 

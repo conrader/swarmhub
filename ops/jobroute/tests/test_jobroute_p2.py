@@ -259,12 +259,16 @@ def test_dead_launcher_without_job_counts_per_hour_only(tmp_path):
     assert rc == 3 and "per hour" in out["error"]     # but the reservation counts toward the hour
 
 
-def test_failed_launch_reservation_is_closed(tmp_path):
-    env = Env(tmp_path, extra_env='STUB_FAIL = "1"')
-    assert submit(env)[0] == 1
+def test_nonzero_launcher_without_record_keeps_unknown_reservation(tmp_path):
+    env = Env(tmp_path, per_hour=1, extra_env='STUB_FAIL = "1"')
+    rc, [out] = submit(env)
+    assert rc == 1 and "launch outcome unknown, see job_status before retrying" in out["error"]
     rows = index_rows(env)
-    assert len(rows) == 2 and rows[1] == {"launch": rows[0]["launch"], "failed": "exit 1"}
-    assert env.run("status")[1][0]["jobs"] == []
+    assert len(rows) == 2 and rows[1] == {"launch": rows[0]["launch"], "abandoned": True}
+    [job] = env.run("status")[1][0]["jobs"]
+    assert job["job_id"] is None and job["state"] == "unknown"
+    rc, [out] = submit(env)
+    assert rc == 3 and "per hour" in out["error"] and len(env.calls()) == 1
 
 
 # ---------------------------------------------------------------- 5. misconfigured profile is audited

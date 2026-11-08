@@ -35,6 +35,13 @@ this maps to sb-codejob's existing `--review`. Launch appends a completion instr
 `${SB_CODEJOB%.json}-report.md`, derived from the job's own status path; the full augmented brief must fit the cap. Fixed engines and PR #8's executable/PATH trust checks remain.
 `submit`/`submit_job` remain compatible, subject to the global disabled-by-default submission gate.
 
+A launcher error is not proof that no job started. Nonzero launcher exits and missing, empty, duplicate or
+invalid status receipts preserve the reservation and attempt the same recovery used for a launch timeout.
+The error names the recovered job when available; read `status` / `job_status` before retrying. With no matching
+record yet, status shows `unknown` and subsequent queries retry recovery. Unknown reservations count toward
+hourly/daily limits, not the running-job limit. Recovery never launches a replacement, and a launcher error
+is never reported as job success. Failure to execute the launcher itself remains a closed failed reservation.
+
 `status job=ID report=1` requires the profile's `report` verb. Only jobs in that key's index can be read. Reports
 come from `<job_root>/<agent>/<ID>.log` and `<ID>-report.md`, never caller-chosen paths. Regular files only, no
 symlinks, at most 1 MiB input per file, secret redaction before a combined 16 KiB response. A missing report is not

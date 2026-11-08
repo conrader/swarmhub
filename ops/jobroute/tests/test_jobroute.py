@@ -280,7 +280,8 @@ def test_launch_failure_reported_and_audited(tmp_path):
     assert rc == 1 and "launch failed" in out["error"]
     assert e.audit()[-1]["result"] == "error"
     rc, [st] = e.run("status")
-    assert st["jobs"] == []
+    [job] = st["jobs"]
+    assert rc == 0 and job["state"] == "unknown" and job["job_id"] is None
 
 
 # ---------------------------------------------------------------- rate limit

@@ -81,13 +81,21 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
   - At most 2 route jobs running at once, counting every live route job regardless of age.
   - The check and a reservation row in `profiles/<profile>.jsonl` are written under one
     `flock` (bounded 5 s wait), before the launch; the lock is not held during the launch.
-    A launch that is killed or times out keeps its reservation: it counts toward the limits,
-    and once its launcher is gone the route matches it to the job's sb-codejob status file
+    A launch that is killed, times out, exits nonzero or returns an invalid/missing receipt
+    keeps its reservation. Once its launcher is gone or has given up, the route matches it
+    to the job's sb-codejob status file
     (same sb-codejob-normalized label, engine argv and workdir, named within 5 min of
     the reservation) and audits a `recover` row. Recovery has no age cutoff: a first
     query days later still recovers the job and counts it against the running limit.
     Trailing hyphens/underscores are stripped only for filename matching; status and
     audit rows keep the submitted label.
+    An uncertain launch still returns an error, with the recovered job ID when found;
+    inspect `status` / `job_status` instead of automatically submitting it again. If no
+    matching record is available, it stays `unknown` and later status/submission calls
+    retry recovery. Unknown reservations count toward hourly/daily limits, but do not
+    consume running slots; recovered live jobs do. A failure to execute the launcher
+    itself closes the reservation as `failed`. There is no automatic relaunch or new
+    exactly-once guarantee.
   - Exceeding a limit exits with code 3 and is logged as `rate_limited`.
 - **Audit.** `~/.local/state/jobroute/audit.jsonl` (mode 600) gets one JSON line for every
   submit, status call, parse refusal and refused profile. Each line records `ts`,

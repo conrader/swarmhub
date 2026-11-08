@@ -338,13 +338,17 @@ class Route(Commands, JobIndex):
             raise Refused(f"launch failed: {type(e).__name__}", 1) from None
         except subprocess.TimeoutExpired:
             raise self._abandon(launch, mode, "launch failed: TimeoutExpired") from None
-        status = next((ln.split(None, 1)[1] for ln in p.stdout.decode(errors="replace").splitlines()
-                       if ln.startswith("status ")), None)
-        if p.returncode != 0 or not status:
-            _append(self.index, {"launch": launch, "failed": f"exit {p.returncode}"})
-            raise Refused(f"launch failed: sb-codejob exit {p.returncode}", 1)
-        sp = pathlib.Path(status.strip())
-        if (os.path.realpath(sp.parent) != os.path.realpath(self.job_root / self.agent)
+        # Once the launcher ran, neither its exit code nor a missing receipt proves
+        # that nothing detached. Keep the reservation recoverable, as on timeout.
+        if p.returncode != 0:
+            raise self._abandon(launch, mode, f"launch failed: sb-codejob exit {p.returncode}")
+        receipts = [ln[len("status "):].strip() for ln in p.stdout.decode(errors="replace").splitlines()
+                    if ln.startswith("status ")]
+        if len(receipts) != 1 or not receipts[0]:
+            raise self._abandon(launch, mode, "launch failed: missing or ambiguous status receipt")
+        sp = pathlib.Path(receipts[0])
+        if ("\0" in receipts[0] or sp.suffix != ".json"
+                or os.path.realpath(sp.parent) != os.path.realpath(self.job_root / self.agent)
                 or not JOB_ID_RX.fullmatch(sp.stem)):
             raise self._abandon(launch, mode, "launch failed: unexpected status path")
         return sp.stem
@@ -356,6 +360,8 @@ class Route(Commands, JobIndex):
             job = next((j for j in self.own_jobs(mode) if j.get("launch") == launch), {})
             if job.get("id"):
                 reason += f"; job {job['id']} did start, see job_status"
+                return Refused(reason, 1)
+        reason += "; launch outcome unknown, see job_status before retrying"
         return Refused(reason, 1)
 
     def status(self, mode: str, job_id=None, limit=10, report=False) -> dict:
