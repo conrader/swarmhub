@@ -67,6 +67,17 @@ def _drain(pgid, deadline):
     return True
 
 
+def _kill_drain(pgid):
+    deadline = time.monotonic() + KILL_DRAIN_LIMIT
+    while True:
+        _signal(pgid, signal.SIGKILL)
+        if _drain(pgid, min(deadline, time.monotonic() + .1)):
+            return True
+        if time.monotonic() >= deadline:
+            print('Mac worker: group did not drain after bounded KILL retries', file=sys.stderr)
+            return False
+
+
 def _workload(control, argv):
     # Serialise launch and cancellation: a queued runner cannot start work after cancellation.
     with open(control, 'r+') as state:
@@ -84,8 +95,17 @@ def _workload(control, argv):
         # Do not let sb-macjob release its lock while grandchildren still hold the session.
         _signal(child.pid, signal.SIGTERM)
         if not _drain(child.pid, time.monotonic() + EXIT_GRACE):
-            _signal(child.pid, signal.SIGKILL)
-            _drain(child.pid, time.monotonic() + KILL_DRAIN_LIMIT)
+            drained = _kill_drain(child.pid)
+        else:
+            drained = True
+        if drained:
+            fcntl.flock(state, fcntl.LOCK_EX)
+            state.seek(0)
+            record = json.load(state)
+            state.seek(0)
+            json.dump({**record, 'pgid': None}, state)
+            state.truncate()
+            state.flush()
         return 128 - code if code < 0 else code
 
 
@@ -118,19 +138,17 @@ def _bounded(argv, limit, workload_control=None, **kw):
     if workload is not None:
         _signal(workload, signal.SIGTERM)
         if not _drain(workload, deadline):
-            _signal(workload, signal.SIGKILL)
-            # Fail closed: never release the lock or remove the workspace before confirmed drain.
-            while not _drain(workload, time.monotonic() + 1):
-                pass
+            _kill_drain(workload)
     deadline = time.monotonic() + GRACE
     _signal(proc.pid, signal.SIGTERM)
     while proc.poll() is None and time.monotonic() < deadline:
         time.sleep(.02)
     if _alive(proc.pid):
-        _signal(proc.pid, signal.SIGKILL)
-    proc.wait()
-    while not _drain(proc.pid, time.monotonic() + 1):
-        pass
+        _kill_drain(proc.pid)
+    try:
+        proc.wait(timeout=KILL_DRAIN_LIMIT)
+    except subprocess.TimeoutExpired:
+        print('Mac worker: runner did not reap after KILL', file=sys.stderr)
     print(f'Mac worker: stopped at its {limit} s limit', file=sys.stderr)
     proc.timed_out = True
     return proc

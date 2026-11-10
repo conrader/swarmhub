@@ -20,7 +20,7 @@ def test_deadline_drains_workload_before_stopping_lock_holder(tmp_path, monkeypa
     control.write_text(json.dumps({'pgid': 222}))
     events = []
     def wait(timeout=None):
-        if timeout is not None:
+        if timeout == 1:
             raise subprocess.TimeoutExpired('runner', timeout)
         return -9
     proc = SimpleNamespace(pid=111, wait=wait, poll=lambda: None, returncode=-9)
@@ -62,9 +62,10 @@ def test_supervisor_records_session_and_waits_for_descendants(tmp_path, monkeypa
                         SimpleNamespace(pid=222, wait=lambda: -15) if kw['start_new_session'] else None)
     events = []
     monkeypatch.setattr(worker, '_signal', lambda pid, sig: events.append(sig))
-    monkeypatch.setattr(worker, '_drain', lambda *a: False)
+    drains = iter([False, True])
+    monkeypatch.setattr(worker, '_drain', lambda *a: next(drains))
     assert worker._workload(control, ['work']) == 143
-    assert json.loads(control.read_text()) == {'pgid': 222}
+    assert json.loads(control.read_text()) == {'pgid': None}
     assert events == [signal.SIGTERM, signal.SIGKILL]
 
 
@@ -87,7 +88,7 @@ def test_invalid_control_still_stops_runner(tmp_path, monkeypatch):
     worker = worker_module()
     events = []
     def wait(timeout=None):
-        if timeout is not None:
+        if timeout == 1:
             raise subprocess.TimeoutExpired('runner', timeout)
     proc = SimpleNamespace(pid=111, wait=wait, poll=lambda: None, returncode=-9)
     monkeypatch.setattr(worker.subprocess, 'Popen', lambda *a, **kw: proc)
@@ -129,3 +130,20 @@ def test_runner_gets_fresh_grace_after_workload_drain(tmp_path, monkeypatch):
     assert worker._bounded(['runner'], 1, workload_control=control).timed_out
     runner = [e for e in terms if e[0] == 111]
     assert runner[1][2] - runner[0][2] >= .1
+
+
+def test_kill_retries_are_bounded_and_log_once(monkeypatch, capsys):
+    worker = worker_module()
+    clock = [0.0]
+    signals = []
+    monkeypatch.setattr(worker, 'KILL_DRAIN_LIMIT', .3)
+    monkeypatch.setattr(worker.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(worker, '_signal', lambda pid, sig: signals.append((pid, sig)))
+    def drain(pid, deadline):
+        clock[0] = deadline
+        return False
+    monkeypatch.setattr(worker, '_drain', drain)
+    assert worker._kill_drain(222) is False
+    assert 2 <= len(signals) <= 4
+    assert set(signals) == {(222, signal.SIGKILL)}
+    assert capsys.readouterr().err.count('bounded KILL retries') == 1
