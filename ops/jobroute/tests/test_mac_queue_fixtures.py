@@ -7,6 +7,7 @@ ssh is a local stand-in that execs the installed worker, as sshd would on the Ma
 """
 import hashlib
 import json
+import os
 from pathlib import Path
 import signal
 import subprocess
@@ -165,9 +166,32 @@ def start(home, req, worker=WORKER):
     return p
 
 
-def finish(p):
-    out, err = p.stdout.read(), p.stderr.read()
-    p.wait(timeout=60)
+def finish(p, timeout=60, cleanup_pids=()):
+    # start() has already closed stdin; communicate must not flush that closed stream.
+    p.stdin = None
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Snapshot descendants while the worker is still their ancestor. Signal only exact PIDs
+        # belonging to this fixture, never a name, session or process group.
+        rows = subprocess.check_output(['/bin/ps', '-axo', 'pid=,ppid='], text=True, timeout=1)
+        descendants = {p.pid, *cleanup_pids}
+        pairs = [tuple(map(int, row.split())) for row in rows.splitlines()]
+        while True:
+            found = {pid for pid, parent in pairs if parent in descendants}
+            if found <= descendants:
+                break
+            descendants.update(found)
+        for pid in descendants - {p.pid}:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        p.kill()
+        p.wait(timeout=5)
+        p.stdout.close()
+        p.stderr.close()
+        raise
     return p.returncode, out.decode(), err.decode()
 
 
@@ -390,3 +414,31 @@ def test_job_result_propagates_to_job_status(env, brief, mode, code, outcome, si
         assert not list(home.rglob('lock')) and not briefs(home)
     else:
         assert_single_queue(home)
+
+
+def test_finish_drains_stderr_without_deadlock(tmp_path):
+    p = subprocess.Popen([sys.executable, '-c',
+        "import sys; sys.stderr.write('e' * 200000); print('ok')"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert finish(p, timeout=5) == (0, 'ok\n', 'e' * 200000)
+
+
+def test_finish_bounds_pipe_holding_descendant(tmp_path):
+    pid_file = tmp_path / 'descendant.pid'
+    program = ("import subprocess, sys; from pathlib import Path; "
+               "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
+               f"Path({str(pid_file)!r}).write_text(str(child.pid))")
+    p = subprocess.Popen([sys.executable, '-c', program],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    deadline = time.monotonic() + 5
+    while not pid_file.exists() and time.monotonic() < deadline:
+        time.sleep(.01)
+    assert pid_file.exists()
+    descendant = int(pid_file.read_text())
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        finish(p, timeout=.2, cleanup_pids=[descendant])
+    assert time.monotonic() - started < 1.5
+    assert p.poll() is not None
+    from test_backend_route_timeout import wait_gone
+    assert wait_gone([descendant]) == []
