@@ -86,9 +86,9 @@ previous_live = [int(f[0]) for row in rows.splitlines() if len(f := row.split())
 log(ev='start', label=label, previous_live=previous_live)
 if mode == 'kill':
     os.kill(os.getpid(), signal.SIGKILL)
-# A stubborn runner's job outlives its KILL; keep it off the worker's pipes so they still close.
-quiet = {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL} if mode == 'stubborn' else {}
-child = subprocess.Popen(cmd, cwd=workdir, start_new_session=True, **quiet)
+# The worker drains the workload session before releasing this runner. Keep its pipes
+# attached so this fixture also verifies output survives the next queue handoff.
+child = subprocess.Popen(cmd, cwd=workdir, start_new_session=True)
 rc = child.wait()
 log(ev='end', label=label, rc=rc)
 sys.exit(rc)
