@@ -107,6 +107,8 @@ def test_route_timeout_leaves_no_ssh_or_dispatch(env, cleanup, ignore_term):
     assert not alive(dispatch_pid)  # our direct child: reaped before the refusal
     assert wait_gone([ssh_pid], limit=2.0) == [], 'ssh child survived the route timeout'
     assert took < 2 + commands.BACKEND_KILL_GRACE + 2
+    if ignore_term:
+        assert took >= 2 + commands.BACKEND_KILL_GRACE
 
 
 def test_term_comes_before_kill(env, cleanup):
@@ -139,3 +141,37 @@ def test_queue_and_macjob_maps_still_name_124_and_255():
     src = (SRC / 'jobroute_commands.py').read_text()
     assert 'failures=QUEUE_FAILURES' in src
     assert set(commands.QUEUE_FAILURES) >= {124}
+
+
+def test_parent_exit_does_not_shorten_child_grace(monkeypatch):
+    # Model a parent already reaped while its child needs 150 ms to close transport.
+    from types import SimpleNamespace
+    started = time.monotonic()
+    monkeypatch.setattr(commands, '_group_alive', lambda pgid: time.monotonic() - started < .15)
+    commands._drain_group(SimpleNamespace(pid=123, poll=lambda: 0), .4)
+    assert .15 <= time.monotonic() - started < .4
+
+
+def test_survivor_receives_full_grace(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(commands, '_group_alive', lambda pgid: True)
+    started = time.monotonic()
+    commands._drain_group(SimpleNamespace(pid=123, poll=lambda: 0), .2)
+    assert time.monotonic() - started >= .2
+
+
+def test_parent_exits_first_child_finishes_graceful_cleanup(env):
+    marker = env.tmp / 'child-cleaned'
+    child = ("import signal, time; from pathlib import Path; "
+             f"signal.signal(signal.SIGTERM, lambda *_: (time.sleep(.3), Path({str(marker)!r}).touch(), exit(0))); "
+             "time.sleep(30)")
+    parent = ("import signal, subprocess, sys, time\n"
+              "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n"
+              f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+              "time.sleep(30)\n")
+    route = dispatch_with(env, '#!/usr/bin/python3 -I\n' + parent)
+    started = time.monotonic()
+    with pytest.raises(Refused):
+        route.backend('mac_dispatch', ['macbook'], timeout=1)
+    assert marker.exists()
+    assert 1.3 <= time.monotonic() - started < 1 + commands.BACKEND_KILL_GRACE + 1

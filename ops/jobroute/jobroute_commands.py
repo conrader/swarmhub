@@ -52,6 +52,25 @@ def _signal_group(pgid, sig):
         pass
 
 
+def _group_alive(pgid):
+    # Ignore zombies: they cannot run or hold descriptors. ps works on macOS and Linux.
+    rows = subprocess.check_output(['/bin/ps', '-axo', 'pgid=,stat='], text=True)
+    return any(int(fields[0]) == pgid and not fields[1].startswith('Z')
+               for row in rows.splitlines() if len(fields := row.split()) == 2)
+
+
+def _drain_group(proc, grace):
+    deadline = time.monotonic() + grace
+    while True:
+        proc.poll()  # reap the direct child, even if its descendants are still cleaning up
+        if not _group_alive(proc.pid):
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(.02, remaining))
+
+
 def run_group(argv, *, input, stdout, env, cwd, timeout):
     """subprocess.run in its own session; on timeout (or any error) end the whole group.
     subprocess.run alone kills only mac-dispatch, so its ssh child would run on until the remote
@@ -62,12 +81,9 @@ def run_group(argv, *, input, stdout, env, cwd, timeout):
         proc.communicate(input, timeout=timeout)
     except BaseException:
         _signal_group(proc.pid, signal.SIGTERM)
-        try:
-            proc.wait(timeout=BACKEND_KILL_GRACE)
-        except subprocess.TimeoutExpired:
-            pass
-        # Even when mac-dispatch obeyed TERM, a child may not have: KILL the rest of the group.
-        _signal_group(proc.pid, signal.SIGKILL)
+        _drain_group(proc, BACKEND_KILL_GRACE)
+        if _group_alive(proc.pid):
+            _signal_group(proc.pid, signal.SIGKILL)
         proc.wait()
         raise
     return subprocess.CompletedProcess(argv, proc.returncode)
