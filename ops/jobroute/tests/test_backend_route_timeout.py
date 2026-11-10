@@ -171,7 +171,27 @@ def test_parent_exits_first_child_finishes_graceful_cleanup(env):
               "time.sleep(30)\n")
     route = dispatch_with(env, '#!/usr/bin/python3 -I\n' + parent)
     started = time.monotonic()
-    with pytest.raises(Refused):
+    with pytest.raises(Refused) as exc:
         route.backend('mac_dispatch', ['macbook'], b'{"operation": "queue"}', timeout=1)
+    assert exc.value.reason == commands.BACKEND_TIMED_OUT
     assert marker.exists()
     assert 1.3 <= time.monotonic() - started < 1 + commands.BACKEND_KILL_GRACE + 1
+
+
+def test_ps_failure_during_cleanup_still_kills_and_waits(monkeypatch):
+    import signal
+    import subprocess
+    from types import SimpleNamespace
+    events = []
+    def communicate(*args, **kwargs):
+        raise subprocess.TimeoutExpired('backend', 1)
+    proc = SimpleNamespace(pid=123, communicate=communicate,
+                           wait=lambda: events.append('wait'))
+    monkeypatch.setattr(commands.subprocess, 'Popen', lambda *a, **kw: proc)
+    monkeypatch.setattr(commands, '_signal_group', lambda pid, sig: events.append(sig))
+    def failed(*args):
+        raise OSError('ps unavailable')
+    monkeypatch.setattr(commands, '_drain_group', failed)
+    with pytest.raises(subprocess.TimeoutExpired):
+        commands.run_group(['backend'], input=b'', stdout=None, env={}, cwd=None, timeout=1)
+    assert events == [signal.SIGTERM, signal.SIGKILL, 'wait']

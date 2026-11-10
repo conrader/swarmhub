@@ -82,8 +82,12 @@ def run_group(argv, *, input, stdout, env, cwd, timeout):
         proc.communicate(input, timeout=timeout)
     except BaseException:
         _signal_group(proc.pid, signal.SIGTERM)
-        _drain_group(proc, BACKEND_KILL_GRACE)
-        if _group_alive(proc.pid):
+        try:
+            _drain_group(proc, BACKEND_KILL_GRACE)
+            alive = _group_alive(proc.pid)
+        except Exception:
+            alive = True
+        if alive:
             _signal_group(proc.pid, signal.SIGKILL)
         proc.wait()
         raise
