@@ -54,9 +54,8 @@ enum AppOnlyLine {
     static let modelNotAppliedBoxDefault = LineTemplate("", "'s default model ", " was not applied: ", " This chat runs on the box default.")
     static let compacted = LineTemplate("Conversation was compacted to fit the model; your message was sent again.")
 
-    /// Every template an untagged saved row is matched against. A row `connected` matches also covers the combined
-    /// "Connected A. Couldn’t connect B; …" line.
-    static let legacy: [LineTemplate] = [created, couldNotReach, couldNotSee, connected, couldNotConnect, nothingConnected,
+    /// Unambiguous legacy templates. Creation/connection notices additionally require known bot names.
+    static let legacy: [LineTemplate] = [couldNotReach, couldNotSee, couldNotConnect, nothingConnected,
                                          keyRestored, keyRestoreFailed, orientationGaveUp, reviewing,
                                          modelNotApplied, modelNotAppliedBoxDefault, compacted]
 
@@ -65,12 +64,28 @@ enum AppOnlyLine {
     /// Rows the app wrote for the user only: backlog7's reconcile notes, tagged lines, review and bot-work/bot-message
     /// cards (their `presentation` is saved with them), P39's "Waiting" line (backlog11: one a crash left behind), and
     /// untagged lines saved before the tag.
-    static func isAppOnly(_ row: ChatMessage) -> Bool {
+    static func legacyIdentityNotice(_ text: String, knownBotNames: [String]) -> Bool {
+        let names = Set(knownBotNames.filter { !$0.isEmpty && !$0.contains("\n") && !$0.contains("\r") })
+        let createdParts = text.components(separatedBy: " created ")
+        if createdParts.count == 2 && createdParts.allSatisfy({ names.contains($0) }) { return true }
+        func nameList(_ value: String) -> Bool {
+            let parts = value.components(separatedBy: ", ")
+            return !parts.isEmpty && parts.allSatisfy { names.contains($0) }
+        }
+        guard text.hasPrefix("Connected ") else { return false }
+        let parts = String(text.dropFirst("Connected ".count)).components(separatedBy: ". Couldn’t connect ")
+        if parts.count == 1 && text.hasSuffix(".") { return nameList(String(parts[0].dropLast())) }
+        let suffix = "; they are listed under “not connected”."
+        return parts.count == 2 && nameList(parts[0]) && parts[1].hasSuffix(suffix)
+            && nameList(String(parts[1].dropLast(suffix.count)))
+    }
+
+    static func isAppOnly(_ row: ChatMessage, knownBotNames: [String] = []) -> Bool {
         if ReconcileNote.isNote(row) || row.metadata[key] != nil { return true }
         guard row.role == .system else { return false }
         if row.metadata[TurnWaitCopy.key] == "line" { return true }
         if row.presentation == .review || row.presentation == .botMessage { return true }
-        return row.presentation == .text && !IntentLine.matches(row.content) && legacy.contains { $0.matches(row.content) }
+        return row.presentation == .text && !IntentLine.matches(row.content) && (legacy.contains { $0.matches(row.content) } || legacyIdentityNotice(row.content, knownBotNames: knownBotNames))
     }
 }
 

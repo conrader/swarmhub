@@ -38,7 +38,7 @@ private func untagged(_ text: String) -> ChatMessage { ChatMessage(role: .system
 @MainActor private func lineStore() -> (AppStore, Bot) {
     let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: isolatedDefaults())
     let bot = Bot(name: "Fixture-\(UUID().uuidString.prefix(8))", backend: .hermes, hermesProfile: "fixture-backlog10")
-    store.bots = [bot]
+    store.bots = [bot] + ["Fixture Mgr", "Fixture Scout", "Fixture Ada"].map { Bot(name: $0, backend: .hermes, hermesProfile: "fixture-legacy") }
     return (store, bot)
 }
 
@@ -60,7 +60,7 @@ private func untagged(_ text: String) -> ChatMessage { ChatMessage(role: .system
         ReconcileNote.diverged, ReconcileNote.uncertainQueuePrefix + "fixture queued text",
     ]
     #expect(produced == preBacklog10Lines)
-    for text in preBacklog10Lines { #expect(AppOnlyLine.isAppOnly(untagged(text)), "untagged saved row leaks: \(text)") }
+    for text in preBacklog10Lines { #expect(AppOnlyLine.isAppOnly(untagged(text), knownBotNames: ["Fixture Mgr", "Fixture Scout", "Fixture Ada"]), "untagged saved row leaks: \(text)") }
     let kept = [IntentLine.approved.render("Fixture Mgr created Fixture Scout"), IntentLine.declined.render("Couldn’t reach fixture-scout yet"),
                 IntentLine.stopRequested.render("Hermes"), IntentLine.stoppedBeforeRunID.render("Hermes"), IntentLine.stoppedNoAbort.render(),
                 IntentLine.stoppedNoRunControl.render(), IntentLine.stopFailed.render("Hermes", "the run was created by another device.")]
@@ -183,4 +183,20 @@ private func untagged(_ text: String) -> ChatMessage { ChatMessage(role: .system
     let systems = messages.filter { $0["role"] as? String == "system" }.compactMap { $0["content"] as? String }
     #expect(systems.count == 1 + intentLines.count && Array(systems.dropFirst()) == intentLines, "the persona, then only the intent lines")
     #expect(messages.count == 1 + 3 + intentLines.count)
+}
+
+
+@Test func ambiguousLegacyIdentityRowsStayInHistory() {
+    let rows = [
+        "Policy: files created outside the workspace require approval.",
+        "Connected to the database.", "Connected Fixture Scout. Policy requires approval.",
+        "Connected Fixture Scout.\nCouldn’t connect Fixture Ada; they are listed under “not connected”.",
+        "\"Fixture Mgr created Fixture Scout\"", "\"Connected Fixture Scout.\"",
+        "Unknown created Fixture Scout", "Connected Unknown.",
+    ]
+    for text in rows {
+        #expect(!AppOnlyLine.isAppOnly(untagged(text), knownBotNames: ["Fixture Mgr", "Fixture Scout", "Fixture Ada"]))
+    }
+    #expect(!AppOnlyLine.isAppOnly(untagged("Fixture Mgr created Fixture Scout")))
+    #expect(!AppOnlyLine.isAppOnly(untagged("Connected Fixture Scout.")))
 }
