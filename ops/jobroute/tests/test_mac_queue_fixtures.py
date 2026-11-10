@@ -47,6 +47,9 @@ if mode == 'refuse':
 argv = sys.argv[1:]
 if argv == ['queue', '--json'] and mode.startswith('queue-exit-'):   # the runner's own code
     sys.exit(int(mode[len('queue-exit-'):]))
+if argv == ['queue', '--json'] and mode == 'queue-stubborn':
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    time.sleep(30)
 if argv == ['queue', '--json'] and mode == 'queue-hang':
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     time.sleep(30)

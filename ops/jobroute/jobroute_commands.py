@@ -26,14 +26,11 @@ SCHEMAS = {
     'report-jarvis': {'text'},
 }
 ID = re.compile(r'c[0-9a-f]{8}')
-# The queue call waits for mac-worker.py, which stops `sb-macjob queue` at its QUEUE_LIMIT (60 s,
-# mirrored here; a test pins the two together). The route must wait longer than that, or a slow
-# Mac is cut off by the route instead of answering through the worker's own limit. 30 s covers
-# ssh connect + auth + worker start on a slow link (mac-dispatch sets no ConnectTimeout); 15 s is
-# slack for the runner to exit after TERM and the reply to travel back. The worker's GRACE (120 s)
-# is not added: it is the KILL-after-TERM window for a runner that ignores TERM, not a normal path.
+# Cover the worker's full deadline and cleanup, plus bounded transport/startup allowance.
 MAC_QUEUE_LIMIT = 60
-QUEUE_TIMEOUT = MAC_QUEUE_LIMIT + 30 + 15
+MAC_WORKER_GRACE = 120
+QUEUE_TRANSPORT_OVERHEAD = 45
+QUEUE_TIMEOUT = MAC_QUEUE_LIMIT + MAC_WORKER_GRACE + QUEUE_TRANSPORT_OVERHEAD
 BACKEND_TIMED_OUT = 'backend timed out; its outcome is unknown'
 # Exit codes of `mac-dispatch` on `queue` whose meaning the code guarantees. 255 is ssh's own
 # failure (mac-worker.py never exits 255). 124 is mac-worker.py stopping `sb-macjob queue` at

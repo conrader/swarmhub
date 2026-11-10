@@ -120,8 +120,8 @@ def test_queue_timeout_exceeds_worker_queue_limit(env, monkeypatch):
     assert route.command('cli', 'queue', {})['queue'] == {'holder': None, 'waiting': []}
     [(argv, timeout)] = seen
     assert argv[-1] == 'macbook'
-    # strictly greater, with room for ssh connect; not padded by the worker's KILL-after-TERM GRACE
-    assert worker.QUEUE_LIMIT + 15 <= timeout == commands.QUEUE_TIMEOUT < worker.QUEUE_LIMIT + worker.GRACE
+    assert commands.MAC_WORKER_GRACE == worker.GRACE
+    assert timeout == worker.QUEUE_LIMIT + worker.GRACE + commands.QUEUE_TRANSPORT_OVERHEAD
 
 
 # (c) every other backend caller keeps its timeout ---------------------------------------------
@@ -138,3 +138,13 @@ def test_other_backend_callers_keep_default_timeout(env, monkeypatch):
     # Only the queue call passes a timeout; park, msg and report-jarvis use the default.
     src = (SRC / 'jobroute_commands.py').read_text()
     assert src.count('self.backend(') == 4 and src.count('timeout=QUEUE_TIMEOUT') == 1
+
+
+def test_stubborn_queue_returns_worker_timeout_before_route_budget(env, monkeypatch):
+    from test_mac_queue_fixtures import route_with_mac
+    route, home = route_with_mac(env, QUEUE_LIMIT=.2, GRACE=.4)
+    (home / '.sb-macjob/mode').write_text('queue-stubborn')
+    monkeypatch.setattr(commands, 'QUEUE_TIMEOUT', 2)
+    with pytest.raises(Refused) as caught:
+        route.command('cli', 'queue', {})
+    assert caught.value.reason == commands.MAC_QUEUE_TIMED_OUT
