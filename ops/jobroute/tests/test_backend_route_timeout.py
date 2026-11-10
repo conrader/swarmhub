@@ -172,6 +172,6 @@ def test_parent_exits_first_child_finishes_graceful_cleanup(env):
     route = dispatch_with(env, '#!/usr/bin/python3 -I\n' + parent)
     started = time.monotonic()
     with pytest.raises(Refused):
-        route.backend('mac_dispatch', ['macbook'], timeout=1)
+        route.backend('mac_dispatch', ['macbook'], b'{"operation": "queue"}', timeout=1)
     assert marker.exists()
     assert 1.3 <= time.monotonic() - started < 1 + commands.BACKEND_KILL_GRACE + 1
