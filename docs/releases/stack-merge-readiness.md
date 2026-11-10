@@ -289,8 +289,11 @@ risks/follow-ups, deploy/pin impact, rollback.
 
 ### #47 · `feat/backlog12-mac-job-limit` · `4ec236a` · base `feat/backlog11-remaining-system-rows`
 - **Change:** `mac-worker.py` bounds the total Mac call, including queue wait, at 6 h (not a separate 4 h runtime). At the
-  deadline it sends TERM, then KILL after 120 s, and exits 124. The queue
-  snapshot is capped at 60 s.
+  deadline it stops the workload group with TERM and up to 120 s grace, then
+  bounded KILL retries (5 s). After workload drain the runner receives its own
+  120 s grace and bounded KILL retries (5 s), then the worker exits 124.
+  A completed workload leader triggers descendant cleanup with 2 s grace.
+  The queue snapshot is capped at 60 s and has only the runner cleanup phase.
 - **Tests:** `run-sandbox.sh` **517 passed**, SSH **23/23**; 7 mutations caught.
 - **Rerun 2026-11-08 (mergeprep):** `run-sandbox.sh` at the head:
   **517 passed**, SSH **23/23**, exit 0. Other figures above are as the
@@ -299,8 +302,8 @@ risks/follow-ups, deploy/pin impact, rollback.
 - **Risks:** **not proven on a Mac.** TERM handling was read from ovh's copy
   of `sb-macjob`. The fix-round supervisor must be verified against the installed runner’s lock/session contract. 6 h is a policy
   choice.
-- **Deploy:** jobroute mac-worker; **ovh jobroute park** (jobroute 148f905 is
-  live) and later Mac worker activation.
+- **Deploy:** route runtime via **ovh jobroute park** (jobroute 148f905 is
+  live); `mac-worker.py` must also be installed on the Mac.
 - **Rollback:** revert; live: reinstall the previous route release.
 
 ### #48 · `feat/backlog13-mac-failure-cause` · `dcdfc78` · base `feat/backlog12-mac-job-limit`
@@ -338,16 +341,16 @@ risks/follow-ups, deploy/pin impact, rollback.
 ### #50 · `feat/backlog15-queue-timeout` · `a9836c4` · base `feat/backlog14-merge-readiness`
 - **Change:** `backend()` turns `subprocess.TimeoutExpired` into the fixed
   refusal "backend timed out; its outcome is unknown" (audited `refused`).
-  The `queue` call gets `QUEUE_TIMEOUT` = 105 s (60 worker limit + 30 ssh +
-  15 slack). `park`, `msg` and `report-jarvis` keep 60 s.
+  The `queue` call gets `QUEUE_TIMEOUT` = 225 s (60 worker limit + 120 runner grace +
+  45 transport/startup allowance, including bounded post-KILL cleanup). `park`, `msg` and `report-jarvis` keep 60 s.
 - **Tests:** new `test_queue_timeout.py` (6 tests, 5× stable);
   `run-sandbox.sh` **538 passed**, SSH **23 PASS**, run twice by the job;
   3 mutations caught.
 - **Rerun 2026-11-08 (mergeprep):** `run-sandbox.sh` at the head:
   **538 passed**, SSH **23/23**, exit 0.
 - **Cross-review:** **Codex owed (hold).**
-- **Risks:** a slow Mac can now hold a bot for up to 105 s on `queue`. A
-  runner that ignores TERM can still outlast the route timeout. The older
+- **Risks:** a slow Mac can now hold a bot for up to 225 s on `queue`. The
+  budget covers the worker limit, runner grace and bounded KILL cleanup. The older
   `test_backend_timeout_is_audited` now covers the generic error path only.
 - **Deploy:** route runtime; **ovh jobroute park**.
 - **Rollback:** revert; live: reinstall the previous route release.
