@@ -152,7 +152,7 @@ risks/follow-ups, deploy/pin impact, rollback.
   jobs can become `missing_report`. No Swift reads `outcome`.
 - **Deploy:** route runtime; ovh jobroute park. **Must be live before the
   app release that carries #39.**
-- **Rollback:** revert; additive fields, so consumers fall back to `state`.
+- **Rollback:** coordinate rollback of the #39 skill before rolling the route below #38. The newer skill requires `outcome: success`; it has no `state` fallback, and `state: done` does not establish success.
 
 ### #39 · `feat/backlog4-skill-outcome` · `58e7ce9` · base `feat/backlog3-completion-evidence`
 - **Change:** coding skill text: a job counts as finished only on
