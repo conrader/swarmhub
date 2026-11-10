@@ -74,5 +74,30 @@ def test_cleanup_error_preserves_workspace(tmp_path):
     with pytest.raises(OSError, match='cannot confirm drain'):
         worker.run({'operation': 'macjob', 'agent': 'Admin', 'label': 'keep', 'brief': 'brief'},
                    home=tmp_path, execute=failed_drain)
-    [workspace] = (tmp_path / 'work/swarmhub-jobs').iterdir()
-    assert (workspace / '.workload.json').exists()
+    entries = list((tmp_path / 'work/swarmhub-jobs').iterdir())
+    control_dir = next(p for p in entries if p.name.startswith('control-'))
+    assert control_dir.stat().st_mode & 0o777 == 0o700
+    assert (control_dir / '.workload.json').exists()
+    assert all(not (p / '.workload.json').exists() for p in entries if p != control_dir)
+
+
+def test_invalid_control_still_stops_runner(tmp_path, monkeypatch):
+    worker = worker_module()
+    events = []
+    def wait(timeout=None):
+        if timeout is not None:
+            raise subprocess.TimeoutExpired('runner', timeout)
+    proc = SimpleNamespace(pid=111, wait=wait, poll=lambda: None, returncode=-9)
+    monkeypatch.setattr(worker.subprocess, 'Popen', lambda *a, **kw: proc)
+    monkeypatch.setattr(worker, 'GRACE', 0)
+    monkeypatch.setattr(worker, '_alive', lambda pid: True)
+    monkeypatch.setattr(worker, '_drain', lambda *a: True)
+    monkeypatch.setattr(worker, '_signal', lambda pid, sig: events.append((pid, sig)))
+    control = tmp_path / 'control'
+    for content in (None, '{', '{"pgid": "222"}', '{"pgid": 1}',
+                    json.dumps({'pgid': worker.os.getpgrp()}), '{"pgid": true}'):
+        if content is not None:
+            control.write_text(content)
+        events.clear()
+        assert worker._bounded(['runner'], 1, workload_control=control).timed_out
+        assert events == [(111, signal.SIGTERM), (111, signal.SIGKILL)]

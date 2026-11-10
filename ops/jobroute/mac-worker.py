@@ -96,13 +96,20 @@ def _bounded(argv, limit, workload_control=None, **kw):
     deadline = time.monotonic() + GRACE
     workload = None
     if workload_control is not None:
-        with open(workload_control, 'r+') as state:
-            fcntl.flock(state, fcntl.LOCK_EX)
-            record = json.load(state)
-            workload = record.get('pgid')
-            state.seek(0)
-            json.dump({**record, 'cancelled': True}, state)
-            state.truncate()
+        try:
+            with open(workload_control, 'r+') as state:
+                fcntl.flock(state, fcntl.LOCK_EX)
+                record = json.load(state)
+                candidate = record.get('pgid')
+                if candidate is not None:
+                    if type(candidate) is not int or candidate <= 1 or candidate == os.getpgrp():
+                        raise ValueError('invalid workload pgid')
+                    workload = candidate
+                state.seek(0)
+                json.dump({**record, 'cancelled': True}, state)
+                state.truncate()
+        except (OSError, ValueError, TypeError, AttributeError):
+            print('Mac worker: invalid workload control; stopping runner', file=sys.stderr)
     # Stop actual work first. The runner still owns its queue lock during this drain.
     if workload is not None:
         _signal(workload, signal.SIGTERM)
@@ -142,9 +149,10 @@ def run(request, home=None, execute=_bounded):
     root = home / 'work/swarmhub-jobs'
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     folder = tempfile.mkdtemp(prefix=request['label'] + '-', dir=root)
+    control_dir = tempfile.mkdtemp(prefix='control-', dir=root)
     finished = False
     try:
-        control = Path(folder) / '.workload.json'
+        control = Path(control_dir) / '.workload.json'
         control.write_text('{}')
         with tempfile.TemporaryFile() as stream:
             stream.write(brief.encode()); stream.seek(0)
@@ -159,6 +167,7 @@ def run(request, home=None, execute=_bounded):
         # An error during cancellation/drain must leave evidence and the live workspace intact.
         if finished:
             shutil.rmtree(folder)
+            shutil.rmtree(control_dir)
 
 
 if __name__ == '__main__':
