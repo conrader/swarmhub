@@ -101,3 +101,29 @@ def test_invalid_control_still_stops_runner(tmp_path, monkeypatch):
         events.clear()
         assert worker._bounded(['runner'], 1, workload_control=control).timed_out
         assert events == [(111, signal.SIGTERM), (111, signal.SIGKILL)]
+
+
+def test_runner_gets_fresh_grace_after_workload_drain(tmp_path, monkeypatch):
+    worker = worker_module()
+    control = tmp_path / 'control'
+    control.write_text('{"pgid": 222}')
+    clock = [0.0]
+    terms = []
+    def wait(timeout=None):
+        if timeout == 1:
+            raise subprocess.TimeoutExpired('runner', timeout)
+    proc = SimpleNamespace(pid=111, wait=wait, poll=lambda: None, returncode=-9)
+    monkeypatch.setattr(worker.subprocess, 'Popen', lambda *a, **kw: proc)
+    monkeypatch.setattr(worker.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(worker.time, 'sleep', lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    monkeypatch.setattr(worker, 'GRACE', .1)
+    def drain(pid, deadline):
+        if pid == 222:
+            clock[0] = deadline
+        return True
+    monkeypatch.setattr(worker, '_drain', drain)
+    monkeypatch.setattr(worker, '_alive', lambda pid: True)
+    monkeypatch.setattr(worker, '_signal', lambda pid, sig: terms.append((pid, sig, clock[0])))
+    assert worker._bounded(['runner'], 1, workload_control=control).timed_out
+    runner = [e for e in terms if e[0] == 111]
+    assert runner[1][2] - runner[0][2] >= .1

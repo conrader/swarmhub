@@ -17,7 +17,7 @@ import time
 import tempfile
 
 # Six hours bounds the TOTAL call, including queue wait, not a separate four-hour runtime.
-# Cleanup may add up to GRACE seconds, followed by confirmation that signalled groups drained.
+# Cleanup grants each workload and runner its own GRACE, plus bounded post-KILL drain.
 # The private supervisor keeps sb-macjob (and its queue lock) alive until workload descendants drain.
 QUEUE_WAIT = 7200
 RUN_LIMIT = 14400
@@ -118,6 +118,7 @@ def _bounded(argv, limit, workload_control=None, **kw):
             # Fail closed: never release the lock or remove the workspace before confirmed drain.
             while not _drain(workload, time.monotonic() + 1):
                 pass
+    deadline = time.monotonic() + GRACE
     _signal(proc.pid, signal.SIGTERM)
     while proc.poll() is None and time.monotonic() < deadline:
         time.sleep(.02)

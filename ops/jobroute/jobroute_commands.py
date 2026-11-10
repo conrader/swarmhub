@@ -26,7 +26,8 @@ SCHEMAS = {
     'report-jarvis': {'text'},
 }
 ID = re.compile(r'c[0-9a-f]{8}')
-# Cover the worker's full deadline and cleanup, plus bounded transport/startup allowance.
+# Queue snapshots have no workload session: budget one runner grace.
+# Transport/startup allowance also covers bounded post-KILL drain and reap.
 MAC_QUEUE_LIMIT = 60
 MAC_WORKER_GRACE = 120
 QUEUE_TRANSPORT_OVERHEAD = 45
