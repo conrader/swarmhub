@@ -4,18 +4,21 @@
 Install separately under the Mac user's .local/lib/swarmhub during a later approved pilot.
 No browser, LaunchAgent, arbitrary argv, workdir, host, or queue bypass comes from the caller.
 """
+import fcntl
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import signal
+import shutil
+import time
 import tempfile
 
-# A job holds the host's shared FIFO queue for at most QUEUE_WAIT (waiting) + RUN_LIMIT (running),
-# so one hung job cannot block every other bot's Mac work. At the deadline the worker sends TERM:
-# sb-macjob stops the job's process group and still sends its wake. GRACE seconds later the
-# runner is KILLed. Operator constants only: no caller field or environment changes them.
+# Six hours bounds the TOTAL call, including queue wait, not a separate four-hour runtime.
+# Cleanup may add up to GRACE seconds, followed by confirmation that signalled groups drained.
+# The private supervisor keeps sb-macjob (and its queue lock) alive until workload descendants drain.
 QUEUE_WAIT = 7200
 RUN_LIMIT = 14400
 QUEUE_LIMIT = 60
@@ -40,20 +43,82 @@ def _status(proc):
     return code
 
 
-def _bounded(argv, limit, **kw):
-    """Run argv; past `limit` seconds TERM it (KILL after GRACE) and report TIMED_OUT."""
-    proc = subprocess.Popen(argv, **kw)
+def _alive(pgid):
+    rows = subprocess.check_output(['/bin/ps', '-axo', 'pgid=,stat='], text=True)
+    return any(int(f[0]) == pgid and not f[1].startswith('Z')
+               for row in rows.splitlines() if len(f := row.split()) == 2)
+
+
+def _signal(pgid, sig):
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        pass
+
+
+def _drain(pgid, deadline):
+    while _alive(pgid):
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return False
+        time.sleep(min(.02, left))
+    return True
+
+
+def _workload(control, argv):
+    # Serialise launch and cancellation: a queued runner cannot start work after cancellation.
+    with open(control, 'r+') as state:
+        fcntl.flock(state, fcntl.LOCK_EX)
+        record = json.load(state)
+        if record.get('cancelled'):
+            return TIMED_OUT
+        child = subprocess.Popen(argv, start_new_session=True)
+        state.seek(0)
+        json.dump({'pgid': child.pid}, state)
+        state.truncate()
+        state.flush()
+        fcntl.flock(state, fcntl.LOCK_UN)
+        code = child.wait()
+        # Do not let sb-macjob release its lock while grandchildren still hold the session.
+        while _alive(child.pid):
+            time.sleep(.02)
+        return 128 - code if code < 0 else code
+
+
+def _bounded(argv, limit, workload_control=None, **kw):
+    """Own the runner session and the supervisor's workload session, including cleanup."""
+    proc = subprocess.Popen(argv, start_new_session=True, **kw)
     try:
         proc.wait(timeout=limit)
         return proc
     except subprocess.TimeoutExpired:
         pass
-    proc.terminate()
-    try:
-        proc.wait(timeout=GRACE)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+    deadline = time.monotonic() + GRACE
+    workload = None
+    if workload_control is not None:
+        with open(workload_control, 'r+') as state:
+            fcntl.flock(state, fcntl.LOCK_EX)
+            record = json.load(state)
+            workload = record.get('pgid')
+            state.seek(0)
+            json.dump({**record, 'cancelled': True}, state)
+            state.truncate()
+    # Stop actual work first. The runner still owns its queue lock during this drain.
+    if workload is not None:
+        _signal(workload, signal.SIGTERM)
+        if not _drain(workload, deadline):
+            _signal(workload, signal.SIGKILL)
+            # Fail closed: never release the lock or remove the workspace before confirmed drain.
+            while not _drain(workload, time.monotonic() + 1):
+                pass
+    _signal(proc.pid, signal.SIGTERM)
+    while proc.poll() is None and time.monotonic() < deadline:
+        time.sleep(.02)
+    if _alive(proc.pid):
+        _signal(proc.pid, signal.SIGKILL)
+    proc.wait()
+    while not _drain(proc.pid, time.monotonic() + 1):
+        pass
     print(f'Mac worker: stopped at its {limit} s limit', file=sys.stderr)
     proc.timed_out = True
     return proc
@@ -76,16 +141,29 @@ def run(request, home=None, execute=_bounded):
     # Dedicated workspace avoids another session's checkout. sb-macjob uses the host's shared default queue.
     root = home / 'work/swarmhub-jobs'
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=request['label'] + '-', dir=root) as folder:
+    folder = tempfile.mkdtemp(prefix=request['label'] + '-', dir=root)
+    finished = False
+    try:
+        control = Path(folder) / '.workload.json'
+        control.write_text('{}')
         with tempfile.TemporaryFile() as stream:
             stream.write(brief.encode()); stream.seek(0)
-            return _status(execute([str(home / '.local/bin/sb-macjob'), '--agent', request['agent'],
+            code = _status(execute([str(home / '.local/bin/sb-macjob'), '--agent', request['agent'],
                 '--label', request['label'], '--workdir', folder, '--queue-wait', str(QUEUE_WAIT), '--',
+                sys.executable, '-I', '-B', str(Path(__file__).resolve()), '--workload', str(control),
                 str(home / '.local/bin/claude'), '-p', '--permission-mode', 'acceptEdits'],
-                QUEUE_WAIT + RUN_LIMIT, stdin=stream, env=env))
+                QUEUE_WAIT + RUN_LIMIT, workload_control=control, stdin=stream, env=env))
+            finished = True
+            return code
+    finally:
+        # An error during cancellation/drain must leave evidence and the live workspace intact.
+        if finished:
+            shutil.rmtree(folder)
 
 
 if __name__ == '__main__':
+    if len(sys.argv) > 3 and sys.argv[1] == '--workload':
+        raise SystemExit(_workload(sys.argv[2], sys.argv[3:]))
     try:
         raw = sys.stdin.buffer.read(140000)
         raise SystemExit(run(json.loads(raw)))

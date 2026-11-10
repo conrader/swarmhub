@@ -69,13 +69,21 @@ child = None
 def stop(signum, frame):
     # Like sb-macjob: TERM stops the job's whole process group, then the runner exits 143.
     if child is not None:
-        os.killpg(child.pid, signal.SIGKILL)   # no child.wait(): the interrupted wait holds its lock
+        try:
+            os.killpg(child.pid, signal.SIGKILL)   # no child.wait(): the interrupted wait holds its lock
+        except ProcessLookupError:
+            pass
     log(ev='stopped', label=label)
     sys.exit(143)
 signal.signal(signal.SIGTERM, signal.SIG_IGN if mode == 'stubborn' else stop)
 lock = open(os.path.join(qdir, 'lock'), 'w')
 fcntl.flock(lock, fcntl.LOCK_EX)              # FIFO-by-lock: one job at a time
-log(ev='start', label=label)
+previous = os.path.join(home, 'workload.pids')
+previous_pids = set(map(int, open(previous).read().split())) if os.path.exists(previous) else set()
+rows = subprocess.check_output(['/bin/ps', '-axo', 'pid=,stat='], text=True)
+previous_live = [int(f[0]) for row in rows.splitlines() if len(f := row.split()) == 2
+                 and int(f[0]) in previous_pids and not f[1].startswith('Z')]
+log(ev='start', label=label, previous_live=previous_live)
 if mode == 'kill':
     os.kill(os.getpid(), signal.SIGKILL)
 # A stubborn runner's job outlives its KILL; keep it off the worker's pipes so they still close.
@@ -87,7 +95,7 @@ sys.exit(rc)
 '''
 
 CLAUDE = r'''#!/usr/bin/python3 -I
-import hashlib, json, os, sys, time
+import hashlib, json, os, signal, subprocess, sys, time
 assert sys.argv[1:] == ['-p', '--permission-mode', 'acceptEdits'], sys.argv
 brief = sys.stdin.buffer.read()
 home = os.environ['HOME']
@@ -96,6 +104,12 @@ with open(os.path.join(home, '.sb-macjob/briefs.jsonl'), 'a') as f:
     f.write(json.dumps({'label': label, 'cwd': os.getcwd(), 'sha': hashlib.sha256(brief).hexdigest()}) + '\n')
 words = brief.decode().split()
 if 'hold' in words:
+    mode_path = os.path.join(home, '.sb-macjob/mode')
+    if os.path.exists(mode_path) and open(mode_path).read().strip() == 'stubborn':
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        descendant = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+        with open(os.path.join(home, 'workload.pids'), 'w') as f:
+            f.write(f'{os.getpid()} {descendant.pid}')
     for _ in range(3000):
         if os.path.exists(os.path.join(home, 'release')):
             break
@@ -299,7 +313,7 @@ def test_worker_passes_its_queue_wait_and_keeps_production_limits(tmp_path):
     assert run_worker(home, request('plain', 'brief'))[0] == 0
     [enq] = [e for e in events(home) if e['ev'] == 'enqueue']
     text = (SRC / 'mac-worker.py').read_text()
-    # The shipped constants: 2 h queue wait (sb-macjob's own cap) + 4 h run, TERM then KILL 2 min later.
+    # The shipped constants: a six-hour total call budget, plus up to two minutes cleanup.
     for line in ('QUEUE_WAIT = 7200\n', 'RUN_LIMIT = 14400\n', 'GRACE = 120\n', 'QUEUE_LIMIT = 60\n'):
         assert text.count(line) == 1
     assert enq['queue_wait'] == 7200
@@ -321,7 +335,9 @@ def test_hung_job_is_stopped_at_its_deadline_and_the_waiting_job_runs(tmp_path):
     assert 2.5 < took < 3 + SHORT['GRACE'], took   # TERM worked: no wait for the KILL grace
     assert (rc_b, out_b) == (0, 'result waiting ok\n')
     order = [x for x in seen(home) if x[0] in ('start', 'stopped', 'end')]
-    assert order == [('start', 'hung'), ('stopped', 'hung'), ('start', 'waiting'), ('end', 'waiting')]
+    assert order[0] == ('start', 'hung')
+    assert order[1] in [('end', 'hung'), ('stopped', 'hung')]
+    assert order[2:] == [('start', 'waiting'), ('end', 'waiting')]
     assert_single_queue(home)
     assert not list((home / 'work/swarmhub-jobs').iterdir())
 
@@ -330,17 +346,23 @@ def test_runner_that_ignores_term_is_killed_after_the_grace(tmp_path):
     home = mac_home(tmp_path, **SHORT)
     (home / '.sb-macjob/mode').write_text('stubborn')
     t0 = time.monotonic()
-    try:
-        rc, out, err = run_worker(home, request('stubborn', 'hold forever'))
-        took = time.monotonic() - t0
-    finally:
-        (home / 'release').touch()   # ends the fixture claude the KILLed runner left behind
+    install_worker(home, '.local/lib/swarmhub/patient-worker.py')
+    first = start(home, request('stubborn', 'hold forever'))
+    wait_for(home, ('start', 'stubborn'))
+    second = start(home, request('after', 'brief'), '.local/lib/swarmhub/patient-worker.py')
+    wait_for(home, ('enqueue', 'after'))
+    rc, out, err = finish(first)
+    took = time.monotonic() - t0
     assert (rc, out) == (124, '') and 'stopped at its 3 s limit' in err
-    assert 3 + SHORT['GRACE'] - 0.5 < took < 3 + SHORT['GRACE'] + 5, took
-    assert ('stopped', 'stubborn') not in seen(home)
-    (home / '.sb-macjob/mode').unlink()
-    (home / 'release').unlink()
-    assert run_worker(home, request('after', 'brief'))[0] == 0   # the KILLed runner released the queue
+    assert 3 + SHORT['GRACE'] - .5 < took < 3 + SHORT['GRACE'] + 5, took
+    assert finish(second)[:2] == (0, 'result after ok\n')
+    from test_backend_route_timeout import alive
+    assert not any(alive(int(pid)) for pid in (home / 'workload.pids').read_text().split())
+    order = seen(home)
+    assert order.index(('end', 'stubborn')) < order.index(('start', 'after'))
+    assert next(e for e in events(home) if e['ev'] == 'start' and e['label'] == 'after')['previous_live'] == []
+    assert not (home / 'release').exists()
+    assert not list((home / 'work/swarmhub-jobs').iterdir())
     assert_single_queue(home)
 
 
@@ -412,7 +434,7 @@ def test_job_result_propagates_to_job_status(env, brief, mode, code, outcome, si
     [job] = st['jobs']
     assert rc == 0 and (job['exit_code'], job['outcome'], job['signal']) == (code, outcome, sig)
     if mode == 'limit':
-        assert b'stopped at its 3 s limit' in p.stderr and ('stopped', 'mac-check') in seen(home)
+        assert b'stopped at its 3 s limit' in p.stderr and any((ev, 'mac-check') in seen(home) for ev in ('end', 'stopped'))
     if mode == 'refuse':
         assert not list(home.rglob('lock')) and not briefs(home)
     else:

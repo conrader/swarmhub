@@ -89,11 +89,19 @@ uses the host's default shared FIFO directory and gives the job a fresh private 
 checkout is exposed. Mini is denied without an explicit profile allowlist entry. `queue` reads the selected host's
 `sb-macjob queue --json` without flushing wakes.
 
-A job cannot hold the shared queue forever: the worker passes `--queue-wait 7200` and bounds the whole call at
-2 h queue wait + 4 h run. At that deadline it sends TERM, so sb-macjob stops the job's process group and still
-sends its wake; a runner still alive 120 s later is KILLed. The call then exits 124 (job `outcome: failure`,
-`signal: null`, `cause: timed_out`) and stderr says `Mac worker: stopped at its 21600 s limit`. `queue` is bounded
-at 60 s the same way. The limits are constants in `mac-worker.py`; no request field changes them.
+The worker passes `--queue-wait 7200` and bounds the **total call** (queue wait included) at
+six hours (`QUEUE_WAIT + RUN_LIMIT = 21600`); it does not independently enforce four hours after
+queue acquisition. Cleanup can add up to 120 seconds of TERM grace, then KILL and confirmation
+of process-group drain. Uninterruptible processes can delay that confirmation; cleanup fails closed.
+The private workload supervisor records its own session before launch and keeps sb-macjob waiting
+until descendants in that session drain. At the deadline the worker cancels future launch, stops
+that workload group first, confirms drain, and only then stops the runner group and removes the
+workspace. The runner must wait for the supplied command while holding the shared queue lock;
+workloads must not daemonize into additional sessions. Verify this contract with the installed Mac runner.
+The call exits 124 (`outcome: failure`, `signal: null`, `cause: timed_out`) and stderr says
+`Mac worker: stopped at its 21600 s limit`. `queue` has a 60-second call limit plus the same
+120-second cleanup grace. The route allows both plus 45 seconds transport/startup overhead.
+These are operator constants; no request field changes them.
 
 A failed macjob says why when its exit code proves it. ssh exits 255 when it cannot connect, the connection drops,
 or the remote worker dies without an exit status; the worker itself never exits 255 and reports its runner's own

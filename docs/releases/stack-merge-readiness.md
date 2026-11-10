@@ -288,7 +288,7 @@ risks/follow-ups, deploy/pin impact, rollback.
 - **Rollback:** revert.
 
 ### #47 · `feat/backlog12-mac-job-limit` · `4ec236a` · base `feat/backlog11-remaining-system-rows`
-- **Change:** `mac-worker.py` bounds a Mac job at 2 h queue + 4 h run. At the
+- **Change:** `mac-worker.py` bounds the total Mac call, including queue wait, at 6 h (not a separate 4 h runtime). At the
   deadline it sends TERM, then KILL after 120 s, and exits 124. The queue
   snapshot is capped at 60 s.
 - **Tests:** `run-sandbox.sh` **517 passed**, SSH **23/23**; 7 mutations caught.
@@ -297,7 +297,7 @@ risks/follow-ups, deploy/pin impact, rollback.
   job reported them and were not rerun.
 - **Cross-review:** **Codex owed (hold).**
 - **Risks:** **not proven on a Mac.** TERM handling was read from ovh's copy
-  of `sb-macjob`. The KILL fallback can leave orphans. 6 h is a policy
+  of `sb-macjob`. The fix-round supervisor must be verified against the installed runner’s lock/session contract. 6 h is a policy
   choice.
 - **Deploy:** jobroute mac-worker; **ovh jobroute park** (jobroute 148f905 is
   live) and later Mac worker activation.
