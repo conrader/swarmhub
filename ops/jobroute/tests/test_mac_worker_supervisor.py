@@ -60,10 +60,12 @@ def test_supervisor_records_session_and_waits_for_descendants(tmp_path, monkeypa
     control.write_text('{}')
     monkeypatch.setattr(worker.subprocess, 'Popen', lambda argv, **kw:
                         SimpleNamespace(pid=222, wait=lambda: -15) if kw['start_new_session'] else None)
-    live = iter([True, False])
-    monkeypatch.setattr(worker, '_alive', lambda pgid: next(live))
+    events = []
+    monkeypatch.setattr(worker, '_signal', lambda pid, sig: events.append(sig))
+    monkeypatch.setattr(worker, '_drain', lambda *a: False)
     assert worker._workload(control, ['work']) == 143
     assert json.loads(control.read_text()) == {'pgid': 222}
+    assert events == [signal.SIGTERM, signal.SIGKILL]
 
 
 def test_cleanup_error_preserves_workspace(tmp_path):

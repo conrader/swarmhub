@@ -23,6 +23,8 @@ QUEUE_WAIT = 7200
 RUN_LIMIT = 14400
 QUEUE_LIMIT = 60
 GRACE = 120
+EXIT_GRACE = 2
+KILL_DRAIN_LIMIT = 5
 TIMED_OUT = 124  # GNU timeout's code; jobroute reports outcome "failure", cause "timed_out"
 # Codes this worker reserves. ssh exits 255 when it cannot connect or the connection drops, so a
 # 255 the route sees must never come from the Mac side; 124 must only mean "stopped at the limit".
@@ -80,8 +82,10 @@ def _workload(control, argv):
         fcntl.flock(state, fcntl.LOCK_UN)
         code = child.wait()
         # Do not let sb-macjob release its lock while grandchildren still hold the session.
-        while _alive(child.pid):
-            time.sleep(.02)
+        _signal(child.pid, signal.SIGTERM)
+        if not _drain(child.pid, time.monotonic() + EXIT_GRACE):
+            _signal(child.pid, signal.SIGKILL)
+            _drain(child.pid, time.monotonic() + KILL_DRAIN_LIMIT)
         return 128 - code if code < 0 else code
 
 
