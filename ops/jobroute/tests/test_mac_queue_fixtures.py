@@ -75,7 +75,7 @@ def stop(signum, frame):
             pass
     log(ev='stopped', label=label)
     sys.exit(143)
-signal.signal(signal.SIGTERM, signal.SIG_IGN if mode == 'stubborn' else stop)
+signal.signal(signal.SIGTERM, signal.SIG_IGN if mode == 'stubborn' and label == 'stubborn' else stop)
 lock = open(os.path.join(qdir, 'lock'), 'w')
 fcntl.flock(lock, fcntl.LOCK_EX)              # FIFO-by-lock: one job at a time
 previous = os.path.join(home, 'workload.pids')
@@ -90,6 +90,8 @@ if mode == 'kill':
 # attached so this fixture also verifies output survives the next queue handoff.
 child = subprocess.Popen(cmd, cwd=workdir, start_new_session=True)
 rc = child.wait()
+if mode == 'stubborn' and label == 'stubborn':
+    time.sleep(.2)  # runner's post-job work needs its own grace after workload KILL
 log(ev='end', label=label, rc=rc)
 sys.exit(rc)
 '''
@@ -105,7 +107,7 @@ with open(os.path.join(home, '.sb-macjob/briefs.jsonl'), 'a') as f:
 words = brief.decode().split()
 if 'hold' in words:
     mode_path = os.path.join(home, '.sb-macjob/mode')
-    if os.path.exists(mode_path) and open(mode_path).read().strip() == 'stubborn':
+    if label == 'stubborn' and os.path.exists(mode_path) and open(mode_path).read().strip() == 'stubborn':
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         descendant = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
         with open(os.path.join(home, 'workload.pids'), 'w') as f:
@@ -360,6 +362,8 @@ def test_runner_that_ignores_term_is_killed_after_the_grace(tmp_path):
     assert not any(alive(int(pid)) for pid in (home / 'workload.pids').read_text().split())
     order = seen(home)
     assert order.index(('end', 'stubborn')) < order.index(('start', 'after'))
+    held = {e['ev']: e['t'] for e in events(home) if e.get('label') == 'stubborn'}
+    assert held['end'] - held['start'] >= 3 + SHORT['GRACE'] - .5
     assert next(e for e in events(home) if e['ev'] == 'start' and e['label'] == 'after')['previous_live'] == []
     assert not (home / 'release').exists()
     assert not list((home / 'work/swarmhub-jobs').iterdir())
