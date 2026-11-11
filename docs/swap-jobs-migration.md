@@ -1,7 +1,17 @@
 # Swap jobs and offline migration
 
-Status: implementation for review, no activation. Base main includes PR #28 (`4e9d4de`) and #34 (`c92b773`).
-PR1/PR3 are live and PR2 is merged according to the task brief; this work makes no new deployment claim.
+Status as of the offline source review on 2026-11-11: implementation is present at
+`7963b72` (user-supplied draft PR #56 tip). Current GitHub merge/review state and
+remote deployment state are **unverified**.
+
+| Scope | Evidence and limit |
+|---|---|
+| Source | Local #35–#56 stack includes the route, migration tooling and worker; source availability does not establish installation. |
+| Installed ovh route | Readiness records `148f905` observed on 2026-11-08. This is a dated observation, not a current remote check. |
+| Submission gates | Shipped global and per-profile opt-ins default to disabled. The 2026-11-08 report also described live submissions as disabled; current live config is unverified. |
+| hb pilot | No pilot activation is established by this review. The steps below remain a separately approved maintenance procedure. |
+| Mac worker | Not installed by the ovh installer. Separate installation and validation against the installed sb-macjob are required during the approved pilot; current Mac state is unverified. |
+
 The design references are the swapdesign1/2 documents, swapdesign3 §3 and its sender-account addendum,
 and the existing [per-bot account implementation](bot-isolation.md).
 
@@ -89,18 +99,36 @@ uses the host's default shared FIFO directory and gives the job a fresh private 
 checkout is exposed. Mini is denied without an explicit profile allowlist entry. `queue` reads the selected host's
 `sb-macjob queue --json` without flushing wakes.
 
-The worker passes `--queue-wait 7200` and bounds the **total call** (queue wait included) at
-six hours (`QUEUE_WAIT + RUN_LIMIT = 21600`); it does not independently enforce four hours after
-queue acquisition. Cleanup can add up to 120 seconds of TERM grace, then KILL and confirmation
-of process-group drain. Uninterruptible processes can delay that confirmation; cleanup fails closed.
-The private workload supervisor records its own session before launch and keeps sb-macjob waiting
-until descendants in that session drain. At the deadline the worker cancels future launch, stops
-that workload group first, confirms drain, and only then stops the runner group and removes the
-workspace. The runner must wait for the supplied command while holding the shared queue lock;
-workloads must not daemonize into additional sessions. Verify this contract with the installed Mac runner.
-The call exits 124 (`outcome: failure`, `signal: null`, `cause: timed_out`) and stderr says
-`Mac worker: stopped at its 21600 s limit`. `queue` has a 60-second call limit plus the same
-120-second cleanup grace. The route allows both plus 45 seconds transport/startup overhead.
+The worker passes `--queue-wait 7200` and bounds the **total call**, including queue
+wait, at six hours (`QUEUE_WAIT + RUN_LIMIT = 21600`). It does not independently
+enforce four hours after queue acquisition.
+
+Cleanup is **best effort**, not fail-closed. The supervisor takes the control-file
+lock, checks cancellation, **launches the workload in a new session, then records
+its PGID**. There is no recorded workload PGID before launch. At the deadline, the
+worker attempts to record cancellation and stop the recorded workload group first,
+then stops the runner. The runner must wait for the supplied command while holding
+the shared queue lock; workloads must not daemonize into additional sessions.
+
+The nominal deadline cleanup budget is two separate TERM graces: up to **120 s for
+the workload plus a fresh 120 s for the runner** (about 240 s), plus bounded KILL
+drains (up to 5 s per group) and runner reap (up to 5 s). After normal workload
+leader exit, the supervisor instead gives remaining descendants 2 s TERM grace,
+then a bounded KILL drain. A failed bounded drain logs a diagnostic and cleanup
+continues; confirmed drain is not a prerequisite for stopping the runner or for
+workspace removal. Missing/corrupt control, signal or process-inspection failures,
+early runner exit and unconfirmed KILL drain can leave work running. Blocking
+control locks or process inspection can exceed the nominal bounds. Some failure
+paths still remove the workspace or release the queue.
+
+The deadline path returns 124 (`outcome: failure`, `signal: null`,
+`cause: timed_out`) with `Mac worker: stopped at its 21600 s limit` on stderr.
+**Exit 124 is not proof that every descendant stopped.** Verify the installed
+Mac runner's queue-lock/session contract separately during the approved pilot.
+
+`queue` has no workload session: its budget is a 60 s call limit, one 120 s runner
+grace, bounded KILL drain and reap. The route allows **225 s = 60 + 120 + 45**;
+the 45 s allowance includes bounded post-KILL cleanup and transport/startup.
 These are operator constants; no request field changes them.
 
 A failed macjob says why when its exit code proves it. ssh exits 255 when it cannot connect, the connection drops,
