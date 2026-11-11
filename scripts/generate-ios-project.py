@@ -78,6 +78,8 @@ for name in ['Debug', 'Release']:
               # The boundary and baseline phases read repository sources outside the declared inputs.
               'ENABLE_USER_SCRIPT_SANDBOXING':'NO'}
     if name == 'Debug':
+        # Match SwiftPM's active destination architecture in both the app and hosted tests.
+        common['ONLY_ACTIVE_ARCH'] = 'YES'
         target.update(SWIFT_OPTIMIZATION_LEVEL='-Onone', SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG', ENABLE_TESTABILITY='YES')
     else:
         target.update(SWIFT_OPTIMIZATION_LEVEL='-O', SWIFT_COMPILATION_MODE='wholemodule')
