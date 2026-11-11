@@ -90,22 +90,41 @@ checkout is exposed. Mini is denied without an explicit profile allowlist entry.
 `sb-macjob queue --json` without flushing wakes.
 
 The worker passes `--queue-wait 7200` and bounds the **total call** (queue wait included) at
-six hours (`QUEUE_WAIT + RUN_LIMIT = 21600`); it does not independently enforce four hours after
-queue acquisition. Cleanup can add up to 120 seconds of TERM grace, then KILL and confirmation
-of process-group drain. Uninterruptible processes can delay that confirmation; cleanup fails closed.
-The private workload supervisor records its own session before launch and keeps sb-macjob waiting
-until descendants in that session drain. At the deadline the worker cancels future launch, stops
-that workload group first, confirms drain, and only then stops the runner group and removes the
-workspace. The runner must wait for the supplied command while holding the shared queue lock;
-workloads must not daemonize into additional sessions. Verify this contract with the installed Mac runner.
-The call exits 124 (`outcome: failure`, `signal: null`, `cause: timed_out`) and stderr says
-`Mac worker: stopped at its 21600 s limit`. `queue` has a 60-second call limit plus the same
-120-second cleanup grace. The route allows both plus 45 seconds transport/startup overhead.
-These are operator constants; no request field changes them.
+six hours (`QUEUE_WAIT + RUN_LIMIT = 21600`). The child-owning supervisor also enforces a
+four-hour runtime cap, starting at workload launch, bounded by the same absolute call deadline.
+Its TERM/INT/HUP handlers, parent watchdog and independent cancellation latch lead to cleanup
+using the in-memory, unreaped child identity. Disk PGIDs never authorize signals. Normal leader
+exit gets 2 s TERM grace; cancellation gets 120 s. KILL/drain and reap have 5 s budgets each.
+The outer worker allows 135 s for supervisor settlement, then at most 130 s for runner cleanup:
+up to 265 s after its call deadline. Queue snapshots have no workload and take at most 60+130 s;
+the route budget remains 225 s. These are application budgets, not guarantees against OS or
+local filesystem stalls. All locks, inspection, input and output relay use finite budgets.
+
+Confirmed cleanup means drain of cooperating processes in the original group plus direct-child
+reap. Workloads must not daemonize, call setsid/setpgid, or escape that group. The runner must
+remain the supervisor's direct parent and hold the shared queue lock while waiting for it.
+An independent latch requests workload drain **before** the outer worker signals even a runner
+whose TERM handler kills its supervisor. The supervisor stays alive in containment if drain or
+reap is unresolved; the outer worker returns 125 without killing that guardian. Private output
+files prevent a retained guardian from keeping the SSH stream open. Missing or invalid control
+also returns 125, retains the original control bytes, workspace, logs and separate invocation-bound
+`supervisor-result.json` / `cleanup-result.json`. Never automatically retry an unknown result.
+A runner crash/SIGKILL may release its queue lock before the watchdog drains work: queue state
+is unknown. Crash-safe exclusion would require a durable admission hold honored by every entrant.
+Simultaneous guardian SIGKILL and arbitrary same-UID interference are outside this contract.
+
+Exit 124 means an enforced deadline **with confirmed cleanup**, subject to the original-group
+scope above. Exit 125 means incomplete cleanup or invalid protocol; 126 means process cleanup
+completed but artifact removal failed. Both retain remaining artifacts and have null cause/signal.
+Queue refusals are respectively `Mac worker cleanup incomplete; inspect retained state before retrying`
+and `Mac worker artifact cleanup failed; inspect retained state`; the route CLI still exits 1.
+Catchable outer termination returns 128+signal after confirmed cleanup. Status precedence is
+125, 126, outer signal, deadline 124, ordinary runner status. Persistent ps failure is an
+operator-visible cleanup failure (`process_inspection_failed`), not evidence of an empty group.
 
 A failed macjob says why when its exit code proves it. ssh exits 255 when it cannot connect, the connection drops,
 or the remote worker dies without an exit status; the worker itself never exits 255 and reports its runner's own
-255 or 124 as 1 (stderr keeps the real code). So job `status` adds `cause: mac_connection_failed` for 255 (the job
+255, 124, 125 or 126 as 1 (stderr keeps the real code). So job `status` adds `cause: mac_connection_failed` for 255 (the job
 may have started on the Mac: check `queue` before resubmitting) and `cause: timed_out` for 124; every other failure,
 and every non-macjob job, has `cause: null`. `outcome` is unchanged. `queue` refuses with
 `Mac host unreachable; retry later` when ssh fails, and with
@@ -117,7 +136,12 @@ on stderr, which reaches ovh merged with the job's own output. Telling them apar
 
 This deliberately uses the shell execution equivalent of `sb-mac-task --shell` rather than that program's
 LaunchAgent path: the inspected sb-mac-task bypasses sb-macjob, which would bypass the queue. A future sb change can
-put the same runner around its LaunchAgent command. The worker is **not** installed by the ovh route installer.
+put the same runner around its LaunchAgent command. The worker is **not** installed on the Mac by the ovh route installer. Copy `mac-worker.py`,
+`mac_worker_state.py` and `mac_worker_lifecycle.py` from one release together; the worker verifies
+the helper hashes before either role starts. Deployment remains disabled pending an isolated Mac
+pilot covering kqueue, ps/flock, corrupt-control cancellation, outer/supervisor TERM, parent death,
+descendant drain before queue handoff, and the installed runner’s escalation/lock contract. A runner
+that independently kills a still-cleaning guardian is unsupported. Linux fixtures do not validate that contract.
 Install and test it separately during an approved Mac pilot; no Mac was contacted for this PR. The queue's lifetime,
 keeper and stale recovery remain the already implemented sb runner's responsibility.
 

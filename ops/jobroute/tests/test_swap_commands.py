@@ -156,7 +156,7 @@ def test_mac_worker_uses_shared_runner_and_fixed_shell_argv(tmp_path):
     worker = importlib.util.module_from_spec(spec); spec.loader.exec_module(worker)
     calls=[]
     def execute(argv, limit, **kw):
-        calls.append((argv,limit,kw)); assert kw['stdin'].read() == b'hello $(id)'; return SimpleNamespace(returncode=0)
+        calls.append((argv,limit,kw)); assert kw['stdin'].read() == b'hello $(id)'; return SimpleNamespace(returncode=0, cleanup_complete=True, protocol_valid=True, stop_signal=None, timed_out=False)
     assert worker.run({'operation':'macjob','agent':'Admin','label':'task','brief':'hello $(id)'}, tmp_path, execute) == 0
     argv, limit, kw = calls[0]
     assert argv[0].endswith('/sb-macjob') and '--workdir' in argv and argv[-3:] == ['-p','--permission-mode','acceptEdits']

@@ -288,12 +288,13 @@ risks/follow-ups, deploy/pin impact, rollback.
 - **Rollback:** revert.
 
 ### #47 · `feat/backlog12-mac-job-limit` · `4ec236a` · base `feat/backlog11-remaining-system-rows`
-- **Change:** `mac-worker.py` bounds the total Mac call, including queue wait, at 6 h (not a separate 4 h runtime). At the
-  deadline it stops the workload group with TERM and up to 120 s grace, then
-  bounded KILL retries (5 s). After workload drain the runner receives its own
-  120 s grace and bounded KILL retries (5 s), then the worker exits 124.
-  A completed workload leader triggers descendant cleanup with 2 s grace.
-  The queue snapshot is capped at 60 s and has only the runner cleanup phase.
+- **Change (updated by fixround3):** total Mac call remains 6 h including queue wait;
+  the supervisor now independently caps workload runtime at 4 h. Supervisor-owned cleanup
+  pins the unreaped child through the last signal. Invalid controls cannot authorize signals
+  or workspace removal. The independent cancellation latch drains before runner termination.
+  Settlement plus runner cleanup can add 265 s. Unresolved work retains its guardian and
+  artifacts, returning 125; artifact-removal failure returns 126. Confirmed cleanup covers
+  only cooperating processes in the original group; daemonization/group escape is unsupported.
 - **Tests:** `run-sandbox.sh` **517 passed**, SSH **23/23**; 7 mutations caught.
 - **Rerun 2026-11-08 (mergeprep):** `run-sandbox.sh` at the head:
   **517 passed**, SSH **23/23**, exit 0. Other figures above are as the
@@ -303,7 +304,11 @@ risks/follow-ups, deploy/pin impact, rollback.
   of `sb-macjob`. The fix-round supervisor must be verified against the installed runner’s lock/session contract. 6 h is a policy
   choice.
 - **Deploy:** route runtime via **ovh jobroute park** (jobroute 148f905 is
-  live); `mac-worker.py` must also be installed on the Mac.
+  live); `mac-worker.py`, `mac_worker_state.py`, and `mac_worker_lifecycle.py` must be shipped
+  together to the Mac. **Do not enable the worker until the isolated Mac pilot passes:**
+  non-reaping kqueue, ps/flock, cancellation, signals, parent death, queue handoff, and
+  installed runner lock/escalation behavior. Runner crash can release the queue before
+  cleanup; no crash-safe exclusion claim is made. This round performs no Mac deployment.
 - **Rollback:** revert; live: reinstall the previous route release.
 
 ### #48 · `feat/backlog13-mac-failure-cause` · `dcdfc78` · base `feat/backlog12-mac-job-limit`

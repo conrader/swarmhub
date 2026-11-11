@@ -23,7 +23,8 @@ from test_swap_commands import env  # noqa: E402,F401 (fixture: macjob/queue ena
 SRC = Path(__file__).resolve().parents[1]
 WORKER = '.local/lib/swarmhub/mac-worker.py'
 # Worker copies with second-scale limits: a job deadline of QUEUE_WAIT + RUN_LIMIT = 3 s.
-SHORT = {'QUEUE_WAIT': 1, 'RUN_LIMIT': 2, 'GRACE': 3, 'QUEUE_LIMIT': 1}
+# Align total and independent runtime deadlines; retain the existing strict 3 s assertions.
+SHORT = {'QUEUE_WAIT': 0, 'RUN_LIMIT': 3, 'GRACE': 3, 'QUEUE_LIMIT': 1}
 
 RUNNER = r'''#!/usr/bin/python3 -I
 import fcntl, json, os, signal, subprocess, sys, time
@@ -146,6 +147,8 @@ def install_worker(home, path=WORKER, **limits):
         line = next(x for x in text.splitlines() if x.startswith(name + ' = '))
         assert text.count(line + '\n') == 1
         text = text.replace(line + '\n', f'{name} = {value!r}\n')
+    for name in ('mac_worker_state.py', 'mac_worker_lifecycle.py'):
+        _exe((home / path).with_name(name), (SRC / name).read_text())
     return _exe(home / path, text)
 
 

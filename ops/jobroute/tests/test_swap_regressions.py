@@ -100,7 +100,8 @@ def test_mac_queue_matches_installed_wrapper_and_helper_parser(tmp_path):
         # Installed sb-macjob prepends QUEUE_DIR before delegating to job_process.py.
         parsed = queue_parser().parse_args([str(tmp_path / 'fixture-queue'), *argv[2:]])
         assert parsed.json is True
-        return SimpleNamespace(returncode=0)
+        kwargs['stdout'].write(b'{"holder":null,"waiting":[]}')
+        return SimpleNamespace(returncode=0, cleanup_complete=True, protocol_valid=True, stop_signal=None, timed_out=False)
 
     assert worker.run({'operation': 'queue', 'agent': 'Admin'}, tmp_path, execute) == 0
     assert len(calls) == 1

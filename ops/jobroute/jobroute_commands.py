@@ -10,6 +10,7 @@ import signal
 import subprocess
 import time
 from zoneinfo import ZoneInfo
+import mac_worker_lifecycle as lifecycle
 
 from jobroute_jobs import _append
 from jobroute_trust import launch_problem
@@ -41,57 +42,67 @@ BACKEND_TIMED_OUT = 'backend timed out; its outcome is unknown'
 # queue lock, and sb-macjob's Busy 75 has no marker a job cannot forge (docs/swap-jobs-migration.md).
 MAC_UNREACHABLE = 'Mac host unreachable; retry later'
 MAC_QUEUE_TIMED_OUT = 'Mac worker timed out waiting for the queue; retry later'
-QUEUE_FAILURES = {255: MAC_UNREACHABLE, 124: MAC_QUEUE_TIMED_OUT}
+QUEUE_FAILURES = {255: MAC_UNREACHABLE, 124: MAC_QUEUE_TIMED_OUT,
+                  125: 'Mac worker cleanup incomplete; inspect retained state before retrying',
+                  126: 'Mac worker artifact cleanup failed; inspect retained state'}
 # On a route timeout the backend gets SIGTERM, then SIGKILL after this many seconds.
 BACKEND_KILL_GRACE = 2
 
 
-def _signal_group(pgid, sig):
-    try:
-        os.killpg(pgid, sig)
-    except ProcessLookupError:
-        pass
+class BackendCleanupIncomplete(Exception):
+    """Local transport cleanup is unresolved; never infer the remote workload outcome."""
 
 
-def _group_alive(pgid):
-    # Ignore zombies: they cannot run or hold descriptors. ps works on macOS and Linux.
-    rows = subprocess.check_output(['/bin/ps', '-axo', 'pgid=,stat='], text=True)
-    return any(int(fields[0]) == pgid and not fields[1].startswith('Z')
-               for row in rows.splitlines() if len(fields := row.split()) == 2)
-
-
-def _drain_group(proc, grace):
-    deadline = time.monotonic() + grace
-    while True:
-        proc.poll()  # reap the direct child, even if its descendants are still cleaning up
-        if not _group_alive(proc.pid):
-            return
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return
-        time.sleep(min(.02, remaining))
+# Keep unresolved Popen objects alive; their destructors must not become a second reaper.
+_BACKEND_RETAINED = []
 
 
 def run_group(argv, *, input, stdout, env, cwd, timeout):
-    """subprocess.run in its own session; on timeout (or any error) end the whole group.
-    subprocess.run alone kills only mac-dispatch, so its ssh child would run on until the remote
-    worker ended (backlog17). TERM first so ssh can close the connection, KILL what remains."""
-    proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=stdout, stderr=subprocess.DEVNULL,
-                            env=env, cwd=cwd, start_new_session=True)
-    try:
-        proc.communicate(input, timeout=timeout)
-    except BaseException:
-        _signal_group(proc.pid, signal.SIGTERM)
+    """Bound input, non-reaping wait, group drain and reap independently."""
+    lifecycle.supported()
+    with lifecycle.Stops() as stops:
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=stdout, stderr=subprocess.DEVNULL,
+                                env=env, cwd=cwd, start_new_session=True, close_fds=True)
+        child = lifecycle.Child(proc)
+        error = None
         try:
-            _drain_group(proc, BACKEND_KILL_GRACE)
-            alive = _group_alive(proc.pid)
-        except Exception:
-            alive = True
-        if alive:
-            _signal_group(proc.pid, signal.SIGKILL)
-        proc.wait()
-        raise
-    return subprocess.CompletedProcess(argv, proc.returncode)
+            deadline = time.monotonic() + timeout
+            os.set_blocking(proc.stdin.fileno(), False)
+            pending = memoryview(input or b'')
+            while True:
+                if stops.first:
+                    raise InterruptedError('backend interrupted')
+                if time.monotonic() >= deadline:
+                    raise subprocess.TimeoutExpired(argv, timeout)
+                if pending:
+                    try:
+                        pending = pending[os.write(proc.stdin.fileno(), pending[:16384]):]
+                    except BlockingIOError:
+                        pass
+                    except BrokenPipeError:
+                        pending = pending[:0]
+                elif not proc.stdin.closed:
+                    proc.stdin.close()
+                if child.exited():
+                    break
+                lifecycle.pause(deadline)
+        except BaseException as exc:
+            error = exc
+        finally:
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                complete = lifecycle.drain(child, BACKEND_KILL_GRACE, 5, 5)
+            except Exception:
+                complete = False
+            if not complete:
+                _BACKEND_RETAINED.append(child)
+                raise BackendCleanupIncomplete() from None
+        if error is not None:
+            raise error
+        return subprocess.CompletedProcess(argv, proc.returncode)
 
 
 def bounded_text(value, name, maximum=8192):
@@ -176,8 +187,10 @@ class Commands:
         with tempfile.TemporaryFile() as out:
             try:
                 p = run_group([cmd[0], *argv], input=data, stdout=out, env=env, cwd=cwd, timeout=timeout)
+            except BackendCleanupIncomplete:
+                raise Refused('backend cleanup incomplete; its outcome is unknown', 1) from None
             except subprocess.TimeoutExpired:
-                # run_group has already ended the backend's whole process group. Fixed text.
+                # Confirmed local drain does not prove remote cleanup.
                 raise Refused(BACKEND_TIMED_OUT, 1) from None
             out.seek(0)
             text = out.read(16385).decode('utf-8', 'replace')

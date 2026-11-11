@@ -144,20 +144,34 @@ def test_queue_and_macjob_maps_still_name_124_and_255():
 
 
 def test_parent_exit_does_not_shorten_child_grace(monkeypatch):
-    # Model a parent already reaped while its child needs 150 ms to close transport.
+    # Leader has exited but remains UNREAPED while the descendant closes transport.
     from types import SimpleNamespace
+    life = commands.lifecycle
     started = time.monotonic()
-    monkeypatch.setattr(commands, '_group_alive', lambda pgid: time.monotonic() - started < .15)
-    commands._drain_group(SimpleNamespace(pid=123, poll=lambda: 0), .4)
+    child = life.Child(SimpleNamespace(pid=123, returncode=None, wait=lambda **kw: 0))
+    monkeypatch.setattr(child, 'send', lambda sig: True)
+    monkeypatch.setattr(life, 'membership', lambda *a:
+                        life.LIVE if time.monotonic() - started < .15 else life.DRAINED)
+    assert life.drain(child, .4, .2, .1)
     assert .15 <= time.monotonic() - started < .4
+    assert child.reaped
 
 
 def test_survivor_receives_full_grace(monkeypatch):
+    import signal
     from types import SimpleNamespace
-    monkeypatch.setattr(commands, '_group_alive', lambda pgid: True)
+    life = commands.lifecycle
+    child = life.Child(SimpleNamespace(pid=123, returncode=None))
+    events = []
     started = time.monotonic()
-    commands._drain_group(SimpleNamespace(pid=123, poll=lambda: 0), .2)
-    assert time.monotonic() - started >= .2
+    monkeypatch.setattr(child, 'send', lambda sig: events.append((sig, time.monotonic())))
+    def inspect(*a):
+        return life.DRAINED if any(sig == signal.SIGKILL for sig, _ in events) else life.LIVE
+    monkeypatch.setattr(life, 'membership', inspect)
+    monkeypatch.setattr(child, 'reap', lambda deadline: True)
+    assert life.drain(child, .2, .1, .1)
+    assert events[0][0] == signal.SIGTERM
+    assert next(t for sig, t in events if sig == signal.SIGKILL) - started >= .2
 
 
 def test_parent_exits_first_child_finishes_graceful_cleanup(env):
@@ -178,20 +192,22 @@ def test_parent_exits_first_child_finishes_graceful_cleanup(env):
     assert 1.3 <= time.monotonic() - started < 1 + commands.BACKEND_KILL_GRACE + 1
 
 
-def test_ps_failure_during_cleanup_still_kills_and_waits(monkeypatch):
+def test_ps_failure_during_cleanup_still_kills_and_waits(monkeypatch, tmp_path):
     import signal
     import subprocess
     from types import SimpleNamespace
+    life = commands.lifecycle
     events = []
-    def communicate(*args, **kwargs):
-        raise subprocess.TimeoutExpired('backend', 1)
-    proc = SimpleNamespace(pid=123, communicate=communicate,
-                           wait=lambda: events.append('wait'))
+    stream = (tmp_path / 'stdin').open('wb')
+    proc = SimpleNamespace(pid=123, stdin=stream, returncode=None,
+                           wait=lambda **kw: events.append('wait'))
     monkeypatch.setattr(commands.subprocess, 'Popen', lambda *a, **kw: proc)
-    monkeypatch.setattr(commands, '_signal_group', lambda pid, sig: events.append(sig))
-    def failed(*args):
-        raise OSError('ps unavailable')
-    monkeypatch.setattr(commands, '_drain_group', failed)
+    monkeypatch.setattr(life.Child, 'exited', lambda self: False)
+    monkeypatch.setattr(life.Child, 'send', lambda self, sig: events.append(sig))
+    monkeypatch.setattr(commands, 'BACKEND_KILL_GRACE', .01)
+    # A transient inspection failure is recoverable; final drain must precede reap.
+    answers = iter([life.UNKNOWN, life.LIVE, life.DRAINED])
+    monkeypatch.setattr(life, 'membership', lambda *a: next(answers))
     with pytest.raises(subprocess.TimeoutExpired):
-        commands.run_group(['backend'], input=b'', stdout=None, env={}, cwd=None, timeout=1)
+        commands.run_group(['backend'], input=b'', stdout=None, env={}, cwd=None, timeout=0)
     assert events == [signal.SIGTERM, signal.SIGKILL, 'wait']

@@ -139,5 +139,7 @@ def test_queue_success_is_unchanged(env):
 
 
 def test_shipped_queue_failure_table():
-    assert commands.QUEUE_FAILURES == {255: UNREACHABLE_TEXT, 124: QUEUE_TIMED_OUT}
+    assert commands.QUEUE_FAILURES == {255: UNREACHABLE_TEXT, 124: QUEUE_TIMED_OUT,
+        125: 'Mac worker cleanup incomplete; inspect retained state before retrying',
+        126: 'Mac worker artifact cleanup failed; inspect retained state'}
     assert commands.MAC_QUEUE_TIMED_OUT == QUEUE_TIMED_OUT

@@ -19,7 +19,7 @@ installer = stage / 'installer.sh'
 sha = re.search(r'^SHA=([0-9a-f]{40})$', installer.read_text(), re.M)[1]
 pins = dict((name, digest) for digest, name in re.findall(
     r'^([0-9a-f]{64})  (jobroute|jobroute_core\.py|jobroute_jobs\.py|jobroute_trust\.py|allowlist\.toml|'
-    r'check-hermes-tools|uninstall\.py|jobroute_commands\.py|secretscan\.py|mac-dispatch|mac-worker\.py|isolation_check\.py|check-jobroute-iso)$', installer.read_text(), re.M))
+    r'check-hermes-tools|uninstall\.py|jobroute_commands\.py|secretscan\.py|mac-dispatch|mac-worker\.py|mac_worker_state\.py|mac_worker_lifecycle\.py|isolation_check\.py|check-jobroute-iso)$', installer.read_text(), re.M))
 fails = 0
 checks = 0
 os.umask(0o022)

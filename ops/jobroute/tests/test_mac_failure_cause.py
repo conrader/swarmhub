@@ -53,7 +53,7 @@ def run_job(env, route, brief):
     return p, status(env, out['job_id'])
 
 
-@pytest.mark.parametrize('code', [255, 124])
+@pytest.mark.parametrize('code', [255, 124, 125, 126])
 def test_worker_never_passes_on_a_reserved_code_from_its_runner(tmp_path, code):
     home = mac_home(tmp_path)
     rc, out, err = run_worker(home, request('reserved', f'exit {code}'))
@@ -64,7 +64,7 @@ def test_worker_never_passes_on_a_reserved_code_from_its_runner(tmp_path, code):
 
 def test_worker_keeps_every_other_runner_code(tmp_path):
     home = mac_home(tmp_path)
-    for code in (0, 3, 75, 123, 125, 254):
+    for code in (0, 3, 75, 123, 127, 254):
         rc, _, err = run_worker(home, request('kept', f'exit {code}'))
         assert rc == code and 'reported as' not in err
 

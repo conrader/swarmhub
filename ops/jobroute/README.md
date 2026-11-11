@@ -46,7 +46,7 @@ sb-codejob --agent <Agent> --workdir <dir> --label <label> --stdin -- <fixed eng
     (n ≤ 64, inferred from that convention); `review_verdict` — `PASS`/`CONCERNS`/`FAIL`
     or `null`, never changing `outcome`; `cause` — for a failed macjob only,
     `mac_connection_failed` (exit 255: ssh failed; `mac-worker.py` never exits 255) or
-    `timed_out` (exit 124: the worker's deadline; a runner's own 124 is reported as 1),
+    `timed_out` (exit 124: the worker's deadline; a runner's own 124/125/126/255 is reported as 1),
     else `null` (exit 75, sb-macjob's queue `Busy`, has no cause: a job can exit 75 and
     forge Busy's stderr line, see docs/swap-jobs-migration.md); `artifacts` — `{log, report, report_expected}`,
     file checks by lstat only. `report_expected` is true for `launch`, false for `submit`
@@ -367,3 +367,13 @@ provenance manifest requires manual review; do not guess which parents it create
 Jobs that are already running are detached sb-codejob jobs. Rollback does not stop them,
 and they still wake their agent when they end. Keys stay in sb-vault and on the Hermes box
 until someone decides to remove them; deleting a secret is Konrad's call.
+
+Mac worker cleanup (fixround3): 125 means cleanup/protocol incomplete and retains state; 126
+means process cleanup completed but artifact removal failed. Neither creates a job cause or
+signal. No automatic retry is safe when the outcome is unknown. The supervisor owns workload
+cleanup, has a four-hour runtime cap within the six-hour total call cap, and uses a separate
+cancellation latch before the outer worker can stop the runner. Cleanup can add 265 seconds.
+Confirmed cleanup covers only cooperating processes in the original group, never daemonized
+work. Runner crash can release the queue early; the installed Mac contract remains unverified.
+Ship `mac-worker.py` and both pinned `mac_worker_*.py` helpers together, and leave Mac deployment
+disabled until the pilot described in `docs/swap-jobs-migration.md` passes.
