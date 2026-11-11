@@ -1,6 +1,6 @@
 # Update service wire contracts (P0a)
 
-Status: contract for plan B (`CORE-PLAN.md` §2.1, §3.1, §6; phase P0a in `CORE-PHASES.md`). Swift (P0c) and Python (P0b) verifiers implement exactly this. The executable reference is `scripts/release/reference_verify.py` with `schemas.py`, `jcs.py` and `ustar.py`; the vectors are in `Tests/Fixtures/release-bundles/`. Nothing here is deployed. All keys in the fixtures are TEST keys.
+Status: contract for plan B ([CORE-PLAN.md](../archive/plans/CORE-PLAN.md) §2.1, §3.1, §6; phase P0a in [CORE-PHASES.md](../archive/plans/CORE-PHASES.md)). Swift (P0c) and Python (P0b) verifiers implement exactly this. The executable reference is `scripts/release/reference_verify.py` with `schemas.py`, `jcs.py` and `ustar.py`; the vectors are in `Tests/Fixtures/release-bundles/`. Nothing here is deployed. All keys in the fixtures are TEST keys.
 
 ## 1. Objects
 

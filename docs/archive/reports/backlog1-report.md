@@ -1,5 +1,11 @@
 # backlog1 — next SwarmHub item
 
+> Archived 2026-11-11 from `backlog1-report.md` at source baseline `7963b72`.
+> This is historical evidence, not current task or deployment status. Original
+> repository-relative code/path references retain their original root context;
+> Markdown links are repaired for this location. Accepted decisions and open
+> gates are indexed in the [living roadmap and limits](../../ROADMAP-AND-LIMITS.md).
+
 Date: 2026-11-08. Repository: `conrader/swarmhub`.
 Branch: `feat/backlog1-launch-recovery`, based on PR #35 head
 `148f9058826dd6b8360f50fbddd2027f62395d2f`.
@@ -15,9 +21,9 @@ Implementation commit: `ce475e6`. PR base: `feat/swapjobs1` (PR #35 is still unm
   #35 has no inline review threads. Its head is still `148f905`; main is `4e9d4de`.
   #35 already imports #8, including #6. This change is stacked on #35 so its draft diff
   can be reviewed separately without merging any dependency.
-- Reviewed [README](README.md), [PLAN](PLAN.md), [KNOWN-GAPS](KNOWN-GAPS.md),
-  [command/migration contracts](docs/swap-jobs-migration.md),
-  [jobroute design](ops/jobroute/README.md), [team coordination](docs/team-coordination.md),
+- Reviewed [README](../../../README.md), [PLAN](../plans/PLAN.md), [KNOWN-GAPS](KNOWN-GAPS.md),
+  [command/migration contracts](../../swap-jobs-migration.md),
+  [jobroute design](../../../ops/jobroute/README.md), [team coordination](../../team-coordination.md),
   and relevant reference/feature sections. PLAN contains dated historical entries;
   it was checked against current sources instead of treating every old gap as open.
 - A case-sensitive `TODO|FIXME` scan of `Sources`, `Packages`, and `ops` (excluding SVGs

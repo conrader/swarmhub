@@ -1,5 +1,11 @@
 # SwarmHub — Grok Bot parity plan
 
+> Archived 2026-11-11 from `PLAN.md` at source baseline `7963b72`.
+> This is historical evidence, not current task or deployment status. Original
+> repository-relative code/path references retain their original root context;
+> Markdown links are repaired for this location. Accepted decisions and open
+> gates are indexed in the [living roadmap and limits](../../ROADMAP-AND-LIMITS.md).
+
 SwarmHub targets macOS, Windows, and Linux. The phases below cover the current macOS prototype; Windows and Linux implementations are planned.
 
 Goals (Konrad, 2026-10-13): build the whole app with all Grok Bot functionalities; first milestone: SwarmHub

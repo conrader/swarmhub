@@ -1,76 +1,100 @@
-# Stack merge readiness: PRs #35 to #52
+# Merged stack and rollout readiness: #35–#56, #58 and #59
 
-For Konrad and Jarvis, to decide whether and how to merge the draft stack.
-Written 2026-11-08 (backlog14) for #35 to #48. Extended to #52 and test
-results rerun on 2026-11-08 (mergeprep, after Jarvis stopped new stacking
-at #52). Nothing in this document has been merged, deployed or parked.
+Updated offline on 2026-11-11 against current main `349db4c`. Main now contains
+the merged jobroute stack #35–#56 plus #58 (fixround3, `510c5b3`) and iOS fix #59
+(`349db4c`). Fixround3 behavior is merged and reviewed. The jobroute Mac worker
+stays **disabled** pending its isolated pilot. Deployment observations and older
+test/review results below remain dated evidence; no remote checks were run here.
 
-Sources: `gh pr view` for each PR (bodies, heads, bases), the job reports
-`~/work/Swarmhub/backlog1-report.md` to `backlog13-report.md`,
-`jrinst148-report.md`, the job review files (`*.review.txt` / `*.json`), and a
-read-only look at the live jobroute symlink on ovh. The jobroute sandbox
-suite (`ops/jobroute/tests/run-sandbox.sh`, pytest plus the ssh harness) **was
-rerun at every head #35 to #52 and at a local combined tip**. See "Test
-reruns" below. All other figures (Mac/Swift, pysuites, updater, sim) are as
-reported by each job at the time and were not rerun.
+## Current scope and verification limits
 
-## Summary
+| Field | Status / evidence |
+|---|---|
+| Merged source | Current main contains #35–#56 plus reviewed #58 (`510c5b3`) and iOS #59 (`349db4c`). Local history retains the earlier stack and fix rounds. |
+| GitHub heads and bases | Not re-queried. The #35–#52 table records the 2026-11-08 heads/bases; those are historical, not a pending merge queue. |
+| Reviews and checks | Fixround3 #58 is merged and reviewed. Earlier PASS/owed/hold entries are dated job reports, not current merge blockers; remote review records were not re-queried. |
+| Installed ovh route | **Unverified now**. The 2026-11-08 report observed `current → releases/148f9058…` (#35); the older `jrinst148` report's `f816454` observation preceded it. |
+| Submission gates | Source defaults disable submissions globally and per profile. The dated #35 install observation also reported submissions disabled; current live config is **unverified**. |
+| hb pilot / Mac activation | No completed pilot is established here. **Keep the Mac worker disabled** pending isolated Mac validation; the ovh installer does not install it on the Mac. |
+| Validation at this tip | No full runtime suite rerun in this docs job. Fix round 2b reports **527 passed / 48 failed / 4 skipped**, with environment explanations; neither that result nor the older 565/23 validates current main. Local doc-test selection is recorded in the docsfix2 report. |
 
-- 18 PRs, one linear stack: #35 targets `main` and each later PR targets the
-  one before it. Checked 2026-11-08: every PR head on GitHub matches the SHA
-  below, and each head is an ancestor of the next (`origin/main` 4e9d4de is
-  an ancestor of #35). #35 is open but not marked draft. #36 to #52 are
-  drafts. No new SwarmHub follow-ups are stacked after #52 (Jarvis).
-- **jobroute sandbox suite green at every head**, #35 to #52 and the combined
-  tip (565 passed, SSH 23/23). No head failed.
-- **The repo has no CI.** No branch has a status check, and there is no
-  `.github/workflows`. The test gate is therefore a rerun of the listed suites
-  at the PR head, by hand or by sb-codejob.
-- **Live state on ovh:** `~/.local/lib/jobroute/current` points to
-  `releases/148f9058…` (#35's head), switched 2026-11-08 10:40 UTC
-  (re-read 2026-11-08 by mergeprep).
-  `jrinst148-report.md` still says "live OVH remains on f816454". That
-  report predates the install. The rollback target is f816454 (#8's head).
-- **Codex cross-review is owed for #38 to #52.** Codex (gpt-6-astra) wrote
-  #35 to #37, and a Claude reviewer gave PASS on their final jobs (macgreen1,
-  backlog1, backlog2). The backlog3 Codex attempt (gpt-6.1-sol) was killed
-  (exit 143, review FAIL). Because of the hold, Claude wrote #38 to #52 and no
-  second model has reviewed them.
-- #35 copies #8's jobroute directory (`f816454`) in a provenance commit; the
-  git history is not shared. #6 and #8 are still open against
-  `feat/hermes-jobroute` and `main`. Once #35 lands they are superseded.
-  Merging them separately would create a second, conflicting route version.
+### Follow-ups after #52 and fix-round matrix
+
+The local history has no GitHub PR metadata for #53–#55. The following is a
+**provisional grouping by local commit sequence**, not verified PR heads/bases.
+The #53–#56 grouping below preserves the earlier source record; the whole stack
+is now merged. It does not assert individual remote head/base mappings.
+
+| PR scope | Local evidence / candidate boundary | Changes and outstanding verification |
+|---|---|---|
+| #53 (mapping unverified) | `986c616` (mergeprep, 2026-11-08) | Extends readiness through #52 and records dated reruns. Documentation only; no current GitHub review/head check. |
+| #54 (mapping unverified) | `a415ba3` through `e9328ab` (2026-11-10) | #40 bounded fixture collection; #50 queue budget; #49 coordinated skill rollback; #52 monotonic child grace; #45 known-identity legacy matching; #47 workload supervisor. Route, worker and app verification remain separate. |
+| #55 (mapping unverified) | `b07e1c5`, `958318d` (2026-11-10) | Fix-round regression fixtures: valid dispatch input and retained workload output. Test changes in the source stack, no tests changed or run by this docs job. |
+| #56 (tip user-supplied) | `2983f09` through `7963b72` (fix round 2b, 2026-11-10) | Isolated control state, fresh runner grace, lingering-descendant cleanup, bounded KILL drains/reap, #52 process-inspection fallback, stronger stubborn-runner fixture and docs. Local report identifies base `958318d`; this is historical source evidence, superseded for current cleanup behavior by #58. |
+| #58 (merged, reviewed) | `510c5b3` (fixround3) | Child-owned cleanup, independent cancellation, four-hour runtime cap, retained guardian/evidence on incomplete cleanup, exits 125/126, finite inspection/I/O budgets and pinned Mac helpers. Mac deployment stays disabled. |
+| #59 (merged) | `349db4c` | iOS Debug builds select the active simulator architecture so SwarmHubCore resolves; signed/native acceptance remains separate. |
+
+The [fix-round report](../archive/reports/fixround2b-report.md) records the full-suite result
+as 527 passed, 48 failed and 4 skipped: 11 failures lacked `yaml` in the
+invoked system Python; 37 required unavailable `unshare --mount`; four external
+sb-copy cases skipped. It also records focused passes (supervisor 7, backend
+timeout 12, queue fixtures/timeout 29 and the final stubborn fixture 1).
+These are reported results in that environment, not fresh runs or a fully green
+suite at this checkout. The 2026-11-08 suite used a different baseline and
+sandbox; neither result supersedes the other's conditions.
+
+Current Mac cleanup follows merged fixround3: a six-hour total call cap including
+queue wait plus an independent four-hour workload cap. Supervisor-owned cleanup
+uses the in-memory, unreaped child identity; invalid disk controls authorize
+neither signals nor workspace removal. The cancellation latch requests workload
+drain before runner termination. Supervisor settlement plus runner cleanup can
+add 265 s. Exit 124 requires confirmed original-group drain and direct-child reap;
+125 retains the guardian/evidence for incomplete cleanup or invalid protocol;
+126 retains remaining artifacts after removal failure. Persistent `ps` failure
+is not proof of drain. These budgets do not guarantee progress through OS or
+filesystem stalls. Daemonization/group escape is unsupported; runner crash can
+release the queue before cleanup, so crash-safe exclusion is not established.
+Queue snapshots have no workload: at most 60 + 130 s inside the unchanged
+225 s route budget. See [migration contracts](../swap-jobs-migration.md#command-contracts).
+
+## Historical summary: mergeprep, 2026-11-08
+
+The original report covered 18 PRs, #35–#52, with heads/bases checked then and
+all sandbox reruns green (combined tip: 565 passed, SSH 23/23). It recorded no
+CI/status checks, Claude PASS reviews on #35–#37, Codex cross-reviews owed on
+#38–#52, and #6/#8 as superseded candidates once #35 lands. Those observations
+are retained as history; no current GitHub or live conclusion follows.
+
+Sources used by that report: `gh pr view`, backlog1–backlog13 job reports,
+`jrinst148-report.md`, job review files and a read-only ovh symlink check.
+Those network/live reads were **not repeated** for this documentation job.
 
 ## Merge order and gates
 
-Merge strictly in order: #35, #36, #37 … #52. Before **each** merge:
+The merge gate is complete for #35–#56 plus #58 and #59. Do not replay the old
+#35–#56 merge/rebase sequence or independently install #6/#8. Their imported
+route is already in the merged stack. The 2026-11-08 checklist below preserves
+historical heads and review/test observations for comparison.
 
-1. **Tests green at the head.** Rerun the suites listed for that PR below, at
-   its exact head SHA, after the previous PR has landed and the base has been
-   moved to `main`. With no CI, the job report is the record; keep the log.
-   The mergeprep reruns below are the pre-merge baseline. Once a base has
-   moved to `main`, rerun at the head again. Because the stack is linear and
-   `main` has not moved, the head trees should not change.
-2. **Cross-review.** #35 to #37: done (Claude PASS on the Codex work). #38 to
-   #52: a Codex cross-review, owed and on hold.
-3. **Konrad's OK** for that PR, after reading its risks.
-4. **A park for anything live.** If a PR changes something that runs on ovh
-   or the Mac, the live install goes through sb-park and Jarvis's sb-approve.
-   It never happens as part of the merge.
+Rollout remains separate. Pin a reviewed main SHA, validate its suites in a
+suitable environment and keep the logs. Prepare one ovh route park through
+sb-park and Jarvis's sb-approve, checking the actual installed release and
+rollback target during separately authorized preparation. Coordinate coding
+skill `outcome` support with the route before shipping the app bundle (#39).
+Use the [current installer/rollback recipe](../../ops/jobroute/README.md#installation-identity-checks-and-rollback).
 
-Mechanics (recommendation): use a merge commit, not a squash. A squash
-would make every later PR in the stack show the earlier diffs again. After
-each merge, run `gh pr edit <next> --base main` *before* the merged branch
-is deleted, so GitHub does not close the dependent PR. Close #6 and #8 as
-"superseded by #35" after #35 merges (Konrad's call).
+Keep the Mac worker disabled until the isolated pilot verifies non-reaping
+kqueue, ps/flock, corrupt-control cancellation, outer/supervisor signals, parent
+death, descendant drain before queue handoff and the installed runner's
+lock/escalation behavior. Ship the worker and both pinned helpers together.
+No Mac deployment is performed by this docs update.
 
-Suggested grouping for live rollout: merge the whole stack, then do **one**
-ovh jobroute park pinned to `main` at the #52 merge, with 148f905 as the
-rollback target. Do not do one park per route PR. Then cut one app release
-that carries the Swift and skill changes. Install the route before the app
-release (see #39).
+## Historical #35–#52 per-PR checklist
 
-## Per-PR checklist
+Heads, branches, bases, reviews and installation observations in this section
+are the 2026-11-08 record. Later fix-round amendments are identified in the
+matrix above. All these PRs are now merged; old owed/hold entries describe
+2026-11-08. Deployment fields remain historical and were not rechecked.
 
 Format: PR · branch · head · base, then what it changes, tests, cross-review,
 risks/follow-ups, deploy/pin impact, rollback.
@@ -97,10 +121,10 @@ risks/follow-ups, deploy/pin impact, rollback.
   installation evidence, and a reseal to do, and it waits on Konrad's BOT_HOST
   answer. Real uid separation, OAuth, Cloudflare/nginx, wakes, routine
   enabling, S1 MCP registration and Mac worker activation are later pilot work.
-- **Deploy / pin:** jobroute **148f905 is already live on ovh**, so merging
-  only lines `main` up with live. Submissions stay disabled, because the live
-  config lacks both `submissions_enabled` opt-ins. Coding skill 1.3.16 (main
-  has 1.3.15) ships with the next app bundle. Mac worker not installed.
+- **Deploy / pin:** jobroute **148f905 was observed installed on ovh on 2026-11-08**.
+  At that observation submissions were disabled because the config lacked
+  both `submissions_enabled` opt-ins. Current installation/gates are unverified. Coding skill
+  1.3.16 is now in main; its installed/released version remains unverified. Mac worker not installed.
 - **Rollback:** `git revert -m 1 <merge>` on main. Live route:
   `bash ~/work/Swarmhub/jobroute-install-148f905.sh rollback` then
   `… verify-old` (back to f816454). That is a live change, so it needs a park.
@@ -117,7 +141,7 @@ risks/follow-ups, deploy/pin impact, rollback.
 - **Cross-review:** Claude reviewer PASS (Codex-authored).
 - **Risks:** recovery still matches on label/argv/workdir/time window, which
   is not exactly-once. Historical `failed` rows are not rewritten. Adds
-  `backlog1-report.md` at the repo root (see "Stale root files").
+  [`backlog1-report.md`](../archive/reports/backlog1-report.md), now archived.
 - **Deploy:** route runtime (`jobroute_core.py`, `jobroute_jobs.py`); needs
   the ovh jobroute park. Nothing on the Mac.
 - **Rollback:** revert the merge; live: reinstall the previous route release.
@@ -133,7 +157,7 @@ risks/follow-ups, deploy/pin impact, rollback.
 - **Cross-review:** Claude reviewer PASS (Codex-authored).
 - **Risks:** bindings have no TTL, and retry safety lasts only while the
   ledger is kept, so this is not exactly-once. Clients must persist the ID.
-  Adds `backlog2-report.md` at the repo root.
+  Added [`backlog2-report.md`](../archive/reports/backlog2-report.md), now archived.
 - **Deploy:** route runtime plus `sandbox_ssh.sh`; ovh jobroute park.
 - **Rollback:** revert; live: reinstall the previous route release. Not
   checked: how an older route treats a caller that still sends `request_id`.
@@ -303,12 +327,12 @@ risks/follow-ups, deploy/pin impact, rollback.
 - **Risks:** **not proven on a Mac.** TERM handling was read from ovh's copy
   of `sb-macjob`. The fix-round supervisor must be verified against the installed runner’s lock/session contract. 6 h is a policy
   choice.
-- **Deploy:** route runtime via **ovh jobroute park** (jobroute 148f905 is
-  live); `mac-worker.py`, `mac_worker_state.py`, and `mac_worker_lifecycle.py` must be shipped
-  together to the Mac. **Do not enable the worker until the isolated Mac pilot passes:**
-  non-reaping kqueue, ps/flock, cancellation, signals, parent death, queue handoff, and
-  installed runner lock/escalation behavior. Runner crash can release the queue before
-  cleanup; no crash-safe exclusion claim is made. This round performs no Mac deployment.
+- **Deploy (fixround3):** route runtime needs an **ovh jobroute park**; 148f905
+  was observed installed on 2026-11-08, current installation unverified.
+  Ship `mac-worker.py`, `mac_worker_state.py` and `mac_worker_lifecycle.py` together.
+  **Keep the worker disabled until the isolated Mac pilot above passes.** Runner
+  crash can release the queue before cleanup; no crash-safe exclusion claim is made.
+  This docs update performs no Mac deployment.
 - **Rollback:** revert; live: reinstall the previous route release.
 
 ### #48 · `feat/backlog13-mac-failure-cause` · `dcdfc78` · base `feat/backlog12-mac-job-limit`
@@ -383,6 +407,10 @@ risks/follow-ups, deploy/pin impact, rollback.
   On timeout or error it sends TERM to the whole group, waits 2 s, sends
   KILL, then reaps. Before this, a route timeout killed `mac-dispatch` but
   left its `ssh` child running (reproduced on c8ddbdc).
+- **Fixround3 amendment:** finite input/wait/inspection budgets and non-reaping
+  child ownership now gate drain/reap. Unresolved cleanup retains the owned child
+  and reports failure, including on `ps` failure; timeout + 2 s alone is not a
+  current cleanup bound.
 - **Tests:** new `test_backend_route_timeout.py` (8 tests); the
   `test_queue_timeout.py` stand-ins now patch `run_group`. `run-sandbox.sh`
   **565 passed**, SSH 0 failures, run twice by the job; 5 mutations caught.
@@ -392,7 +420,7 @@ risks/follow-ups, deploy/pin impact, rollback.
 - **Risks:** the backend no longer shares the route's process group, so a
   group signal sent to the route does not reach it. If the route is
   SIGKILLed mid-call, the backend outlives it (systemd cgroup teardown still
-  covers it). A timed-out call can take up to timeout + 2 s.
+  covers it). The historical timeout + 2 s estimate is superseded by the fixround3 amendment above.
 - **Deploy:** route runtime; **ovh jobroute park**.
 - **Rollback:** revert; live: reinstall the previous route release.
 
@@ -431,11 +459,12 @@ No test was skipped or failed at any head. Every count matches the figure
 its job reported (#35's 305 is the sandbox suite alone; the 397 in its
 history also counted installer, isolation and migration tests).
 
-**Combined tip.** This is a local integration checkout, never pushed: a
+**Historical combined tip (2026-11-08).** The report describes a local integration checkout, never pushed: a
 detached worktree at `origin/main` 4e9d4de, then
 `git merge --no-ff 6e55998a27eb` (the merge was clean), giving local commit
 `eabfc9e`. Its tree `339fec35` is byte-identical to #52's tree, so merging the
-whole stack into `main` as it stands today produces exactly #52's code.
+then-current #35–#52 stack into that `main` produced #52's code. This does not
+represent the later #53–#56 source at `7963b72`.
 `run-sandbox.sh` at `eabfc9e`: **565 passed, SSH 23/23, exit 0**
 (19:59–20:01 UTC).
 
@@ -447,31 +476,39 @@ the job reported them.
 
 | Area | PRs | Where it lands | How |
 |---|---|---|---|
-| jobroute route (ovh) | #35 (live), #36, #37, #38, #40, #47, #48, #50, #51, #52 | `~/.local/lib/jobroute` on ovh | one new pinned installer, sb-park, Jarvis sb-approve; rollback to 148f905 |
-| Mac worker / dispatch | #40, #47, #48 | ovh route plus the MacBook worker | ovh park; Mac activation is separate, later pilot work |
+| jobroute route (ovh) | #35–#56 plus #58 | `~/.local/lib/jobroute` on ovh | one new pinned installer, sb-park, Jarvis sb-approve; verify installed SHA and rollback target separately |
+| Mac worker / dispatch | #40, #47, #48 plus #58 supervisor/cleanup fixes | ovh route plus separately installed Mac worker and both pinned helpers | ovh park; **keep Mac worker disabled** pending isolated pilot |
 | Coding skill / bundle | #35 (1.3.16), #39, #43 | app release bundle | manager requires coding 1.3.16; route #38 must be live first |
-| App (Swift) | #42, #45, #46 | next signed app release | signed Mac verify owed |
+| App (Swift) | #42, #45, #46 plus known-identity matching fix | next signed app release | signed Mac verify owed |
+| iOS Debug simulator build | #59 (`349db4c`) | generated iOS project/build settings | active simulator architecture fix is merged; native acceptance remains separate |
 | Tests only | #41, #44 | none | none |
-| Docs only | #49 | none | none |
+| Docs only | #49, mergeprep (#53 mapping unverified), fix-round docs | none | none |
 
 ## Rollback notes (stack-wide)
 
-- Revert in **reverse** order (#52 first). Reverting a middle PR alone will
+- Revert in **reverse** order (latest dependent change first; main includes #58 and #59). Reverting a middle PR alone will
   probably conflict with later PRs that touch the same files
   (`jobroute_*.py`, `mac-worker.py`, `AppOnlyLine.swift`, `pysuites.sh`).
 - Code reverts and live rollbacks are separate. A revert on `main` changes
-  nothing on ovh. The live route moves only through the pinned installer's
-  `rollback` / `verify-old`, which is a live change and needs a park.
+  nothing on ovh. A live rollback needs a park and a reviewed pinned reinstall
+  or provenance-aware uninstaller from the [current recipe](../../ops/jobroute/README.md#installation-identity-checks-and-rollback).
+  The `rollback` / `verify-old` commands in the historical #35 entry belong to
+  that specific parked artifact, not the current generated installer interface.
 - App changes roll back by shipping a new release. Users who already
   installed keep their build until the updater moves them.
 
-## Blocked
+## Outstanding rollout and acceptance gates
 
-- **Codex cross-reviews (hold):** #38 to #52 have had no second-model review.
+The stack is merged, and fixround3 #58 is reviewed. The old #38–#52 owed/hold
+entries are historical, not outstanding merge gates.
+
+- **Isolated Mac pilot:** the fixround3 checklist above is still required before
+  enabling the worker. Validate the actual installed runner; Linux fixtures do not
+  close Mac acceptance.
 - **Live Mac run for #47/#48:** one short sb-macjob that TERMs a `sleep` job
   (exit 143, the wake, queue released) and checks real ssh 255 to an
-  unreachable alias. Not run. It stays in the backlog until after the stack
-  merges, as does the sb-macjob distinct exit-75 change (#51).
+  unreachable alias. Not run. It remains a rollout gate; the sb-macjob distinct exit-75 change (#51)
+  also remains follow-up work after the completed merge.
 - **Signed Mac verify (keychain):** every Mac run was unsigned
   (`--disable-keychain`). The app PRs (#42, #45, #46) and the skill bundle
   need a signed build check before release.
@@ -480,12 +517,10 @@ the job reported them.
 - Also waiting, outside the merge: hb-pilot park (Konrad's BOT_HOST answer);
   `c554005a8` stays HOLD.
 
-## Stale root files (noted, not moved here)
+## Documentation and accepted limits
 
-- `backlog1-report.md`, `backlog2-report.md`: job reports committed to the
-  repo root by #36/#37. Candidates for `docs/archive/reports/`.
-- `KNOWN-GAPS.md`: one entry, closed by decision on 2026-10-23. The file is
-  effectively empty.
-- `PLAN.md` (2026-10-23), `CORE-PHASES.md` (2026-10-20), `CORE-PLAN.md`
-  (2026-10-29): none mentions the jobroute or swap-jobs work. Check whether
-  they are still current before the next release.
+The root reports and plans are historical records, not current acceptance.
+Their archive locations and open gates are indexed in the
+[living roadmap and limits](../ROADMAP-AND-LIMITS.md).
+The `KNOWN-GAPS.md` ancestry exception is an accepted **residual limitation**;
+acceptance by decision did not fix or remove it.

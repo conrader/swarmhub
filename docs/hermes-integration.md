@@ -1,6 +1,16 @@
 # Hermes Agent integration
 
-AgentApp targets **Hermes Agent v0.21.7**, whose official date tag is `v2026.9.24`. Source excerpts and the captured local transcript are in [`hermes-v0.21.7-evidence.md`](hermes-v0.21.7-evidence.md).
+This protocol investigation used **Hermes Agent v0.21.7**, date tag
+`v2026.9.24`; it is historical evidence, not the sole current supported version.
+See [the compatibility observations](hermes-versions.md) for 0.20.5, 0.21.7 and
+0.22.0, and [`hermes-v0.21.7-evidence.md`](hermes-v0.21.7-evidence.md) for the
+captured transcript. Remote compatibility and live state were not rechecked in
+the 2026-11-11 offline review.
+
+The core connection uses stock Hermes APIs without modifying Hermes. SwarmHub
+can additionally install its own optional skills into each agent's profile.
+Managed approvals, webhooks and the updater are app-owned additions with separate
+setup/activation requirements; their source presence is not deployment evidence.
 
 ## Transport and authentication
 
@@ -22,15 +32,18 @@ Hermes delegates through `delegate_task`, and child sessions are omitted from or
 
 AgentApp probes `/v1/capabilities` before any Sessions API call and caches the result per server/profile. If that route is absent (the 0.16–0.20.x family), it skips REST session create/history and uses `POST /v1/chat/completions` with OpenAI SSE, a client-owned `X-Hermes-Session-Id`, and `hermes.tool.progress`. Cancellation then means closing the stream because the old response does not expose a controllable run. On native sessions, AgentApp captures the current run ID, cancels locally immediately, then posts `/stop` with an eight-second timeout and reports one result beside the stopped turn. A failed or timed-out server Stop is likewise recorded as “Hermes Stop failed” beside that turn; late feedback never clears or reports against a newer run. Registry cleanup is stream-token-conditional, so an old cancelled stream cannot erase a newer run ID. Text typed during the brief Stop-cleanup window is retained if the store cannot yet accept a new send. Approval cards show “Command unknown” and disable Approve when an event omits command text, and the store rejects such approvals even if called outside the UI. The checked v0.21.7 source emits the redacted command in the top-level `command` field; its general redactor can produce `***`, head/tail `...` masks, and `«redacted:…»` sentinels, so redacted-looking commands are never automatically approved. The parser also accepts non-empty command and identity fields in wrapped approval payloads used by compatible status surfaces; only raw `command` drives approval while `display_command` is presentation-only. Named profile routing, durable REST session loading, and approval resolution require the newer surface.
 
-## Verification note
+## Historical verification note (v0.21.7 investigation)
 
 Verification used the existing isolated official `v2026.9.24` source/install at `/private/tmp/hermes-v0.21.7-src` and `/private/tmp/hermes-test`. No personal or fleet server was contacted.
 
 A real throwaway gateway previously ran on port 18642 with a dummy API-server key and no readable provider credentials. Health, capabilities, models, deterministic session create/409, paged history, and native session SSE routing were exercised then; the turn reached Hermes but returned a provider-authentication failure. In the fifth pass, the native fixture failed while binding `127.0.0.1:18643`; because the script uses `set -e`, the legacy fixture never ran. The sixth-pass retry had the same result: native failed at the bind, legacy never ran, and the isolated throwaway gateway also failed to bind (this time at its default port 8642). Nothing live or fixture-backed executed in either retry. Exact sixth-pass output is saved in `hermes-fix6-fixtures.log`, `hermes-fix6-live-gateway.log`, and `hermes-fix6-live-client.log`.
 
-The Swift unit tests have never executed on this host. With `DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer`, `swift test` aborts before package compilation: Xcode 16.2's `CoreDevice.framework` requires missing symbol `_XPCTypeBool` from the installed macOS `Mercury.framework`. The sixth-pass command and output are saved in `hermes-fix6-swift-test.log`; it again exited 72 before compiling tests. The production target builds with the direct compiler fallback (`hermes-fix6-build.log`). A provider-backed long-running cancel, real approval pause, and delegated child remain unverified live.
+The Swift unit tests did not execute on that investigation host. With `DEVELOPER_DIR=/Applications/Xcode-16.2.0.app/Contents/Developer`, `swift test` aborts before package compilation: Xcode 16.2's `CoreDevice.framework` requires missing symbol `_XPCTypeBool` from the installed macOS `Mercury.framework`. The sixth-pass command and output are saved in `hermes-fix6-swift-test.log`; it again exited 72 before compiling tests. The production target builds with the direct compiler fallback (`hermes-fix6-build.log`). A provider-backed long-running cancel, real approval pause, and delegated child remain unverified live.
 
-## MacBook install checklist
+## Historical MacBook install checklist (investigation build)
+
+These steps describe the investigation build and do not establish current release
+or install status. Current build guidance is in the [guide](guide.md#get-started).
 
 1. Copy the entire reviewed source tree **including `.git`** with `scp` or `rsync` (do not exclude dotfiles). Packaging reads the source commit from `.git`; cloning is not equivalent while the reviewed changes remain uncommitted. This transfer also avoids adding a browser-download quarantine attribute.
 2. Run `swift test` on the MacBook and stop the install if any test is red.

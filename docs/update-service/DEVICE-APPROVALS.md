@@ -1,6 +1,6 @@
 # Device approvals v2 (P5a)
 
-Offline contract for CORE-PLAN.md §4. P5a adds no runtime path. The reference is
+Offline contract for [CORE-PLAN.md](../archive/plans/CORE-PLAN.md) §4. P5a adds no runtime path. The reference is
 `scripts/approvals/device_approval_reference.py`; P5b supplies transactional box
 storage/verification and P5c supplies the Mac client. Decisions go directly to the
 destination box, independently of the update host. Hermes and native Hermes

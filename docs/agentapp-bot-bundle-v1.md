@@ -2,7 +2,30 @@
 
 CONFIDENTIAL: exported profiles can contain personal and infrastructure details even after credential redaction. Keep `out/` on the owner’s machines; do not commit or share it. Export directories use 0700 and files 0600.
 
-Run `python3 export.py` from any directory with Python 3 (stdlib only). It reads the fixed sibling `snapshot/` and writes the fixed sibling `out/`. An existing export is replaced only after a successful build in a private temporary sibling directory; failed builds preserve it. Input symlinks are refused. SQLite opens read-only and immutable after checking sidecars; a nonempty WAL aborts the run. Empty WAL/SHM presence is reported. No remote calls are made.
+## Current exporter
+
+From the repository root, use the stdlib Python CLI:
+
+```sh
+python3 scripts/export-grokbot.py --cache /path/to/reviewed/app-cache --out /path/to/private/export
+```
+
+`--cache` defaults to the Grok Bot Mac app cache and `--out` to the private
+SwarmHub Grok Export folder (with the legacy-folder fallback described below).
+The default path reads local cache data. `--fetch-server-history` is a separate
+opt-in network/Keychain operation, not part of this offline example. See the
+[app-cache additions](#additions-for-the-grok-bot-app-cache-exporter-p6-compatible)
+for the current message mapping.
+
+## Historical snapshot contract
+
+The original snapshot exporter was named `export.py`, read a fixed sibling
+`snapshot/` and wrote `out/`. It is not the current CLI. The following v1 contract
+preserves that snapshot's observations and safeguards: an existing export was
+replaced only after a successful private temporary build, input symlinks were
+refused, SQLite was read-only/immutable after sidecar checks, and nonempty WAL
+aborted the run. References to empty messages or unsupported transcript rows
+below describe that original snapshot, not the app-cache exporter.
 
 `out/index.json` and each bot bundle carry `format: "agentapp-bot-bundle/v1"`. Reject unsupported format versions in Swift. Files are UTF-8 JSON; field names use snake_case. Unknown fields can be ignored. `null` means unavailable; empty lists mean no recoverable records, not proof that the original remote bot had none. All arrays preserve order. Routine import must leave execution disabled until configured for Hermes.
 
@@ -39,7 +62,7 @@ Security uses an allowlist of exported fields and an explicit redaction pass ove
 
 `out/redaction-report.json` contains per-bot reports and the global skill report. `out/SUMMARY.md` lists every bot, message/event counts, redactions, and mapping limitations. Unknown tables, nonempty encrypted root pointers/blobs/inboxes, unsupported transcript events, new snapshot/agent files, nonempty automation directories and nonempty WAL files fail before replacing out. Unknown profile/settings/metadata keys are excluded and listed under source_observations in the report. Empty sidecars and their sizes are also reported. Failures remove the temporary build and preserve the previous export. A successful replacement briefly moves the previous directory aside before installing the new one; readers should not import during replacement.
 
-The literal `[REDACTED]` marker indicates a removed free-text match; treat it as ordinary display text, never as a credential placeholder to restore. A whole Cookie header may be replaced by one marker. Counts are occurrences per source field or excluded sensitive field, not unique credentials. Description/instructions share one source count. A source may itself contain the marker. `python3 export.py --self-test` runs only fake test cases; the same test suite runs before every export and aborts on failure.
+The literal `[REDACTED]` marker indicates a removed free-text match; treat it as ordinary display text, never as a credential placeholder to restore. A whole Cookie header may be replaced by one marker. Counts are occurrences per source field or excluded sensitive field, not unique credentials. Description/instructions share one source count. A source may itself contain the marker. The historical snapshot exporter exposed `export.py --self-test` for fake cases before export; this is not an option of the current app-cache CLI.
 
 Observed avatar shapes: `blob`, `cylinder`, `shield`, `gem`, `hex`, `leaf`; colours: `black`, `violet`, `blue`, `yellow`, `orange`, `green`. Empty source avatar values become null. Importers should preserve unknown future strings or display a fallback. The only v1 skill `basis` value is `"name mentioned in profile"`, an inferred relationship.
 
@@ -61,4 +84,7 @@ Observed avatar shapes: `blob`, `cylinder`, `shield`, `gem`, `hex`, `leaf`; colo
 
 Mapping from cache entries: `message` role `user` without `fromAgent` → `user`; `send-message` (the bot's visible output: text, widget prompt + option labels, email draft, attachment name) → `assistant` with `author` (group members carry their own author); `message` with `toAgent`/`fromAgent` → `assistant`, `channel: "agent"`; `notice` → `system`; `event` `name-changed` → `events`; other events, interactive cards and any other entry kind (tool calls, reasoning, injected context) are dropped and counted. Attachments are `{file: "attachments/<safe name>", available: false}`; URLs are never exported. Every free-text field passes the secret filter ported from `GrokTemplateParser` and hits become `[REDACTED]`. The Swift importer refuses any `format` other than `agentapp-bot-bundle/v1`.
 
-A small synthetic bundle is at [docs/examples/bundle.json](docs/examples/bundle.json); its IDs, profile and lifecycle event are fake. No skill or attachment bytes are required by that example.
+A tracked [synthetic bundle fixture](../Tests/Fixtures/bundles/single-bundle.json)
+contains a fake profile and two synthetic messages, with no skill or attachment
+bytes required. The formerly linked `docs/examples/bundle.json` is absent from
+this checkout; the fixture is the maintained example.

@@ -197,5 +197,5 @@ run the render test with `SWARMHUB_WRITE_RENDERS=1` on the Mac to replace that p
 The Linux P0d generator was used here; its only changes were the three messages renders' advertised/frontmatter
 versions from 1.3.10 to 1.4.0.
 
-Updater status is bot-account-writable, as documented in CORE-PLAN §3.5. This path verifies releases and reads the
+Updater status is bot-account-writable, as documented in [CORE-PLAN](../archive/plans/CORE-PLAN.md) §3.5. This path verifies releases and reads the
 updater's actual output; it cannot protect against an account rewriting skills or status outside that path.

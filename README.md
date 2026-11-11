@@ -34,11 +34,21 @@ Hermes is supported; OpenClaw agents connect through their Gateway (built agains
 - **Connected apps and voice:** fewer prompts for read-only app actions (0.5.8), recognizable account names and clearer live-voice errors (0.5.9).
 - **Hermes and OpenClaw:** Hermes 0.20.5, 0.21.7 and 0.22.0. OpenClaw connects through its Gateway but has not yet been checked against a real Gateway.
 
-In development, not released: managed approvals for agents on this Mac and on remote boxes (the remote service is not deployed yet), a secure key sheet that gives an agent a file path instead of the key, and Draft Send (it records drafts but does not send them yet).
+The local release record and bundle metadata cover **0.6.8**. Recent releases add
+safer skill installs and recovery, routine suggestions and steering while a bot
+answers. Off-app alerts remain disabled; eligible count-based loops can run on
+the box, while goals and `--until` loops stay in the app.
 
-This development branch now includes the 0.5.7–0.5.9 code changes (merged from `main` at `5dba61a`). The merged Swift code has not yet been built or tested on a Mac, and these native UI flows have not yet been hand-tested. The full feature page covers releases through 0.5.9.
+Current main at `349db4c` contains the merged #35–#56 jobroute stack plus
+reviewed fixround3 #58 (`510c5b3`) and iOS fix #59 (`349db4c`), including coding
+skill **1.3.16**. The jobroute Mac worker stays **disabled** pending its isolated
+pilot. Merging does not establish release or deployment. Publication, installed
+versions and live acceptance were not checked in the 2026-11-11 offline docs review. Managed
+approvals, the secure key sheet and Draft Send retain the verification limits
+listed in the feature page; Draft Send here records a test action.
 
-**[All features, with what is released and what is in development →](docs/FEATURES.md)**
+**[Features and release/source status →](docs/FEATURES.md)** ·
+[Release history](docs/CHANGELOG.md) · [Roadmap and limits](docs/ROADMAP-AND-LIMITS.md)
 
 Available features depend on what your connected server supports. See the [Hermes versions SwarmHub works with](docs/hermes-versions.md).
 
@@ -56,7 +66,7 @@ Installed builds update themselves through Sparkle: signed updates, checked once
 
 The setup window (first run, or Settings → Change connection…) connects a Hermes box or an OpenClaw Gateway: pick OpenClaw, Test, approve this Mac if asked, and choose its agents, without opening Settings.
 
-[How it works](docs/guide.md#how-it-works) · [Technical reference](docs/reference.md) · [Roadmap](PLAN.md)
+[How it works](docs/guide.md#how-it-works) · [Technical reference](docs/reference.md) · [Roadmap](docs/ROADMAP-AND-LIMITS.md)
 
 ## Mobile apps
 
@@ -72,8 +82,9 @@ The **iOS and Android apps are in development**. These screenshots show the firs
 ## Docs
 
 - [`docs/`](docs/) — user guide, technical reference, feature list, update service and iOS specs.
-- [`PLAN.md`](PLAN.md) — roadmap and open work. [`CORE-PLAN.md`](CORE-PLAN.md) and [`CORE-PHASES.md`](CORE-PHASES.md) — the approved update-service design and its phases. [`KNOWN-GAPS.md`](KNOWN-GAPS.md) — gaps left open on purpose.
-- [`briefs/`](briefs/) — per-phase briefs.
+- [Roadmap and limits](docs/ROADMAP-AND-LIMITS.md) — current open gates, accepted limits and links to architecture decisions.
+- [Archived plans](docs/archive/plans/PLAN.md), [accepted core architecture](docs/archive/plans/CORE-PLAN.md) and [original phases](docs/archive/plans/CORE-PHASES.md) — historical context; current update-service contracts are under [`docs/update-service/`](docs/update-service/).
+- [`briefs/`](briefs/) — historical per-phase briefs, retained in place.
 - [`docs/archive/`](docs/archive/) — old job briefs, reports, reviews and superseded plans. Kept for history; not current.
 
 ## Credits

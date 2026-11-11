@@ -1,17 +1,27 @@
 # Swap jobs and offline migration
 
-Status: implementation for review, no activation. Base main includes PR #28 (`4e9d4de`) and #34 (`c92b773`).
-PR1/PR3 are live and PR2 is merged according to the task brief; this work makes no new deployment claim.
+Status on 2026-11-11: current main at `349db4c` contains the merged jobroute
+stack #35–#56 plus #58 (fixround3, `510c5b3`) and iOS fix #59 (`349db4c`).
+Fixround3 behavior is merged and reviewed. Remote deployment state remains
+**unverified**; the jobroute Mac worker stays **disabled**.
+
+| Scope | Evidence and limit |
+|---|---|
+| Source | Merged #35–#56 plus #58 include the route, migration tooling and worker; #59 fixes iOS Debug simulator architecture selection. Merging does not establish installation. |
+| Installed ovh route | Readiness records `148f905` observed on 2026-11-08. This is a dated observation, not a current remote check. |
+| Submission gates | Shipped global and per-profile opt-ins default to disabled. The 2026-11-08 report also described live submissions as disabled; current live config is unverified. |
+| hb pilot | No pilot activation is established by this review. The steps below remain a separately approved maintenance procedure. |
+| Mac worker | **Disabled** pending a separate isolated Mac pilot. Not installed by the ovh installer; the installed sb-macjob contract still needs validation. |
+
 The design references are the swapdesign1/2 documents, swapdesign3 §3 and its sender-account addendum,
 and the existing [per-bot account implementation](bot-isolation.md).
 
 ## What this change adds
 
-The first implementation commit imports **exactly** `ops/jobroute/` from open PR #8 at
+The first implementation commit imports **exactly** `ops/jobroute/` from PR #8 at
 `f816454dd12d25571d23ad441f2319044adf5daa`, which already includes PR #6 at `31e22ad`.
 The following commit extends it. No second job index, launcher, approval engine or Mac lock is introduced.
-This PR targets main so reviewers can inspect and test the complete dependency; coordinate landing with #6/#8
-rather than independently installing both versions. Their prior review and permission findings remain applicable.
+The imported stack is now on main; do not independently install the superseded #6/#8 versions. Their prior review and permission findings remain applicable.
 
 - `Resources/Skills/swarmhub-coding/scripts/job-route`: key-bound CLI for a registered hb account.
 - Jobroute CLI and MCP: `launch`, owned `status ... report=1`, `park`, `approve-wait`, `msg`, `msg-send`,
@@ -190,7 +200,7 @@ This offline undo never undoes a live hb-move, wake enrollment, key activation o
 
 ## Later real-box pilot: operator checklist, not performed
 
-1. Land reviewed code in coordination with #6/#8; pin the reviewed SHA. Obtain an independent review and fixture
+1. Pin the reviewed main SHA containing #35–#56 plus #58; do not install #6/#8 separately. Obtain independent pilot review and fixture
    rollback evidence. Record the actual shared gateway unit, available ports, current nginx include/routing,
    profile/skill versions and service overrides. Read [bot-isolation.md](bot-isolation.md) and
    [ops/README.md](../ops/README.md); no live assumptions here substitute for those checks.
@@ -222,7 +232,7 @@ This offline undo never undoes a live hb-move, wake enrollment, key activation o
    `msg` to sb-msg, `codejob` to sb-codejob, `mac_dispatch` to the pinned adapter. Leave `mac_hosts=[]` initially.
    Set `submissions_enabled=true` only after isolation/trust gates are green. These config edits and the
    authorized_keys line must be in the approved script, with exact pre-images. No key or permission activation
-   was performed here. Use the #8 pinned installer/uninstaller recipe; this PR's generator pins the new modules too.
+   was performed here. Use the [pinned installer and rollback recipe](../ops/jobroute/README.md#installation-identity-checks-and-rollback); the generator pins the new modules and both Mac helpers too.
 8. Run `webhook-probe` V1–V6 from ops/README against the dedicated receiver, including the shared-account control.
    Start S1 with separate shadow credentials and report-only wakes for 1–2 days; Grok remains primary. Only after
    green receipts enroll the primary wake (`wake-enroll`, private 0600 pre-image) and pause Grok for S2. Never reuse
@@ -239,6 +249,10 @@ This offline undo never undoes a live hb-move, wake enrollment, key activation o
 1. Disable route submissions/new verbs and remove only the recorded pilot authorized_keys line; preserve audit and
    job records. Disabling a route does not cancel already detached jobs: account for their exact ids and await or
    explicitly cancel through their owning mechanism before switching wakes. Never broadcast-kill processes.
+   Before editing `authorized_keys`, use `cp -p` to save a numbered private backup, copy it to an owner-only
+   candidate, and remove only the exact recorded pilot line there. Review `diff -u` against the original;
+   stop if any other line changes. Only after review, use `install -m 600` to replace `authorized_keys`
+   from that candidate. Keep the backup and reviewed diff with the private rollback evidence.
 2. Restore the selected private `wake.env.<stamp>` pre-image (0600), unpause Grok, and disable any enabled migrated
    routines. Stop the dedicated control server through the recorded service mechanism. Preserve the dedicated
    journal and post-move memory for reconciliation.
@@ -249,8 +263,8 @@ This offline undo never undoes a live hb-move, wake enrollment, key activation o
    retaining newer work in numbered private backups. Re-register the shared 8745 routine and verify the shared
    gateway, delivery and Grok loop. hb-move intentionally leaves the account and backups; remove the account only
    in a separately reviewed cleanup after verification. Restore prior permissions using the recorded mode plan.
-5. If removing the inert ovh install, use the pinned `uninstall.py --release SHA` from #8; do not remove audit unless
-   explicitly approved. It also recognizes the new per-profile command ledgers. Other releases/user files/config
+5. If removing the inert ovh install, use the [pinned uninstaller recipe](../ops/jobroute/README.md#installation-identity-checks-and-rollback) (`uninstall.py --release SHA`); do not remove audit unless
+   explicitly approved. Preserve private ledger copies first: last-release removal also deletes working job/command ledgers. Other releases/user files/config
    changes survive. Do not remove the shared Mac queue or runner. Disable Mac host access; retain job evidence.
 6. Offline staging can then be removed using the guarded `swap-migrate --undo --apply`. If changed, archive it and
    review; do not force deletion. Keep private backups through the agreed retention window.

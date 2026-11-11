@@ -214,6 +214,6 @@ Start M1 with extraction and a small vertical slice: connect a synthetic Hermes 
 
 ## Evidence and pending engineering choices
 
-Desktop behavior is documented in [the technical reference](../reference.md) and [phase plan](../../PLAN.md), with source boundaries in `Sources/AgentApp/Backends/AgentBackend.swift`, Hermes adapters, models, stores and import modules. The first mobile architecture pass must establish the canonical session binding, pending-approval readback, notification relay, metadata service and timezone semantics before claiming continuous cross-device operation.
+Desktop behavior is documented in [the technical reference](../reference.md) and [phase plan](../ROADMAP-AND-LIMITS.md), with source boundaries in `Sources/AgentApp/Backends/AgentBackend.swift`, Hermes adapters, models, stores and import modules. The first mobile architecture pass must establish the canonical session binding, pending-approval readback, notification relay, metadata service and timezone semantics before claiming continuous cross-device operation.
 
 The full-feature target also includes connected apps and demonstration-driven skills, informed by the official [Grok Bot overview](https://prod.cursor.com/docs/grok-bot). Those product comparisons establish scope; they do not establish a Hermes API. The deployment target, SQLite library choice, relay hosting and shared metadata schema remain proposed decisions to settle during their respective implementation milestones.

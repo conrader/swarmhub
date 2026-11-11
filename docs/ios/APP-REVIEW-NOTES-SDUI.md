@@ -1,6 +1,6 @@
 # App Store review notes: bundle-delivered views (draft, P7c)
 
-Draft for the next iOS submission's review notes. Submission is Konrad's step; nothing here has been sent to Apple. Source rules: `CORE-PLAN.md` §5.3 (guidelines 2.5.2 and 2.3.1) and §5.2 (what ships without a build).
+Draft for the next iOS submission's review notes. Submission is Konrad's step; nothing here has been sent to Apple. Source rules: [CORE-PLAN.md](../archive/plans/CORE-PLAN.md) §5.3 (guidelines 2.5.2 and 2.3.1) and §5.2 (what ships without a build).
 
 ## Before submitting
 

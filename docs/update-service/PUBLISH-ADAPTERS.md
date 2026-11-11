@@ -39,7 +39,7 @@ are skipped; differing bytes are refused before any writes. Mutable objects use
 closed and require a retry. An older/equal differing index or key manifest cannot
 replace a newer remote one. Never delete dependencies as part of publishing.
 
-CORE-PLAN.md does not assign server cache lifetimes. These are the choices:
+[CORE-PLAN.md](../archive/plans/CORE-PLAN.md) does not assign server cache lifetimes. These are the choices:
 
 | Objects | Cache-Control |
 | --- | --- |

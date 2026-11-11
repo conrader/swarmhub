@@ -1,5 +1,11 @@
 # Plan B implementation phases
 
+> Archived 2026-11-11 from `CORE-PHASES.md` at source baseline `7963b72`.
+> This is historical evidence, not current task or deployment status. Original
+> repository-relative code/path references retain their original root context;
+> Markdown links are repaired for this location. Accepted decisions and open
+> gates are indexed in the [living roadmap and limits](../../ROADMAP-AND-LIMITS.md).
+
 Source: `CORE-PLAN.md` (plan B, approved 2026-10-20, see its "Decision (Oct 20, 2026)" section). Baseline checkout `749d826`. This file divides plan B's migration (§8, steps 0–8) into phases. Each phase is sized for one coding job and lists its goal, files and components, acceptance tests, dependencies, and whether Konrad has to approve it. Nothing here has been built or run yet. Every acceptance line is a test the coding job must add and run.
 
 ## Rules for every phase
