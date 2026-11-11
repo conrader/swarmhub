@@ -84,4 +84,7 @@ Observed avatar shapes: `blob`, `cylinder`, `shield`, `gem`, `hex`, `leaf`; colo
 
 Mapping from cache entries: `message` role `user` without `fromAgent` → `user`; `send-message` (the bot's visible output: text, widget prompt + option labels, email draft, attachment name) → `assistant` with `author` (group members carry their own author); `message` with `toAgent`/`fromAgent` → `assistant`, `channel: "agent"`; `notice` → `system`; `event` `name-changed` → `events`; other events, interactive cards and any other entry kind (tool calls, reasoning, injected context) are dropped and counted. Attachments are `{file: "attachments/<safe name>", available: false}`; URLs are never exported. Every free-text field passes the secret filter ported from `GrokTemplateParser` and hits become `[REDACTED]`. The Swift importer refuses any `format` other than `agentapp-bot-bundle/v1`.
 
-A small synthetic bundle is at [synthetic bundle](examples/bundle.json); its IDs, profile and lifecycle event are fake. No skill or attachment bytes are required by that example.
+A tracked [synthetic bundle fixture](../Tests/Fixtures/bundles/single-bundle.json)
+contains a fake profile and two synthetic messages, with no skill or attachment
+bytes required. The formerly linked `docs/examples/bundle.json` is absent from
+this checkout; the fixture is the maintained example.
