@@ -1,11 +1,18 @@
 # Hermes versions SwarmHub works with
 
-SwarmHub talks to stock Hermes over its own API (`/v1/*`, `/api/*`, `/p/<profile>/` multiplexing). Nothing is installed on the
-box. This list says which Hermes versions we have actually run SwarmHub against. Updated 2026-10-14 09:00 UTC.
+SwarmHub integrates with stock Hermes through its API (`/v1/*`, `/api/*`,
+`/p/<profile>/` multiplexing), without modifying Hermes itself. The app can
+install optional SwarmHub-owned skills into agent profiles; additional services
+such as managed approvals, webhooks and the updater have their own setup and
+deployment gates. Stock API connectivity does not imply those services exist.
+
+The table preserves compatibility observations from **2026-10-14 09:00 UTC**.
+It is not a claim about today's newest upstream release or current box state.
+No upstream, server or Mac check was performed in the 2026-11-11 docs review.
 
 | Hermes | Where we ran it | Status | Known issues |
 |---|---|---|---|
-| **0.22.0** (newest stable, upstream tag 2026-10-13) | Konrad's box since 2026-10-14 08:50 UTC (getermes build with patch 0003) | works | stock upstream 0.22.0 still returns 500 on `GET /v1/skills`; our build fixes it (178 skills listed per bot) |
+| **0.22.0** (upstream tag recorded 2026-10-13) | Konrad's box since 2026-10-14 08:50 UTC (getermes build with patch 0003) | works | stock upstream 0.22.0 still returns 500 on `GET /v1/skills`; our build fixes it (178 skills listed per bot) |
 | **0.21.7** | Konrad's box 2026-10-14 05:48–08:50 UTC | works | `GET /v1/skills` returns 500 for every profile (upstream bug: `include_editorial` passed to `_find_all_skills`), so the Overview can't list skills; chat, sessions, jobs, models, multiplexing all work |
 | **0.20.5** | the getermes fleet; Konrad's box until 2026-10-14 | works | none known for SwarmHub |
 | older | — | not supported | — |
@@ -19,8 +26,9 @@ bug)" instead of an error.
 **Stock upstream check (2026-10-14):** `AgentApp --check-server` against an untouched upstream Hermes 0.22.0 (no getermes
 patches, no hosting layer, multiplexing on, two profiles): health/version, auth, models, capabilities, model options, toolsets,
 sessions, jobs and a session create/delete all PASS on every profile; skills = KNOWN (upstream bug); another profile's key = 401.
-Not covered: a chat turn (the test server had no provider keys). SwarmHub needs nothing beyond stock Hermes except provider keys
-for chat and `gateway.multiplex_profiles: true` for more than one bot per server.
+Not covered: a chat turn (the test server had no provider keys). The core API path needs provider keys for chat and `gateway.multiplex_profiles: true`
+for more than one bot per server. App-owned skills/services have additional setup;
+see the [integration notes](hermes-integration.md).
 
 OpenClaw: supported since P12 (Gateway WebSocket protocol 4), tested against a scripted Gateway only; see [openclaw-integration.md](openclaw-integration.md).
 

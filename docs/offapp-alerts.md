@@ -1,4 +1,4 @@
-# Off-app alerts, and loops and goals while Swarm Hub is closed
+# Off-app alerts (disabled) and count-loop handoff
 
 **Switched off in 0.6.6** (swarmhub-messages 1.4.14), until concurrent saves from two Macs can no longer defeat the
 box's revision check. One switch per side: `AppStore.boxAlertsShipped` (no section, no box call, no presence lease) and
@@ -6,10 +6,17 @@ box's revision check. One switch per side: `AppStore.boxAlertsShipped` (no secti
 bring them back: both to true, bump the skill, drop `sim/test_alerts_off.py` and `BoxAlertsOffTests.swift`. Loops still
 go to the box at quit (below); `--until` loops and goals stay in the app either way.
 
-Swarm Hub step 2. A box tells you what happened while the Mac app is not there to show it. A `/loop` or `/goal` in a
-bot's main chat keeps running on the box while the app is closed.
+At the reviewed source tip (`7963b72`), both alert switches remain false.
+Eligible count-based `/loop` runs in a bot's main chat can be handed to the box
+at quit. Goals and `--until` loops remain in the app and do not run while it is
+closed. No live service state was checked in this offline documentation review.
 
-## What gets an alert
+The alert-service sections below preserve the **inactive design**, including
+its hidden settings pane, sinks and presence lease. They do not describe an
+enabled feature. Handoff/reclaim code also retains handling for older saved
+goal/`--until` handoffs; that is not permission to create new ones.
+
+## Inactive design: what would get an alert
 
 One service per box account, `swarmctl alerts run` (skill `swarmhub-messages` 1.4.12+, profile scope 1.4.13+, `scripts/swarm_alerts*.py`).
 It checks every 30 seconds:
@@ -37,7 +44,7 @@ Before anything is sent:
 - A failed send is retried with backoff (2, 4, 8, 16 minutes) up to 5 times. The error is shown in the app with any
   token or password removed.
 
-## Sinks
+## Inactive design: sinks
 
 - **ntfy** (default): a topic URL such as `https://ntfy.sh/<topic>`, with an optional access token (sent as
   `Authorization: Bearer`). Plain `http` is allowed only to 127.0.0.1.
@@ -45,7 +52,7 @@ Before anything is sent:
 
 Each sink is one function in `swarm_alerts_sinks.py`. To add one, add a function and register it in `SINKS`.
 
-## Where the settings and secrets live
+## Inactive design: settings and secret storage
 
 - **Mac:** the ntfy token and the SMTP password are Keychain items (`swarmhub.alerts.ntfy|smtp.<server>`). The other
   settings are in UserDefaults. No secret is in either.
@@ -57,7 +64,7 @@ Each sink is one function in `swarm_alerts_sinks.py`. To add one, add a function
 - **Box:** `~/.hermes/swarmhub/alerts/config.json`, 0600, in a 0700 folder. The service and the panel never print it.
   Errors are redacted before they are stored.
 
-## The app's pane
+## Inactive design: the hidden app pane
 
 Settings → Advanced → Appearance and alerts → **When SwarmHub is closed** has one row per server. The row has:
 - ntfy and email settings;
@@ -71,7 +78,7 @@ On a box, each click is one paired terminal call in a deleted throwaway session.
 transport, now shared as `swarmctlBoxTurn`. A box therefore loads only on click. With Hermes on this Mac, the call is a
 subprocess and loads by itself.
 
-## No double alerts: the presence lease
+## Inactive design: the presence lease
 
 The Mac app shows routine cards and local notifications itself. A phone alert at the same time would be a duplicate.
 
@@ -89,18 +96,18 @@ The Mac app shows routine cards and local notifications itself. A phone alert at
 Known edge: an event in the last minutes before you walk away, which the app had not shown yet, is not sent once the
 lease lapses. The app shows it when you come back.
 
-## Loops and goals while the app is closed
+## Enabled count-loop handoff and legacy reclaim
 
 Today's in-app timer is unchanged and stays the fallback. At quit (`applicationWillTerminate`, at most 4 seconds,
 requests on a detached task):
 
-- Every active `/loop`, and every running `/goal`, in a bot's **Bot Chat** becomes one Hermes routine. This needs a
-  jobs API and the chat titled "Bot Chat".
+- An eligible active `/loop` without `--until` in a bot's **Bot Chat** becomes one Hermes routine. This needs a
+  jobs API and the chat titled "Bot Chat". New goal handoffs are excluded.
   - The routine is named `swarmhub-loop-<chat id>` or `swarmhub-goal-<chat id>`, with `deliver: bot-chat:<profile>`.
   - Like a heartbeat, the routine's own run only repeats the prompt. Hermes hands that text to the Bot Chat for a full
     turn, so the bot works with the chat's context.
   - A loop keeps its interval, with `repeat` set to the remaining `--times`.
-  - A goal gets a round every 15 minutes, with `repeat` set to the remaining rounds within its time budget.
+  - The retained legacy goal format used a round every 15 minutes and a bounded repeat count; current quit handling does not create these handoffs.
 - The handoff is saved before the request. A routine the box created after the app gave up waiting is found by name.
 - The alert service, when it runs, alerts with each reply to the routine's own Bot Chat turns. A turn is matched by
   the delivery row Hermes writes (`[Cronjob "<name>" output — …]`, the name holds the chat id) and by time: after this
@@ -153,7 +160,7 @@ routines handed off earlier or by an older app); the app takes it back paused at
 closed: if a profile's routine list can't be read or a pause fails, nothing is saved or removed, the alerts stay on and
 the panel shows the error; the next try pauses them again.
 
-## Supervision
+## Inactive design: service supervision
 
 The service is supervised like the webhook receiver:
 - **Linux:** the systemd user unit `swarmhub-alerts.service` (Restart=on-failure, journald).

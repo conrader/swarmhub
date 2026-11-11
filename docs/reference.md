@@ -235,7 +235,11 @@ The normal interactive app does not invoke this renderer.
 
 ## Roadmap
 
-Phase briefs live in [briefs/](../briefs/); [PLAN.md](../PLAN.md) holds the table and the standing constraints.
+This is a historical phase index, not the current work queue. Local release
+records extend through 0.6.8; publication and live deployment are unverified in
+the 2026-11-11 offline review. Phase briefs remain in [briefs/](../briefs/);
+[PLAN.md](../PLAN.md) records historical decisions. Current gates belong in the
+[roadmap and limits](ROADMAP-AND-LIMITS.md).
 
 | Phase | What | State |
 |---|---|---|
@@ -252,10 +256,10 @@ Phase briefs live in [briefs/](../briefs/); [PLAN.md](../PLAN.md) holds the tabl
 | P12 | Connect OpenClaw | Shipped in 0.4.7 (fake Gateway only; real-Gateway check pending) |
 | P25, P26 | OpenClaw in the setup window; an OpenClaw agent as manager | Shipped in 0.4.8 (real-Gateway check pending) |
 | P27, P28 | SwarmHub skills, the model recipe and live tool activity; steers that land | Shipped in 0.4.9 |
-| P29, P30 | Steps row opens while working; an unpinned chat's model line; faster model recipe (skill 1.0.1) | Merged, in the next release |
-| P32 | Keep what the app promises (the 2026-10-14 audit) | Items 1–4, 7, 8, 11 merged; 5, 6, 9, 10, 12 built on branch `p32b` |
-| P31 | Coding agents (Claude Code, Codex CLI), their logins, sub-agent model | Accepted |
-| P33 | Spread the Overview over tabs | Accepted, after P32 |
+| P29, P30 | Steps row opens while working; an unpinned chat's model line; faster model recipe (skill 1.0.1) | Shipped in 0.5.0 (local release record) |
+| P32 | Keep what the app promises (the 2026-10-14 audit) | Shipped in 0.5.0 (local plan/release record) |
+| P31 | Coding agents (Claude Code, Codex CLI), their logins, sub-agent model | A+B shipped in 0.5.0, C in 0.5.1, D+E in 0.5.2; F live-login acceptance outstanding |
+| P33 | Spread the Overview over tabs | Shipped in 0.5.0 (local plan/release record) |
 
 ### Approval safety and scope
 

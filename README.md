@@ -34,11 +34,20 @@ Hermes is supported; OpenClaw agents connect through their Gateway (built agains
 - **Connected apps and voice:** fewer prompts for read-only app actions (0.5.8), recognizable account names and clearer live-voice errors (0.5.9).
 - **Hermes and OpenClaw:** Hermes 0.20.5, 0.21.7 and 0.22.0. OpenClaw connects through its Gateway but has not yet been checked against a real Gateway.
 
-In development, not released: managed approvals for agents on this Mac and on remote boxes (the remote service is not deployed yet), a secure key sheet that gives an agent a file path instead of the key, and Draft Send (it records drafts but does not send them yet).
+The local release record and bundle metadata cover **0.6.8**. Recent releases add
+safer skill installs and recovery, routine suggestions and steering while a bot
+answers. Off-app alerts remain disabled; eligible count-based loops can run on
+the box, while goals and `--until` loops stay in the app.
 
-This development branch now includes the 0.5.7–0.5.9 code changes (merged from `main` at `5dba61a`). The merged Swift code has not yet been built or tested on a Mac, and these native UI flows have not yet been hand-tested. The full feature page covers releases through 0.5.9.
+This source checkout at `7963b72` also contains the supplied #35–#56 jobroute and
+fix-round stack, including coding skill **1.3.16**. Source presence does not mean
+merged, released or deployed. GitHub publication, installed versions and live
+acceptance were not checked in the 2026-11-11 offline docs review. Managed
+approvals, the secure key sheet and Draft Send retain the verification limits
+listed in the feature page; Draft Send here records a test action.
 
-**[All features, with what is released and what is in development →](docs/FEATURES.md)**
+**[Features and release/source status →](docs/FEATURES.md)** ·
+[Release history](docs/CHANGELOG.md) · [Roadmap and limits](docs/ROADMAP-AND-LIMITS.md)
 
 Available features depend on what your connected server supports. See the [Hermes versions SwarmHub works with](docs/hermes-versions.md).
 
