@@ -1,5 +1,11 @@
 # Fix round 2b
 
+> Archived 2026-11-11 from `fixround2b-report.md` at source baseline `7963b72`.
+> This is historical evidence, not current task or deployment status. Original
+> repository-relative code/path references retain their original root context;
+> Markdown links are repaired for this location. Accepted decisions and open
+> gates are indexed in the [living roadmap and limits](../../ROADMAP-AND-LIMITS.md).
+
 Base: `958318d`. Seven scoped commits, one per requested item, on
 `feat/fixround2b` in `/tmp/swarmhub-fixround2b-commits` (alternate git directory).
 The checkout's original `.git` was left unchanged. `XREVIEW.md` was read and

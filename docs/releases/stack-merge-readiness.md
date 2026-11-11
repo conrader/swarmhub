@@ -29,7 +29,7 @@ The supplied #53–#56 scope is retained without inventing remote review results
 | #55 (mapping unverified) | `b07e1c5`, `958318d` (2026-11-10) | Fix-round regression fixtures: valid dispatch input and retained workload output. Test changes in the source stack, no tests changed or run by this docs job. |
 | #56 (tip user-supplied) | `2983f09` through `7963b72` (fix round 2b, 2026-11-10) | Isolated control state, fresh runner grace, lingering-descendant cleanup, bounded KILL drains/reap, #52 process-inspection fallback, stronger stubborn-runner fixture and docs. Local report identifies base `958318d`; remote head/base/review/deploy all unverified. |
 
-The [fix-round report](../../fixround2b-report.md) records the full-suite result
+The [fix-round report](../archive/reports/fixround2b-report.md) records the full-suite result
 as 527 passed, 48 failed and 4 skipped: 11 failures lacked `yaml` in the
 invoked system Python; 37 required unavailable `unshare --mount`; four external
 sb-copy cases skipped. It also records focused passes (supervisor 7, backend
@@ -139,7 +139,7 @@ risks/follow-ups, deploy/pin impact, rollback.
 - **Cross-review:** Claude reviewer PASS (Codex-authored).
 - **Risks:** recovery still matches on label/argv/workdir/time window, which
   is not exactly-once. Historical `failed` rows are not rewritten. Adds
-  `backlog1-report.md` at the repo root (see "Stale root files").
+  [`backlog1-report.md`](../archive/reports/backlog1-report.md), now archived.
 - **Deploy:** route runtime (`jobroute_core.py`, `jobroute_jobs.py`); needs
   the ovh jobroute park. Nothing on the Mac.
 - **Rollback:** revert the merge; live: reinstall the previous route release.
@@ -155,7 +155,7 @@ risks/follow-ups, deploy/pin impact, rollback.
 - **Cross-review:** Claude reviewer PASS (Codex-authored).
 - **Risks:** bindings have no TTL, and retry safety lasts only while the
   ledger is kept, so this is not exactly-once. Clients must persist the ID.
-  Adds `backlog2-report.md` at the repo root.
+  Added [`backlog2-report.md`](../archive/reports/backlog2-report.md), now archived.
 - **Deploy:** route runtime plus `sandbox_ssh.sh`; ovh jobroute park.
 - **Rollback:** revert; live: reinstall the previous route release. Not
   checked: how an older route treats a caller that still sends `request_id`.

@@ -1,6 +1,6 @@
 # Channels, local pin and drills (P8a)
 
-Status: phase P8a of plan B (`CORE-PLAN.md` §2.1, §2.2, §3.2, §8 step 8; `CORE-PHASES.md`). Everything here has run
+Status: phase P8a of plan B ([CORE-PLAN.md](../archive/plans/CORE-PLAN.md) §2.1, §2.2, §3.2, §8 step 8; [CORE-PHASES.md](../archive/plans/CORE-PHASES.md)). Everything here has run
 only against a loopback static host with TEST keys. Running the drills on the real canary group with the real
 publishing key, and a rotation signed by a recovery key, is P8b (Konrad).
 

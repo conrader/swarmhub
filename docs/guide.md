@@ -101,7 +101,7 @@ A workflow allows 12 tasks, three handoff levels, two review rounds per piece of
 
 Approvals default to **Ask me**. Rules and reviewer modes have known limitations, and provider-backed reviewer decisions remain unverified. Read the [known issues](reference.md#known-issues) before enabling automatic approvals.
 
-The [roadmap](../PLAN.md) and [phase briefs](../briefs/) track the work ahead. The [technical reference](reference.md) documents feature behavior, compatibility, and verification limits.
+The [roadmap](ROADMAP-AND-LIMITS.md) tracks open work; [phase briefs](../briefs/) preserve historical task scope. The [technical reference](reference.md) documents feature behavior, compatibility, and verification limits.
 
 ## Build & contribute
 
@@ -112,4 +112,4 @@ swift test           # Run the test suite on a Mac
 
 The build script includes a direct-compiler fallback for the documented Xcode 16.2 toolchain issue; that fallback does not run tests. See the [build notes](reference.md#build-and-run) for details.
 
-The current macOS implementation uses SwiftUI, atomic JSON persistence, and backend adapters under `Sources/AgentApp/`. The Swift package and executable retain the `AgentApp` codename. See [architecture](reference.md#architecture), [integration notes](hermes-integration.md), and the [project constraints](../PLAN.md#standing-constraints-from-briefmd-and-spec-61).
+The current macOS implementation uses SwiftUI, atomic JSON persistence, and backend adapters under `Sources/AgentApp/`. The Swift package and executable retain the `AgentApp` codename. See [architecture](reference.md#architecture), [integration notes](hermes-integration.md), and the [historical project constraints](archive/plans/PLAN.md#standing-constraints-from-briefmd-and-spec-61).

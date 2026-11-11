@@ -1,6 +1,6 @@
 # Box updater bootstrap: operator runbook (P2d)
 
-Status: phase P2d of plan B (`CORE-PLAN.md` §3.2, §3.5; `CORE-PHASES.md`). Code: `Resources/Updater/install-bootstrap.sh` and its sibling `bootstrap-preflight.sh`.
+Status: phase P2d of plan B ([CORE-PLAN.md](../archive/plans/CORE-PLAN.md) §3.2, §3.5; [CORE-PHASES.md](../archive/plans/CORE-PHASES.md)). Code: `Resources/Updater/install-bootstrap.sh` and its sibling `bootstrap-preflight.sh`.
 Test: `Tests/Scripts/updater-bootstrap-test.sh` (Docker with a separate `bot` account; falls back to unprivileged
 checks without Docker). The package comes from P2c (`BASELINE.md`). Tested with TEST keys only. **No real box has been
 installed.** Installing on a real box is Konrad's step (below).

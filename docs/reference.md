@@ -238,7 +238,7 @@ The normal interactive app does not invoke this renderer.
 This is a historical phase index, not the current work queue. Local release
 records extend through 0.6.8; publication and live deployment are unverified in
 the 2026-11-11 offline review. Phase briefs remain in [briefs/](../briefs/);
-[PLAN.md](../PLAN.md) records historical decisions. Current gates belong in the
+[PLAN.md](archive/plans/PLAN.md) records historical decisions. Current gates belong in the
 [roadmap and limits](ROADMAP-AND-LIMITS.md).
 
 | Phase | What | State |

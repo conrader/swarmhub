@@ -1,6 +1,6 @@
 # Box updater command line (P2b, P3a)
 
-Status: phases P2b and P3a of plan B (`CORE-PLAN.md` §3.2, §3.4, §6, decision 2; `CORE-PHASES.md`). Code:
+Status: phases P2b and P3a of plan B ([CORE-PLAN.md](../archive/plans/CORE-PLAN.md) §3.2, §3.4, §6, decision 2; [CORE-PHASES.md](../archive/plans/CORE-PHASES.md)). Code:
 `Resources/Updater/bin/swarmhub-update` and `Resources/Updater/swarmhub_update/{cli,state,pins,bundle,policy,runner}.py`
 on top of the P2a engine (`APPLY.md`); pull adds `{fetch,channel,compat}.py` and the timer templates in
 `Resources/Updater/units/`. Tests: `Tests/Updater/test_cli.py`, `test_floors.py`, `test_pull.py`, `test_fetch.py`.

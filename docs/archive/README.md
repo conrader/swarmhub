@@ -1,10 +1,26 @@
 # Archive
 
-Historical working documents moved here from the repository root on 2026-10-29. They describe past jobs and the state of the code at the time they were written. **Do not treat anything here as current**; the live docs are the top-level `README.md`, `PLAN.md`, `CORE-PLAN.md`, `CORE-PHASES.md`, `KNOWN-GAPS.md` and the rest of `docs/`.
+Historical working documents, including the 2026-10-29 archive and the scoped
+2026-11-11 root cleanup. They describe jobs and source state at the time they
+were written; task instructions and deployment claims here are not current.
 
-- `briefs/` — task briefs given to coding and review jobs (`BRIEF-*`, `*-brief.md`).
-- `reports/` — job reports and notes: fixes, live QA passes, Mac fixes, gaps, simulations, integration (`*-REPORT.md`, `*-NOTES.md`).
-- `reviews/` — code reviews of specific commits (`REVIEW-*.md`).
-- `plans/` — superseded or decision-record plans: plan A, the plan A/B comparison, and the 2026-10-20 direction that led to plan B.
+Use the [project overview](../../README.md), [roadmap and limits](../ROADMAP-AND-LIMITS.md),
+[feature status](../FEATURES.md) and current runbooks under [docs](../).
 
-Files keep their original names; `git log --follow` shows their history.
+- `briefs/` — historical job briefs. The separate root `briefs/` directory remains in place.
+- `reports/` — historical job and verification reports; tests apply to their recorded baseline/environment.
+- `reviews/` — historical reviews of particular revisions. Top-level `docs/REVIEW-*` remain in place.
+- `plans/` — superseded plans and accepted architecture decision records; their old phase states are not a current backlog.
+
+## Added in the 2026-11-11 P0/P1 cleanup
+
+- [backlog1](reports/backlog1-report.md), [backlog2](reports/backlog2-report.md), [fix round 2b](reports/fixround2b-report.md).
+- [PLAN](plans/PLAN.md), [CORE-PLAN](plans/CORE-PLAN.md), [CORE-PHASES](plans/CORE-PHASES.md).
+- [KNOWN-GAPS](reports/KNOWN-GAPS.md): the accepted ancestry exception remains a living limitation.
+- [Original jobroute two-command/shared-account design](plans/jobroute-shared-account-design.md): obsolete activation examples, preserved for history only.
+
+Files keep their original names where moved; `git log --follow` shows their
+history. Newly moved files identify their original location and baseline and
+have repaired Markdown links. Older archived files may still refer to missing
+job-local logs, external worktrees or source `path:line` locations; those are
+historical references, not current runbook links.

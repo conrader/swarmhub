@@ -1,5 +1,11 @@
 # Shared-core plan: an update service only (core7)
 
+> Archived 2026-11-11 from `CORE-PLAN.md` at source baseline `7963b72`.
+> This is historical evidence, not current task or deployment status. Original
+> repository-relative code/path references retain their original root context;
+> Markdown links are repaired for this location. Accepted decisions and open
+> gates are indexed in the [living roadmap and limits](../../ROADMAP-AND-LIMITS.md).
+
 Baseline: detached `749d826` (`swarmhub/peer-delivery`), 2026-10-20. I worked from the source only. No app, test, installer or service was run, and nothing was provisioned. References are repository-relative `path:line`. Input: Konrad's direction of 2026-10-20 07:49 (`docs/archive/plans/CORE-ADDENDUM.md`), which supersedes the core1–core4 runtime-backend design. **[A]** marks an assumption.
 
 **Recommendation.** The "core" is a **signed release pipeline plus static hosting**. It is not a server in the runtime path:

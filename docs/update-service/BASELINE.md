@@ -1,6 +1,6 @@
 # Embedded baseline and bootstrap package (P2c)
 
-Status: phase P2c of plan B (`CORE-PLAN.md` §3.1 "fail closed", §3.5; `CORE-PHASES.md`). Code:
+Status: phase P2c of plan B ([CORE-PLAN.md](../archive/plans/CORE-PLAN.md) §3.1 "fail closed", §3.5; [CORE-PHASES.md](../archive/plans/CORE-PHASES.md)). Code:
 `scripts/release/baseline.py` (embed), `scripts/release/check_baseline.py` (build check),
 `Packages/SwarmHubCore/Sources/SwarmHubCore/Baseline/EmbeddedBaseline.swift` (reader, Mac + iOS),
 `AppBundleResources.swift` (sealed resource boundary), `AppContent.swift` (shared launch resolution),

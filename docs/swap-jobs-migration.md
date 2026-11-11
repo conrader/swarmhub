@@ -129,7 +129,10 @@ Mac runner's queue-lock/session contract separately during the approved pilot.
 `queue` has no workload session: its budget is a 60 s call limit, one 120 s runner
 grace, bounded KILL drain and reap. The route allows **225 s = 60 + 120 + 45**;
 the 45 s allowance includes bounded post-KILL cleanup and transport/startup.
-These are operator constants; no request field changes them.
+These are operator constants; no request field changes them. The supplied
+[Known limits](ROADMAP-AND-LIMITS.md#known-limits) also record the installed Mac
+runner upgrade gate and early-exit/control/inspection failure cases; that live
+state was not rechecked here.
 
 A failed macjob says why when its exit code proves it. ssh exits 255 when it cannot connect, the connection drops,
 or the remote worker dies without an exit status; the worker itself never exits 255 and reports its runner's own

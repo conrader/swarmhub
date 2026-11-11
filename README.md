@@ -65,7 +65,7 @@ Installed builds update themselves through Sparkle: signed updates, checked once
 
 The setup window (first run, or Settings → Change connection…) connects a Hermes box or an OpenClaw Gateway: pick OpenClaw, Test, approve this Mac if asked, and choose its agents, without opening Settings.
 
-[How it works](docs/guide.md#how-it-works) · [Technical reference](docs/reference.md) · [Roadmap](PLAN.md)
+[How it works](docs/guide.md#how-it-works) · [Technical reference](docs/reference.md) · [Roadmap](docs/ROADMAP-AND-LIMITS.md)
 
 ## Mobile apps
 
@@ -81,8 +81,9 @@ The **iOS and Android apps are in development**. These screenshots show the firs
 ## Docs
 
 - [`docs/`](docs/) — user guide, technical reference, feature list, update service and iOS specs.
-- [`PLAN.md`](PLAN.md) — roadmap and open work. [`CORE-PLAN.md`](CORE-PLAN.md) and [`CORE-PHASES.md`](CORE-PHASES.md) — the approved update-service design and its phases. [`KNOWN-GAPS.md`](KNOWN-GAPS.md) — gaps left open on purpose.
-- [`briefs/`](briefs/) — per-phase briefs.
+- [Roadmap and limits](docs/ROADMAP-AND-LIMITS.md) — current open gates, accepted limits and links to architecture decisions.
+- [Archived plans](docs/archive/plans/PLAN.md), [accepted core architecture](docs/archive/plans/CORE-PLAN.md) and [original phases](docs/archive/plans/CORE-PHASES.md) — historical context; current update-service contracts are under [`docs/update-service/`](docs/update-service/).
+- [`briefs/`](briefs/) — historical per-phase briefs, retained in place.
 - [`docs/archive/`](docs/archive/) — old job briefs, reports, reviews and superseded plans. Kept for history; not current.
 
 ## Credits

@@ -1,5 +1,11 @@
 # backlog2 — retry-safe launch request IDs
 
+> Archived 2026-11-11 from `backlog2-report.md` at source baseline `7963b72`.
+> This is historical evidence, not current task or deployment status. Original
+> repository-relative code/path references retain their original root context;
+> Markdown links are repaired for this location. Accepted decisions and open
+> gates are indexed in the [living roadmap and limits](../../ROADMAP-AND-LIMITS.md).
+
 Date: 2026-11-08. Repository: `conrader/swarmhub`.
 Draft PR: [#37 — add retry-safe launch request IDs](https://github.com/conrader/swarmhub/pull/37).
 Branch: `feat/backlog2-request-ids`.
