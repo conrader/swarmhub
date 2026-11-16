@@ -21,12 +21,12 @@ struct BotEditorView: View {
                 } else {
                     Section(SimpleCopy.instructions) {
                         TextEditor(text: $fields.persona).frame(height: 90)
-                        Text(SimpleCopy.instructionsCaption).font(.caption).foregroundStyle(.secondary)
+                        Text(fields.backend == .herdr ? SimpleCopy.herdrInstructionsCaption : SimpleCopy.instructionsCaption).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Toggle(SimpleCopy.notifyAgent, isOn: $fields.notifications)
                 Section {
-                    DisclosureGroup(isExpanded: $showAdvanced) { Text(SimpleCopy.editorAdvancedCaption).font(.caption).foregroundStyle(.secondary) } label: { Text(SimpleCopy.editorAdvanced) }
+                    DisclosureGroup(isExpanded: $showAdvanced) { Text(fields.backend == .herdr ? SimpleCopy.herdrEditorAdvancedCaption : SimpleCopy.editorAdvancedCaption).font(.caption).foregroundStyle(.secondary) } label: { Text(SimpleCopy.editorAdvanced) }
                 }
                 if showAdvanced { BotEditorAdvancedSection(bot: bot, fields: $fields) }
             }.formStyle(.grouped).padding(.horizontal, 8)

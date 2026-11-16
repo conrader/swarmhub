@@ -3,11 +3,13 @@ import SwiftUI
 
 /// Herdr shots of `--render-setup` (alone with `--only herdr`): the setup window's Herdr path (where it runs, this Mac
 /// with nothing running, SSH, address, starter agents), Settings → Servers and keys with two servers, the simple page,
-/// a Herdr bot's and a Hermes bot's Advanced settings, and a bot's request to create bots waiting above the composer.
+/// a Herdr bot's and a Hermes bot's Advanced settings, a bot's request to create bots waiting above the composer, and
+/// a bot's helper agents: under it in the sidebar, in its Details panel, and one of them opened.
 /// All synthetic and in memory: Test results are built here, no server has a token, nothing connects.
 @MainActor enum HeadlessHerdrShots {
     static let names = ["herdr-s1-where", "herdr-s3-this-mac-nothing", "herdr-s3-ssh", "herdr-s3-ssh-failed", "herdr-s3-address", "herdr-s4-starters",
-                        "herdr-settings-servers", "herdr-settings-simple", "herdr-editor-advanced", "herdr-editor-move", "herdr-bot-request"]
+                        "herdr-settings-servers", "herdr-settings-simple", "herdr-editor-advanced", "herdr-editor-move", "herdr-bot-request",
+                        "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view"]
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
         let store = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); store.isSetupPreview = false
@@ -40,5 +42,24 @@ import SwiftUI
         jarvis.messages = [ChatMessage(role: .user, content: "Create two bots: one for research and one for writing."), ChatMessage(role: .assistant, content: "I proposed Research and Writer.\n\n" + block)]
         let card = NSSize(width: 760, height: 220)
         write(names[10], await png(AnyView(HerdrBotRequestCard(manager: jarvis).frame(width: card.width, height: card.height).background(AppColor.chat)), store, card))
+
+        // Helpers as the server would list them: one working, one answered, one stopped at a prompt. The model is whatever the server said.
+        let helpers = [HerdrClient.Helper(address: "t43", createdMs: 3, name: "tests", model: "server-model-b", difficulty: "medium", task: "Add tests for the CSV importer's quoted fields and make them pass.", state: "live", status: .init(state: "working"), answered: false),
+                       HerdrClient.Helper(address: "t42", createdMs: 2, name: "rename", model: "server-model-a", difficulty: "easy", task: "Rename `fetchAll` to `loadAll` everywhere in Sources/.", state: "live", status: .init(state: "done"), answered: true,
+                                          reply: .init(id: 9, text: "Renamed 14 call sites in 6 files; the build passes.")),
+                       HerdrClient.Helper(address: "t41", createdMs: 1, name: "design", model: "server-model-c", difficulty: "hard", task: "Propose how the importer should report partial failures.", state: "live", status: .init(state: "blocked"), answered: false)]
+        store.herdrHelpers[jarvis.id] = HerdrClient.Helpers(core: "core", parent: .init(address: "t40", createdMs: 0), limit: 3, helpers: helpers)
+        store.bots = [jarvis, Bot(name: "Research", title: "Sources and links", backend: .herdr), infra]
+        let sidebar = NSSize(width: SidebarMetrics.width.ideal, height: 460)
+        write(names[11], await png(AnyView(SidebarView(selection: .constant(jarvis)).frame(width: sidebar.width, height: sidebar.height)), store, sidebar))
+        store.selectedBot = jarvis; store.infoTab = .overview
+        write(names[12], await png(AnyView(InfoPanel(bot: jarvis)), store, NSSize(width: 360, height: 760)))
+        let log = HerdrClient.HelperLog(tools: [.init(seq: 1, tool: "Grep", detail: "fetchAll", finished: true, failed: false), .init(seq: 2, tool: "Edit", detail: "Sources/Importer/CSVReader.swift", finished: true, failed: false),
+                                                .init(seq: 3, tool: "Bash", detail: "swift build", finished: true, failed: false)],
+                                        screen: "● Renamed 14 call sites in 6 files; the build passes.\n\n✻ Worked for 41s\n────────────────────────────────────────\n❯ ")
+        var shownLog = log; shownLog.replies = [.init(id: 9, kind: "reply", text: "Renamed **14 call sites** in 6 files; the build passes.\n\n- `CSVReader.swift`\n- `ImportQueue.swift`")]
+        let opened = NSSize(width: 760, height: 720), choice = HerdrHelperSelection(botID: jarvis.id, helperID: helpers[1].id)
+        store.openHerdrHelper = choice
+        write(names[13], await png(AnyView(HerdrHelperView(bot: jarvis, selection: choice, helper: helpers[1], core: "core", log: shownLog).frame(width: opened.width, height: opened.height)), store, opened))
     }
 }

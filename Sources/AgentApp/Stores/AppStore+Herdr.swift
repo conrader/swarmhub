@@ -133,6 +133,7 @@ extension AppStore {
         var backend = HerdrBackend(client: try herdrClient(for: herdrServer(for: bot)), botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.outboundPersona)
         backend.steers = herdrSteers(bot)
         if createsHerdrBots(bot) { backend.creationNote = Self.herdrCreationNote }
+        if startsHerdrHelpers(bot) { backend.helperNote = HerdrHelperNote.text }
         return backend
     }
 

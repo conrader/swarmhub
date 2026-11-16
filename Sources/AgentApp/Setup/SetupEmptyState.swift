@@ -5,6 +5,7 @@ import SwiftUI
 struct SetupEmptyState: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(LegacySurface.key) private var legacy = false
     var body: some View {
         if FirstRun.hasRealAgents(store.bots) {
             ContentUnavailableView(SimpleCopy.chooseTitle, systemImage: "bubble.left.and.bubble.right", description: Text(SimpleCopy.chooseDetail))
@@ -12,7 +13,7 @@ struct SetupEmptyState: View {
             ContentUnavailableView {
                 Label(SimpleCopy.emptyTitle, systemImage: "link")
             } description: {
-                Text(SimpleCopy.emptyDetail)
+                Text(legacy ? SimpleCopy.emptyDetail : SimpleCopy.herdrEmptyDetail)
             } actions: {
                 Button(SimpleCopy.emptySetUp) { store.openSetup(openWindow: openWindow) }.buttonStyle(.borderedProminent)
                 Button(SetupCopy.sampleLink) { store.loadSamples() }.buttonStyle(.link)

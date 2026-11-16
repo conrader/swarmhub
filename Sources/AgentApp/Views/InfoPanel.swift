@@ -61,6 +61,7 @@ struct InfoPanel: View {
                 OpenClawOverviewSection(status: store.openClawStatus, bot: bot)
             } else if bot.backend == .herdr {
                 HerdrOverviewSection(bot: bot)
+                HerdrHelpersSection(bot: bot)
             } else {
                 MemorySection(bot: bot)
                 if store.connectionBot(id: bot.id) != nil { BotConnectedAppsSection(apps: store.connectedApps, bot: bot) }

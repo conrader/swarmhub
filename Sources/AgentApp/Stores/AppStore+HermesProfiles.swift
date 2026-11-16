@@ -66,6 +66,11 @@ extension AppStore {
     }
 
     func makeImportPlan(from manifest: ImportedTemplateManifest) -> TemplateImportPlan {
-        TemplateImportMapper.makePlan(from: manifest, hermesConfigured: hermesConfigured, hermesProfile: hermesProfile(forTemplateSlug: manifest.slug))
+        if importsToHerdr { return TemplateImportMapper.makePlan(from: manifest, hermesConfigured: false, herdr: true) }
+        return TemplateImportMapper.makePlan(from: manifest, hermesConfigured: hermesConfigured, hermesProfile: hermesProfile(forTemplateSlug: manifest.slug))
     }
+
+    /// An imported template becomes a Herdr bot once a Herdr server is set up and the older backends are out of sight
+    /// (`LegacySurface`), like every other new bot; before that it is a Hermes bot, or a Mock one with no box.
+    var importsToHerdr: Bool { herdrConfigured && !LegacySurface.isShown(defaults) }
 }

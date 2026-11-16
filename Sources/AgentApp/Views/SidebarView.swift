@@ -1,13 +1,15 @@
 import SwiftUI
 
-/// The left column, like Grok Bot's (P20): round search and + at the top, one flat list (newest conversations first, then a quiet
-/// "Hidden chats" disclosure), and a bottom bar with the user's initial and a Settings pill. P47: Connect apps sits on its
+/// The left column, like Grok Bot's (P20): round search and + at the top, one flat list (newest conversations first, a Herdr
+/// bot's helper agents nested under it, then a quiet "Hidden chats" disclosure), and a bottom bar with the user's initial and a Settings pill. P47: Connect apps sits on its
 /// own row directly above that bar (beside it, the Settings pill would truncate in a 240 pt sidebar).
 struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
     @Binding var selection: Bot?
     @State private var botToDelete: Bot?; @State private var groupToDelete: GroupChat?
     @AppStorage(SidebarMetrics.accountNameKey) private var accountName = ""
+    /// Off (the default): what only serves the older backends stays out of the sidebar (`LegacySurface`).
+    @AppStorage(LegacySurface.key) private var legacy = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,7 +52,8 @@ struct SidebarView: View {
                     }
                 }.padding(.horizontal, SidebarMetrics.listInset).padding(.top, 4)
             }.chromeProbe("sidebar_list")
-            ConnectAppsSidebarButton().padding(.horizontal, SidebarMetrics.listInset + 4).padding(.top, 8)
+            // Connected apps reach a Hermes agent through its box; a Herdr agent connects its own tools.
+            if legacy { ConnectAppsSidebarButton().padding(.horizontal, SidebarMetrics.listInset + 4).padding(.top, 8) }
             HStack(spacing: 10) {
                 SettingsLink { RoundSidebarLabel(symbol: nil, text: UserIdentity.initial(of: accountName)) }
                     .buttonStyle(.plain).help("Account and settings").accessibilityLabel("Account")
@@ -70,8 +73,11 @@ struct SidebarView: View {
             Button("Delete", role: .destructive) { if let groupToDelete { store.deleteGroup(groupToDelete) }; groupToDelete = nil }
         } message: { Text("The group’s local transcript is removed; its bots and their own chats stay.") }
     }
-    private func row(_ bot: Bot) -> some View {
-        BotRow(bot: bot, drafts: store.drafts, selected: selection == bot && store.selectedGroup == nil, botToDelete: $botToDelete)
+    /// The bot's row; under it, while its Herdr agent has helper agents, one row for each. With a helper open the
+    /// helper's row is the selected one.
+    @ViewBuilder private func row(_ bot: Bot) -> some View {
+        BotRow(bot: bot, drafts: store.drafts, selected: selection == bot && store.selectedGroup == nil && store.openHerdrHelper?.botID != bot.id, botToDelete: $botToDelete)
+        if bot.backend == .herdr { HerdrHelperRows(bot: bot) }
     }
 }
 

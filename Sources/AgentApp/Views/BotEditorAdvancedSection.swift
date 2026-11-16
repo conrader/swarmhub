@@ -45,6 +45,13 @@ struct BotEditorAdvancedSection: View {
                 Toggle("Can create other bots", isOn: $fields.canManage)
                 Text("Ask this bot for a new bot and it proposes one: a name, an avatar and instructions. \(AppConstants.name) shows you the proposal in the chat and adds the bot, on the same Herdr server, only when you press Create. One per server. A running agent learns this when you next ask it for a bot.").font(.caption).foregroundStyle(.secondary)
             }
+            if let bot {
+                Section("Helper agents") {
+                    // Saved at once, like the agent's other switches; until it is set it follows "Can create other bots".
+                    Toggle("Can start helper agents", isOn: Binding(get: { store.startsHerdrHelpers(bot, managing: fields.canManage) }, set: { store.setStartsHerdrHelpers($0, for: bot) }))
+                    Text("This bot's agent is told how to hand parts of its work to helper agents on \(store.herdrServer(for: bot).name), and to say how hard each task is: easy, medium or hard. The server's helper settings decide which model each difficulty runs on and how many helpers one agent may have; the agent cannot choose a model. Helpers show under the bot in the sidebar while they run. A running agent learns this with your next message; turning it off applies when the bot next starts a fresh agent.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
         // A bot still on an older backend: one press moves it, keeping its name, avatar, instructions and chat.
         if let bot, !legacy, bot.backend == .hermes || bot.backend == .openClaw, !bot.isReadOnlyArchive {

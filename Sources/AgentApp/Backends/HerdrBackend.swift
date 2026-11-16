@@ -41,18 +41,29 @@ struct HerdrBackend: AgentBackend {
     /// in front of a message that asks for a bot.
     var creationNote: String? = nil
 
-    /// What a new agent is told once: the bot's own instructions, cut so the note after them always fits.
+    /// Set for a bot that may start helper agents (`HerdrHelperNote.text`): how to start one and how to choose its
+    /// difficulty. A new agent reads it after its instructions; a running agent that has not read it yet reads it in
+    /// front of its next message, once (`HerdrClient.deliver`'s `once`).
+    var helperNote: String? = nil
+
+    /// What a new agent is told once: the bot's own instructions, cut so the notes after them always fit.
     var launchInstructions: String? {
-        guard let note = creationNote, !note.isEmpty else { return instructions }
-        let own = HerdrClient.plain(instructions ?? "", bytes: max(0, HerdrClient.instructionsBytes - note.utf8.count - 2)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return own.isEmpty ? note : own + "\n\n" + note
+        let notes = [creationNote, helperNote].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        guard !notes.isEmpty else { return instructions }
+        let own = HerdrClient.plain(instructions ?? "", bytes: max(0, HerdrClient.instructionsBytes - notes.utf8.count - 2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return own.isEmpty ? notes : own + "\n\n" + notes
     }
 
     init(client: HerdrClient, botName: String, botID: UUID, template: String?, model: String? = nil, instructions: String? = nil) {
         self.client = client; self.template = template?.isEmpty == false ? template : nil
         self.model = model?.isEmpty == false ? model : nil
         self.instructions = instructions == Bot.defaultPersona ? nil : instructions
-        agentName = HerdrClient.agentName(for: botName, suffix: botID.uuidString.replacingOccurrences(of: "-", with: ""))
+        agentName = Self.agentName(botName: botName, botID: botID)
+    }
+
+    /// The bridge's name for a bot's agent: readable, and ending in the start of the bot's id.
+    static func agentName(botName: String, botID: UUID) -> String {
+        HerdrClient.agentName(for: botName, suffix: botID.uuidString.replacingOccurrences(of: "-", with: ""))
     }
 
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
@@ -65,7 +76,8 @@ struct HerdrBackend: AgentBackend {
                 do {
                     continuation.yield(.status("Sending to Herdr"))
                     let turn = try await backend.client.deliver(text, name: backend.agentName, template: backend.template, model: backend.model, instructions: backend.launchInstructions,
-                                                                reminder: ManagementIntent.createsBot(text) ? backend.creationNote : nil)
+                                                                reminder: ManagementIntent.createsBot(text) ? backend.creationNote : nil,
+                                                                once: backend.helperNote.map { (HerdrHelperNote.marker, $0) })
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0)) },
                                                                tool: { call, isNew in Self.toolEvents(call, isNew: isNew).forEach { continuation.yield(.tool($0)) } },

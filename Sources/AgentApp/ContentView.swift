@@ -19,6 +19,9 @@ struct ContentView: View {
                     ReportsInboxView(center: store.reportsCenter).frame(minWidth: 600)
                 } else if let group = store.selectedGroup {
                     GroupChatView(group: group).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
+                } else if let bot = store.selectedBot, let helper = store.openHerdrHelper, helper.botID == bot.id {
+                    // One of the bot's helper agents, read-only, in place of its chat.
+                    HerdrHelperView(bot: bot, selection: helper).id(helper).frame(minWidth: 500)
                 } else if let bot = store.selectedBot {
                     ChatView(bot: bot).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
                 } else if let selection = store.selectedBoxProfile, let profile = store.selectedDisconnectedProfile {
@@ -44,7 +47,7 @@ struct ContentView: View {
                 }
             }
         }
-        .task { store.startRoutinePolling(); store.startLaunchWork(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
+        .task { store.startRoutinePolling(); store.startHerdrHelperPolling(); store.startLaunchWork(); if FirstRun.settle(store) { store.openSetup(openWindow: openWindow) } }
         // P21 item 8: "New agent" with no box opens the setup window instead of an editor that could only make a mock.
         .sheet(isPresented: Binding(get: { store.showingNewBot && store.boxConfigured }, set: { store.showingNewBot = $0 })) { BotEditorView(bot: nil) }
         .onChange(of: store.showingNewBot) { _, shown in if shown, !store.boxConfigured { store.showingNewBot = false; store.openSetup(openWindow: openWindow) } }

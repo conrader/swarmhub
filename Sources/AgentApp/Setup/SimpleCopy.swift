@@ -66,6 +66,8 @@ enum SimpleCopy {
     static let name = "Name"
     static let instructions = "What should it know or do?"
     static let instructionsCaption = "Sent with every message as the agent's standing instructions. For an agent that runs on your box, leave empty to keep its own setup."
+    static let herdrInstructionsCaption = "Given to this agent as its standing instructions each time it starts in Herdr."
+    static let herdrEditorAdvancedCaption = "Title, the agent program and model, and what this agent may start."
     static let notifyAgent = "Notify me about this agent"
     static let cancel = "Cancel"
     static let save = "Save"
@@ -76,6 +78,7 @@ enum SimpleCopy {
     // Empty state and banners
     static let emptyTitle = "Connect your agents"
     static let emptyDetail = "Connect the box where your agents run, or look around first."
+    static let herdrEmptyDetail = "Set up Herdr, where your agents run, or look around first."
     static let emptySetUp = "Set up"
     static let chooseTitle = "Choose an agent"
     static let chooseDetail = "Select an agent from the sidebar to begin."
@@ -93,7 +96,7 @@ enum SimpleCopy {
          yourName, yourNameCaption, appearance, theme, appIcon, dark, light, system, accent, accentCaption, notifications, notifyMaster,
          notifyCaption, notifyNeedsApp, about, version, autoCheck, checkForUpdates, checkNow, autoCheckCaption, openRelease("1.0"),
          advanced, advancedCaption, herdrAdvancedCaption, backToSimple, previewOff, newAgent, agentSettings, avatar, name, instructions,
-         instructionsCaption, notifyAgent, cancel, save, editorAdvanced, editorAdvancedCaption, runsOn("this Mac", as: "Ada"),
+         instructionsCaption, herdrInstructionsCaption, herdrEditorAdvancedCaption, herdrEmptyDetail, notifyAgent, cancel, save, editorAdvanced, editorAdvancedCaption, runsOn("this Mac", as: "Ada"),
          emptyTitle, emptyDetail, emptySetUp, chooseTitle, chooseDetail, sampleLabel, historyOnly, connect, noKey("Ada"), addKey, keyFor("Ada")]
     }
 }

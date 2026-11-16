@@ -190,3 +190,21 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     store.saveHerdrServer(store.herdrServers[0], token: "t"); store.bots = [Bot(name: "One", backend: .herdr), Bot(name: "Old", backend: .hermes)]
     #expect(store.herdrStatusLine == SimpleCopy.connected(to: "This Mac", agents: 1))
 }
+
+/// With Herdr set up and the older backends out of sight, an imported template becomes a Herdr bot, and its report
+/// promises nothing that only a Hermes box does.
+@MainActor @Test func anImportedTemplateBecomesAHerdrBotOnceHerdrIsSetUp() throws {
+    let store = herdrStore()
+    let manifest = try GrokTemplateParser.parse(Data(#"{"name":"Garden","slug":"garden","instructions":"You tend the garden.","routines":[{"name":"Water","prompt":"Water it","schedule":"0 8 * * *"}]}"#.utf8))
+    #expect(!store.importsToHerdr && !store.makeImportPlan(from: manifest).herdr, "no Herdr server yet: as before")
+    store.saveHerdrServer(store.herdrServers[0], token: "t")
+    let plan = store.makeImportPlan(from: manifest)
+    #expect(store.importsToHerdr && plan.herdr && plan.hermesProfile == nil)
+    #expect(!plan.report.contains { $0.reason.contains("Hermes") || $0.name.contains("Hermes") } && plan.report.contains { $0.name == "Herdr agent" && $0.status == .mapped })
+    #expect(plan.report.contains { $0.name == "Water" && $0.status == .skipped })
+    let bot = store.importTemplate(plan)
+    #expect(bot.backend == .herdr && bot.hermesProfile == nil && bot.persona == "You tend the garden." && store.herdrServer(for: bot).id == HerdrServer.defaultID)
+    #expect(bot.routines.allSatisfy { !$0.isEnabled })
+    store.defaults.set(true, forKey: LegacySurface.key)
+    #expect(!store.importsToHerdr && !store.makeImportPlan(from: manifest).herdr, "with the older backends shown the import is theirs again")
+}

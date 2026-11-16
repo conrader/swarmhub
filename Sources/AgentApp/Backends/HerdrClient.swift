@@ -29,7 +29,10 @@ struct HerdrClient: Sendable {
         struct FirstMessage: Decodable, Sendable, Equatable { let sent: Bool? }
         let address: String; let name: String; let state: String; let createdMs: UInt64; let template: String?; let status: Status?
         var firstMessage: FirstMessage? = nil
+        /// Set for a helper: the agent that started it (`HerdrHelpers.swift`). A bot's own agent has none.
+        var parent: AgentRef? = nil
         var isLive: Bool { state == "live" }
+        var ref: AgentRef { AgentRef(address: address, createdMs: createdMs) }
     }
 
     struct Workspace: Decodable, Sendable { let core: String?; let version: String?; let agents: [Agent]; let templates: [Template] }
@@ -41,6 +44,7 @@ struct HerdrClient: Sendable {
     struct Item: Decodable, Sendable, Equatable {
         let id: Int; let kind: String; let text: String
         enum CodingKeys: CodingKey { case id, kind, text }
+        init(id: Int, kind: String, text: String) { self.id = id; self.kind = kind; self.text = text }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             id = try c.decode(Int.self, forKey: .id); kind = try c.decode(String.self, forKey: .kind)
@@ -164,9 +168,10 @@ struct HerdrClient: Sendable {
 
     // MARK: A turn
 
-    /// The live agent for this bot: the same name, or the same id suffix after a rename.
+    /// The live agent for this bot: the same name, or the same id suffix after a rename. Never a helper, whose
+    /// terminal is named by the agent that started it.
     func liveAgent(named name: String, in workspace: Workspace) -> Agent? {
-        let live = workspace.agents.filter(\.isLive)
+        let live = workspace.agents.filter { $0.isLive && $0.parent == nil }
         return live.first { $0.name == name } ?? live.first { Self.suffix(of: $0.name) == Self.suffix(of: name) }
     }
 
@@ -194,14 +199,20 @@ struct HerdrClient: Sendable {
     /// one) with `instructions` and `text` as its first task.
     /// A bot that ran before keeps its saved profile, so its earlier sessions stay together in the workspace.
     /// `reminder` goes in front of a message to a running agent only: a new agent reads the same words in its instructions.
-    func deliver(_ text: String, name: String, template: String?, model: String? = nil, instructions: String? = nil, reminder: String? = nil) async throws -> Turn {
+    /// `once` is a note a running agent must have read once (`marker` is a phrase only that note contains): it goes in
+    /// front of the message while none of the agent's saved tasks carries the marker, so an agent that started before
+    /// the note applied to its bot still learns it, and one that has read it is not told again.
+    func deliver(_ text: String, name: String, template: String?, model: String? = nil, instructions: String? = nil, reminder: String? = nil,
+                 once: (marker: String, note: String)? = nil) async throws -> Turn {
         let text = Self.plain(text, bytes: Self.messageBytes)
         let current = try await workspace()
         guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the workspace's machine.") }
         if let agent = liveAgent(named: name, in: current) {
-            let after = try await history(core: core, address: agent.address, createdMs: agent.createdMs).map(\.id).max() ?? 0
+            let saved = try await history(core: core, address: agent.address, createdMs: agent.createdMs)
+            let after = saved.map(\.id).max() ?? 0
             let afterTool = (try? await preview(core: core, address: agent.address, createdMs: agent.createdMs))?.tools.map(\.seq).max() ?? 0
-            try await message(reminder.map { Self.plain($0, bytes: Self.instructionsBytes) + "\n\n" + text } ?? text, to: agent)
+            let notes = Self.notes(reminder: reminder, once: once, tasks: saved.filter { $0.kind == "task" }.map(\.text))
+            try await message(notes.isEmpty ? text : Self.plain(notes.joined(separator: "\n\n"), bytes: Self.instructionsBytes) + "\n\n" + text, to: agent)
             return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, afterTool: afterTool)
         }
         let usable = current.templates.filter { $0.error == nil }
@@ -211,6 +222,13 @@ struct HerdrClient: Sendable {
                                      profileID: known?.id, modelID: chosen.takesModel ? model.flatMap { $0.isEmpty ? nil : $0 } : nil)
         if agent.firstMessage?.sent == false { throw Failure.waitingAtPrompt }
         return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true)
+    }
+
+    /// What goes in front of a message to a running agent: `reminder` always, `once` only while no saved task has its marker.
+    static func notes(reminder: String?, once: (marker: String, note: String)?, tasks: [String]) -> [String] {
+        var notes = reminder.map { [$0] } ?? []
+        if let once, !once.note.isEmpty, !tasks.contains(where: { $0.contains(once.marker) }) { notes.append(once.note) }
+        return notes
     }
 
     /// Waits for the reply the agent's hook saves after `turn`. Meanwhile `status` hears what the agent reports,
@@ -289,9 +307,9 @@ struct HerdrClient: Sendable {
 
     // MARK: Transport
 
-    private func get<T: Decodable>(_ path: String) async throws -> T { try await send(request(path, method: "GET", body: nil)) }
+    func get<T: Decodable>(_ path: String) async throws -> T { try await send(request(path, method: "GET", body: nil)) }
 
-    private func post<T: Decodable>(_ path: String, _ body: [String: Any]) async throws -> T {
+    func post<T: Decodable>(_ path: String, _ body: [String: Any]) async throws -> T {
         try await send(request(path, method: "POST", body: try JSONSerialization.data(withJSONObject: body)))
     }
 

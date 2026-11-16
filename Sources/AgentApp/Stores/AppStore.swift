@@ -49,6 +49,10 @@ import SwarmHubCore
     var setupCreatedGatewayID: String?
     /// The port forwards this app opened to Herdr servers reached over SSH (`AppStore+Herdr.swift`).
     let herdrTunnels = HerdrTunnels()
+    /// The helper agents each Herdr bot's agent has now, by bot (`AppStore+HerdrHelpers.swift`); the helper open in the
+    /// detail column; the poll that reads them, and the failed reads in a row per server.
+    @Published var herdrHelpers: [UUID: HerdrClient.Helpers] = [:]; @Published var openHerdrHelper: HerdrHelperSelection?
+    var herdrHelperPoll: Task<Void, Never>?; var herdrHelperFailures: [String: Int] = [:]
     lazy var grokBotPresent: Bool = GrokLocator.live().isPresent
     /// P14: the sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false
@@ -310,17 +314,18 @@ import SwarmHubCore
         let memories = manifest.memories.map { "\($0.name): \($0.value)" }
         let bot = Bot(
             name: manifest.name, title: manifest.title, description: manifest.description,
-            persona: manifest.instructions, backend: hermesConfigured ? .hermes : .mock,
+            persona: manifest.instructions, backend: plan.herdr ? .herdr : hermesConfigured ? .hermes : .mock,
             avatarName: plan.avatarName, memorySummary: memories.joined(separator: "\n"),
             skills: manifest.skills.map(\.name), importedMemories: memories,
             importedSkills: manifest.skills, requestedConnectorIDs: plan.mappedConnectorIDs,
             gettingStartedSkill: manifest.gettingStartedSkill, routines: plan.routines,
-            hermesProfile: hermesConfigured ? (plan.hermesProfile ?? "default") : nil
+            hermesProfile: hermesConfigured && !plan.herdr ? (plan.hermesProfile ?? "default") : nil
         )
         // Imported data remains inert: connectors require grants, cron routines stay disabled, and skills (the
         // getting-started one included) stay uninstalled until Install in the Overview (P32); no server mutation here.
         bot.routines.indices.forEach { bot.routines[$0].isEnabled = false }
         bot.gettingStartedSkill?.isEnabled = false
+        if plan.herdr { setHerdrServer(herdrServers[0].id, for: bot) }
         bots.insert(bot, at: 0); selectedBot = bot; rememberSelection(bot: bot); save(); return bot
     }
     func delete(_ bot: Bot) { grokHistory.remove(bot.id); bots.removeAll { $0.id == bot.id }; groups.forEach { $0.memberIDs.removeAll { $0 == bot.id } }; if selectedBot == bot { if selectedGroup == nil { selectVisibleChat() } else { selectedBot = nil } }; save(); alertProfilesLeft(bot) }
