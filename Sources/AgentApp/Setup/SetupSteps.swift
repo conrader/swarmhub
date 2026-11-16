@@ -89,17 +89,18 @@ struct SetupChooseStep: View {
                         HStack { Text(agent.name); if present { Text(SetupCopy.alreadyAdded).font(.caption).foregroundStyle(.secondary) } }
                     }.disabled(present)
                 }
-                if flow.software != .openClaw {
+                if flow.software != .openClaw, flow.software != .herdr {
                     ForEach(flow.result?.problems ?? [], id: \.self) { line in Text(line).font(.caption).foregroundStyle(.orange) }
                 }
-            } header: { Text(flow.boxScan.map { BoxCopy.found($0.listed) } ?? SetupCopy.chooseTitle) } footer: { if !footer.isEmpty { Text(footer).font(.caption) } }
-            if flow.software != .openClaw { SetupBoxSections(flow: $flow) }
+            } header: { Text(flow.software == .herdr ? SetupCopy.herdrStartersTitle : flow.boxScan.map { BoxCopy.found($0.listed) } ?? SetupCopy.chooseTitle) } footer: { if !footer.isEmpty { Text(footer).font(.caption) } }
+            if flow.software == .hermes || flow.software == nil { SetupBoxSections(flow: $flow) }
             if flow.movesAddress { Section { Toggle(SetupCopy.moveConfirm, isOn: $flow.confirmMove) } }
             Text(SetupCopy.addLater).font(.caption).foregroundStyle(.secondary)
         }.formStyle(.grouped).scrollContentBackground(.hidden).padding(-20)
     }
 
     private var footer: String {
+        if flow.software == .herdr { return flow.choices.isEmpty ? SetupCopy.herdrNoStarters : SetupCopy.herdrStartersFound(flow.choices.count) }
         // P35: once the box is listed, its header says how many bots it has.
         guard flow.software == .openClaw else { return flow.boxScan == nil ? flow.result?.message ?? "" : "" }
         return flow.choices.isEmpty ? SetupCopy.openClawNoAgents : SetupCopy.openClawFound(flow.choices.count)
@@ -145,7 +146,7 @@ struct SetupDoneStep: View {
     let agentName: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(SetupCopy.doneTitle(flow.addedCount)).font(.title2.bold())
+            Text(flow.software == .herdr && flow.addedCount == 0 ? SetupCopy.herdrDone : SetupCopy.doneTitle(flow.addedCount)).font(.title2.bold())
             if let scan = flow.boxScan, !flow.adopting.isEmpty {
                 Text(BoxCopy.adopting(manager: scan.managerName, count: flow.adopting.count)).foregroundStyle(.secondary)
             }

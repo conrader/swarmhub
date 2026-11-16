@@ -36,7 +36,7 @@ private func threeAgents() -> FakeGateway.Handler {
 
 @Test func theTransitionTableOffersTheSoftwareChoice() {
     #expect(OpenClawBackend.isImplemented && SetupFlow.offersSoftwareChoice)
-    #expect(SetupFlow.Step.allCases == [.welcome, .hosting, .software, .address, .openClaw, .choose, .done])
+    #expect(SetupFlow.Step.allCases == [.welcome, .hosting, .software, .address, .openClaw, .herdr, .choose, .done])
     var flow = SetupFlow()
     flow.apply(.connectExisting); #expect(flow.step == .software && flow.canGoBack && !flow.canSkip)
     flow.apply(.pick(.hermes)); #expect(flow.step == .address && flow.software == .hermes)

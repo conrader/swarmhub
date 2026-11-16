@@ -17,7 +17,15 @@ enum OpenClawSetupOutcome: Equatable, Sendable {
     case failed(String)
 }
 
-/// One row on S4: a Hermes probe id or an OpenClaw agent id, and its name.
+/// What the Herdr screen's Test found: a server that answers (with the access key Test used, when it was typed or
+/// read from the server, and the starter agents it can run), nothing on this Mac's port, or one plain line.
+enum HerdrSetupOutcome: Equatable, Sendable {
+    case connected(server: HerdrServer, key: String?, starters: [HerdrStarter])
+    case nothingHere(port: Int)
+    case failed(String)
+}
+
+/// One row on S4: a Hermes probe id, an OpenClaw agent id or a Herdr starter's template, and its name.
 struct SetupChoice: Equatable, Identifiable { let id: String; let name: String }
 
 /// P35: what the scan after a Hermes Test found on the box: the bot that will set up the others (a new manager when the
@@ -29,13 +37,15 @@ struct SetupBoxScan: Equatable, Sendable {
 }
 
 /// The setup window's steps as a pure state machine (P21 item 11, P25). No step writes anything except two: S4's Add
-/// (`commitSetup` / `commitSetupOpenClaw`), and S3-OC's Test, which saves the Gateway it connects through and is
+/// (`commitSetup` / `commitSetupOpenClaw` / `commitSetupHerdr`), and S3-OC's Test, which saves the Gateway it connects through and is
 /// undone on Cancel, Back to `software` or closing the window (`abandonSetupGateway`).
 struct SetupFlow: Equatable {
-    enum Step: String, CaseIterable, Equatable { case welcome, hosting, software, address, openClaw, choose, done }
-    enum Software: String, Equatable { case hermes, openClaw }
+    enum Step: String, CaseIterable, Equatable { case welcome, hosting, software, address, openClaw, herdr, choose, done }
+    enum Software: String, Equatable { case hermes, openClaw, herdr }
     enum Action: Equatable {
         case connectExisting, newHosted, pick(Software), test(SetupCheckResult), openClawTest(OpenClawSetupOutcome, gatewayID: String?)
+        /// Herdr: where it runs was chosen on Welcome; its screen's Test finished.
+        case pickHerdr(HerdrServer.Kind), herdrTest(HerdrSetupOutcome)
         case add(count: Int, first: String?), back
         /// P35: the box scan finished (nil: it could not list the bots).
         case boxScanned(SetupBoxScan?)
@@ -51,6 +61,9 @@ struct SetupFlow: Equatable {
     var openClaw = OpenClawDraft()
     private(set) var openClawOutcome: OpenClawSetupOutcome?
     private(set) var openClawGatewayID: String?
+    /// The Herdr screen's fields and its last Test.
+    var herdr = HerdrServerDraft()
+    private(set) var herdrOutcome: HerdrSetupOutcome?
     /// Ids ticked on S4; all found agents start ticked except those already added.
     var chosen: Set<String> = []
     var confirmMove = false
@@ -84,7 +97,16 @@ struct SetupFlow: Equatable {
         guard software != .openClaw, let saved = prefill.address, !saved.isEmpty, let result, let url = result.baseURL else { return false }
         return BoxAddress.normalize(saved) != url.absoluteString
     }
-    var canAdd: Bool { !chosen.isEmpty && (!movesAddress || confirmMove) }
+    /// A Herdr server is worth saving with no starter agent ticked; the other paths add at least one agent.
+    var canAdd: Bool { software == .herdr ? herdrServer != nil : !chosen.isEmpty && (!movesAddress || confirmMove) }
+
+    /// What Herdr's Test connected to, for Add.
+    var herdrServer: HerdrServer? { if case .connected(let server, _, _) = herdrOutcome { server } else { nil } }
+    var herdrKey: String? { if case .connected(_, let key, _) = herdrOutcome { key } else { nil } }
+    var herdrStarters: [HerdrStarter] { if case .connected(_, _, let starters) = herdrOutcome { starters } else { [] } }
+    var herdrFailure: String? { if case .failed(let line) = herdrOutcome { line } else { nil } }
+    /// The port nothing answered on, when this Mac has no Herdr running.
+    var herdrNothingHere: Int? { if case .nothingHere(let port) = herdrOutcome { port } else { nil } }
 
     /// S3-OC's Test reads "Test again" after the Gateway asked for approval.
     var awaitsPairing: Bool { if case .pairingRequired = openClawOutcome { true } else { false } }
@@ -96,6 +118,7 @@ struct SetupFlow: Equatable {
     /// S4's rows for the software chosen.
     var choices: [SetupChoice] {
         guard software != .openClaw else { return openClawAgents.map { SetupChoice(id: $0.id, name: $0.displayName) } }
+        guard software != .herdr else { return herdrStarters.map { SetupChoice(id: $0.id, name: $0.name) } }
         let probed = (result?.available ?? []).map { SetupChoice(id: $0.id, name: $0.name) }
         let derived = (boxScan?.derived ?? []).filter { name in !probed.contains { $0.id == name } }
         return probed + derived.map { SetupChoice(id: $0, name: HermesProfileNaming.botName(forProfile: $0)) }
@@ -107,7 +130,7 @@ struct SetupFlow: Equatable {
         case .newHosted: go(.hosting)
         case .pick(let picked):
             software = picked
-            go(picked == .hermes ? .address : .openClaw)
+            switch picked { case .hermes: go(.address); case .openClaw: go(.openClaw); case .herdr: herdrOutcome = nil; go(.herdr) }
         case .test(let checked):
             result = checked; box = .idle
             guard checked.succeeded else { return }
@@ -121,12 +144,19 @@ struct SetupFlow: Equatable {
             openClawOutcome = outcome; openClawGatewayID = gatewayID
             guard case .connected = outcome else { return }
             go(.choose)
+        case .pickHerdr(let kind):
+            software = .herdr; herdr = HerdrServerDraft(kind: kind); herdrOutcome = nil
+            go(.herdr)
+        case .herdrTest(let outcome):
+            herdrOutcome = outcome
+            guard case .connected = outcome else { return }
+            go(.choose)
         case .add(let count, let first): addedCount = count; firstAdded = first; history = []; step = .done
         case .back:
             guard canGoBack, let previous = history.popLast() else { return }
             step = previous
             // Back to the choice undoes S3-OC's Test (its Gateway is forgotten by the window).
-            if previous == .software || previous == .welcome { openClawOutcome = nil; openClawGatewayID = nil }
+            if previous == .software || previous == .welcome { openClawOutcome = nil; openClawGatewayID = nil; herdrOutcome = nil }
         }
     }
 

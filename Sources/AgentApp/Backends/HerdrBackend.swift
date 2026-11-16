@@ -12,13 +12,14 @@ import Foundation
 /// on the bridge, named from the bot (`HerdrClient.agentName`), started on its first message and reused while it runs.
 struct HerdrBackend: AgentBackend {
     static let defaultURL = "http://127.0.0.1:8787"
-    /// `UserDefaults`: the bridge address and the template new bots start from. The token is Keychain account `herdr`.
+    /// `UserDefaults`: the template new bots start from, and the one bridge address an install had before it kept a
+    /// list of servers (`HerdrServer`); that first server's token is still Keychain account `herdr`.
     static let urlKey = "herdrBaseURL", templateKey = "herdrTemplate", keyAccount = "herdr"
     /// Used only when the Keychain has no token (`AppStore.herdrClient`).
     static let tokenEnvironment = "SWARMHUB_HERDR_TOKEN"
     /// A bot's own template lives beside the app settings, so the bot record and its Hermes fields stay untouched.
     static func botTemplateKey(_ botID: UUID) -> String { "\(templateKey).\(botID.uuidString.lowercased())" }
-    static let missingToken = "Paste the Herdr workspace access token in Settings → Advanced → Servers and keys."
+    static let missingToken = "This Herdr server has no access token yet. Add it in Settings → Advanced → Servers and keys."
     static let modelNote = "Choose this agent's model under Herdr agent."
     static func botModelKey(_ botID: UUID) -> String { "herdrModel.\(botID.uuidString.lowercased())" }
 

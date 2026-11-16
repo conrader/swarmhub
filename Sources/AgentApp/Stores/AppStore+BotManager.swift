@@ -25,9 +25,11 @@ extension AppStore {
 
     // MARK: Manager role
 
-    /// The base URL a Hermes bot talks to, as `backend(for:)` resolves it; `openclaw:<gatewayID>` for an OpenClaw bot (P26).
+    /// The base URL a Hermes bot talks to, as `backend(for:)` resolves it; `openclaw:<gatewayID>` for an OpenClaw bot (P26)
+    /// and `herdr:<server id>` for a Herdr bot.
     func connection(of bot: Bot) -> String {
         if bot.backend == .openClaw { return "openclaw:\(bot.openClaw?.gatewayID ?? "")" }
+        if bot.backend == .herdr { return "herdr:\(herdrServer(for: bot).id)" }
         let raw = bot.hermesBaseURL ?? defaults.string(forKey: "hermesBaseURL") ?? AppConstants.defaultHermesURL
         return raw.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
     }

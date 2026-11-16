@@ -51,7 +51,8 @@ struct ConnectivityPath: Sendable, Equatable {
     static func observeTerminate(_ store: AppStore) -> NSObjectProtocol {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak store] _ in
             // Loops and goals of Bot Chats go to their boxes and presence leases end (`AppStore+AutomationHandoff.swift`).
-            MainActor.assumeIsolated { store?.handOffForQuit(); store?.flushNow() }
+            // The forwards to Herdr servers are child processes: they would outlive the app.
+            MainActor.assumeIsolated { store?.handOffForQuit(); store?.flushNow(); store?.herdrTunnels.closeAll() }
         }
     }
 }

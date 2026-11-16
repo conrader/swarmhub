@@ -44,7 +44,7 @@ private let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent
 @Test func openClawCanBeChosenAndConnectedHere() {
     // P25 replaces P21's "OpenClaw: add it later in Settings → Advanced": the software step and its connect screen exist.
     #expect(OpenClawBackend.isImplemented && SetupFlow.offersSoftwareChoice)
-    #expect(SetupFlow.Step.allCases == [.welcome, .hosting, .software, .address, .openClaw, .choose, .done])
+    #expect(SetupFlow.Step.allCases == [.welcome, .hosting, .software, .address, .openClaw, .herdr, .choose, .done])
     #expect(SetupCopy.softwareLine == "Works with Hermes and OpenClaw.")
     #expect(SetupCopy.softwareNames.contains(SetupCopy.openClawCardTitle) && SetupCopy.softwareNames.contains(SetupCopy.openClawPairing))
     var flow = SetupFlow(); flow.apply(.connectExisting); flow.apply(.pick(.openClaw))

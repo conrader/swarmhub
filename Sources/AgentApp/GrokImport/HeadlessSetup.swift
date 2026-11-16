@@ -12,12 +12,12 @@ import SwiftUI
 
     static func run(arguments: [String]) -> Int32 {
         guard let flag = arguments.firstIndex(of: "--render-setup"), arguments.indices.contains(flag + 1) else {
-            print("Usage: AgentApp --render-setup <dir> [--only p38|p38b|p38c|p38d|p38e|p39|p40|p41|p42|p43|p44|p45|p46|p47|p48|p49|p50|p51|p52|p55|p56|team|webhooks|alerts]"); return 64
+            print("Usage: AgentApp --render-setup <dir> [--only p38|p38b|p38c|p38d|p38e|p39|p40|p41|p42|p43|p44|p45|p46|p47|p48|p49|p50|p51|p52|p55|p56|team|webhooks|alerts|herdr]"); return 64
         }
         let directory = URL(fileURLWithPath: (arguments[flag + 1] as NSString).expandingTildeInPath, isDirectory: true)
         // P38: `--only p38` / `--only p38b` / `--only p38c` / `--only p38d` / `--only p38e` renders just that part's shots.
         let only = arguments.firstIndex(of: "--only").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
-        if let only, !["p38", "p38b", "p38c", "p38d", "p38e", "p39", "p40", "p41", "p42", "p43", "p44", "p45", "p46", "p47", "p48", "p49", "p50", "p51", "p52", "p55", "p56", "team", "webhooks", "alerts"].contains(only) { print("Unknown --only \(only); known: p38, p38b, p38c, p38d, p38e, p39, p40, p41, p42, p43, p44, p45, p46, p47, p48, p49, p50, p51, p52, p55, p56, team, webhooks, alerts"); return 64 }
+        if let only, !["p38", "p38b", "p38c", "p38d", "p38e", "p39", "p40", "p41", "p42", "p43", "p44", "p45", "p46", "p47", "p48", "p49", "p50", "p51", "p52", "p55", "p56", "team", "webhooks", "alerts", "herdr"].contains(only) { print("Unknown --only \(only); known: p38, p38b, p38c, p38d, p38e, p39, p40, p41, p42, p43, p44, p45, p46, p47, p48, p49, p50, p51, p52, p55, p56, team, webhooks, alerts, herdr"); return 64 }
         return HeadlessRunLoop.wait { await render(to: directory, only: only, output: { print($0); fflush(stdout) }) }
     }
 
@@ -68,6 +68,11 @@ import SwiftUI
         func write(_ name: String, _ data: Data?) {
             let file = directory.appending(path: "\(name).png")
             if let data, (try? data.write(to: file)) != nil { output("\(file.path) \(data.count) bytes") } else { failures += 1; output("Failed: \(name)") }
+        }
+        if only == "herdr" {
+            await HeadlessHerdrShots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }
+            output("Rendered Herdr to \(directory.path); \(failures) failed")
+            return failures == 0 ? 0 : 1
         }
         if only == "p38" {
             await HeadlessP38Shots.render(write: write) { view, shotStore, size in await png(view, store: shotStore, updater: updater, size: size) }

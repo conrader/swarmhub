@@ -81,6 +81,9 @@ struct HerdrClient: Sendable {
     /// Between two reads of a session while waiting for its reply, and between two looks at the agent's status.
     var pollInterval: Duration = .milliseconds(400)
     var agentCheckInterval: Duration = .seconds(2)
+    /// Runs before every request. A server reached over SSH opens its port forward here when it is not up
+    /// (`HerdrTunnels.ensure`), so each caller gets a working connection without knowing how the server is reached.
+    var prepare: (@Sendable () async throws -> Void)? = nil
 
     /// `http://127.0.0.1:8787` and the like: http or https, a host, no path beyond `/`.
     static func validatedBaseURL(_ raw: String) -> URL? {
@@ -306,6 +309,7 @@ struct HerdrClient: Sendable {
     private struct Problem: Decodable { let error: String }
 
     private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
+        try await prepare?()
         let (data, response) = try await session.data(for: request)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {

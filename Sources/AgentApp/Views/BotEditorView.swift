@@ -8,6 +8,7 @@ struct BotEditorView: View {
     @State private var avatarTouched = false
     @State private var newAvatarSeed = UUID().uuidString.lowercased()
     @State private var showAdvanced: Bool
+    @AppStorage(LegacySurface.key) private var legacy = false
     init(bot: Bot?, startExpanded: Bool = false) { self.bot = bot; _showAdvanced = State(initialValue: startExpanded) }
     var body: some View {
         VStack(spacing: 0) {
@@ -31,7 +32,7 @@ struct BotEditorView: View {
             }.formStyle(.grouped).padding(.horizontal, 8)
             Divider(); HStack { Spacer(); Button(SimpleCopy.cancel) { dismiss() }; Button(SimpleCopy.save) { save() }.buttonStyle(.borderedProminent).disabled(fields.name.trimmingCharacters(in: .whitespaces).isEmpty || !fields.openClawReady) }.padding(16)
         }.frame(width: 560, height: 720).background(AppColor.panel).onAppear {
-            fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(hermesConfigured: store.hermesConfigured, avatarSeed: newAvatarSeed)
+            fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(hermesConfigured: store.hermesConfigured, herdr: !legacy, avatarSeed: newAvatarSeed)
         }
         // P17: opening the editor reads this agent's own models (cache-aware, GETs only, no skills); a pending Backend
         // that differs from the saved one is not loaded.
@@ -67,10 +68,11 @@ struct BotEditorFields {
     var openClawGatewayID: String?, openClawAgentID = "", openClawSessionMode = OpenClawBinding.SessionMode.own
 
     init() {}
-    /// A new agent talks to the box when one is configured; Mock stays reachable only under Advanced.
-    static func newAgent(hermesConfigured: Bool, avatarSeed: String = UUID().uuidString.lowercased()) -> BotEditorFields {
+    /// A new agent runs on Herdr (`herdr`, the app's default: `LegacySurface`). With the older backends shown it talks
+    /// to the box when one is configured; Mock stays reachable only under Advanced.
+    static func newAgent(hermesConfigured: Bool, herdr: Bool = false, avatarSeed: String = UUID().uuidString.lowercased()) -> BotEditorFields {
         var fields = BotEditorFields()
-        fields.backend = hermesConfigured ? .hermes : .mock
+        fields.backend = herdr ? .herdr : hermesConfigured ? .hermes : .mock
         let mark = GrokDefaultLook.mark(for: avatarSeed)
         fields.avatar = .mark(shape: mark.shape, colour: mark.colour)
         return fields

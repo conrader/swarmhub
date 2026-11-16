@@ -7,6 +7,8 @@ struct SettingsView: View {
     @State private var advanced = false
     @State private var pane = SettingsLayout.AdvancedPane.servers
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
+    /// Off (the default): the panes that only serve the older backends are not listed (`LegacySurface.panes`).
+    @AppStorage(LegacySurface.key) private var legacy = false
     var body: some View {
         Group {
             if store.isSetupPreview {
@@ -15,7 +17,7 @@ struct SettingsView: View {
                 NavigationSplitView {
                     VStack(alignment: .leading, spacing: 0) {
                         Button(SimpleCopy.backToSimple) { advanced = false }.buttonStyle(.link).padding(.horizontal, 14).padding(.vertical, 8)
-                        List(SettingsLayout.AdvancedPane.allCases, selection: $pane) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
+                        List(LegacySurface.panes(showingLegacy: legacy), selection: $pane) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
                     }.navigationSplitViewColumnWidth(190)
                 } detail: { Form { content }.formStyle(.grouped).navigationTitle(pane.rawValue) }
             } else {

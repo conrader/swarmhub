@@ -7,9 +7,16 @@ enum FirstRun {
     static let stateKey = "setupState"
     enum State: String { case done, skipped }
 
-    /// A box address is saved, or a main key exists in the key store.
+    /// A box address is saved, or a main key exists in the key store, or a Herdr server was set up.
     static func boxConfigured(defaults: UserDefaults, keyStore: any HermesKeyStore) -> Bool {
-        defaults.object(forKey: "hermesBaseURL") != nil || keyStore.hasKey(for: "hermes")
+        defaults.object(forKey: "hermesBaseURL") != nil || keyStore.hasKey(for: "hermes") || herdrConfigured(defaults: defaults, keyStore: keyStore)
+    }
+
+    /// A Herdr server was set up here: a saved list, the older single address, or an access token for the first
+    /// server (saved, or passed to a development launch in the environment).
+    static func herdrConfigured(defaults: UserDefaults, keyStore: any HermesKeyStore, environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        defaults.string(forKey: HerdrServer.listKey)?.isEmpty == false || defaults.object(forKey: HerdrServerList.legacyAddressKey) != nil
+            || keyStore.hasKey(for: HerdrServerList.legacyKeyAccount) || environment[HerdrBackend.tokenEnvironment]?.isEmpty == false
     }
 
     static func state(_ defaults: UserDefaults) -> State? { defaults.string(forKey: stateKey).flatMap(State.init) }

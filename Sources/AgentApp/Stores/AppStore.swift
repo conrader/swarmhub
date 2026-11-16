@@ -47,6 +47,8 @@ import SwarmHubCore
     @Published var setupPrefill = SetupPrefill(); @Published var setupGeneration = 0; var isSetupPreview = false
     /// P25: the Gateway this setup-window run saved at Test; forgotten again unless Add keeps it.
     var setupCreatedGatewayID: String?
+    /// The port forwards this app opened to Herdr servers reached over SSH (`AppStore+Herdr.swift`).
+    let herdrTunnels = HerdrTunnels()
     lazy var grokBotPresent: Bool = GrokLocator.live().isPresent
     /// P14: the sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false

@@ -226,8 +226,8 @@ extension AppStore {
 
     // MARK: Sample bots (D6)
 
-    /// Bots that talk to a real box or Gateway.
-    var hasRealBots: Bool { bots.contains { ($0.backend == .hermes || $0.backend == .openClaw) && !$0.isDemo && !$0.isReadOnlyArchive } }
+    /// Bots that talk to a real box, Gateway or Herdr server.
+    var hasRealBots: Bool { bots.contains { $0.backend != .mock && !$0.isDemo && !$0.isReadOnlyArchive } }
 
     /// Removes the sample bots and their chats once a real bot exists ("Look around with sample agents" still makes them).
     func removeSampleBots() {

@@ -14,6 +14,8 @@ struct SetupView: View {
     @State private var testing = false
     @State private var failure: String?
     @State private var closed = false
+    /// Off (the default): the window offers Herdr only (`LegacySurface`).
+    @AppStorage(LegacySurface.key) private var legacy = false
     /// `--render-setup`: start on this state instead of the store's prefill.
     var preset: SetupFlow?
 
@@ -21,11 +23,13 @@ struct SetupView: View {
         VStack(alignment: .leading, spacing: 0) {
             Group {
                 switch flow.step {
-                case .welcome: SetupWelcomeStep(flow: $flow, samples: samples)
+                case .welcome:
+                    if legacy { SetupWelcomeStep(flow: $flow, samples: samples) } else { SetupHerdrWelcomeStep(pick: pickHerdr, samples: samples) }
                 case .hosting: SetupHostingStep(flow: $flow)
                 case .software: SetupSoftwareStep(flow: $flow)
                 case .address: SetupAddressStep(flow: $flow, testing: testing, test: test)
                 case .openClaw: SetupOpenClawStep(flow: $flow, testing: testing, test: testOpenClaw)
+                case .herdr: SetupHerdrStep(flow: $flow, testing: testing, test: testHerdr)
                 case .choose: SetupChooseStep(flow: $flow, added: added)
                 case .done: SetupDoneStep(flow: flow, agentName: store.selectedBot?.name)
                 }
@@ -37,7 +41,7 @@ struct SetupView: View {
         .frame(width: 580, height: 480).background(AppColor.panel)
         .onAppear(perform: restart).onChange(of: store.setupGeneration) { _, _ in restart() }
         .onAppear { closed = false }
-        .onDisappear { closed = true; FirstRun.dismissed(store.defaults); abandonGateway() }
+        .onDisappear { closed = true; FirstRun.dismissed(store.defaults); abandonGateway(); abandonHerdr() }
     }
 
     @ViewBuilder private var footer: some View {
@@ -50,7 +54,7 @@ struct SetupView: View {
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
             case .hosting:
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Button(SetupCopy.connectCardTitle) { flow.apply(.connectExisting) }.buttonStyle(.borderedProminent)
+                if legacy { Button(SetupCopy.connectCardTitle) { flow.apply(.connectExisting) }.buttonStyle(.borderedProminent) }
             case .software:
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
             case .address:
@@ -61,6 +65,10 @@ struct SetupView: View {
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
                 Button(testing ? SetupCopy.testing : flow.awaitsPairing ? SetupCopy.testAgain : SetupCopy.test, action: testOpenClaw).buttonStyle(.borderedProminent)
                     .disabled(testing || flow.openClaw.problem != nil).keyboardShortcut(.defaultAction)
+            case .herdr:
+                Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
+                Button(testing ? SetupCopy.testing : flow.herdrNothingHere != nil ? SetupCopy.testAgain : SetupCopy.test, action: testHerdr).buttonStyle(.borderedProminent)
+                    .disabled(testing || flow.herdr.problem != nil).keyboardShortcut(.defaultAction)
             case .choose:
                 Button(SetupCopy.cancel, action: cancel).keyboardShortcut(.cancelAction)
                 Button(addTitle, action: add).buttonStyle(.borderedProminent).disabled(!flow.canAdd).keyboardShortcut(.defaultAction)
@@ -76,20 +84,50 @@ struct SetupView: View {
 
     /// P35: with the batch on, Add counts the bots it connects too.
     private var addTitle: String {
+        if flow.software == .herdr { return flow.chosen.isEmpty ? SetupCopy.herdrSaveServer : SetupCopy.addButton(flow.chosen.count) }
         guard let scan = flow.boxScan, flow.adoptOn, !scan.adoptable.isEmpty else { return SetupCopy.addButton(flow.chosen.count) }
         return BoxCopy.addButton(flow.chosen.count + scan.adoptable.count)
     }
 
     /// S4's already-added ids for the software chosen.
-    private var added: Set<String> { flow.software == .openClaw ? store.openClawAgentIDs(boundTo: flow.openClawGatewayID) : store.addedProfileIDs }
+    private var added: Set<String> {
+        if flow.software == .herdr { return store.addedHerdrStarters(flow.herdrStarters, on: flow.herdrServer) }
+        return flow.software == .openClaw ? store.openClawAgentIDs(boundTo: flow.openClawGatewayID) : store.addedProfileIDs
+    }
 
-    private func restart() { abandonGateway(); flow = preset ?? SetupFlow(prefill: store.setupPrefill); testing = false; failure = nil }
+    /// The saved address and a history-only agent's line prefill the Hermes path only.
+    private func restart() { abandonGateway(); abandonHerdr(); flow = preset ?? (legacy ? SetupFlow(prefill: store.setupPrefill) : SetupFlow()); testing = false; failure = nil }
 
-    private func cancel() { FirstRun.dismissed(store.defaults); abandonGateway(); dismiss() }
+    private func cancel() { FirstRun.dismissed(store.defaults); abandonGateway(); abandonHerdr(); dismiss() }
 
     private func back() {
-        failure = nil; flow.apply(.back)
-        if flow.step == .software || flow.step == .welcome { abandonGateway() }
+        failure = nil
+        let tested = flow.herdrServer
+        flow.apply(.back)
+        if flow.step == .software || flow.step == .welcome { abandonGateway(); store.abandonSetupHerdr(tested) }
+    }
+
+    /// Closes the forward Herdr's Test opened, unless Add saved its server.
+    private func abandonHerdr() { store.abandonSetupHerdr(flow.herdrServer) }
+
+    /// Welcome's cards. "This Mac" needs nothing typed, so it looks for Herdr at once.
+    private func pickHerdr(_ kind: HerdrServer.Kind) {
+        failure = nil; flow.apply(.pickHerdr(kind))
+        if kind == .local { testHerdr() }
+    }
+
+    private func testHerdr() {
+        guard flow.herdr.problem == nil, !testing else { return }
+        let draft = flow.herdr
+        testing = true; failure = nil
+        Task {
+            let outcome = await store.testSetupHerdr(draft)
+            testing = false
+            if case .connected(let server, _, _) = outcome, closed || flow.step != .herdr || flow.herdr != draft { store.abandonSetupHerdr(server); return }
+            guard flow.step == .herdr, flow.herdr == draft else { return }
+            flow.apply(.herdrTest(outcome))
+            if case .connected = outcome { flow.preselect(alreadyAdded: added) }
+        }
     }
 
     /// Forgets the Gateway this run saved at Test (never one that existed before; a no-op after Add kept it).
@@ -128,7 +166,9 @@ struct SetupView: View {
     private func add() {
         do {
             let added: [Bot]
-            if flow.software == .openClaw {
+            if flow.software == .herdr {
+                added = try store.commitSetupHerdr(server: flow.herdrServer, key: flow.herdrKey, starters: flow.herdrStarters, chosen: flow.chosen)
+            } else if flow.software == .openClaw {
                 added = try store.commitSetupOpenClaw(gatewayID: flow.openClawGatewayID, agents: flow.openClawAgents, chosen: flow.chosen)
             } else {
                 guard let result = flow.result else { return }

@@ -70,15 +70,46 @@ Choose **Appearance** in the sidebar to use **System**, **Light**, or **Dark**. 
 
 ## Use the Mac app
 
-The SwarmHub Mac app can chat with the same agents through this bridge. Keep the bridge running on the Herdr machine and forward its port to the Mac, using the same port number on both ends because the bridge checks it:
+The SwarmHub Mac app chats with the same agents through this bridge. Keep the bridge running on the machine that runs Herdr Core. The app keeps a list of Herdr servers, and each bot runs on one of them.
+
+### Connect a server
+
+The setup window opens on first launch; later, use **Settings → Set up…** or **Settings → Advanced → Servers and keys → Add a Herdr server**. Choose where Herdr runs:
+
+| Choice | What you enter | What the app does |
+| --- | --- | --- |
+| **This Mac** (the default) | Nothing | Looks for the bridge on `127.0.0.1:8787` and reads its access token from `~/.config/swarmhub-herdr/token`. If nothing answers, it says so and shows the start command. The app does not install or start Herdr Core or the bridge yet. |
+| **A server I reach over SSH** | The server's name, and optionally a login name and the path of an SSH key file | Runs `ssh -N -L` itself to forward the bridge's port, reopens the forward when it drops, and reads the access token from the server's `~/.config/swarmhub-herdr/token`. |
+| **A server by address and access key** | The address of a port you forwarded yourself, and the access token | Connects to that address. |
+| **Get a ready-made server from us** | Not available yet | Nothing. The row is a placeholder. |
+
+**Test** checks the connection, then the app offers one starter bot for each agent program the server has (Claude Code, Codex). Each starter begins on the first model the server lists for it.
+
+The SSH choice uses the system `ssh` in batch mode:
+
+- Your `~/.ssh/config`, agent, and known hosts apply. A key with a passphrase must already be in the agent (`ssh-add`), because the app can't prompt for one.
+- The app saves the key file's path, never the key. Access tokens are kept in the Keychain.
+- A server seen for the first time is trusted and remembered, as if you had answered “yes” at the prompt. A server whose key later changes is refused.
+- The forward uses the same port number on both ends, because the bridge checks it. Two servers that use the same bridge port can't be connected at once; give one a different `SWARMHUB_PORT`.
+- The forward closes when you quit the app.
+
+To forward the port yourself for the address choice, keep the port number the same on both ends:
 
 ```sh
 ssh -L 8787:127.0.0.1:8787 your-server
 ```
 
-In the app, open **Settings → Advanced → Servers and keys → Herdr workspace**. Leave the address at `http://127.0.0.1:8787`, paste the access token, and choose **Test**. Then create or edit a bot, open **Advanced**, and set **Backend** to **Herdr**. A saved Herdr bot gets a **Herdr agent** section where you pick its runtime, for example a Claude Code template for one bot and a Codex template for another.
+### Bots
 
-The first message starts an agent on the Herdr machine, named after the bot. Later messages go to that running agent, which keeps its own context, model, tools, and permissions. A Claude Code template that ends in `run-claude --workspace-preview` shows its reply growing a few lines at a time. Codex has no hook for unfinished text, so its reply appears whole when the turn ends. For both agents, each tool call shows as a step under the reply while it runs, such as a command with its command line or a file being edited. **Stop** presses the agent's interrupt key and leaves it open. The app sends only your newest message: the bot's persona, attachments, approvals, models, routines, and server history are not connected to Herdr agents yet. Use the browser workspace or `hc attach` to answer a prompt in the agent's terminal.
+A new bot runs on Herdr. Open its settings and choose **Advanced → Herdr agent** to pick its agent runtime and model, and its server when you have more than one. The same controls are in the Details panel's **Model** tab.
+
+The first message starts an agent on the server, named after the bot. Later messages go to that running agent, which keeps its own context, model, tools, and permissions. A new agent gets the bot's instructions once, before your first message. A Claude Code template that ends in `run-claude --workspace-preview` shows its reply growing a few lines at a time. Codex has no hook for unfinished text, so its reply appears whole when the turn ends. For both agents, each tool call shows as a step under the reply while it runs. **Stop** presses the agent's interrupt key and leaves it open. Attachments, approvals, routines, and server history are not connected to Herdr agents yet. Use the browser workspace or `hc attach` to answer a prompt in the agent's terminal.
+
+### Hermes and OpenClaw
+
+The app is moving to Herdr. The Hermes and OpenClaw setup steps, the **Backend** picker, and the settings that only serve those servers are hidden. Existing Hermes and OpenClaw bots keep working, and the code is still in the app. To bring the controls back, turn on **Settings → Advanced → Servers and keys → Show Hermes and OpenClaw settings**.
+
+To move a bot to Herdr, open its settings and choose **Advanced → Move this bot to Herdr**, or use **Move all … bots to Herdr** in Servers and keys. A moved bot keeps its name, avatar, instructions, and chat history. Its memory, skills, routines, and connected apps stay on the old server.
 
 ## Install the browser workspace
 

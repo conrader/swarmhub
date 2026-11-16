@@ -43,6 +43,50 @@ enum SetupCopy {
     static func openClawFound(_ count: Int) -> String { "Connected to OpenClaw. Found \(count == 1 ? "1 agent" : "\(count) agents")." }
     static let openClawNoAgents = "OpenClaw answered but offered no agents to add."
 
+    // Herdr: where it runs (S1 while Herdr is the only software offered), its connect screen and its starter agents.
+    static let herdrIntro = "Herdr runs your agents, such as Claude Code and Codex. Where does it run?"
+    static let herdrLocalTitle = "This Mac"
+    static let herdrLocalDetail = "Use the Herdr that runs on this Mac."
+    static let herdrSSHTitle = "A server I reach over SSH"
+    static var herdrSSHDetail: String { "Give its name and login; \(AppConstants.name) opens the connection itself." }
+    static let herdrAddressTitle = "A server by address and access key"
+    static let herdrAddressDetail = "For a connection you already forwarded to this Mac."
+    static let herdrReadyMadeTitle = "Get a ready-made server from us"
+    static let herdrReadyMadeDetail = "Set up and run for you. Not available yet."
+    static let herdrLocalHeader = "Herdr on this Mac"
+    static let herdrSSHHeader = "Your server"
+    static let herdrAddressHeader = "Address and access key"
+    static let herdrNameLabel = "Name"
+    static let herdrOptional = "Optional"
+    static let herdrPortLabel = "Port"
+    static let herdrServerLabel = "Server"
+    static let herdrServerPrompt = "my-server.example.com"
+    static let herdrLoginLabel = "Login name"
+    static let herdrKeyFileLabel = "SSH key file"
+    static let herdrKeyFilePrompt = "Optional, for example ~/.ssh/id_ed25519"
+    static let herdrChoose = "Choose…"
+    static let herdrAddressLabel = "Address"
+    static let herdrAddressPrompt = "http://127.0.0.1:8787"
+    static let herdrAccessKeyLabel = "Access key"
+    static let herdrLocalKeyPrompt = "Read from this Mac"
+    static let herdrSSHKeyPrompt = "Read from the server"
+    static var herdrLocalCaption: String { "Leave the access key empty: \(AppConstants.name) reads the one Herdr wrote on this Mac." }
+    static var herdrSSHCaption: String {
+        "\(AppConstants.name) runs ssh for you and reopens the connection when it drops, so you never forward a port by hand. It remembers where the key file is and never copies it. A key file with a passphrase must be unlocked first (ssh-add). Leave the access key empty to read it from the server."
+    }
+    static var herdrAddressCaption: String {
+        "Herdr answers only on its own computer. Forward its port to this Mac first, with the same port number on both ends, or go back and choose SSH so \(AppConstants.name) does it."
+    }
+    static func herdrNothingHere(port: Int) -> String { "Nothing answers on this Mac at 127.0.0.1:\(port)." }
+    static var herdrStartHelp: String { "Herdr is not built into \(AppConstants.name) yet. Start Herdr Core and its \(AppConstants.name) service on this Mac, then press Test again:" }
+    static var herdrStartLater: String { "A later version of \(AppConstants.name) will start it for you." }
+    static let herdrNeedsKey = "Herdr answered, but its access key was not found. Paste the access key and press Test again."
+    static let herdrStartersTitle = "Add starter agents"
+    static func herdrStartersFound(_ count: Int) -> String { "Connected. This server can run \(count == 1 ? "1 agent program" : "\(count) agent programs"); add an agent for each, or none." }
+    static let herdrNoStarters = "Connected. No agent program was found on this server yet; you can still save it and add agents later."
+    static let herdrSaveServer = "Save server"
+    static let herdrDone = "You're connected."
+
     // S3 Address and key
     static let addressTitle = "Where are your agents?"
     static let addressLabel = "Address of your box"
@@ -94,7 +138,16 @@ enum SetupCopy {
          moreAgentsCaption, moreAgentsExample, test, testing, moveConfirm, chooseTitle, alreadyAdded, addLater,
          addButton(1), addButton(3), doneTitle(1), doneTitle(3), openAgent("Ada"), close, badAddress, notEncrypted(port: 8642),
          notEncrypted(port: nil), unreachable, keyRejected, mainOnly("Ada"), noAgents, connected(to: thisMac, found: 2),
-         notAdded("Ada"), badLine, failed, thisMac] + ManagedHosting.all
+         notAdded("Ada"), badLine, failed, thisMac] + herdrScreen + ManagedHosting.all
+    }
+    /// The Herdr path's words. They name Herdr and its agent programs, never the older software.
+    static var herdrScreen: [String] {
+        [herdrIntro, herdrLocalTitle, herdrLocalDetail, herdrSSHTitle, herdrSSHDetail, herdrAddressTitle, herdrAddressDetail, herdrReadyMadeTitle,
+         herdrReadyMadeDetail, herdrLocalHeader, herdrSSHHeader, herdrAddressHeader, herdrNameLabel, herdrOptional, herdrPortLabel, herdrServerLabel,
+         herdrServerPrompt, herdrLoginLabel, herdrKeyFileLabel, herdrKeyFilePrompt, herdrChoose, herdrAddressLabel, herdrAddressPrompt,
+         herdrAccessKeyLabel, herdrLocalKeyPrompt, herdrSSHKeyPrompt, herdrLocalCaption, herdrSSHCaption, herdrAddressCaption,
+         herdrNothingHere(port: 8787), herdrStartHelp, herdrStartLater, herdrNeedsKey, herdrStartersTitle, herdrStartersFound(1),
+         herdrStartersFound(2), herdrNoStarters, herdrSaveServer, herdrDone]
     }
     /// S3-OC's words (P25), all allowed to name OpenClaw.
     static var openClawScreen: [String] {

@@ -24,6 +24,31 @@ extension AppStore {
         return SimpleCopy.connected(to: url.map(BoxAddress.place) ?? SetupCopy.thisMac, agents: connectedAgents.count)
     }
 
+    /// Agents that run on a Herdr server (not samples or archives).
+    var herdrAgents: [Bot] { bots.filter { $0.backend == .herdr && !$0.isDemo && !$0.isReadOnlyArchive } }
+
+    /// The simple page's status line while Herdr is the only software offered; from the settings only, like the other.
+    var herdrStatusLine: String {
+        guard herdrConfigured || !herdrAgents.isEmpty else { return SimpleCopy.notConnected }
+        let servers = herdrServers
+        return servers.count == 1 ? SimpleCopy.connected(to: servers[0].name, agents: herdrAgents.count) : SimpleCopy.connectedServers(servers.count, agents: herdrAgents.count)
+    }
+
+    /// The simple page's Test for Herdr: each server's own Test line, or why it failed. It adds no agents; an access
+    /// token read from an SSH server for the first time is kept.
+    func testHerdrPlain() async -> [String] {
+        var lines: [String] = []
+        for server in herdrServers {
+            do {
+                let tested = try await testHerdrServer(server)
+                if let found = tested.token { setHerdrToken(found, for: server) }
+                lines.append(SimpleCopy.serverSaid(server.name, tested.line))
+            }
+            catch { lines.append(SimpleCopy.serverSaid(server.name, error.localizedDescription)) }
+        }
+        return lines
+    }
+
     var anyKeyNeedsReentry: Bool { connectedAgents.contains { keyNeedsReentry($0) } }
 
     /// "Look around with sample agents" (D3): the old demo bots, labelled as samples, hidden once a box is connected.

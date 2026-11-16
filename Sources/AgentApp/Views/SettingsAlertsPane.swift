@@ -14,7 +14,7 @@ struct SettingsAlertsPane: View {
         }.disabled(!notifications)
         AvatarMotionSettingRow()
         // Alerts from each server while SwarmHub is closed (ntfy, email), with the box's service state. rel066: switched off.
-        if store.boxAlertsOn { BoxAlertsSection(cache: store.boxAlerts) }
+        if store.boxAlertsOn, LegacySurface.isShown(store.defaults) { BoxAlertsSection(cache: store.boxAlerts) }
     }
 }
 

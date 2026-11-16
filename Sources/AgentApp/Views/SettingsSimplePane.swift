@@ -12,20 +12,26 @@ struct SettingsSimplePane: View {
     @AppStorage("notifications") private var notifications = false
     @AppStorage(UserIdentity.key) private var accountName = ""
     @State private var testLines: [String] = []; @State private var testing = false
+    /// Off (the default): the Connection section is about the Herdr servers (`LegacySurface`).
+    @AppStorage(LegacySurface.key) private var legacy = false
 
     var body: some View {
         Form {
             Section(SimpleCopy.connection) {
-                Text(store.connectionStatusLine)
-                if store.anyKeyNeedsReentry { Text(SimpleCopy.reenterKey).font(.caption).foregroundStyle(.orange) }
+                Text(legacy ? store.connectionStatusLine : store.herdrStatusLine)
+                if legacy, store.anyKeyNeedsReentry { Text(SimpleCopy.reenterKey).font(.caption).foregroundStyle(.orange) }
                 ForEach(testLines, id: \.self) { line in Text(line).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                 HStack {
-                    Button(testing ? SimpleCopy.testingConnection : SimpleCopy.testConnection) { test() }.disabled(testing || !store.boxConfigured)
+                    Button(testing ? SimpleCopy.testingConnection : SimpleCopy.testConnection) { test() }.disabled(testing || !(legacy ? store.boxConfigured : store.herdrConfigured))
                     if testing { ProgressView().controlSize(.small) }
                     Spacer()
-                    Button(store.boxConfigured ? SimpleCopy.changeConnection : SimpleCopy.setUp) { store.openSetup(openWindow: openWindow) }
+                    if legacy {
+                        Button(store.boxConfigured ? SimpleCopy.changeConnection : SimpleCopy.setUp) { store.openSetup(openWindow: openWindow) }
+                    } else {
+                        Button(store.herdrConfigured ? SimpleCopy.addServer : SimpleCopy.setUp) { store.openSetup(openWindow: openWindow) }
+                    }
                 }
-                Text(SimpleCopy.connectionCaption).font(.caption).foregroundStyle(.secondary)
+                Text(legacy ? SimpleCopy.connectionCaption : SimpleCopy.herdrCaption).font(.caption).foregroundStyle(.secondary)
             }
             Section(SimpleCopy.you) {
                 TextField(SimpleCopy.yourName, text: $accountName, prompt: Text(UserIdentity.fallback()))
@@ -50,14 +56,14 @@ struct SettingsSimplePane: View {
             Section(SimpleCopy.about) { UpdateCheckRow() }
             Section {
                 Button(SimpleCopy.advanced, action: openAdvanced)
-                Text(SimpleCopy.advancedCaption).font(.caption).foregroundStyle(.secondary)
+                Text(legacy ? SimpleCopy.advancedCaption : SimpleCopy.herdrAdvancedCaption).font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped)
     }
 
     private func test() {
         testing = true; testLines = []
-        Task { testLines = await store.testConnectionPlain(); testing = false }
+        Task { testLines = legacy ? await store.testConnectionPlain() : await store.testHerdrPlain(); testing = false }
     }
 }
 

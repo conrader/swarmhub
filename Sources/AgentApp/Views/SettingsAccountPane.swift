@@ -11,7 +11,15 @@ struct SettingsAccountPane: View {
     @State private var apiKey = ""; @State private var testResult = ""; @State private var testing = false
     @State private var profileResults: [String: String] = [:]; @State private var testingProfiles: Set<String> = []
 
+    /// Off (the default): only the Herdr servers show; the Hermes and OpenClaw sections wait behind `LegacySurface`.
+    @AppStorage(LegacySurface.key) private var legacy = false
+
     var body: some View {
+        HerdrSettingsSection()
+        if legacy { legacySections }
+    }
+
+    @ViewBuilder private var legacySections: some View {
         Section("Connection") {
             let lines = store.connectionVersionLines
             if lines.isEmpty { Text("No bot is connected to a Hermes server yet.").foregroundStyle(.secondary) }
@@ -57,7 +65,6 @@ struct SettingsAccountPane: View {
         AllBotsSkillsSection()
         BoxKeysPasteSection()
         SettingsGrokSection()
-        HerdrSettingsSection()
         // P12: the Gateways' own section (it used to be a URL field here).
         OpenClawSettingsSection(status: store.openClawStatus)
             .onAppear { apiKey = KeychainStore.get(account: "hermes") }

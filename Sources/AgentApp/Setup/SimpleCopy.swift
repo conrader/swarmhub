@@ -20,6 +20,14 @@ enum SimpleCopy {
     }
     static func agentsNotAnswering(_ names: [String]) -> String { "Not answering: " + names.joined(separator: ", ") + "." }
 
+    // The same section while Herdr is the only software offered.
+    static func connectedServers(_ servers: Int, agents count: Int) -> String {
+        "Connected to \(servers) servers · \(count == 1 ? "1 agent" : "\(count) agents")"
+    }
+    static let addServer = "Add a server…"
+    static let herdrCaption = "Your agents run in Herdr, on this Mac or on a server you choose. Its access key stays on this Mac, in its secure storage."
+    static func serverSaid(_ name: String, _ line: String) -> String { "\(name): \(line)" }
+
     static let you = "You"
     static let yourName = "Your name"
     static let yourNameCaption = "Shown in group chats; its first letter is the round button at the bottom of the sidebar."
@@ -47,6 +55,7 @@ enum SimpleCopy {
 
     static let advanced = "Advanced…"
     static let advancedCaption = "Servers and keys, approvals, models, computers, usage and more."
+    static let herdrAdvancedCaption = "Servers and keys, alerts, voice, computers and more."
     static let backToSimple = "‹ Simple settings"
     static let previewOff = "Settings are off in preview."
 
@@ -80,10 +89,10 @@ enum SimpleCopy {
     /// Static strings plus the functions with sample arguments; checked by the tests.
     static var all: [String] {
         [connection, notConnected, connected(to: SetupCopy.thisMac, agents: 3), reenterKey, testConnection, testingConnection, setUp,
-         changeConnection, connectionCaption, tested(answered: 2, of: 3), tested(answered: 0, of: 0), agentsNotAnswering(["Ada"]), you,
+         changeConnection, connectionCaption, connectedServers(2, agents: 3), addServer, herdrCaption, serverSaid("This Mac", "Connected."), tested(answered: 2, of: 3), tested(answered: 0, of: 0), agentsNotAnswering(["Ada"]), you,
          yourName, yourNameCaption, appearance, theme, appIcon, dark, light, system, accent, accentCaption, notifications, notifyMaster,
          notifyCaption, notifyNeedsApp, about, version, autoCheck, checkForUpdates, checkNow, autoCheckCaption, openRelease("1.0"),
-         advanced, advancedCaption, backToSimple, previewOff, newAgent, agentSettings, avatar, name, instructions,
+         advanced, advancedCaption, herdrAdvancedCaption, backToSimple, previewOff, newAgent, agentSettings, avatar, name, instructions,
          instructionsCaption, notifyAgent, cancel, save, editorAdvanced, editorAdvancedCaption, runsOn("this Mac", as: "Ada"),
          emptyTitle, emptyDetail, emptySetUp, chooseTitle, chooseDetail, sampleLabel, historyOnly, connect, noKey("Ada"), addKey, keyFor("Ada")]
     }
