@@ -4,12 +4,12 @@ import SwiftUI
 /// Herdr shots of `--render-setup` (alone with `--only herdr`): the setup window's Herdr path (where it runs, this Mac
 /// with nothing running, SSH, address, starter agents), Settings → Servers and keys with two servers, the simple page,
 /// a Herdr bot's and a Hermes bot's Advanced settings, a bot's request to create bots waiting above the composer, and
-/// a bot's helper agents: under it in the sidebar, in its Details panel, and one of them opened.
+/// a bot's helper agents: under it in the sidebar, in its Details panel, one of them opened, and a server's helper settings.
 /// All synthetic and in memory: Test results are built here, no server has a token, nothing connects.
 @MainActor enum HeadlessHerdrShots {
     static let names = ["herdr-s1-where", "herdr-s3-this-mac-nothing", "herdr-s3-ssh", "herdr-s3-ssh-failed", "herdr-s3-address", "herdr-s4-starters",
                         "herdr-settings-servers", "herdr-settings-simple", "herdr-editor-advanced", "herdr-editor-move", "herdr-bot-request",
-                        "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view"]
+                        "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view", "herdr-helper-settings"]
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
         let store = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); store.isSetupPreview = false
@@ -30,7 +30,7 @@ import SwiftUI
         let jarvis = Bot(name: "Jarvis", title: "Chief of staff", persona: "You run the team.", backend: .herdr); jarvis.canManageBots = true
         let infra = Bot(name: "Infra", title: "Boxes and backups", backend: .hermes, hermesProfile: "grok-infra")
         store.bots = [jarvis, infra]; store.setHerdrServer(box.id, for: jarvis)
-        let settings = NSSize(width: 760, height: 1_240)
+        let settings = NSSize(width: 760, height: 1_560)
         write(names[6], await png(AnyView(Form { SettingsAccountPane(cache: store.botInfo) }.formStyle(.grouped).frame(width: settings.width, height: settings.height).background(AppColor.panel)), store, settings))
         write(names[7], await png(AnyView(SettingsSimplePane(openAdvanced: {})), store, HeadlessSetup.settingsSize))
         let editor = NSSize(width: 560, height: 980)
@@ -48,7 +48,7 @@ import SwiftUI
                        HerdrClient.Helper(address: "t42", createdMs: 2, name: "rename", model: "server-model-a", difficulty: "easy", task: "Rename `fetchAll` to `loadAll` everywhere in Sources/.", state: "live", status: .init(state: "done"), answered: true,
                                           reply: .init(id: 9, text: "Renamed 14 call sites in 6 files; the build passes.")),
                        HerdrClient.Helper(address: "t41", createdMs: 1, name: "design", model: "server-model-c", difficulty: "hard", task: "Propose how the importer should report partial failures.", state: "live", status: .init(state: "blocked"), answered: false)]
-        store.herdrHelpers[jarvis.id] = HerdrClient.Helpers(core: "core", parent: .init(address: "t40", createdMs: 0), limit: 3, helpers: helpers)
+        store.herdrHelpers[jarvis.id] = HerdrClient.Helpers(core: "core", parent: .init(address: "t40", createdMs: 0), limit: 3, stopAfterSeconds: 60, helpers: helpers)
         store.bots = [jarvis, Bot(name: "Research", title: "Sources and links", backend: .herdr), infra]
         let sidebar = NSSize(width: SidebarMetrics.width.ideal, height: 460)
         write(names[11], await png(AnyView(SidebarView(selection: .constant(jarvis)).frame(width: sidebar.width, height: sidebar.height)), store, sidebar))
@@ -61,5 +61,14 @@ import SwiftUI
         let opened = NSSize(width: 760, height: 720), choice = HerdrHelperSelection(botID: jarvis.id, helperID: helpers[1].id)
         store.openHerdrHelper = choice
         write(names[13], await png(AnyView(HerdrHelperView(bot: jarvis, selection: choice, helper: helpers[1], core: "core", log: shownLog).frame(width: opened.width, height: opened.height)), store, opened))
+        // A server's helper settings as read: two agent programs, the models each lists, hard tasks not allowed yet.
+        let programs = [HerdrClient.Template(name: "starter-one", description: nil, error: nil, runtime: .init(harness: "Claude Code", provider: nil, model: nil), modelAgent: "one"),
+                        HerdrClient.Template(name: "starter-two", description: nil, error: nil, runtime: .init(harness: "Codex", provider: nil, model: nil), modelAgent: "two")]
+        let offered: [String: [HerdrClient.Template.Model]] = ["starter-one": [.init(id: "server-model-a", label: "Server model A"), .init(id: "server-model-c", label: "Server model C")],
+                                                              "starter-two": [.init(id: "server-model-b", label: "Server model B")]]
+        let policy = HerdrHelperPolicy(maxRunning: 3, stopAfterSeconds: 60, difficulties: ["easy": .init(template: "starter-one", model: "server-model-a"), "medium": .init(template: "starter-two", model: "server-model-b")])
+        let read = HerdrHelperPolicySection.Loaded(settings: .init(policy: policy, problem: nil, bounds: .init(maxRunning: .init(min: 0, max: 16), stopAfterSeconds: .init(min: 5, max: 86_400, default: 60))), templates: programs, models: offered)
+        let policySize = NSSize(width: 760, height: 520)
+        write(names[14], await png(AnyView(Form { HerdrHelperPolicySection(server: box, named: true, preset: read) }.formStyle(.grouped).frame(width: policySize.width, height: policySize.height).background(AppColor.panel)), store, policySize))
     }
 }

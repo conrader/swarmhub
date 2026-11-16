@@ -46,9 +46,10 @@ extension HerdrClient {
         var runLine: String { [difficulty, model].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ") }
     }
 
-    /// An agent's helpers, newest first. `limit`: how many it may have running at once; nil without a usable policy.
+    /// An agent's running helpers, newest first. `limit`: how many it may have running at once; nil without a usable
+    /// policy. `stopAfterSeconds`: how long after its answer the server stops an idle helper, which then leaves the list.
     struct Helpers: Decodable, Sendable, Equatable {
-        let core: String; let parent: AgentRef; var limit: Int? = nil; let helpers: [Helper]
+        let core: String; let parent: AgentRef; var limit: Int? = nil; var stopAfterSeconds: Int? = nil; let helpers: [Helper]
     }
 
     /// What a helper did, for the read-only view: every task it was given and every reply it saved (oldest first),
@@ -129,7 +130,98 @@ enum HerdrHelperNote {
         Choose the difficulty honestly: easy for small mechanical edits, medium for normal features and fixes, hard for \
         design-heavy or risky work. The server picks the helper's model from the difficulty; you cannot choose it, and \
         a higher difficulty than the task needs only costs more. The server limits how many helpers you may have at \
-        once and tells you when a start is refused. Check a helper's answer before you rely on it, stop helpers you no \
-        longer need, and do small things yourself.
+        once and tells you when a start is refused. It stops a helper a short while after it has answered, unless you \
+        send it a follow-up first; its answer stays readable with `helper read NAME`. Check a helper's answer before you \
+        rely on it, and do small things yourself.
         """
+}
+
+/// The server's helper policy (`GET` and `POST /api/helper-policy`): which template and model each difficulty runs
+/// on, how many helpers one agent may have at once, and how long an idle helper stays after its answer. A difficulty
+/// that is left out is refused. The server owns it; the app only edits it, with choices the server itself offers.
+struct HerdrHelperPolicy: Decodable, Sendable, Equatable {
+    struct Tier: Decodable, Sendable, Equatable { var template: String; var model: String }
+    var maxRunning: Int
+    var stopAfterSeconds: Int
+    var difficulties: [String: Tier]
+
+    /// The `POST` body, in the bridge's own field names.
+    var body: [String: Any] {
+        ["max_running": maxRunning, "stop_after_seconds": stopAfterSeconds,
+         "difficulties": difficulties.mapValues { ["template": $0.template, "model": $0.model] }]
+    }
+}
+
+/// What `GET /api/helper-policy` answers (a `POST` that saved answers the same): the saved policy, nil when there is
+/// none the server can apply; why helpers cannot start as things are; and the ranges the server accepts.
+struct HerdrHelperSettings: Decodable, Sendable, Equatable {
+    struct Range: Decodable, Sendable, Equatable { let min: Int; let max: Int; var `default`: Int? = nil }
+    struct Bounds: Decodable, Sendable, Equatable { var maxRunning: Range? = nil; var stopAfterSeconds: Range? = nil }
+    var policy: HerdrHelperPolicy? = nil
+    var problem: String? = nil
+    var bounds: Bounds? = nil
+}
+
+extension HerdrClient {
+    func helperSettings() async throws -> HerdrHelperSettings { try await get("/api/helper-policy") }
+
+    /// Replaces the policy. The server saves it only when every choice in it can be started now; otherwise it throws
+    /// with the server's own sentence and nothing is changed.
+    func saveHelperPolicy(_ policy: HerdrHelperPolicy) async throws -> HerdrHelperSettings { try await post("/api/helper-policy", policy.body) }
+}
+
+/// The helper settings as a form edits them. Everything offered comes from the server: its templates, each
+/// template's models, and its ranges. The app names no model.
+struct HerdrHelperPolicyDraft: Equatable, Sendable {
+    /// Per difficulty; a difficulty with no template is not allowed.
+    var tiers: [String: HerdrHelperPolicy.Tier] = [:]
+    var maxRunning = 3
+    var stopAfterSeconds = 60
+    var runningRange = 0...16
+    var stopAfterRange = 5...86_400
+
+    init() {}
+
+    init(_ settings: HerdrHelperSettings) {
+        if let range = settings.bounds?.maxRunning, range.min <= range.max { runningRange = range.min...range.max }
+        if let range = settings.bounds?.stopAfterSeconds, range.min <= range.max { stopAfterRange = range.min...range.max }
+        stopAfterSeconds = settings.policy?.stopAfterSeconds ?? settings.bounds?.stopAfterSeconds?.default ?? stopAfterSeconds
+        maxRunning = settings.policy?.maxRunning ?? maxRunning
+        tiers = (settings.policy?.difficulties ?? [:]).filter { HerdrHelperNote.difficulties.contains($0.key) }
+        maxRunning = min(max(maxRunning, runningRange.lowerBound), runningRange.upperBound)
+        stopAfterSeconds = min(max(stopAfterSeconds, stopAfterRange.lowerBound), stopAfterRange.upperBound)
+    }
+
+    var policy: HerdrHelperPolicy {
+        HerdrHelperPolicy(maxRunning: maxRunning, stopAfterSeconds: stopAfterSeconds, difficulties: tiers.filter { !$0.value.template.isEmpty && !$0.value.model.isEmpty })
+    }
+
+    /// A difficulty with a template but no model yet cannot be saved.
+    var problem: String? {
+        HerdrHelperNote.difficulties.first { tiers[$0].map { !$0.template.isEmpty && $0.model.isEmpty } == true }.map { "Choose a model for \($0) helpers." }
+    }
+
+    /// Chooses the template for a difficulty ("" turns the difficulty off). The model becomes the first one the server
+    /// offers for that template, unless the current one is offered too.
+    mutating func setTemplate(_ template: String, for difficulty: String, offered: [HerdrClient.Template.Model]) {
+        guard !template.isEmpty else { tiers[difficulty] = nil; return }
+        let current = tiers[difficulty]?.model ?? ""
+        tiers[difficulty] = .init(template: template, model: offered.contains { $0.id == current } ? current : offered.first?.id ?? "")
+    }
+
+    /// The templates a helper can run on: usable ones that start their agent on a chosen model.
+    static func templates(in all: [HerdrClient.Template]) -> [HerdrClient.Template] { all.filter { $0.error == nil && $0.takesModel } }
+
+    /// The delays the picker offers: round ones inside the server's range, and the saved one whatever it is.
+    func delays() -> [Int] {
+        Array(Set([15, 30, 60, 120, 300, 900, 3_600].filter { stopAfterRange.contains($0) } + [stopAfterSeconds])).sorted()
+    }
+
+    /// "45 seconds", "1 minute", "5 minutes", "1 hour"; an uneven value keeps its seconds.
+    static func delayLabel(_ seconds: Int) -> String {
+        func count(_ value: Int, _ unit: String) -> String { "\(value) \(unit)\(value == 1 ? "" : "s")" }
+        if seconds >= 3_600, seconds % 3_600 == 0 { return count(seconds / 3_600, "hour") }
+        if seconds >= 60, seconds % 60 == 0 { return count(seconds / 60, "minute") }
+        return count(seconds, "second")
+    }
 }

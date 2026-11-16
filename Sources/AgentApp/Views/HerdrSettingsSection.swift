@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Settings → Advanced → Servers and keys: the Herdr servers. Each has its access token (Keychain), a Test, starter
-/// bots and Remove; below them a new server is added the same three ways the setup window offers, and a ready-made
+/// bots and Remove, and under it the server's helper settings (`HerdrHelperPolicySection`); below them a new server is added the same three ways the setup window offers, and a ready-made
 /// server is only announced. The template new bots start from applies to every server.
 struct HerdrSettingsSection: View {
     @EnvironmentObject private var store: AppStore
@@ -15,6 +15,7 @@ struct HerdrSettingsSection: View {
         let servers = store.herdrServers
         ForEach(servers) { server in
             HerdrServerSection(server: server, canRemove: servers.count > 1) { templates = $0 }
+            HerdrHelperPolicySection(server: server, named: servers.count > 1)
         }
         Section("Add a Herdr server") {
             Picker("Where it runs", selection: $draft.kind) {

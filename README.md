@@ -54,7 +54,7 @@ Available features depend on what your connected server supports. See the [Herme
 
 ## Try SwarmHub
 
-The [Herdr workspace preview](HerdrWorkspace/README.md) uses a Rust service to connect a browser interface to Herdr Core on Linux or macOS. [Try the isolated demo](HerdrWorkspace/README.md#try-the-demo), or connect it to your own Herdr Core. The Mac app chats with those agents: its setup window connects a Herdr server on this Mac, over SSH, or by address, and new bots run on Herdr ([setup](HerdrWorkspace/README.md#use-the-mac-app)). A bot whose “Can start helper agents” switch is on is told how to [start helpers](HerdrWorkspace/README.md#let-an-agent-start-helpers); they show under the bot in the sidebar while they run and each opens read-only.
+The [Herdr workspace preview](HerdrWorkspace/README.md) uses a Rust service to connect a browser interface to Herdr Core on Linux or macOS. [Try the isolated demo](HerdrWorkspace/README.md#try-the-demo), or connect it to your own Herdr Core. The Mac app chats with those agents: its setup window connects a Herdr server on this Mac, over SSH, or by address, and new bots run on Herdr ([setup](HerdrWorkspace/README.md#use-the-mac-app)). A bot whose “Can start helper agents” switch is on is told how to [start helpers](HerdrWorkspace/README.md#let-an-agent-start-helpers); they show under the bot in the sidebar while they run, each opens read-only, and Settings → Advanced → Servers and keys edits the server’s helper settings.
 
 In development for **macOS, Windows, Linux, iOS, and Android**. You can build the macOS prototype now; Windows and Linux versions are planned. The **iOS and Android apps are in development**; the first native iOS foundation is available to build, and Android is at the planning stage.
 

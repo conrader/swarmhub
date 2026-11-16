@@ -78,7 +78,7 @@ struct HerdrHelpersSection: View {
                     HerdrHelperRow(helper: helper, selected: store.isOpen(helper, of: bot)) { store.open(helper, of: bot) }
                         .background(AppColor.raised, in: RoundedRectangle(cornerRadius: SidebarMetrics.selectionRadius))
                 }
-                Text("Agents \(bot.name) started for parts of its work. The server chose each one's model from the difficulty \(bot.name) gave the task.")
+                Text("Agents \(bot.name) started for parts of its work. The server chose each one's model from the difficulty \(bot.name) gave the task\(list.stopAfterSeconds.map { ", and stops a helper \(HerdrHelperPolicyDraft.delayLabel($0)) after its answer" } ?? "").")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }

@@ -17,7 +17,7 @@ private func decoded<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
 }
 
 private let listingJSON = """
-{"core":"c0","parent":{"address":"t2x","created_ms":1794843679838},"limit":3,"helpers":[
+{"core":"c0","parent":{"address":"t2x","created_ms":1794843679838},"limit":3,"stop_after_seconds":60,"helpers":[
  {"address":"t31","created_ms":1794843760636,"name":"two","terminal":"two-t2x","template":"one","model":"some-model","difficulty":"easy","task":"Reply with exactly:\\ntwo ok","started_ms":1794843760415,"state":"live","status":{"state":"done"},"reason":null,"answered":true,"reply":{"id":182,"text":"follow-up ok","at_ms":1794843937842,"truncated":false}},
  {"address":"t32","created_ms":1794843765312,"name":"three","state":"live","status":{"state":"working"},"answered":false,"reply":null},
  {"address":"t33","created_ms":1,"name":"four","state":"finished","status":null,"reason":"killed","answered":true},
@@ -26,14 +26,14 @@ private let listingJSON = """
 
 @Test func herdrHelpersDecodeAsTheBridgeListsThem() throws {
     let list = try decoded(HerdrClient.Helpers.self, listingJSON)
-    #expect(list.core == "c0" && list.limit == 3 && list.parent == HerdrClient.AgentRef(address: "t2x", createdMs: 1794843679838))
+    #expect(list.core == "c0" && list.limit == 3 && list.stopAfterSeconds == 60 && list.parent == HerdrClient.AgentRef(address: "t2x", createdMs: 1794843679838))
     #expect(list.helpers.map(\.name) == ["two", "three", "four", "five"] && list.helpers[0].id == "t31/1794843760636")
     #expect(list.helpers[0].runLine == "easy · some-model" && list.helpers[0].reply?.text == "follow-up ok" && list.helpers[1].runLine.isEmpty)
     #expect(list.helpers.map(\.statusLine) == ["Answered", "Working", "Ended after answering", "No longer on the server"])
     #expect(list.helpers.map(\.isLive) == [true, true, false, false] && list.helpers.map(\.isWorking) == [false, true, false, false])
     #expect(HerdrHelperRow.fragment(list.helpers[0]) == "Answered · Reply with exactly: two ok" && HerdrHelperRow.fragment(list.helpers[1]) == "Working")
     #expect(HerdrHelpersSection.count(list) == "2 of 3 running")
-    #expect(HerdrHelpersSection.count(HerdrClient.Helpers(core: "c", parent: list.parent, limit: nil, helpers: [list.helpers[1]])) == "1 running")
+    #expect(HerdrHelpersSection.count(HerdrClient.Helpers(core: "c", parent: list.parent, helpers: [list.helpers[1]])) == "1 running")
     let waiting = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "live", status: .init(state: "blocked"))
     let failed = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "live", status: .init(state: "error"))
     let starting = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "live"), quiet = HerdrClient.Helper(address: "a", createdMs: 1, name: "n", state: "finished")
@@ -68,7 +68,7 @@ private let listingJSON = """
     let note = HerdrHelperNote.text
     #expect(note.contains("swarmhub-herdr helper start --difficulty easy|medium|hard") && note.contains("helper wait NAME") && note.utf8.count < 1_500)
     #expect(note.contains("easy for small mechanical edits, medium for normal features and fixes, hard for design-heavy or risky work"))
-    #expect(note.contains("The server picks the helper's model from the difficulty; you cannot choose it"))
+    #expect(note.contains("The server picks the helper's model from the difficulty; you cannot choose it") && note.contains("stops a helper a short while after it has answered"))
     let once = (marker: HerdrHelperNote.marker, note: note)
     #expect(HerdrClient.notes(reminder: nil, once: once, tasks: ["hello"]) == [note], "a running agent that never read it is told")
     #expect(HerdrClient.notes(reminder: "r", once: once, tasks: ["Standing instructions…\n" + note, "hello"]) == ["r"], "one that read it is not told again")
@@ -133,4 +133,37 @@ private let listingJSON = """
     store.setHerdrToken("", for: store.herdrServers[0])
     await store.refreshHerdrHelpers(for: [other])
     #expect(store.herdrHelpers.isEmpty)
+}
+
+/// The helper settings are the server's: the form offers only what the server listed and sends its own field names back.
+@Test func helperSettingsAreEditedWithTheServersOwnChoices() throws {
+    let settings = try decoded(HerdrHelperSettings.self, """
+    {"policy":{"max_running":3,"stop_after_seconds":90,"difficulties":{"easy":{"template":"one","model":"model-a"},"hard":{"template":"two","model":"model-c"}}},
+     "problem":null,"bounds":{"max_running":{"min":0,"max":16},"stop_after_seconds":{"min":5,"max":86400,"default":60}}}
+    """)
+    var draft = HerdrHelperPolicyDraft(settings)
+    #expect(draft.maxRunning == 3 && draft.stopAfterSeconds == 90 && draft.runningRange == 0...16 && draft.stopAfterRange == 5...86_400)
+    #expect(draft.tiers == ["easy": .init(template: "one", model: "model-a"), "hard": .init(template: "two", model: "model-c")] && draft.policy == settings.policy && draft.problem == nil)
+    #expect(draft.delays() == [15, 30, 60, 90, 120, 300, 900, 3_600], "round delays, and the saved one whatever it is")
+    #expect([5, 60, 90, 120, 3_600, 7_200, 86_400].map(HerdrHelperPolicyDraft.delayLabel) == ["5 seconds", "1 minute", "90 seconds", "2 minutes", "1 hour", "2 hours", "24 hours"])
+    let offered = [HerdrClient.Template.Model(id: "model-b", label: nil), HerdrClient.Template.Model(id: "model-c", label: nil)]
+    draft.setTemplate("two", for: "medium", offered: offered)
+    #expect(draft.tiers["medium"] == .init(template: "two", model: "model-b"), "a newly chosen program starts on the first model the server lists for it")
+    draft.setTemplate("three", for: "hard", offered: offered)
+    #expect(draft.tiers["hard"]?.model == "model-c", "a model the new program also offers is kept")
+    draft.setTemplate("four", for: "hard", offered: [])
+    #expect(draft.problem == "Choose a model for hard helpers." && draft.policy.difficulties["hard"] == nil, "no model yet: not sent")
+    draft.setTemplate("", for: "easy", offered: [])
+    #expect(draft.tiers["easy"] == nil, "no program: that difficulty is not allowed")
+    draft.setTemplate("two", for: "hard", offered: offered); draft.tiers["hard"]?.model = "model-c"; draft.maxRunning = 2; draft.stopAfterSeconds = 300
+    let body = draft.policy.body
+    #expect(body["max_running"] as? Int == 2 && body["stop_after_seconds"] as? Int == 300)
+    #expect(body["difficulties"] as? [String: [String: String]] == ["medium": ["template": "two", "model": "model-b"], "hard": ["template": "two", "model": "model-c"]])
+    // No policy on the server yet: nothing is allowed, and the server's default delay is the starting point.
+    let none = HerdrHelperPolicyDraft(try decoded(HerdrHelperSettings.self, #"{"policy":null,"problem":"No helper policy yet.","bounds":{"stop_after_seconds":{"min":5,"max":600,"default":45}}}"#))
+    #expect(none.tiers.isEmpty && none.stopAfterSeconds == 45 && none.delays() == [15, 30, 45, 60, 120, 300] && none.policy.difficulties.isEmpty)
+    let templates = [HerdrClient.Template(name: "a", description: nil, error: nil, runtime: nil, modelAgent: "x"), HerdrClient.Template(name: "b", description: nil, error: nil, runtime: nil),
+                     HerdrClient.Template(name: "c", description: nil, error: "broken", runtime: nil, modelAgent: "x")]
+    #expect(HerdrHelperPolicyDraft.templates(in: templates).map(\.name) == ["a"], "only a usable program that takes a model can run helpers")
+    #expect(HerdrHelperPolicySection.reason(HerdrClient.Failure.http(404, "x")).contains("older") && HerdrHelperPolicySection.reason(HerdrClient.Failure.http(422, "The server's own sentence.")) == "The server's own sentence.")
 }
