@@ -4,12 +4,13 @@ import SwiftUI
 /// Herdr shots of `--render-setup` (alone with `--only herdr`): the setup window's Herdr path (where it runs, this Mac
 /// with nothing running, SSH, address, starter agents), Settings → Servers and keys with two servers, the simple page,
 /// a Herdr bot's and a Hermes bot's Advanced settings, a bot's request to create bots waiting above the composer, and
-/// a bot's helper agents: under it in the sidebar, in its Details panel, one of them opened, and a server's helper settings.
+/// a bot's helper agents: under it in the sidebar, in its Details panel, one of them opened, a server's helper settings,
+/// and a request for a bot passed between a bot and the main bot: both chats, and the settings of a bot that is not the main bot.
 /// All synthetic and in memory: Test results are built here, no server has a token, nothing connects.
 @MainActor enum HeadlessHerdrShots {
     static let names = ["herdr-s1-where", "herdr-s3-this-mac-nothing", "herdr-s3-ssh", "herdr-s3-ssh-failed", "herdr-s3-address", "herdr-s4-starters",
                         "herdr-settings-servers", "herdr-settings-simple", "herdr-editor-advanced", "herdr-editor-move", "herdr-bot-request",
-                        "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view", "herdr-helper-settings"]
+                        "herdr-helpers-sidebar", "herdr-helpers-details", "herdr-helper-view", "herdr-helper-settings", "herdr-main-chat", "herdr-asker-chat", "herdr-editor-not-main"]
 
     static func render(write: (String, Data?) -> Void, png: @MainActor (AnyView, AppStore, NSSize) async -> Data?) async {
         let store = SetupPreview.makeStore(backendFactory: { _ in MockBackend() }); store.isSetupPreview = false
@@ -66,9 +67,39 @@ import SwiftUI
                         HerdrClient.Template(name: "starter-two", description: nil, error: nil, runtime: .init(harness: "Codex", provider: nil, model: nil), modelAgent: "two")]
         let offered: [String: [HerdrClient.Template.Model]] = ["starter-one": [.init(id: "server-model-a", label: "Server model A"), .init(id: "server-model-c", label: "Server model C")],
                                                               "starter-two": [.init(id: "server-model-b", label: "Server model B")]]
-        let policy = HerdrHelperPolicy(maxRunning: 3, stopAfterSeconds: 60, difficulties: ["easy": .init(template: "starter-one", model: "server-model-a"), "medium": .init(template: "starter-two", model: "server-model-b")])
-        let read = HerdrHelperPolicySection.Loaded(settings: .init(policy: policy, problem: nil, bounds: .init(maxRunning: .init(min: 0, max: 16), stopAfterSeconds: .init(min: 5, max: 86_400, default: 60))), templates: programs, models: offered)
+        let policy = HerdrHelperPolicy(maxRunning: 3, stopAfterSeconds: 60, stopUnansweredAfterSeconds: 1_800, difficulties: ["easy": .init(template: "starter-one", model: "server-model-a"), "medium": .init(template: "starter-two", model: "server-model-b")])
+        let read = HerdrHelperPolicySection.Loaded(settings: .init(policy: policy, problem: nil, bounds: .init(maxRunning: .init(min: 0, max: 16), stopAfterSeconds: .init(min: 5, max: 86_400, default: 60), stopUnansweredAfterSeconds: .init(min: 60, max: 604_800, default: 1_800))), templates: programs, models: offered)
         let policySize = NSSize(width: 760, height: 520)
         write(names[14], await png(AnyView(Form { HerdrHelperPolicySection(server: box, named: true, preset: read) }.formStyle(.grouped).frame(width: policySize.width, height: policySize.height).background(AppColor.panel)), store, policySize))
+
+        // A bot asks the main bot for a bot. Jarvis created one on its own decision (Remove, Keep) and left another to the person.
+        let boppy = Bot(name: "Boppy", title: "Product", persona: "You look after the product.", backend: .herdr)
+        let legal = Bot(name: "Legal", title: "Created by Jarvis", persona: "You review the contracts people send to the company and say what to change.", backend: .herdr)
+        store.bots = [jarvis, boppy, legal, infra]
+        for bot in [boppy, legal] { store.setHerdrServer(box.id, for: bot) }
+        func relayed(_ text: String, _ kind: String, name: String) -> ChatMessage {
+            ChatMessage(role: .user, content: text, metadata: [HerdrBotRelay.Key.kind: kind, HerdrBotRelay.Key.asker: boppy.id.uuidString.lowercased(), HerdrBotRelay.Key.name: name])
+        }
+        func fence(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
+        let wantsLegal = HerdrBotAsk(name: "Legal", purpose: "People keep sending me contracts to review, which is not product work."), wantsPayments = HerdrBotAsk(name: "Payments", purpose: "Pays supplier invoices from the company account.")
+        jarvis.messages = [relayed(HerdrBotRelay.request(from: boppy.name, wantsLegal), HerdrBotRelay.request, name: "Legal"),
+                           ChatMessage(role: .assistant, content: "A separate bot for contracts makes sense, so I created Legal.\n\n" + fence("{\"op\":\"create_bot\",\"decision\":\"decided\",\"name\":\"Legal\",\"instructions\":\"You review contracts.\"}")),
+                           AppOnlyLine.line(AppOnlyLine.created.render(jarvis.name, legal.name)),
+                           relayed(HerdrBotRelay.request(from: boppy.name, wantsPayments), HerdrBotRelay.request, name: "Payments"),
+                           ChatMessage(role: .assistant, content: "A bot that moves money is yours to decide, so I proposed Payments.\n\n" + fence("{\"op\":\"create_bot\",\"decision\":\"ask\",\"name\":\"Payments\",\"instructions\":\"You prepare supplier payments and ask before each one.\",\"avatar\":{\"shape\":\"gem\",\"colour\":\"green\"}}"))]
+        store.defaults.set([AppStore.herdrRequestID(jarvis.messages[1].id, HerdrBotRequest(name: "Legal"))], forKey: AppStore.herdrHandledRequestsKey)
+        store.setHerdrUnasked(legal, by: jarvis)
+        boppy.messages = [ChatMessage(role: .user, content: "Contracts are not your job. Get a bot for that."),
+                          ChatMessage(role: .assistant, content: "Agreed. I asked the main bot for one.\n\n" + fence("{\"op\":\"request_bot\",\"name\":\"Legal\",\"purpose\":\"\(wantsLegal.purpose)\"}")),
+                          AppOnlyLine.line(AppOnlyLine.botAskPassedOn.render(boppy.name, "Legal", jarvis.name)),
+                          relayed(HerdrBotRelay.answer(from: jarvis.name, [.created("Legal")]), HerdrBotRelay.outcome, name: "Legal"),
+                          ChatMessage(role: .assistant, content: "Good: contracts now go to Legal.")]
+        let chat = NSSize(width: 860, height: 900)
+        for (name, bot) in [(names[15], jarvis), (names[16], boppy)] {
+            store.selectedBot = bot; store.openHerdrHelper = nil
+            write(name, await png(AnyView(ChatView(bot: bot).frame(width: chat.width, height: chat.height)), store, chat))
+        }
+        write(names[17], await png(AnyView(Form { BotEditorAdvancedSection(bot: boppy, fields: .constant(BotEditorFields(bot: boppy))) }.formStyle(.grouped)
+            .frame(width: editor.width, height: editor.height).background(AppColor.panel)), store, editor))
     }
 }

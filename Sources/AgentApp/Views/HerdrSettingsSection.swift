@@ -230,7 +230,7 @@ struct HerdrOverviewSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Agent").font(.headline)
-            Text("Runs on \(store.herdrServer(for: bot).name) as \((try? store.herdrBackend(for: bot).agentName) ?? "an agent named after this bot"). It keeps its own memory of the chat while it runs; choose its runtime and model under Model.")
+            Text("Runs on \(store.herdrServer(for: bot).name) as \((try? store.herdrBackend(for: bot).agentName) ?? "an agent named after this bot"). It keeps its own memory of the chat while it runs; choose its runtime and model under Model.\(store.createsHerdrBots(bot) ? " It is the main bot of \(store.herdrServer(for: bot).name): only it creates bots, and other bots ask it." : "")")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }

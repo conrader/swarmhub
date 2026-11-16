@@ -175,8 +175,10 @@ struct HerdrClient: Sendable {
         return live.first { $0.name == name } ?? live.first { Self.suffix(of: $0.name) == Self.suffix(of: name) }
     }
 
-    /// The bridge takes up to 16 KB of plain text per task: the message and the instructions each get under half.
-    static let messageBytes = 8_000, instructionsBytes = 7_000
+    /// The bridge takes up to 16 KB of plain text per task: the message and the bot's own instructions each get
+    /// under half. The app's notes (`notesBytes`) come on top of the instructions when an agent starts; a first message
+    /// that would not fit beside all of it is the part that is cut, never the bot's instructions.
+    static let messageBytes = 8_000, instructionsBytes = 7_000, notesBytes = 3_600, taskBytes = 16_000
 
     /// Plain text as the bridge accepts it: no control characters except new lines and tabs, cut to `bytes` of UTF-8
     /// on a character boundary.
@@ -188,22 +190,24 @@ struct HerdrClient: Sendable {
         return clean
     }
 
-    /// The first task of a new agent: the bot's standing instructions, then the message. A running agent already has them.
+    /// The first task of a new agent: the bot's standing instructions (with the app's notes after them), then the
+    /// message. A running agent already has them.
     static func firstTask(_ text: String, instructions: String?) -> String {
-        let rules = plain(instructions ?? "", bytes: instructionsBytes).trimmingCharacters(in: .whitespacesAndNewlines)
+        let rules = plain(instructions ?? "", bytes: instructionsBytes + notesBytes).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rules.isEmpty else { return text }
-        return "Standing instructions for this whole conversation:\n\(rules)\n\nMy first message:\n\(text)"
+        let lead = "Standing instructions for this whole conversation:\n\(rules)\n\nMy first message:\n"
+        return lead + plain(text, bytes: max(0, taskBytes - lead.utf8.count))
     }
 
     /// Types `text` into this bot's running agent, or starts one from `template` (on `model`, when the template takes
     /// one) with `instructions` and `text` as its first task.
     /// A bot that ran before keeps its saved profile, so its earlier sessions stay together in the workspace.
     /// `reminder` goes in front of a message to a running agent only: a new agent reads the same words in its instructions.
-    /// `once` is a note a running agent must have read once (`marker` is a phrase only that note contains): it goes in
-    /// front of the message while none of the agent's saved tasks carries the marker, so an agent that started before
+    /// `once` are notes a running agent must have read once (`marker` is a phrase only that note contains): each goes in
+    /// front of the message while none of the agent's saved tasks carries its marker, so an agent that started before
     /// the note applied to its bot still learns it, and one that has read it is not told again.
     func deliver(_ text: String, name: String, template: String?, model: String? = nil, instructions: String? = nil, reminder: String? = nil,
-                 once: (marker: String, note: String)? = nil) async throws -> Turn {
+                 once: [(marker: String, note: String)] = []) async throws -> Turn {
         let text = Self.plain(text, bytes: Self.messageBytes)
         let current = try await workspace()
         guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the workspace's machine.") }
@@ -224,10 +228,11 @@ struct HerdrClient: Sendable {
         return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true)
     }
 
-    /// What goes in front of a message to a running agent: `reminder` always, `once` only while no saved task has its marker.
-    static func notes(reminder: String?, once: (marker: String, note: String)?, tasks: [String]) -> [String] {
+    /// What goes in front of a message to a running agent: `reminder` always, each of `once` only while no saved task
+    /// has its marker. A note is never there twice.
+    static func notes(reminder: String?, once: [(marker: String, note: String)], tasks: [String]) -> [String] {
         var notes = reminder.map { [$0] } ?? []
-        if let once, !once.note.isEmpty, !tasks.contains(where: { $0.contains(once.marker) }) { notes.append(once.note) }
+        for item in once where !item.note.isEmpty && !notes.contains(item.note) && !tasks.contains(where: { $0.contains(item.marker) }) { notes.append(item.note) }
         return notes
     }
 

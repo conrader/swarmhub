@@ -44,6 +44,13 @@ enum AppOnlyLine {
     static let nothingConnected = LineTemplate("Nothing was connected.")
     static let keyRestored = LineTemplate("", "’s old key is back on the box; ", " is no longer connected here.")
     static let keyRestoreFailed = LineTemplate("Couldn’t restore ", "’s old key; nothing changed here.")
+    // A Herdr bot's request for a new bot, passed on to its server's main bot (`AppStore+HerdrBots.swift`).
+    static let botAskPassedOn = LineTemplate("", " asked for a bot named “", "”. The request was passed on to ", ", the main bot.")
+    static let botAskNoMain = LineTemplate("", " asked for a new bot, but ", " has no main bot to decide. Make one bot the main bot: its settings → Advanced → Main bot.")
+    static let botAskTooMany = LineTemplate("", "’s request for a bot named “", "” was not passed on: it has asked ", " times in the last ", " minutes.")
+    static let botAskNotPassedOn = LineTemplate("", "’s request for a bot named “", "” could not be passed on to ", ".")
+    static let botAskUnanswered = LineTemplate("", " did not finish its answer to ", "’s request for a bot. Ask ", " to try again.")
+    static let botRemoved = LineTemplate("You removed ", ", which ", " had created.")
     // P49's orientation that was given up.
     static let orientationGaveUp = LineTemplate("", " could not be reached for 24 h, so it was not given an orientation.")
     // P37's review card while it waits (it is `presentation: .review`, which is the card's tag from its first build).

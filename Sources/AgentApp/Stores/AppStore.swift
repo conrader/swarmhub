@@ -53,6 +53,8 @@ import SwarmHubCore
     /// detail column; the poll that reads them, and the failed reads in a row per server.
     @Published var herdrHelpers: [UUID: HerdrClient.Helpers] = [:]; @Published var openHerdrHelper: HerdrHelperSelection?
     var herdrHelperPoll: Task<Void, Never>?; var herdrHelperFailures: [String: Int] = [:]
+    /// Requests of a main bot's reply that the app is settling right now (`AppStore+HerdrBots.swift`): not offered meanwhile.
+    var herdrSettling: Set<String> = []
     lazy var grokBotPresent: Bool = GrokLocator.live().isPresent
     /// P14: the sidebar column is collapsed (the window has no title bar, so the toggle lives in the sidebar row and the headers).
     @Published var sidebarHidden = false

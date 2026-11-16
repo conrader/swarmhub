@@ -224,6 +224,8 @@ extension AppStore {
         }
         resendReturnedSteers(steers, bot: bot, finished: outcome.state == .finished)
         sendQueuedNextMessage()
+        // Herdr: the main bot's decided bots are created, and requests for bots are passed between bots.
+        if conversation === bot { herdrReplyEnded(assistant, from: bot, finished: outcome.state == .finished) }
         if outcome.state == .finished {
             // Gap closures after live pass 4: managed approvals become cards; a secret request opens the entry sheet.
             routeManagedApprovals(in: assistant, bot: bot)

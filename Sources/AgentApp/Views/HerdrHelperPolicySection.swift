@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Settings → Advanced → Servers and keys, under each Herdr server: that server's helper settings. A bot's agent
 /// says how hard a helper's task is; here the person decides what each difficulty runs on, how many helpers one
-/// agent may have at once, and how long a helper stays after its answer. The server keeps the policy and checks it;
+/// agent may have at once, how long a helper stays after its answer, and how long one may go without answering. The server keeps the policy and checks it;
 /// every agent program and model offered here is one the server listed, and Save sends the whole policy back.
 struct HerdrHelperPolicySection: View {
     /// What a read of the server gave: its settings, its templates and each used template's models.
@@ -38,7 +38,7 @@ struct HerdrHelperPolicySection: View {
                 Button("Read again") { Task { await load() } }
             case .ready: form
             }
-            Text("A bot whose “Can start helper agents” is on hands parts of its work to helpers and says how hard each part is. It cannot choose a model: these settings do, for every bot on \(server.name).")
+            Text("A bot hands parts of its work to helpers, unless its “Can start helper agents” is off, and says how hard each part is. It cannot choose a model: these settings do, for every bot on \(server.name).")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         // Only the real app reads on its own; a preview or test store stays offline until asked.
@@ -65,6 +65,13 @@ struct HerdrHelperPolicySection: View {
         Stepper("Helpers one agent may have at once: \(draft.maxRunning)", value: $draft.maxRunning, in: draft.runningRange)
         Picker("A helper disappears after its answer in", selection: $draft.stopAfterSeconds) {
             ForEach(draft.delays(), id: \.self) { Text(HerdrHelperPolicyDraft.delayLabel($0)).tag($0) }
+        }
+        // Only a server that has this setting: an older workspace does not, and is not sent it.
+        if let unanswered = draft.stopUnansweredSeconds {
+            Picker("A helper that has not answered is stopped after", selection: Binding(get: { unanswered }, set: { draft.stopUnansweredSeconds = $0 })) {
+                ForEach(draft.unansweredDelays(), id: \.self) { Text(HerdrHelperPolicyDraft.delayLabel($0)).tag($0) }
+            }
+            .help("Counts from when the helper got its task, whether it waits at a prompt or is still working. Choose longer for long jobs.")
         }
         HStack {
             Button("Save") { save() }.disabled(saving || draft == saved || draft.problem != nil)

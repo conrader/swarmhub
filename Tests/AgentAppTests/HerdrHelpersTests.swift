@@ -70,30 +70,31 @@ private let listingJSON = """
     #expect(note.contains("easy for small mechanical edits, medium for normal features and fixes, hard for design-heavy or risky work"))
     #expect(note.contains("The server picks the helper's model from the difficulty; you cannot choose it") && note.contains("stops a helper a short while after it has answered"))
     let once = (marker: HerdrHelperNote.marker, note: note)
-    #expect(HerdrClient.notes(reminder: nil, once: once, tasks: ["hello"]) == [note], "a running agent that never read it is told")
-    #expect(HerdrClient.notes(reminder: "r", once: once, tasks: ["Standing instructions…\n" + note, "hello"]) == ["r"], "one that read it is not told again")
-    #expect(HerdrClient.notes(reminder: nil, once: nil, tasks: []).isEmpty)
+    #expect(HerdrClient.notes(reminder: nil, once: [once], tasks: ["hello"]) == [note], "a running agent that never read it is told")
+    #expect(HerdrClient.notes(reminder: "r", once: [once], tasks: ["Standing instructions…\n" + note, "hello"]) == ["r"], "one that read it is not told again")
+    #expect(HerdrClient.notes(reminder: nil, once: [], tasks: []).isEmpty && HerdrClient.notes(reminder: note, once: [once, once], tasks: []) == [note], "and never twice in one message")
 }
 
-@MainActor @Test func aBotIsToldAboutHelpersOnlyWhenItsSwitchIsOn() throws {
+/// Helpers are for every Herdr bot: the switch is on until its person turns it off, and the notes never shorten
+/// the bot's own instructions.
+@MainActor @Test func everyHerdrBotIsToldAboutHelpersUnlessItsSwitchIsOff() throws {
     let store = helperStore()
     let jarvis = Bot(name: "Jarvis", persona: String(repeating: "x", count: 9_000), backend: .herdr), plain = Bot(name: "Plain", backend: .herdr), old = Bot(name: "Old", backend: .hermes)
     store.bots = [jarvis, plain, old]
-    let untold = try store.herdrBackend(for: plain)
-    #expect(!store.startsHerdrHelpers(jarvis) && !store.startsHerdrHelpers(plain) && untold.helperNote == nil, "off until the person says so")
-    #expect(store.startsHerdrHelpers(plain, managing: true), "the editor's unsaved switch moves the default")
+    #expect(store.startsHerdrHelpers(jarvis) && store.startsHerdrHelpers(plain) && !store.startsHerdrHelpers(old), "on for every Herdr bot, and only for those")
+    let told = try store.herdrBackend(for: plain)
+    #expect(told.helperNote == HerdrHelperNote.text && told.launchInstructions == HerdrBotAsk.note(main: nil) + "\n\n" + HerdrHelperNote.text, "a bot with the default instructions gets the notes alone")
     store.setCanManageBots(jarvis, true)
-    #expect(store.startsHerdrHelpers(jarvis) && !store.startsHerdrHelpers(plain), "a bot that can create bots may start helpers by default")
-    let told = try store.herdrBackend(for: jarvis)
-    #expect(told.helperNote == HerdrHelperNote.text && told.creationNote == AppStore.herdrCreationNote)
-    let launch = try #require(told.launchInstructions)
-    #expect(launch.hasSuffix(AppStore.herdrCreationNote + "\n\n" + HerdrHelperNote.text) && launch.hasPrefix("xxx") && launch.utf8.count <= HerdrClient.instructionsBytes, "both notes fit after long instructions")
-    store.setStartsHerdrHelpers(false, for: jarvis); store.setStartsHerdrHelpers(true, for: plain)
-    let off = try store.herdrBackend(for: jarvis), on = try store.herdrBackend(for: plain)
-    #expect(!store.startsHerdrHelpers(jarvis) && off.helperNote == nil && off.creationNote != nil, "its own choice wins over the default")
-    #expect(store.startsHerdrHelpers(plain) && on.launchInstructions == HerdrHelperNote.text, "a bot with the default instructions still gets the note")
-    store.setStartsHerdrHelpers(true, for: old)
-    #expect(!store.startsHerdrHelpers(old), "only a Herdr bot has helpers")
+    let main = try store.herdrBackend(for: jarvis)
+    #expect(main.helperNote == HerdrHelperNote.text && main.creationNote == AppStore.herdrCreationNote && main.askNote == nil)
+    let launch = try #require(main.launchInstructions)
+    #expect(launch.hasSuffix(AppStore.herdrCreationNote + "\n\n" + HerdrHelperNote.text) && launch.hasPrefix(String(repeating: "x", count: 6_990)), "the notes come after the bot's own instructions and do not shorten them")
+    let first = HerdrClient.firstTask(String(repeating: "m", count: HerdrClient.messageBytes), instructions: launch)
+    #expect(first.utf8.count <= 16_384 && first.contains(HerdrHelperNote.text), "the longest instructions, both notes and a long first message fit one task")
+    store.setStartsHerdrHelpers(false, for: jarvis)
+    let off = try store.herdrBackend(for: jarvis)
+    #expect(!store.startsHerdrHelpers(jarvis) && off.helperNote == nil && off.creationNote != nil && store.startsHerdrHelpers(plain), "its own switch turns it off for that bot only")
+    #expect(off.notes.map(\.marker) == [HerdrBotRequest.marker] && told.notes.map(\.marker) == [HerdrBotAsk.marker, HerdrHelperNote.marker])
 }
 
 /// Helpers are read for the open chat, for a bot that is answering and for a bot that shows some; no other bot is.
@@ -142,6 +143,7 @@ private let listingJSON = """
      "problem":null,"bounds":{"max_running":{"min":0,"max":16},"stop_after_seconds":{"min":5,"max":86400,"default":60}}}
     """)
     var draft = HerdrHelperPolicyDraft(settings)
+    #expect(draft.stopUnansweredSeconds == nil && draft.unansweredDelays().isEmpty && draft.policy.body["stop_unanswered_after_seconds"] == nil, "an older server has no such setting and is not sent one")
     #expect(draft.maxRunning == 3 && draft.stopAfterSeconds == 90 && draft.runningRange == 0...16 && draft.stopAfterRange == 5...86_400)
     #expect(draft.tiers == ["easy": .init(template: "one", model: "model-a"), "hard": .init(template: "two", model: "model-c")] && draft.policy == settings.policy && draft.problem == nil)
     #expect(draft.delays() == [15, 30, 60, 90, 120, 300, 900, 3_600], "round delays, and the saved one whatever it is")
@@ -166,4 +168,20 @@ private let listingJSON = """
                      HerdrClient.Template(name: "c", description: nil, error: "broken", runtime: nil, modelAgent: "x")]
     #expect(HerdrHelperPolicyDraft.templates(in: templates).map(\.name) == ["a"], "only a usable program that takes a model can run helpers")
     #expect(HerdrHelperPolicySection.reason(HerdrClient.Failure.http(404, "x")).contains("older") && HerdrHelperPolicySection.reason(HerdrClient.Failure.http(422, "The server's own sentence.")) == "The server's own sentence.")
+}
+
+/// A helper that never answers is stopped after a time the server keeps; the form shows it only for a server that has it.
+@Test func theUnansweredStopIsEditedWhenTheServerHasIt() throws {
+    let settings = try decoded(HerdrHelperSettings.self, """
+    {"policy":{"max_running":3,"stop_after_seconds":60,"stop_unanswered_after_seconds":1800,"difficulties":{"easy":{"template":"one","model":"model-a"}}},
+     "problem":null,"bounds":{"max_running":{"min":0,"max":16},"stop_after_seconds":{"min":5,"max":86400,"default":60},"stop_unanswered_after_seconds":{"min":60,"max":604800,"default":1800}}}
+    """)
+    var draft = HerdrHelperPolicyDraft(settings)
+    #expect(draft.stopUnansweredSeconds == 1_800 && draft.stopUnansweredRange == 60...604_800 && draft.policy == settings.policy)
+    #expect(draft.unansweredDelays() == [300, 900, 1_800, 3_600, 7_200, 14_400, 28_800, 86_400] && HerdrHelperPolicyDraft.delayLabel(1_800) == "30 minutes")
+    draft.stopUnansweredSeconds = 7_200
+    #expect(draft.policy.body["stop_unanswered_after_seconds"] as? Int == 7_200 && draft != HerdrHelperPolicyDraft(settings))
+    // No policy yet: the server's default is where the form starts. A saved value outside the usual choices is kept.
+    let fresh = HerdrHelperPolicyDraft(try decoded(HerdrHelperSettings.self, #"{"policy":null,"bounds":{"stop_unanswered_after_seconds":{"min":60,"max":3600,"default":1200}}}"#))
+    #expect(fresh.stopUnansweredSeconds == 1_200 && fresh.unansweredDelays() == [300, 900, 1_200, 1_800, 3_600])
 }

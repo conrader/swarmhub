@@ -9,15 +9,13 @@ struct HerdrHelperSelection: Hashable, Sendable { let botID: UUID; let helperID:
 extension AppStore {
     // MARK: The switch
 
-    /// `UserDefaults`: a bot's own choice. Unset, a bot that can create other bots may also start helpers and the
-    /// others may not: that bot is the one a person hands whole projects to, and a helper spends the server's
-    /// accounts, so no bot starts any before its person has said so.
+    /// `UserDefaults`: a bot's own choice. Unset, every Herdr bot may start helpers: a helper is a sub-agent of its
+    /// bot, and the server's helper settings limit what one runs on and how many an agent may have.
     static func herdrHelpersKey(_ botID: UUID) -> String { "herdrHelpers.\(botID.uuidString.lowercased())" }
 
-    /// `managing`: the editor's unsaved "Can create other bots", so the default follows it while the sheet is open.
-    func startsHerdrHelpers(_ bot: Bot, managing: Bool? = nil) -> Bool {
+    func startsHerdrHelpers(_ bot: Bot) -> Bool {
         guard bot.backend == .herdr, !bot.isReadOnlyArchive else { return false }
-        return defaults.object(forKey: Self.herdrHelpersKey(bot.id)) as? Bool ?? (managing ?? bot.canManageBots)
+        return defaults.object(forKey: Self.herdrHelpersKey(bot.id)) as? Bool ?? true
     }
 
     func setStartsHerdrHelpers(_ on: Bool, for bot: Bot) { defaults.set(on, forKey: Self.herdrHelpersKey(bot.id)); objectWillChange.send() }

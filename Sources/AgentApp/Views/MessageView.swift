@@ -46,6 +46,10 @@ struct MessageView: View {
                 if let caption = SteerCopy.caption(message, botName: store.selectedBot?.name) {
                     Label(caption, systemImage: "arrow.turn.down.right").font(.caption2).foregroundStyle(.secondary)
                 }
+                // A request for a bot, or its answer, that the app passed on between two Herdr bots: not the person's words.
+                if let passedOn = store.herdrRelayCaption(message) {
+                    Label(passedOn, systemImage: "arrow.left.arrow.right").font(.caption2).foregroundStyle(.secondary)
+                }
                 if !message.attachments.isEmpty { AttachmentThumbnails(attachments: message.attachments) }
                 content
                 if store.canSendAsNextMessage(message) {

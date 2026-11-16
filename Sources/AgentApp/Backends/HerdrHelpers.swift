@@ -137,18 +137,24 @@ enum HerdrHelperNote {
 }
 
 /// The server's helper policy (`GET` and `POST /api/helper-policy`): which template and model each difficulty runs
-/// on, how many helpers one agent may have at once, and how long an idle helper stays after its answer. A difficulty
-/// that is left out is refused. The server owns it; the app only edits it, with choices the server itself offers.
+/// on, how many helpers one agent may have at once, how long an idle helper stays after its answer, and how long a
+/// helper may go without answering before it is stopped. A difficulty that is left out is refused. The server owns
+/// it; the app only edits it, with choices the server itself offers.
 struct HerdrHelperPolicy: Decodable, Sendable, Equatable {
     struct Tier: Decodable, Sendable, Equatable { var template: String; var model: String }
     var maxRunning: Int
     var stopAfterSeconds: Int
+    /// nil from a server that does not have this setting yet; then it is not sent back either, because that server
+    /// refuses a field it does not know.
+    var stopUnansweredAfterSeconds: Int? = nil
     var difficulties: [String: Tier]
 
     /// The `POST` body, in the bridge's own field names.
     var body: [String: Any] {
-        ["max_running": maxRunning, "stop_after_seconds": stopAfterSeconds,
-         "difficulties": difficulties.mapValues { ["template": $0.template, "model": $0.model] }]
+        var body: [String: Any] = ["max_running": maxRunning, "stop_after_seconds": stopAfterSeconds,
+                                   "difficulties": difficulties.mapValues { ["template": $0.template, "model": $0.model] }]
+        body["stop_unanswered_after_seconds"] = stopUnansweredAfterSeconds
+        return body
     }
 }
 
@@ -156,7 +162,7 @@ struct HerdrHelperPolicy: Decodable, Sendable, Equatable {
 /// none the server can apply; why helpers cannot start as things are; and the ranges the server accepts.
 struct HerdrHelperSettings: Decodable, Sendable, Equatable {
     struct Range: Decodable, Sendable, Equatable { let min: Int; let max: Int; var `default`: Int? = nil }
-    struct Bounds: Decodable, Sendable, Equatable { var maxRunning: Range? = nil; var stopAfterSeconds: Range? = nil }
+    struct Bounds: Decodable, Sendable, Equatable { var maxRunning: Range? = nil; var stopAfterSeconds: Range? = nil; var stopUnansweredAfterSeconds: Range? = nil }
     var policy: HerdrHelperPolicy? = nil
     var problem: String? = nil
     var bounds: Bounds? = nil
@@ -177,8 +183,11 @@ struct HerdrHelperPolicyDraft: Equatable, Sendable {
     var tiers: [String: HerdrHelperPolicy.Tier] = [:]
     var maxRunning = 3
     var stopAfterSeconds = 60
+    /// How long a helper may go without answering; nil when the server has no such setting (an older workspace).
+    var stopUnansweredSeconds: Int? = nil
     var runningRange = 0...16
     var stopAfterRange = 5...86_400
+    var stopUnansweredRange = 60...604_800
 
     init() {}
 
@@ -190,10 +199,14 @@ struct HerdrHelperPolicyDraft: Equatable, Sendable {
         tiers = (settings.policy?.difficulties ?? [:]).filter { HerdrHelperNote.difficulties.contains($0.key) }
         maxRunning = min(max(maxRunning, runningRange.lowerBound), runningRange.upperBound)
         stopAfterSeconds = min(max(stopAfterSeconds, stopAfterRange.lowerBound), stopAfterRange.upperBound)
+        if let range = settings.bounds?.stopUnansweredAfterSeconds, range.min <= range.max { stopUnansweredRange = range.min...range.max }
+        stopUnansweredSeconds = (settings.policy?.stopUnansweredAfterSeconds ?? settings.bounds?.stopUnansweredAfterSeconds?.default)
+            .map { min(max($0, stopUnansweredRange.lowerBound), stopUnansweredRange.upperBound) }
     }
 
     var policy: HerdrHelperPolicy {
-        HerdrHelperPolicy(maxRunning: maxRunning, stopAfterSeconds: stopAfterSeconds, difficulties: tiers.filter { !$0.value.template.isEmpty && !$0.value.model.isEmpty })
+        HerdrHelperPolicy(maxRunning: maxRunning, stopAfterSeconds: stopAfterSeconds, stopUnansweredAfterSeconds: stopUnansweredSeconds,
+                          difficulties: tiers.filter { !$0.value.template.isEmpty && !$0.value.model.isEmpty })
     }
 
     /// A difficulty with a template but no model yet cannot be saved.
@@ -215,6 +228,12 @@ struct HerdrHelperPolicyDraft: Equatable, Sendable {
     /// The delays the picker offers: round ones inside the server's range, and the saved one whatever it is.
     func delays() -> [Int] {
         Array(Set([15, 30, 60, 120, 300, 900, 3_600].filter { stopAfterRange.contains($0) } + [stopAfterSeconds])).sorted()
+    }
+
+    /// The same for a helper that never answers: longer waits, since a helper may work on one task for a while.
+    func unansweredDelays() -> [Int] {
+        guard let stopUnansweredSeconds else { return [] }
+        return Array(Set([300, 900, 1_800, 3_600, 7_200, 14_400, 28_800, 86_400].filter { stopUnansweredRange.contains($0) } + [stopUnansweredSeconds])).sorted()
     }
 
     /// "45 seconds", "1 minute", "5 minutes", "1 hour"; an uneven value keeps its seconds.

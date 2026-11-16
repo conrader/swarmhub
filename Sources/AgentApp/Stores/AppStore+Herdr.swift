@@ -132,7 +132,9 @@ extension AppStore {
     func herdrBackend(for bot: Bot) throws -> HerdrBackend {
         var backend = HerdrBackend(client: try herdrClient(for: herdrServer(for: bot)), botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.outboundPersona)
         backend.steers = herdrSteers(bot)
-        if createsHerdrBots(bot) { backend.creationNote = Self.herdrCreationNote }
+        // The main bot is told how to create bots; every other bot how to ask it for one.
+        if createsHerdrBots(bot) { backend.creationNote = herdrAsksFirst(bot) ? Self.herdrCreationNoteAsking : Self.herdrCreationNote }
+        else if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.askNote = HerdrBotAsk.note(main: herdrMainBot(on: herdrServer(for: bot))?.name) }
         if startsHerdrHelpers(bot) { backend.helperNote = HerdrHelperNote.text }
         return backend
     }

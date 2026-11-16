@@ -137,7 +137,7 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
         #expect(HerdrBotRequest.requests(in: none).isEmpty, "\(none)")
     }
     let note = AppStore.herdrCreationNote
-    #expect(HerdrBotRequest.requests(in: note).map(\.name) == ["Research"] && note.utf8.count < 2_000, "the note's own example is a valid request")
+    #expect(HerdrBotRequest.requests(in: note).map(\.name) == ["Research"] && note.utf8.count < 2_400 && note.contains(HerdrBotRequest.marker), "the note's own example is a valid request")
     let templates = [HerdrClient.Template(name: "one", description: nil, error: nil, runtime: .init(harness: "Claude Code", provider: nil, model: nil)),
                      HerdrClient.Template(name: "two", description: nil, error: nil, runtime: .init(harness: "Codex", provider: nil, model: nil))]
     #expect(HerdrBotRequest.template(for: "codex", in: templates)?.name == "two" && HerdrBotRequest.template(for: "Claude", in: templates)?.name == "one" && HerdrBotRequest.template(for: "none", in: templates) == nil)
