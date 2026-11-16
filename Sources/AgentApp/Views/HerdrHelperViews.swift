@@ -92,7 +92,8 @@ struct HerdrHelpersSection: View {
 }
 
 /// A helper, read-only, in place of its bot's chat: its task, its tool steps, its latest reply and its terminal.
-/// It reads the helper again every two seconds while the helper runs, and once more when it has ended. A helper the
+/// It follows the helper's session on the bridge's event stream (polling it every two seconds where there is none)
+/// while the helper runs, and reads it once more when it has ended. A helper the
 /// server no longer lists stays on screen as it was last read until the person leaves it.
 struct HerdrHelperView: View {
     @EnvironmentObject private var store: AppStore
@@ -206,6 +207,8 @@ struct HerdrHelperView: View {
     private func follow() async {
         if let listed { helper = listed }
         if let known = store.herdrHelpers[bot.id]?.core { core = known }
+        // The helper's own session on the event stream; a server without one, or a stream that breaks, is polled.
+        if await followStream() { return }
         while !Task.isCancelled {
             let live = listed?.isLive == true
             await read()
@@ -215,15 +218,43 @@ struct HerdrHelperView: View {
         }
     }
 
+    /// Follows the helper on its event stream until its session ends (true). Its terminal is not in the stream and is
+    /// read every two seconds beside it. False when the stream could not be opened or broke: the caller polls.
+    private func followStream() async -> Bool {
+        guard store.botInfo.autoLoad, let helper = listed ?? helper, let events = try? store.herdrHelperEvents(helper.ref, of: bot) else { return false }
+        let screens = Task { @MainActor in
+            while !Task.isCancelled {
+                if let screen = await store.herdrHelperScreen(helper.ref, of: bot), !Task.isCancelled { if log == nil { log = HerdrClient.HelperLog() }; log?.screen = screen }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+        defer { screens.cancel() }
+        var held = HerdrClient.HelperLog(), draftID: String?
+        do {
+            for try await event in events {
+                guard held.apply(event, draftID: &draftID) else { return false }
+                if case .heartbeat = event { continue }
+                held.screen = log?.screen
+                show(held)
+                if case .end = event { return true }
+            }
+        } catch {}
+        return false
+    }
+
+    private func show(_ fresh: HerdrClient.HelperLog) {
+        if fresh != log { log = fresh }
+        let text = fresh.latestReply(answered: (listed ?? helper)?.answered == true) ?? ""
+        if reply.content != text { reply.content = text }
+        problem = ""
+    }
+
     private func read() async {
         guard let helper = listed ?? helper, let core else { return }
         do {
             let fresh = try await store.herdrHelperLog(helper.ref, core: core, of: bot)
             guard !Task.isCancelled else { return }
-            if fresh != log { log = fresh }
-            let text = fresh.latestReply(answered: helper.answered == true) ?? ""
-            if reply.content != text { reply.content = text }
-            problem = ""
+            show(fresh)
         } catch { if log == nil, !Task.isCancelled { problem = error.localizedDescription } }
     }
 }

@@ -95,6 +95,15 @@ struct HerdrClient: Sendable {
     /// Runs before every request. A server reached over SSH opens its port forward here when it is not up
     /// (`HerdrTunnels.ensure`), so each caller gets a working connection without knowing how the server is reached.
     var prepare: (@Sendable () async throws -> Void)? = nil
+    /// How a turn is followed: on the bridge's event stream (`HerdrEvents.swift`), with the polling routes as the
+    /// fallback when the stream cannot be opened or keeps breaking; or by polling alone.
+    enum Following: Sendable { case stream, polling }
+    var following = Following.stream
+    /// The body of a streamed answer, chunk by chunk; nil reads it from the network (`HerdrByteStream`). Checks put a
+    /// stream that fails or breaks here.
+    var byteSource: (@Sendable (URLRequest) -> AsyncThrowingStream<Data, Error>)? = nil
+    /// How often in a row a turn's stream may fail to open or break before the turn is polled instead.
+    var streamAttempts = 3
 
     /// `http://127.0.0.1:8787` and the like: http or https, a host, no path beyond `/`.
     static func validatedBaseURL(_ raw: String) -> URL? {
@@ -252,64 +261,64 @@ struct HerdrClient: Sendable {
     }
 
     /// Waits for the reply the agent's hook saves after `turn`. Meanwhile `status` hears what the agent reports,
-    /// `tool` hears each tool call when it is first seen (`true`) and again when it has ended, and `partial` hears the reply so far for
-    /// agents whose template publishes one (Claude Code with `--workspace-preview`, OpenCode). Codex has no hook for
-    /// unfinished text, so its reply arrives whole.
+    /// `tool` hears each tool call when it is first seen (`true`) and again when it has ended, `partial` hears the
+    /// reply so far (Claude Code, Codex and OpenCode all publish one), and `live` hears the agent's helpers and
+    /// whether the turn is on the event stream.
+    /// The turn is followed on the bridge's event stream. A bridge without one, a bridge with all its streams taken,
+    /// or a connection that keeps breaking leaves the turn to the polling routes, with everything seen so far kept,
+    /// so no step is reported twice and no turn is lost (`HerdrTurnFollower` decides the same way for both).
     /// An agent that goes quiet without saving a reply (its hook was not trusted, or it stopped at a prompt) ends the
     /// wait; `quietLimit` outlasts the bridge's 30 s limit on that hook, which a busy disk on the server can use up.
     func reply(to turn: Turn, quietLimit: Duration = .seconds(45), status: @Sendable (String) -> Void = { _ in },
-               tool: @Sendable (ToolCall, _ isNew: Bool) -> Void = { _, _ in }, partial: @Sendable (String) -> Void = { _ in }) async throws -> String {
-        let clock = ContinuousClock()
-        var quietSince: ContinuousClock.Instant?, nextAgentCheck = clock.now
-        var lastStatus = "", lastDraft = ""
-        /// After a reply with a steered message still unanswered: how long the agent may stay idle before the turn is over.
-        let settle = Duration.seconds(5)
-        var repliesSeen = 0, settleSince: ContinuousClock.Instant?
-        /// seq → whether its end was reported too.
-        var reported: [UInt64: Bool] = [:]
-        func report(_ calls: [ToolCall]) {
-            for call in calls where call.seq > turn.afterTool && reported[call.seq] != true {
-                if reported[call.seq] == nil { tool(call, true) } else if call.finished { tool(call, false) } else { continue }
-                reported[call.seq] = call.finished
+               tool: @Sendable (ToolCall, _ isNew: Bool) -> Void = { _, _ in }, partial: @Sendable (String) -> Void = { _ in },
+               live: @Sendable (LiveNote) -> Void = { _ in }) async throws -> String {
+        var follower = HerdrTurnFollower(after: turn.after, afterTool: turn.afterTool, quietLimit: quietLimit)
+        func emit(_ steps: [HerdrTurnFollower.Step]) {
+            for step in steps {
+                switch step {
+                case .status(let line): status(line)
+                case .tool(let call, let isNew): tool(call, isNew)
+                case .partial(let text): partial(text)
+                }
             }
         }
+        defer { live(.following(false)) }
+        if following == .stream, let reply = try await streamedReply(to: turn, follower: &follower, emit: emit, live: live) { return reply }
+        live(.following(false))
+        return try await polledReply(to: turn, follower: &follower, emit: emit)
+    }
+
+    /// What a turn tells its bot beside the reply: the agent's helpers as the stream reports them, and whether the
+    /// stream is delivering (so nothing else needs to ask the bridge for them meanwhile).
+    enum LiveNote: Sendable, Equatable { case helpers(Helpers?), following(Bool) }
+
+    /// The turn by polling: the saved rows and the reply so far every `pollInterval`, the agent every `agentCheckInterval`.
+    func polledReply(to turn: Turn, follower: inout HerdrTurnFollower, emit: ([HerdrTurnFollower.Step]) -> Void) async throws -> String {
+        let clock = ContinuousClock()
+        var nextAgentCheck = clock.now
         while true {
             try Task.checkCancellation()
-            let items = try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs)
+            follower.take(rows: try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs))
             // The preview is a convenience: a failed read never ends the turn.
-            let seen = try? await preview(core: turn.core, address: turn.address, createdMs: turn.createdMs)
-            report(seen?.tools ?? [])
+            if let seen = try? await preview(core: turn.core, address: turn.address, createdMs: turn.createdMs) { follower.take(tools: seen.tools); follower.take(draftText: seen.draft) }
             // A message steered into the turn is one more task. The agent may answer it within the same reply, or queue
             // it and answer it right after: then a second reply follows, and the turn's text is both.
-            let replies = items.filter { $0.kind == "reply" && $0.id > turn.after }
-            let tasks = items.filter { $0.kind == "task" && $0.id > turn.after }.count
-            let answered = replies.map(\.text).joined(separator: "\n\n")
-            if !replies.isEmpty {
-                if replies.count >= max(tasks, 1) { return answered }
-                if replies.count != repliesSeen { repliesSeen = replies.count; settleSince = clock.now; partial(answered); nextAgentCheck = clock.now }
-                if let since = settleSince, clock.now - since >= settle { return answered }
-            }
-            if let text = seen?.draft, !text.isEmpty, text != lastDraft { partial(answered.isEmpty ? text : answered + "\n\n" + text); lastDraft = text }
+            let saved = follower.judgeSaved(now: clock.now)
+            emit(follower.drain())
+            if case .reply(let text) = saved { return text }
+            if follower.wantsAgentNow { nextAgentCheck = clock.now; follower.wantsAgentNow = false }
             if clock.now >= nextAgentCheck {
                 nextAgentCheck = clock.now + agentCheckInterval
                 let agent = try await workspace().agents.first { $0.address == turn.address && $0.createdMs == turn.createdMs }
                 guard let agent, agent.isLive else {
                     // One more read: the hook may have saved the reply as the session closed.
-                    let final = try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs)
-                    if let reply = final.first(where: { $0.kind == "reply" && $0.id > turn.after }) { return reply.text }
-                    throw Failure.ended
+                    follower.take(rows: try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs))
+                    return try follower.ended()
                 }
-                let state = agent.status?.state ?? ""
-                // Working again after a reply: the queued message is being answered, so keep waiting for it.
-                if state == "working", settleSince != nil { settleSince = clock.now }
-                let line = Self.statusLine(state)
-                if line != lastStatus { status(line); lastStatus = line }
-                // "done" or "idle" with nothing saved: the hook may still be writing; stop waiting once it cannot be.
-                if state == "done" || state == "idle" {
-                    let since = quietSince ?? clock.now
-                    quietSince = since
-                    if clock.now - since >= quietLimit { throw Failure.silent }
-                } else { quietSince = nil }
+                follower.take(agent: agent)
+                let verdict = follower.judgeAgent(now: clock.now)
+                emit(follower.drain())
+                if case .failed(let failure) = verdict { throw failure }
             }
             try await Task.sleep(for: pollInterval)
         }
@@ -333,7 +342,7 @@ struct HerdrClient: Sendable {
         try await send(request(path, method: "POST", body: try JSONSerialization.data(withJSONObject: body)))
     }
 
-    private func request(_ path: String, method: String, body: Data?) throws -> URLRequest {
+    func request(_ path: String, method: String, body: Data?) throws -> URLRequest {
         guard let url = URL(string: baseURL.absoluteString + path), let host = baseURL.host else { throw Failure.invalidURL }
         var request = URLRequest(url: url, timeoutInterval: 100)
         request.httpMethod = method
@@ -347,16 +356,18 @@ struct HerdrClient: Sendable {
 
     private struct Problem: Decodable { let error: String }
 
+    /// What a status other than 2xx means, with the bridge's own sentence when its body carries one.
+    static func failure(status code: Int, body: Data) -> Failure {
+        if code == 401 { return .unauthorized }
+        if code == 403 { return .refusedHost }
+        return .http(code, (try? JSONDecoder().decode(Problem.self, from: body))?.error ?? "The Herdr workspace answered HTTP \(code).")
+    }
+
     private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
         try await prepare?()
         let (data, response) = try await session.data(for: request)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(code) else {
-            if code == 401 { throw Failure.unauthorized }
-            if code == 403 { throw Failure.refusedHost }
-            let message = (try? JSONDecoder().decode(Problem.self, from: data))?.error
-            throw Failure.http(code, message ?? "The Herdr workspace answered HTTP \(code).")
-        }
+        guard (200..<300).contains(code) else { throw Self.failure(status: code, body: data) }
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(T.self, from: data.isEmpty ? Data("{}".utf8) : data)
     }

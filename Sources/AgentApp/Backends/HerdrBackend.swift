@@ -3,10 +3,10 @@ import Foundation
 /// An agent that Herdr Core runs in a terminal (Claude Code, Codex, or any other template), reached through the
 /// SwarmHub bridge (`HerdrClient`). The agent program keeps its own conversation, model, tools and permissions, so
 /// only the newest user message is sent (after the bot's own instructions, once, when an agent starts):
-/// `systemPrompt`, earlier `messages` and images go nowhere. The reply is
-/// saved by the agent's Stop hook when its turn ends; a template that publishes a preview (Claude Code with
-/// `--workspace-preview`) also shows it growing line by line, and one that does not (Codex) shows it whole.
-/// Both agents report their tool calls through hooks, which become the reply's activity steps.
+/// `systemPrompt`, earlier `messages` and images go nowhere. The reply is saved by the agent's Stop hook when its
+/// turn ends. Until then the reply so far is shown as it is written: Claude Code, Codex and OpenCode all publish it
+/// through the bridge, and both report their tool calls through hooks, which become the reply's activity steps.
+/// A turn is followed on the bridge's event stream (`HerdrEvents.swift`), and by polling where there is none.
 ///
 /// There are no server sessions for the app to manage (`sessionTransport` is nil, like Mock): one bot is one agent
 /// on the bridge, named from the bot (`HerdrClient.agentName`), started on its first message and reused while it runs.
@@ -46,6 +46,9 @@ struct HerdrBackend: AgentBackend {
     /// difficulty. A new agent reads it after its instructions; a running agent that has not read it yet reads it in
     /// front of its next message, once (`HerdrClient.deliver`'s `once`).
     var helperNote: String? = nil
+    /// Hears, while a turn runs, the agent's helpers as the stream reports them and whether the stream is delivering
+    /// (`HerdrClient.LiveNote`): the bot's helper rows then need no polling of their own.
+    var onLive: (@Sendable (HerdrClient.LiveNote) -> Void)? = nil
 
     /// The app's notes for this bot, each with the phrase that shows an agent has read it.
     var notes: [(marker: String, note: String)] {
@@ -90,7 +93,7 @@ struct HerdrBackend: AgentBackend {
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
                     let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0)) },
                                                                tool: { call, isNew in Self.toolEvents(call, isNew: isNew).forEach { continuation.yield(.tool($0)) } },
-                                                               partial: { continuation.yield(.replace($0)) })
+                                                               partial: { continuation.yield(.replace($0)) }, live: { backend.onLive?($0) })
                     continuation.yield(.replace(reply)); continuation.yield(.completed); continuation.finish()
                 } catch is CancellationError { continuation.finish()
                 } catch { continuation.finish(throwing: error) }

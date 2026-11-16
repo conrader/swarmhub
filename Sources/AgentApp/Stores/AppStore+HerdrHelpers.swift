@@ -24,12 +24,13 @@ extension AppStore {
 
     /// The Herdr bots whose helpers are worth reading now, and whether often: a bot that is answering or has helpers
     /// listed is read every few seconds, the open chat of an idle bot only now and then (an agent starts helpers
-    /// while it works, so an idle one rarely has news). Every other bot is not read at all.
+    /// while it works, so an idle one rarely has news). Every other bot is not read at all, and neither is a bot
+    /// whose running turn is on the event stream, which brings its helpers as they change (`herdrLive`).
     func herdrHelperWatch() -> (bots: [Bot], often: Bool) {
         let open = selectedGroup == nil && !showingReports ? selectedBot?.id : nil
         var often = false
         let watched = bots.filter { bot in
-            guard bot.backend == .herdr, !bot.isReadOnlyArchive else { return false }
+            guard bot.backend == .herdr, !bot.isReadOnlyArchive, !herdrStreaming.contains(bot.id) else { return false }
             let busy = isWorking(bot) || herdrHelpers[bot.id]?.helpers.isEmpty == false
             if busy { often = true }
             return busy || bot.id == open
@@ -79,6 +80,17 @@ extension AppStore {
         if found != herdrHelpers { herdrHelpers = found }
     }
 
+    /// What a running turn on the event stream says beside its reply: whether the stream is delivering, and the
+    /// agent's helpers whenever they change. Helpers the stream no longer lists leave the screen like polled ones.
+    func herdrLive(_ note: HerdrClient.LiveNote, botID: UUID) {
+        switch note {
+        case .following(let on): if on { herdrStreaming.insert(botID) } else { herdrStreaming.remove(botID) }
+        case .helpers(let list):
+            let shown = list?.helpers.isEmpty == false ? list : nil
+            if herdrHelpers[botID] != shown { herdrHelpers[botID] = shown }
+        }
+    }
+
     // MARK: Looking into one
 
     func isOpen(_ helper: HerdrClient.Helper, of bot: Bot) -> Bool {
@@ -89,6 +101,17 @@ extension AppStore {
     func open(_ helper: HerdrClient.Helper, of bot: Bot) {
         open(bot)
         openHerdrHelper = HerdrHelperSelection(botID: bot.id, helperID: helper.id)
+    }
+
+    /// The helper's own session as events (`HerdrEvents.swift`): its tasks, replies, tool calls and the reply it is writing.
+    func herdrHelperEvents(_ helper: HerdrClient.AgentRef, of bot: Bot) throws -> AsyncThrowingStream<HerdrEvent, Error> {
+        try herdrClient(for: herdrServer(for: bot)).events(of: helper)
+    }
+
+    /// The helper's terminal as text, which the event stream does not carry; nil when Core has none any more.
+    func herdrHelperScreen(_ helper: HerdrClient.AgentRef, of bot: Bot) async -> String? {
+        guard let client = try? herdrClient(for: herdrServer(for: bot)) else { return nil }
+        return try? await client.screen(of: helper)
     }
 
     /// The helper's saved task and replies, its tool calls and its terminal, read from its bot's server.

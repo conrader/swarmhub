@@ -53,6 +53,8 @@ import SwarmHubCore
     /// detail column; the poll that reads them, and the failed reads in a row per server.
     @Published var herdrHelpers: [UUID: HerdrClient.Helpers] = [:]; @Published var openHerdrHelper: HerdrHelperSelection?
     var herdrHelperPoll: Task<Void, Never>?; var herdrHelperFailures: [String: Int] = [:]
+    /// The bots whose running turn is on the bridge's event stream: the stream brings their helpers, so the poll leaves them out.
+    var herdrStreaming: Set<UUID> = []
     /// What each Herdr bot's agent runs on, as last read from its server (`refreshHerdrAgentReading`): the Details
     /// panel and the chat header show it by name.
     @Published var herdrAgentReadings: [UUID: HerdrAgentReading] = [:]
