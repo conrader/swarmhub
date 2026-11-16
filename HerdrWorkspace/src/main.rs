@@ -44,6 +44,7 @@ mod runtimes;
 mod search;
 mod skill_proposals;
 mod skills;
+mod skillshare;
 mod slack_events;
 mod task_files;
 mod terminal;
@@ -279,6 +280,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(attention::routes())
         .merge(activity::routes())
         .merge(skills::routes())
+        .merge(skillshare::routes())
         .merge(skill_proposals::routes())
         .merge(profiles::routes())
         .merge(pwa::routes())

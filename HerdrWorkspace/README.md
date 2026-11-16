@@ -477,6 +477,41 @@ From an agent’s composer or a routine editor, choose **Use skill** to preview 
 
 An agent can propose a reusable skill with `swarmhub-herdr propose-skill < skill.json`, using the workspace binary from its own session. The JSON contains `name`, `summary`, and `instructions`. The conversation offers **Review proposed skill**; you can edit and save it to the Library or dismiss it. A proposal alone creates no skill and runs no commands. Reviewing saved proposals works while Herdr Core is offline.
 
+## Manage the server’s skillshare skills
+
+[skillshare](https://skillshare.runkids.cc) is a separate command-line program. It keeps one folder of agent skills, the source, and links it into each agent program’s own skills folder, a Target. If it is installed on the server, an app can show its skills and Targets and turn skills on and off through the workspace. This has nothing to do with the workspace’s own Skills library in [Reuse a skill](#reuse-a-skill).
+
+The workspace runs the `skillshare` program it finds on its `PATH`. Set `SWARMHUB_SKILLSHARE` to the program’s full path to use another one. Without the program, every route below answers with `installed: false` and a `problem` that says so. The workspace keeps no copy of skillshare’s state: each answer is what skillshare reports at that moment.
+
+- Turning a skill on or off changes the source only. The agent programs see the change after the next sync.
+- A sync links the enabled skills into every Target and removes the links of disabled ones. A skill folder of your own that is already in a Target stays as it is, also when it has the name of a skill in the source: the workspace never asks skillshare to overwrite.
+- Adding a Target only writes skillshare’s configuration. Nothing is linked into that agent program’s folder until the next sync, and from then on that program loads every enabled skill, in every session of the server account, including the ones you start yourself.
+- The workspace does not install, update or remove skills. Use `skillshare` on the server for that.
+
+### For apps
+
+Every route needs the access token. A `GET` always answers 200; read `problem` (`null` when all is well) to learn why something is missing.
+
+- `GET /api/skillshare` returns `installed`, `version`, `problem`, `source` (the folder), `skill_count`, `skills` and `targets`. Each skill has `name`, `path` (its folder in the source), `description` (the first 300 characters from its `SKILL.md`, or `null`), `enabled`, `origin` (`local`, `tracked`, or where it was installed from, such as `github`) and `source` (the place it was installed from or its tracked checkout, or `null`). Each Target has `name`, `path`, `mode`, `status`, `linked` (skills in its folder now) and `skills_enabled`. An answer carries at most 500 skills; `skill_count` counts them all.
+- `POST /api/skillshare/enable` and `POST /api/skillshare/disable` take `{"name": "…"}`, a name from that list. They answer like the `GET`, plus `changed` (the skills whose state changed) and `output` (what skillshare said; empty when the skill already was as asked).
+- `POST /api/skillshare/sync` runs a sync. With `{"dry_run": true}` it changes nothing and reports what a sync would do. It returns `dry_run`, `linked`, `local`, `updated`, `pruned`, `ignored`, the same numbers for each Target in `details`, and `targets` as they are afterwards.
+- `GET /api/skillshare/targets` returns `installed`, `version`, `problem` and `targets`.
+- `GET /api/skillshare/targets/addable` returns `installed`, `problem` and `agents`: the names of the agent programs skillshare finds on the server and does not link into yet, such as `claude`. skillshare offers a program once that program’s own folder exists. To answer, the workspace runs `skillshare init --discover --dry-run`, which writes nothing but a line in skillshare’s own log.
+- `POST /api/skillshare/targets` takes `{"agent": "…"}`, a name from that list, and makes it a Target with `skillshare init --discover --select`. It answers like `GET /api/skillshare/targets`, plus `added` and `output`.
+
+A refused `POST` answers with an `error` to show as it is:
+
+| Status | Meaning |
+| --- | --- |
+| 404 | skillshare lists no skill with this name. |
+| 409 | The agent program is already a Target, skillshare lists two skills with this name, or skillshare ran and the skill is still as it was. |
+| 422 | The body is not the expected one, skillshare does not offer this agent program, or the skill’s folder name has characters skillshare would read as a pattern. |
+| 502 | skillshare failed or is not set up. The `error` carries what it said. |
+| 503 | skillshare is not installed. |
+| 504 | skillshare took too long and was stopped: 20 seconds to read, 60 to change, 120 to sync. |
+
+The workspace passes skillshare only a skill folder or an agent program name that skillshare itself just listed, as one argument and without a shell. Changes run one at a time and finish even if the app disconnects.
+
 ## Capture Claude Code replies
 
 Install and sign in to Claude Code normally under the account running Herdr. Open it once in the intended working directory to handle interactive setup and trust prompts. Add a Herdr template such as `claude.md`, replacing the path with the installed workspace binary:
