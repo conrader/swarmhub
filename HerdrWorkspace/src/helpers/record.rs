@@ -340,10 +340,11 @@ pub(super) fn list_text(helpers: &[View], policy: Option<&Policy>) -> String {
     }
     let running = helpers.iter().filter(|helper| helper.live()).count();
     let limit = policy.map_or_else(String::new, |policy| {
-        format!(", limit {}", policy.max_running)
+        format!(" of the {} allowed", policy.max_running)
     });
+    // An agent took "1 running" beside "answered" for a contradiction, so the line says what running means.
     let mut text = format!(
-        "{} helper{}, {running} running{limit}.",
+        "{} helper{}. Still running: {running}{limit}. A helper keeps running after it answers, until you stop it.",
         helpers.len(),
         if helpers.len() == 1 { "" } else { "s" }
     );
@@ -554,7 +555,7 @@ mod tests {
         ));
         assert!(
             list_text(&listed, Some(&policy))
-                .starts_with("2 helpers, 1 running, limit 2.\neasy-1 · easy")
+                .starts_with("2 helpers. Still running: 1 of the 2 allowed. A helper keeps running after it answers, until you stop it.\neasy-1 · easy")
         );
         assert_eq!(
             read_text(&listed[0], Some((2, "one\ntwo  \nthree\n\n")))

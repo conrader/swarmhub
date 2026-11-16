@@ -121,7 +121,7 @@ impl Policy {
         Err(match self.max_running {
             0 => "The workspace's helper policy allows no running helpers.".to_owned(),
             limit => format!(
-                "You already have {running} helpers running and the limit is {limit}. Stop one you no longer need with `swarmhub-herdr helper stop NAME`, then try again."
+                "You already have {running} helpers running and the limit is {limit}. A helper keeps running after it answers: stop one you no longer need with `swarmhub-herdr helper stop NAME`, then try again."
             ),
         })
     }
