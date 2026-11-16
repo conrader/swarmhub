@@ -7,6 +7,7 @@ use serde_json::json;
 use std::{env, os::unix::process::CommandExt, process::Command};
 
 mod models;
+pub(crate) mod stream;
 pub(crate) use models::Catalog as ModelCatalog;
 
 fn executable() -> Command {
@@ -30,7 +31,7 @@ struct Stop {
 }
 
 pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
-    session()?;
+    let (journal, _) = session()?;
     let path = env::current_exe()?;
     let path = path
         .to_str()
@@ -43,35 +44,43 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     if approvals {
         args.remove(0);
     }
+    // Only a launch without arguments of its own gets the reply as it is written (`stream`): anything else
+    // (a resumed session, a fixed sandbox) starts exactly as the template says.
+    let plain = args.is_empty();
     crate::runtimes::ModelAgent::Codex.add_model_arg(&mut args)?;
-    let mut cmd = executable();
-    cmd.env_remove(crate::runtimes::MODEL_ENV);
-    cmd.args([
-        "-c",
-        &handler(
-            path,
-            "Stop",
-            "capture-codex-reply",
-            crate::agent::REPLY_HOOK_SECONDS,
-        ),
-    ]);
+    // Codex remembers each of these definitions by its text and asks again when one changes. Keep them as they are.
+    let mut hooks = vec![handler(
+        path,
+        "Stop",
+        "capture-codex-reply",
+        crate::agent::REPLY_HOOK_SECONDS,
+    )];
     for event in ["PreToolUse", "PostToolUse"] {
-        cmd.args([
-            "-c",
-            &handler(
-                path,
-                event,
-                "tool-activity",
-                crate::agent::TOOL_HOOK_SECONDS,
-            ),
-        ]);
+        hooks.push(handler(
+            path,
+            event,
+            "tool-activity",
+            crate::agent::TOOL_HOOK_SECONDS,
+        ));
     }
     if approvals {
-        cmd.args([
-            "-c",
-            &handler(path, "PermissionRequest", "review-codex-permission", 55),
-        ]);
+        hooks.push(handler(
+            path,
+            "PermissionRequest",
+            "review-codex-permission",
+            55,
+        ));
     }
+    let mut cmd = executable();
+    cmd.env_remove(crate::runtimes::MODEL_ENV);
+    match plain
+        .then(|| stream::start(&journal, path, &hooks))
+        .flatten()
+    {
+        // The hooks run in the session's app server, which was given them; the terminal UI only shows it.
+        Some(server) => cmd.args(["--remote", &server]),
+        None => cmd.args(hooks.iter().flat_map(|hook| ["-c", hook])),
+    };
     // Leave hook trust, authentication, sandboxing and approval policy to Codex.
     Err(cmd.args(args).exec().into())
 }

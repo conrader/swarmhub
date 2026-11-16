@@ -49,8 +49,8 @@ struct Update {
 
 #[derive(Default)]
 struct DraftState {
-    /// The reply so far of an agent that sends the whole text on one connection, as OpenCode's plugin does.
-    /// The number is the connection, so a newer one wins.
+    /// The reply so far of an agent that sends the whole text on one connection: OpenCode's plugin and the
+    /// Codex follower (`codex_agent::stream`). The number is the connection, so a newer one wins.
     streamed: HashMap<String, (u64, Draft)>,
     claude: claude_preview::Previews,
     group: group_preview::Previews,

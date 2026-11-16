@@ -141,6 +141,9 @@ impl Workspace {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(command) = std::env::args_os().nth(1) {
+        if command == codex_agent::stream::COMMAND {
+            return codex_agent::stream::run().await;
+        }
         return agent::run(&command);
     }
     let socket = PathBuf::from(

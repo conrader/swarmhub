@@ -1,0 +1,839 @@
+//! Codex replies as they are written.
+//!
+//! Codex has no hook for unfinished text, but its app server sends every client of a conversation the text a
+//! message gains (`item/agentMessage/delta`), and its terminal UI can run against an app server
+//! (`codex --remote`). So `run-codex` starts a private app server for the session, with the hook settings it would
+//! otherwise have given the UI, and starts the UI against it. This process stays beside them: it joins the UI's
+//! conversation as a second client and passes the text of the message being written to the workspace's live
+//! socket, the one OpenCode's plugin writes to. `/draft` and the event streams read it from there.
+//!
+//! The terminal still shows Codex's own UI, and everything a person or the workspace does goes through it as
+//! before: tasks, steering, the stop key, approvals. This client only listens. It never answers a request the
+//! server sends, so the UI stays the one that decides.
+//!
+//! If the app server does not come up, `run-codex` starts Codex the way it did before and the reply appears whole.
+
+use crate::agent::session;
+use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
+use serde_json::{Value, json};
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+    ffi::OsString,
+    fs::{self, DirBuilder},
+    io::{self, BufRead, BufReader, Write},
+    os::unix::{
+        fs::{DirBuilderExt, OpenOptionsExt},
+        process::CommandExt,
+    },
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    sync::mpsc,
+    time::Duration,
+};
+use tokio::{
+    io::AsyncWriteExt,
+    net::UnixStream,
+    sync::oneshot,
+    time::{Instant, interval, sleep_until, timeout},
+};
+use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
+
+/// `SWARMHUB_CODEX_STREAM=off` starts Codex without the app server.
+const SWITCH: &str = "SWARMHUB_CODEX_STREAM";
+const LOG: &str = "SWARMHUB_CODEX_STREAM_LOG";
+pub(crate) const COMMAND: &str = "codex-stream";
+/// How long `run-codex` waits for the app server before it starts Codex without one. The server answers within
+/// a second on a quiet machine. When it takes this long the machine is busy, and starting the terminal UI after
+/// it could outlast the 30 seconds Herdr Core holds the first task for.
+const START: Duration = Duration::from_secs(4);
+/// The workspace keeps at most this much of a reply so far (`live_reply`).
+const TEXT_LIMIT: usize = 32 * 1024;
+/// Text is passed on at most this often, however fast it arrives.
+const PACE: Duration = Duration::from_millis(60);
+const FEED_WAIT: Duration = Duration::from_millis(200);
+/// A conversation can only be joined once its first turn is on disk, a moment after it turns active.
+const JOIN_AGAIN: Duration = Duration::from_millis(150);
+const JOIN_TRIES: u8 = 40;
+const RECONNECT: Duration = Duration::from_secs(2);
+const REMEMBERED: usize = 256;
+
+/// Notifications this client has no use for. Leaving them out keeps a long command's output off the socket.
+const UNUSED: &[&str] = &[
+    "item/commandExecution/outputDelta",
+    "item/commandExecution/terminalInteraction",
+    "item/fileChange/outputDelta",
+    "item/fileChange/patchUpdated",
+    "item/reasoning/summaryTextDelta",
+    "item/reasoning/summaryPartAdded",
+    "item/reasoning/textDelta",
+    "item/plan/delta",
+    "item/mcpToolCall/progress",
+    "turn/diff/updated",
+    "turn/plan/updated",
+    "turn/moderationMetadata",
+    "hook/started",
+    "hook/completed",
+    "thread/tokenUsage/updated",
+    "account/rateLimits/updated",
+];
+
+type Failed = Box<dyn std::error::Error>;
+type Connection = WebSocketStream<UnixStream>;
+
+fn address(socket: &Path) -> String {
+    format!("unix://{}", socket.display())
+}
+
+/// Starts the app server and this follower for a session. Returns the address the terminal UI connects to,
+/// or `None` when Codex has to start the old way.
+pub(super) fn start(journal: &Path, exe: &str, hooks: &[String]) -> Option<String> {
+    if env::var(SWITCH).as_deref() == Ok("off") {
+        return None;
+    }
+    let folder = journal.with_file_name("codex-stream");
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&folder)
+        .ok()?;
+    let launcher = std::process::id();
+    forget_ended(&folder);
+    let socket = folder.join(format!("{launcher}.sock"));
+    socket
+        .to_str()
+        .filter(|path| !path.contains(char::is_whitespace))?;
+    let mut follower = Command::new(exe)
+        .arg(COMMAND)
+        .arg(launcher.to_string())
+        .arg(&socket)
+        .args(hooks)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(log())
+        // Its own group: the terminal's foreground group stays Codex's UI alone.
+        .process_group(0)
+        .spawn()
+        .ok()?;
+    let output = follower.stdout.take()?;
+    let (ready, started) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let _ = BufReader::new(output).read_line(&mut line);
+        let _ = ready.send(line.trim() == "ready");
+    });
+    if started.recv_timeout(START) == Ok(true) {
+        return Some(address(&socket));
+    }
+    let _ = follower.kill();
+    let _ = follower.wait();
+    let _ = fs::remove_file(&socket);
+    None
+}
+
+/// Where the follower and its app server may write why something failed: the file `SWARMHUB_CODEX_STREAM_LOG`
+/// names, or nowhere.
+fn log() -> Stdio {
+    env::var_os(LOG)
+        .filter(|path| Path::new(path).is_absolute())
+        .and_then(|path| {
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .mode(0o600)
+                .open(path)
+                .ok()
+        })
+        .map_or_else(Stdio::null, Stdio::from)
+}
+
+/// Removes the socket names of sessions whose process is gone. One that was killed could not remove its own.
+fn forget_ended(folder: &Path) {
+    for entry in fs::read_dir(folder).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        let pid = name
+            .to_str()
+            .and_then(|name| name.strip_suffix(".sock"))
+            .and_then(|pid| pid.parse::<libc::pid_t>().ok());
+        if let Some(pid) = pid.filter(|pid| *pid > 0)
+            && unsafe { libc::kill(pid, 0) } != 0
+            && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+        {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// Ends the app server with this process, and removes the socket's name.
+struct Server {
+    pid: libc::pid_t,
+    socket: PathBuf,
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        unsafe { libc::kill(self.pid, libc::SIGTERM) };
+        let _ = fs::remove_file(&self.socket);
+    }
+}
+
+fn end_with_parent() -> io::Result<()> {
+    if unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// `swarmhub-herdr codex-stream LAUNCHER SOCKET HOOK...`: the process beside Codex's terminal UI.
+pub async fn run() -> Result<(), Failed> {
+    const USAGE: &str = "run-codex starts this command. It is not meant to be run by hand.";
+    let (journal, key) = session()?;
+    let mut args = env::args_os().skip(2);
+    let launcher: libc::pid_t = args
+        .next()
+        .and_then(|pid| pid.to_str()?.parse().ok())
+        .ok_or(USAGE)?;
+    let socket = args.next().map(PathBuf::from).ok_or(USAGE)?;
+    let hooks: Vec<OsString> = args.collect();
+    // `run-codex` becomes the terminal UI. When that ends, so does this process and the app server.
+    end_with_parent()?;
+    let orphaned = || unsafe { libc::getppid() } != launcher;
+    if orphaned() || !socket.is_absolute() {
+        return Err(USAGE.into());
+    }
+    let _ = fs::remove_file(&socket);
+    let mut command = super::executable();
+    command.env_remove(crate::runtimes::MODEL_ENV);
+    for hook in &hooks {
+        command.arg("-c").arg(hook);
+    }
+    command
+        .args(["app-server", "--listen"])
+        .arg(address(&socket))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null());
+    unsafe { command.pre_exec(end_with_parent) };
+    let mut process = command.spawn()?;
+    let _server = Server {
+        pid: process.id() as libc::pid_t,
+        socket: socket.clone(),
+    };
+    let (exited, mut ended) = oneshot::channel();
+    std::thread::spawn(move || {
+        let _ = process.wait();
+        let _ = exited.send(());
+    });
+
+    let deadline = Instant::now() + START;
+    let mut connection = loop {
+        if let Some(connection) = connect(&socket).await {
+            break Some(connection);
+        }
+        tokio::select! {
+            _ = &mut ended => return Err("Codex's app server ended before it answered.".into()),
+            () = sleep_until(deadline) => return Err("Codex's app server did not answer in time.".into()),
+            () = tokio::time::sleep(Duration::from_millis(100)) => {}
+        }
+        if orphaned() {
+            return Ok(());
+        }
+    };
+    {
+        let mut out = io::stdout().lock();
+        writeln!(out, "ready")?;
+        out.flush()?;
+    }
+
+    let mut follower = Follower::default();
+    let mut feed = Feed {
+        path: journal.with_file_name("replies.sock"),
+        key,
+        socket: None,
+    };
+    let mut alive = interval(Duration::from_secs(1));
+    let mut flush_at: Option<Instant> = None;
+    let mut reconnect_at = Instant::now();
+    loop {
+        let join_at = follower.retries.first().map(|(at, _, _)| *at);
+        tokio::select! {
+            _ = &mut ended => return Ok(()),
+            _ = alive.tick() => if orphaned() { return Ok(()) },
+            message = next(&mut connection) => {
+                let requests = match message {
+                    Some(text) => follower.heard(&text),
+                    None => {
+                        // The UI may still be using the server: leave it running and try to listen again.
+                        connection = None;
+                        reconnect_at = Instant::now() + RECONNECT;
+                        follower = Follower::default();
+                        Vec::new()
+                    }
+                };
+                send_all(&mut connection, requests).await;
+            }
+            () = wait_until(join_at) => {
+                let requests = follower.join_again();
+                send_all(&mut connection, requests).await;
+            }
+            () = wait_until(flush_at) => {
+                flush_at = None;
+                follower.changed = false;
+                feed.show(follower.reply.as_ref()).await;
+            }
+            () = sleep_until(reconnect_at), if connection.is_none() => {
+                reconnect_at = Instant::now() + RECONNECT;
+                connection = connect(&socket).await;
+                if connection.is_some() {
+                    let requests = follower.list_threads();
+                    send_all(&mut connection, requests).await;
+                }
+            }
+        }
+        if follower.changed && flush_at.is_none() {
+            flush_at = Some(Instant::now() + PACE);
+        }
+    }
+}
+
+async fn wait_until(at: Option<Instant>) {
+    match at {
+        Some(at) => sleep_until(at).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// The next text message, or `None` when the connection is over (or there is none: then this never returns).
+async fn next(connection: &mut Option<Connection>) -> Option<String> {
+    let Some(open) = connection else {
+        return std::future::pending().await;
+    };
+    loop {
+        match open.next().await? {
+            Ok(Message::Text(text)) => return Some(text.as_str().to_owned()),
+            Ok(Message::Close(_)) | Err(_) => return None,
+            // Pings are answered by the library; nothing else carries a message.
+            Ok(_) => {}
+        }
+    }
+}
+
+async fn send_all(connection: &mut Option<Connection>, requests: Vec<Value>) {
+    for request in requests {
+        let Some(open) = connection else {
+            return;
+        };
+        if open.send(Message::text(request.to_string())).await.is_err() {
+            *connection = None;
+        }
+    }
+}
+
+/// Connects and introduces this client. `None` while the server is not ready.
+async fn connect(socket: &Path) -> Option<Connection> {
+    let hello = async {
+        // Codex puts the socket itself under a short name and leaves a link at the path it was given.
+        let stream = UnixStream::connect(fs::canonicalize(socket)?).await?;
+        let (mut connection, _) =
+            tokio_tungstenite::client_async("ws://localhost/", stream).await?;
+        // A server that does not know one of the names to leave out still gets a client: ask again without them.
+        for leave_out in [Some(UNUSED), None] {
+            let request = json!({"id":0,"method":"initialize","params":{
+                "clientInfo":{"name":"swarmhub-herdr","title":"SwarmHub","version":env!("CARGO_PKG_VERSION")},
+                "capabilities":{"experimentalApi":false,"requestAttestation":false,
+                                "optOutNotificationMethods":leave_out},
+            }});
+            connection.send(Message::text(request.to_string())).await?;
+            let accepted = loop {
+                let message = connection.next().await.ok_or("closed")??;
+                let Message::Text(text) = message else {
+                    continue;
+                };
+                let answer: Value = serde_json::from_str(text.as_str())?;
+                if answer["id"] == 0 && answer.get("method").is_none() {
+                    break answer.get("result").is_some();
+                }
+            };
+            if accepted {
+                let ready = json!({"method":"initialized"});
+                connection.send(Message::text(ready.to_string())).await?;
+                return Ok::<_, Failed>(connection);
+            }
+        }
+        Err("Codex's app server refused this client.".into())
+    };
+    match timeout(Duration::from_secs(5), hello).await {
+        Ok(Ok(connection)) => Some(connection),
+        Ok(Err(error)) => {
+            // Until the server has made its socket there is nothing to say.
+            let starting = error
+                .downcast_ref::<io::Error>()
+                .is_some_and(|error| error.kind() == io::ErrorKind::NotFound);
+            if !starting {
+                note(&error.to_string());
+            }
+            None
+        }
+        Err(_) => {
+            note("Codex's app server did not answer the greeting.");
+            None
+        }
+    }
+}
+
+/// A line for whoever set `SWARMHUB_CODEX_STREAM_LOG`; otherwise standard error goes nowhere.
+fn note(text: &str) {
+    eprintln!("codex-stream {}: {text}", std::process::id());
+}
+
+/// The message Codex is writing.
+#[derive(Debug, PartialEq)]
+struct Reply {
+    thread: String,
+    item: String,
+    text: String,
+    /// Heard from its first word. A message joined halfway is shown once it is complete.
+    whole: bool,
+}
+
+#[derive(Default)]
+struct Follower {
+    last_id: u64,
+    /// Requests to join a conversation that have no answer yet, by request id, with the tries so far.
+    joining: HashMap<u64, (String, u8)>,
+    joined: HashSet<String>,
+    /// Conversations that are not the person's: Codex's own short-lived ones, and those of its sub-agents.
+    skipped: HashSet<String>,
+    retries: Vec<(Instant, String, u8)>,
+    listing: Option<u64>,
+    reply: Option<Reply>,
+    /// The reply changed since it was last shown.
+    changed: bool,
+}
+
+#[derive(Deserialize)]
+struct Heard {
+    id: Option<Value>,
+    method: Option<String>,
+    #[serde(default)]
+    params: Value,
+    result: Option<Value>,
+    error: Option<Value>,
+}
+
+fn other_conversation(thread: &Value) -> bool {
+    thread["ephemeral"] == true || !thread["parentThreadId"].is_null()
+}
+
+impl Follower {
+    fn request(&mut self, method: &str, params: Value) -> (u64, Value) {
+        self.last_id += 1;
+        (
+            self.last_id,
+            json!({"id":self.last_id,"method":method,"params":params}),
+        )
+    }
+
+    fn join(&mut self, thread: &str, tries: u8) -> Vec<Value> {
+        if self.joined.contains(thread)
+            || self.skipped.contains(thread)
+            || self.joining.values().any(|(joining, _)| joining == thread)
+            || self.retries.iter().any(|(_, waiting, _)| waiting == thread)
+        {
+            return Vec::new();
+        }
+        // Joining a running conversation changes nothing in it: no settings are sent, and no history is asked for.
+        let (id, request) = self.request(
+            "thread/resume",
+            json!({"threadId":thread,"excludeTurns":true}),
+        );
+        self.joining.insert(id, (thread.to_owned(), tries));
+        vec![request]
+    }
+
+    fn join_again(&mut self) -> Vec<Value> {
+        let now = Instant::now();
+        let due: Vec<_> = self
+            .retries
+            .extract_if(.., |(at, _, _)| *at <= now)
+            .collect();
+        due.into_iter()
+            .flat_map(|(_, thread, tries)| self.join(&thread, tries))
+            .collect()
+    }
+
+    /// After a lost connection: the conversations the server has open, to join the running ones again.
+    fn list_threads(&mut self) -> Vec<Value> {
+        let (id, request) = self.request("thread/loaded/list", json!({}));
+        self.listing = Some(id);
+        vec![request]
+    }
+
+    fn skip(&mut self, thread: &str) {
+        if self.skipped.len() >= REMEMBERED {
+            self.skipped.clear();
+        }
+        self.skipped.insert(thread.to_owned());
+    }
+
+    fn clear(&mut self, thread: &str) {
+        if self
+            .reply
+            .as_ref()
+            .is_some_and(|reply| reply.thread == thread)
+        {
+            self.reply = None;
+            self.changed = true;
+        }
+    }
+
+    /// Takes one message from the server and returns the requests to send in answer.
+    fn heard(&mut self, text: &str) -> Vec<Value> {
+        let Ok(message) = serde_json::from_str::<Heard>(text) else {
+            return Vec::new();
+        };
+        let Some(method) = message.method else {
+            return self.answered(message.id, message.result, message.error);
+        };
+        if message.id.is_some() {
+            // A question for the person (an approval, a form). The terminal UI answers it.
+            return Vec::new();
+        }
+        let params = message.params;
+        let thread = params["threadId"].as_str().unwrap_or_default();
+        match method.as_str() {
+            "thread/started" => {
+                if let Some(id) = params["thread"]["id"].as_str()
+                    && other_conversation(&params["thread"])
+                {
+                    self.skip(id);
+                }
+            }
+            "thread/status/changed" if params["status"]["type"] == "active" => {
+                return self.join(thread, 0);
+            }
+            "thread/closed" => {
+                self.joined.remove(thread);
+                self.clear(thread);
+            }
+            "turn/started" | "turn/completed" if self.joined.contains(thread) => self.clear(thread),
+            "item/started" if self.joined.contains(thread) => {
+                let item = &params["item"];
+                if item["type"] == "agentMessage"
+                    && let Some(id) = item["id"].as_str()
+                {
+                    self.reply = Some(Reply {
+                        thread: thread.to_owned(),
+                        item: id.to_owned(),
+                        text: item["text"].as_str().unwrap_or_default().to_owned(),
+                        whole: true,
+                    });
+                    self.changed = true;
+                }
+            }
+            "item/agentMessage/delta" if self.joined.contains(thread) => {
+                let (Some(id), Some(delta)) = (params["itemId"].as_str(), params["delta"].as_str())
+                else {
+                    return Vec::new();
+                };
+                match &mut self.reply {
+                    Some(reply) if reply.item == id => {
+                        if reply.whole && reply.text.len() <= TEXT_LIMIT {
+                            reply.text.push_str(delta);
+                            self.changed = true;
+                        }
+                    }
+                    // Joined in the middle of this message: its beginning was not heard.
+                    _ => {
+                        self.reply = Some(Reply {
+                            thread: thread.to_owned(),
+                            item: id.to_owned(),
+                            text: String::new(),
+                            whole: false,
+                        });
+                        self.changed = true;
+                    }
+                }
+            }
+            "item/completed" if self.joined.contains(thread) => {
+                let item = &params["item"];
+                if item["type"] == "agentMessage"
+                    && let (Some(id), Some(text)) = (item["id"].as_str(), item["text"].as_str())
+                    && self.reply.as_ref().is_none_or(|reply| reply.item == id)
+                {
+                    self.reply = Some(Reply {
+                        thread: thread.to_owned(),
+                        item: id.to_owned(),
+                        text: text.to_owned(),
+                        whole: true,
+                    });
+                    self.changed = true;
+                }
+            }
+            _ => {}
+        }
+        Vec::new()
+    }
+
+    fn answered(
+        &mut self,
+        id: Option<Value>,
+        result: Option<Value>,
+        error: Option<Value>,
+    ) -> Vec<Value> {
+        let Some(id) = id.as_ref().and_then(Value::as_u64) else {
+            return Vec::new();
+        };
+        if self.listing == Some(id) {
+            self.listing = None;
+            let threads: Vec<String> = result
+                .as_ref()
+                .and_then(|result| result["data"].as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|thread| thread.as_str().map(str::to_owned))
+                .take(REMEMBERED)
+                .collect();
+            return threads
+                .iter()
+                .flat_map(|thread| self.join(thread, JOIN_TRIES - 1))
+                .collect();
+        }
+        let Some((thread, tries)) = self.joining.remove(&id) else {
+            return Vec::new();
+        };
+        match result {
+            Some(result) if other_conversation(&result["thread"]) => {
+                self.skip(&thread);
+                let (_, leave) = self.request("thread/unsubscribe", json!({"threadId":thread}));
+                vec![leave]
+            }
+            Some(_) => {
+                if self.joined.len() >= REMEMBERED {
+                    self.joined.clear();
+                }
+                self.joined.insert(thread);
+                Vec::new()
+            }
+            // Not on disk yet, or not a conversation that can be joined.
+            None if error.is_some() && tries + 1 < JOIN_TRIES => {
+                self.retries
+                    .push((Instant::now() + JOIN_AGAIN, thread, tries + 1));
+                Vec::new()
+            }
+            None => Vec::new(),
+        }
+    }
+}
+
+/// The workspace's live socket: one connection while a reply is being written. Closing it takes the reply
+/// so far away again, which is what the end of a turn means.
+struct Feed {
+    path: PathBuf,
+    key: String,
+    socket: Option<UnixStream>,
+}
+
+/// A message id as the workspace accepts it (`opencode_agent::valid_reply_id`).
+fn reply_id(item: &str) -> String {
+    let id: String = item
+        .chars()
+        .take(128)
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if id.is_empty() { "reply".into() } else { id }
+}
+
+impl Feed {
+    async fn show(&mut self, reply: Option<&Reply>) {
+        let Some(reply) = reply.filter(|reply| reply.whole && !reply.text.trim().is_empty()) else {
+            // Nothing to show: an empty message keeps what was there until text arrives or the turn ends.
+            if reply.is_none() {
+                self.socket = None;
+            }
+            return;
+        };
+        if reply.text.len() > TEXT_LIMIT {
+            return;
+        }
+        let Ok(mut line) = serde_json::to_vec(
+            &json!({"key":self.key,"id":reply_id(&reply.item),"text":reply.text}),
+        ) else {
+            return;
+        };
+        line.push(b'\n');
+        let write = async {
+            if self.socket.is_none() {
+                self.socket = Some(UnixStream::connect(&self.path).await?);
+            }
+            match &mut self.socket {
+                Some(socket) => socket.write_all(&line).await,
+                None => Ok(()),
+            }
+        };
+        // The workspace may be restarting. The next change tries again.
+        if !matches!(timeout(FEED_WAIT, write).await, Ok(Ok(()))) {
+            self.socket = None;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const THREAD: &str = "01a1e5a6-7873-7061-a779-4d9011c1989e";
+
+    fn note(method: &str, params: Value) -> String {
+        json!({"method":method,"params":params}).to_string()
+    }
+
+    fn joined() -> Follower {
+        let mut follower = Follower::default();
+        let asked = follower.heard(&note(
+            "thread/status/changed",
+            json!({"threadId":THREAD,"status":{"type":"active","activeFlags":[]}}),
+        ));
+        assert_eq!(asked[0]["method"], "thread/resume");
+        assert_eq!(
+            asked[0]["params"],
+            json!({"threadId":THREAD,"excludeTurns":true})
+        );
+        let id = asked[0]["id"].clone();
+        let none = follower.heard(&json!({"id":id,"result":{"thread":{"id":THREAD,"ephemeral":false,"parentThreadId":null}}}).to_string());
+        assert!(none.is_empty() && follower.joined.contains(THREAD));
+        follower
+    }
+
+    fn text(follower: &Follower) -> Option<&str> {
+        follower
+            .reply
+            .as_ref()
+            .filter(|reply| reply.whole)
+            .map(|reply| reply.text.as_str())
+    }
+
+    #[test]
+    fn follows_a_message_from_its_first_word_to_the_end_of_the_turn() {
+        let mut follower = joined();
+        follower.heard(&note(
+            "turn/started",
+            json!({"threadId":THREAD,"turn":{"id":"t1"}}),
+        ));
+        follower.heard(&note(
+            "item/started",
+            json!({"threadId":THREAD,"turnId":"t1","item":{"type":"agentMessage","id":"msg_1","text":"","phase":"commentary"}}),
+        ));
+        for delta in ["Sun", "light", " looks"] {
+            follower.heard(&note(
+                "item/agentMessage/delta",
+                json!({"threadId":THREAD,"turnId":"t1","itemId":"msg_1","delta":delta}),
+            ));
+        }
+        assert_eq!(text(&follower), Some("Sunlight looks"));
+        // The finished message is the server's own text, whatever was heard before.
+        follower.heard(&note(
+            "item/completed",
+            json!({"threadId":THREAD,"turnId":"t1","item":{"type":"agentMessage","id":"msg_1","text":"Sunlight looks white."}}),
+        ));
+        assert_eq!(text(&follower), Some("Sunlight looks white."));
+        // A tool call in between leaves it; the next message replaces it.
+        follower.heard(&note(
+            "item/started",
+            json!({"threadId":THREAD,"turnId":"t1","item":{"type":"commandExecution","id":"exec-1","command":"date"}}),
+        ));
+        assert_eq!(text(&follower), Some("Sunlight looks white."));
+        follower.heard(&note(
+            "item/started",
+            json!({"threadId":THREAD,"turnId":"t1","item":{"type":"agentMessage","id":"msg_2","text":""}}),
+        ));
+        assert_eq!(text(&follower), Some(""));
+        follower.changed = false;
+        follower.heard(&note(
+            "turn/completed",
+            json!({"threadId":THREAD,"turn":{"id":"t1"}}),
+        ));
+        assert!(follower.reply.is_none() && follower.changed);
+    }
+
+    #[test]
+    fn a_message_joined_halfway_waits_for_its_full_text() {
+        let mut follower = joined();
+        follower.heard(&note(
+            "item/agentMessage/delta",
+            json!({"threadId":THREAD,"turnId":"t1","itemId":"msg_1","delta":" the end"}),
+        ));
+        follower.heard(&note(
+            "item/agentMessage/delta",
+            json!({"threadId":THREAD,"turnId":"t1","itemId":"msg_1","delta":"."}),
+        ));
+        assert_eq!(text(&follower), None);
+        follower.heard(&note(
+            "item/completed",
+            json!({"threadId":THREAD,"turnId":"t1","item":{"type":"agentMessage","id":"msg_1","text":"From the start to the end."}}),
+        ));
+        assert_eq!(text(&follower), Some("From the start to the end."));
+    }
+
+    #[test]
+    fn joins_only_the_persons_conversation_and_never_answers_the_server() {
+        let mut follower = Follower::default();
+        // Codex's own short conversation (it names the session) and a sub-agent's are not followed.
+        follower.heard(&note(
+            "thread/started",
+            json!({"thread":{"id":"own","ephemeral":true,"parentThreadId":null}}),
+        ));
+        let active = |id: &str| {
+            note(
+                "thread/status/changed",
+                json!({"threadId":id,"status":{"type":"active"}}),
+            )
+        };
+        assert!(follower.heard(&active("own")).is_empty());
+        let asked = follower.heard(&active("child"));
+        let left = follower.heard(
+            &json!({"id":asked[0]["id"],"result":{"thread":{"id":"child","ephemeral":false,"parentThreadId":THREAD}}}).to_string(),
+        );
+        assert_eq!(left[0]["method"], "thread/unsubscribe");
+        assert!(follower.heard(&active("child")).is_empty() && follower.joined.is_empty());
+
+        // Before its first turn is on disk a conversation cannot be joined: ask again shortly after.
+        let asked = follower.heard(&active(THREAD));
+        assert!(
+            follower.heard(&active(THREAD)).is_empty(),
+            "one request at a time"
+        );
+        let none = follower.heard(
+            &json!({"id":asked[0]["id"],"error":{"code":-32600,"message":"no rollout found"}})
+                .to_string(),
+        );
+        assert!(none.is_empty() && follower.retries.len() == 1 && follower.joined.is_empty());
+
+        // An approval request is the terminal UI's to answer.
+        let request = json!({"id":0,"method":"item/commandExecution/requestApproval","params":{"threadId":THREAD}});
+        assert!(follower.heard(&request.to_string()).is_empty());
+        // Text of a conversation that was not joined is not shown.
+        follower.heard(&note(
+            "item/started",
+            json!({"threadId":"child","item":{"type":"agentMessage","id":"m","text":"hidden"}}),
+        ));
+        assert!(follower.reply.is_none());
+    }
+
+    #[test]
+    fn message_ids_fit_the_live_socket() {
+        assert_eq!(reply_id("msg_006ea1e3612b"), "msg_006ea1e3612b");
+        assert_eq!(reply_id("a b/c"), "a-b-c");
+        assert_eq!(reply_id(""), "reply");
+        assert!(crate::opencode_agent::valid_reply_id(&reply_id(
+            &"é".repeat(300)
+        )));
+    }
+}

@@ -103,7 +103,7 @@ ssh -L 8787:127.0.0.1:8787 your-server
 
 A new bot runs on Herdr. Open its settings and choose **Advanced → Herdr agent** to pick its agent runtime and model, and its server when you have more than one. The same controls are in the Details panel's **Model** tab.
 
-The first message starts an agent on the server, named after the bot. Later messages go to that running agent, which keeps its own context, model, tools, and permissions. A new agent gets the bot's instructions once, before your first message. A Claude Code template that ends in `run-claude --workspace-preview` shows its reply growing a few lines at a time. Codex has no hook for unfinished text, so its reply appears whole when the turn ends. For both agents, each tool call shows as a step under the reply while it runs. **Stop** presses the agent's interrupt key and leaves it open. Attachments, approvals, routines, and server history are not connected to Herdr agents yet. Use the browser workspace or `hc attach` to answer a prompt in the agent's terminal.
+The first message starts an agent on the server, named after the bot. Later messages go to that running agent, which keeps its own context, model, tools, and permissions. A new agent gets the bot's instructions once, before your first message. A Claude Code template that ends in `run-claude --workspace-preview` shows its reply growing a few lines at a time. A Codex template that ends in `run-codex` shows its reply growing a few words at a time. For both agents, each tool call shows as a step under the reply while it runs. **Stop** presses the agent's interrupt key and leaves it open. Attachments, approvals, routines, and server history are not connected to Herdr agents yet. Use the browser workspace or `hc attach` to answer a prompt in the agent's terminal.
 
 ### Let a bot create bots
 
@@ -514,6 +514,23 @@ command: /absolute/path/to/swarmhub-herdr run-codex
 The first launch stops at Codex’s **Hooks need review** prompt and holds the task until you answer. Open **Take over**, review the SwarmHub hooks, and trust them: `capture-codex-reply` on Stop saves the reply, and `tool-activity` on PreToolUse and PostToolUse reports which tool is running. Codex remembers that decision for the same installed path, so later launches start without the prompt. Use the same installed path between launches so the hook definition stays stable. Prepare workspace trust and sign-in before relying on quiet readiness. Select a model by adding Codex’s normal `--model` option to the template command, or keep the defaults supplied by your Codex config.
 
 `run-codex` adds a session-only [Codex Stop hook](https://learn.chatgpt.com/docs/hooks#stop). It does not edit user or project hooks, bypass hook trust, change the sandbox, or handle credentials. The workspace records a reply once per Codex turn when a turn ID is present. A terminal remains available if the hook isn't trusted, doesn't run, or doesn't return text.
+
+### The reply as Codex writes it
+
+Codex has no hook for unfinished text. Its app server does send the text a message gains to every client of a conversation, and its terminal UI can run against an app server (`codex --remote`). A template command that ends in `run-codex`, with nothing after it but `--workspace-approvals`, therefore starts three processes in the terminal:
+
+- A private Codex app server for this session, started with the same hook settings `run-codex` would otherwise give the terminal UI. Codex knows each hook by its text and position, so the hooks you trusted stay trusted and run as before.
+- Codex's own terminal UI, connected to that server. Tasks, steering, the stop key, approvals and **Take over** go through it as before.
+- `swarmhub-herdr codex-stream`, which joins the UI's conversation as a second client and passes the text of the message being written to the workspace. It only listens: it never answers a question the server asks, so the UI stays the one that decides.
+
+The reply so far shows in the same place as Claude Code's and OpenCode's: `…/draft` and the event stream below, up to 32 KiB. It is the message Codex is writing now, so a short note before a tool call is replaced by the answer that follows, and it goes away when the turn ends or is stopped. The Stop hook still saves the final reply.
+
+- The app server and the follower end with the terminal UI. Each session has its own; Codex's shared background server is not used or changed.
+- A session takes one more Codex process than before. It starts one to two seconds later on a quiet machine, and several seconds later on a busy one.
+- If the app server does not answer within 4 seconds, `run-codex` starts Codex the old way and that session's replies appear whole. It normally answers within a second. A slow answer means a busy machine, where two Codex starts in a row could outlast the 30 seconds Herdr Core holds the first task for.
+- A template with other Codex arguments (a resumed session, a fixed sandbox) starts the old way too.
+- Put `SWARMHUB_CODEX_STREAM=off` in front of the template command to always start the old way.
+- Set `SWARMHUB_CODEX_STREAM_LOG` to an absolute file path to see why a start fell back.
 
 ## Run OpenCode V2
 
