@@ -68,6 +68,18 @@ Use the same build of `swarmhub-herdr` for the bridge and the helper commands in
 
 Choose **Appearance** in the sidebar to use **System**, **Light**, or **Dark**. System follows the device’s theme as it changes. Your choice is remembered in the browser or installed web app where you set it. It does not change another device or your workspace account. The generic offline page follows the device theme.
 
+## Use the Mac app
+
+The SwarmHub Mac app can chat with the same agents through this bridge. Keep the bridge running on the Herdr machine and forward its port to the Mac, using the same port number on both ends because the bridge checks it:
+
+```sh
+ssh -L 8787:127.0.0.1:8787 your-server
+```
+
+In the app, open **Settings → Advanced → Servers and keys → Herdr workspace**. Leave the address at `http://127.0.0.1:8787`, paste the access token, and choose **Test**. Then create or edit a bot, open **Advanced**, and set **Backend** to **Herdr**. A saved Herdr bot gets a **Herdr agent** section where you pick its runtime, for example a Claude Code template for one bot and a Codex template for another.
+
+The first message starts an agent on the Herdr machine, named after the bot. Later messages go to that running agent, which keeps its own context, model, tools, and permissions. Each reply appears when the agent finishes its turn; it is not streamed word by word. **Stop** presses the agent's interrupt key and leaves it open. The app sends only your newest message: the bot's persona, attachments, approvals, models, routines, and server history are not connected to Herdr agents yet. Use the browser workspace or `hc attach` to answer a prompt in the agent's terminal.
+
 ## Install the browser workspace
 
 Open SwarmHub on a device that can reach a secure workspace address. In the roster, choose **Install workspace** for instructions or use the browser’s install option when it’s offered. On [iPhone or iPad](https://support.apple.com/en-az/guide/iphone/iphea86e5236/26/ios/26), use Safari’s **Share → Add to Home Screen**, turn on **Open as Web App** if shown, and choose **Add**. In [Chrome on Android](https://support.google.com/chrome/answer/9658361?co=GENIE.Platform%3DAndroid), use the menu’s **Install** or **Add to home screen** option.

@@ -3,7 +3,7 @@ import Testing
 @testable import AgentApp
 
 @Test func backendKindsAreStable() {
-    #expect(BackendKind.allCases.count == 3)
+    #expect(BackendKind.allCases.count == 4)
     #expect(BackendKind.hermes.rawValue == "Hermes Agent")
 }
 

@@ -57,6 +57,7 @@ struct SettingsAccountPane: View {
         AllBotsSkillsSection()
         BoxKeysPasteSection()
         SettingsGrokSection()
+        HerdrSettingsSection()
         // P12: the Gateways' own section (it used to be a URL field here).
         OpenClawSettingsSection(status: store.openClawStatus)
             .onAppear { apiKey = KeychainStore.get(account: "hermes") }

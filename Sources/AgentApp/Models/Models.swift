@@ -2,11 +2,12 @@ import Combine
 import Foundation
 
 enum BackendKind: String, Codable, CaseIterable, Identifiable {
-    case mock = "Mock", hermes = "Hermes Agent", openClaw = "OpenClaw"
+    case mock = "Mock", hermes = "Hermes Agent", openClaw = "OpenClaw", herdr = "Herdr"
     var id: String { rawValue }
     /// Chats live on the server (history, threads, features); P12 adds OpenClaw beside Hermes.
+    /// Herdr has none: the agent program keeps its own conversation in its terminal (`HerdrBackend`).
     var hasServerSessions: Bool { self == .hermes || self == .openClaw }
-    var shortName: String { switch self { case .mock: "Mock"; case .hermes: "Hermes"; case .openClaw: "OpenClaw" } }
+    var shortName: String { switch self { case .mock: "Mock"; case .hermes: "Hermes"; case .openClaw: "OpenClaw"; case .herdr: "Herdr" } }
 }
 
 /// P12: an OpenClaw bot's Gateway, agent and session. The canonical session key goes in `Bot.hermesSessionID`

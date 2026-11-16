@@ -46,7 +46,15 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
     crate::runtimes::ModelAgent::Codex.add_model_arg(&mut args)?;
     let mut cmd = executable();
     cmd.env_remove(crate::runtimes::MODEL_ENV);
-    cmd.args(["-c", &handler(path, "Stop", "capture-codex-reply", 8)]);
+    cmd.args([
+        "-c",
+        &handler(
+            path,
+            "Stop",
+            "capture-codex-reply",
+            crate::agent::REPLY_HOOK_SECONDS,
+        ),
+    ]);
     if approvals {
         cmd.args([
             "-c",

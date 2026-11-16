@@ -73,7 +73,7 @@ func echoCreate() -> FakeGateway.Handler { { params, _ in .success(["ok": true, 
     let hermes = Bot(name: "H", backend: .hermes)
     #expect(!String(decoding: try JSONEncoder().encode(hermes), as: UTF8.self).contains("openClaw"), "untouched bots encode as before")
     #expect(BackendKind.openClaw.hasServerSessions && BackendKind.hermes.hasServerSessions && !BackendKind.mock.hasServerSessions)
-    #expect(BackendKind.allCases.map(\.shortName) == ["Mock", "Hermes", "OpenClaw"])
+    #expect(BackendKind.allCases.map(\.shortName) == ["Mock", "Hermes", "OpenClaw", "Herdr"] && !BackendKind.herdr.hasServerSessions)
 }
 
 @MainActor @Test func addBotsIsIdempotentAndNeverRemovesBots() async throws {

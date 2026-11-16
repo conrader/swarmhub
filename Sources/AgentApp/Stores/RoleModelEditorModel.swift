@@ -37,6 +37,7 @@ struct RoleModelEditorModel: Equatable {
             case .openClaw: reason = ModelRoleReason.openClaw.text
             case .hermes: reason = ModelCatalog.hermesOnceSaved
             case .mock: reason = ModelCatalog.noBackend
+            case .herdr: reason = HerdrBackend.modelNote
             }
             label = agentDefault
             return

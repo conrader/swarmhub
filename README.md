@@ -54,7 +54,7 @@ Available features depend on what your connected server supports. See the [Herme
 
 ## Try SwarmHub
 
-The [Herdr workspace preview](HerdrWorkspace/README.md) uses a Rust service to connect a browser interface to Herdr Core on Linux or macOS. [Try the isolated demo](HerdrWorkspace/README.md#try-the-demo), or connect it to your own Herdr Core. The existing Swift apps keep their current connections.
+The [Herdr workspace preview](HerdrWorkspace/README.md) uses a Rust service to connect a browser interface to Herdr Core on Linux or macOS. [Try the isolated demo](HerdrWorkspace/README.md#try-the-demo), or connect it to your own Herdr Core. The Mac app can also chat with those agents: give a bot the **Herdr** backend ([setup](HerdrWorkspace/README.md#use-the-mac-app)). This backend was compiled and run on Linux only; it has not been built into the Mac app yet.
 
 In development for **macOS, Windows, Linux, iOS, and Android**. You can build the macOS prototype now; Windows and Linux versions are planned. The **iOS and Android apps are in development**; the first native iOS foundation is available to build, and Android is at the planning stage.
 

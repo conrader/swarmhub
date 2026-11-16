@@ -19,6 +19,8 @@ use std::{
 pub(crate) mod claude_preview;
 
 const MAX_TEXT: usize = 128 * 1024;
+/// How long an agent waits for its Stop hook to save the reply before giving up on it.
+pub(crate) const REPLY_HOOK_SECONDS: u32 = 30;
 const MAX_HOOK: usize = 1024 * 1024;
 
 #[derive(Deserialize)]
@@ -300,7 +302,8 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
     let mut settings = json!({
         "hooks": {
             "Stop": [{
-                "hooks":[{ "type":"command","command":hook,"timeout":5 }]
+                // Saving the reply waits on the journal's disk; a busy disk has taken longer than 5 s.
+                "hooks":[{ "type":"command","command":hook,"timeout":REPLY_HOOK_SECONDS }]
             }]
         }
     });
