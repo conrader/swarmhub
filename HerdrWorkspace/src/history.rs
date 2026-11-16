@@ -19,7 +19,12 @@ struct Store {
     db: Mutex<Connection>,
     file: PathBuf,
     _lock: File,
+    /// Counts the times `watch_changes` saw the journal move, for the event streams (`events`).
+    changed: tokio::sync::watch::Sender<u64>,
 }
+
+/// How often `watch_changes` looks at the journal while an event stream is open.
+const WATCH_EVERY: Duration = Duration::from_millis(200);
 
 #[derive(Debug)]
 pub struct StoreError;
@@ -151,6 +156,10 @@ pub struct Page {
 }
 
 impl Item {
+    pub(crate) fn id(&self) -> i64 {
+        self.id
+    }
+
     fn render_reply(&mut self) {
         if self.kind == "reply" {
             self.rendered =
@@ -245,7 +254,47 @@ impl History {
             db: Mutex::new(db),
             file,
             _lock: lock,
+            changed: tokio::sync::watch::Sender::new(0),
         })))
+    }
+
+    /// Two numbers that stay the same only while nothing was written to the journal: SQLite's count of
+    /// other connections' commits (an agent's reply hook is one) and this connection's own changed rows.
+    pub(crate) fn signature(&self) -> Result<(i64, u64), StoreError> {
+        let db = self.db()?;
+        let others = db.query_row("PRAGMA data_version", [], |row| row.get(0))?;
+        Ok((others, db.total_changes()))
+    }
+
+    /// Changes shortly after anything was written to the journal, once `watch_changes` runs.
+    pub(crate) fn changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.0.changed.subscribe()
+    }
+
+    /// Tells `changes` when the journal moved. It reads two counters and no rows, and only while someone listens.
+    pub(crate) fn watch_changes(&self) {
+        let history = self.clone();
+        tokio::spawn(async move {
+            let mut seen = None;
+            let mut tick = tokio::time::interval(WATCH_EVERY);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                if history.0.changed.receiver_count() == 0 {
+                    seen = None;
+                    continue;
+                }
+                let Ok(now) = history.signature() else {
+                    continue;
+                };
+                if seen.replace(now).is_some_and(|before| before != now) {
+                    history
+                        .0
+                        .changed
+                        .send_modify(|count| *count = count.wrapping_add(1));
+                }
+            }
+        });
     }
 
     pub fn file(&self) -> &Path {
@@ -950,6 +999,27 @@ pub(crate) fn now() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_signature_moves_with_every_write_and_only_then() {
+        let scratch = tempfile::tempdir().unwrap();
+        let history = History::open_at(&scratch.path().join("workspace")).unwrap();
+        let empty = history.signature().unwrap();
+        assert_eq!(history.signature().unwrap(), empty);
+        // The server's own write.
+        let (_, key) = history
+            .start_launch("core", "agent", "Read this", None, "{}", "")
+            .unwrap()
+            .unwrap();
+        let launched = history.signature().unwrap();
+        assert_ne!(launched, empty);
+        // A reply hook writes through its own connection.
+        assert!(publish_reply(history.file(), &key, "Codex", "Done", None).unwrap());
+        let replied = history.signature().unwrap();
+        assert_ne!(replied, launched);
+        history.page("core", "t1", 1, None).unwrap();
+        assert_eq!(history.signature().unwrap(), replied);
+    }
 
     #[test]
     fn agent_replies_and_idle_schedules_allow_concurrent_access() {

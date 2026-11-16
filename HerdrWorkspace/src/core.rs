@@ -247,6 +247,59 @@ impl Core {
         .await
     }
 
+    /// Follows Core's fact changes for the terminals `filter` selects (`events.subscribe`) and tells `changed`
+    /// after each one. Returns when the connection ends or Core stops sending its 15-second heartbeat.
+    pub(crate) async fn follow(&self, filter: Value, changed: &tokio::sync::Notify) {
+        #[derive(Deserialize)]
+        struct Line {
+            method: Option<String>,
+            result: Option<serde::de::IgnoredAny>,
+        }
+        let Ok(Ok(socket)) = timeout(Duration::from_secs(2), UnixStream::connect(&self.0)).await
+        else {
+            return;
+        };
+        // Core treats a closed write side as the end of the subscription, so keep it open.
+        let (read, mut write) = socket.into_split();
+        let Ok(mut request) = serde_json::to_vec(
+            &json!({"jsonrpc":"2.0","id":1,"method":"events.subscribe","params":filter}),
+        ) else {
+            return;
+        };
+        request.push(b'\n');
+        if write.write_all(&request).await.is_err() {
+            return;
+        }
+        let mut input = BufReader::new(read);
+        let mut line = Vec::new();
+        let mut subscribed = false;
+        loop {
+            line.clear();
+            let read = timeout(
+                Duration::from_secs(45),
+                (&mut input).take(MAX_REPLY).read_until(b'\n', &mut line),
+            )
+            .await;
+            if !matches!(read, Ok(Ok(count)) if count > 0) || line.last() != Some(&b'\n') {
+                return;
+            }
+            let Ok(message) = serde_json::from_slice::<Line>(&line) else {
+                return;
+            };
+            match message.method.as_deref() {
+                // The answer comes first: the matching terminals, or an error. Whatever changed before
+                // this moment was not announced, so have the listener read once now.
+                None if !subscribed && message.result.is_some() => {
+                    subscribed = true;
+                    changed.notify_one();
+                }
+                Some("heartbeat") if subscribed => {}
+                Some(_) if subscribed => changed.notify_one(),
+                _ => return,
+            }
+        }
+    }
+
     pub async fn agents(&self) -> Result<Vec<Terminal>, Failure> {
         #[derive(Deserialize)]
         struct List {

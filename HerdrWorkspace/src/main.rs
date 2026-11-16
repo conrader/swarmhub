@@ -11,6 +11,7 @@ mod drive_access;
 mod drive_files;
 mod drive_oauth;
 mod email_drafts;
+mod events;
 mod file_preview;
 mod github_project;
 mod grok_import;
@@ -196,6 +197,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("SwarmHub agent access to GitHub is unavailable: {error}");
     }
     helpers::start_serving(workspace.clone());
+    workspace.history.watch_changes();
     let app = Router::new()
         .route(
             "/",
@@ -258,6 +260,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(group_routes::routes())
         .merge(group_handoffs::routes())
         .merge(helpers::routes())
+        .merge(events::routes())
         .merge(reactions::routes())
         .merge(grok_import::routes())
         .merge(routine_routes::routes())
@@ -460,6 +463,7 @@ enum ApiError {
     Conflict(&'static str),
     PayloadTooLarge(&'static str),
     ConnectedFiles(&'static str),
+    TooMany(&'static str),
 }
 
 impl From<Failure> for ApiError {
@@ -487,6 +491,9 @@ impl IntoResponse for ApiError {
             }
             Self::ConnectedFiles(error) => {
                 (StatusCode::BAD_GATEWAY, Json(json!({"error":error}))).into_response()
+            }
+            Self::TooMany(error) => {
+                (StatusCode::TOO_MANY_REQUESTS, Json(json!({"error":error}))).into_response()
             }
             Self::NotFound => (
                 StatusCode::NOT_FOUND,
@@ -528,17 +535,28 @@ fn record_failure(history: &History, record: i64, error: &Failure) -> Result<(),
     history.finish(record, state, detail, None)
 }
 
-async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::Value>, ApiError> {
-    #[derive(serde::Serialize)]
-    struct AgentView<'a> {
-        #[serde(flatten)]
-        terminal: &'a core::Terminal,
-        opencode_api: bool,
-        /// Set for a helper: the agent that started it (`helpers`).
-        #[serde(skip_serializing_if = "Option::is_none")]
-        parent: Option<helpers::ParentRef>,
-    }
+/// An agent as `/api/workspace` lists it and as its event stream reports it (`events`).
+#[derive(serde::Serialize)]
+struct AgentView<'a> {
+    #[serde(flatten)]
+    terminal: &'a core::Terminal,
+    opencode_api: bool,
+    /// Set for a helper: the agent that started it (`helpers`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: Option<helpers::ParentRef>,
+}
 
+impl<'a> AgentView<'a> {
+    fn new(terminal: &'a core::Terminal, parent: Option<helpers::ParentRef>) -> Self {
+        Self {
+            terminal,
+            opencode_api: terminal.uses_opencode_api(),
+            parent,
+        }
+    }
+}
+
+async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::Value>, ApiError> {
     let hello = w.core.identify().await?;
     let (agents, templates) = tokio::try_join!(w.core.agents(), w.core.templates())?;
     let catalog = runtimes::Catalog::load(w.history.file());
@@ -561,11 +579,7 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
         })
         // A helper that has ended leaves the roster; its conversation stays in the history.
         .filter(|(terminal, helper)| helper.is_none() || terminal.state == "live")
-        .map(|(terminal, helper)| AgentView {
-            terminal,
-            opencode_api: terminal.uses_opencode_api(),
-            parent: helper.cloned().flatten(),
-        })
+        .map(|(terminal, helper)| AgentView::new(terminal, helper.cloned().flatten()))
         .collect();
     Ok(Json(
         json!({"version":hello.version,"core":hello.core.id,"agents":agents,"templates":templates,

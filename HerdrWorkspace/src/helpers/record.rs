@@ -18,8 +18,8 @@ const QUIET_MS: i64 = 20_000;
 
 #[derive(Clone, Serialize)]
 pub(crate) struct ParentRef {
-    pub(super) address: String,
-    pub(super) created_ms: u64,
+    pub(crate) address: String,
+    pub(crate) created_ms: u64,
 }
 
 #[derive(Serialize)]

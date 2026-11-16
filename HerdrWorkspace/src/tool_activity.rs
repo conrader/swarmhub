@@ -92,6 +92,16 @@ pub(crate) struct Call {
     at: Instant,
 }
 
+impl Call {
+    pub(crate) fn seq(&self) -> u64 {
+        self.seq
+    }
+
+    pub(crate) fn finished(&self) -> bool {
+        self.finished
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Activity {
     sessions: HashMap<String, Vec<Call>>,

@@ -103,7 +103,7 @@ pub(crate) struct Reply {
 }
 
 #[derive(Serialize)]
-struct Listing {
+pub(crate) struct Listing {
     core: String,
     parent: ParentRef,
     /// Running helpers the policy allows this agent at once; `null` without a usable policy.
@@ -670,34 +670,51 @@ async fn list(
     Path((id, created)): Path<(String, u64)>,
 ) -> Result<Json<Listing>, ApiError> {
     let core_id = w.core.identify().await?.core.id;
-    let key: String = w
+    let key = crate::live_reply::launch_key(&w.history, &core_id, &id, created)?
+        .ok_or(Failure::Missing)?;
+    let parent = ParentRef {
+        address: id,
+        created_ms: created,
+    };
+    Ok(Json(listing(&w, core_id, &key, parent).await?))
+}
+
+/// The running helpers of the agent with this launch key: what `GET …/helpers` answers and what an event
+/// stream sends when it changes (`events`).
+pub(crate) async fn listing(
+    w: &Workspace,
+    core_id: String,
+    key: &str,
+    parent: ParentRef,
+) -> Result<Listing, ApiError> {
+    // An agent that never started a helper has none running: no need to ask Core for its terminals.
+    let any: bool = w
         .history
         .db()?
         .query_row(
-            "SELECT launch_key FROM journal
-             WHERE core_id=?1 AND address=?2 AND created_ms=?3 AND launch_key IS NOT NULL LIMIT 1",
-            params![core_id, id, created],
+            "SELECT EXISTS(SELECT 1 FROM helpers WHERE parent_key=?1)",
+            [key],
             |row| row.get(0),
         )
-        .optional()
-        .map_err(StoreError::from)?
-        .ok_or(Failure::Missing)?;
-    let agents = w.core.agents().await?;
-    let mut helpers = views(&w.history, &core_id, &key, &agents, LIST_REPLY_CHARS)?;
+        .map_err(StoreError::from)?;
+    let mut helpers = if any {
+        let agents = w.core.agents().await?;
+        views(&w.history, &core_id, key, &agents, LIST_REPLY_CHARS)?
+    } else {
+        Vec::new()
+    };
     helpers.retain(View::live);
-    Ok(Json(Listing {
+    let (stop_after_seconds, stop_unanswered_after_seconds) = Policy::delays(w.history.file());
+    Ok(Listing {
         core: core_id,
-        parent: ParentRef {
-            address: id,
-            created_ms: created,
-        },
+        parent,
         limit: Policy::load(w.history.file())
             .ok()
             .map(|policy| policy.max_running),
-        stop_after_seconds: Policy::delays(w.history.file()).0,
-        stop_unanswered_after_seconds: Policy::delays(w.history.file()).1,
+        stop_after_seconds,
+        stop_unanswered_after_seconds,
         helpers,
-    }))
+    })
 }
 
 #[cfg(test)]

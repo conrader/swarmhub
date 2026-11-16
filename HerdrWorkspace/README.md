@@ -261,6 +261,7 @@ Either way, if the workspace server is not running, the command changes nothing 
 
 A helper is an ordinary session: its replies, tool activity, terminal and history work as for any agent. It has no profile of its own.
 
+- `GET /api/agents/{address}/{created_ms}/events` sends the same list whenever it changes ([Follow a session without polling](#follow-a-session-without-polling)).
 - `GET /api/agents/{address}/{created_ms}/helpers` lists an agent’s running helpers, newest first, with each one’s name, difficulty, template, model, task, status and latest saved reply, plus `limit`, `stop_after_seconds` and `stop_unanswered_after_seconds`.
 - In `/api/workspace`, a running helper carries `parent` with the address and creation time of the agent that started it.
 - `GET /api/helper-policy` returns `policy` (the file’s four fields, or `null`), `problem` (why helpers cannot start as things are, or `null`) and `bounds` for the three numbers.
@@ -536,6 +537,34 @@ To opt in to structured OpenCode delivery, use the literal command `/absolute/pa
 In a running API-backed OpenCode session, open **Details → Change OpenCode model** to read its current selection and the default reported by OpenCode. Apply an exact `provider/model` ID or restore the reported default. The latter applies that exact default ID at the time of the change. SwarmHub refuses a change during pending work or when the reviewed selection has changed, and reads back the confirmed selection from OpenCode. This affects subsequent tasks sent from SwarmHub. Mini’s displayed model may differ. Older API-backed sessions need a new launch to expose these controls; legacy terminal templates are unchanged.
 
 Plain `run-opencode mini` keeps the existing Herdr template behavior. The Mini client [does not report when its composer is ready](https://github.com/anomalyco/opencode/issues/61191), so Herdr's quiet readiness can type the first task too early on a slow startup. If no reply appears, open the terminal. Submit the task there if it is still in the composer. Enter it again only after confirming it is missing from both the composer and the conversation. SwarmHub does not resend a task automatically when delivery is uncertain.
+
+## Follow a session without polling
+
+`GET /api/agents/{address}/{created_ms}/events` sends one running session as [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html): everything a client needs to follow a turn, on one connection. It takes the same access token and `Host` as every `/api/` route, and no `Origin`. The polling routes stay as they are, and both read the same state, so a row has the same `id` and a tool call the same `seq` on either.
+
+The first event is a `snapshot`. After it, an event is sent when something changes:
+
+| Event | Data | Sent when |
+| --- | --- | --- |
+| `snapshot` | `core`, `address`, `created_ms`, `agent`, `history` (`items`, `before`), `draft`, `tools`, `helpers` | Once, first. |
+| `history` | One saved row, as in `GET /api/history/{core}/{address}/{created_ms}` | A row is saved (a task, a reply, a file) or changes (a task goes from `pending` to `sent`). Replace the row with the same `id`. |
+| `draft` | `{"id", "text"}`, or `null` | The reply so far starts, is replaced, or is gone. Replace what you have. |
+| `draft_append` | `{"id", "offset", "text"}` | The reply so far gained `text`. `offset` is the length in UTF-8 bytes of the text you should already have. |
+| `tool` | `{"seq", "tool", "detail", "finished", "failed"}` | A tool call starts, and again with the same `seq` when it ends. |
+| `agent` | The agent as in `/api/workspace` | Its `state` or `status` changes. |
+| `helpers` | The list as in `GET …/helpers` | A helper starts, answers, changes status or goes away. |
+| `end` | `{"reason"}`: `ended` or `gone` | The agent's program has ended, or Core no longer has the terminal. The connection closes after it. |
+
+A comment line (`: heartbeat`) is sent after 15 seconds without an event. A client that hears nothing for longer than that should reconnect.
+
+To resume, add `?after=<id>` with the newest row `id` you have. The snapshot then holds only later rows, and the current `agent`, `draft`, `tools` and `helpers` in full. Without `after`, `history` is the newest page of 30 rows, and `before` is set when older rows exist; read those with the history route. With `after`, `before` is set only if more than 240 rows were saved in between.
+
+- The stream sends differences from the current state, not a log. A slow reader gets fewer, larger updates, and a reader that takes nothing for 60 seconds is dropped.
+- A reply row arrives before the `draft` it replaces is cleared.
+- A row's later change (a task's delivery state, a reaction) is only sent for the newest 30 rows, and only while connected.
+- At most 48 streams are open at once, over all agents. One more gets status 429.
+- A session that already ended answers with its snapshot and `end`. A terminal Core no longer has answers 404.
+- If a `draft_append` does not fit what you have (another `id`, or a different length), reconnect.
 
 ## Watch an agent’s desktop
 

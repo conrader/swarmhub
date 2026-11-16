@@ -20,23 +20,24 @@ use std::{
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
-    sync::Semaphore,
+    sync::{Semaphore, watch},
 };
 
 const TEXT_LIMIT: usize = 32 * 1024;
 const FRAME_LIMIT: usize = TEXT_LIMIT * 6 + 1024;
 
-#[derive(Clone, Serialize)]
-struct Draft {
-    id: String,
-    text: String,
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct Draft {
+    pub id: String,
+    pub text: String,
 }
 
-#[derive(Serialize)]
-struct Preview {
-    draft: Option<Draft>,
+/// What a launch is doing right now: the reply so far and its newest tool calls.
+#[derive(Default, Serialize)]
+pub(crate) struct Preview {
+    pub draft: Option<Draft>,
     /// The launch's newest tool calls, oldest first (`tool_activity`).
-    tools: Vec<crate::tool_activity::Call>,
+    pub tools: Vec<crate::tool_activity::Call>,
 }
 
 #[derive(Deserialize)]
@@ -48,14 +49,49 @@ struct Update {
 
 #[derive(Default)]
 struct DraftState {
-    opencode: HashMap<String, (u64, Draft)>,
+    /// The reply so far of an agent that sends the whole text on one connection, as OpenCode's plugin does.
+    /// The number is the connection, so a newer one wins.
+    streamed: HashMap<String, (u64, Draft)>,
     claude: claude_preview::Previews,
     group: group_preview::Previews,
     tools: crate::tool_activity::Activity,
 }
 
-#[derive(Clone, Default)]
-pub struct Drafts(Arc<Mutex<DraftState>>);
+impl DraftState {
+    fn preview(&self, key: &str) -> Preview {
+        Preview {
+            tools: self.tools.snapshot(key),
+            draft: self
+                .streamed
+                .get(key)
+                .map(|(_, draft)| draft.clone())
+                .or_else(|| {
+                    self.claude.get(key).map(|(id, text)| Draft {
+                        id: id.to_owned(),
+                        text: text.to_owned(),
+                    })
+                }),
+        }
+    }
+}
+
+struct Shared {
+    state: Mutex<DraftState>,
+    /// Counts the changes to a reply so far or a tool call, for the event streams (`events`).
+    changed: watch::Sender<u64>,
+}
+
+#[derive(Clone)]
+pub struct Drafts(Arc<Shared>);
+
+impl Default for Drafts {
+    fn default() -> Self {
+        Self(Arc::new(Shared {
+            state: Mutex::default(),
+            changed: watch::Sender::new(0),
+        }))
+    }
+}
 
 impl Drafts {
     pub(crate) fn group_drafts(
@@ -63,8 +99,29 @@ impl Drafts {
         history: &History,
         group: i64,
     ) -> Result<Vec<group_preview::Draft>, StoreError> {
-        let entries = self.0.lock().map_err(|_| StoreError)?.group.snapshot(group);
+        let entries = self.lock().map_err(|_| StoreError)?.group.snapshot(group);
         group_preview::feed(history, group, entries)
+    }
+
+    fn lock(&self) -> std::sync::LockResult<std::sync::MutexGuard<'_, DraftState>> {
+        self.0.state.lock()
+    }
+
+    /// Wakes the event streams. Never waits: a hook's line is handled the same with or without a listener.
+    fn announce(&self) {
+        self.0
+            .changed
+            .send_modify(|count| *count = count.wrapping_add(1));
+    }
+
+    /// Changes whenever any launch's reply so far or tool calls may have changed.
+    pub(crate) fn changes(&self) -> watch::Receiver<u64> {
+        self.0.changed.subscribe()
+    }
+
+    /// The same reading `/draft` returns for this launch.
+    pub(crate) fn preview(&self, key: &str) -> Result<Preview, StoreError> {
+        Ok(self.lock().map_err(|_| StoreError)?.preview(key))
     }
 }
 
@@ -124,11 +181,13 @@ async fn read_updates(w: Workspace, socket: UnixStream, source: u64) {
                 && grouped.is_none()
                 && update.valid()
                 && launch_exists(&w, &update.key)
-                && let Ok(mut drafts) = w.drafts.0.lock()
+                && let Ok(mut drafts) = w.drafts.lock()
             {
                 drafts
                     .tools
                     .apply(update, crate::history::now().max(0) as u64);
+                drop(drafts);
+                w.drafts.announce();
             }
             break;
         }
@@ -138,13 +197,14 @@ async fn read_updates(w: Workspace, socket: UnixStream, source: u64) {
                 && update.valid()
                 && launch_exists(&w, &update.key)
             {
-                let accepted = if let Ok(mut drafts) = w.drafts.0.lock() {
+                let accepted = if let Ok(mut drafts) = w.drafts.lock() {
                     drafts.claude.apply(update);
                     true
                 } else {
                     false
                 };
                 if accepted {
+                    w.drafts.announce();
                     let _ = input.get_mut().write_all(&[0]).await;
                 }
             }
@@ -174,7 +234,7 @@ async fn read_updates(w: Workspace, socket: UnixStream, source: u64) {
                 ));
                 group
             };
-            if let Ok(mut drafts) = w.drafts.0.lock() {
+            if let Ok(mut drafts) = w.drafts.lock() {
                 drafts.group.update(group, source, update);
             }
             continue;
@@ -198,13 +258,13 @@ async fn read_updates(w: Workspace, socket: UnixStream, source: u64) {
             }
             launch = Some(update.key.clone());
         }
-        if let Ok(mut drafts) = w.drafts.0.lock()
+        if let Ok(mut drafts) = w.drafts.lock()
             && drafts
-                .opencode
+                .streamed
                 .get(&update.key)
                 .is_none_or(|(previous, _)| *previous <= source)
         {
-            drafts.opencode.insert(
+            drafts.streamed.insert(
                 update.key,
                 (
                     source,
@@ -214,19 +274,23 @@ async fn read_updates(w: Workspace, socket: UnixStream, source: u64) {
                     },
                 ),
             );
+            drop(drafts);
+            w.drafts.announce();
         }
     }
     if let Some(launch) = launch
-        && let Ok(mut drafts) = w.drafts.0.lock()
+        && let Ok(mut drafts) = w.drafts.lock()
         && drafts
-            .opencode
+            .streamed
             .get(&launch)
             .is_some_and(|(previous, _)| *previous == source)
     {
-        drafts.opencode.remove(&launch);
+        drafts.streamed.remove(&launch);
+        drop(drafts);
+        w.drafts.announce();
     }
     if let Some((_, _, binding, _)) = grouped
-        && let Ok(mut drafts) = w.drafts.0.lock()
+        && let Ok(mut drafts) = w.drafts.lock()
     {
         drafts.group.close(binding.delivery, source);
     }
@@ -241,36 +305,28 @@ async fn current(
     Path((core, id, created)): Path<(String, String, u64)>,
 ) -> Result<Json<Preview>, StoreError> {
     let empty = {
-        let drafts = w.drafts.0.lock().map_err(|_| StoreError)?;
-        drafts.opencode.is_empty() && !drafts.claude.visible() && drafts.tools.is_empty()
+        let drafts = w.drafts.lock().map_err(|_| StoreError)?;
+        drafts.streamed.is_empty() && !drafts.claude.visible() && drafts.tools.is_empty()
     };
     if empty {
-        return Ok(Json(Preview {
-            draft: None,
-            tools: Vec::new(),
-        }));
+        return Ok(Json(Preview::default()));
     }
-    let key: Option<String> = w.history.db()?.query_row(
-        "SELECT launch_key FROM journal WHERE core_id=?1 AND address=?2 AND created_ms=?3 AND launch_key IS NOT NULL LIMIT 1",
-        params![core, id, created],
-        |row| row.get(0),
-    ).optional()?;
-    let drafts = w.drafts.0.lock().map_err(|_| StoreError)?;
-    Ok(Json(Preview {
-        tools: key
-            .as_deref()
-            .map_or_else(Vec::new, |key| drafts.tools.snapshot(key)),
-        draft: key.and_then(|key| {
-            drafts
-                .opencode
-                .get(&key)
-                .map(|(_, draft)| draft.clone())
-                .or_else(|| {
-                    drafts.claude.get(&key).map(|(id, text)| Draft {
-                        id: id.to_owned(),
-                        text: text.to_owned(),
-                    })
-                })
-        }),
+    Ok(Json(match launch_key(&w.history, &core, &id, created)? {
+        Some(key) => w.drafts.preview(&key)?,
+        None => Preview::default(),
     }))
+}
+
+/// The launch a session belongs to, once its first task has been recorded.
+pub(crate) fn launch_key(
+    history: &History,
+    core: &str,
+    address: &str,
+    created: u64,
+) -> Result<Option<String>, StoreError> {
+    Ok(history.db()?.query_row(
+        "SELECT launch_key FROM journal WHERE core_id=?1 AND address=?2 AND created_ms=?3 AND launch_key IS NOT NULL LIMIT 1",
+        params![core, address, created],
+        |row| row.get(0),
+    ).optional()?)
 }
