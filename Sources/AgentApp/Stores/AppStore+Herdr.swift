@@ -43,6 +43,36 @@ extension AppStore {
         return true
     }
 
+    /// The model a starter bot begins on: the current Sonnet for Claude Code, GPT-6.1 Sol for Codex. Nil for any other
+    /// agent program, or when the template's own list does not offer it.
+    static func starterModel(harness: String?, offered: [HerdrClient.Template.Model]) -> String? {
+        let wanted: String? = switch harness { case "Claude Code": "sonnet"; case "Codex": "gpt-6.1-sol"; default: nil }
+        guard let wanted, offered.isEmpty || offered.contains(where: { $0.id == wanted }) else { return nil }
+        return wanted
+    }
+
+    /// One ready-to-use bot per agent program the Herdr server can start (Claude, Codex), each on its starter model.
+    /// A program that already has a Herdr bot is skipped. Returns the names it added.
+    func addHerdrStarterBots() async throws -> [String] {
+        let client = try herdrClient()
+        let usable = try await client.workspace().templates.filter { $0.error == nil }
+        let taken = Set(bots.filter { $0.backend == .herdr }.compactMap { herdrTemplate(for: $0) })
+        var added: [String] = []
+        for (harness, name, title) in [("Claude Code", "Claude", "Claude Code on Herdr"), ("Codex", "Codex", "Codex on Herdr")] {
+            guard let template = usable.first(where: { $0.runtime?.harness == harness }), !taken.contains(template.name),
+                  !bots.contains(where: { $0.backend == .herdr && $0.name == name }) else { continue }
+            let offered = (try? await client.models(for: template)) ?? template.models ?? []
+            addBot(name: name, persona: Bot.defaultPersona, backend: .herdr, avatarName: nil)
+            guard let bot = bots.last(where: { $0.backend == .herdr && $0.name == name }) else { continue }
+            bot.title = title
+            setHerdrTemplate(template.name, for: bot)
+            setHerdrModel(Self.starterModel(harness: harness, offered: offered) ?? "", for: bot)
+            added.append(name)
+        }
+        if !added.isEmpty { save() }
+        return added
+    }
+
     /// The templates Herdr Core can start right now, for the pickers.
     func herdrTemplates() async throws -> [HerdrClient.Template] {
         try await herdrClient().workspace().templates.filter { $0.error == nil }

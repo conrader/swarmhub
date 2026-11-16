@@ -37,3 +37,12 @@ import Testing
     #expect(["apply_patch", "Edit", "Read", "WebSearch", "mcp__x__y"].map(HerdrBackend.toolName) == ["edit_file", "edit_file", "read_file", "web_search", "mcp__x__y"])
     #expect(ActivityCopy.label(HerdrBackend.toolName("Bash")) == "Running a command" && ActivityCopy.label(HerdrBackend.toolName("apply_patch")) == "Editing a file")
 }
+
+/// Starter bots begin on the current Sonnet and on GPT-6.1 Sol, and only when the server offers that model.
+@Test @MainActor func herdrStarterModelsFollowTheAgentProgram() {
+    let sol = HerdrClient.Template.Model(id: "gpt-6.1-sol", label: nil), astra = HerdrClient.Template.Model(id: "gpt-6-astra", label: nil)
+    #expect(AppStore.starterModel(harness: "Claude Code", offered: []) == "sonnet")
+    #expect(AppStore.starterModel(harness: "Codex", offered: [astra, sol]) == "gpt-6.1-sol")
+    #expect(AppStore.starterModel(harness: "Codex", offered: [astra]) == nil)
+    #expect(AppStore.starterModel(harness: "OpenCode", offered: []) == nil)
+}

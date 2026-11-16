@@ -16,10 +16,26 @@ struct HerdrSettingsSection: View {
                 store.keyStore.setKey(value.trimmingCharacters(in: .whitespacesAndNewlines), for: HerdrBackend.keyAccount)
             }
             HerdrTemplatePicker(title: "Agent runtime for new bots", automatic: "First available", selection: $template, templates: templates)
-            HStack { Button("Test") { test() }.disabled(testing); if testing { ProgressView().controlSize(.small) }; Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+            HStack {
+                Button("Test") { test() }.disabled(testing)
+                Button("Add starter bots") { addStarters() }.disabled(testing).help("Adds a Claude bot on Sonnet and a Codex bot on GPT-6.1 Sol, for the agent programs your Herdr server has.")
+                if testing { ProgressView().controlSize(.small) }
+                Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
             Text("Herdr Core runs agent programs such as Claude Code or Codex on your server. The workspace answers on that server's own 127.0.0.1 only: forward its port to this Mac (ssh -L 8787:127.0.0.1:8787 your-server), then give a bot the Herdr backend in its Advanced settings.").font(.caption).foregroundStyle(.secondary)
         }
         .onAppear { token = store.keyStore.key(for: HerdrBackend.keyAccount) }
+    }
+
+    private func addStarters() {
+        testing = true; result = ""
+        Task {
+            do {
+                let added = try await store.addHerdrStarterBots()
+                result = added.isEmpty ? "Your Herdr agent programs already have a bot each." : "Added \(added.joined(separator: " and ")). Find them in the sidebar."
+            } catch { result = error.localizedDescription }
+            testing = false
+        }
     }
 
     private func test() {
