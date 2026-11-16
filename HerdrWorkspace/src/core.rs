@@ -93,6 +93,13 @@ pub struct LaunchEnv<'a> {
     pub model: Option<&'a crate::runtimes::LaunchModel>,
     pub results: Option<&'a str>,
     pub opencode_first_task: Option<&'a str>,
+    /// A helper's parent terminal and starting folder (`helpers`); `None` for an agent a person starts.
+    pub helper: Option<HelperOf<'a>>,
+}
+
+pub struct HelperOf<'a> {
+    pub parent: &'a str,
+    pub cwd: Option<&'a str>,
 }
 
 pub enum LaunchSource {
@@ -309,8 +316,17 @@ impl Core {
                    (crate::opencode_agent::first_task::ENV):env.opencode_first_task.unwrap_or_default(),
                    "SWARMHUB_RESULTS":env.results.unwrap_or_default()}
         });
+        if let Some(helper) = &env.helper {
+            // Core ends a child when its parent's program ends. Core's own notes stay off: they would be typed
+            // into the parent as if a person had written them.
+            params["no_parent"] = false.into();
+            params["parent"] = helper.parent.into();
+            params["no_notify"] = true.into();
+        }
         // Without a folder, Core starts the agent in its own working directory.
-        if let Some(cwd) = agent_cwd().map_err(|_| Failure::Input(AGENT_CWD_ERROR))? {
+        if let Some(cwd) = env.helper.as_ref().and_then(|helper| helper.cwd) {
+            params["cwd"] = cwd.into();
+        } else if let Some(cwd) = agent_cwd().map_err(|_| Failure::Input(AGENT_CWD_ERROR))? {
             params["cwd"] = cwd.into();
         }
         let mut terminal: Terminal = self.rpc("terminal.run", params, 85, true).await?;

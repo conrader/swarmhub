@@ -148,6 +148,50 @@ For an OpenCode V2 template, set `"discover_models": true` in its catalog entry 
 
 Set the same catalog flag on a literal `swarmhub-herdr run-codex` template (optionally with `--workspace-approvals`) to show **Load Codex models**. SwarmHub asks Codex’s [app server for its model catalog](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server) and uses each model’s exact launch ID. Codex can return a bundled or cached catalog, so a listed model does not confirm access for the current account or provider. SwarmHub does not request account data or run inference to populate the picker. The default and manual ID options remain available.
 
+## Let an agent start helpers
+
+A running agent can hand one task to another agent: a helper. The agent says how hard the task is; you decide what each difficulty runs on. Helpers stay off until you add a `helper-policy.json` file next to `workspace.sqlite3`:
+
+```json
+{
+  "max_running": 3,
+  "difficulties": {
+    "easy": { "template": "claude-work", "model": "sonnet" },
+    "medium": { "template": "codex-work", "model": "your-configured-model" },
+    "hard": { "template": "claude-work", "model": "opus" }
+  }
+}
+```
+
+Each difficulty names an installed Herdr template and a model ID that template accepts (see [Choose an agent and model](#choose-an-agent-and-model)). Leave a difficulty out to refuse it. `max_running` is how many helpers one agent can have running at once, from 0 to 16. The workspace reads the file again for every request, so an edit applies to the next helper without a restart. A file it cannot read as a policy turns helpers off; the agent is told so.
+
+Tell an agent about the command in its task or standing instructions, for example: “For a self-contained subtask, run `swarmhub-herdr helper start --difficulty easy|medium|hard "TASK"`, then `swarmhub-herdr helper wait NAME` for the answer.” The agent runs these in its own terminal:
+
+| Command | What it does |
+| --- | --- |
+| `swarmhub-herdr helper start --difficulty easy\|medium\|hard [--name NAME] [--here] TASK` | Starts a helper and gives it the task. `-` as the task reads standard input. The helper starts in the folder where the workspace starts every agent; with `--here` it starts in the folder the command runs in. |
+| `swarmhub-herdr helper list` | Lists the agent’s helpers and where each stands. |
+| `swarmhub-herdr helper wait NAME [--seconds N]` | Waits for the helper’s answer (100 seconds unless you say otherwise), then prints it. |
+| `swarmhub-herdr helper read NAME [--lines N]` | Prints the helper’s latest answer, or the last lines of its terminal screen. |
+| `swarmhub-herdr helper send NAME TEXT` | Gives the helper a follow-up. |
+| `swarmhub-herdr helper stop NAME` | Ends the helper. Its saved answers stay readable. |
+
+The agent chooses the difficulty, the task, an optional name and, with `--here`, the starting folder. The agent cannot choose the template or the model: the command has no option for them, and the workspace takes both from the policy. The workspace also refuses:
+
+- an unknown difficulty, or one the policy leaves out;
+- a helper that tries to start its own helpers;
+- a start that would give one agent more than `max_running` running helpers. A helper counts as running until it is stopped or its program ends, even after it has answered.
+
+Three things can stop a helper command before the policy is consulted:
+
+- The workspace server is not running. The command changes nothing and says so.
+- The agent program sandboxes its shell commands. The command reaches the workspace over a local socket, so it has to run outside the sandbox. Codex’s default sandbox blocks it; Claude Code runs it as is.
+- With `--here`, the agent program has not been trusted in that folder before. The helper stops at the program’s trust prompt and its task is not delivered. The command says so, the helper still counts as running, and a person answers the prompt in the helper’s terminal.
+
+This governs what the helper command starts. An agent with a shell can still run other programs itself, so use the agent’s own permission settings to limit that.
+
+A helper is an ordinary session: its replies, tool activity, terminal and history work as for any agent, and Herdr Core ends it when the agent that started it ends. It has no profile of its own. `GET /api/agents/{address}/{created_ms}/helpers` lists an agent’s helpers with each one’s name, difficulty, template, model, task, state and latest saved reply. In `/api/workspace`, a helper carries `parent` with the address and creation time of the agent that started it.
+
 ## Keep an agent profile
 
 Choose **New agent**, enter a name, and save to open an empty conversation. You can create the profile and draft its first task while Herdr Core is offline. The draft stays in the current browser tab, including after a reload. When a template is available, choose **Choose runtime** to review the template and model before sending the task. Use **Start from template** if you prefer to choose the runtime before creating the profile.

@@ -725,6 +725,7 @@ fn migrate(db: &Connection) -> Result<(), Box<dyn std::error::Error>> {
         include_str!("migrate-approval-rules.sql"),
         include_str!("migrate-grok-skill-drafts.sql"),
         include_str!("migrate-page-sharing.sql"),
+        include_str!("migrate-helpers.sql"),
     ];
     let version: usize = db.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     for script in migrations

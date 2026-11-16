@@ -19,6 +19,7 @@ mod group_handoffs;
 mod group_preview;
 mod group_routes;
 mod groups;
+mod helpers;
 mod history;
 mod live_reply;
 mod markdown;
@@ -194,6 +195,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Err(error) = github_project::access::listen(workspace.clone()) {
         eprintln!("SwarmHub agent access to GitHub is unavailable: {error}");
     }
+    if let Err(error) = helpers::listen(workspace.clone()) {
+        eprintln!("SwarmHub helper agents are unavailable: {error}");
+    }
     let app = Router::new()
         .route(
             "/",
@@ -255,6 +259,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .merge(group_routes::routes())
         .merge(group_handoffs::routes())
+        .merge(helpers::routes())
         .merge(reactions::routes())
         .merge(grok_import::routes())
         .merge(routine_routes::routes())
@@ -531,6 +536,9 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
         #[serde(flatten)]
         terminal: &'a core::Terminal,
         opencode_api: bool,
+        /// Set for a helper: the agent that started it (`helpers`).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent: Option<helpers::ParentRef>,
     }
 
     let hello = w.core.identify().await?;
@@ -544,11 +552,16 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
         w.history.recover_launch(&hello.core.id, agent)?;
         w.history.link_profile(&hello.core.id, agent)?;
     }
+    let parents = helpers::parents(&w.history, &hello.core.id)?;
     let agents: Vec<_> = agents
         .iter()
         .map(|terminal| AgentView {
             terminal,
             opencode_api: terminal.uses_opencode_api(),
+            parent: terminal
+                .launch_key()
+                .and_then(|key| parents.get(key))
+                .cloned(),
         })
         .collect();
     Ok(Json(
@@ -765,6 +778,7 @@ async fn launch(
                     model: model.as_ref(),
                     results: results.as_deref().and_then(std::path::Path::to_str),
                     opencode_first_task: prepared.as_ref().and_then(|task| task.path().to_str()),
+                    helper: None,
                 },
             )
             .await
