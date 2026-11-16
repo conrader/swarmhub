@@ -50,6 +50,7 @@ struct BotEditorAdvancedSection: View {
                 }
                 Text(Self.mainBotCaption(bot: bot.name, isMain: fields.canManage, main: main?.id == bot.id ? nil : main?.name, server: server.name)).font(.caption).foregroundStyle(.secondary)
             }
+            HerdrMessagingSection(bot: bot)
             Section("Helper agents") {
                 // Saved at once, like the agent's other switches; on for every Herdr bot until it is turned off here.
                 Toggle("Can start helper agents", isOn: Binding(get: { store.startsHerdrHelpers(bot) }, set: { store.setStartsHerdrHelpers($0, for: bot) }))

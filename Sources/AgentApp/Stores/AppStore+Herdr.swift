@@ -136,6 +136,8 @@ extension AppStore {
         if createsHerdrBots(bot) { backend.creationNote = herdrAsksFirst(bot) ? Self.herdrCreationNoteAsking : Self.herdrCreationNote }
         else if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.askNote = HerdrBotAsk.note(main: herdrMainBot(on: herdrServer(for: bot))?.name) }
         if startsHerdrHelpers(bot) { backend.helperNote = HerdrHelperNote.text }
+        // Every bot is told how to write to the other bots of its server, and who they are right now.
+        if bot.backend == .herdr, !bot.isReadOnlyArchive { backend.messageNote = HerdrBotMessage.note; backend.roster = herdrRoster(for: bot) }
         // A turn on the event stream brings the agent's helpers with it (`herdrLive`).
         let botID = bot.id
         backend.onLive = { [weak self] note in Task { @MainActor in self?.herdrLive(note, botID: botID) } }

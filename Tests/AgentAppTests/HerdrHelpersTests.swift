@@ -83,18 +83,18 @@ private let listingJSON = """
     store.bots = [jarvis, plain, old]
     #expect(store.startsHerdrHelpers(jarvis) && store.startsHerdrHelpers(plain) && !store.startsHerdrHelpers(old), "on for every Herdr bot, and only for those")
     let told = try store.herdrBackend(for: plain)
-    #expect(told.helperNote == HerdrHelperNote.text && told.launchInstructions == HerdrBotAsk.note(main: nil) + "\n\n" + HerdrHelperNote.text, "a bot with the default instructions gets the notes alone")
+    #expect(told.helperNote == HerdrHelperNote.text && told.launchInstructions == HerdrBotAsk.note(main: nil) + "\n\n" + HerdrHelperNote.text + "\n\n" + HerdrBotMessage.note + "\n\n" + HerdrBotMessage.roster(["Jarvis"]), "a bot with the default instructions gets the notes alone")
     store.setCanManageBots(jarvis, true)
     let main = try store.herdrBackend(for: jarvis)
     #expect(main.helperNote == HerdrHelperNote.text && main.creationNote == AppStore.herdrCreationNote && main.askNote == nil)
     let launch = try #require(main.launchInstructions)
-    #expect(launch.hasSuffix(AppStore.herdrCreationNote + "\n\n" + HerdrHelperNote.text) && launch.hasPrefix(String(repeating: "x", count: 6_990)), "the notes come after the bot's own instructions and do not shorten them")
+    #expect(launch.hasSuffix(AppStore.herdrCreationNote + "\n\n" + HerdrHelperNote.text + "\n\n" + HerdrBotMessage.note + "\n\n" + HerdrBotMessage.roster(["Plain"])) && launch.hasPrefix(String(repeating: "x", count: 6_990)), "the notes come after the bot's own instructions and do not shorten them")
     let first = HerdrClient.firstTask(String(repeating: "m", count: HerdrClient.messageBytes), instructions: launch)
-    #expect(first.utf8.count <= 16_384 && first.contains(HerdrHelperNote.text), "the longest instructions, both notes and a long first message fit one task")
+    #expect(first.utf8.count <= 16_384 && first.contains(HerdrHelperNote.text), "the longest instructions, every note and a long first message fit one task")
     store.setStartsHerdrHelpers(false, for: jarvis)
     let off = try store.herdrBackend(for: jarvis)
     #expect(!store.startsHerdrHelpers(jarvis) && off.helperNote == nil && off.creationNote != nil && store.startsHerdrHelpers(plain), "its own switch turns it off for that bot only")
-    #expect(off.notes.map(\.marker) == [HerdrBotRequest.marker] && told.notes.map(\.marker) == [HerdrBotAsk.marker, HerdrHelperNote.marker])
+    #expect(off.notes.map(\.marker) == [HerdrBotRequest.marker, HerdrBotMessage.marker] && told.notes.map(\.marker) == [HerdrBotAsk.marker, HerdrHelperNote.marker, HerdrBotMessage.marker])
 }
 
 /// Helpers are read for the open chat, for a bot that is answering and for a bot that shows some; no other bot is.
