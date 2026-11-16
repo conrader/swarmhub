@@ -242,8 +242,9 @@ struct AppCommands: Commands {
         }
         CommandGroup(replacing: .help) {
             command(.keyboardShortcuts)
-            // P36: Konrad's own report, prefilled without keys; nothing is sent until Send.
-            Button("Report a Problem…") { store.startUserReport(); openWindow(id: ContentView.windowID) }
+            // P36: Konrad's own report, prefilled without keys; nothing is sent until Send. It opens the Reports
+            // inbox, which is part of the older backends' surface (`LegacySurface`).
+            if LegacySurface.isShown(store.defaults) { Button("Report a Problem…") { store.startUserReport(); openWindow(id: ContentView.windowID) } }
         }
     }
 

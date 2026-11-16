@@ -110,7 +110,9 @@ import SwarmHubCore
     @Published var showingReports = false
     /// P38 B: Composio app connections, their receipts and the SwarmHub connection service (tests may replace it).
     lazy var connectedApps: ConnectedAppsStore = makeConnectedApps()
-    private(set) lazy var reportsCenter = ReportsCenter(fileURL: persistenceEnabled ? fileURL.deletingLastPathComponent().appending(path: "reports.json") : nil, keyStore: keyStore, now: now())
+    private(set) lazy var reportsCenter: ReportsCenter = { reportsWereRead = true; return ReportsCenter(fileURL: persistenceEnabled ? fileURL.deletingLastPathComponent().appending(path: "reports.json") : nil, keyStore: keyStore, now: now()) }()
+    /// Something opened the Reports inbox and its file in this run. A Herdr-only install never does (`LegacySurface`).
+    private(set) var reportsWereRead = false
     /// P31 C: the Accounts sheet per Hermes connection (`connection(of:)`).
     @Published var codingAccounts: [String: AccountsState] = [:]
     /// P31 D+E: each box's last `models` and `box_capacity` reports (store.json), the checks running now and why the last
@@ -263,9 +265,10 @@ import SwarmHubCore
         // P21 D3: a fresh install starts empty; the setup window or "Look around with sample agents" fills it.
         if !demoMode { migrateManagerRole(); migrateSampleBots(); loadOpenClawGateways() }
         if !demoMode { restoreLedger(); scheduleSkillRetryRedraw() }
-        if !demoMode, autoConfigureHermes { Task { await recoverLockedKeys(); await discoverBoxesOnLaunch() } }
+        // A Herdr-only install asks no box for anything at launch (`olderBackendsInUse`).
+        if !demoMode, autoConfigureHermes, olderBackendsInUse { Task { await recoverLockedKeys(); await discoverBoxesOnLaunch() } }
         selectVisibleChat()
-        if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes { Task { await refreshHermesAgents() } }
+        if !demoMode, autoConfigureHermes, hermesConfigured, launchProbesGlobalHermes, olderBackendsInUse { Task { await refreshHermesAgents() } }
         botInfo.autoLoad = !demoMode && autoConfigureHermes; routines.autoLoad = botInfo.autoLoad; webhooks.autoLoad = botInfo.autoLoad; botWork.autoStart = botInfo.autoLoad
         if botInfo.autoLoad { startAutomationTicker() }
         if connectivity != nil { listenForConnectivity() }

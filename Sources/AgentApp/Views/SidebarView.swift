@@ -22,7 +22,8 @@ struct SidebarView: View {
                 Menu {
                     Button("New Bot", systemImage: "plus") { store.showingNewBot = true }
                     Button("New Group", systemImage: "person.3") { store.showingNewGroup = true }
-                    if store.grokBotPresent {
+                    // An imported Grok bot is history only until a Hermes box answers for it.
+                    if legacy, store.grokBotPresent {
                         Button("Import from Grok Bot…", systemImage: "tray.and.arrow.down") { store.showingGrokImport = true }
                     }
                     Button("Import Template…", systemImage: "square.and.arrow.down") { store.showingTemplateImport = true }
@@ -38,8 +39,12 @@ struct SidebarView: View {
                         case .group(let group): GroupRow(group: group, drafts: store.drafts, botToDelete: $groupToDelete)
                         }
                     }
-                    BoxNotConnectedSections()
-                    ReportsSidebarRow(center: store.reportsCenter)
+                    // A box's unconnected profiles and the Reports inbox belong to the older backends: with them hidden
+                    // neither is shown, and the Reports file is not even opened.
+                    if legacy {
+                        BoxNotConnectedSections()
+                        ReportsSidebarRow(center: store.reportsCenter)
+                    }
                     Button { store.showingHiddenBots.toggle() } label: {
                         HStack(spacing: 6) {
                             Image(systemName: store.showingHiddenBots ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold))

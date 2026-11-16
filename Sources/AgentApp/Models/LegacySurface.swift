@@ -19,3 +19,21 @@ enum LegacySurface {
         SettingsLayout.AdvancedPane.allCases.filter { showingLegacy || !panes.contains($0) }
     }
 }
+
+/// What a Herdr-only install is spared. With the switch off nothing of the older backends is shown: no Reports row,
+/// inbox or "Report a Problem…", no list of a box's unconnected profiles, no Grok Bot import, no warning about the
+/// prompt sync file. And while no bot runs on an older backend either, nothing is done for them at launch or in
+/// the background: the Reports file is never opened and no box is probed, polled or sent a presence.
+extension AppStore {
+    /// A bot here still runs on Hermes or OpenClaw (a history-only one counts: it belongs to them).
+    var hasOlderBackendBots: Bool { bots.contains { ($0.backend == .hermes || $0.backend == .openClaw) && !$0.isDemo } }
+
+    /// The older backends still have work to do here: their surface is shown, or a bot still runs on one.
+    var olderBackendsInUse: Bool { LegacySurface.isShown(defaults) || hasOlderBackendBots }
+
+    /// The switch that brings the older backends' surface back is offered where there is something of theirs: it is
+    /// on, a bot still runs on one, or their address or Gateway is saved. A Herdr-only install does not read about them.
+    var offersOlderBackendsSwitch: Bool {
+        olderBackendsInUse || defaults.object(forKey: "hermesBaseURL") != nil || !openClawGateways.isEmpty
+    }
+}

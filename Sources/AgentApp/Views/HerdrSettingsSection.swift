@@ -44,8 +44,11 @@ struct HerdrSettingsSection: View {
                 }
                 Text("A moved bot keeps its name, avatar, instructions and chat history and runs on \(servers[0].name) from then on. What lived on its old server (memory, skills, routines, connected apps) does not move.").font(.caption).foregroundStyle(.secondary)
             } else if !moveResult.isEmpty { Text(moveResult).font(.caption).foregroundStyle(.secondary) }
-            Toggle("Show Hermes and OpenClaw settings", isOn: $legacy)
-            Text("\(AppConstants.name) is moving to Herdr. The older servers' settings, their setup steps and the Backend picker stay hidden unless this is on.").font(.caption).foregroundStyle(.secondary)
+            // Offered only where there is something of the older backends; a Herdr-only install does not read about them.
+            if store.offersOlderBackendsSwitch {
+                Toggle("Show Hermes and OpenClaw settings", isOn: $legacy)
+                Text("\(AppConstants.name) is moving to Herdr. The older servers' settings, their setup steps and the Backend picker stay hidden unless this is on.").font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 

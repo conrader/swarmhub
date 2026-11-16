@@ -8,6 +8,8 @@ struct ContentView: View {
     @State private var pendingCommand: AppCommand?
     @State private var pendingThread: BotThreadKey?
     @AppStorage("accent") private var accent = AppTheme.defaultAccent
+    /// Off (the default): the Reports inbox, a box's unconnected profile and the prompt sync warning are never shown (`LegacySurface`).
+    @AppStorage(LegacySurface.key) private var legacy = false
     var body: some View {
         NavigationSplitView(columnVisibility: Binding(get: { store.sidebarHidden ? .detailOnly : .all }, set: { store.sidebarHidden = $0 == .detailOnly })) {
             SidebarView(selection: $store.selectedBot).navigationSplitViewColumnWidth(min: SidebarMetrics.width.min, ideal: SidebarMetrics.width.ideal, max: SidebarMetrics.width.max)
@@ -15,7 +17,7 @@ struct ContentView: View {
                 .toolbar(removing: .sidebarToggle).ignoresSafeArea(.container, edges: .top)
         } detail: {
             Group {
-                if store.showingReports {
+                if legacy, store.showingReports {
                     ReportsInboxView(center: store.reportsCenter).frame(minWidth: 600)
                 } else if let group = store.selectedGroup {
                     GroupChatView(group: group).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { GroupInfoPanel(group: group) }
@@ -24,7 +26,7 @@ struct ContentView: View {
                     HerdrHelperView(bot: bot, selection: helper).id(helper).frame(minWidth: 500)
                 } else if let bot = store.selectedBot {
                     ChatView(bot: bot).frame(minWidth: 500).rightColumn(isPresented: $store.showInfo) { InfoPanel(bot: bot) }
-                } else if let selection = store.selectedBoxProfile, let profile = store.selectedDisconnectedProfile {
+                } else if legacy, let selection = store.selectedBoxProfile, let profile = store.selectedDisconnectedProfile {
                     BoxProfileDetailView(profile: profile, target: selection.target).frame(minWidth: 500)
                 } else {
                     SetupEmptyState()
@@ -37,7 +39,7 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 // uxfix1: transient network trouble is this line, never the alert below.
                 if let notice = store.connectionNotice { ConnectionNoticeBar(text: notice) { store.errorMessage = nil } }
-                if let warning = store.botPromptSyncWarning {
+                if legacy, let warning = store.botPromptSyncWarning {
                     HStack(spacing: 12) {
                         Image(systemName: "exclamationmark.triangle").accessibilityHidden(true)
                         Text(warning).frame(maxWidth: .infinity, alignment: .leading)

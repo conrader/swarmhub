@@ -37,7 +37,8 @@ struct InfoPanel: View {
             VStack(alignment: .leading, spacing: 18) {
                 if bot.backend == .hermes && !bot.isReadOnlyArchive { BotUsageView(bot: bot) }
                 ApprovalAuditSection(bot: bot)
-                ToolTimelineView(apps: store.connectedApps, botID: bot.id)
+                // Connected apps reach a Hermes agent through its box; a Herdr bot has none, and their files stay unread.
+                if bot.backend != .herdr { ToolTimelineView(apps: store.connectedApps, botID: bot.id) }
                 if bot.backend == .hermes {
                     BotMessagesSection(bot: bot, center: store.botMessages)
                     DelegatedTasksSection(bot: bot, events: store.subAgentTasks[bot.id] ?? [])
