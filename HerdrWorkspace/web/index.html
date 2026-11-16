@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="">
+  <script src="/appearance.js"></script>
+  <title>SwarmHub · Herdr Workspace</title>
+  <link rel="manifest" href="/workspace.webmanifest">
+  <link rel="apple-touch-icon" href="/pwa/icon-180.png">
+  <link rel="stylesheet" href="/vendor/xterm.css">
+  <link rel="stylesheet" href="/workspace.css">
+  <link rel="stylesheet" href="/desktop.css">
+  <link rel="stylesheet" href="/appearance.css">
+  <script src="/profiles.js" defer></script>
+  <script src="/portable-profiles.js" defer></script>
+  <script src="/avatar-upload.js" defer></script>
+  <script src="/grok-import.js" defer></script>
+  <script src="/connected-files.js" defer></script>
+  <script src="/roster-sections.js" defer></script>
+  <script src="/reactions.js" defer></script>
+  <script src="/reply-markup.js" defer></script>
+  <script src="/workspace.js" defer></script>
+  <script src="/opencode-models.js" defer></script>
+  <script src="/runtime-setup.js" defer></script>
+  <script src="/direct-threads.js" defer></script>
+  <script src="/groups.js" defer></script>
+  <script src="/github-project.js" defer></script>
+  <script src="/github-access.js" defer></script>
+  <script src="/group-handoffs.js" defer></script>
+  <script src="/dictation.js" defer></script>
+  <script src="/voice-memos.js" defer></script>
+  <script src="/routines.js" defer></script>
+  <script src="/memory-proposals.js" defer></script>
+  <script src="/email-drafts.js" defer></script>
+  <script src="/vendor/xterm.js" defer></script>
+  <script src="/vendor/addon-fit.js" defer></script>
+  <script src="/terminal.js" defer></script>
+  <script src="/desktop-teaching.js" defer></script>
+  <script src="/desktop.js" defer></script>
+  <script src="/drive-access.js" defer></script>
+  <script src="/approvals.js" defer></script>
+  <script src="/attention.js" defer></script>
+  <script src="/activity.js" defer></script>
+  <script src="/desktop-notices.js" defer></script>
+  <script src="/skills.js" defer></script>
+  <script src="/vault.js" defer></script>
+  <script src="/page-charts.js" defer></script>
+  <script src="/page-tables.js" defer></script>
+  <script src="/page-share.js" defer></script>
+  <script src="/pages.js" defer></script>
+  <script src="/search.js" defer></script>
+  <script src="/pwa-install.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#conversation">Skip to conversation</a>
+  <div class="workspace" id="workspace">
+    <aside class="sidebar" aria-label="Workspace">
+      <div class="brand"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 8.5 12 4l8 4.5-8 4.5L4 8.5Zm0 4 8 4.5 8-4.5m-16 4 8 4.5 8-4.5"/></svg></span><div><strong>SwarmHub</strong><small>Herdr workspace</small></div></div>
+      <div class="sidebar-create">
+        <button type="button" class="primary" id="profile-new" disabled>New agent</button>
+        <button type="button" id="new-group" disabled>New group</button>
+      </div>
+      <button type="button" class="new" id="workspace-search-open" aria-label="Search workspace" aria-keyshortcuts="Control+K Meta+K" disabled>Search <kbd aria-hidden="true">⌘ / Ctrl K</kbd></button>
+      <button type="button" class="new" id="attention-open" disabled>Needs attention <span id="attention-count" aria-live="polite" hidden></span></button>
+      <label class="search"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 5 5"/></svg><input id="search" type="search" placeholder="Filter roster" aria-label="Filter roster"></label>
+      <div class="roster">
+        <div class="roster-heading"><h2 id="agent-roster-heading">Agents <span id="count"></span></h2><button id="sections-open" type="button" disabled aria-label="Manage roster sections">Sections</button></div>
+        <nav id="agents" aria-labelledby="agent-roster-heading"></nav>
+        <p class="subtle roster-empty" id="no-agents">Loading agents…</p>
+        <button id="show-hidden-agents" type="button" aria-pressed="false" hidden>Show hidden agents</button>
+        <div id="group-roster" hidden><h2>Groups</h2><nav id="groups" aria-label="Groups"></nav></div>
+      </div>
+      <details class="sidebar-tools" id="workspace-tools">
+        <summary>Workspace tools</summary>
+        <div>
+          <button type="button" class="new" id="library-open" disabled>Library</button>
+          <button type="button" class="new" id="activity-open" disabled>Activity <span id="activity-count" hidden></span></button>
+          <button type="button" class="new" id="approvals-open" disabled>Approvals <span id="approval-count" aria-live="polite" hidden></span></button>
+          <button type="button" class="new" id="routines-open" disabled>Routines</button>
+          <button type="button" class="new" id="skills-open" disabled>Skills</button>
+          <button type="button" class="new" id="connected-files-open" disabled>Connected files</button>
+          <button type="button" class="new" id="vault-open" disabled>Vault</button>
+          <button type="button" class="new" id="new" disabled>Start from template</button>
+          <button type="button" class="new" id="runtime-setup-open" disabled>Runtime setup</button>
+          <button type="button" class="new" id="grok-import-open" disabled>Import from Grok Bot</button>
+          <button type="button" class="new" id="profile-template-import" disabled>Import agent template</button>
+        </div>
+      </details>
+      <div class="connection"><span class="light" id="core-light"></span><div><strong id="core-status" role="status">Connecting to Herdr Core</strong><small id="core-version">Local workspace</small></div><button class="icon" id="refresh" type="button" aria-label="Refresh connection" title="Refresh connection">↻</button></div>
+      <button type="button" id="unlock" hidden>Enter access token</button>
+      <button type="button" id="workspace-install-open" hidden>Install workspace</button>
+      <button type="button" id="appearance-open" hidden>Appearance</button>
+    </aside>
+
+    <main id="conversation" tabindex="-1">
+      <header class="channel"><button type="button" id="show-agents" aria-label="Back to workspace list">‹ Agents</button><div class="channel-title"><span id="badge" class="avatar" aria-hidden="true">S</span><div><h1 id="title">Your workspace</h1><p id="headline">Give an agent a task</p></div></div><button type="button" id="details-toggle" aria-controls="details" aria-expanded="false" disabled>Details</button><button type="button" id="group-edit" hidden>Edit group</button></header>
+      <p id="demo-banner" class="notice" hidden><strong>Demo workspace</strong> · These example agents do not use a model.</p>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <div class="body" id="work-scroll">
+        <section class="welcome" id="welcome">
+          <span class="hero-icon" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="6" y="7" width="24" height="22" rx="6"/><path d="m12 15 4 3-4 3m7 0h5"/></svg></span>
+          <h2>Bring your agents together</h2>
+          <p id="welcome-copy">Create an agent to open its conversation. When you’re ready to send a task, choose a Herdr template.</p>
+          <div class="welcome-actions"><button type="button" class="primary" id="profile-first" disabled>New agent</button><button type="button" id="first" disabled>Start from template</button><button type="button" id="runtime-setup-welcome" hidden>Set up a runtime</button></div>
+        </section>
+        <section id="activity" aria-label="Agent activity" hidden>
+          <div id="profile-sessions" class="profile-sessions" hidden>
+            <label for="profile-session" id="profile-session-label">Session</label><select id="profile-session"></select>
+            <button type="button" id="profile-start" hidden>Start new session</button>
+            <button type="button" id="profile-grok-history" hidden>Grok Bot history</button>
+          </div>
+          <p id="profile-empty" class="subtle" hidden></p>
+          <div class="conversation-label" id="conversation-label">Conversation <span></span></div>
+          <button type="button" class="history-before" id="history-before" hidden>Load older messages</button>
+          <p class="error" id="history-error" role="status" hidden></p>
+          <div id="tasks" class="tasks"></div>
+          <article id="reply-draft" class="task-item live-reply" aria-labelledby="reply-draft-label" hidden>
+            <strong id="reply-draft-label" role="status">OpenCode is replying…</strong>
+            <p id="reply-draft-text"></p>
+          </article>
+          <section id="output-card" class="output-card" aria-labelledby="output-heading"><div class="output-head"><div><h2 id="output-heading">Agent output</h2><span id="output-view-label">Live terminal view</span></div><div class="output-buttons"><button type="button" id="terminal-output-toggle" aria-controls="output" aria-expanded="true">Hide output</button><button type="button" id="takeover" hidden>Take over</button><button type="button" id="save-output" disabled>Save snapshot</button></div></div><pre id="output" tabindex="0">Waiting for output…</pre></section>
+        </section>
+      </div>
+      <section id="group-panel" class="body" aria-label="Group conversation" hidden>
+        <div id="group-feed"><div class="conversation-label">Group conversation <span></span><button type="button" id="group-transcript">Download transcript</button></div>
+          <button id="group-older" type="button" class="history-before" hidden>Load older messages</button>
+          <button id="group-latest" type="button" class="history-before" hidden>Latest messages</button>
+          <p id="group-notice" class="subtle" role="status"></p>
+          <div id="group-messages" class="tasks"></div>
+          <section id="group-live-drafts" aria-label="Agent progress" hidden></section>
+        </div>
+      </section>
+      <form id="group-compose" class="composer" hidden>
+        <div class="composer-drop-hint" aria-hidden="true" hidden>Drop files to add to this group task</div>
+        <fieldset id="group-recipient-field" class="recipients"><legend>Send to</legend><div id="group-recipients"></div></fieldset>
+        <div id="group-reply-target" class="group-quote" hidden><div><strong id="group-reply-name"></strong><p id="group-reply-excerpt"></p></div><button type="button" id="group-cancel-reply">Cancel reply</button></div>
+        <div id="group-error" class="error" role="alert" hidden></div>
+        <label class="sr-only" for="group-task">Task for selected group members</label>
+        <textarea id="group-task" rows="2" placeholder="Write a task or type @ to mention an agent…" aria-describedby="group-mention-help group-routing" required></textarea>
+        <div id="group-mentions" role="group" aria-label="Mention suggestions" hidden></div>
+        <p id="group-routing" class="subtle" role="status"></p>
+        <div id="group-missing-files" hidden>
+          <p class="subtle" id="group-missing-files-label" role="status"></p>
+          <button type="button" id="group-ignore-missing">Continue without missing files</button>
+        </div>
+        <ul id="group-draft-files" class="group-files" aria-label="Draft attachments" hidden></ul>
+        <input type="file" id="group-file-picker" multiple hidden>
+        <div class="compose-actions"><div class="compose-tools"><button type="button" id="group-attach" hidden>Attach files</button><button type="button" id="voice-memo-group" hidden>Record voice memo</button><button type="button" id="dictate-group" hidden>Dictate</button><small id="group-mention-help">Pick recipients above or type @ to mention them.</small></div><button type="submit" id="group-send" class="primary">Send task ↑</button></div>
+      </form>
+      <form class="composer" id="composer" hidden>
+        <div class="composer-drop-hint" aria-hidden="true" hidden>Drop files to add to this task</div>
+        <div id="blocked-agent" class="blocked-agent" hidden>
+          <p id="blocked-agent-message" role="status"></p>
+          <button id="blocked-agent-terminal" type="button">Open terminal</button>
+        </div>
+        <div id="composer-error" class="error" role="alert" hidden></div>
+        <div id="direct-reply-target" class="group-quote" hidden>
+          <div><strong>Replying to an earlier message</strong><p id="direct-reply-excerpt"></p></div>
+          <button type="button" id="direct-cancel-reply">Cancel reply</button>
+        </div>
+        <p id="direct-reply-limit" class="error" role="status" hidden></p>
+        <label class="sr-only" for="task">Give your agent a task</label>
+        <textarea id="task" rows="2" placeholder="Give your agent a task…" required></textarea>
+        <div id="direct-missing-files" hidden><p class="subtle" id="direct-missing-label" role="status"></p><button type="button" id="direct-ignore-missing">Continue without missing files</button></div>
+        <ul id="direct-draft-files" class="group-files" aria-label="Draft attachments" hidden></ul>
+        <input type="file" id="attachment-picker" multiple hidden>
+        <div class="compose-actions"><div class="compose-tools"><button type="button" id="attach" hidden>Attach files</button><button type="button" id="voice-memo-direct" hidden>Record voice memo</button><button type="button" id="dictate-direct" hidden>Dictate</button><button type="button" id="connected-attach" hidden>From connected folder</button><button type="button" id="task-skill">Use skill</button><small>⌘ / Ctrl + Enter to send</small></div><button type="submit" class="primary" id="send">Send task <span aria-hidden="true">↑</span></button></div>
+      </form>
+      <form class="composer" id="profile-first-compose" hidden>
+        <label for="profile-first-task">First task</label>
+        <textarea id="profile-first-task" rows="2" maxlength="16384" aria-describedby="profile-first-help" placeholder="What would you like this agent to do?" required></textarea>
+        <div class="compose-actions"><small class="subtle" id="profile-first-help"></small><button type="button" id="runtime-setup-draft" hidden>Set up a runtime</button><button type="submit" class="primary" id="profile-first-review">Choose runtime</button></div>
+      </form>
+    </main>
+
+    <aside id="details" class="details" aria-labelledby="details-heading" hidden>
+      <div class="details-header"><h2 id="details-heading">Agent details</h2><button id="close-details" class="icon" type="button" aria-label="Close details">×</button></div>
+      <dl><dt>Template</dt><dd id="agent-template">—</dd><dt>Agent runtime</dt><dd id="agent-runtime">—</dd><dt>Configured provider</dt><dd id="agent-provider">—</dd><dt>Configured model</dt><dd id="agent-model">—</dd><dt>Session</dt><dd id="session">—</dd><dt>Status</dt><dd id="status">—</dd></dl>
+      <dl id="results-folder-detail" hidden><dt>Results folder</dt><dd id="results-folder-path"></dd></dl>
+      <p class="subtle">These labels describe the setup at launch. Use the terminal to sign in or manage runtime settings.</p>
+      <button id="opencode-model-open" type="button" hidden>Change OpenCode model</button>
+      <button id="profile-edit" type="button" hidden>Edit profile</button>
+      <button id="profile-duplicate" type="button" hidden>Duplicate agent</button>
+      <button id="profile-template-export" type="button" hidden>Download agent template</button>
+      <button id="profile-move-section" type="button" hidden>Move to section</button>
+      <button id="profile-draft-instructions" type="button" hidden>Add instructions to draft</button>
+      <label id="profile-desktop-alerts" class="agent-notify-option" hidden><input id="profile-desktop-alerts-enabled" type="checkbox"> Desktop notifications for this agent</label>
+      <button id="agent-routines" type="button">View routines</button>
+      <button id="agent-library" type="button" disabled>Agent library</button>
+      <button type="button" id="desktop-open" hidden>Desktop</button>
+      <button type="button" id="agent-drive-open" hidden>Google Drive access</button>
+      <button type="button" id="agent-github-access-open" hidden>GitHub read access</button>
+      <button id="agent-chat-link" type="button" hidden>Create chat link</button>
+      <button id="agent-skills" type="button">Manage skills</button>
+      <div id="agent-controls"><button id="interrupt" type="button">Interrupt task</button><button id="end" type="button" class="danger">End session</button></div>
+    </aside>
+  </div>
+  <dialog id="agent-drive-dialog" aria-labelledby="agent-drive-heading">
+    <div class="details-header"><h2 id="agent-drive-heading">Google Drive access</h2><button type="button" class="icon" id="agent-drive-close" aria-label="Close Google Drive access">×</button></div>
+    <p id="agent-drive-target"></p>
+    <p class="subtle">Allow this session to list and read files in the connected Google Drive folder. You can revoke access at any time.</p>
+    <p id="agent-drive-status" role="status" hidden></p>
+    <button id="agent-drive-change" type="button" hidden>Allow read access for one hour</button>
+    <details id="agent-drive-help" hidden><summary>How to ask the agent to read a file</summary>
+      <p>Ask the agent to run <code id="agent-drive-command"></code> in its session. To read a specific file, use <code id="agent-drive-read"></code> with folder and file IDs from the listing joined by <code>/</code>.</p>
+    </details>
+    <h3>Recent requests</h3>
+    <button id="agent-drive-refresh" type="button">Refresh requests</button>
+    <p id="agent-drive-empty" class="subtle" hidden></p>
+    <ul id="agent-drive-calls" aria-label="Recent Google Drive requests"></ul>
+  </dialog>
+  <dialog id="agent-chat-link-dialog" aria-labelledby="agent-chat-link-heading">
+    <div class="details-header"><h2 id="agent-chat-link-heading">Create chat link</h2><button type="button" class="icon" id="agent-chat-link-close" aria-label="Close chat link">×</button></div>
+    <label for="agent-chat-link-draft">Draft task (optional)</label>
+    <textarea id="agent-chat-link-draft" rows="3" maxlength="1000" aria-describedby="agent-chat-link-help"></textarea>
+    <p id="agent-chat-link-help" class="subtle">The link opens this agent after workspace unlock. Draft text is visible in the link. It won’t be sent until you choose to send it.</p>
+    <label for="agent-chat-link-value">Workspace link</label><input id="agent-chat-link-value" type="url" readonly>
+    <p id="agent-chat-link-status" class="subtle" role="status" hidden></p>
+    <div class="dialog-actions"><button type="button" id="agent-chat-link-copy" class="primary">Copy link</button></div>
+  </dialog>
+  <dialog id="group-input-dialog" aria-labelledby="group-input-title">
+    <form id="group-input-form">
+      <div class="details-header"><h2 id="group-input-title">Group form</h2><button id="group-input-close" class="icon" type="button" aria-label="Close group form">×</button></div>
+      <p id="group-input-recipient" class="subtle"></p>
+      <fieldset id="group-input-fields"></fieldset>
+      <p id="group-input-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button id="group-input-submit" type="submit" class="primary">Send response</button></div>
+    </form>
+  </dialog>
+  <dialog id="profile-create-dialog" aria-labelledby="profile-create-heading">
+    <form id="profile-create-form">
+      <div class="details-header"><h2 id="profile-create-heading">New agent</h2><button id="profile-create-close" class="icon" type="button" aria-label="Close new agent dialog">×</button></div>
+      <p class="subtle">Give the agent a name to open its conversation. You can choose a runtime when you have a task for it.</p>
+      <label for="profile-create-name">Agent name</label><input id="profile-create-name" required autofocus>
+      <p id="profile-create-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="submit" id="profile-create-save" class="primary">Create agent</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="profile-dialog" aria-labelledby="profile-heading">
+    <form id="profile-form">
+      <div class="details-header"><h2 id="profile-heading">Edit agent profile</h2><button id="profile-close" class="icon" type="button" aria-label="Close profile editor">×</button></div>
+      <label for="profile-name">Display name</label><input id="profile-name" maxlength="60" required>
+      <label for="profile-subtitle">Label</label><input id="profile-subtitle" maxlength="80" placeholder="e.g. Product research">
+      <label for="profile-avatar">Avatar</label><select id="profile-avatar"><option value="initial">Initial</option><option value="spark">Spark</option><option value="layers">Layers</option><option value="target">Target</option><option value="terminal">Terminal</option><option value="image">Uploaded image</option></select>
+      <div id="avatar-picker" class="avatar-picker" hidden>
+        <label for="avatar-file">Choose an image</label>
+        <input id="avatar-file" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="avatar-help">
+        <p id="avatar-help" class="subtle">PNG, JPEG, or WebP up to 5 MiB. Only the cropped avatar is saved.</p>
+        <p id="avatar-notice" class="subtle" role="status" hidden></p>
+        <span id="avatar-existing" class="avatar avatar-preview" role="img" aria-label="Saved avatar" hidden></span>
+        <div id="avatar-crop" class="avatar-crop" hidden>
+          <canvas id="avatar-canvas" width="160" height="160" role="img" aria-label="Cropped avatar preview"></canvas>
+          <fieldset><legend>Adjust crop</legend>
+            <label for="avatar-zoom">Zoom</label><input id="avatar-zoom" type="range" min="100" max="300" value="100">
+            <label for="avatar-x">Left to right</label><input id="avatar-x" type="range" min="0" max="100" value="50">
+            <label for="avatar-y">Top to bottom</label><input id="avatar-y" type="range" min="0" max="100" value="50">
+          </fieldset>
+        </div>
+      </div>
+      <label for="profile-instructions">Standing instructions</label>
+      <textarea id="profile-instructions" rows="4" aria-describedby="profile-instructions-help" placeholder="Describe the agent’s role, preferences, or rules."></textarea>
+      <p class="subtle" id="profile-instructions-help">Up to 6 KiB. Review or skip these instructions when starting a session. Saving here does not send them to a running agent.</p>
+      <label class="routine-check"><input id="profile-pin" type="checkbox"> Pin to the top of the roster</label>
+      <label class="routine-check"><input id="profile-hide" type="checkbox"> Hide from the main roster</label>
+      <p class="subtle">Hiding an agent keeps its sessions and conversations. Use Show hidden agents to restore it.</p>
+      <p id="profile-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="submit" id="profile-save" class="primary">Save profile</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="duplicate-dialog" aria-labelledby="duplicate-heading">
+    <form id="duplicate-form">
+      <div class="details-header"><h2 id="duplicate-heading">Duplicate agent</h2><button id="duplicate-close" class="icon" type="button" aria-label="Close duplication dialog">×</button></div>
+      <p id="duplicate-help" class="subtle">This copies the latest setup, standing instructions, skill availability, and routines. Routines start paused. Conversations and files stay with the original agent.</p>
+      <label for="duplicate-name">Name for the copy</label><input id="duplicate-name" maxlength="60" required>
+      <p id="duplicate-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="submit" id="duplicate-save" class="primary">Create copy</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="sections-dialog" aria-labelledby="sections-heading">
+    <div class="details-header"><h2 id="sections-heading">Roster sections</h2><button id="sections-close" class="icon" type="button" aria-label="Close roster sections">×</button></div>
+    <ul id="sections-list" class="section-list" aria-label="Saved sections"></ul>
+    <p id="sections-empty" class="subtle">Create a section for a project, client, or team.</p>
+    <form id="section-form">
+      <div id="section-name-field"><label for="section-name">Section name</label><input id="section-name" maxlength="48" required></div>
+      <p id="section-remove-help" class="subtle" hidden></p>
+      <p id="section-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button id="section-reset" type="button" hidden>Cancel edit</button><button id="section-submit" type="submit" class="primary">Create section</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="move-section-dialog" aria-labelledby="move-section-heading">
+    <form id="move-section-form">
+      <div class="details-header"><h2 id="move-section-heading">Move to section</h2><button id="move-section-close" class="icon" type="button" aria-label="Close move to section">×</button></div>
+      <p id="move-section-agent" class="subtle"></p>
+      <label for="move-section-destination">Destination</label><select id="move-section-destination"></select>
+      <div id="move-section-name-field" hidden><label for="move-section-name">New section name</label><input id="move-section-name" maxlength="48"></div>
+      <p id="move-section-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button id="move-section-submit" type="submit" class="primary">Move agent</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="skill-dialog" aria-labelledby="skill-heading">
+    <div class="details-header"><h2 id="skill-heading">Skills</h2><button class="icon" id="skill-close" type="button" aria-label="Close skills">×</button></div>
+    <p id="skill-notice" role="status"></p>
+    <section id="skill-list-view">
+      <label for="skill-search">Find a skill</label><input type="search" id="skill-search">
+      <div class="routine-actions">
+        <button type="button" class="primary" id="skill-new">New skill</button>
+        <button type="button" id="skill-import" aria-describedby="skill-import-help">Import skill file</button>
+        <input type="file" id="skill-file" accept=".md,.markdown,.txt,.json" hidden>
+      </div>
+      <p id="skill-import-help" class="subtle">Bring a Markdown or text file, or a SwarmHub skill copy.</p>
+      <p id="skill-import-status" role="status" hidden></p>
+      <ul class="library-items" id="skill-list"></ul>
+      <label class="routine-check" id="skill-archived-label"><input type="checkbox" id="skill-archived"> Show archived</label>
+    </section>
+    <section id="skill-detail" hidden>
+      <button type="button" id="skill-back">Back to skills</button>
+      <p id="skill-summary"></p><p id="skill-version" class="subtle"></p>
+      <h3>Instructions</h3><pre id="skill-instructions" tabindex="0"></pre>
+      <div class="routine-actions">
+        <button type="button" id="skill-use" class="primary" hidden>Add to draft</button>
+        <button type="button" id="skill-availability" hidden></button><button type="button" id="skill-edit">Edit</button>
+        <button type="button" id="skill-archive">Archive</button>
+        <button type="button" id="skill-download">Download skill copy</button>
+      </div>
+    </section>
+    <form id="skill-form" hidden>
+      <p class="subtle" id="skill-review" hidden>Review the name and instructions before saving. Saving adds a new skill to your library.</p>
+      <label for="skill-name">Name</label><input id="skill-name" required maxlength="80">
+      <label for="skill-description">When to use it</label><input id="skill-description" maxlength="240">
+      <label for="skill-text">Instructions</label><textarea id="skill-text" rows="8" required placeholder="Include required inputs, steps, and what the agent should return."></textarea>
+      <p id="skill-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" id="skill-cancel">Cancel</button><button type="submit" class="primary" id="skill-save">Save skill</button></div>
+    </form>
+  </dialog>
+  <dialog id="vault-dialog" aria-labelledby="vault-heading">
+    <div class="details-header"><h2 id="vault-heading">Vault</h2><button id="vault-close" class="icon" type="button" aria-label="Close vault">×</button></div>
+    <p class="subtle">Saved values are write-only. Use a named entry with a supported connection.</p>
+    <p id="vault-status" role="status" hidden></p>
+    <section id="vault-list-view">
+      <button type="button" id="vault-new" class="primary" disabled>Add secret</button>
+      <ul class="library-items" id="vault-list" aria-label="Saved secrets"></ul>
+      <section id="vault-missing-view" aria-labelledby="vault-missing-heading" hidden>
+        <h3 id="vault-missing-heading">Connections waiting for a secret</h3>
+        <ul class="library-items" id="vault-missing"></ul>
+      </section>
+    </section>
+    <form id="vault-form" hidden autocomplete="off">
+      <label for="vault-name">Name</label><input id="vault-name" required maxlength="80">
+      <label for="vault-value">Secret value</label><input type="password" id="vault-value" required maxlength="4096" autocomplete="new-password" spellcheck="false">
+      <p class="subtle">The value won’t be shown after saving.</p>
+      <div class="dialog-actions"><button id="vault-cancel" type="button">Cancel</button><button id="vault-save" type="submit" class="primary">Save secret</button></div>
+    </form>
+  </dialog>
+  <dialog id="attention-dialog" aria-labelledby="attention-heading">
+    <div class="details-header"><h2 id="attention-heading">Needs attention</h2><button type="button" id="attention-close" class="icon" aria-label="Close needs attention">×</button></div>
+    <p id="attention-status" class="subtle" role="status"></p>
+    <div id="attention-list"></div>
+  </dialog>
+  <dialog id="approval-dialog" aria-labelledby="approval-heading">
+    <div class="details-header"><h2 id="approval-heading">Approvals</h2><button type="button" id="approval-close" class="icon" aria-label="Close approvals">×</button></div>
+    <p id="approval-notice" role="status"></p>
+    <section id="approval-list-view">
+      <h3>Waiting for review</h3>
+      <ul class="library-items" id="approval-list"></ul>
+      <h3>Recent decisions</h3>
+      <ul class="library-items" id="approval-history"></ul>
+      <h3>Temporary read rules</h3>
+      <ul class="library-items" id="approval-read-rules"></ul>
+    </section>
+    <section id="approval-detail" hidden>
+      <button type="button" id="approval-back">Back to approvals</button>
+      <h3 id="approval-action"></h3>
+      <p id="approval-path" class="subtle"></p>
+      <pre id="approval-input" tabindex="0"></pre>
+      <p class="subtle">Allow once applies only to these arguments. It does not save a permission rule.</p>
+      <div class="routine-actions">
+        <button type="button" id="approval-terminal">Use terminal</button>
+        <button type="button" id="approval-deny" class="danger">Deny</button>
+        <button type="button" id="approval-allow" class="primary">Allow once</button>
+      </div>
+      <div id="approval-remember-options" hidden>
+        <p class="subtle">For this path and this OpenCode session only. SwarmHub checks for file changes before approving each request. The rule ends when the workspace restarts.</p>
+        <button type="button" id="approval-remember">Allow matching reads for 1 hour</button>
+      </div>
+    </section>
+  </dialog>
+  <dialog id="terminal-dialog" aria-labelledby="terminal-heading">
+    <div class="details-header"><h2 id="terminal-heading">Agent terminal</h2><button type="button" id="terminal-close">Detach</button></div>
+    <p id="terminal-status" role="status"></p>
+    <div id="terminal-host" aria-label="Interactive agent terminal"></div>
+    <p class="subtle">Type here to control the agent directly. Detaching leaves its session running.</p>
+  </dialog>
+  <dialog id="routine-dialog" aria-labelledby="routine-heading">
+    <div class="details-header"><h2 id="routine-heading">Routines</h2><button class="icon" id="routine-close" type="button" aria-label="Close routines">×</button></div>
+    <p id="routine-notice" role="status"></p>
+    <section id="routine-list-view">
+      <button type="button" class="primary" id="routine-new">New routine</button>
+      <ul class="library-items" id="routine-list"></ul>
+      <label class="routine-check"><input id="routine-archived" type="checkbox"> Show archived</label>
+      <section id="routine-imports" aria-labelledby="routine-imports-heading" hidden>
+        <h3 id="routine-imports-heading">Imported drafts</h3>
+        <ul class="library-items" id="routine-drafts"></ul>
+      </section>
+    </section>
+    <section id="routine-import-detail" hidden>
+      <button type="button" id="routine-import-back">Back to routines</button>
+      <dl class="routine-details"><dt>Agent profile</dt><dd id="routine-import-owner"></dd><dt>Exported schedule</dt><dd id="routine-import-schedule"></dd><dt>Exported instructions</dt><dd id="routine-import-task"></dd></dl>
+      <p class="subtle" id="routine-import-help"></p>
+      <div class="routine-actions"><button id="routine-import-setup" type="button" class="primary">Set up routine</button><button id="routine-import-dismiss" type="button">Dismiss draft</button></div>
+    </section>
+    <section id="routine-detail" hidden>
+      <button type="button" id="routine-back">Back to routines</button>
+      <dl class="routine-details"><dt>Agent</dt><dd id="routine-owner"></dd><dt>Session</dt><dd id="routine-session"></dd><dt>Schedule</dt><dd id="routine-when"></dd><dt>Next run</dt><dd id="routine-next"></dd><dt>Instructions</dt><dd id="routine-instructions"></dd></dl>
+      <div class="routine-actions">
+        <button type="button" id="routine-toggle">Pause</button><button type="button" id="routine-test">Test now</button><button type="button" id="routine-edit">Edit</button><button type="button" id="routine-archive">Archive</button>
+      </div>
+      <div id="routine-move-box" hidden>
+        <p class="subtle" id="routine-move-help"></p>
+        <button type="button" id="routine-move" aria-describedby="routine-move-help">Move to current session</button>
+      </div>
+      <section id="routine-webhook" hidden>
+        <h3 id="routine-webhook-heading">Webhook</h3>
+        <label for="routine-webhook-url">POST to</label><input id="routine-webhook-url" readonly>
+        <p class="subtle" id="routine-webhook-state"></p>
+        <p class="subtle" id="routine-webhook-matching"></p>
+        <ul id="routine-webhook-filters" hidden></ul>
+        <button id="routine-webhook-key" type="button">Generate key</button>
+        <div id="routine-webhook-secret-box" hidden>
+          <label for="routine-webhook-secret">Key (shown once)</label><input id="routine-webhook-secret" readonly autocomplete="off" spellcheck="false">
+        </div>
+        <p class="subtle" id="routine-webhook-help"></p>
+      </section>
+      <section id="routine-review-view" aria-labelledby="routine-review-heading" hidden>
+        <h3 id="routine-review-heading">Events awaiting review</h3>
+        <p id="routine-review-status" role="status" hidden></p>
+        <ul class="library-items" id="routine-review-items"></ul>
+      </section>
+      <h3>Run history</h3>
+      <p class="subtle">Delivery and the agent’s reported outcome are shown separately.</p>
+      <ul class="library-items" id="routine-runs"></ul>
+    </section>
+    <form id="routine-form" hidden>
+      <label for="routine-name">Name</label><input id="routine-name" required maxlength="80">
+      <div id="routine-agent-field"><label for="routine-agent">Agent</label><select id="routine-agent"></select></div>
+      <label for="routine-task">Instructions</label><textarea id="routine-task" rows="3" required></textarea><button type="button" id="routine-skill">Use skill</button>
+      <label for="routine-kind">When to run</label><select id="routine-kind" required><option value="" disabled hidden>Choose a trigger</option><option value="interval">Repeat every…</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="webhook">On webhook</option><option value="github">On GitHub issue or pull request</option><option value="slack">On Slack app mention</option></select>
+      <div id="routine-interval-field"><label for="routine-minutes">Minutes between runs</label><input id="routine-minutes" type="number" min="1" max="43200" step="1"></div>
+      <div id="routine-time-field" hidden>
+        <label for="routine-time">Time</label><input id="routine-time" type="time">
+        <label for="routine-zone">Time zone</label><input id="routine-zone" placeholder="Europe/Warsaw">
+      </div>
+      <fieldset id="routine-filter-editor" hidden disabled>
+        <legend>Only run when these conditions match</legend>
+        <p class="subtle">Optional. Use a JSON field such as <code>repository.full_name</code> and enter the exact text to match. All conditions must match.</p>
+        <p class="subtle" id="routine-filter-github" hidden>For GitHub, filter by <code>event</code>, <code>action</code>, or <code>repository.full_name</code>. For example, <code>action</code> equals <code>opened</code>.</p>
+        <p class="subtle" id="routine-filter-slack" hidden>Enter the Slack workspace ID in <code>team_id</code> and the channel ID in <code>channel</code>. Both conditions are required.</p>
+        <div id="routine-filter-rules"></div>
+        <button type="button" id="routine-filter-add">Add condition</button>
+        <label class="routine-check"><input type="checkbox" id="routine-review-enabled"> Review matching events before running</label>
+      </fieldset>
+      <p id="routine-setup-note" class="subtle" hidden>Review the instructions and schedule. This routine stays paused until you choose Resume.</p>
+      <p id="routine-form-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" id="routine-cancel">Cancel</button><button class="primary" type="submit" id="routine-save">Save routine</button></div>
+    </form>
+  </dialog>
+  <dialog id="group-dialog" aria-labelledby="group-heading">
+    <form id="group-form">
+      <div class="details-header"><h2 id="group-heading">New group</h2><button type="button" id="group-cancel" class="icon" aria-label="Close group settings">×</button></div>
+      <label for="group-name">Group name</label><input id="group-name" maxlength="60" placeholder="Product review" required>
+      <fieldset id="group-members" class="recipients"><legend>Choose two to six agents</legend><div id="group-options"></div></fieldset>
+      <p class="subtle" id="group-history-help" hidden>Changing members keeps your conversation. New members only receive context from tasks posted after they join.</p>
+      <p id="group-form-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="submit" class="primary" id="group-save">Create group</button></div>
+    </form>
+  </dialog>
+  <dialog id="library" aria-labelledby="library-heading">
+    <div class="details-header"><h2 id="library-heading">Library</h2><button id="library-close" class="icon" type="button" aria-label="Close library">×</button></div>
+    <button type="button" id="library-all-agents" hidden>Workspace library</button>
+    <div class="library-tabs" role="group" aria-label="Library view"><button type="button" id="library-results" aria-pressed="false" hidden>All results</button><button type="button" id="library-pages" aria-pressed="false">Pages</button><button type="button" id="library-files" aria-pressed="false">Files</button><button type="button" id="library-snapshots" aria-pressed="true">Snapshots</button><button type="button" id="library-conversations" aria-pressed="false">Conversations</button><button type="button" id="library-grok" aria-pressed="false">Grok Bot history</button></div>
+    <button id="page-new" type="button" hidden>New page</button>
+    <p id="library-notice" role="status"></p>
+    <p id="library-pin-status" class="sr-only" role="status"></p>
+    <ul id="library-items" class="library-items"></ul>
+    <div id="snapshot-view" hidden>
+      <button type="button" id="library-back">Back to snapshots</button>
+      <h3 id="snapshot-title"></h3><pre id="snapshot-text" tabindex="0"></pre>
+    </div>
+    <div id="archive-view" hidden>
+      <button type="button" id="archive-back">Back to conversations</button>
+      <button type="button" id="archive-latest" hidden>Latest messages</button>
+      <h3 id="archive-title"></h3>
+      <button type="button" id="archive-transcript">Download transcript</button>
+      <button type="button" id="archive-before" hidden>Load older messages</button>
+      <div id="archive-items" class="tasks"></div>
+    </div>
+    <div id="library-file-slot"><div id="file-view" hidden>
+      <button type="button" id="files-back">Back to files</button>
+      <h3 id="file-title"></h3>
+      <p id="file-description"></p>
+      <pre id="file-text" tabindex="0" hidden></pre>
+      <div id="file-table" class="file-table" aria-label="CSV preview" tabindex="0" hidden></div>
+      <div id="file-image-view" class="file-image-view" tabindex="0" aria-label="Image preview" hidden>
+        <img id="file-image" alt="">
+      </div>
+      <div id="file-media-view" class="file-media-view" hidden>
+        <video id="file-video" controls playsinline preload="metadata" aria-label="Video preview" hidden></video>
+        <audio id="file-audio" controls preload="metadata" aria-label="Audio preview" hidden></audio>
+      </div>
+      <div id="file-pdf-view" class="file-pdf-view" hidden></div>
+      <button id="file-zoom" type="button" aria-pressed="false" hidden>Actual size</button>
+      <button type="button" id="file-download" disabled>Download file</button>
+      <button type="button" id="file-save-connected" hidden>Save to connected folder</button>
+    </div></div>
+  </dialog>
+  <dialog id="sent-file-dialog" aria-labelledby="file-title"><p id="sent-file-notice" role="status" hidden></p></dialog>
+  <dialog id="connected-files-dialog" aria-labelledby="connected-files-heading">
+    <div class="details-header"><h2 id="connected-files-heading">Connected files</h2><button id="connected-files-close" class="icon" type="button" aria-label="Close connected files">×</button></div>
+    <p id="connected-files-target" class="subtle"></p>
+    <section id="drive-setup" aria-label="Google Drive connection" hidden>
+      <button type="button" id="drive-connect">Connect Google Drive</button>
+      <button type="button" id="drive-disconnect" hidden>Disconnect Google Drive</button>
+      <a id="drive-authorize" target="_blank" rel="noopener noreferrer" hidden>Authorize with Google</a>
+      <button type="button" id="drive-check" hidden>Check connection</button>
+      <p id="drive-setup-status" role="status" hidden></p>
+    </section>
+    <div id="connected-files-source-field" hidden><label for="connected-files-source">Source</label><select id="connected-files-source"></select></div>
+    <div class="connected-files-location"><button id="connected-files-up" type="button" hidden>Up one folder</button><span id="connected-files-path"></span></div>
+    <p id="connected-files-status" role="status" hidden></p>
+    <ul id="connected-files-list" class="connected-files-list" aria-label="Files and folders"></ul>
+    <form id="connected-save-form" hidden>
+      <label for="connected-save-name">Filename</label><input id="connected-save-name" required maxlength="180" autocomplete="off">
+      <p id="connected-save-hint" class="subtle">This creates a new file. Choose a different name if one already exists.</p>
+      <div class="dialog-actions"><button id="connected-save" type="submit" class="primary" disabled>Save copy here</button></div>
+    </form>
+  </dialog>
+  <dialog id="activity-dialog" aria-labelledby="activity-title">
+    <div class="details-header"><h2 id="activity-title">Activity</h2><button id="activity-close" class="icon" type="button" aria-label="Close activity">×</button></div>
+    <p class="subtle">Replies and results from across your workspace.</p>
+    <details class="desktop-notices">
+      <summary>Desktop notifications</summary>
+      <p class="subtle">Get alerts for new results, approvals, and group questions while SwarmHub is open. Alerts omit names and message text.</p>
+      <button id="desktop-notices-toggle" type="button">Enable desktop notifications</button>
+      <p id="desktop-notices-status" role="status"></p>
+    </details>
+    <div class="activity-actions"><label><input id="activity-unread-only" type="checkbox"> Unread only</label><button id="activity-read-all" type="button" disabled>Mark all as read</button></div>
+    <p id="activity-status" role="status" hidden></p>
+    <ul id="activity-items" class="library-items" aria-label="Recent activity"></ul>
+    <button id="activity-older" type="button" hidden>Load older activity</button>
+  </dialog>
+  <dialog id="direct-thread" aria-labelledby="direct-thread-title" aria-describedby="direct-thread-agent">
+    <div class="details-header"><div><h2 id="direct-thread-title">Thread</h2><p id="direct-thread-agent"></p></div><button id="direct-thread-close" class="icon" type="button" aria-label="Close thread">×</button></div>
+    <div id="direct-thread-feed">
+      <div id="direct-thread-root" aria-label="Original message"></div>
+      <div class="conversation-label">Follow-ups <span></span></div>
+      <button id="direct-thread-older" type="button" hidden>Load older follow-ups</button>
+      <div id="direct-thread-items" class="tasks" aria-label="Thread follow-ups"></div>
+    </div>
+    <p id="direct-thread-notice" role="status" hidden></p>
+    <form id="direct-thread-composer" hidden>
+      <label for="direct-thread-text">Reply in thread</label>
+      <textarea id="direct-thread-text" rows="2" required></textarea>
+      <div class="dialog-actions"><button id="direct-thread-send" type="submit" class="primary" disabled>Send reply</button></div>
+    </form>
+  </dialog>
+  <dialog id="handoff-dialog" aria-labelledby="handoff-title" aria-describedby="handoff-description">
+    <div class="details-header"><h2 id="handoff-title">Hand off to an agent</h2></div>
+    <p id="handoff-description">Add a follow-up and an excerpt to the other agent’s draft. You’ll review it there before sending.</p>
+    <form id="handoff-form">
+      <label for="handoff-agent">Send to</label><select id="handoff-agent" required></select>
+      <label for="handoff-instructions">What should the agent do next?</label>
+      <textarea id="handoff-instructions" rows="3" required></textarea>
+      <details><summary>Preview context</summary><pre id="handoff-context" tabindex="0"></pre></details>
+      <p id="handoff-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" id="handoff-cancel">Cancel</button><button type="submit" id="handoff-stage" class="primary">Open agent draft</button></div>
+    </form>
+  </dialog>
+  <dialog id="reaction-dialog" aria-labelledby="reaction-heading" aria-describedby="reaction-description">
+    <div class="details-header"><h2 id="reaction-heading">React to message</h2><button id="reaction-close" class="icon" type="button" aria-label="Close reactions">×</button></div>
+    <p id="reaction-description">Add a reaction without sending a new message.</p>
+    <div id="reaction-options" role="group" aria-label="Reactions"></div>
+    <button id="reaction-remove" type="button" hidden>Remove reaction</button>
+    <p id="reaction-status" role="status" hidden></p>
+  </dialog>
+  <dialog id="grok-import-dialog" aria-labelledby="grok-import-heading">
+    <div class="details-header"><h2 id="grok-import-heading">Import from Grok Bot</h2><button id="grok-import-close" class="icon" type="button" aria-label="Close Grok Bot import">×</button></div>
+    <p class="subtle">Choose a SwarmHub Grok Bot export folder or its bundle.json files. Use the folder to include local copies from its attachments folders. Review the bundles before saving them.</p>
+    <details id="grok-export-guide">
+      <summary>I don’t have an export yet</summary>
+      <p>On the Mac where you use Grok Bot, download the helper. In Terminal, run this command if the file is in Downloads:</p>
+      <p><code>python3 ~/Downloads/swarmhub-grok-export.pyz</code></p>
+      <p class="subtle">The helper reads recent locally cached conversations and saves a new export folder in Documents. It doesn’t sign in, ask for a Keychain password, or send data over the network. It may not have every message.</p>
+      <button id="grok-export-helper" type="button">Download local export helper</button>
+      <p id="grok-export-helper-status" role="status" hidden></p>
+    </details>
+    <div class="grok-import-actions">
+      <button id="grok-import-pick-folder" type="button">Choose export folder</button>
+      <button id="grok-import-pick-files" type="button">Choose bundle files</button>
+    </div>
+    <input id="grok-import-folder" type="file" webkitdirectory multiple hidden>
+    <input id="grok-import-files" type="file" accept=".json,application/json" multiple hidden>
+    <p id="grok-import-status" role="status" hidden></p>
+    <ul id="grok-import-preview" class="grok-import-preview" aria-label="Export bundles"></ul>
+    <div class="dialog-actions"><button id="grok-import-history" type="button">Open Grok Bot history</button><button id="grok-import-save" type="button" class="primary" disabled>Import selected bundles</button></div>
+  </dialog>
+  <dialog id="workspace-search" aria-labelledby="workspace-search-heading">
+    <div class="details-header"><h2 id="workspace-search-heading">Search workspace</h2><button id="workspace-search-close" type="button" class="icon" aria-label="Close search">×</button></div>
+    <div class="workspace-search-controls">
+      <div><label for="workspace-query">Find in workspace</label><input type="search" id="workspace-query" maxlength="120" placeholder="Messages, skills, routines, and more…" autocomplete="off"></div>
+      <div><label for="workspace-query-kind">Category</label><select id="workspace-query-kind"><option value="">All</option><option value="agents">Agents</option><option value="groups">Groups</option><option value="messages">Messages</option><option value="skills">Skills</option><option value="routines">Routines</option><option value="pages">Pages</option><option value="files">Files</option><option value="snapshots">Snapshots</option></select></div>
+    </div>
+    <p id="workspace-search-status" role="status"></p>
+    <ul id="workspace-search-results" class="library-items" aria-label="Search results"></ul>
+  </dialog>
+  <dialog id="page-dialog" aria-labelledby="page-heading">
+    <div class="details-header"><h2 id="page-heading">Page</h2><button type="button" class="icon" id="page-close" aria-label="Close page">×</button></div>
+    <p id="page-notice" class="subtle" role="status" hidden></p>
+    <button id="page-open-latest" type="button" hidden>Open latest revision</button>
+    <section id="page-read" hidden>
+      <div class="page-actions">
+        <button id="page-edit" type="button">Edit page</button>
+        <button id="page-download" type="button">Download Markdown</button>
+        <button id="page-download-html" type="button">Download shareable HTML</button>
+        <button id="page-copy-link" type="button">Copy workspace link</button>
+        <button id="page-share" type="button" hidden>Share Page</button>
+        <button id="page-discuss" type="button" aria-controls="page-discussion" aria-expanded="false" hidden>Message about this page</button>
+        <button id="page-reload" type="button" hidden>Reload latest revision</button>
+        <button id="page-restore" type="button" hidden>Restore as new revision</button>
+      </div>
+      <p id="page-export-status" class="subtle" role="status" hidden></p>
+      <p id="page-link-status" class="subtle" role="status" hidden></p>
+      <div id="page-link-fallback" hidden><label for="page-link-value">Workspace link</label><input id="page-link-value" readonly></div>
+      <details id="page-revisions">
+        <summary>Revision history</summary>
+        <p id="page-revision-notice" class="subtle" role="status" hidden></p>
+        <ul class="library-items" id="page-revision-list"></ul>
+      </details>
+      <p id="page-checklist-note" class="subtle" hidden>Checking an item saves a new page revision.</p>
+      <div class="page-layout">
+        <article id="page-markdown-preview" class="page-markdown"></article>
+        <section id="page-discussion" aria-labelledby="page-discussion-heading" hidden>
+          <h3 id="page-discussion-heading">Message about this page</h3>
+          <p id="page-discussion-status" class="subtle" role="status"></p>
+          <ul id="page-tasks" class="page-task-list" aria-label="Page messages"></ul>
+          <button id="page-open-agent" type="button" hidden>Open agent conversation</button>
+          <form id="page-task-form">
+            <label for="page-task-text">What should the agent do?</label>
+            <textarea id="page-task-text" rows="3" placeholder="For example: Add a short comparison of the options." required></textarea>
+            <p id="page-task-error" class="error" role="alert" hidden></p>
+            <button id="page-task-send" class="primary" type="submit" disabled>Send message</button>
+          </form>
+        </section>
+      </div>
+    </section>
+    <form id="page-form" hidden>
+      <label for="page-title">Title</label><input id="page-title" required maxlength="100">
+      <label for="page-markdown">Page content (Markdown)</label><textarea id="page-markdown" rows="12" required></textarea>
+      <p id="page-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button id="page-cancel-edit" type="button">Cancel</button><button id="page-save" type="submit" class="primary">Save page</button></div>
+    </form>
+  </dialog>
+  <dialog id="page-share-dialog" aria-labelledby="page-share-heading">
+    <div class="details-header"><h2 id="page-share-heading">Share Page</h2><button id="page-share-close" type="button" class="icon" aria-label="Close Page sharing">×</button></div>
+    <p>Anyone with the viewer link can read this Page without a workspace account. They must be able to reach this workspace address.</p>
+    <p id="page-share-active" hidden></p>
+    <div id="page-share-options" hidden>
+      <label for="page-share-mode">What to share</label>
+      <select id="page-share-mode"><option value="fixed">This revision only</option><option value="live">Latest, including future updates</option></select>
+      <p id="page-share-scope" class="subtle"></p>
+      <button type="button" id="page-share-create" class="primary">Create viewer link for 7 days</button>
+    </div>
+    <div id="page-share-result" hidden>
+      <label for="page-share-url">Viewer link</label><input id="page-share-url" type="url" readonly>
+      <button type="button" id="page-share-copy">Copy viewer link</button>
+    </div>
+    <button type="button" id="page-share-revoke" hidden>Revoke viewer link</button>
+    <p id="page-share-status" class="subtle" role="status" hidden></p>
+  </dialog>
+  <dialog id="save-dialog" aria-labelledby="save-heading">
+    <form id="save-form">
+      <div class="details-header"><h2 id="save-heading">Save terminal snapshot</h2></div>
+      <p>Save the current terminal screen to your Library so you can find it later.</p>
+      <label for="snapshot-name">Title</label>
+      <input id="snapshot-name" required maxlength="100">
+      <p class="error" id="save-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" id="save-cancel">Cancel</button><button class="primary" type="submit" id="save-submit">Save snapshot</button></div>
+    </form>
+  </dialog>
+  <dialog id="access" aria-labelledby="access-heading">
+    <form id="access-form">
+      <div class="details-header"><h2 id="access-heading">Connect to this workspace</h2><button id="close-access" class="icon" type="button" aria-label="Close connection">×</button></div>
+      <label for="token">Workspace access token</label>
+      <input id="token" type="password" pattern="[0-9A-Fa-f]{64}" minlength="64" maxlength="64" autocomplete="off" required>
+      <p class="error" id="access-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button class="primary" id="connect" type="submit">Connect</button></div>
+    </form>
+  </dialog>
+  <dialog id="runtime-setup" aria-labelledby="runtime-setup-heading">
+    <div class="details-header"><h2 id="runtime-setup-heading">Runtime setup</h2><button id="runtime-setup-close" class="icon" type="button" aria-label="Close runtime setup">×</button></div>
+    <p class="subtle">Herdr starts installed agent programs. The agent program manages model access and sign-in.</p>
+    <p id="runtime-setup-state" role="status"></p>
+    <ul id="runtime-setup-list" class="library-items" aria-label="Herdr templates" hidden></ul>
+    <button type="button" id="runtime-setup-refresh">Refresh runtimes</button>
+    <details id="runtime-setup-recipes">
+      <summary>Add a template</summary>
+      <p>On the machine running Herdr, install the agent and make <code>swarmhub-herdr</code> available on Herdr’s PATH. Save the example in Herdr’s <a href="https://github.com/herdrdev/herdr-core/blob/master/docs/templates.md" target="_blank" rel="noopener noreferrer">templates folder</a>, then choose Refresh runtimes.</p>
+      <label for="runtime-setup-kind">Example template</label>
+      <select id="runtime-setup-kind"><option value="codex">Codex (OpenAI)</option><option value="claude">Claude Code (Anthropic)</option><option value="opencode">OpenCode V2.3</option><option value="custom">Other terminal agent</option></select>
+      <label for="runtime-setup-example">Template contents</label>
+      <textarea id="runtime-setup-example" rows="5" readonly spellcheck="false"></textarea>
+      <button type="button" id="runtime-setup-download">Download template</button>
+    </details>
+    <p id="runtime-setup-message" role="status" hidden></p>
+  </dialog>
+  <dialog id="launch" aria-labelledby="launch-heading">
+    <form id="launch-form">
+      <div class="details-header"><h2 id="launch-heading">New agent</h2><button id="close-launch" class="icon" type="button" aria-label="Close new agent">×</button></div>
+      <p>Choose an installed agent and model setup, then give it its first task.</p>
+      <label for="runtime-search">Find a runtime</label>
+      <input type="search" id="runtime-search" placeholder="Search by agent, provider, or model" autocomplete="off">
+      <label for="template">Agent runtime</label>
+      <select id="template" required aria-describedby="runtime-labels description"></select>
+      <div id="launch-model-field" hidden>
+        <label for="launch-model">Model</label>
+        <select id="launch-model" aria-describedby="runtime-labels"></select>
+        <button id="load-launch-models" type="button" hidden>Load OpenCode models</button>
+        <p id="launch-model-discovery-status" class="subtle" role="status" hidden></p>
+        <div id="launch-model-id-field" hidden>
+          <label for="launch-model-id">Model ID</label>
+          <input id="launch-model-id" maxlength="160" autocomplete="off" spellcheck="false" autocapitalize="off" aria-describedby="launch-model-id-hint">
+          <p id="launch-model-id-hint" class="subtle"></p>
+        </div>
+      </div>
+      <div class="runtime-preview">
+        <p id="runtime-labels" class="subtle" aria-live="polite"></p>
+        <p id="description" class="subtle"></p>
+        <p id="runtime-catalog-warning" class="subtle" hidden></p>
+      </div>
+      <div id="launch-name-fields">
+        <label for="name">Agent name</label>
+        <input id="name" required maxlength="32" pattern="[a-z0-9._\-]{1,32}" autocomplete="off" spellcheck="false" placeholder="researcher" aria-describedby="name-help">
+        <small id="name-help">Use lowercase letters, numbers, dots, dashes, or underscores.</small>
+      </div>
+      <p id="launch-profile-name" hidden>Agent: <strong id="launch-profile-display"></strong></p>
+      <label for="first-task">First task</label>
+      <textarea id="first-task" required rows="4" placeholder="What should this agent do?"></textarea>
+      <label class="routine-check"><input type="checkbox" id="collect-results"> Collect finished files in this conversation</label>
+      <p class="subtle">The agent gets a dedicated folder for finished files.</p>
+      <details id="new-instructions" class="launch-instructions">
+        <summary>Standing instructions <span class="subtle">(optional)</span></summary>
+        <label class="sr-only" for="first-instructions">Standing instructions</label>
+        <textarea id="first-instructions" rows="3" aria-describedby="first-instructions-help" placeholder="What should this agent keep in mind across sessions?"></textarea>
+        <p class="subtle" id="first-instructions-help">Up to 6 KiB. These are sent with the first task and saved to the agent profile.</p>
+      </details>
+      <div id="reuse-instructions" class="launch-instructions" hidden>
+        <label class="routine-check"><input type="checkbox" id="include-instructions"> Include saved standing instructions</label>
+        <details id="review-instructions"><summary>Review instructions for this launch</summary><p id="saved-instructions-text"></p></details>
+      </div>
+      <p id="launch-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" id="cancel-launch">Cancel</button><button class="primary" type="submit" id="start">Start agent</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

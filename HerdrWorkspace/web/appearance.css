@@ -1,0 +1,29 @@
+:root[data-appearance="light"] {
+  color-scheme: light;
+  --canvas:#f4f5fa; --sidebar:#e9ebf4; --panel:#ffffff; --button:#f1f2f8; --selected:#dee1f5;
+  --ink:#202238; --muted:#505670; --line:#737b97; --accent:#3d469b; --accent-ink:#ffffff;
+  --green:#215f48; --error:#a12d32; --focus:#3447b4;
+  --appearance-hover:#323985; --appearance-mark:#d9def8; --appearance-mark-ink:#343f91;
+  --appearance-dialog-dim:#25284376; --appearance-details-dim:#25284348;
+  accent-color:var(--accent);
+}
+
+/* The surrounding UI changes theme; video and the remote/terminal surfaces keep their own matte. */
+[data-appearance="light"] button.primary:hover:not(:disabled) { background:var(--appearance-hover); }
+[data-appearance="light"] :is(.mark,.avatar,.hero-icon) { background:var(--appearance-mark); color:var(--appearance-mark-ink); }
+[data-appearance="light"] .agent[aria-current="true"] { border-color:var(--accent); }
+[data-appearance="light"] dialog::backdrop { background:var(--appearance-dialog-dim,#25284376); }
+:is(input,textarea)::placeholder { color:var(--muted); opacity:1; }
+@media (max-width:960px) {
+  [data-appearance="light"] .details { box-shadow:0 0 0 100vmax var(--appearance-details-dim); }
+}
+
+#appearance-form fieldset { border:0; padding:0; margin:14px 0 8px; }
+#appearance-form legend { font-weight:680; }
+#appearance-form label {
+  display:flex; gap:10px; align-items:center; min-height:44px; padding:8px 10px; margin:6px 0;
+  border:1px solid var(--line); border-radius:9px; cursor:pointer;
+}
+#appearance-form label:has(input:checked) { background:var(--selected); border-color:var(--accent); }
+#appearance-form input[type="radio"] { min-height:0; width:1rem; height:1rem; padding:0; margin:1px; flex:none; accent-color:var(--accent); }
+#appearance-form small { display:block; font-weight:400; }

@@ -1,0 +1,10 @@
+BEGIN IMMEDIATE;
+CREATE TABLE roster_sections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  revision INTEGER NOT NULL DEFAULT 1
+);
+ALTER TABLE profiles ADD COLUMN section_id INTEGER REFERENCES roster_sections(id) ON DELETE SET NULL;
+CREATE INDEX profiles_by_section ON profiles(section_id) WHERE section_id IS NOT NULL;
+PRAGMA user_version = 20;
+COMMIT;

@@ -1,0 +1,25 @@
+* { box-sizing: border-box; }
+html { color-scheme: light; }
+body { margin: 0; color: #18212a; background: #fff; font: 1rem/1.6 system-ui, sans-serif; }
+main { max-width: 65rem; margin: auto; padding: clamp(1rem, 5vw, 3rem); overflow-wrap: anywhere; }
+article { overflow-x: auto; }
+header { margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #ccd4dc; }
+h1, h2, h3, h4 { line-height: 1.25; }
+header h1 { margin: 0; }
+header p { margin: .35rem 0 0; color: #4e5b68; }
+pre { overflow-x: auto; padding: .75rem 1rem; background: #f2f5f7; border-radius: .35rem; }
+code { font-family: ui-monospace, monospace; }
+blockquote { margin-inline: 0; padding-inline-start: 1rem; border-inline-start: .25rem solid #ccd4dc; }
+figure { margin: 1.5rem 0; }
+table { max-width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+caption { margin-bottom: .3rem; font-weight: 650; text-align: start; }
+th, td { padding: .35rem .65rem; border: 1px solid #ccd4dc; vertical-align: top; }
+th { background: #f2f5f7; text-align: start; }
+.chart-data td:last-child { text-align: end; }
+input[type="checkbox"] { margin-inline: 0 .35rem; accent-color: #2056a0; }
+@media print {
+  main { max-width: none; padding: 0; }
+  article { overflow: visible; }
+  pre { white-space: pre-wrap; }
+  tr { break-inside: avoid; }
+}

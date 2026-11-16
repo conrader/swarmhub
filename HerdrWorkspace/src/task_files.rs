@@ -1,0 +1,176 @@
+use crate::{
+    ApiError, Workspace,
+    core::{Failure, MAX_FILE, valid_filename},
+    file_download_response, file_preview,
+    groups::{MAX_FILES, Upload},
+};
+use axum::{
+    Json, Router,
+    extract::{Multipart, Path, State, multipart::MultipartError},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::get,
+};
+use serde::{Deserialize, de::DeserializeOwned};
+
+pub const UPLOAD_LIMIT: usize = MAX_FILE + 128 * 1024;
+const TOO_LARGE: ApiError = ApiError::PayloadTooLarge("Task attachments must total 8 MiB or less.");
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum SavedSource {
+    Library {
+        id: i64,
+    },
+    Group {
+        id: i64,
+        group: i64,
+    },
+    Direct {
+        id: i64,
+        core: String,
+        address: String,
+        created: u64,
+        task: i64,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Export {
+    source: SavedSource,
+    pub folder: String,
+    pub name: String,
+}
+
+impl Export {
+    pub fn data(&self, history: &crate::history::History) -> Result<Vec<u8>, ApiError> {
+        let (_, contents) = match &self.source {
+            SavedSource::Library { id } => history.artifact(*id)?,
+            SavedSource::Group { id, group } => history.group_file(*group, *id)?,
+            SavedSource::Direct {
+                id,
+                core,
+                address,
+                created,
+                task,
+            } => history.direct_file(core, address, *created, *task, *id)?,
+        }
+        .ok_or(ApiError::NotFound)?;
+        if contents.len() > MAX_FILE {
+            return Err(Failure::Input("Save a file up to 8 MiB.").into());
+        }
+        Ok(contents)
+    }
+}
+
+fn upload_error(error: MultipartError) -> ApiError {
+    if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        TOO_LARGE
+    } else {
+        Failure::Input("The upload could not be read. Try attaching the files again.").into()
+    }
+}
+
+pub fn routes() -> Router<Workspace> {
+    Router::new()
+        .route(
+            "/api/history/{core}/{id}/{created}/files/{task}/{file}",
+            get(download),
+        )
+        .route(
+            "/api/history/{core}/{id}/{created}/files/{task}/{file}/info",
+            get(info),
+        )
+        .route(
+            "/api/history/{core}/{id}/{created}/files/{task}/{file}/image",
+            get(image),
+        )
+}
+
+#[derive(Deserialize)]
+struct Target {
+    core: String,
+    id: String,
+    created: u64,
+    task: i64,
+    file: i64,
+}
+
+impl Target {
+    fn load(&self, w: &Workspace) -> Result<(String, Vec<u8>), ApiError> {
+        w.history
+            .direct_file(&self.core, &self.id, self.created, self.task, self.file)?
+            .ok_or(ApiError::NotFound)
+    }
+}
+
+async fn download(
+    State(w): State<Workspace>,
+    Path(target): Path<Target>,
+) -> Result<Response, ApiError> {
+    let (name, data) = target.load(&w)?;
+    Ok(file_download_response(&name, data))
+}
+
+async fn info(
+    State(w): State<Workspace>,
+    Path(target): Path<Target>,
+) -> Result<impl IntoResponse, ApiError> {
+    let (name, data) = target.load(&w)?;
+    Ok(Json(file_preview::info(&name, &data)).into_response())
+}
+
+async fn image(
+    State(w): State<Workspace>,
+    Path(target): Path<Target>,
+) -> Result<Response, ApiError> {
+    let (_, data) = target.load(&w)?;
+    file_preview::raster_response(data)
+}
+
+pub async fn read<T: DeserializeOwned>(
+    mut multipart: Multipart,
+) -> Result<(T, Vec<Upload>), ApiError> {
+    let mut message = None;
+    let mut files = vec![];
+    let mut total = 0;
+    while let Some(field) = multipart.next_field().await.map_err(upload_error)? {
+        match field.name() {
+            Some("message") if message.is_none() && field.file_name().is_none() => {
+                let raw = field.bytes().await.map_err(upload_error)?;
+                if raw.len() > 64 * 1024 {
+                    return Err(Failure::Input("The message is too large.").into());
+                }
+                message = Some(
+                    serde_json::from_slice(&raw)
+                        .map_err(|_| Failure::Input("Enter a valid message."))?,
+                );
+            }
+            Some("file") if files.len() < MAX_FILES => {
+                let name = field
+                    .file_name()
+                    .filter(|name| valid_filename(name))
+                    .ok_or(Failure::Input(
+                        "Use filenames up to 180 bytes without path separators.",
+                    ))?
+                    .to_owned();
+                let data = field.bytes().await.map_err(upload_error)?;
+                total += data.len();
+                if total > MAX_FILE {
+                    return Err(TOO_LARGE);
+                }
+                files.push(Upload { name, data });
+            }
+            Some("file") => {
+                return Err(Failure::Input("Attach up to four files per message.").into());
+            }
+            _ => return Err(Failure::Input("The upload contains an unexpected field.").into()),
+        }
+    }
+    let message = message.ok_or(Failure::Input("Write a task before sending attachments."))?;
+    if files.is_empty() {
+        return Err(Failure::Input("Choose at least one file to attach.").into());
+    }
+    Ok((message, files))
+}

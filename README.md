@@ -54,6 +54,8 @@ Available features depend on what your connected server supports. See the [Herme
 
 ## Try SwarmHub
 
+The [Herdr workspace preview](HerdrWorkspace/README.md) uses a Rust service to connect a browser interface to Herdr Core on Linux or macOS. [Try the isolated demo](HerdrWorkspace/README.md#try-the-demo), or connect it to your own Herdr Core. The existing Swift apps keep their current connections.
+
 In development for **macOS, Windows, Linux, iOS, and Android**. You can build the macOS prototype now; Windows and Linux versions are planned. The **iOS and Android apps are in development**; the first native iOS foundation is available to build, and Android is at the planning stage.
 
 [iOS specsheet and screen designs →](docs/ios/README.md)

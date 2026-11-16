@@ -1,0 +1,36 @@
+[package]
+name = "swarmhub-herdr"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+publish = false
+
+[features]
+github-test-fixture = []
+
+[dependencies]
+axum = { version = "0.8", features = ["multipart", "ws"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+chrono-tz = { version = "0.10", features = ["serde"] }
+csv = "1"
+futures-util = "0.3"
+imagesize = "0.14"
+libc = "0.2"
+percent-encoding = "2"
+png = "0.18.1"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+ring = "0.17"
+roxmltree = "0.21"
+rusqlite = { version = "0.39", features = ["bundled", "fallible_uint"] }
+rustix = { version = "1", features = ["fs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.10"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt", "net", "io-util", "sync", "time"] }
+
+[build-dependencies]
+crc32fast = "1.5"

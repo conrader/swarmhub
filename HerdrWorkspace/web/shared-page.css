@@ -1,0 +1,30 @@
+:root { --surface:#fff; --ink:#18212a; --muted:#4e5b68; --line:#a0adba; --panel:#f2f5f7; --accent:#234e9e; }
+@media (prefers-color-scheme:dark) {
+  :root { color-scheme:dark; --surface:#181b24; --ink:#f0f0f5; --muted:#bdc5d2; --line:#718095; --panel:#262a36; --accent:#bfc7ff; }
+}
+body { color:var(--ink); background:var(--surface); }
+header, blockquote, th, td { border-color:var(--line); }
+pre, th { background:var(--panel); }
+header p, .subtle { color:var(--muted); }
+a, summary, .shared-brand { color:var(--accent); }
+.shared-brand { display:block; margin-block-end:.6rem; font-size:.9rem; font-weight:650; }
+button, input, select { max-width:100%; min-height:2.55rem; font:inherit; }
+:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+summary { cursor:pointer; }
+.page-table-fields { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap:.75rem; margin:.6rem 0; }
+.page-table-fields label { display:block; }
+.page-table-scroll { overflow:auto; padding:4px; }
+.page-chart { border:1px solid var(--line); border-radius:.55rem; margin:1.5rem 0; padding:1rem; background:var(--panel); }
+.page-chart figcaption small { display:block; font-weight:400; color:var(--muted); }
+.page-chart svg { display:block; width:100%; height:auto; }
+.page-chart-grid { stroke:var(--line); stroke-width:1; }
+.page-chart-line { fill:none; stroke:var(--accent); stroke-width:2.5; stroke-linejoin:round; }
+.page-chart-point { fill:var(--accent); }
+.page-chart-tick { fill:var(--muted); font-size:15px; }
+.page-chart-bars { display:grid; gap:.55rem; list-style:none; padding:0; }
+.page-chart-bars li { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:.25rem .6rem; }
+.page-chart-track { grid-column:1 / -1; position:relative; height:10px; background:var(--surface); border-radius:2px; }
+.page-chart-track::after { content:""; position:absolute; inset-block:0; inset-inline-start:var(--chart-zero); width:1px; background:var(--muted); }
+.page-chart-bar { position:absolute; inset-block:1px; background:var(--accent); }
+.page-chart-data { margin-top:.75rem; }
+input[type="checkbox"] { min-height:unset; }

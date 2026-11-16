@@ -21,7 +21,6 @@ import urllib.parse
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import grokbot_server  # noqa: E402
 from grokbot_staged import CONNECTORS_LIMITATION, ROUTINES_LIMITATION, StagedConfig  # noqa: E402
 
 FORMAT = "agentapp-bot-bundle/v1"
@@ -171,7 +170,8 @@ def iso(ms):
 def load_cache(cache_dir):
     if os.path.islink(cache_dir) or not os.path.isdir(cache_dir):
         raise SystemExit("Grok Bot cache not found: %s" % cache_dir)
-    roster, transcripts = None, {}
+    rosters, replicas = [], []
+    roster_suffix = ".roster.last-roster"
     for file_name in sorted(os.listdir(cache_dir)):
         path = os.path.join(cache_dir, file_name)
         if not file_name.endswith(".blob") or os.path.islink(path):
@@ -179,20 +179,27 @@ def load_cache(cache_dir):
         key = decode_name(file_name)
         if not key or not key.startswith("sand.client.slice.account."):
             continue
-        if not (key.endswith(".roster.last-roster") or ".transcript.replicas." in key):
-            continue
-        with open(path, "r", encoding="utf-8") as handle:
+        if key.endswith(roster_suffix):
+            rosters.append((key[:-len(roster_suffix)], file_name))
+        elif ".transcript.replicas." in key:
+            account, _, bot = key.rpartition(".transcript.replicas.")
+            replicas.append((account, bot, file_name))
+    if not rosters:
+        raise SystemExit("No roster blob found in the Grok Bot cache.")
+    if len(rosters) > 1:
+        raise SystemExit("This cache contains multiple Grok Bot rosters. Choose a copy of the cache with only the intended account.")
+
+    def read(file_name):
+        with open(os.path.join(cache_dir, file_name), "r", encoding="utf-8") as handle:
             blob = json.load(handle)
         value = blob.get("value") if isinstance(blob, dict) else None
         if not isinstance(value, dict):
             raise SystemExit("Unexpected blob shape in %s" % file_name)
-        if key.endswith(".roster.last-roster"):
-            roster = value.get("rows") or []
-        else:
-            transcripts[key.rsplit(".", 1)[1]] = value.get("entries") or []
-    if roster is None:
-        raise SystemExit("No roster blob found in the Grok Bot cache.")
-    return roster, transcripts
+        return value
+
+    account, roster = rosters[0]
+    transcripts = {bot: read(file_name).get("entries") or [] for owner, bot, file_name in replicas if owner == account}
+    return read(roster).get("rows") or [], transcripts
 
 
 def card_text(message):
@@ -217,7 +224,10 @@ def attachment_ref(message):
     name = message.get("file_name")
     if message.get("type") != "attachment" or not name:
         return []
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.basename(name)).lstrip(".") or "file"
+    name = os.path.basename(name)
+    if Redactor()(name) != name:
+        return []
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", name).lstrip(".") or "file"
     return [{"file": "attachments/" + safe, "available": False}]
 
 
@@ -340,6 +350,7 @@ def write_json(path, value):
 def fetch_server_history(rows, transcripts, client, log=print):
     """Pages every conversation from its newest entry back to seq 1 (this also fills gaps inside the cached range);
     the cached entry wins on a seq collision. Returns merged transcripts + per-bot history."""
+    import grokbot_server
     merged, history = {}, {}
     for row in rows:
         cached = transcripts.get(row["id"], [])
@@ -354,11 +365,13 @@ def fetch_server_history(rows, transcripts, client, log=print):
 
 def load_credentials(secrets_path):
     """One Keychain read per run; the password and derived key stay in this function."""
+    import grokbot_server
     key = grokbot_server.safe_storage_key(grokbot_server.keychain_password())
     return grokbot_server.read_credentials(secrets_path, key)
 
 
 def make_client(base_url, secrets_path):
+    import grokbot_server
     token, machine_id, team_id = load_credentials(secrets_path)
     if grokbot_server.token_expired(token):
         raise grokbot_server.HistoryError("the Grok Bot access token has expired; open Grok Bot once to refresh it (no refresh is attempted here)")
@@ -366,15 +379,17 @@ def make_client(base_url, secrets_path):
     return grokbot_server.Client(base_url, headers)
 
 
-def export(cache_dir, out_dir, server=None):
+def export(cache_dir, out_dir, server=None, *, replace_existing=True):
     """`server`: optional callable (rows, transcripts) -> (merged transcripts, per-bot history)."""
     roster, transcripts = load_cache(cache_dir)
     rows = [r for r in roster if isinstance(r, dict) and isinstance(r.get("id"), str)]
+    if any(not re.fullmatch(r"[A-Za-z0-9_.-]{8,160}", row["id"]) for row in rows):
+        raise SystemExit("The roster contains an unsupported Bot identifier. The export was not written.")
     history = {}
     if server is not None:
         transcripts, history = server(rows, transcripts)
     names = {r["id"]: r.get("name") or "Grok bot" for r in rows}
-    slugs = {r["id"]: profile_slug(r.get("name") or "") for r in rows if not r.get("isGroup")}
+    slugs = {r["id"]: profile_slug(Redactor()(r.get("name") or "")) for r in rows if not r.get("isGroup")}
     parent = os.path.dirname(os.path.abspath(out_dir))
     os.makedirs(parent, exist_ok=True)
     tmp = tempfile.mkdtemp(prefix=".swarmhub-grok-export-", dir=parent)
@@ -386,7 +401,7 @@ def export(cache_dir, out_dir, server=None):
         report = {"bots": {}}
         for row in rows:
             bundle = build_bundle(row, transcripts.get(row["id"], []), names, slugs, history.get(row["id"]) if server is not None else None)
-            directory = "%s-%s" % (slugify(row.get("name") or "bot"), row["id"])
+            directory = "%s-%s" % (slugify(bundle["name"])[:80], row["id"])
             os.mkdir(os.path.join(tmp, directory), 0o700)
             write_json(os.path.join(tmp, directory, "bundle.json"), bundle)
             index["bots"].append({"source_id": row["id"], "name": bundle["name"], "bundle": directory + "/bundle.json",
@@ -399,6 +414,8 @@ def export(cache_dir, out_dir, server=None):
         write_json(os.path.join(tmp, "redaction-report.json"), report)
         old = None
         if os.path.lexists(out_dir):
+            if not replace_existing:
+                raise SystemExit("Choose a new export folder. The existing folder was not changed.")
             old = out_dir.rstrip("/") + ".old-%d" % os.getpid()
             os.rename(out_dir, old)
         os.rename(tmp, out_dir)
@@ -418,6 +435,7 @@ def default_out(home=None):
 
 
 def main(argv=None):
+    import grokbot_server
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cache", default=os.path.expanduser(DEFAULT_CACHE))
     parser.add_argument("--out", default=default_out(), help="default: %s (or %s if only that exists)" % (DEFAULT_OUT, PREVIOUS_OUT))

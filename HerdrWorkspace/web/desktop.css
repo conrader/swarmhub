@@ -1,0 +1,14 @@
+#desktop-dialog { width:min(1040px, calc(100% - 24px)); }
+#desktop-screen {
+  background:#101116;
+  height:clamp(220px, 65vh, 700px);
+  min-width:0;
+  border:1px solid var(--line);
+  border-radius:8px;
+  overflow:hidden;
+}
+#desktop-teaching { margin:8px 0 12px; }
+#desktop-teach-review h3 { margin:10px 0 0; }
+#desktop-teach-steps { max-height:min(45vh,360px); overflow:auto; padding:0 12px 0 30px; }
+#desktop-teach-steps li { padding-bottom:10px; }
+#desktop-teach-steps input { width:calc(100% - 90px); margin-inline-end:6px; }
