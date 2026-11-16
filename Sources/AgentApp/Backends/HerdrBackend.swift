@@ -31,6 +31,10 @@ struct HerdrBackend: AgentBackend {
     let model: String?
     /// The bot's own instructions, given once to each agent it starts; the app's Hermes policy text is never sent.
     let instructions: String?
+    /// A message sent while the agent answers is typed into the running agent (steer), which reads it as soon as it
+    /// can. Off: the app holds the message until the answer ends.
+    var steers = true
+    static func botSteerKey(_ botID: UUID) -> String { "herdrSteer.\(botID.uuidString.lowercased())" }
 
     init(client: HerdrClient, botName: String, botID: UUID, template: String?, model: String? = nil, instructions: String? = nil) {
         self.client = client; self.template = template?.isEmpty == false ? template : nil
@@ -82,6 +86,16 @@ struct HerdrBackend: AgentBackend {
         case "todowrite", "update_plan": "todo"
         default: tool
         }
+    }
+
+    func features() async throws -> Set<String> { steers ? ["run_steer"] : [] }
+
+    /// Types the message into the running agent. Claude Code and Codex keep their own queue for input that arrives
+    /// mid-turn, so nothing is handed back; with no agent running there is nothing to steer.
+    func steer(sessionID: String, text: String) async throws {
+        guard steers else { throw BackendError.unavailable("This bot holds messages until its answer ends.") }
+        guard let agent = client.liveAgent(named: agentName, in: try await client.workspace()) else { throw BackendError.http(404, "run_not_found") }
+        try await client.message(HerdrClient.plain(text, bytes: HerdrClient.messageBytes), to: agent)
     }
 
     func listSessions() async throws -> [BackendSession] { [] }

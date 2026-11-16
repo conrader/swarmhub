@@ -64,7 +64,7 @@ struct HerdrAgentControls: View {
     @ObservedObject var bot: Bot
     @State private var template = ""; @State private var model = ""
     @State private var templates: [HerdrClient.Template] = []; @State private var models: [HerdrClient.Template.Model] = []
-    @State private var note = ""; @State private var loaded = false; @State private var restarting = false
+    @State private var note = ""; @State private var loaded = false; @State private var restarting = false; @State private var steers = true
 
     /// The template this bot would start from now: its own, else the one for new bots, else the first available.
     private var effective: HerdrClient.Template? {
@@ -87,6 +87,8 @@ struct HerdrAgentControls: View {
             }
             .onChange(of: model) { _, value in if loaded { store.setHerdrModel(value, for: bot) } }
         }
+        Toggle("Add messages to the running answer (steer)", isOn: Binding(get: { steers }, set: { steers = $0; store.setHerdrSteers($0, for: bot) }))
+            .help("On: a message you send while the agent is answering goes straight to it. Off: the message waits until the answer ends.")
         HStack {
             Button("Start a fresh agent") { restart() }.disabled(restarting)
             if restarting { ProgressView().controlSize(.small) }
@@ -94,7 +96,7 @@ struct HerdrAgentControls: View {
         Text(note.isEmpty ? "Runtime and model apply when this bot next starts an agent. A running agent keeps its own until you start a fresh one, which also clears what the agent remembers of this chat." : note)
             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             .task {
-                template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot)
+                template = store.defaults.string(forKey: HerdrBackend.botTemplateKey(bot.id)) ?? ""; model = store.herdrModel(for: bot); steers = store.herdrSteers(bot)
                 do { templates = try await store.herdrTemplates() } catch { note = error.localizedDescription }
                 await loadModels(); loaded = true
             }

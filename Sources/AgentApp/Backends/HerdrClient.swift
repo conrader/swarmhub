@@ -220,6 +220,9 @@ struct HerdrClient: Sendable {
         let clock = ContinuousClock()
         var quietSince: ContinuousClock.Instant?, nextAgentCheck = clock.now
         var lastStatus = "", lastDraft = ""
+        /// After a reply with a steered message still unanswered: how long the agent may stay idle before the turn is over.
+        let settle = Duration.seconds(5)
+        var repliesSeen = 0, settleSince: ContinuousClock.Instant?
         /// seq → whether its end was reported too.
         var reported: [UInt64: Bool] = [:]
         func report(_ calls: [ToolCall]) {
@@ -234,8 +237,17 @@ struct HerdrClient: Sendable {
             // The preview is a convenience: a failed read never ends the turn.
             let seen = try? await preview(core: turn.core, address: turn.address, createdMs: turn.createdMs)
             report(seen?.tools ?? [])
-            if let reply = items.first(where: { $0.kind == "reply" && $0.id > turn.after }) { return reply.text }
-            if let text = seen?.draft, !text.isEmpty, text != lastDraft { partial(text); lastDraft = text }
+            // A message steered into the turn is one more task. The agent may answer it within the same reply, or queue
+            // it and answer it right after: then a second reply follows, and the turn's text is both.
+            let replies = items.filter { $0.kind == "reply" && $0.id > turn.after }
+            let tasks = items.filter { $0.kind == "task" && $0.id > turn.after }.count
+            let answered = replies.map(\.text).joined(separator: "\n\n")
+            if !replies.isEmpty {
+                if replies.count >= max(tasks, 1) { return answered }
+                if replies.count != repliesSeen { repliesSeen = replies.count; settleSince = clock.now; partial(answered); nextAgentCheck = clock.now }
+                if let since = settleSince, clock.now - since >= settle { return answered }
+            }
+            if let text = seen?.draft, !text.isEmpty, text != lastDraft { partial(answered.isEmpty ? text : answered + "\n\n" + text); lastDraft = text }
             if clock.now >= nextAgentCheck {
                 nextAgentCheck = clock.now + agentCheckInterval
                 let agent = try await workspace().agents.first { $0.address == turn.address && $0.createdMs == turn.createdMs }
@@ -246,6 +258,8 @@ struct HerdrClient: Sendable {
                     throw Failure.ended
                 }
                 let state = agent.status?.state ?? ""
+                // Working again after a reply: the queued message is being answered, so keep waiting for it.
+                if state == "working", settleSince != nil { settleSince = clock.now }
                 let line = Self.statusLine(state)
                 if line != lastStatus { status(line); lastStatus = line }
                 // "done" or "idle" with nothing saved: the hook may still be writing; stop waiting once it cannot be.

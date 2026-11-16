@@ -31,8 +31,14 @@ extension AppStore {
     }
 
     func herdrBackend(for bot: Bot) throws -> HerdrBackend {
-        HerdrBackend(client: try herdrClient(), botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.persona)
+        var backend = HerdrBackend(client: try herdrClient(), botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.persona)
+        backend.steers = herdrSteers(bot)
+        return backend
     }
+
+    /// Steer is the default: a message sent while the agent answers goes into that answer.
+    func herdrSteers(_ bot: Bot) -> Bool { defaults.object(forKey: HerdrBackend.botSteerKey(bot.id)) as? Bool ?? true }
+    func setHerdrSteers(_ steers: Bool, for bot: Bot) { defaults.set(steers, forKey: HerdrBackend.botSteerKey(bot.id)) }
 
     /// Ends the bot's running agent, so its next message starts a fresh one on the chosen runtime and model.
     /// Returns whether an agent was running. The chat stays; the agent's own memory of it does not.
