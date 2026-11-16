@@ -28,9 +28,19 @@ enum FirstRun {
 
     static func hasRealAgents(_ bots: [Bot]) -> Bool { bots.contains { !$0.isDemo && !$0.isReadOnlyArchive && $0.backend != .mock } }
 
+    /// While Herdr is the only software offered: the wizard opens by itself as long as there is no bot at all, which
+    /// covers both a fresh install (no server set up) and a server that is set up with no bot on it. A finished setup
+    /// whose bots were all removed opens it again; a window the person closed before finishing does not come back.
+    static func needsWizard(defaults: UserDefaults, bots: [Bot]) -> Bool { state(defaults) != .skipped && !hasRealAgents(bots) }
+
     /// The one launch-time call from `ContentView`: an already configured install is marked done without a window;
     /// returns whether the window should open.
     @MainActor static func settle(_ store: AppStore) -> Bool {
+        if !LegacySurface.isShown(store.defaults) {
+            if needsWizard(defaults: store.defaults, bots: store.bots) { return true }
+            if state(store.defaults) == nil { record(.done, in: store.defaults) }
+            return false
+        }
         guard state(store.defaults) == nil else { return false }
         if needsSetup(defaults: store.defaults, keyStore: store.keyStore, bots: store.bots) { return true }
         record(.done, in: store.defaults)
@@ -39,8 +49,9 @@ enum FirstRun {
 
     static func record(_ value: State, in defaults: UserDefaults) { defaults.set(value.rawValue, forKey: stateKey) }
 
-    /// Closing the window without finishing counts as "skipped" so it never nags; a finished setup stays done.
-    static func dismissed(_ defaults: UserDefaults) { if state(defaults) == nil { record(.skipped, in: defaults) } }
+    /// Closing the window without finishing counts as "skipped" so it never nags: on a first run, and whenever there
+    /// is still no bot (the wizard would otherwise open again at the next launch). A finished setup stays done.
+    static func dismissed(_ defaults: UserDefaults, hasBots: Bool = true) { if state(defaults) == nil || !hasBots { record(.skipped, in: defaults) } }
 }
 
 /// The person's name (D6): the saved "Your name", else the first word of the macOS account's full name.

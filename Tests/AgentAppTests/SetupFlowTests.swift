@@ -44,7 +44,7 @@ private let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent
 @Test func openClawCanBeChosenAndConnectedHere() {
     // P25 replaces P21's "OpenClaw: add it later in Settings → Advanced": the software step and its connect screen exist.
     #expect(OpenClawBackend.isImplemented && SetupFlow.offersSoftwareChoice)
-    #expect(SetupFlow.Step.allCases == [.welcome, .hosting, .software, .address, .openClaw, .herdr, .choose, .done])
+    #expect(SetupFlow.Step.allCases == [.welcome, .hosting, .software, .address, .openClaw, .herdr, .mainBot, .moreBots, .choose, .done])
     #expect(SetupCopy.softwareLine == "Works with Hermes and OpenClaw.")
     #expect(SetupCopy.softwareNames.contains(SetupCopy.openClawCardTitle) && SetupCopy.softwareNames.contains(SetupCopy.openClawPairing))
     var flow = SetupFlow(); flow.apply(.connectExisting); flow.apply(.pick(.openClaw))
@@ -74,7 +74,7 @@ private final class CountingProtocol: URLProtocol, @unchecked Sendable {
                          hermesSession: URLSession(configuration: configuration))
     var flow = SetupFlow(); flow.apply(.newHosted)
     let before = CountingProtocol.lock.withLock { CountingProtocol.count }
-    let png = await SnapshotRenderer.png(SetupView(preset: flow).environmentObject(store).defaultAppStorage(store.defaults), size: NSSize(width: 580, height: 480))
+    let png = await SnapshotRenderer.png(SetupView(preset: flow).environmentObject(store).defaultAppStorage(store.defaults), size: HeadlessSetup.size)
     #expect(png != nil)
     #expect(CountingProtocol.lock.withLock { CountingProtocol.count } == before, "S-host makes zero requests")
     #expect(store.defaults.string(forKey: "hermesBaseURL") == nil && store.bots.isEmpty)

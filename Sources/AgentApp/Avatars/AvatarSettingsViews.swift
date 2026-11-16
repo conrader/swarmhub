@@ -56,6 +56,8 @@ enum AvatarChoice: Equatable {
 struct AvatarPickerView: View {
     @Binding var choice: AvatarChoice
     let seed: String
+    /// The line under the preview; the setup wizard has no Save to point at.
+    var hint = "Choose a shape and color, then Save."
     @Environment(\.colorScheme) private var colorScheme
 
     private var mark: AvatarMark { choice.previewMark(seed: seed) }
@@ -80,7 +82,7 @@ struct AvatarPickerView: View {
                     if let selectedBody {
                         Text("\(selectedBody.preset.label) · \(colour.rawValue.capitalized)").font(.caption).foregroundStyle(.secondary)
                     }
-                    Text("Choose a shape and color, then Save.").font(.caption).foregroundStyle(.secondary)
+                    Text(hint).font(.caption).foregroundStyle(.secondary)
                 }
             }
             Text("Shape").font(.caption.weight(.medium)).foregroundStyle(.secondary)

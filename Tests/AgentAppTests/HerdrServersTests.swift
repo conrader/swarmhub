@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-// Several Herdr servers, the setup window's Herdr path, moving bots to Herdr, and a Herdr bot that creates bots.
+// Several Herdr servers, moving bots to Herdr, and a Herdr bot that creates bots. The setup wizard: `SetupWizardTests`.
 
 @MainActor private func herdrStore(_ defaults: UserDefaults = isolatedDefaults(), keys: InMemoryKeyStore = InMemoryKeyStore()) -> AppStore {
     AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults)
@@ -68,40 +68,7 @@ private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address
     #expect(store.addHerdrStarters(starters, on: store.herdrServers[0]).isEmpty, "a program that has a bot on the server is skipped")
     let onBox = store.addHerdrStarters(starters, on: boxServer)
     #expect(onBox.map(\.title) == ["Claude Code on Herdr · Box", "Codex on Herdr · Box"] && onBox.allSatisfy { store.herdrServer(for: $0).id == "box1" })
-    #expect(store.addedHerdrStarters(starters, on: boxServer) == ["one", "two"] && store.missingHerdrStarters(starters, on: boxServer).isEmpty)
-}
-
-@Test func theSetupWindowHasAHerdrPath() {
-    var flow = SetupFlow()
-    flow.apply(.pickHerdr(.ssh)); #expect(flow.step == .herdr && flow.software == .herdr && flow.herdr.kind == .ssh && flow.canGoBack && !flow.canAdd)
-    flow.apply(.herdrTest(.failed("no"))); #expect(flow.step == .herdr && flow.herdrFailure == "no")
-    flow.apply(.back); #expect(flow.step == .welcome && flow.herdrFailure == nil)
-    flow.apply(.pickHerdr(.local)); flow.apply(.herdrTest(.nothingHere(port: 8787)))
-    #expect(flow.step == .herdr && flow.herdrNothingHere == 8787, "a Mac with no Herdr running stays on the screen that says how to start one")
-    let starters = [HerdrStarter(template: "one", name: "Claude", title: "t", model: nil), HerdrStarter(template: "two", name: "Codex", title: "t", model: nil)]
-    flow.apply(.herdrTest(.connected(server: boxServer, key: "k", starters: starters)))
-    #expect(flow.step == .choose && flow.choices.map(\.id) == ["one", "two"] && flow.herdrServer == boxServer && flow.herdrKey == "k")
-    flow.preselect(alreadyAdded: ["one"]); #expect(flow.chosen == ["two"] && flow.canAdd)
-    flow.chosen = []; #expect(flow.canAdd, "a server can be saved with no starter agent")
-    for text in SetupCopy.herdrScreen { #expect(SetupCopy.all.contains(text)) }
-}
-
-@MainActor @Test func herdrSetupCommitSavesTheServerItsKeyAndTheChosenStarters() throws {
-    let keys = InMemoryKeyStore(), store = herdrStore(keys: keys)
-    store.bots = [Bot(name: "Sample", isDemo: true)]
-    var draft = HerdrServerDraft(kind: .ssh); draft.sshHost = "box.example.com"
-    #expect(store.setupHerdrID(for: draft) == "default", "the first server takes the stand-in's place")
-    let server = try #require(draft.server(id: store.setupHerdrID(for: draft)))
-    let starters = [HerdrStarter(template: "one", name: "Claude", title: "Claude Code on Herdr", model: "first-model"), HerdrStarter(template: "two", name: "Codex", title: "Codex on Herdr", model: nil)]
-    #expect(throws: AppStore.SetupCommitError.notTested) { try store.commitSetupHerdr(server: nil, key: nil, starters: starters, chosen: ["one"]) }
-    let added = try store.commitSetupHerdr(server: server, key: "read-from-server", starters: starters, chosen: ["one"])
-    #expect(added.map(\.name) == ["Claude"] && store.selectedBot === added[0] && !store.bots.contains(where: \.isDemo))
-    #expect(store.herdrServers == [server] && keys.key(for: "herdr") == "read-from-server" && FirstRun.state(store.defaults) == .done)
-    #expect(!FirstRun.needsSetup(defaults: store.defaults, keyStore: keys, bots: []), "a configured Herdr server counts as set up")
-    #expect(store.setupHerdrID(for: draft) == "default", "the same place again updates its server")
-    var other = HerdrServerDraft(kind: .address); other.address = "http://127.0.0.1:9000"
-    #expect(store.setupHerdrID(for: other) != "default")
-    #expect(try store.commitSetupHerdr(server: server, key: nil, starters: starters, chosen: []).isEmpty && store.herdrServers.count == 1)
+    #expect(store.missingHerdrStarters(starters, on: boxServer).isEmpty)
 }
 
 @MainActor @Test func aBotMovesToHerdrWithItsNameAvatarInstructionsAndChat() {

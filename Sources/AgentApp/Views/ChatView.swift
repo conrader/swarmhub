@@ -134,12 +134,13 @@ struct ChatView: View {
         let conversation: any Conversation = thread ?? bot
         // The Manage bots menu: the manager's actions, or the one a Herdr bot that may create bots has.
         let manageActions: [ManageBotsAction] = thread != nil ? [] : store.isManager(bot) ? ManageBotsAction.actions(for: bot.backend) : store.createsHerdrBots(bot) ? [.newBot] : []
-        return ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: conversation), canSteer: store.canSteer(in: conversation), hint: store.steerHint,
+        return ComposerView(text: $draft, attachments: $intake.items, isStreaming: store.isStreaming(in: conversation), canSteer: store.canSteer(in: conversation), hint: store.steerHint ?? (thread == nil ? store.herdrFirstReplyHint(for: bot) : nil),
                      send: send, stop: { store.stop(conversation) }, attach: attach, pasteImage: { data, name in if let item = store.prepareAttachment(imageData: data, name: name) { intake.items.append(item) } },
                      reading: intake.reading, cancelReading: intake.cancel, removeAttachment: { intake.remove($0, store: store) },
                      mentionNames: store.mentionTargets(for: bot).map(store.mentionLabel),
                      manageActions: manageActions, manage: manage,
-                     dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", slashCommands: bot.isReadOnlyArchive || bot.backend == .herdr ? [] : SlashCommand.menu, dictation: dictation)
+                     dictationContext: "\(bot.id):\(thread?.id.uuidString ?? "chat")", slashCommands: bot.isReadOnlyArchive || bot.backend == .herdr ? [] : SlashCommand.menu,
+                     wantsFocus: thread == nil && store.composerFocus == bot.id, tookFocus: { store.composerFocus = nil }, dictation: dictation)
     }
     /// A Herdr bot has no management exchange to open: its one action only writes the request into the composer.
     private func manage(_ action: ManageBotsAction) {

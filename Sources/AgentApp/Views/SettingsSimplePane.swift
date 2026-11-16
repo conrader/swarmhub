@@ -28,7 +28,7 @@ struct SettingsSimplePane: View {
                     if legacy {
                         Button(store.boxConfigured ? SimpleCopy.changeConnection : SimpleCopy.setUp) { store.openSetup(openWindow: openWindow) }
                     } else {
-                        Button(store.herdrConfigured ? SimpleCopy.addServer : SimpleCopy.setUp) { store.openSetup(openWindow: openWindow) }
+                        Button(store.setupAddsServer ? SimpleCopy.addServer : SimpleCopy.setUp) { store.openSetup(openWindow: openWindow) }
                     }
                 }
                 Text(legacy ? SimpleCopy.connectionCaption : SimpleCopy.herdrCaption).font(.caption).foregroundStyle(.secondary)

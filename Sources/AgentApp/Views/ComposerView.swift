@@ -23,6 +23,8 @@ struct ComposerView: View {
     var dictationContext: String? = nil
     /// P45 1: the `/` commands this chat runs (empty: no menu, e.g. groups).
     var slashCommands: [SlashCommand] = []
+    /// The setup wizard ends in a chat with the keyboard in its composer: true asks for it, and `tookFocus` says it happened.
+    var wantsFocus = false; var tookFocus: () -> Void = {}
     @ObservedObject var dictation: VoiceDictation = VoiceDictation()
     @State private var importing = false; @State private var pasteMonitor: Any?; @FocusState private var focused: Bool
     @State private var slash = SlashMenuState()
@@ -89,6 +91,7 @@ struct ComposerView: View {
                 attach(urls); scoped.forEach { $0.stopAccessingSecurityScopedResource() }
             }
             .onAppear(perform: installPasteMonitor).onDisappear { removePasteMonitor(); dictation.cancel() }
+            .onAppear(perform: takeFocus).onChange(of: wantsFocus) { _, _ in takeFocus() }
             .onChange(of: dictationContext) { _, _ in dictation.cancel() }
             .onChange(of: text) { _, value in if slash.dismissedAt != nil, slash.dismissedAt != value { slash.dismissedAt = nil }; if SlashMenu.query(in: value) == nil { slash.selected = 0 } }
             .onChange(of: dictation.transcript) { _, transcript in
@@ -129,6 +132,13 @@ struct ComposerView: View {
                     .onKeyPress(.escape) { guard slashOpen else { return .ignored }; slash.dismissedAt = text; return .handled }
                     .onKeyPress(.tab) { if slashOpen, let command = slash.current(in: slashMatches) { text = SlashMenu.completion(for: command); return .handled }; guard let first = suggestions.first else { return .ignored }; text = GroupRouting.complete(text, with: first); return .handled }
             }
+    }
+
+    /// The window that asked (the setup wizard) is still closing, and a field only takes the keyboard in the key
+    /// window, so the request is answered a moment later.
+    private func takeFocus() {
+        guard wantsFocus else { return }
+        Task { @MainActor in try? await Task.sleep(for: .milliseconds(300)); focused = true; tookFocus() }
     }
 
     /// Enter or a click on a row: a command with arguments waits for them; the others run at once.

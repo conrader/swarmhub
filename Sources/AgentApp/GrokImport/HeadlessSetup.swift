@@ -7,7 +7,7 @@ import SwiftUI
 /// settings suite, and Test results are built in memory: no network, no Keychain, nothing of the real app is read or
 /// written. Refuses a directory inside the repository, like `--render-snapshot`. `--only p38` / `--only p38b` / `--only p38c` / `--only p38d` / `--only p38e` / `--only p39` / `--only p40` / `--only p41` / `--only p42` / `--only p43` / `--only p44` / `--only p45` / `--only p46` / `--only p47` / `--only p48` / `--only p49` / `--only p50` / `--only p51` / `--only p52` / `--only p55` / `--only p56` / `--only team` / `--only webhooks` / `--only alerts` renders just that part's shots.
 @MainActor enum HeadlessSetup {
-    static let size = NSSize(width: 580, height: 480)
+    static let size: NSSize = SetupView.size
     static let settingsSize = NSSize(width: 760, height: 560)
 
     static func run(arguments: [String]) -> Int32 {

@@ -58,6 +58,10 @@ import SwarmHubCore
     /// What each Herdr bot's agent runs on, as last read from its server (`refreshHerdrAgentReading`): the Details
     /// panel and the chat header show it by name.
     @Published var herdrAgentReadings: [UUID: HerdrAgentReading] = [:]
+    /// The setup wizard's ending (`AppStore+SetupHerdr.swift`): the bot whose composer takes the keyboard once, and the
+    /// chat it ended in with the number of messages it had then, which says that the first reply takes longer.
+    @Published var composerFocus: UUID?
+    var herdrLanding: (bot: UUID, messages: Int)?
     /// Requests of a main bot's reply that the app is settling right now (`AppStore+HerdrBots.swift`): not offered meanwhile.
     var herdrSettling: Set<String> = []
     lazy var grokBotPresent: Bool = GrokLocator.live().isPresent

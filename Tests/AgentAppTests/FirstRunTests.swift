@@ -30,6 +30,31 @@ import Testing
     #expect(store.bots.count == 5 && store.bots.allSatisfy(\.isDemo) && store.selectedBot?.isDemo == true)
 }
 
+/// The wizard opens by itself while there is no bot at all: nothing set up, or a server with no bot on it.
+@MainActor @Test func theWizardOpensWhileThereIsNoBot() {
+    let keys = InMemoryKeyStore(), defaults = isolatedDefaults()
+    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults)
+    #expect(FirstRun.settle(store), "a fresh install")
+    store.saveHerdrServer(store.herdrServers[0], token: "t")
+    #expect(store.herdrConfigured && FirstRun.settle(store), "a server that is set up, with no bot on it")
+    store.bots = [Bot(name: "Atlas", isDemo: true)]
+    #expect(FirstRun.settle(store), "sample bots are not bots")
+    let jarvis = Bot(name: "Jarvis", backend: .herdr)
+    store.bots = [jarvis]
+    #expect(!FirstRun.settle(store) && FirstRun.state(defaults) == .done, "an install with a bot is marked done without a window")
+    store.bots = []
+    #expect(FirstRun.settle(store), "a finished setup whose bots were all removed opens the wizard again")
+    FirstRun.dismissed(defaults, hasBots: false)
+    #expect(FirstRun.state(defaults) == .skipped && !FirstRun.settle(store), "closed before the end: it does not come back by itself")
+    store.bots = [jarvis]; FirstRun.record(.done, in: defaults)
+    FirstRun.dismissed(defaults, hasBots: true)
+    #expect(FirstRun.state(defaults) == .done, "closing the wizard on a working install changes nothing")
+    // The older rule still decides while the older backends are shown.
+    let legacy = isolatedDefaults(); legacy.set(true, forKey: LegacySurface.key); FirstRun.record(.done, in: legacy)
+    let old = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: legacy)
+    #expect(!FirstRun.settle(old), "with the older backends shown, a finished setup with no bots stays closed as before")
+}
+
 @MainActor @Test func headlessStoresWriteNoSetupStateAndSettleMarksConfiguredInstallsDone() {
     let defaults = isolatedDefaults(); defaults.set("https://my-box.example.com", forKey: "hermesBaseURL")
     let url = temporaryStore()
