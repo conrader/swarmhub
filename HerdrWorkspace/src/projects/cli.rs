@@ -274,18 +274,22 @@ pub(crate) fn run() -> ! {
             std::process::exit(said.exit.unwrap_or(0))
         }
         Err(error) => {
-            // The road's own words are about helpers.
-            let error = match error.as_str() {
-                road::OFFLINE => OFFLINE,
-                road::BLOCKED => BLOCKED,
-                road::SILENT => SILENT,
-                road::TOO_LONG => WRITE_SHAPE,
-                crate::helpers::UNREGISTERED => super::NOT_AN_AGENT,
-                other => other,
-            };
-            eprintln!("{error}");
+            eprintln!("{}", worded(error));
             std::process::exit(FAILED)
         }
+    }
+}
+
+/// The road to the workspace speaks of helpers when it fails (`helpers::cli`). The same failures, said for
+/// projects. A refusal from a sandbox comes with a second line, which stays.
+fn worded(error: String) -> String {
+    let error = error.replacen(crate::helpers::UNREGISTERED, super::NOT_AN_AGENT, 1);
+    match error.as_str() {
+        road::OFFLINE => OFFLINE.into(),
+        road::BLOCKED => BLOCKED.into(),
+        road::SILENT => SILENT.into(),
+        road::TOO_LONG => WRITE_SHAPE.into(),
+        _ => error,
     }
 }
 
@@ -459,6 +463,37 @@ mod tests {
         ] {
             assert!(parsed(&refused).is_err(), "{refused:?}");
         }
+    }
+
+    #[test]
+    fn failures_on_the_way_to_the_workspace_are_said_for_projects() {
+        for said in [road::OFFLINE, road::BLOCKED, road::SILENT, road::TOO_LONG] {
+            let worded = worded(said.into());
+            assert!(
+                !worded.contains("helper ") && !worded.contains("12 KB"),
+                "{worded}"
+            );
+        }
+        assert_eq!(
+            worded(crate::helpers::UNREGISTERED.into()),
+            super::super::NOT_AN_AGENT
+        );
+        // From a sandbox, a refusal carries a second line saying that it is the workspace's answer.
+        let refused = worded(format!(
+            "{}\nThis is the workspace's answer.",
+            crate::helpers::UNREGISTERED
+        ));
+        assert_eq!(
+            refused,
+            format!(
+                "{}\nThis is the workspace's answer.",
+                super::super::NOT_AN_AGENT
+            )
+        );
+        assert_eq!(
+            worded("You have no project named \"x\".".into()),
+            "You have no project named \"x\"."
+        );
     }
 
     #[test]
