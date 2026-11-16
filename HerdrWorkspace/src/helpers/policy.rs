@@ -20,6 +20,9 @@ pub(crate) const MAX_RUNNING: usize = 16;
 /// How long an answered helper stays before the workspace stops it, unless the file says otherwise.
 pub(crate) const STOP_AFTER_SECONDS: u64 = 60;
 pub(crate) const STOP_AFTER_RANGE: std::ops::RangeInclusive<u64> = 5..=86_400;
+/// How long a helper may go without answering its latest task before the workspace stops it.
+pub(crate) const STOP_UNANSWERED_AFTER_SECONDS: u64 = 1800;
+pub(crate) const STOP_UNANSWERED_AFTER_RANGE: std::ops::RangeInclusive<u64> = 60..=604_800;
 
 /// Why there is no policy to apply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +57,10 @@ impl Unusable {
 
 fn stop_after_default() -> u64 {
     STOP_AFTER_SECONDS
+}
+
+fn stop_unanswered_after_default() -> u64 {
+    STOP_UNANSWERED_AFTER_SECONDS
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
@@ -101,6 +108,10 @@ pub(crate) struct Policy {
     /// Seconds an idle helper stays after its answer was saved. Left out of the file: 60.
     #[serde(default = "stop_after_default")]
     pub stop_after_seconds: u64,
+    /// Seconds after its latest task at which a helper that has not answered is stopped, stuck or still
+    /// working. Left out of the file: 1800.
+    #[serde(default = "stop_unanswered_after_default")]
+    pub stop_unanswered_after_seconds: u64,
     difficulties: BTreeMap<Difficulty, Tier>,
 }
 
@@ -126,9 +137,18 @@ impl Policy {
         Self::parse(&bytes).ok_or(Unusable::Invalid)
     }
 
-    /// The delay an answered helper gets, also when there is no usable policy to say so.
-    pub(crate) fn stop_after(journal: &Path) -> u64 {
-        Self::load(journal).map_or(STOP_AFTER_SECONDS, |policy| policy.stop_after_seconds)
+    /// How long a helper stays after its answer, and how long without one, in seconds: also when there is no
+    /// usable policy to say so.
+    pub(crate) fn delays(journal: &Path) -> (u64, u64) {
+        Self::load(journal).map_or(
+            (STOP_AFTER_SECONDS, STOP_UNANSWERED_AFTER_SECONDS),
+            |policy| {
+                (
+                    policy.stop_after_seconds,
+                    policy.stop_unanswered_after_seconds,
+                )
+            },
+        )
     }
 
     /// Replaces the file in one step, in a form a person can still read and edit.
@@ -164,6 +184,7 @@ impl Policy {
         };
         (policy.max_running <= MAX_RUNNING
             && STOP_AFTER_RANGE.contains(&policy.stop_after_seconds)
+            && STOP_UNANSWERED_AFTER_RANGE.contains(&policy.stop_unanswered_after_seconds)
             && policy
                 .difficulties
                 .values()
@@ -262,6 +283,9 @@ mod tests {
             r#"{"max_running":1,"stop_after_seconds":4,"difficulties":{}}"#,
             r#"{"max_running":1,"stop_after_seconds":86401,"difficulties":{}}"#,
             r#"{"max_running":1,"stop_after_seconds":"60","difficulties":{}}"#,
+            r#"{"max_running":1,"stop_unanswered_after_seconds":59,"difficulties":{}}"#,
+            r#"{"max_running":1,"stop_unanswered_after_seconds":604801,"difficulties":{}}"#,
+            r#"{"max_running":1,"stop_unanswered_seconds":600,"difficulties":{}}"#,
             r#"{"max_running":1,"difficulties":{"extreme":{"template":"a","model":"b"}}}"#,
             r#"{"max_running":1,"difficulties":{"easy":{"template":"a"}}}"#,
             r#"{"max_running":1,"difficulties":{"easy":{"template":"Not Valid","model":"b"}}}"#,
@@ -278,13 +302,20 @@ mod tests {
         let scratch = tempfile::tempdir().unwrap();
         let journal = scratch.path().join("workspace.sqlite3");
         assert_eq!(Policy::load(&journal).unwrap_err(), Unusable::Missing);
-        assert_eq!(Policy::stop_after(&journal), STOP_AFTER_SECONDS);
+        assert_eq!(Policy::delays(&journal), (60, 1800));
         std::fs::write(scratch.path().join(FILE), "{").unwrap();
         assert_eq!(Policy::load(&journal).unwrap_err(), Unusable::Invalid);
         std::fs::write(scratch.path().join(FILE), SAMPLE).unwrap();
         let loaded = Policy::load(&journal).unwrap();
-        // A file written before the delay existed keeps working, with the default delay.
-        assert_eq!((loaded.max_running, loaded.stop_after_seconds), (3, 60));
+        // A file written before the delays existed keeps working, with the default delays.
+        assert_eq!(
+            (
+                loaded.max_running,
+                loaded.stop_after_seconds,
+                loaded.stop_unanswered_after_seconds
+            ),
+            (3, 60, 1800)
+        );
         std::fs::remove_file(scratch.path().join(FILE)).unwrap();
         std::os::unix::fs::symlink("/dev/null", scratch.path().join(FILE)).unwrap();
         assert_eq!(Policy::load(&journal).unwrap_err(), Unusable::Invalid);
@@ -298,14 +329,14 @@ mod tests {
         std::os::unix::fs::symlink("/dev/null", scratch.path().join(FILE)).unwrap();
         std::fs::write(scratch.path().join(format!("{FILE}.new")), "left over").unwrap();
         let policy = Policy::parse(
-            br#"{"max_running":2,"stop_after_seconds":90,"difficulties":{"hard":{"template":"a","model":"b"}}}"#,
+            br#"{"max_running":2,"stop_after_seconds":90,"stop_unanswered_after_seconds":600,"difficulties":{"hard":{"template":"a","model":"b"}}}"#,
         )
         .unwrap();
         policy.save(&journal).unwrap();
         let text = std::fs::read_to_string(scratch.path().join(FILE)).unwrap();
         assert_eq!(
             text,
-            "{\n  \"max_running\": 2,\n  \"stop_after_seconds\": 90,\n  \"difficulties\": {\n    \"hard\": {\n      \"template\": \"a\",\n      \"model\": \"b\"\n    }\n  }\n}\n"
+            "{\n  \"max_running\": 2,\n  \"stop_after_seconds\": 90,\n  \"stop_unanswered_after_seconds\": 600,\n  \"difficulties\": {\n    \"hard\": {\n      \"template\": \"a\",\n      \"model\": \"b\"\n    }\n  }\n}\n"
         );
         let loaded = Policy::load(&journal).unwrap();
         assert_eq!(

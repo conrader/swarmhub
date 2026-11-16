@@ -193,6 +193,7 @@ A running agent can hand one task to another agent: a helper. The agent says how
 {
   "max_running": 3,
   "stop_after_seconds": 60,
+  "stop_unanswered_after_seconds": 1800,
   "difficulties": {
     "easy": { "template": "claude-work", "model": "sonnet" },
     "medium": { "template": "codex-work", "model": "your-configured-model" },
@@ -204,6 +205,7 @@ A running agent can hand one task to another agent: a helper. The agent says how
 - Each difficulty names an installed Herdr template and a model ID that template accepts (see [Choose an agent and model](#choose-an-agent-and-model)). Leave a difficulty out to refuse it.
 - `max_running` is how many helpers one agent can have running at once, from 0 to 16.
 - `stop_after_seconds` is how long a helper stays after it answers, from 5 to 86400. Leave it out for 60.
+- `stop_unanswered_after_seconds` is how long a helper may go without answering its task, from 60 to 604800. Leave it out for 1800.
 
 The workspace reads the file again for every request, so an edit applies to the next helper without a restart. A file it cannot read as a policy turns helpers off; the agent is told so.
 
@@ -226,7 +228,12 @@ The agent chooses the difficulty, the task, an optional name and, with `--here`,
 
 ### When a helper goes away
 
-The workspace stops a helper `stop_after_seconds` after its answer was saved, if it has stayed idle. A follow-up sent before then keeps it; the time counts again from its next answer. A helper that never answers, for example one waiting at a prompt, stays until the agent stops it or ends. Herdr Core also ends a helper when the agent that started it ends.
+The workspace stops a helper in two cases:
+
+- It answered and has stayed idle for `stop_after_seconds` since the answer was saved. A follow-up sent before then keeps it, and the time counts again from its next answer.
+- It has not answered `stop_unanswered_after_seconds` after its task was sent, whether it waits at a prompt or is still working. A follow-up is a new task and starts this time again. `helper list` and `helper read` say that it was stopped without an answer.
+
+Herdr Core also ends a helper when the agent that started it ends.
 
 A helper that has ended no longer counts toward `max_running`, and it leaves the helper list and the workspace’s list of agents. Its conversation stays in the history, and the agent can still read its answer with `helper read NAME`. All of this is worked out from the saved replies and Herdr Core’s terminals, so it holds across a workspace restart.
 
@@ -247,15 +254,16 @@ Either way, if the workspace server is not running, the command changes nothing 
 - With `--here`, the agent program may not have been trusted in that folder. The helper then stops at the program’s trust prompt and its task is not delivered. The command says so, the helper still counts as running, and a person answers the prompt in the helper’s terminal.
 - While Codex runs a shell command, it keeps placeholder folders such as `.git` in its working folder. A Codex agent started in that folder at that moment asks whether to trust it, and a helper stuck there gets no task. A helper asked for by a Codex agent starts right after the command has returned, which avoids the asking command itself but not the agent’s next one a second later. So a Codex helper of a Codex agent, or one started while any Codex agent in the same folder runs a command, can stop at that prompt until you trust the folder in Codex once. Claude Code helpers are not affected.
 - A helper is stopped after its answer even when it left work running in the background and meant to come back. Its first message tells it to answer only when everything is done; raise `stop_after_seconds` for helpers that do long jobs.
+- A helper that works on one task for longer than `stop_unanswered_after_seconds` is stopped in the middle of it. Raise that number for long jobs.
 - The policy governs what the helper command starts. An agent with a shell can still run other programs itself, so use the agent’s own permission settings to limit that.
 
 ### For apps
 
 A helper is an ordinary session: its replies, tool activity, terminal and history work as for any agent. It has no profile of its own.
 
-- `GET /api/agents/{address}/{created_ms}/helpers` lists an agent’s running helpers, newest first, with each one’s name, difficulty, template, model, task, status and latest saved reply, plus `limit` and `stop_after_seconds`.
+- `GET /api/agents/{address}/{created_ms}/helpers` lists an agent’s running helpers, newest first, with each one’s name, difficulty, template, model, task, status and latest saved reply, plus `limit`, `stop_after_seconds` and `stop_unanswered_after_seconds`.
 - In `/api/workspace`, a running helper carries `parent` with the address and creation time of the agent that started it.
-- `GET /api/helper-policy` returns `policy` (the file’s three fields, or `null`), `problem` (why helpers cannot start as things are, or `null`) and `bounds` for the two numbers.
+- `GET /api/helper-policy` returns `policy` (the file’s four fields, or `null`), `problem` (why helpers cannot start as things are, or `null`) and `bounds` for the three numbers.
 - `POST /api/helper-policy` takes the policy as its body and saves the file. It answers like `GET`, or with status 422 and an `error` when a number is out of bounds, Herdr has no such template, or the template cannot take the model.
 
 ## Keep an agent profile

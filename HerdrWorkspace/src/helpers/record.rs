@@ -105,8 +105,10 @@ impl View {
             } else {
                 "ended"
             };
-            return if self.reply.is_some() {
+            return if self.answered {
                 format!("{ended}, answered")
+            } else if self.reply.is_some() {
+                format!("{ended} without an answer to its latest task")
             } else {
                 format!("{ended} without an answer")
             };
@@ -375,38 +377,58 @@ pub(super) fn any(history: &History) -> Result<bool, StoreError> {
         .query_row("SELECT EXISTS(SELECT 1 FROM helpers)", [], |row| row.get(0))?)
 }
 
-/// The running helpers among `agents` that answered their latest task before `cutoff_ms` and are not working
-/// again: the ones to stop. A helper that got a follow-up has a task newer than its reply and is left alone.
-pub(super) fn answered_before<'a>(
+/// The running helpers among `agents` whose time is up: the ones to stop. One that answered its latest task
+/// before `answered_before_ms` and is not working again; or one that was given its latest task before
+/// `asked_before_ms` and has not answered it, whether it is stuck at a prompt or still working. A follow-up is a
+/// new task, so both times count again from it.
+pub(super) fn overdue<'a>(
     history: &History,
     core_id: &str,
     agents: &'a [Terminal],
-    cutoff_ms: i64,
+    answered_before_ms: i64,
+    asked_before_ms: i64,
 ) -> Result<Vec<&'a Terminal>, StoreError> {
     let db = history.db()?;
-    let mut answered = db.prepare_cached(
-        "SELECT reply.at_ms FROM helpers h JOIN journal j ON j.id=h.launch
-         JOIN journal reply ON reply.reply_for=j.launch_key AND reply.kind='reply'
-         WHERE j.launch_key=?1 AND j.core_id=?2
-           AND reply.id>(SELECT coalesce(max(task.id),0) FROM journal task
-                         WHERE task.kind='task' AND task.core_id=j.core_id
-                           AND task.address=j.address AND task.created_ms=j.created_ms)
-         ORDER BY reply.id DESC LIMIT 1",
+    let mut helper = db.prepare_cached(
+        "SELECT j.id FROM helpers h JOIN journal j ON j.id=h.launch
+         WHERE j.launch_key=?1 AND j.core_id=?2",
+    )?;
+    let mut latest_task = db.prepare_cached(
+        "SELECT id,at_ms FROM journal
+         WHERE kind='task' AND (id=?1 OR (core_id=?2 AND address=?3 AND created_ms=?4))
+         ORDER BY id DESC LIMIT 1",
+    )?;
+    let mut answer = db.prepare_cached(
+        "SELECT at_ms FROM journal WHERE reply_for=?1 AND kind='reply' AND id>?2
+         ORDER BY id DESC LIMIT 1",
     )?;
     let mut due = Vec::new();
     for agent in agents {
-        let idle = agent.require_live().is_ok()
-            && agent
-                .status
-                .as_ref()
-                .is_none_or(|status| status.state != "working");
-        let Some(key) = agent.launch_key().filter(|_| idle) else {
+        let Some(key) = agent.launch_key().filter(|_| agent.require_live().is_ok()) else {
             continue;
         };
-        let at_ms: Option<i64> = answered
+        let launch: Option<i64> = helper
             .query_row(params![key, core_id], |row| row.get(0))
             .optional()?;
-        if at_ms.is_some_and(|at_ms| at_ms <= cutoff_ms) {
+        let Some(launch) = launch else {
+            continue;
+        };
+        let (task, asked_ms): (i64, i64) = latest_task.query_row(
+            params![launch, core_id, agent.address, agent.created_ms],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let answered_ms: Option<i64> = answer
+            .query_row(params![key, task], |row| row.get(0))
+            .optional()?;
+        let working = agent
+            .status
+            .as_ref()
+            .is_some_and(|status| status.state == "working");
+        let up = match answered_ms {
+            Some(answered_ms) => !working && answered_ms <= answered_before_ms,
+            None => asked_ms <= asked_before_ms,
+        };
+        if up {
             due.push(agent);
         }
     }
@@ -440,27 +462,42 @@ pub(super) fn list_text(helpers: &[View], limit: Option<usize>, stop_after_secon
         ));
     }
     // A name read back gives its newest helper, so one that runs again is not also listed as ended.
-    let mut ended: Vec<&str> = Vec::new();
+    let mut ended: Vec<&View> = Vec::new();
     for helper in helpers {
-        let name = helper.name.as_str();
         let runs = helpers
             .iter()
-            .any(|other| other.holds_a_place() && other.name == name);
-        if !runs && ended.len() < 12 && !ended.contains(&name) {
-            ended.push(name);
+            .any(|other| other.holds_a_place() && other.name == helper.name);
+        if !runs && ended.len() < 12 && ended.iter().all(|seen| seen.name != helper.name) {
+            ended.push(helper);
         }
     }
-    if !ended.is_empty() {
-        ended.reverse();
+    ended.reverse();
+    let names = |answered: bool| {
+        ended
+            .iter()
+            .filter(|helper| helper.answered == answered)
+            .map(|helper| helper.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    if !names(true).is_empty() {
         text.push_str(&format!(
             "\nEnded (read an answer with `swarmhub-herdr helper read NAME`): {}",
-            ended.join(", ")
+            names(true)
         ));
+    }
+    if !names(false).is_empty() {
+        text.push_str(&format!("\nStopped without an answer: {}", names(false)));
     }
     text
 }
 
-pub(super) fn read_text(helper: &View, screen: Option<(usize, &str)>) -> String {
+/// `helper read` for the agent. `unanswered_seconds` is how long the workspace lets a helper go without answering.
+pub(super) fn read_text(
+    helper: &View,
+    screen: Option<(usize, &str)>,
+    unanswered_seconds: u64,
+) -> String {
     let mut text = format!(
         "{} ({}, {} {}, {}): {}\nTask: {}\n",
         helper.name,
@@ -481,13 +518,20 @@ pub(super) fn read_text(helper: &View, screen: Option<(usize, &str)>) -> String 
         text.push_str(&shown[shown.len().saturating_sub(lines)..].join("\n"));
         return text;
     }
+    let gave_up = format!(
+        "The workspace stops a helper that has not answered {unanswered_seconds} seconds after its task was sent."
+    );
     match &helper.reply {
         Some(reply) => {
-            text.push_str(if helper.answered {
-                "Answer:\n"
+            if helper.answered {
+                text.push_str("Answer:\n");
+            } else if helper.holds_a_place() {
+                text.push_str("No answer to its latest task yet. Its previous answer:\n");
             } else {
-                "No answer to its latest task yet. Its previous answer:\n"
-            });
+                text.push_str(&format!(
+                    "It was stopped without an answer to its latest task. {gave_up} Its previous answer:\n"
+                ));
+            }
             text.push_str(&reply.text);
             if reply.truncated {
                 text.push_str(
@@ -499,8 +543,13 @@ pub(super) fn read_text(helper: &View, screen: Option<(usize, &str)>) -> String 
             "No answer saved yet. Wait with: swarmhub-herdr helper wait {}",
             helper.name
         )),
-        None => text.push_str(&format!(
+        None if helper.holds_a_place() => text.push_str(&format!(
             "No answer was saved. See its screen with: swarmhub-herdr helper read {} --lines 30",
+            helper.name
+        )),
+        None if helper.state == "failed" => text.push_str("It never ran, so there is no answer."),
+        None => text.push_str(&format!(
+            "It was stopped without an answer. {gave_up} Its last screen: swarmhub-herdr helper read {} --lines 30",
             helper.name
         )),
     }
@@ -650,6 +699,10 @@ mod tests {
         );
         assert!(tests.working() && tests.reply.is_none() && !tests.answered);
         assert_eq!(listed[1].phase(), "stopped without an answer");
+        assert_eq!(
+            read_text(&listed[1], None, 1800).lines().last().unwrap(),
+            "It was stopped without an answer. The workspace stops a helper that has not answered 1800 seconds after its task was sent. Its last screen: swarmhub-herdr helper read easy-1 --lines 30"
+        );
         assert!(!listed[1].working());
 
         // A saved reply answers the task; the list carries a bounded copy of it.
@@ -669,7 +722,7 @@ mod tests {
         assert_eq!((reply.text.as_str(), reply.truncated), ("Seven", true));
         assert!(listed[0].answered && !listed[0].working());
         assert_eq!(listed[0].phase(), "answered");
-        let text = read_text(&listed[0], None);
+        let text = read_text(&listed[0], None, 1800);
         assert!(text.starts_with(
             "tests (easy, fixture small, t9): answered\nTask: Count the files\nAnswer:\nSeven"
         ));
@@ -677,10 +730,10 @@ mod tests {
             list_text(&listed, Some(2), 60),
             "Running helpers: 1 of the 2 allowed. A helper is stopped 60 seconds after it answers unless you send it a follow-up; its answer stays readable.\n\
              tests · easy · small · t9 · answered · Count the files\n\
-             Ended (read an answer with `swarmhub-herdr helper read NAME`): easy-1"
+             Stopped without an answer: easy-1"
         );
         assert_eq!(
-            read_text(&listed[0], Some((2, "one\ntwo  \nthree\n\n")))
+            read_text(&listed[0], Some((2, "one\ntwo  \nthree\n\n")), 1800)
                 .lines()
                 .skip(2)
                 .collect::<Vec<_>>(),
@@ -724,28 +777,53 @@ mod tests {
         // An answered, idle helper is due once its answer is old enough. The parent and an ended helper never are.
         assert!(any(&history).unwrap());
         let answered_at = listed[0].reply.as_ref().unwrap().at_ms;
-        let due = |agents: &[Terminal], cutoff: i64| -> Vec<String> {
-            answered_before(&history, "core", agents, cutoff)
+        let due = |agents: &[Terminal], answered_before: i64, asked_before: i64| -> Vec<String> {
+            overdue(&history, "core", agents, answered_before, asked_before)
                 .unwrap()
                 .iter()
                 .map(|agent| agent.address.clone())
                 .collect()
         };
-        assert!(due(&everyone, answered_at - 1).is_empty());
-        assert_eq!(due(&everyone, answered_at), ["t9"]);
-        // It is working again, or it got a follow-up it has not answered: left alone.
-        assert!(due(&agents, answered_at).is_empty());
-        history
+        const NEVER: i64 = i64::MIN;
+        assert!(due(&everyone, answered_at - 1, NEVER).is_empty());
+        assert_eq!(due(&everyone, answered_at, NEVER), ["t9"]);
+        // It answered, so the time allowed without an answer does not apply to it, however long ago it was asked.
+        assert!(due(&everyone, NEVER, now() + 1_000).is_empty());
+        // It is working again: left alone.
+        assert!(due(&agents, answered_at, NEVER).is_empty());
+        // A follow-up it has not answered: its earlier answer no longer counts, and the other clock starts.
+        let (follow_up, _) = history
             .start_task("core", &everyone[1], "And the folders?", None, false, &[])
             .unwrap();
-        assert!(due(&everyone, now() + 1_000).is_empty());
-        // The delay counts again from its next answer.
+        let asked_at: i64 = history
+            .db()
+            .unwrap()
+            .query_row(
+                "SELECT at_ms FROM journal WHERE id=?1",
+                [follow_up],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(due(&everyone, now() + 1_000, asked_at - 1).is_empty());
+        // Too long without an answer: stopped, also while it still works.
+        assert_eq!(due(&everyone, NEVER, asked_at), ["t9"]);
+        assert_eq!(due(&agents, NEVER, asked_at), ["t9"]);
+        let unanswered = views(&history, "core", &parent, &agents[..1], 50).unwrap();
+        let gone = unanswered
+            .iter()
+            .find(|helper| helper.name == "tests")
+            .unwrap();
+        assert_eq!(gone.phase(), "gone without an answer to its latest task");
+        assert!(read_text(gone, None, 600).contains(
+            "It was stopped without an answer to its latest task. The workspace stops a helper that has not answered 600 seconds after its task was sent. Its previous answer:\nSeven files"
+        ));
+        // The delay after an answer counts again from its next answer.
         assert!(
             crate::history::publish_reply(history.file(), &second.key, "Agent", "Two", None)
                 .unwrap()
         );
-        assert_eq!(due(&everyone, now() + 1_000), ["t9"]);
-        assert!(due(&everyone, answered_at).is_empty());
+        assert_eq!(due(&everyone, now() + 1_000, NEVER), ["t9"]);
+        assert!(due(&everyone, answered_at, now() + 1_000).is_empty());
     }
 
     #[test]

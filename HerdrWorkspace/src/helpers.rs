@@ -110,6 +110,8 @@ struct Listing {
     limit: Option<usize>,
     /// Seconds after its answer at which an idle helper is stopped and leaves this list.
     stop_after_seconds: u64,
+    /// Seconds after its latest task at which a helper that has not answered is stopped.
+    stop_unanswered_after_seconds: u64,
     /// Running helpers only, newest first.
     helpers: Vec<View>,
 }
@@ -215,8 +217,9 @@ pub(crate) fn start_serving(w: Workspace) {
     });
 }
 
-/// Stops each helper whose answer is older than the policy's delay and which is not working again. It goes by the
-/// saved replies and Core's terminal list alone, so a workspace restart changes nothing.
+/// Stops each helper whose time is up under the policy: it answered a while ago and is idle, or it has gone too
+/// long without answering. It goes by the saved tasks and replies and Core's terminal list alone, so a workspace
+/// restart changes nothing.
 async fn stop_answered(w: &Workspace) {
     if !record::any(&w.history).unwrap_or(false) {
         return;
@@ -224,12 +227,17 @@ async fn stop_answered(w: &Workspace) {
     let (Ok(hello), Ok(agents)) = (w.core.identify().await, w.core.agents().await) else {
         return;
     };
-    let delay_ms = Policy::stop_after(w.history.file()).saturating_mul(1000);
-    let Ok(due) = record::answered_before(
+    let (answered, unanswered) = Policy::delays(w.history.file());
+    let before = |seconds: u64| {
+        crate::history::now()
+            .saturating_sub(i64::try_from(seconds.saturating_mul(1000)).unwrap_or(i64::MAX))
+    };
+    let Ok(due) = record::overdue(
         &w.history,
         &hello.core.id,
         &agents,
-        crate::history::now().saturating_sub(i64::try_from(delay_ms).unwrap_or(i64::MAX)),
+        before(answered),
+        before(unanswered),
     ) else {
         return;
     };
@@ -366,7 +374,7 @@ async fn manage(w: &Workspace, key: String, action: Action) -> Result<Reply, Str
                 Policy::load(w.history.file())
                     .ok()
                     .map(|policy| policy.max_running),
-                Policy::stop_after(w.history.file()),
+                Policy::delays(w.history.file()).0,
             ),
             ..Reply::default()
         }),
@@ -391,6 +399,7 @@ async fn manage(w: &Workspace, key: String, action: Action) -> Result<Reply, Str
                 text: read_text(
                     helper,
                     screen.as_ref().map(|(lines, text)| (*lines, &**text)),
+                    Policy::delays(w.history.file()).1,
                 ),
                 working: helper.working(),
                 error: None,
@@ -556,7 +565,10 @@ async fn start(
         tier.model
     );
     let template_name = template.name.clone();
-    let stays = policy.stop_after_seconds;
+    let stays = format!(
+        "It is stopped {} seconds after it answers unless you send it a follow-up first, or after {} seconds without an answer; an answer stays readable.",
+        policy.stop_after_seconds, policy.stop_unanswered_after_seconds
+    );
     let w = w.clone();
     let launch = async move {
         let journal = w
@@ -610,7 +622,7 @@ async fn start(
     };
     if defer {
         let text = format!(
-            "Starting helper {described}{folder}. It starts as soon as this command has returned.\nWait for its answer with: swarmhub-herdr helper wait {name}\nIt is stopped {stays} seconds after it answers unless you send it a follow-up first; its answer stays readable."
+            "Starting helper {described}{folder}. It starts as soon as this command has returned.\nWait for its answer with: swarmhub-herdr helper wait {name}\n{stays}"
         );
         let deferred = Deferred {
             record,
@@ -632,7 +644,7 @@ async fn start(
         .map_err(|_| "The helper launch was interrupted. Run `swarmhub-herdr helper list`.")??;
     let text = match undelivered {
         None => format!(
-            "Started helper {described} as {address}{folder}.\nWait for its answer with: swarmhub-herdr helper wait {name}\nIt is stopped {stays} seconds after it answers unless you send it a follow-up first; its answer stays readable."
+            "Started helper {described} as {address}{folder}.\nWait for its answer with: swarmhub-herdr helper wait {name}\n{stays}"
         ),
         Some(reason) => format!(
             "Started helper {described} as {address}{folder}, but its task was not delivered: {reason}.\nIt still counts as running. Look at it with: swarmhub-herdr helper read {name} --lines 30\nIf it waits at a prompt only a person should answer, stop it with `swarmhub-herdr helper stop {name}` and tell the user. Otherwise send the task again with `swarmhub-herdr helper send {name} TEXT`."
@@ -682,7 +694,8 @@ async fn list(
         limit: Policy::load(w.history.file())
             .ok()
             .map(|policy| policy.max_running),
-        stop_after_seconds: Policy::stop_after(w.history.file()),
+        stop_after_seconds: Policy::delays(w.history.file()).0,
+        stop_unanswered_after_seconds: Policy::delays(w.history.file()).1,
         helpers,
     }))
 }

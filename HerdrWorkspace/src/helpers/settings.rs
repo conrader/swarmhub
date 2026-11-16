@@ -3,7 +3,10 @@
 
 use super::{
     Unfit, fit,
-    policy::{FILE, MAX_RUNNING, Policy, STOP_AFTER_RANGE, STOP_AFTER_SECONDS},
+    policy::{
+        FILE, MAX_RUNNING, Policy, STOP_AFTER_RANGE, STOP_AFTER_SECONDS,
+        STOP_UNANSWERED_AFTER_RANGE, STOP_UNANSWERED_AFTER_SECONDS,
+    },
 };
 use crate::{Workspace, core::Failure};
 use axum::{
@@ -17,7 +20,7 @@ use axum::{
 use serde::Serialize;
 use serde_json::{Value, json};
 
-const SHAPE: &str = "Send max_running (0 to 16), stop_after_seconds (5 to 86400) and difficulties: easy, medium or hard, each with a template and a model.";
+const SHAPE: &str = "Send max_running (0 to 16), stop_after_seconds (5 to 86400), stop_unanswered_after_seconds (60 to 604800) and difficulties: easy, medium or hard, each with a template and a model.";
 
 #[derive(Serialize)]
 struct Shown {
@@ -71,6 +74,10 @@ async fn shown(w: &Workspace) -> Shown {
             "max_running": {"min": 0, "max": MAX_RUNNING},
             "stop_after_seconds": {
                 "min": STOP_AFTER_RANGE.start(), "max": STOP_AFTER_RANGE.end(), "default": STOP_AFTER_SECONDS
+            },
+            "stop_unanswered_after_seconds": {
+                "min": STOP_UNANSWERED_AFTER_RANGE.start(), "max": STOP_UNANSWERED_AFTER_RANGE.end(),
+                "default": STOP_UNANSWERED_AFTER_SECONDS
             },
         }),
     }
