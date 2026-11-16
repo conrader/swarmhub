@@ -88,8 +88,12 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
     store.saveHerdrServer(box, token: "t")
     let far = Bot(name: "Far", backend: .herdr); store.bots.append(far); store.setHerdrServer("box1", for: far)
     #expect(store.herdrMainBot(on: store.herdrServers[0]) === jarvis && store.herdrMainBot(on: box) == nil && store.createsHerdrBots(jarvis) && !store.createsHerdrBots(boppy))
+    // Only a server's main bot wears the star; a manager of an older backend does not.
+    let manager = Bot(name: "Old", backend: .hermes); manager.canManageBots = true; store.bots.append(manager)
+    #expect(store.herdrMainBotLabel(jarvis) == "Main bot of This Mac" && store.herdrMainBotLabel(boppy) == nil && store.herdrMainBotLabel(far) == nil && store.herdrMainBotLabel(manager) == nil)
     store.setCanManageBots(far, true)
     #expect(store.herdrMainBot(on: box) === far && store.herdrMainBot(on: store.herdrServers[0]) === jarvis, "another server keeps its own")
+    #expect(store.herdrMainBotLabel(far) == "Main bot of Box" && store.herdrMainBotLabel(jarvis) == "Main bot of This Mac", "each server's main bot has its star")
     store.setCanManageBots(boppy, true)
     #expect(store.herdrMainBot(on: store.herdrServers[0]) === boppy && !jarvis.canManageBots && far.canManageBots, "the role moves; it is never held twice")
     let nowMain = try store.herdrBackend(for: boppy), noLonger = try store.herdrBackend(for: jarvis)

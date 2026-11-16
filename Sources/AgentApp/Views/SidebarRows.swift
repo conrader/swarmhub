@@ -16,13 +16,18 @@ enum SidebarMetrics {
     }
 }
 
-/// Name over a one-line grey fragment, both truncated with "…"; unread makes the name semibold.
+/// Name over a one-line grey fragment, both truncated with "…"; unread makes the name semibold. `main` (a Herdr
+/// server's main bot, "Main bot of This Mac") puts a small star right after the name.
 private struct RowText: View {
     let name: String; let fragment: String; let unread: Bool
+    var main: String? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(name).font(.system(size: SidebarMetrics.nameSize, weight: unread ? .semibold : .medium)).foregroundStyle(.primary)
-                .lineLimit(1).truncationMode(.tail)
+            HStack(spacing: 5) {
+                Text(name).font(.system(size: SidebarMetrics.nameSize, weight: unread ? .semibold : .medium)).foregroundStyle(.primary)
+                    .lineLimit(1).truncationMode(.tail)
+                if let main { HerdrMainBotStar(label: main) }
+            }
             // A blank fragment still takes its line, so every row is the same height.
             Text(fragment.isEmpty ? " " : fragment).font(.system(size: SidebarMetrics.fragmentSize)).foregroundStyle(.secondary)
                 .lineLimit(1).truncationMode(.tail)
@@ -74,9 +79,9 @@ struct BotRow: View {
                     }
                 // Re-read the phase during a pause in text, even when no stream event arrives.
                 if working {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread) }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in RowText(name: bot.name, fragment: fragment(fixedNow ?? context.date), unread: bot.isUnread, main: store.herdrMainBotLabel(bot)) }
                 } else {
-                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread)
+                    RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, main: store.herdrMainBotLabel(bot))
                 }
                 Spacer(minLength: 4)
                 if bot.retiredOnBox { Text("retired").font(.system(size: 10)).foregroundStyle(.tertiary) }

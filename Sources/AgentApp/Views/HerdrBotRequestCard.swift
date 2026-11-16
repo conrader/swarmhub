@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// The small star a Herdr server's main bot wears beside its name: in the sidebar, the chat header and its Overview.
+/// `label` says whose main bot it is ("Main bot of This Mac"), as the tooltip and for VoiceOver.
+struct HerdrMainBotStar: View {
+    let label: String; var size: CGFloat = 10
+    var body: some View {
+        Image(systemName: "star.fill").font(.system(size: size, weight: .semibold)).foregroundStyle(Color.accentColor)
+            .help(label).accessibilityLabel(label)
+    }
+}
+
 /// Above the composer of a server's main bot. First the bots it created on its own decision, each with Remove and
 /// Keep, so nothing it adds goes unseen. Then each bot its replies ask the person about, with Create and Dismiss:
 /// nothing of those is created until Create is pressed, and a name already on the server can only be dismissed.

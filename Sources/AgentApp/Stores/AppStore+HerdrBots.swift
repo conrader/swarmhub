@@ -24,6 +24,9 @@ extension AppStore {
 
     func herdrMainBot(on server: HerdrServer) -> Bot? { herdrBots(on: server).first { createsHerdrBots($0) } }
 
+    /// "Main bot of This Mac" for a server's main bot, which wears a star (`HerdrMainBotStar`); nil for every other bot.
+    func herdrMainBotLabel(_ bot: Bot) -> String? { createsHerdrBots(bot) ? "Main bot of \(herdrServer(for: bot).name)" : nil }
+
     /// "Ask me before creating bots", off unless the person turned it on: every new bot waits for their Create.
     static func herdrAsksFirstKey(_ botID: UUID) -> String { "herdrAsksFirst.\(botID.uuidString.lowercased())" }
     func herdrAsksFirst(_ bot: Bot) -> Bool { defaults.bool(forKey: Self.herdrAsksFirstKey(bot.id)) }

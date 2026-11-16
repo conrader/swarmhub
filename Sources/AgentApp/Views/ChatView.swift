@@ -32,6 +32,7 @@ struct ChatView: View {
                 BotAvatar(bot: bot, size: 30, motion: .focus, isWorking: store.isWorking(bot) || incoming != nil, probe: "chat_header",
                           isWaiting: store.hasPendingApproval(bot))
                 Button { store.showInfo.toggle() } label: { Text(bot.name).font(.system(size: 14, weight: .semibold)) }.buttonStyle(.plain)
+                if let main = store.herdrMainBotLabel(bot) { HerdrMainBotStar(label: main, size: 11) }
                 if let thread { Text(thread.headerTitle).font(.system(size: 12)).foregroundStyle(.secondary) }
                 // A Herdr bot's model by the server's name for it: the running agent's, else the one its next agent starts on.
                 else if bot.backend == .herdr, let model = store.herdrAgentReadings[bot.id]?.short { Text(model).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).help("The model this bot's agent runs on") }
