@@ -1,7 +1,7 @@
 //! `swarmhub-herdr helper …`, run by an agent in its own terminal. It asks the running workspace and prints the
 //! answer as plain text. It decides nothing itself: no policy, no limit and no launch happens in this process.
 
-use super::{Action, REPLY_LIMIT, REQUEST_LIMIT, Reply, Request, socket_path};
+use super::{Action, REPLY_LIMIT, REQUEST_LIMIT, Reply, Request, socket_path, spool};
 use std::{
     io::{BufRead, BufReader, Read, Write},
     os::unix::net::UnixStream,
@@ -18,9 +18,13 @@ pub(crate) const USAGE: &str = "Helpers (another agent for one task; the workspa
   swarmhub-herdr helper send NAME TEXT            give it a follow-up
   swarmhub-herdr helper stop NAME                 end it when you no longer need it";
 
-const OFFLINE: &str = "The SwarmHub workspace server is not running, so helpers are unavailable. Nothing was started or changed.";
-const BLOCKED: &str = "A sandbox stopped this command from reaching the SwarmHub workspace, so nothing was started or changed. Run the same command again outside the sandbox (with escalated permissions).";
-const SILENT: &str = "The workspace did not answer in time. Run `swarmhub-herdr helper list` to see what happened before trying again.";
+pub(super) const OFFLINE: &str = "The SwarmHub workspace server is not running, so helpers are unavailable. Nothing was started or changed.";
+const BLOCKED: &str = "A sandbox stopped this command from reaching the SwarmHub workspace, and it found no .swarmhub-helpers folder it may write to. Nothing was started or changed. Run the command from the folder this agent was started in.";
+pub(super) const SILENT: &str = "The workspace did not answer in time. Run `swarmhub-herdr helper list` to see what happened before trying again.";
+pub(super) const TOO_LONG: &str = "That is too long. Use up to 12 KB of plain text; put longer material in a file and name the file.";
+const ANSWERED: &str = "This is the workspace's answer, not a sandbox failure: running the command outside the sandbox would give the same answer.";
+/// Starting an agent can take more than a minute on a busy machine.
+const PATIENCE: Duration = Duration::from_secs(170);
 const WAIT_SECONDS: u64 = 100;
 const MAX_WAIT_SECONDS: u64 = 590;
 const POLL: Duration = Duration::from_secs(2);
@@ -181,17 +185,29 @@ fn call(journal: &Path, launch: &str, action: Action) -> Result<Reply, String> {
     let mut bytes = serde_json::to_vec(&request).map_err(|_| SILENT)?;
     bytes.push(b'\n');
     if bytes.len() > REQUEST_LIMIT {
-        return Err("That is too long. Use up to 12 KB of plain text; put longer material in a file and name the file.".into());
+        return Err(TOO_LONG.into());
     }
-    let mut stream =
-        UnixStream::connect(socket_path(journal)).map_err(|error| match error.kind() {
-            // Codex's default sandbox refuses every connection a shell command makes, local sockets included.
-            std::io::ErrorKind::PermissionDenied => BLOCKED,
-            _ => OFFLINE,
-        })?;
-    // Starting an agent can take more than a minute on a busy machine.
+    let mut stream = match UnixStream::connect(socket_path(journal)) {
+        Ok(stream) => stream,
+        // Codex's sandbox refuses every connection a shell command makes, local sockets included. It still lets
+        // the command write in the agent's folder, where the workspace looks for requests as files.
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            let cwd = std::env::current_dir().ok();
+            let named = std::env::var_os(spool::ENV).map(Into::into);
+            let reply = spool::find(named, cwd.as_deref())
+                .ok_or(None)
+                .and_then(|dir| spool::ask(&dir, launch, request.action, spool::PICKUP, PATIENCE))
+                .map_err(|why| why.unwrap_or(BLOCKED))?;
+            return match reply.error {
+                // A Codex helper took a refusal for a sandbox failure and asked to run the command unsandboxed.
+                Some(error) => Err(format!("{error}\n{ANSWERED}")),
+                None => Ok(reply),
+            };
+        }
+        Err(_) => return Err(OFFLINE.into()),
+    };
     stream
-        .set_read_timeout(Some(Duration::from_secs(170)))
+        .set_read_timeout(Some(PATIENCE))
         .and_then(|()| stream.set_write_timeout(Some(Duration::from_secs(5))))
         .and_then(|()| stream.write_all(&bytes))
         .map_err(|_| SILENT)?;

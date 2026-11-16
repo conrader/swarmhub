@@ -195,9 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Err(error) = github_project::access::listen(workspace.clone()) {
         eprintln!("SwarmHub agent access to GitHub is unavailable: {error}");
     }
-    if let Err(error) = helpers::listen(workspace.clone()) {
-        eprintln!("SwarmHub helper agents are unavailable: {error}");
-    }
+    helpers::start_serving(workspace.clone());
     let app = Router::new()
         .route(
             "/",
@@ -552,16 +550,21 @@ async fn workspace_state(State(w): State<Workspace>) -> Result<Json<serde_json::
         w.history.recover_launch(&hello.core.id, agent)?;
         w.history.link_profile(&hello.core.id, agent)?;
     }
-    let parents = helpers::parents(&w.history, &hello.core.id)?;
+    let parents = helpers::parents(&w.history, &hello.core.id, &agents)?;
     let agents: Vec<_> = agents
         .iter()
-        .map(|terminal| AgentView {
+        .map(|terminal| {
+            (
+                terminal,
+                terminal.launch_key().and_then(|key| parents.get(key)),
+            )
+        })
+        // A helper that has ended leaves the roster; its conversation stays in the history.
+        .filter(|(terminal, helper)| helper.is_none() || terminal.state == "live")
+        .map(|(terminal, helper)| AgentView {
             terminal,
             opencode_api: terminal.uses_opencode_api(),
-            parent: terminal
-                .launch_key()
-                .and_then(|key| parents.get(key))
-                .cloned(),
+            parent: helper.cloned().flatten(),
         })
         .collect();
     Ok(Json(

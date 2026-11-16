@@ -145,8 +145,6 @@
       for (const terminal of app.agents) {
         const key = idOf(terminal);
         if (profileFor(key, app.core)) continue;
-        // The roster drops a helper once it has ended; its parent's /helpers list still has it.
-        if (terminal.parent && terminal.state !== "live") continue;
         roster.push({
           key, name: title(terminal), summary: (terminal.parent ? `Helper of ${terminal.parent.address} · ` : "") + status(terminal), search: title(terminal) + " " + terminal.template,
           selected: !current() && active() === terminal, open: () => select(key),

@@ -1,10 +1,13 @@
 //! Helper agents: a running agent hands one task to another agent that the workspace starts for it.
 //!
 //! The agent runs `swarmhub-herdr helper start --difficulty easy|medium|hard TASK` in its terminal (`cli`). That
-//! command only asks: it sends one line to `helpers.sock`, next to the journal, and the workspace decides. The
-//! template and the model come from `helper-policy.json` (`policy`), never from the request; a helper cannot start
-//! helpers; and one agent can have only so many running. A helper is an ordinary managed launch, so its replies,
-//! tool activity, output and history work like any other agent's. The `helpers` table adds who started it and why.
+//! command only asks: it sends one line to `helpers.sock`, next to the journal, or leaves a file where a sandboxed
+//! command may write (`spool`), and the workspace decides. The template and the model come from
+//! `helper-policy.json` (`policy`, `settings`), never from the request; a helper cannot start helpers; and one
+//! agent can have only so many running. A helper is an ordinary managed launch, so its replies, tool activity,
+//! output and history work like any other agent's. The `helpers` table adds who started it and why (`record`).
+//! A helper that has answered and stays idle is stopped after the policy's delay, and one that has ended is no
+//! longer listed; its conversation stays in the history.
 
 use crate::{
     ApiError, Workspace,
@@ -16,7 +19,7 @@ use axum::{
     extract::{Path, State},
     routing::get,
 };
-use policy::{Difficulty, Policy};
+use policy::{Difficulty, Policy, Tier, Unusable};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -33,9 +36,12 @@ use tokio::{
 pub(crate) mod cli;
 mod policy;
 mod record;
+mod settings;
+mod spool;
 
 use record::{Admitted, View, Wanted, admit, list_text, one_line, read_text, views};
 pub(crate) use record::{ParentRef, parents};
+pub(crate) use spool::{ENV as SPOOL_ENV, directory as spool_directory};
 
 const REQUEST_LIMIT: usize = 48 * 1024;
 const REPLY_LIMIT: usize = 256 * 1024;
@@ -45,6 +51,8 @@ const NAME_LIMIT: usize = 20;
 const LIST_REPLY_CHARS: usize = 4_000;
 const READ_REPLY_CHARS: usize = 48_000;
 const SCREEN_LINES: usize = 200;
+/// How often the workspace looks for helpers that answered long enough ago to be stopped.
+const SWEEP: Duration = Duration::from_secs(5);
 const UNREGISTERED: &str =
     "This terminal is not a SwarmHub agent session, so it has no helpers. Do the task yourself.";
 const NESTED: &str = "Helpers cannot start helpers. Do the task yourself, or say in your answer that it should be split.";
@@ -100,7 +108,57 @@ struct Listing {
     parent: ParentRef,
     /// Running helpers the policy allows this agent at once; `null` without a usable policy.
     limit: Option<usize>,
+    /// Seconds after its answer at which an idle helper is stopped and leaves this list.
+    stop_after_seconds: u64,
+    /// Running helpers only, newest first.
     helpers: Vec<View>,
+}
+
+/// A helper that was admitted and recorded but not launched yet (`spool`): its launch waits until the command
+/// that asked has read the answer and gone.
+pub(super) struct Deferred {
+    record: i64,
+    launch: std::pin::Pin<Box<dyn Future<Output = ()> + Send>>,
+}
+
+impl Deferred {
+    pub(super) fn launch(self) {
+        tokio::spawn(self.launch);
+    }
+
+    /// The asking command never read its answer, so the agent does not know of this helper: it is not started.
+    pub(super) fn cancel(self, w: &Workspace) {
+        let _ = w.history.finish(
+            self.record,
+            DeliveryState::NotSent,
+            Some("The command that asked for this helper did not wait for the workspace's answer."),
+            None,
+        );
+    }
+}
+
+/// Why a policy's choice for a difficulty cannot be started.
+enum Unfit {
+    Template,
+    Model,
+}
+
+/// The installed template a policy names and how it takes the policy's model.
+fn fit<'a>(
+    templates: &'a [core::Template],
+    catalog: &crate::runtimes::Catalog,
+    tier: &Tier,
+) -> Result<(&'a core::Template, crate::runtimes::ModelTarget), Unfit> {
+    let template = templates
+        .iter()
+        .find(|template| template.name == tier.template && template.error.is_none())
+        .filter(|template| !crate::opencode_agent::first_task::OptIn::requested(template))
+        .ok_or(Unfit::Template)?;
+    let target = catalog
+        .model_target(template)
+        .filter(|target| target.accepts(&tier.model))
+        .ok_or(Unfit::Model)?;
+    Ok((template, target))
 }
 
 fn valid_helper_name(name: &str) -> bool {
@@ -138,7 +196,49 @@ pub(crate) fn socket_path(journal: &std::path::Path) -> PathBuf {
     journal.with_file_name("helpers.sock")
 }
 
-pub(crate) fn listen(w: Workspace) -> io::Result<()> {
+/// Starts everything helpers need from a running workspace: the socket and the folder agents ask through, and
+/// the sweep that stops helpers which answered a while ago.
+pub(crate) fn start_serving(w: Workspace) {
+    if let Err(error) = listen(w.clone()) {
+        eprintln!("SwarmHub helper agents are unavailable to agents outside a sandbox: {error}");
+    }
+    if let Err(error) = spool::listen(w.clone()) {
+        eprintln!("SwarmHub helper agents are unavailable to sandboxed agents: {error}");
+    }
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(SWEEP);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tick.tick().await;
+            stop_answered(&w).await;
+        }
+    });
+}
+
+/// Stops each helper whose answer is older than the policy's delay and which is not working again. It goes by the
+/// saved replies and Core's terminal list alone, so a workspace restart changes nothing.
+async fn stop_answered(w: &Workspace) {
+    if !record::any(&w.history).unwrap_or(false) {
+        return;
+    }
+    let (Ok(hello), Ok(agents)) = (w.core.identify().await, w.core.agents().await) else {
+        return;
+    };
+    let delay_ms = Policy::stop_after(w.history.file()).saturating_mul(1000);
+    let Ok(due) = record::answered_before(
+        &w.history,
+        &hello.core.id,
+        &agents,
+        crate::history::now().saturating_sub(i64::try_from(delay_ms).unwrap_or(i64::MAX)),
+    ) else {
+        return;
+    };
+    for helper in due {
+        let _ = w.core.end(helper).await;
+    }
+}
+
+fn listen(w: Workspace) -> io::Result<()> {
     let path = socket_path(w.history.file());
     match fs::symlink_metadata(&path) {
         Ok(meta) if meta.file_type().is_socket() => fs::remove_file(&path)?,
@@ -179,10 +279,13 @@ async fn serve(w: Workspace, stream: UnixStream) {
         return;
     }
     let reply = match serde_json::from_slice::<Request>(&line) {
-        Ok(request) => perform(&w, request).await.unwrap_or_else(|error| Reply {
-            error: Some(error),
-            ..Reply::default()
-        }),
+        Ok(request) => match perform(&w, request, false).await {
+            Ok((reply, _)) => reply,
+            Err(error) => Reply {
+                error: Some(error),
+                ..Reply::default()
+            },
+        },
         Err(_) => Reply {
             error: Some("The workspace did not understand this helper command. Use the same swarmhub-herdr build as the running workspace.".into()),
             ..Reply::default()
@@ -195,8 +298,31 @@ async fn serve(w: Workspace, stream: UnixStream) {
     let _ = timeout(Duration::from_secs(5), stream.get_mut().write_all(&bytes)).await;
 }
 
-async fn perform(w: &Workspace, request: Request) -> Result<Reply, String> {
-    let key = request.launch;
+/// Does what `request` asks. With `defer`, a start is admitted and recorded but its launch is handed back to run
+/// later; otherwise the answer comes once the helper is running.
+async fn perform(
+    w: &Workspace,
+    request: Request,
+    defer: bool,
+) -> Result<(Reply, Option<Deferred>), String> {
+    let action = match request.action {
+        Action::Start {
+            difficulty,
+            name,
+            task,
+            cwd,
+        } => {
+            let wanted = (difficulty.as_str(), name, task, cwd);
+            return start(w, request.launch, wanted, defer).await;
+        }
+        action => action,
+    };
+    manage(w, request.launch, action)
+        .await
+        .map(|reply| (reply, None))
+}
+
+async fn registered(w: &Workspace, key: &str) -> Result<String, String> {
     if key.len() != 32 || !key.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(UNREGISTERED.into());
     }
@@ -213,15 +339,12 @@ async fn perform(w: &Workspace, request: Request) -> Result<Reply, String> {
     if !registered {
         return Err(UNREGISTERED.into());
     }
-    let action = match request.action {
-        Action::Start {
-            difficulty,
-            name,
-            task,
-            cwd,
-        } => return start(w, core_id, key, &difficulty, name, task, cwd).await,
-        action => action,
-    };
+    Ok(core_id)
+}
+
+/// Everything an agent can do with the helpers it has.
+async fn manage(w: &Workspace, key: String, action: Action) -> Result<Reply, String> {
+    let core_id = registered(w, &key).await?;
     let agents = w.core.agents().await.map_err(explain)?;
     let mut helpers = stored(views(&w.history, &core_id, &key, &agents, READ_REPLY_CHARS))?;
     let find = |helpers: &[View], name: &str| {
@@ -238,7 +361,13 @@ async fn perform(w: &Workspace, request: Request) -> Result<Reply, String> {
     match action {
         Action::Start { .. } => unreachable!("handled above"),
         Action::List => Ok(Reply {
-            text: list_text(&helpers, Policy::load(w.history.file()).ok().as_ref()),
+            text: list_text(
+                &helpers,
+                Policy::load(w.history.file())
+                    .ok()
+                    .map(|policy| policy.max_running),
+                Policy::stop_after(w.history.file()),
+            ),
             ..Reply::default()
         }),
         Action::Read { name, lines } => {
@@ -272,6 +401,11 @@ async fn perform(w: &Workspace, request: Request) -> Result<Reply, String> {
             if text.len() > TASK_LIMIT || core::validate_task(&text).is_err() {
                 return Err("Write a message of up to 12 KB of plain text.".into());
             }
+            if !helper.live() {
+                return Err(format!(
+                    "{name} has ended, so it cannot take a follow-up. Its answer is still readable with `swarmhub-herdr helper read {name}`; start a new helper for more work."
+                ));
+            }
             let terminal = terminal_of(agents, &helper)?;
             terminal.require_live().map_err(explain)?;
             let (record, _) =
@@ -293,14 +427,14 @@ async fn perform(w: &Workspace, request: Request) -> Result<Reply, String> {
             let helper = helpers.swap_remove(find(&helpers, &name)?);
             if !helper.live() {
                 return Ok(Reply {
-                    text: format!("{name} has already ended."),
+                    text: format!("{name} has already ended. Its answer stays readable."),
                     ..Reply::default()
                 });
             }
             let terminal = terminal_of(agents, &helper)?;
             w.core.end(&terminal).await.map_err(explain)?;
             Ok(Reply {
-                text: format!("Stopped {name}. Its saved answers stay readable."),
+                text: format!("Stopped {name}. Its answer stays readable."),
                 ..Reply::default()
             })
         }
@@ -316,13 +450,11 @@ fn terminal_of(agents: Vec<Terminal>, helper: &View) -> Result<Terminal, String>
 
 async fn start(
     w: &Workspace,
-    core_id: String,
     key: String,
-    difficulty: &str,
-    name: Option<String>,
-    task: String,
-    cwd: Option<String>,
-) -> Result<Reply, String> {
+    (difficulty, name, task, cwd): (&str, Option<String>, String, Option<String>),
+    defer: bool,
+) -> Result<(Reply, Option<Deferred>), String> {
+    let core_id = registered(w, &key).await?;
     let nested = stored(w.history.db())?
         .query_row(
             "SELECT 1 FROM helpers h JOIN journal j ON j.id=h.launch WHERE j.launch_key=?1",
@@ -336,7 +468,7 @@ async fn start(
         return Err(NESTED.into());
     }
     let difficulty = Difficulty::parse(difficulty)?;
-    let policy = Policy::load(w.history.file())?;
+    let policy = Policy::load(w.history.file()).map_err(Unusable::for_agent)?;
     let tier = policy.tier(difficulty)?;
     let task = task.trim().to_owned();
     if task.len() > TASK_LIMIT || core::validate_task(&task).is_err() {
@@ -355,41 +487,27 @@ async fn start(
         .clone()
         .or_else(|| core::agent_cwd().ok().flatten())
         .map_or_else(String::new, |folder| format!(" in {folder}"));
-    let template = w
-        .core
-        .templates()
-        .await
-        .map_err(explain)?
-        .into_iter()
-        .find(|template| template.name == tier.template && template.error.is_none())
-        .filter(|template| !crate::opencode_agent::first_task::OptIn::requested(template))
-        .ok_or_else(|| {
-            format!(
-                "The workspace's helper policy names the template {} for {} helpers, and Herdr cannot start it. Do the task yourself and tell the user.",
-                tier.template,
-                difficulty.name()
-            )
-        })?;
+    let templates = w.core.templates().await.map_err(explain)?;
     let catalog = crate::runtimes::Catalog::load(w.history.file());
-    let target = catalog
-        .model_target(&template)
-        .filter(|target| target.accepts(&tier.model))
-        .ok_or_else(|| {
-            format!(
-                "The workspace's helper policy names the model {} for {} helpers, and the template {} cannot take it. Do the task yourself and tell the user.",
-                tier.model,
-                difficulty.name(),
-                tier.template
-            )
-        })?;
+    let (template, target) = fit(&templates, &catalog, tier).map_err(|unfit| {
+        let (what, why) = match unfit {
+            Unfit::Template => (&tier.template, "Herdr cannot start that template".to_owned()),
+            Unfit::Model => (
+                &tier.model,
+                format!("the template {} cannot take that model", tier.template),
+            ),
+        };
+        format!(
+            "The workspace's helper policy names {what} for {} helpers, and {why}. Do the task yourself and tell the user.",
+            difficulty.name()
+        )
+    })?;
     let preset = catalog
-        .models(&template)
+        .models(template)
         .and_then(|(_, models)| models.into_iter().find(|model| model.id == tier.model));
     let runtime = match preset {
-        Some(preset) => catalog.runtime(&template).with_model(target, preset),
-        None => catalog
-            .runtime(&template)
-            .with_model_id(target, &tier.model),
+        Some(preset) => catalog.runtime(template).with_model(target, preset),
+        None => catalog.runtime(template).with_model_id(target, &tier.model),
     };
     let runtime = serde_json::to_string(&runtime).map_err(|_| STORAGE)?;
     let model = target.selection(&tier.model);
@@ -437,10 +555,10 @@ async fn start(
         template.name,
         tier.model
     );
-    let template_name = template.name;
+    let template_name = template.name.clone();
+    let stays = policy.stop_after_seconds;
     let w = w.clone();
-    // Its own task, so the launch is recorded even when the asking command gives up waiting.
-    let action = tokio::spawn(async move {
+    let launch = async move {
         let journal = w
             .history
             .file()
@@ -489,26 +607,50 @@ async fn start(
                 ))
             }
         }
-    });
-    let (address, undelivered) = action
+    };
+    if defer {
+        let text = format!(
+            "Starting helper {described}{folder}. It starts as soon as this command has returned.\nWait for its answer with: swarmhub-herdr helper wait {name}\nIt is stopped {stays} seconds after it answers unless you send it a follow-up first; its answer stays readable."
+        );
+        let deferred = Deferred {
+            record,
+            launch: Box::pin(async move {
+                let _ = launch.await;
+            }),
+        };
+        return Ok((
+            Reply {
+                text,
+                ..Reply::default()
+            },
+            Some(deferred),
+        ));
+    }
+    // Its own task, so the launch is recorded even when the asking command gives up waiting.
+    let (address, undelivered) = tokio::spawn(launch)
         .await
         .map_err(|_| "The helper launch was interrupted. Run `swarmhub-herdr helper list`.")??;
     let text = match undelivered {
         None => format!(
-            "Started helper {described} as {address}{folder}.\nWait for its answer with: swarmhub-herdr helper wait {name}"
+            "Started helper {described} as {address}{folder}.\nWait for its answer with: swarmhub-herdr helper wait {name}\nIt is stopped {stays} seconds after it answers unless you send it a follow-up first; its answer stays readable."
         ),
         Some(reason) => format!(
             "Started helper {described} as {address}{folder}, but its task was not delivered: {reason}.\nIt still counts as running. Look at it with: swarmhub-herdr helper read {name} --lines 30\nIf it waits at a prompt only a person should answer, stop it with `swarmhub-herdr helper stop {name}` and tell the user. Otherwise send the task again with `swarmhub-herdr helper send {name} TEXT`."
         ),
     };
-    Ok(Reply {
-        text,
-        ..Reply::default()
-    })
+    Ok((
+        Reply {
+            text,
+            ..Reply::default()
+        },
+        None,
+    ))
 }
 
 pub fn routes() -> Router<Workspace> {
-    Router::new().route("/api/agents/{id}/{created}/helpers", get(list))
+    Router::new()
+        .route("/api/agents/{id}/{created}/helpers", get(list))
+        .merge(settings::routes())
 }
 
 async fn list(
@@ -529,7 +671,8 @@ async fn list(
         .map_err(StoreError::from)?
         .ok_or(Failure::Missing)?;
     let agents = w.core.agents().await?;
-    let helpers = views(&w.history, &core_id, &key, &agents, LIST_REPLY_CHARS)?;
+    let mut helpers = views(&w.history, &core_id, &key, &agents, LIST_REPLY_CHARS)?;
+    helpers.retain(View::live);
     Ok(Json(Listing {
         core: core_id,
         parent: ParentRef {
@@ -539,6 +682,7 @@ async fn list(
         limit: Policy::load(w.history.file())
             .ok()
             .map(|policy| policy.max_running),
+        stop_after_seconds: Policy::stop_after(w.history.file()),
         helpers,
     }))
 }

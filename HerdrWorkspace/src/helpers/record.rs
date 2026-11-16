@@ -43,7 +43,8 @@ pub(super) struct View {
     difficulty: String,
     task: String,
     started_ms: i64,
-    /// `live`, `finished`, or `gone` when Core no longer has the terminal.
+    /// `live` in the HTTP list. For the agent's commands also `finished`, `gone` (Core no longer has the
+    /// terminal), `starting` (no terminal yet) and `failed` (it never got one).
     state: String,
     status: Option<core::Status>,
     reason: Option<String>,
@@ -55,6 +56,9 @@ pub(super) struct View {
     delivered: bool,
     #[serde(skip)]
     task_at_ms: i64,
+    /// Why the launch failed, when Core said.
+    #[serde(skip)]
+    detail: Option<String>,
 }
 
 impl View {
@@ -66,18 +70,33 @@ impl View {
         self.status.as_ref().map(|status| status.state.as_str())
     }
 
+    /// Running, or about to: what counts toward the limit.
+    fn holds_a_place(&self) -> bool {
+        self.live() || self.state == "starting"
+    }
+
     pub(super) fn working(&self) -> bool {
-        !settled(
-            self.live(),
-            self.status_word(),
-            self.answered,
-            self.delivered,
-            now() - self.task_at_ms,
-        )
+        self.state == "starting"
+            || !settled(
+                self.live(),
+                self.status_word(),
+                self.answered,
+                self.delivered,
+                now() - self.task_at_ms,
+            )
     }
 
     /// A few words on where the helper stands.
     fn phase(&self) -> String {
+        if self.state == "starting" {
+            return "starting".into();
+        }
+        if self.state == "failed" {
+            return match &self.detail {
+                Some(why) => format!("could not be started: {why}"),
+                None => "could not be started".into(),
+            };
+        }
         if !self.live() {
             let ended = if self.state == "gone" {
                 "gone"
@@ -225,7 +244,7 @@ pub(super) fn views(
     let db = history.db()?;
     let mut rows = db.prepare(
         "SELECT j.id,j.launch_key,j.address,j.created_ms,j.agent,j.text,j.at_ms,j.state,
-                h.name,h.difficulty,h.template,h.model
+                h.name,h.difficulty,h.template,h.model,j.detail
          FROM helpers h JOIN journal j ON j.id=h.launch
          WHERE h.parent_key=?1 AND j.core_id=?2 ORDER BY h.launch DESC LIMIT ?3",
     )?;
@@ -251,12 +270,17 @@ pub(super) fn views(
         let saved: Option<(String, u64)> = row
             .get::<_, Option<String>>(2)?
             .zip(row.get::<_, Option<u64>>(3)?);
-        // A launch Core never confirmed has no terminal to show.
-        let Some((address, created_ms)) = terminal
+        let launch_state: String = row.get(7)?;
+        // Without a terminal: a launch that has not happened yet, or one that failed.
+        let (address, created_ms) = terminal
             .map(|terminal| (terminal.address.clone(), terminal.created_ms))
             .or(saved)
-        else {
-            continue;
+            .unwrap_or_default();
+        let state = match terminal {
+            Some(terminal) => terminal.state.clone(),
+            None if !address.is_empty() => "gone".into(),
+            None if launch_state == "pending" => "starting".into(),
+            None => "failed".into(),
         };
         let (task_at_ms, task_state): (i64, String) = latest_task
             .query_row(params![launch, core_id, address, created_ms], |row| {
@@ -292,7 +316,7 @@ pub(super) fn views(
             difficulty: row.get(9)?,
             task: row.get(5)?,
             started_ms: row.get(6)?,
-            state: terminal.map_or_else(|| "gone".into(), |terminal| terminal.state.clone()),
+            state,
             status: terminal
                 .and_then(|terminal| terminal.status.as_ref())
                 .map(|status| core::Status {
@@ -304,51 +328,107 @@ pub(super) fn views(
             reply: reply.map(|(reply, _)| reply),
             delivered: task_state != "not_sent",
             task_at_ms,
+            detail: row.get(12)?,
         });
     }
     Ok(helpers)
 }
 
-/// For the workspace roster: each helper's launch key and the agent that started it.
+/// For the workspace roster: which of `agents` are helpers, by launch key, and the agent that started each.
 pub(crate) fn parents(
     history: &History,
     core_id: &str,
-) -> Result<HashMap<String, ParentRef>, StoreError> {
+    agents: &[Terminal],
+) -> Result<HashMap<String, Option<ParentRef>>, StoreError> {
     let db = history.db()?;
-    let mut rows = db.prepare_cached(
-        "SELECT j.launch_key,p.address,p.created_ms FROM helpers h
-         JOIN journal j ON j.id=h.launch JOIN journal p ON p.launch_key=h.parent_key
-         WHERE j.core_id=?1 AND p.address IS NOT NULL AND p.created_ms IS NOT NULL
-         ORDER BY h.launch DESC LIMIT 512",
+    let mut parent = db.prepare_cached(
+        "SELECT p.address,p.created_ms FROM helpers h
+         JOIN journal j ON j.id=h.launch LEFT JOIN journal p ON p.launch_key=h.parent_key
+         WHERE j.launch_key=?1 AND j.core_id=?2",
     )?;
-    rows.query_map([core_id], |row| {
-        Ok((
-            row.get(0)?,
-            ParentRef {
-                address: row.get(1)?,
-                created_ms: row.get(2)?,
-            },
-        ))
-    })?
-    .collect::<Result<_, _>>()
-    .map_err(StoreError::from)
+    let mut helpers = HashMap::new();
+    for key in agents.iter().filter_map(Terminal::launch_key) {
+        let found = parent
+            .query_row(params![key, core_id], |row| {
+                Ok(row
+                    .get::<_, Option<String>>(0)?
+                    .zip(row.get::<_, Option<u64>>(1)?))
+            })
+            .optional()?;
+        if let Some(found) = found {
+            helpers.insert(
+                key.to_owned(),
+                found.map(|(address, created_ms)| ParentRef {
+                    address,
+                    created_ms,
+                }),
+            );
+        }
+    }
+    Ok(helpers)
 }
 
-pub(super) fn list_text(helpers: &[View], policy: Option<&Policy>) -> String {
+/// Whether any helper was ever started, so a workspace without helpers asks Core nothing for them.
+pub(super) fn any(history: &History) -> Result<bool, StoreError> {
+    Ok(history
+        .db()?
+        .query_row("SELECT EXISTS(SELECT 1 FROM helpers)", [], |row| row.get(0))?)
+}
+
+/// The running helpers among `agents` that answered their latest task before `cutoff_ms` and are not working
+/// again: the ones to stop. A helper that got a follow-up has a task newer than its reply and is left alone.
+pub(super) fn answered_before<'a>(
+    history: &History,
+    core_id: &str,
+    agents: &'a [Terminal],
+    cutoff_ms: i64,
+) -> Result<Vec<&'a Terminal>, StoreError> {
+    let db = history.db()?;
+    let mut answered = db.prepare_cached(
+        "SELECT reply.at_ms FROM helpers h JOIN journal j ON j.id=h.launch
+         JOIN journal reply ON reply.reply_for=j.launch_key AND reply.kind='reply'
+         WHERE j.launch_key=?1 AND j.core_id=?2
+           AND reply.id>(SELECT coalesce(max(task.id),0) FROM journal task
+                         WHERE task.kind='task' AND task.core_id=j.core_id
+                           AND task.address=j.address AND task.created_ms=j.created_ms)
+         ORDER BY reply.id DESC LIMIT 1",
+    )?;
+    let mut due = Vec::new();
+    for agent in agents {
+        let idle = agent.require_live().is_ok()
+            && agent
+                .status
+                .as_ref()
+                .is_none_or(|status| status.state != "working");
+        let Some(key) = agent.launch_key().filter(|_| idle) else {
+            continue;
+        };
+        let at_ms: Option<i64> = answered
+            .query_row(params![key, core_id], |row| row.get(0))
+            .optional()?;
+        if at_ms.is_some_and(|at_ms| at_ms <= cutoff_ms) {
+            due.push(agent);
+        }
+    }
+    Ok(due)
+}
+
+/// `helper list` for the agent: the running helpers, then the names of ended ones whose answers it can still read.
+pub(super) fn list_text(helpers: &[View], limit: Option<usize>, stop_after_seconds: u64) -> String {
     if helpers.is_empty() {
         return "You have no helpers. Start one with: swarmhub-herdr helper start --difficulty easy|medium|hard TASK".into();
     }
-    let running = helpers.iter().filter(|helper| helper.live()).count();
-    let limit = policy.map_or_else(String::new, |policy| {
-        format!(" of the {} allowed", policy.max_running)
-    });
-    // An agent took "1 running" beside "answered" for a contradiction, so the line says what running means.
+    let running: Vec<&View> = helpers
+        .iter()
+        .rev()
+        .filter(|helper| helper.holds_a_place())
+        .collect();
+    let limit = limit.map_or_else(String::new, |limit| format!(" of the {limit} allowed"));
     let mut text = format!(
-        "{} helper{}. Still running: {running}{limit}. A helper keeps running after it answers, until you stop it.",
-        helpers.len(),
-        if helpers.len() == 1 { "" } else { "s" }
+        "Running helpers: {}{limit}. A helper is stopped {stop_after_seconds} seconds after it answers unless you send it a follow-up; its answer stays readable.",
+        running.len()
     );
-    for helper in helpers.iter().rev() {
+    for helper in running {
         text.push_str(&format!(
             "\n{} · {} · {} · {} · {} · {}",
             helper.name,
@@ -357,6 +437,24 @@ pub(super) fn list_text(helpers: &[View], policy: Option<&Policy>) -> String {
             helper.address,
             helper.phase(),
             one_line(&helper.task, 80)
+        ));
+    }
+    // A name read back gives its newest helper, so one that runs again is not also listed as ended.
+    let mut ended: Vec<&str> = Vec::new();
+    for helper in helpers {
+        let name = helper.name.as_str();
+        let runs = helpers
+            .iter()
+            .any(|other| other.holds_a_place() && other.name == name);
+        if !runs && ended.len() < 12 && !ended.contains(&name) {
+            ended.push(name);
+        }
+    }
+    if !ended.is_empty() {
+        ended.reverse();
+        text.push_str(&format!(
+            "\nEnded (read an answer with `swarmhub-herdr helper read NAME`): {}",
+            ended.join(", ")
         ));
     }
     text
@@ -506,8 +604,29 @@ mod tests {
             terminal("t9", &second.key, "live", Some("working")),
         ];
         let listed = views(&history, "core", &parent, &agents, 5).unwrap();
-        // `third` never got a terminal, so there is nothing to show for it.
-        assert_eq!(listed.len(), 2);
+        // `third` has no terminal yet: the agent's commands see it starting, and the HTTP list leaves it out.
+        assert_eq!(listed.len(), 3);
+        assert_eq!(
+            (
+                listed[0].name.as_str(),
+                listed[0].state.as_str(),
+                listed[0].phase().as_str()
+            ),
+            ("easy-1", "starting", "starting")
+        );
+        assert!(listed[0].working() && !listed[0].live());
+        history
+            .finish(
+                third.record,
+                DeliveryState::NotSent,
+                Some("no such template"),
+                None,
+            )
+            .unwrap();
+        let mut listed = views(&history, "core", &parent, &agents, 5).unwrap();
+        assert_eq!(listed[0].phase(), "could not be started: no such template");
+        assert!(!listed[0].working() && !listed[0].holds_a_place());
+        listed.remove(0);
         let tests = &listed[0];
         assert_eq!(
             (
@@ -544,7 +663,8 @@ mod tests {
             )
             .unwrap()
         );
-        let listed = views(&history, "core", &parent, &agents, 5).unwrap();
+        let mut listed = views(&history, "core", &parent, &agents, 5).unwrap();
+        listed.remove(0);
         let reply = listed[0].reply.as_ref().unwrap();
         assert_eq!((reply.text.as_str(), reply.truncated), ("Seven", true));
         assert!(listed[0].answered && !listed[0].working());
@@ -553,9 +673,11 @@ mod tests {
         assert!(text.starts_with(
             "tests (easy, fixture small, t9): answered\nTask: Count the files\nAnswer:\nSeven"
         ));
-        assert!(
-            list_text(&listed, Some(&policy))
-                .starts_with("2 helpers. Still running: 1 of the 2 allowed. A helper keeps running after it answers, until you stop it.\neasy-1 · easy")
+        assert_eq!(
+            list_text(&listed, Some(2), 60),
+            "Running helpers: 1 of the 2 allowed. A helper is stopped 60 seconds after it answers unless you send it a follow-up; its answer stays readable.\n\
+             tests · easy · small · t9 · answered · Count the files\n\
+             Ended (read an answer with `swarmhub-herdr helper read NAME`): easy-1"
         );
         assert_eq!(
             read_text(&listed[0], Some((2, "one\ntwo  \nthree\n\n")))
@@ -566,34 +688,75 @@ mod tests {
         );
 
         // Helpers are found under their parent only, and marked with it for the roster.
-        assert!(
-            views(&history, "core", &other, &agents, 5)
-                .unwrap()
-                .is_empty()
-        );
+        let of_other = views(&history, "core", &other, &agents, 5).unwrap();
+        assert_eq!(of_other.len(), 1);
+        assert_eq!(of_other[0].state, "starting");
         assert!(
             views(&history, "elsewhere", &parent, &agents, 5)
                 .unwrap()
                 .is_empty()
         );
+        let everyone = [
+            terminal("t8", &first.key, "finished", None),
+            terminal("t9", &second.key, "live", Some("done")),
+            terminal("t7", &parent, "live", None),
+        ];
+        // The parent's own launch has no terminal recorded yet: its helpers are known as helpers all the same.
+        let marked = parents(&history, "core", &everyone).unwrap();
+        assert_eq!(marked.len(), 2);
+        assert!(marked[&second.key].is_none());
         history
-            .finish(
-                parent_record,
-                DeliveryState::Sent,
-                None,
-                Some(&terminal("t7", &parent, "live", None)),
-            )
+            .finish(parent_record, DeliveryState::Sent, None, Some(&everyone[2]))
             .unwrap();
-        let marked = parents(&history, "core").unwrap();
-        assert_eq!(marked.len(), 3);
+        let marked = parents(&history, "core", &everyone).unwrap();
+        let of_second = marked[&second.key].as_ref().unwrap();
         assert_eq!(
-            (
-                marked[&second.key].address.as_str(),
-                marked[&second.key].created_ms
-            ),
+            (of_second.address.as_str(), of_second.created_ms),
             ("t7", 42)
         );
-        assert!(!marked.contains_key(&parent));
+        assert!(marked.contains_key(&first.key) && !marked.contains_key(&parent));
+        assert!(
+            parents(&history, "elsewhere", &everyone)
+                .unwrap()
+                .is_empty()
+        );
+
+        // An answered, idle helper is due once its answer is old enough. The parent and an ended helper never are.
+        assert!(any(&history).unwrap());
+        let answered_at = listed[0].reply.as_ref().unwrap().at_ms;
+        let due = |agents: &[Terminal], cutoff: i64| -> Vec<String> {
+            answered_before(&history, "core", agents, cutoff)
+                .unwrap()
+                .iter()
+                .map(|agent| agent.address.clone())
+                .collect()
+        };
+        assert!(due(&everyone, answered_at - 1).is_empty());
+        assert_eq!(due(&everyone, answered_at), ["t9"]);
+        // It is working again, or it got a follow-up it has not answered: left alone.
+        assert!(due(&agents, answered_at).is_empty());
+        history
+            .start_task("core", &everyone[1], "And the folders?", None, false, &[])
+            .unwrap();
+        assert!(due(&everyone, now() + 1_000).is_empty());
+        // The delay counts again from its next answer.
+        assert!(
+            crate::history::publish_reply(history.file(), &second.key, "Agent", "Two", None)
+                .unwrap()
+        );
+        assert_eq!(due(&everyone, now() + 1_000), ["t9"]);
+        assert!(due(&everyone, answered_at).is_empty());
+    }
+
+    #[test]
+    fn a_workspace_without_helpers_has_nothing_to_stop() {
+        let scratch = tempfile::tempdir().unwrap();
+        let history = History::open_at(&scratch.path().join("workspace")).unwrap();
+        assert!(!any(&history).unwrap());
+        assert_eq!(
+            list_text(&[], Some(3), 60),
+            "You have no helpers. Start one with: swarmhub-herdr helper start --difficulty easy|medium|hard TASK"
+        );
     }
 
     #[test]

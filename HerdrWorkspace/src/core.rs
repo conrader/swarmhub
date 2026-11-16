@@ -314,7 +314,9 @@ impl Core {
                    (crate::runtimes::MODEL_ENV):env.model.and_then(crate::runtimes::LaunchModel::builtin).unwrap_or_default(),
                    (crate::runtimes::CUSTOM_MODEL_ENV):env.model.and_then(crate::runtimes::LaunchModel::environment).unwrap_or_default(),
                    (crate::opencode_agent::first_task::ENV):env.opencode_first_task.unwrap_or_default(),
-                   "SWARMHUB_RESULTS":env.results.unwrap_or_default()}
+                   "SWARMHUB_RESULTS":env.results.unwrap_or_default(),
+                   (crate::helpers::SPOOL_ENV):crate::helpers::spool_directory()
+                       .and_then(|folder| folder.into_os_string().into_string().ok()).unwrap_or_default()}
         });
         if let Some(helper) = &env.helper {
             // Core ends a child when its parent's program ends. Core's own notes stay off: they would be typed
