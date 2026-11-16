@@ -18,7 +18,7 @@ struct HerdrSettingsSection: View {
             HerdrTemplatePicker(title: "Agent runtime for new bots", automatic: "First available", selection: $template, templates: templates)
             HStack {
                 Button("Test") { test() }.disabled(testing)
-                Button("Add starter bots") { addStarters() }.disabled(testing).help("Adds a Claude bot on Sonnet and a Codex bot on GPT-6.1 Sol, for the agent programs your Herdr server has.")
+                Button("Add starter bots") { addStarters() }.disabled(testing).help("Adds one bot for each agent program your Herdr server has, on the model the server lists first.")
                 if testing { ProgressView().controlSize(.small) }
                 Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             }

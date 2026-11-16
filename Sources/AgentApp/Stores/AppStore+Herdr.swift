@@ -49,13 +49,9 @@ extension AppStore {
         return true
     }
 
-    /// The model a starter bot begins on: the current Sonnet for Claude Code, GPT-6.1 Sol for Codex. Nil for any other
-    /// agent program, or when the template's own list does not offer it.
-    static func starterModel(harness: String?, offered: [HerdrClient.Template.Model]) -> String? {
-        let wanted: String? = switch harness { case "Claude Code": "sonnet"; case "Codex": "gpt-6.1-sol"; default: nil }
-        guard let wanted, offered.isEmpty || offered.contains(where: { $0.id == wanted }) else { return nil }
-        return wanted
-    }
+    /// The model a starter bot begins on: the first one the server offers for that agent program. The server's catalog
+    /// decides which that is, because the app itself names no model; nil leaves the agent program's own default.
+    static func starterModel(offered: [HerdrClient.Template.Model]) -> String? { offered.first?.id }
 
     /// One ready-to-use bot per agent program the Herdr server can start (Claude, Codex), each on its starter model.
     /// A program that already has a Herdr bot is skipped. Returns the names it added.
@@ -72,7 +68,7 @@ extension AppStore {
             guard let bot = bots.last(where: { $0.backend == .herdr && $0.name == name }) else { continue }
             bot.title = title
             setHerdrTemplate(template.name, for: bot)
-            setHerdrModel(Self.starterModel(harness: harness, offered: offered) ?? "", for: bot)
+            setHerdrModel(Self.starterModel(offered: offered) ?? "", for: bot)
             added.append(name)
         }
         if !added.isEmpty { save() }
