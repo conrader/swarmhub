@@ -45,6 +45,7 @@ mod skills;
 mod slack_events;
 mod task_files;
 mod terminal;
+mod tool_activity;
 mod transcripts;
 mod vault;
 mod webdav;

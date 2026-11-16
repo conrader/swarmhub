@@ -21,6 +21,8 @@ pub(crate) mod claude_preview;
 const MAX_TEXT: usize = 128 * 1024;
 /// How long an agent waits for its Stop hook to save the reply before giving up on it.
 pub(crate) const REPLY_HOOK_SECONDS: u32 = 30;
+/// The activity hook only writes one line to a local socket; a slow start must not hold a tool back for long.
+pub(crate) const TOOL_HOOK_SECONDS: u32 = 5;
 const MAX_HOOK: usize = 1024 * 1024;
 
 #[derive(Deserialize)]
@@ -55,6 +57,10 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
         }
         Some("review-codex-permission") => {
             crate::approvals::permission_hook(crate::approvals::Provider::Codex);
+            Ok(())
+        }
+        Some("tool-activity") => {
+            crate::tool_activity::hook();
             Ok(())
         }
         Some("capture-reply") => publish("Agent", &read_input(MAX_TEXT)?),
@@ -307,6 +313,13 @@ fn launch_claude() -> Result<(), Box<dyn std::error::Error>> {
             }]
         }
     });
+    // Tool calls show as activity while the reply is still being written (`tool_activity`).
+    let activity = format!("{} tool-activity", shell_quote(executable));
+    for event in ["PreToolUse", "PostToolUse", "PostToolUseFailure"] {
+        settings["hooks"][event] = json!([{
+            "hooks":[{"type":"command","command":activity,"timeout":TOOL_HOOK_SECONDS}]
+        }]);
+    }
     let mut args: Vec<_> = env::args_os().skip(2).collect();
     if args
         .first()

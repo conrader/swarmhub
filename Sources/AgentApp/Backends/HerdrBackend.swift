@@ -5,6 +5,7 @@ import Foundation
 /// only the newest user message is sent: `systemPrompt`, earlier `messages` and images go nowhere. The reply is
 /// saved by the agent's Stop hook when its turn ends; a template that publishes a preview (Claude Code with
 /// `--workspace-preview`) also shows it growing line by line, and one that does not (Codex) shows it whole.
+/// Both agents report their tool calls through hooks, which become the reply's activity steps.
 ///
 /// There are no server sessions for the app to manage (`sessionTransport` is nil, like Mock): one bot is one agent
 /// on the bridge, named from the bot (`HerdrClient.agentName`), started on its first message and reused while it runs.
@@ -41,12 +42,37 @@ struct HerdrBackend: AgentBackend {
                     continuation.yield(.status("Sending to Herdr"))
                     let turn = try await backend.client.deliver(text, name: backend.agentName, template: backend.template)
                     // The preview is the reply so far, so each update and the saved reply replace the row's text.
-                    let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0)) }, partial: { continuation.yield(.replace($0)) })
+                    let reply = try await backend.client.reply(to: turn, status: { continuation.yield(.status($0)) },
+                                                               tool: { call, isNew in Self.toolEvents(call, isNew: isNew).forEach { continuation.yield(.tool($0)) } },
+                                                               partial: { continuation.yield(.replace($0)) })
                     continuation.yield(.replace(reply)); continuation.yield(.completed); continuation.finish()
                 } catch is CancellationError { continuation.finish()
                 } catch { continuation.finish(throwing: error) }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// A reported call as the chat's activity steps: its start when it is new, and its end once the agent's hook has
+    /// seen one. A call first seen already finished (a quick tool between two reads) yields both.
+    static func toolEvents(_ call: HerdrClient.ToolCall, isNew: Bool) -> [ToolEvent] {
+        let name = toolName(call.tool), id = "herdr-\(call.seq)"
+        let started = isNew ? [ToolEvent(phase: .started, name: name, preview: ToolEvent.preview(call.detail), callID: id)] : []
+        return call.finished ? started + [ToolEvent(phase: call.failed ? .failed : .completed, name: name, callID: id)] : started
+    }
+
+    /// Claude Code's and Codex's tool names in the words `ActivityCopy.label` already knows ("Running a command",
+    /// "Reading a file", "Editing a file"); any other tool keeps its own name.
+    static func toolName(_ tool: String) -> String {
+        switch tool.lowercased() {
+        case "bash", "shell", "exec", "exec_command", "local_shell", "bashoutput", "killshell": "bash"
+        case "read", "grep", "glob", "ls", "notebookread", "view_image": "read_file"
+        case "edit", "write", "multiedit", "notebookedit", "apply_patch": "edit_file"
+        case "websearch", "web_search": "web_search"
+        case "webfetch", "web_fetch": "fetch"
+        case "task", "agent": "delegate_task"
+        case "todowrite", "update_plan": "todo"
+        default: tool
         }
     }
 

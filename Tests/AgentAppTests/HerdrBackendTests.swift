@@ -25,3 +25,15 @@ import Testing
     #expect(backend.agentName == "ada-" + id.uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(6))
     #expect(try await backend.sessionTransport() == nil)
 }
+
+/// Claude Code's and Codex's tool calls show with the chat's own step words; a start is reported once.
+@Test func herdrToolCallsBecomeActivitySteps() {
+    let running = HerdrClient.ToolCall(seq: 7, tool: "Bash", detail: "cargo test", finished: false, failed: false)
+    #expect(HerdrBackend.toolEvents(running, isNew: true) == [ToolEvent(phase: .started, name: "bash", preview: "cargo test", callID: "herdr-7")])
+    #expect(HerdrBackend.toolEvents(running, isNew: false).isEmpty)
+    let failed = HerdrClient.ToolCall(seq: 7, tool: "Bash", detail: nil, finished: true, failed: true)
+    #expect(HerdrBackend.toolEvents(failed, isNew: false) == [ToolEvent(phase: .failed, name: "bash", callID: "herdr-7")])
+    #expect(HerdrBackend.toolEvents(failed, isNew: true).map(\.phase) == [.started, .failed])
+    #expect(["apply_patch", "Edit", "Read", "WebSearch", "mcp__x__y"].map(HerdrBackend.toolName) == ["edit_file", "edit_file", "read_file", "web_search", "mcp__x__y"])
+    #expect(ActivityCopy.label(HerdrBackend.toolName("Bash")) == "Running a command" && ActivityCopy.label(HerdrBackend.toolName("apply_patch")) == "Editing a file")
+}

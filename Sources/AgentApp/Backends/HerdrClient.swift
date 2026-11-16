@@ -43,8 +43,16 @@ struct HerdrClient: Sendable {
         }
     }
 
-    /// A task on its way: the session it went to and the last saved row before it, so its reply is the next one.
-    struct Turn: Sendable, Equatable { let core: String; let address: String; let createdMs: UInt64; let after: Int; let launched: Bool }
+    /// A tool call the agent's hooks reported (`tool_activity` in the bridge): `seq` only grows; `detail` is the
+    /// command, file, search or address in one line.
+    struct ToolCall: Decodable, Sendable, Equatable { let seq: UInt64; let tool: String; let detail: String?; let finished: Bool; let failed: Bool }
+
+    /// A task on its way: the session it went to and the last saved row and tool call before it, so its reply and
+    /// its tool calls are the ones after those.
+    struct Turn: Sendable, Equatable {
+        let core: String; let address: String; let createdMs: UInt64; let after: Int; let launched: Bool
+        var afterTool: UInt64 = 0
+    }
 
     enum Failure: LocalizedError, Equatable {
         case invalidURL, unauthorized, refusedHost, http(Int, String), noTemplate, ended, silent, waitingAtPrompt
@@ -104,11 +112,12 @@ struct HerdrClient: Sendable {
         return page.items
     }
 
-    /// The reply an agent is writing right now, when its template publishes one; nil otherwise.
-    func draft(core: String, address: String, createdMs: UInt64) async throws -> String? {
-        struct Preview: Decodable { struct Draft: Decodable { let text: String }; let draft: Draft? }
+    /// What a running turn shows before its reply is saved: the reply so far, when the template publishes one, and
+    /// the launch's newest tool calls. An older bridge sends no `tools`.
+    func preview(core: String, address: String, createdMs: UInt64) async throws -> (draft: String?, tools: [ToolCall]) {
+        struct Preview: Decodable { struct Draft: Decodable { let text: String }; let draft: Draft?; let tools: [ToolCall]? }
         let preview: Preview = try await get("/api/history/\(core)/\(address)/\(createdMs)/draft")
-        return preview.draft?.text
+        return (preview.draft?.text, preview.tools ?? [])
     }
 
     func launch(name: String, template: String, task: String, profileID: Int?) async throws -> Agent {
@@ -142,8 +151,9 @@ struct HerdrClient: Sendable {
         guard let core = current.core else { throw Failure.http(503, "Herdr Core is not running on the workspace's machine.") }
         if let agent = liveAgent(named: name, in: current) {
             let after = try await history(core: core, address: agent.address, createdMs: agent.createdMs).map(\.id).max() ?? 0
+            let afterTool = (try? await preview(core: core, address: agent.address, createdMs: agent.createdMs))?.tools.map(\.seq).max() ?? 0
             try await message(text, to: agent)
-            return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false)
+            return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: after, launched: false, afterTool: afterTool)
         }
         let usable = current.templates.filter { $0.error == nil }
         guard let chosen = usable.first(where: { $0.name == template }) ?? (template == nil ? usable.first : nil) else { throw Failure.noTemplate }
@@ -153,24 +163,33 @@ struct HerdrClient: Sendable {
         return Turn(core: core, address: agent.address, createdMs: agent.createdMs, after: 0, launched: true)
     }
 
-    /// Waits for the reply the agent's hook saves after `turn`. Meanwhile `status` hears what the agent reports and
-    /// `partial` hears the reply so far, for agents whose template publishes one (Claude Code with
-    /// `--workspace-preview`, OpenCode). Codex has no such hook, so its reply arrives whole.
+    /// Waits for the reply the agent's hook saves after `turn`. Meanwhile `status` hears what the agent reports,
+    /// `tool` hears each tool call when it is first seen (`true`) and again when it has ended, and `partial` hears the reply so far for
+    /// agents whose template publishes one (Claude Code with `--workspace-preview`, OpenCode). Codex has no hook for
+    /// unfinished text, so its reply arrives whole.
     /// An agent that goes quiet without saving a reply (its hook was not trusted, or it stopped at a prompt) ends the
     /// wait; `quietLimit` outlasts the bridge's 30 s limit on that hook, which a busy disk on the server can use up.
     func reply(to turn: Turn, quietLimit: Duration = .seconds(45), status: @Sendable (String) -> Void = { _ in },
-               partial: @Sendable (String) -> Void = { _ in }) async throws -> String {
+               tool: @Sendable (ToolCall, _ isNew: Bool) -> Void = { _, _ in }, partial: @Sendable (String) -> Void = { _ in }) async throws -> String {
         let clock = ContinuousClock()
         var quietSince: ContinuousClock.Instant?, nextAgentCheck = clock.now
         var lastStatus = "", lastDraft = ""
+        /// seq → whether its end was reported too.
+        var reported: [UInt64: Bool] = [:]
+        func report(_ calls: [ToolCall]) {
+            for call in calls where call.seq > turn.afterTool && reported[call.seq] != true {
+                if reported[call.seq] == nil { tool(call, true) } else if call.finished { tool(call, false) } else { continue }
+                reported[call.seq] = call.finished
+            }
+        }
         while true {
             try Task.checkCancellation()
             let items = try await history(core: turn.core, address: turn.address, createdMs: turn.createdMs)
-            if let reply = items.first(where: { $0.kind == "reply" && $0.id > turn.after }) { return reply.text }
             // The preview is a convenience: a failed read never ends the turn.
-            if let text = try? await draft(core: turn.core, address: turn.address, createdMs: turn.createdMs), !text.isEmpty, text != lastDraft {
-                partial(text); lastDraft = text
-            }
+            let seen = try? await preview(core: turn.core, address: turn.address, createdMs: turn.createdMs)
+            report(seen?.tools ?? [])
+            if let reply = items.first(where: { $0.kind == "reply" && $0.id > turn.after }) { return reply.text }
+            if let text = seen?.draft, !text.isEmpty, text != lastDraft { partial(text); lastDraft = text }
             if clock.now >= nextAgentCheck {
                 nextAgentCheck = clock.now + agentCheckInterval
                 let agent = try await workspace().agents.first { $0.address == turn.address && $0.createdMs == turn.createdMs }

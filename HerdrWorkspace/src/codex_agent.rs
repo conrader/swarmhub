@@ -55,6 +55,17 @@ pub fn launch() -> Result<(), Box<dyn std::error::Error>> {
             crate::agent::REPLY_HOOK_SECONDS,
         ),
     ]);
+    for event in ["PreToolUse", "PostToolUse"] {
+        cmd.args([
+            "-c",
+            &handler(
+                path,
+                event,
+                "tool-activity",
+                crate::agent::TOOL_HOOK_SECONDS,
+            ),
+        ]);
+    }
     if approvals {
         cmd.args([
             "-c",

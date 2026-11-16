@@ -35,6 +35,8 @@ struct Draft {
 #[derive(Serialize)]
 struct Preview {
     draft: Option<Draft>,
+    /// The launch's newest tool calls, oldest first (`tool_activity`).
+    tools: Vec<crate::tool_activity::Call>,
 }
 
 #[derive(Deserialize)]
@@ -49,6 +51,7 @@ struct DraftState {
     opencode: HashMap<String, (u64, Draft)>,
     claude: claude_preview::Previews,
     group: group_preview::Previews,
+    tools: crate::tool_activity::Activity,
 }
 
 #[derive(Clone, Default)]
@@ -114,6 +117,19 @@ async fn read_updates(w: Workspace, socket: UnixStream, source: u64) {
             .read_until(b'\n', &mut frame)
             .await;
         if !matches!(got_frame, Ok(count) if count > 0) || frame.last() != Some(&b'\n') {
+            break;
+        }
+        if let Ok(update) = serde_json::from_slice::<crate::tool_activity::Frame>(&frame) {
+            if launch.is_none()
+                && grouped.is_none()
+                && update.valid()
+                && launch_exists(&w, &update.key)
+                && let Ok(mut drafts) = w.drafts.0.lock()
+            {
+                drafts
+                    .tools
+                    .apply(update, crate::history::now().max(0) as u64);
+            }
             break;
         }
         if let Ok(update) = serde_json::from_slice::<claude_preview::Update>(&frame) {
@@ -226,10 +242,13 @@ async fn current(
 ) -> Result<Json<Preview>, StoreError> {
     let empty = {
         let drafts = w.drafts.0.lock().map_err(|_| StoreError)?;
-        drafts.opencode.is_empty() && !drafts.claude.visible()
+        drafts.opencode.is_empty() && !drafts.claude.visible() && drafts.tools.is_empty()
     };
     if empty {
-        return Ok(Json(Preview { draft: None }));
+        return Ok(Json(Preview {
+            draft: None,
+            tools: Vec::new(),
+        }));
     }
     let key: Option<String> = w.history.db()?.query_row(
         "SELECT launch_key FROM journal WHERE core_id=?1 AND address=?2 AND created_ms=?3 AND launch_key IS NOT NULL LIMIT 1",
@@ -238,6 +257,9 @@ async fn current(
     ).optional()?;
     let drafts = w.drafts.0.lock().map_err(|_| StoreError)?;
     Ok(Json(Preview {
+        tools: key
+            .as_deref()
+            .map_or_else(Vec::new, |key| drafts.tools.snapshot(key)),
         draft: key.and_then(|key| {
             drafts
                 .opencode
