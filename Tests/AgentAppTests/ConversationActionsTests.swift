@@ -5,7 +5,7 @@ import Testing
 @MainActor struct ConversationActionsTests {
     @Test func groupChoiceTargetsAuthorDespiteSelectedPrivateBot() async throws {
         let backend = GroupBackend(name: "B")
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: namedDefaults())
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: namedDefaults())
         let a = Bot(name: "A"), b = Bot(name: "B"), c = Bot(name: "C")
         store.bots = [a, b, c]
         let card = ChatMessage(role: .assistant, content: "```choices\nChoose\n- One\n- Two\n```", authorID: b.id)
@@ -24,25 +24,8 @@ import Testing
                 "a card is answered once")
     }
 
-    @Test func choiceInAThreadStaysInThatThreadAfterTheSelectionMoves() async throws {
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-        let owner = Bot(name: "Owner"), other = Bot(name: "Other")
-        let card = ChatMessage(role: .assistant, content: "```choices\nPick\n- Left\n- Right\n```")
-        let thread = ChatThread(parentMessageID: UUID(), parentSessionID: nil, hermesSessionID: nil, messages: [card])
-        owner.threads = [thread]; store.bots = [owner, other]; store.selectedBot = other
-        let blocks = ChatCardParser.parse(card.content)
-        let index = try #require(blocks.firstIndex { if case .choices = $0 { true } else { false } })
-        #expect(!store.performCardAction(target: .bot(botID: owner.id, threadID: thread.id), sourceID: card.id, index: index, expected: blocks[index], choice: "Middle"),
-                "only an offered option is sent")
-        #expect(store.performCardAction(target: .bot(botID: owner.id, threadID: thread.id), sourceID: card.id, index: index, expected: blocks[index], choice: "Right"))
-        try await waitUntil { !store.anyTurnRunning }
-        #expect(thread.messages.first { $0.role == .user }?.content == "Right")
-        #expect(thread.messages.first { $0.role == .user }?.replyToID == card.id)
-        #expect(owner.messages.isEmpty && other.messages.isEmpty)
-    }
-
     @Test func staleDraftAndRemovedAuthorCannotSend() throws {
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         let bot = Bot(name: "Author"); store.bots = [bot]
         let card = ChatMessage(role: .assistant, content: "```draft\nTo: a@example.com\nSubject: Original\n\nHello\n```", authorID: bot.id)
         let group = GroupChat(name: "Team", memberIDs: [bot.id], messages: [card]); store.groups = [group]
@@ -57,7 +40,7 @@ import Testing
     }
 
     @Test func aCardWrittenByAnotherMemberIsRefused() throws {
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         let a = Bot(name: "A"), b = Bot(name: "B"); store.bots = [a, b]
         let card = ChatMessage(role: .assistant, content: "```choices\nChoose\n- One\n```", authorID: a.id)
         let group = GroupChat(name: "Team", memberIDs: [a.id, b.id], messages: [card]); store.groups = [group]
@@ -77,7 +60,7 @@ import Testing
         #expect(GroupRouting.ambiguousMentions(in: "@Ann do this", members: members) == ["@Ann"])
         #expect(GroupRouting.ambiguousMentions(in: "@Ben and @Bob", members: members).isEmpty, "unknown names stay ignored")
 
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: namedDefaults())
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: namedDefaults())
         store.bots = [first, second, solo]
         let group = GroupChat(name: "Team", memberIDs: [first.id, second.id, solo.id]); store.groups = [group]
         #expect(!store.send(text: "@Ann please", to: group))

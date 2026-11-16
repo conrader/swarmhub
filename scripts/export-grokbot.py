@@ -157,7 +157,7 @@ def slugify(name):
 
 
 def profile_slug(name):
-    """Roster name -> Hermes profile slug: lowercased, spaces to '-'."""
+    """Roster name -> profile slug: lowercased, spaces to '-'."""
     return name.strip().lower().replace(" ", "-")
 
 

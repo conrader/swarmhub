@@ -56,20 +56,15 @@ struct BotRow: View {
     let selected: Bool; @Binding var botToDelete: Bot?
     @State private var hovering = false
     var body: some View {
-        // P41: a bot another bot is waiting on works too ("Working… · message from Jarvis"); P42: so does one with a live
-        // card ("Working… · for Jarvis").
-        let incoming = store.workingForOthersLine(for: bot)
-        let working = store.isWorking(bot) || incoming != nil, attention = store.needsAttention(bot)
-        // P21 D3: sample bots say so instead of showing their canned last message.
+        let working = store.isWorking(bot), attention = store.needsAttention(bot)
+        // Sample bots say so instead of showing their canned last message.
         let fragment = { (now: Date) in
             bot.isDemo ? SimpleCopy.sampleLabel : SidebarFragment.text(messages: bot.messages, draft: drafts.texts[bot.id], isWorking: working,
-                                                                       archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now) ?? incoming,
-                                                                       technical: store.technicalContext(botName: bot.name))
+                                                                       archiveNewest: store.grokHistory.newestVisible(for: bot.id), working: store.workingLine(for: bot, now: now))
         }
         Button { store.open(bot) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
-                BotAvatar(bot: bot, size: SidebarMetrics.mark, motion: .list, isWorking: working, isHovered: hovering, probe: "sidebar",
-                          isWaiting: store.hasPendingApproval(bot))
+                BotAvatar(bot: bot, size: SidebarMetrics.mark, motion: .list, isWorking: working, isHovered: hovering, probe: "sidebar")
                     .overlay(alignment: .bottomTrailing) {
                         if attention {
                             Circle().fill(Color.orange).frame(width: SidebarMetrics.badge, height: SidebarMetrics.badge)
@@ -84,12 +79,6 @@ struct BotRow: View {
                     RowText(name: bot.name, fragment: fragment(fixedNow ?? .now), unread: bot.isUnread, main: store.herdrMainBotLabel(bot))
                 }
                 Spacer(minLength: 4)
-                if bot.retiredOnBox { Text("retired").font(.system(size: 10)).foregroundStyle(.tertiary) }
-                // P34 D6: a bot message arrived that is not opened yet.
-                if store.hasBotMessageBadge(bot) {
-                    Image(systemName: "bubble.left.and.bubble.right.fill").font(.system(size: 8, weight: .semibold)).foregroundStyle(.white)
-                        .padding(4).background(Color.accentColor, in: Circle()).help("A bot wrote to \(bot.name)").accessibilityLabel("New bot message")
-                }
                 if bot.isUnread { UnreadDot() }
             }.modifier(RowChrome(selected: selected, hovering: hovering)).onHover { hovering = $0 }
         }.buttonStyle(.plain).contextMenu {
@@ -115,7 +104,7 @@ struct GroupRow: View {
                                             isWorking: working,
                                             archiveNewest: store.grokHistory.newestVisible(for: group.id),
                                             author: { id in id.flatMap { id in store.bots.first { $0.id == id }?.name } },
-                                            working: store.workingLine(for: group, now: now), technical: store.technicalContext(botName: group.name)) }
+                                            working: store.workingLine(for: group, now: now)) }
         Button { store.open(group) } label: {
             HStack(spacing: SidebarMetrics.markGap) {
                 GroupAvatarStack(group: group, members: store.members(of: group), size: SidebarMetrics.mark, isHovered: hovering,

@@ -42,7 +42,7 @@ struct HerdrHelperPolicySection: View {
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         // Only the real app reads on its own; a preview or test store stays offline until asked.
-        .task(id: server.id) { if phase == .idle, store.botInfo.autoLoad { await load() } }
+        .task(id: server.id) { if phase == .idle, store.launchWorkEnabled { await load() } }
     }
 
     @ViewBuilder private var form: some View {

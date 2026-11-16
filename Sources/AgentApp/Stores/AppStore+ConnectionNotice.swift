@@ -9,7 +9,7 @@ extension AppStore {
     /// Transient network trouble that reached `errorMessage` after its retries: one line, never a modal.
     var connectionNotice: String? { errorMessage.flatMap { TransientNetwork.isTransient(text: $0) ? $0 : nil } }
 
-    /// The box answered again (or the network came back): the connection line goes by itself. Other errors stay.
+    /// The server answered again (or the network came back): the connection line goes by itself. Other errors stay.
     func clearConnectionNotice() {
         if connectionNotice != nil { errorMessage = nil }
     }

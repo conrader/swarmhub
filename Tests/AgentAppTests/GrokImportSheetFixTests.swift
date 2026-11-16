@@ -60,9 +60,3 @@ import Testing
     #expect(coordinator.selected == [GrokRunIDs.finance, GrokRunIDs.plain])
 }
 
-@Test func incompleteCoverageNamesTheSeqItStoppedAt() {
-    var row = GrokImportRunRow(sourceID: "a", name: "A", isGroup: false, status: .incomplete, coverage: .incomplete)
-    row.stoppedAtSeq = 412
-    let outcome = GrokImportOutcome(id: "a", name: "A", isGroup: false, archiveLines: 0, connection: .historyOnly, row: row)
-    #expect(outcome.coverageText == "Incomplete: stopped at seq 412, nothing older was fetched")
-}

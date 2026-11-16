@@ -8,9 +8,9 @@ import Vision
 /// after text has arrived would miss a row that fails to update while it is already on screen.
 @Test @MainActor func mountedChatUpdatesAnEmptyReplyAsChunksArrive() async throws {
     let backend = ControlledReplyBackend()
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend },
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend },
                          keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-    let bot = Bot(name: "Streaming fixture", backend: .hermes, hermesSessionID: "synthetic-stream")
+    let bot = Bot(name: "Streaming fixture", backend: .herdr, sessionID: "synthetic-stream")
     store.bots = [bot]; store.selectedBot = bot
     #expect(store.send(text: "A synthetic question"))
     let assistant = try #require(bot.messages.last)
@@ -59,7 +59,7 @@ import Vision
 }
 
 private actor ControlledReplyBackend: AgentBackend {
-    nonisolated let kind = BackendKind.hermes
+    nonisolated let kind = BackendKind.herdr
     private var continuation: AsyncThrowingStream<AgentEvent, Error>.Continuation?
     var ready: Bool { continuation != nil }
     func send(_ request: AgentRequest) async throws -> AsyncThrowingStream<AgentEvent, Error> {
@@ -69,8 +69,6 @@ private actor ControlledReplyBackend: AgentBackend {
     }
     func emit(_ event: AgentEvent) { continuation?.yield(event) }
     func finish() { continuation?.yield(.completed); continuation?.finish(); continuation = nil }
-    func listSessions() async throws -> [BackendSession] { [] }
-    func cancel(sessionID: String) async throws -> StopOutcome { .disconnectedLegacy }
-    func resolveApproval(id: UUID, approved: Bool) async throws {}
+    func cancel(sessionID: String) async throws -> StopOutcome { .noRunControl }
     func testConnection() async throws -> String { "Synthetic" }
 }

@@ -8,28 +8,7 @@ private let jarvisID = "00000000-0000-4000-8000-000000000001"
 
 @MainActor private func grokStore(_ url: URL = temporaryStore(), keys: [String: String] = [:]) -> (AppStore, InMemoryKeyStore) {
     let keyStore = InMemoryKeyStore(keys)
-    return (AppStore(storeURL: url, autoConfigureHermes: false, keyStore: keyStore, defaults: isolatedDefaults(), hermesSession: UnreachableProtocol.session), keyStore)
-}
-
-@MainActor @Test func grokImportMapsBotsProfilesAvatarsAndGroup() throws {
-    let (store, _) = grokStore()
-    let rows = try store.importGrokExport(at: exportFolder)
-    #expect(rows.count == 4)
-    let jarvis = try #require(store.bots.first { $0.grokSourceID == jarvisID })
-    #expect(jarvis.name == "Jarvis" && jarvis.backend == .hermes && jarvis.hermesProfile == "grok-jarvis")
-    #expect(jarvis.hermesBaseURL == "https://konrad.agenthut.net/v1")
-    // P15: import stores the mark and no longer writes avatarName/accentColor.
-    #expect(jarvis.avatarMark == AvatarMark(shape: "blob", colour: "black") && jarvis.accentColor == nil)
-    #expect(jarvis.persona.contains("[REDACTED]") && !jarvis.persona.contains("FAKEFAKE"))
-    #expect(jarvis.grokHistoryCount == 9) // 8 messages + 1 rename line
-    #expect(jarvis.messages.isEmpty)
-    let finance = try #require(store.bots.first { $0.name == "Finance Controller" })
-    #expect(finance.hermesProfile == "grok-finance-controller" && finance.avatarMark == AvatarMark(shape: "gem", colour: "yellow"))
-    let plain = try #require(store.bots.first { $0.name == "Plain Bot" })
-    let group = try #require(store.groups.first { $0.name == "Konrad, Jarvis, Plain Bot" })
-    #expect(group.memberIDs == [jarvis.id, plain.id] && group.grokHistoryCount == 3 && store.grokHistory.messages(for: group.id).count == 3)
-    #expect(!store.bots.contains { $0.isReadOnlyArchive || $0.name == group.name })
-    #expect(store.bots.filter { $0.isDemo && !$0.isHidden }.isEmpty)
+    return (AppStore(storeURL: url, autoStart: false, keyStore: keyStore, defaults: isolatedDefaults()), keyStore)
 }
 
 @MainActor @Test func grokHistoryIsLazyAndOutsideStoreJSON() throws {
@@ -51,7 +30,7 @@ private let jarvisID = "00000000-0000-4000-8000-000000000001"
     #expect(history.filter { $0.matches("ledger") }.count == 2)
     let attributes = try FileManager.default.attributesOfItem(atPath: reopened.grokHistory.fileURL(for: jarvis.id).path)
     #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
-    #expect(jarvis.messages.isEmpty) // never part of the live conversation sent to Hermes
+    #expect(jarvis.messages.isEmpty) // never part of the live conversation sent to the agent
 }
 
 @MainActor @Test func grokReimportIsIdempotentAndMergesNewLines() throws {
@@ -66,15 +45,6 @@ private let jarvisID = "00000000-0000-4000-8000-000000000001"
     let jarvis = try #require(store.bots.first { $0.grokSourceID == jarvisID })
     #expect(jarvis.grokHistoryCount == 10 && store.grokHistory.messages(for: jarvis.id).count == 10)
     #expect(store.bots.count == botCount)
-}
-
-@MainActor @Test func grokImportAdoptsExistingProfileBot() throws {
-    let (store, _) = grokStore()
-    let existing = Bot(name: "grok-jarvis", backend: .hermes, hermesProfile: "grok-jarvis")
-    store.bots.append(existing)
-    try store.importGrokExport(at: exportFolder)
-    #expect(store.bots.filter { $0.hermesProfile == "grok-jarvis" }.count == 1)
-    #expect(existing.grokSourceID == jarvisID && existing.name == "Jarvis")
 }
 
 @Test func grokBundleLoaderAcceptsSingleBundleAndRejectsUnknownFormat() throws {
@@ -102,54 +72,13 @@ private let jarvisID = "00000000-0000-4000-8000-000000000001"
     #expect(Set(GrokAvatarMap.accents.keys) == Set(GrokAvatarMap.colourFaces.keys))
 }
 
-@MainActor @Test func missingKeyShowsAddKeyStateInsteadOfErrors() throws {
-    let (store, keys) = grokStore()
-    try store.importGrokExport(at: exportFolder)
-    let jarvis = try #require(store.bots.first { $0.grokSourceID == jarvisID })
-    store.selectedBot = jarvis
-    #expect(store.needsKey(jarvis))
-    #expect(store.send(text: "hi") == false && store.errorMessage == nil && jarvis.messages.isEmpty)
-    store.saveKey("synthetic-key", for: jarvis)
-    #expect(keys.key(for: "hermes.grok-jarvis") == "synthetic-key" && !store.needsKey(jarvis))
-}
-
 @MainActor @Test func headlessGrokImportPrintsCountsOnly() throws {
     let (store, _) = grokStore()
     var lines: [String] = []
     #expect(HeadlessCommands.importGrok(path: exportFolder.path, store: store, output: { lines.append($0) }) == 0)
-    #expect(lines.contains { $0.hasPrefix("Jarvis | grok-jarvis | history 9 | avatar blob/black -> blob") })
+    #expect(lines.contains { $0.hasPrefix("Jarvis | bot | history 9 | avatar blob/black -> blob") })
     #expect(!lines.joined().contains("synthetic"))
     lines = []
     #expect(HeadlessCommands.importGrok(path: bundles.appending(path: "unknown-format.json").path, store: store, output: { lines.append($0) }) == 2)
 }
 
-@MainActor @Test func keyFileImportChecksPermissionsThenShreds() throws {
-    let path = FileManager.default.temporaryDirectory.appending(path: "keys-\(UUID().uuidString).txt").path
-    try "default=key-default\ngrok-jarvis=key=with=equals\n# note\nbad line\n".write(toFile: path, atomically: true, encoding: .utf8)
-    let keys = InMemoryKeyStore()
-    var lines: [String] = []
-    chmod(path, 0o644)
-    #expect(HeadlessCommands.importKeys(path: path, keyStore: keys, output: { lines.append($0) }) == 2)
-    #expect(FileManager.default.fileExists(atPath: path) && keys.all().isEmpty)
-    #expect(HeadlessCommands.checkKeyFile(path) == .wrongMode(0o644))
-    chmod(path, 0o600)
-    lines = []
-    #expect(HeadlessCommands.importKeys(path: path, keyStore: keys, output: { lines.append($0) }) == 1) // the bad line fails
-    #expect(keys.key(for: "hermes") == "key-default" && keys.key(for: "hermes.grok-jarvis") == "key=with=equals")
-    #expect(lines.contains("default: OK") && lines.contains("grok-jarvis: OK") && lines.contains("line 4: failed (expected profile=key)"))
-    #expect(!lines.joined().contains("key-default") && !lines.joined().contains("with=equals"))
-    #expect(!FileManager.default.fileExists(atPath: path))
-    #expect(HeadlessCommands.checkKeyFile(path) == .missing)
-}
-
-@MainActor @Test func legacyStoreWithOldRoutinesLoadsAndAcceptsGrokImport() throws {
-    let url = temporaryStore()
-    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-    try FileManager.default.copyItem(at: bundles.appending(path: "../legacy_store_routines_without_prompt.json").standardizedFileURL, to: url)
-    let (store, _) = grokStore(url)
-    #expect(store.persistenceEnabled && store.errorMessage == nil)
-    let routine = try #require(store.bots.first?.routines.first)
-    #expect(routine.name == "Morning" && routine.prompt.isEmpty && routine.lastRun == "Never" && routine.importKind == .local)
-    try store.importGrokExport(at: exportFolder)
-    #expect(store.bots.count == 4 && store.groups.count == 1)
-}

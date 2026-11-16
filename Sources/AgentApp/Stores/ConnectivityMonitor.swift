@@ -50,9 +50,8 @@ struct ConnectivityPath: Sendable, Equatable {
     /// Terminate saves synchronously on the main queue.
     static func observeTerminate(_ store: AppStore) -> NSObjectProtocol {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak store] _ in
-            // Loops and goals of Bot Chats go to their boxes and presence leases end (`AppStore+AutomationHandoff.swift`).
             // The forwards to Herdr servers are child processes: they would outlive the app.
-            MainActor.assumeIsolated { store?.handOffForQuit(); store?.flushNow(); store?.herdrTunnels.closeAll() }
+            MainActor.assumeIsolated { store?.flushNow(); store?.herdrTunnels.closeAll() }
         }
     }
 }
@@ -77,28 +76,21 @@ extension AppStore {
     func handle(_ event: ConnectivityEvent) async {
         defer { objectWillChange.send() }
         switch event {
-        case .willSleep: turns.pathDown = true; suspendTeamClock(); flushNow()
-        case .pathDown: turns.pathDown = true; suspendTeamClock(); automationTick()
+        case .willSleep: turns.pathDown = true; flushNow()
+        case .pathDown: turns.pathDown = true
         case .didWake, .pathUp, .pathChanged:
-            await HermesEventConnections.shared.changed()
-            turns.pathDown = false; clearConnectionNotice(); automationTick()
-            await hermesSession.flush()
-            await recoverTeams()
-            reconcileAttention(reason: event == .didWake ? .wake : .path)
-            // P49: a new bot's orientation that waited for the connection tries again.
-            await orientationPass()
+            turns.pathDown = false; clearConnectionNotice()
         }
     }
 
-    /// Launch work, once per process and only in the real app (`routines.autoLoad`): connectivity, terminate save,
-    /// interrupted rounds, then D2's sweep after the UI is up, then the restored next-message queue.
+    /// Launch work, once per process and only in the real app (`launchWorkEnabled`): connectivity, terminate save,
+    /// interrupted rounds, then the restored next-message queue.
     func startLaunchWork(makeConnectivity: () -> (any ConnectivitySource)? = { let system = SystemConnectivity(); system.start(); return system }) {
-        guard routines.autoLoad, !turns.didLaunchRecovery else { return }
+        guard launchWorkEnabled, !turns.didLaunchRecovery else { return }
         turns.didLaunchRecovery = true
         if connectivity == nil { connectivity = makeConnectivity(); listenForConnectivity() }
         if connectivity is SystemConnectivity { turns.terminateObserver = SystemConnectivity.observeTerminate(self) }
         recoverInterruptedRounds()
-        // P38 E: the queue a quit left waits for the sweep, so an earlier reply it would follow can be confirmed first.
-        Task { await launchSweep(); await recoverTeams(); resumeRestoredNextMessages(); await orientationPass() }
+        resumeRestoredNextMessages()
     }
 }

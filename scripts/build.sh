@@ -29,18 +29,6 @@ else
   [[ "$BUILD_CONFIGURATION" != debug ]] || APP_DEFINES=(-D DEBUG)
   [[ "$BUILD_CONFIGURATION" != release ]] || OPTIMIZATION=(-O)
   mkdir -p "$BUILD_DIR" "$KIT_DIR" /tmp/agentapp-module-cache
-  # Compile shared code without xcrun/SwiftPM on the fallback path too.
-  "$TOOLCHAIN/usr/bin/swiftc" \
-    -swift-version 6 -target arm64-apple-macosx14.0 -sdk "$SDK" -parse-as-library \
-    -I Packages/SwarmHubCore/Sources/CSQLite -module-name SwarmHubCore \
-    -emit-module -emit-module-path "$KIT_DIR/SwarmHubCore.swiftmodule" \
-    -emit-library -static -o "$KIT_DIR/libSwarmHubCore.a" \
-    $(find Packages/SwarmHubCore/Sources/SwarmHubCore -name '*.swift' -print)
-  "$TOOLCHAIN/usr/bin/swiftc" \
-    -swift-version 6 -target arm64-apple-macosx14.0 -sdk "$SDK" -parse-as-library \
-    -module-name SwarmHubCoordination -emit-module -emit-module-path "$KIT_DIR/SwarmHubCoordination.swiftmodule" \
-    -emit-library -static -o "$KIT_DIR/libSwarmHubCoordination.a" \
-    $(find Packages/SwarmHubCoordination/Sources/SwarmHubCoordination -name '*.swift' -print)
   # The vendored BotAvatarsKit is its own Swift 5 module; the app stays Swift 6.
   "$TOOLCHAIN/usr/bin/swiftc" \
     -swift-version 5 -target arm64-apple-macosx14.0 -sdk "$SDK" -parse-as-library "${OPTIMIZATION[@]}" \
@@ -52,7 +40,7 @@ else
     -swift-version 6 -target arm64-apple-macosx14.0 -sdk "$SDK" "${OPTIMIZATION[@]}" "${APP_DEFINES[@]}" \
     -module-cache-path /tmp/agentapp-module-cache -module-name AgentApp \
     -I "$KIT_DIR" -L "$KIT_DIR" -lBotAvatarsKit \
-    -I Packages/SwarmHubCore/Sources/CSQLite -lSwarmHubCore -lSwarmHubCoordination -lsqlite3 \
+    -lsqlite3 \
     -F "${SPARKLE_FRAMEWORK:h}" -framework Sparkle \
     -Xlinker -rpath -Xlinker '@executable_path/../Frameworks' \
     -Xlinker -rpath -Xlinker '@executable_path' \
@@ -60,20 +48,10 @@ else
   mkdir -p "$BUILD_DIR/AgentApp.resources"
   rm -rf "$BUILD_DIR/AgentApp.resources/Avatars"
   cp -R Resources/Avatars "$BUILD_DIR/AgentApp.resources/Avatars"
-  rm -rf "$BUILD_DIR/AgentApp.resources/BotManager"
-  cp -R Resources/BotManager "$BUILD_DIR/AgentApp.resources/BotManager"
-  rm -rf "$BUILD_DIR/AgentApp.resources/Skills"
-  cp -R Resources/Skills "$BUILD_DIR/AgentApp.resources/Skills"
   rm -rf "$BUILD_DIR/AgentApp.resources/ThemeIcons"
   cp -R Resources/AppIcon/ThemeIcons "$BUILD_DIR/AgentApp.resources/ThemeIcons"
   cp Resources/AppIcon/SwarmHub-dark.icns "$BUILD_DIR/AgentApp.resources/AppIcon-dark.icns"
 fi
-# P2c: the signed baseline bundle and the box updater's bootstrap package (+ SHA-256) in AgentApp.resources, checked.
-# Debug signs a TEST baseline here; release takes SWARMHUB_BASELINE_DIR (real keys, P1b) and fails on any TEST key.
-BASELINE_ARGS=(--configuration "$BUILD_CONFIGURATION" --out "$BUILD_DIR/AgentApp.resources")
-[[ -z "${SWARMHUB_BASELINE_DIR:-}" ]] || BASELINE_ARGS+=(--baseline-dir "$SWARMHUB_BASELINE_DIR")
-[[ "$BUILD_CONFIGURATION" != release || "${SWARMHUB_RELEASE_WITHOUT_BASELINE:-}" != 1 ]] || BASELINE_ARGS+=(--without-baseline)
-python3 -B "$ROOT_DIR/scripts/release/baseline.py" embed "${BASELINE_ARGS[@]}"
 # Bare executable launches need the dynamic framework beside the binary too.
 if [[ "$SPARKLE_FRAMEWORK" != "$BUILD_DIR/Sparkle.framework" ]]; then
   rm -rf "$BUILD_DIR/Sparkle.framework"

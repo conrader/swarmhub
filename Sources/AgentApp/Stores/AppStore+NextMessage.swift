@@ -40,13 +40,11 @@ extension AppStore {
 
     /// Sends the oldest waiting text when no turn runs; called again whenever a turn or round ends. A chat that can no
     /// longer send puts its bubble back to "failed" (the button returns) and the next one is tried.
-    /// P38 D: workflow replies that ended are settled first; the next workflow task goes only after the user's own.
-    /// P38 E: an entry is marked sent in the ledger before it goes (a refused write keeps it queued); entries restored
+    /// An entry is marked sent in the ledger before it goes (a refused write keeps it queued); entries restored
     /// after a quit wait for `resumeRestoredNextMessages`.
     /// P39: per chat. Each chat's oldest entry goes once that chat has no turn and the turn limits allow it; a chat's later
     /// entries wait behind its first, and a restored entry holds its own chat only.
     func sendQueuedNextMessage() {
-        settleWorkflows()
         var held: Set<UUID> = []; var index = 0
         while index < turns.nextMessages.count {
             let next = turns.nextMessages[index], key = next.conversation.id
@@ -67,7 +65,6 @@ extension AppStore {
             if next.kind == .turn { giveBackBubble(next) } else { next.bubble.metadata[SteerKey.steer] = "failed" }
             objectWillChange.send(); save()
         }
-        dispatchWorkflows()
     }
 
     private func startNextMessage(_ next: QueuedNextMessage) -> Bool {
@@ -78,8 +75,8 @@ extension AppStore {
             endWait(next.bubble, in: group)
             return startGroupRound(group, message: next.bubble, recipients: GroupRouting.recipients(of: text, members: routingMembers(of: group)))
         }
-        guard let bot = owner(of: next.conversation), bots.contains(where: { $0 === bot }), !bot.isReadOnlyArchive, !bot.isGrokHistoryOnly,
-              !needsKey(bot), openClawBlock(bot) == nil, let activeBackend = try? backend(for: bot) else { return false }
+        guard let bot = next.conversation as? Bot, bots.contains(where: { $0 === bot }), !bot.isReadOnlyArchive,
+              let activeBackend = try? backend(for: bot) else { return false }
         let user: ChatMessage
         if next.kind == .turn {
             user = next.bubble; endWait(user, in: next.conversation)
@@ -93,7 +90,7 @@ extension AppStore {
 
     /// The bots a queued entry would start a turn for (its chat's owner, or the group members it names).
     private func waitingBots(_ next: QueuedNextMessage) -> [Bot] {
-        guard let group = next.conversation as? GroupChat else { return owner(of: next.conversation).map { [$0] } ?? [] }
+        guard let group = next.conversation as? GroupChat else { return (next.conversation as? Bot).map { [$0] } ?? [] }
         let ids = GroupRouting.recipients(of: next.bubble.content, members: routingMembers(of: group))
         return ids.compactMap { id in bots.first { $0.id == id } }
     }

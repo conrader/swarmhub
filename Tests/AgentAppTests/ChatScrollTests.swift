@@ -5,12 +5,12 @@ import Testing
 // P50: chats open where they were left, with Jump to latest. The view-model only: no real scrolling, no sleeps.
 
 @MainActor private func store(at url: URL) -> AppStore {
-    AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { _ in MockBackend() }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    AppStore(storeURL: url, autoStart: false, backendFactory: { _ in MockBackend() }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
 }
 
 @MainActor @Test func thePositionIsSavedPerConversationAndRestoredAfterARelaunch() throws {
     let url = temporaryStore(), first = store(at: url)
-    let bot = Bot(name: "Alpha", backend: .hermes), group = GroupChat(name: "Team", memberIDs: [bot.id])
+    let bot = Bot(name: "Alpha", backend: .herdr), group = GroupChat(name: "Team", memberIDs: [bot.id])
     let chat = (0..<6).map { ChatMessage(role: $0.isMultiple(of: 2) ? .user : .assistant, content: "line \($0)") }
     bot.messages = chat; group.messages = Array(chat.prefix(4).map { ChatMessage(role: $0.role, content: $0.content) })
     first.bots = [bot]; first.groups = [group]
@@ -30,7 +30,7 @@ import Testing
 @MainActor @Test func anOldStoreWithoutPositionsLoads() throws {
     let url = temporaryStore()
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-    let bot = Bot(name: "Alpha", backend: .hermes); bot.messages = [ChatMessage(role: .user, content: "hi")]
+    let bot = Bot(name: "Alpha", backend: .herdr); bot.messages = [ChatMessage(role: .user, content: "hi")]
     var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(StoreFile(bots: [bot], groups: []))) as? [String: Any])
     #expect(json["scrollPositions"] == nil, "absent while empty")
     json["scrollPositions"] = nil

@@ -1,0 +1,492 @@
+{
+  "version": 2,
+  "bots": [
+    {
+      "title": "Hermes profile",
+      "botDescription": "Hermes profile: grok-jarvis",
+      "unreadCount": 0,
+      "isHidden": false,
+      "notificationsEnabled": true,
+      "memorySummary": "",
+      "skills": [
+        "Web research"
+      ],
+      "importedMemories": [],
+      "importedSkills": [],
+      "requestedConnectorIDs": [
+        "slack"
+      ],
+      "routines": [
+        {
+          "id": "bbbbbbbb-0000-4000-8000-000000000001",
+          "name": "Morning brief",
+          "schedule": "0 8 * * *",
+          "prompt": "Brief me",
+          "lastRun": "Never",
+          "isEnabled": true,
+          "importKind": "cron"
+        }
+      ],
+      "routineRunMarks": {
+        "job-1": "2026-11-01T08:00:00Z"
+      },
+      "approvalMode": "Ask me",
+      "approvalRules": [
+        {
+          "id": "cccccccc-0000-4000-8000-000000000001",
+          "name": "Allow Git status",
+          "actionPattern": "command",
+          "commandPattern": "git status",
+          "outcome": "allow"
+        }
+      ],
+      "approvalAudit": [],
+      "isDemo": false,
+      "grokHistoryCount": 0,
+      "threads": [
+        {
+          "id": "dddddddd-0000-4000-8000-000000000001",
+          "parentMessageID": "aaaaaaaa-0000-4000-8000-000000000002",
+          "parentSessionID": "agentapp_11111111-1111-4111-8111-111111111111",
+          "createdAt": 790000100.0,
+          "hermesSessionID": "fork-1",
+          "messages": [
+            {
+              "id": "aaaaaaaa-0000-4000-8000-000000000003",
+              "role": "user",
+              "content": "In a thread",
+              "createdAt": 800000003.0,
+              "presentation": "text",
+              "metadata": {},
+              "reactions": []
+            }
+          ]
+        }
+      ],
+      "manualUnread": false,
+      "createdAt": 790000000.0,
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Jarvis",
+      "persona": "You run the team.",
+      "backend": "Hermes Agent",
+      "avatarName": "faceCoral",
+      "hermesProfile": "grok-jarvis",
+      "hermesSessionID": "agentapp_11111111-1111-4111-8111-111111111111",
+      "hermesBaseURL": "https://box.example.com/v1",
+      "hermesModelLock": {
+        "provider": "supplier-a",
+        "model": "model-a",
+        "origin": "role"
+      },
+      "canManageBots": true,
+      "boxInstructions": {
+        "text": "On the box",
+        "stale": false
+      },
+      "installedSkills": {
+        "swarmhub-messages": "1.4.12"
+      },
+      "modelSettings": {
+        "conversation": {
+          "kind": "inherit"
+        }
+      },
+      "adoptedKeyBackup": "",
+      "messages": [
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000001",
+          "role": "user",
+          "content": "Hello Jarvis",
+          "createdAt": 800000001.0,
+          "presentation": "text",
+          "metadata": {},
+          "reactions": []
+        },
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000002",
+          "role": "assistant",
+          "content": "Hello.",
+          "createdAt": 800000002.0,
+          "presentation": "text",
+          "metadata": {},
+          "reactions": [],
+          "turnState": "finished"
+        }
+      ]
+    },
+    {
+      "title": "Hermes profile",
+      "botDescription": "Hermes profile: grok-jarvis",
+      "unreadCount": 0,
+      "isHidden": false,
+      "notificationsEnabled": true,
+      "memorySummary": "",
+      "skills": [
+        "Web research"
+      ],
+      "importedMemories": [],
+      "importedSkills": [],
+      "requestedConnectorIDs": [
+        "slack"
+      ],
+      "routines": [
+        {
+          "id": "bbbbbbbb-0000-4000-8000-000000000001",
+          "name": "Morning brief",
+          "schedule": "0 8 * * *",
+          "prompt": "Brief me",
+          "lastRun": "Never",
+          "isEnabled": true,
+          "importKind": "cron"
+        }
+      ],
+      "routineRunMarks": {
+        "job-1": "2026-11-01T08:00:00Z"
+      },
+      "approvalMode": "Ask me",
+      "approvalRules": [
+        {
+          "id": "cccccccc-0000-4000-8000-000000000001",
+          "name": "Allow Git status",
+          "actionPattern": "command",
+          "commandPattern": "git status",
+          "outcome": "allow"
+        }
+      ],
+      "approvalAudit": [],
+      "isDemo": false,
+      "grokHistoryCount": 12,
+      "threads": [],
+      "manualUnread": false,
+      "createdAt": 790000000.0,
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "Infra",
+      "persona": "You look after the servers.",
+      "backend": "Hermes Agent",
+      "avatarName": "faceSky",
+      "hermesProfile": "grok-infra",
+      "grokSourceID": "grok-source-infra",
+      "messages": [
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000004",
+          "role": "user",
+          "content": "Status?",
+          "createdAt": 800000004.0,
+          "presentation": "text",
+          "metadata": {},
+          "reactions": []
+        },
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000005",
+          "role": "assistant",
+          "content": "All good.",
+          "createdAt": 800000005.0,
+          "presentation": "text",
+          "metadata": {},
+          "reactions": [],
+          "turnState": "finished"
+        }
+      ],
+      "retiredOnBox": true
+    },
+    {
+      "title": "Hermes profile",
+      "botDescription": "Hermes profile: grok-jarvis",
+      "unreadCount": 0,
+      "isHidden": false,
+      "notificationsEnabled": true,
+      "memorySummary": "",
+      "skills": [
+        "Web research"
+      ],
+      "importedMemories": [],
+      "importedSkills": [],
+      "requestedConnectorIDs": [
+        "slack"
+      ],
+      "routines": [
+        {
+          "id": "bbbbbbbb-0000-4000-8000-000000000001",
+          "name": "Morning brief",
+          "schedule": "0 8 * * *",
+          "prompt": "Brief me",
+          "lastRun": "Never",
+          "isEnabled": true,
+          "importKind": "cron"
+        }
+      ],
+      "routineRunMarks": {
+        "job-1": "2026-11-01T08:00:00Z"
+      },
+      "approvalMode": "Ask me",
+      "approvalRules": [
+        {
+          "id": "cccccccc-0000-4000-8000-000000000001",
+          "name": "Allow Git status",
+          "actionPattern": "command",
+          "commandPattern": "git status",
+          "outcome": "allow"
+        }
+      ],
+      "approvalAudit": [],
+      "isDemo": false,
+      "grokHistoryCount": 0,
+      "threads": [],
+      "manualUnread": false,
+      "createdAt": 790000000.0,
+      "id": "33333333-3333-4333-8333-333333333333",
+      "name": "Claw",
+      "persona": "",
+      "backend": "OpenClaw",
+      "avatarName": "faceMint",
+      "openClaw": {
+        "gatewayID": "gateway-1",
+        "agentID": "agent-alpha",
+        "sessionMode": "own"
+      },
+      "messages": [
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000006",
+          "role": "user",
+          "content": "Hi",
+          "createdAt": 800000006.0,
+          "presentation": "text",
+          "metadata": {},
+          "reactions": []
+        }
+      ]
+    },
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "name": "Atlas",
+      "title": "Claude Code on Herdr",
+      "botDescription": "",
+      "persona": "You plan launches.",
+      "backend": "Herdr",
+      "avatarName": "faceSun",
+      "unreadCount": 1,
+      "isHidden": false,
+      "notificationsEnabled": true,
+      "isDemo": false,
+      "grokHistoryCount": 0,
+      "manualUnread": false,
+      "createdAt": 795000000.0,
+      "canManageBots": true,
+      "avatarMark": {
+        "shape": "robot",
+        "colour": "teal"
+      },
+      "memorySummary": "",
+      "skills": [],
+      "importedMemories": [],
+      "importedSkills": [],
+      "requestedConnectorIDs": [],
+      "routines": [],
+      "routineRunMarks": {},
+      "approvalMode": "Ask me",
+      "approvalRules": [],
+      "approvalAudit": [],
+      "threads": [],
+      "messages": [
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000007",
+          "role": "user",
+          "content": "Plan the launch",
+          "createdAt": 800000007.0,
+          "presentation": "text",
+          "metadata": {},
+          "reactions": []
+        },
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000008",
+          "role": "assistant",
+          "content": "Here is the plan.",
+          "createdAt": 800000008.0,
+          "presentation": "text",
+          "metadata": {},
+          "reactions": [],
+          "turnState": "finished",
+          "activity": {
+            "steps": [
+              {
+                "name": "bash",
+                "startedAt": 800000007.5,
+                "finishedAt": 800000007.9,
+                "failed": false,
+                "callID": "herdr-1",
+                "botMessage": {
+                  "to": "infra",
+                  "text": "old field"
+                }
+              }
+            ],
+            "total": 1
+          }
+        },
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000009",
+          "role": "assistant",
+          "content": "A card from an older build",
+          "createdAt": 800000009.0,
+          "presentation": "routineResult",
+          "metadata": {
+            "jobID": "job-1"
+          },
+          "reactions": []
+        }
+      ]
+    },
+    {
+      "id": "55555555-5555-4555-8555-555555555555",
+      "name": "Codex",
+      "title": "Codex on Herdr",
+      "botDescription": "",
+      "persona": "You are a thoughtful, capable assistant.",
+      "backend": "Herdr",
+      "avatarName": "faceLilac",
+      "unreadCount": 0,
+      "createdAt": 795000001.0,
+      "hermesSessionID": "kept-session",
+      "messages": []
+    }
+  ],
+  "groups": [
+    {
+      "id": "66666666-6666-4666-8666-666666666666",
+      "name": "Launch",
+      "memberIDs": [
+        "11111111-1111-4111-8111-111111111111",
+        "44444444-4444-4444-8444-444444444444",
+        "55555555-5555-4555-8555-555555555555"
+      ],
+      "messages": [
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000010",
+          "role": "user",
+          "content": "Everyone: status",
+          "createdAt": 800000010.0,
+          "presentation": "text",
+          "metadata": {},
+          "reactions": []
+        },
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000011",
+          "role": "assistant",
+          "content": "From Jarvis",
+          "createdAt": 800000011.0,
+          "presentation": "text",
+          "metadata": {},
+          "reactions": [],
+          "authorID": "11111111-1111-4111-8111-111111111111"
+        },
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000012",
+          "role": "assistant",
+          "content": "From Atlas",
+          "createdAt": 800000012.0,
+          "presentation": "text",
+          "metadata": {},
+          "reactions": [],
+          "authorID": "44444444-4444-4444-8444-444444444444"
+        }
+      ],
+      "unreadCount": 0,
+      "manualUnread": false,
+      "isHidden": false,
+      "isMuted": false,
+      "sessions": {
+        "11111111-1111-4111-8111-111111111111": "group-s1"
+      },
+      "grokHistoryCount": 0,
+      "createdAt": 796000000.0
+    },
+    {
+      "id": "77777777-7777-4777-8777-777777777777",
+      "name": "Old team",
+      "memberIDs": [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+        "33333333-3333-4333-8333-333333333333"
+      ],
+      "messages": [
+        {
+          "id": "aaaaaaaa-0000-4000-8000-000000000013",
+          "role": "user",
+          "content": "Old talk",
+          "createdAt": 800000013.0,
+          "presentation": "text",
+          "metadata": {},
+          "reactions": []
+        }
+      ],
+      "unreadCount": 0,
+      "manualUnread": false,
+      "isHidden": false,
+      "isMuted": false,
+      "sessions": {},
+      "grokHistoryCount": 0,
+      "createdAt": 796000001.0
+    }
+  ],
+  "modelDefaults": {
+    "conversation": {
+      "provider": "supplier-a",
+      "model": "model-a"
+    }
+  },
+  "approvalRoutes": [
+    {
+      "id": "eeeeeeee-0000-4000-8000-000000000001",
+      "kind": "terminal",
+      "pattern": "git *",
+      "decision": "approve"
+    }
+  ],
+  "reviewAfter": [],
+  "boxReadings": {
+    "https://box.example.com/v1": {
+      "models": {
+        "readAt": 799000000.0,
+        "rows": []
+      }
+    }
+  },
+  "botMessageMarks": {
+    "https://box.example.com/v1|grok-jarvis": {
+      "s1": "3"
+    }
+  },
+  "automations": {
+    "11111111-1111-4111-8111-111111111111": {
+      "goal": {
+        "text": "Ship it",
+        "state": "running"
+      }
+    },
+    "44444444-4444-4444-8444-444444444444": {
+      "loop": {
+        "prompt": "Check",
+        "interval": 600
+      }
+    }
+  },
+  "managedApprovals": [],
+  "heartbeat": {
+    "template": "Check in",
+    "plans": {
+      "11111111-1111-4111-8111-111111111111": {
+        "every": 3600
+      }
+    }
+  },
+  "scrollPositions": {
+    "44444444-4444-4444-8444-444444444444": "aaaaaaaa-0000-4000-8000-000000000007"
+  },
+  "aFieldNoBuildEverHad": {
+    "nested": [
+      1,
+      2,
+      3
+    ]
+  }
+}

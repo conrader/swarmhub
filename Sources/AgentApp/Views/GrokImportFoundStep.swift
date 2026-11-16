@@ -15,7 +15,7 @@ struct GrokFoundStep: View {
                 modePicker
                 Toggle("Also refresh names, avatars and instructions from Grok", isOn: $coordinator.refreshIdentity)
                     .toggleStyle(.checkbox).font(.callout)
-                Label(bindingLine, systemImage: coordinator.serverURL == nil ? "exclamationmark.circle" : "link")
+                Label(bindingLine, systemImage: coordinator.hasServer ? "link" : "exclamationmark.circle")
                     .font(.callout).foregroundStyle(.secondary)
                 if coordinator.mode == .full { GrokGuaranteeBox() }
                 Button("Use an export folder instead") { useExportFolder() }.buttonStyle(.link).font(.callout)
@@ -31,10 +31,7 @@ struct GrokFoundStep: View {
     }
 
     private var bindingLine: String {
-        guard let server = coordinator.serverURL else {
-            return "No Hermes server is set: bots will be history-only until you add one."
-        }
-        return "Bots chat through \(URL(string: server)?.host ?? server)."
+        coordinator.hasServer ? "New bots run as agents on \(coordinator.serverName)." : "No server is set up yet: the bots are imported, and answer once you set one up."
     }
 
     private func row(_ item: GrokFoundItem) -> some View {
@@ -45,7 +42,7 @@ struct GrokFoundStep: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(item.name).fontWeight(.medium)
-                    Text(item.isGroup ? "group" : (item.profile ?? "history only")).font(.caption.monospaced())
+                    Text(item.isGroup ? "group" : "bot").font(.caption.monospaced())
                         .padding(.horizontal, 6).padding(.vertical, 1).background(Color.primary.opacity(0.08), in: Capsule())
                 }
                 Text(details(item)).font(.caption).foregroundStyle(.secondary)

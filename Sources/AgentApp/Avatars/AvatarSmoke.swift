@@ -82,14 +82,14 @@ enum AvatarFacts {
         try? await Task.sleep(for: budget.working - .milliseconds(500))
         let lastFrame = BotAvatarClock.shared.frame
         UISmokeProbe.forcedWorking = nil; store.objectWillChange.send()
-        let returned = await HeadlessE2E.wait(budget.stop, poll: .milliseconds(50)) {
+        let returned = await UISmoke.wait(budget.stop, poll: .milliseconds(50)) {
             (UISmokeProbe.avatarFacts[key]?["mode"] as? String ?? "still") != "working"
         }
         let after: [String: Any] = ["mode": UISmokeProbe.avatarFacts[key]?["mode"] ?? NSNull(),
                                     "clock_running": BotAvatarClock.shared.isRunning, "returned_within_budget": returned]
         settings.probeOverride = .off
         let started = ContinuousClock.now
-        let stopped = await HeadlessE2E.wait(budget.stop, poll: .milliseconds(50)) { !BotAvatarClock.shared.isRunning }
+        let stopped = await UISmoke.wait(budget.stop, poll: .milliseconds(50)) { !BotAvatarClock.shared.isRunning }
         let elapsed = ContinuousClock.now - started
         return ["bot": bot.name, "during": during.merging(["frames_advanced": lastFrame - firstFrame, "frame_advancing": lastFrame > firstFrame]) { $1 },
                 "after": after,

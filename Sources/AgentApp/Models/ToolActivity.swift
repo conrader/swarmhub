@@ -34,8 +34,6 @@ struct ToolEvent: Sendable, Equatable {
 /// One step of a reply: a tool the bot ran, what it ran it on, when, and whether it failed.
 struct ToolStep: Codable, Equatable, Sendable {
     var name: String; var preview: String?; var startedAt: Date; var finishedAt: Date?; var failed = false; var callID: String?
-    /// P34 D4: the bot this step messaged through bot-msg (and, once it ends, the reply).
-    var botMessage: BotMessageCall?
     /// P43: where in the reply's text (UTF-16 offset into `content`) the step started; nil on steps saved before P43.
     var textOffset: Int?
     var isRunning: Bool { finishedAt == nil }
@@ -55,16 +53,13 @@ struct ToolActivity: Codable, Equatable, Sendable {
         switch event.phase {
         case .started:
             if let id = event.callID, steps.contains(where: { $0.callID == id }) { return }
-            // P41: never the cut preview; its 80 characters lose `--to` behind a long script path.
-            let call = event.command.flatMap(BotMessageCall.call(in:))
-            steps.append(ToolStep(name: event.name, preview: event.preview, startedAt: now, callID: event.callID, botMessage: call, textOffset: textOffset)); total += 1
+            steps.append(ToolStep(name: event.name, preview: event.preview, startedAt: now, callID: event.callID, textOffset: textOffset)); total += 1
             if steps.count > Self.limit { steps.removeFirst(steps.count - Self.limit) }
         case .progress:
             if let index = match(event), steps[index].preview == nil { steps[index].preview = event.preview }
         case .completed, .failed:
             guard let index = match(event) else { return }
             steps[index].finishedAt = now; steps[index].failed = event.phase == .failed
-            if steps[index].botMessage != nil, let reply = BotMessageCall.reply(fromResult: event.result) { steps[index].botMessage?.reply = reply }
             if event.preview != nil, steps[index].preview == nil { steps[index].preview = event.preview }
         }
     }

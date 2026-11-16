@@ -1,7 +1,7 @@
 import SwiftUI
 import UserNotifications
 
-/// Settings' simple page (P21 Part A): connection, your name, appearance, notifications, about, and "Advanced…".
+/// Settings' simple page: connection, your name, appearance, notifications, about, and "Advanced…".
 /// Every visible string comes from `SimpleCopy`; opening the page makes no network call and reads no key.
 struct SettingsSimplePane: View {
     @EnvironmentObject private var store: AppStore
@@ -12,26 +12,19 @@ struct SettingsSimplePane: View {
     @AppStorage("notifications") private var notifications = false
     @AppStorage(UserIdentity.key) private var accountName = ""
     @State private var testLines: [String] = []; @State private var testing = false
-    /// Off (the default): the Connection section is about the Herdr servers (`LegacySurface`).
-    @AppStorage(LegacySurface.key) private var legacy = false
 
     var body: some View {
         Form {
             Section(SimpleCopy.connection) {
-                Text(legacy ? store.connectionStatusLine : store.herdrStatusLine)
-                if legacy, store.anyKeyNeedsReentry { Text(SimpleCopy.reenterKey).font(.caption).foregroundStyle(.orange) }
+                Text(store.herdrStatusLine)
                 ForEach(testLines, id: \.self) { line in Text(line).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                 HStack {
-                    Button(testing ? SimpleCopy.testingConnection : SimpleCopy.testConnection) { test() }.disabled(testing || !(legacy ? store.boxConfigured : store.herdrConfigured))
+                    Button(testing ? SimpleCopy.testingConnection : SimpleCopy.testConnection) { test() }.disabled(testing || !store.herdrConfigured)
                     if testing { ProgressView().controlSize(.small) }
                     Spacer()
-                    if legacy {
-                        Button(store.boxConfigured ? SimpleCopy.changeConnection : SimpleCopy.setUp) { store.openSetup(openWindow: openWindow) }
-                    } else {
-                        Button(store.setupAddsServer ? SimpleCopy.addServer : SimpleCopy.setUp) { store.openSetup(openWindow: openWindow) }
-                    }
+                    Button(store.setupAddsServer ? SimpleCopy.addServer : SimpleCopy.setUp) { store.openSetup(openWindow: openWindow) }
                 }
-                Text(legacy ? SimpleCopy.connectionCaption : SimpleCopy.herdrCaption).font(.caption).foregroundStyle(.secondary)
+                Text(SimpleCopy.herdrCaption).font(.caption).foregroundStyle(.secondary)
             }
             Section(SimpleCopy.you) {
                 TextField(SimpleCopy.yourName, text: $accountName, prompt: Text(UserIdentity.fallback()))
@@ -56,14 +49,14 @@ struct SettingsSimplePane: View {
             Section(SimpleCopy.about) { UpdateCheckRow() }
             Section {
                 Button(SimpleCopy.advanced, action: openAdvanced)
-                Text(legacy ? SimpleCopy.advancedCaption : SimpleCopy.herdrAdvancedCaption).font(.caption).foregroundStyle(.secondary)
+                Text(SimpleCopy.herdrAdvancedCaption).font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped)
     }
 
     private func test() {
         testing = true; testLines = []
-        Task { testLines = legacy ? await store.testConnectionPlain() : await store.testHerdrPlain(); testing = false }
+        Task { testLines = await store.testHerdrPlain(); testing = false }
     }
 }
 

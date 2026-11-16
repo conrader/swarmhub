@@ -63,31 +63,13 @@ struct GrokProgressRow: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Whether an imported bot can chat, measured after the import (`GET /p/<profile>/v1/models` names the profile).
-enum GrokConnection: Equatable, Sendable {
-    case checking, live, needsKey, profileNotOnServer, unreachable, historyOnly
-
-    var label: String {
-        switch self {
-        case .checking: "Checking…"
-        case .live: "Live"
-        case .needsKey: "Needs key"
-        case .profileNotOnServer: "Profile not on the server"
-        case .unreachable: "Server unreachable"
-        case .historyOnly: "History only"
-        }
-    }
-}
-
 /// One imported conversation on the Done step. Counts are read back from the store and the archive file.
 struct GrokImportOutcome: Identifiable, Equatable, Sendable {
     let id: String
     var botID: UUID?
     var name: String
     var isGroup: Bool
-    var profile: String?
     var archiveLines: Int
-    var connection: GrokConnection
     var row: GrokImportRunRow
 
     var coverageText: String {

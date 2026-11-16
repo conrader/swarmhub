@@ -6,7 +6,7 @@ import Testing
 /// Check all three labels in an already-mounted reply, bot row and group row, rather than recreating
 /// the views after each event. The window stays off screen and contains synthetic content only.
 @Test @MainActor func activityLabelsUpdateInChatAndBothSidebarRows() async throws {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let bot = Bot(name: "Bot fixture"), group = GroupChat(name: "Group fixture", memberIDs: [bot.id])
     let reply = ChatMessage(role: .assistant, content: "", isStreaming: true)
     bot.messages = [reply]; group.messages = [reply]; store.bots = [bot]; store.groups = [group]

@@ -14,9 +14,7 @@ private struct ScriptedHerdrBackend: AgentBackend {
             continuation.yield(.replace(reply(text))); continuation.yield(.completed); continuation.finish()
         }
     }
-    func listSessions() async throws -> [BackendSession] { [] }
     func cancel(sessionID: String) async throws -> StopOutcome { .noActiveRun }
-    func resolveApproval(id: UUID, approved: Bool) async throws {}
     func testConnection() async throws -> String { "Scripted" }
 }
 
@@ -25,7 +23,7 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
 /// Boppy asks for the bot its person names, and (wrongly) asks again in every reply to a passed-on message.
 /// Jarvis, the main bot, creates "Legal" itself, leaves "Payments" to the person, refuses "Servers", and only talks about "Chat".
 @MainActor private func relayStore() -> (store: AppStore, jarvis: Bot, boppy: Bot) {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { bot in
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { bot in
         if bot.name == "Jarvis" {
             return ScriptedHerdrBackend { text in
                 if text.contains("\"Legal\"") { return "Makes sense.\n\n" + block(#"{"op":"create_bot","decision":"decided","name":"Legal","instructions":"You review contracts."}"#) }
@@ -88,8 +86,8 @@ private func block(_ json: String) -> String { "```swarmhub\n\(json)\n```" }
     store.saveHerdrServer(box, token: "t")
     let far = Bot(name: "Far", backend: .herdr); store.bots.append(far); store.setHerdrServer("box1", for: far)
     #expect(store.herdrMainBot(on: store.herdrServers[0]) === jarvis && store.herdrMainBot(on: box) == nil && store.createsHerdrBots(jarvis) && !store.createsHerdrBots(boppy))
-    // Only a server's main bot wears the star; a manager of an older backend does not.
-    let manager = Bot(name: "Old", backend: .hermes); manager.canManageBots = true; store.bots.append(manager)
+    // Only a server's main bot wears the star; a sample agent with the flag does not.
+    let manager = Bot(name: "Old", backend: .mock); manager.canManageBots = true; store.bots.append(manager)
     #expect(store.herdrMainBotLabel(jarvis) == "Main bot of This Mac" && store.herdrMainBotLabel(boppy) == nil && store.herdrMainBotLabel(far) == nil && store.herdrMainBotLabel(manager) == nil)
     store.setCanManageBots(far, true)
     #expect(store.herdrMainBot(on: box) === far && store.herdrMainBot(on: store.herdrServers[0]) === jarvis, "another server keeps its own")

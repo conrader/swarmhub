@@ -21,7 +21,7 @@ struct GroupRoutingDetails: View {
     }
 
     static func place(_ bot: Bot) -> String {
-        bot.backend == .hermes ? "Hermes · \(bot.hermesProfile ?? "default")" : bot.backend.rawValue
+        bot.backend.rawValue
     }
 
     private func detail(_ title: String, _ text: String) -> some View {

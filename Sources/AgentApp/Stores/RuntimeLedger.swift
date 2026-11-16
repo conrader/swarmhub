@@ -1,15 +1,15 @@
 import Foundation
 import SQLite3
 
-/// P38 D: what the ledger offers its callers (a test can pass one that refuses every write).
+/// What the ledger offers its callers (a test can pass one that refuses every write).
 @MainActor protocol RuntimeStoring: AnyObject {
     func put<T: Encodable>(_ value: T, kind: String, id: String) throws
     func putMany<T: Encodable>(_ values: [(id: String, value: T)], kind: String) throws
     func records<T: Decodable>(_ type: T.Type, kind: String) throws -> [T]
 }
 
-/// P38 D: `runtime.sqlite` next to store.json, a WAL journal for execution state that must survive a crash between two
-/// saves: workflows, routine deliveries, sub-agent tasks, the saved-document index and (P38 E) the next-message queue.
+/// `runtime.sqlite` next to store.json, a WAL journal for execution state that must survive a crash between two
+/// saves: the saved-document index and the next-message queue.
 /// Chats and settings stay in store.json. Each record write and its event commit together; a failed write throws and
 /// the caller surfaces it.
 @MainActor final class RuntimeLedger: RuntimeStoring {
@@ -118,6 +118,6 @@ extension AppStore {
 
     /// Launch: what the ledger committed and store.json may have missed (a crash between the two saves).
     func restoreLedger() {
-        restoreChildTasks(); restoreRoutineDeliveries(); restoreWorkflows(); restoreNextMessages(); restoreProjectFacts()
+        restoreNextMessages()
     }
 }

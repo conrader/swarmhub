@@ -7,8 +7,7 @@ struct HerdrStarter: Equatable, Identifiable, Sendable {
 }
 
 /// The Herdr servers (`HerdrServer`), which one each bot runs on, and the template and model each bot starts its
-/// agent from. Everything here lives in `UserDefaults` and the Keychain, keyed by server or bot id, so the bot
-/// record itself stays the same for every backend.
+/// agent from. Everything here lives in `UserDefaults` and the Keychain, keyed by server or bot id.
 extension AppStore {
     // MARK: Servers
 
@@ -127,8 +126,7 @@ extension AppStore {
         if model.isEmpty { defaults.removeObject(forKey: HerdrBackend.botModelKey(bot.id)) } else { defaults.set(model, forKey: HerdrBackend.botModelKey(bot.id)) }
     }
 
-    /// The bot's instructions go out as every backend sends them (`outboundPersona`: a bot imported from Grok has its
-    /// secrets blanked), which matters for a bot moved here from Hermes.
+    /// The bot's instructions go out as `outboundPersona` (a bot imported from Grok has its secrets blanked).
     func herdrBackend(for bot: Bot) throws -> HerdrBackend {
         var backend = HerdrBackend(client: try herdrClient(for: herdrServer(for: bot)), botName: bot.name, botID: bot.id, template: herdrTemplate(for: bot), model: herdrModel(for: bot), instructions: bot.outboundPersona)
         backend.steers = herdrSteers(bot)
@@ -218,30 +216,9 @@ extension AppStore {
         return added.map(\.name)
     }
 
-    // MARK: Moving a bot to Herdr
-
-    /// Bots of the older backends that can become Herdr bots (not samples, not read-only archives).
-    var botsMovableToHerdr: [Bot] { bots.filter { ($0.backend == .hermes || $0.backend == .openClaw) && !$0.isDemo && !$0.isReadOnlyArchive } }
-
-    /// Makes `bot` a Herdr bot on `server` in place: the same record, so its name, avatar, chat history and settings
-    /// stay. Its instructions stay too; a bot whose real instructions lived on its box (the app only held a copy the
-    /// manager showed) takes that copy, because a Herdr agent gets nothing but what the app sends it. Everything the
-    /// old backend needs is left on the record, so switching Backend back restores it. The caller saves.
-    func moveToHerdr(_ bot: Bot, server: HerdrServer? = nil) {
-        guard bot.backend != .herdr, !bot.isReadOnlyArchive else { return }
-        let own = bot.persona.trimmingCharacters(in: .whitespacesAndNewlines)
-        if own.isEmpty || bot.persona == Bot.defaultPersona, let onBox = bot.boxInstructions?.text?.trimmingCharacters(in: .whitespacesAndNewlines), !onBox.isEmpty {
-            bot.persona = onBox
-        }
-        bot.backend = .herdr
-        setHerdrServer((server ?? herdrServers[0]).id, for: bot)
-    }
-
-    /// Moves every bot of the older backends to `server`. Returns how many moved.
-    @discardableResult func moveAllToHerdr(server: HerdrServer? = nil) -> Int {
-        let moving = botsMovableToHerdr
-        for bot in moving { moveToHerdr(bot, server: server) }
-        if !moving.isEmpty { objectWillChange.send(); save() }
-        return moving.count
+    /// Forgets the settings the app kept for a bot of an older version that was removed (`removeLegacyBots`).
+    func forgetBotSettings(_ id: UUID) {
+        for key in [HerdrServer.botKey(id), HerdrBackend.botTemplateKey(id), HerdrBackend.botModelKey(id), HerdrBackend.botSteerKey(id),
+                    Self.herdrHelpersKey(id), Self.herdrAsksFirstKey(id), Self.herdrAskTimesKey(id), Self.herdrCreateTimesKey(id)] { defaults.removeObject(forKey: key) }
     }
 }

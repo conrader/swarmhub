@@ -1,7 +1,7 @@
 import Foundation
 
-/// P39: the running turn of one conversation (a bot's main chat, a thread or a group). Chats never share a slot, so a
-/// long reply or a manager's install turn blocks only its own chat.
+/// The running turn of one conversation (a bot's chat or a group). Chats never share a slot, so a long reply blocks
+/// only its own chat.
 @MainActor final class ConversationTurn {
     let token = UUID()
     let conversation: any Conversation
@@ -17,7 +17,7 @@ import Foundation
     }
 }
 
-/// P39 6: how many turns may run at once, app-wide and per connection (`connection(of:)`).
+/// How many turns may run at once, app-wide and per server (`connection(of:)`).
 struct TurnLimits: Equatable, Sendable {
     var total = 6, perConnection = 4
 }
@@ -36,8 +36,8 @@ extension AppStore {
     func isIdle(_ conversation: any Conversation) -> Bool { turn(in: conversation) == nil }
     /// App-wide only: something answers somewhere (Stop menu fallback, headless waits).
     var anyTurnRunning: Bool { !runningTurns.isEmpty }
-    /// The chat the window shows: the open group, else the selected bot's open thread or main chat.
-    var openConversation: (any Conversation)? { selectedGroup ?? selectedBot.map(currentConversation(of:)) }
+    /// The chat the window shows: the open group, else the selected bot's chat.
+    var openConversation: (any Conversation)? { selectedGroup ?? selectedBot }
     func canSteer(in conversation: any Conversation) -> Bool { turn(in: conversation)?.steerAvailable == true }
 
     /// Claims `conversation`'s slot; the caller checked it was free.
@@ -59,14 +59,23 @@ extension AppStore {
         turn.steerAvailable = value; objectWillChange.send()
     }
 
+    /// The chat (a bot's or a group) that holds the row.
+    func conversation(containing rowID: UUID) -> (any Conversation)? {
+        if let bot = bots.first(where: { $0.messages.contains { $0.id == rowID } }) { return bot }
+        return groups.first { $0.messages.contains { $0.id == rowID } }
+    }
+
     // MARK: Limits
+
+    /// What a bot's turns count against: its Herdr server; a sample agent runs here.
+    func connection(of bot: Bot) -> String { bot.backend == .herdr ? "herdr:\(herdrServer(for: bot).id)" : "local" }
 
     /// Why a new turn for `bots` must wait (nil when it may start): the app-wide limit, then each bot's connection.
     func turnCapacityProblem(for bots: [Bot]) -> String? {
         if runningTurns.count >= turnLimits.total { return "Waiting: \(turnLimits.total) replies are already running." }
         let running = runningTurns.values.compactMap { turn in turn.botID.flatMap { id in self.bots.first { $0.id == id } }.map(connection(of:)) }
         for target in Set(bots.map(connection(of:))) where running.filter({ $0 == target }).count >= turnLimits.perConnection {
-            return "Waiting: \(turnLimits.perConnection) replies are already running on this connection."
+            return "Waiting: \(turnLimits.perConnection) replies are already running on this server."
         }
         return nil
     }
@@ -85,7 +94,7 @@ extension AppStore {
         turn.assistant?.isStreaming = false; turn.steerAvailable = false
         herdrStopWaitingExchanges(in: conversation)
         holdSteersAtStop(in: conversation, origin: streamingTurnOrigin(in: conversation))
-        // P16: the row is `stopped` at once and never extended; a Retry still reading the box keeps its `notSent` row.
+        // The row is `stopped` at once and never extended.
         if let row = turn.assistant, row.turnState != .notSent { row.turnState = .stopped; row.metadata[TurnKey.why] = "stopped" }
         objectWillChange.send()
         guard let bot, let activeBackend = try? backend(for: bot) else {
@@ -95,11 +104,11 @@ extension AppStore {
         }
         let taskToCancel = turn.task
         let stoppedAssistantID = turn.assistant?.id
-        let sessionID = turnSessionID(streamToken, in: conversation, bot: bot)
-        let server = bot.backend.shortName // "Hermes" texts stay byte-identical (P12)
+        let sessionID = turnSessionID(in: conversation, bot: bot)
+        let server = bot.backend.shortName
         Task {
             do {
-                // Capture the run before cancelling the SSE task, whose termination clears it.
+                // Capture the run before cancelling the stream's task, whose termination clears it.
                 let target = try await activeBackend.stopTarget(sessionID: sessionID)
                 taskToCancel?.cancel()
                 didCancelLocalStream?()
@@ -107,7 +116,7 @@ extension AppStore {
                 let feedback: String
                 switch outcome {
                 case .requested: feedback = IntentLine.stopRequested.render(server)
-                case .disconnectedLegacy: feedback = (bot.backend == .openClaw ? IntentLine.stoppedNoAbort : IntentLine.stoppedNoRunControl).render()
+                case .noRunControl: feedback = IntentLine.stoppedNoRunControl.render()
                 case .noActiveRun: feedback = IntentLine.stoppedBeforeRunID.render(server)
                 }
                 insertStopLine(feedback, in: conversation, after: stoppedAssistantID)

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// An agent's settings (P21 Part B): avatar, name, instructions and one notification switch, then everything else
+/// An agent's settings: avatar, name, instructions and one notification switch, then everything else
 /// folded under Advanced (`BotEditorAdvancedSection`). Saving without opening Advanced keeps every Advanced field as stored.
 struct BotEditorView: View {
     @Environment(\.dismiss) private var dismiss; @EnvironmentObject private var store: AppStore; let bot: Bot?
@@ -8,7 +8,6 @@ struct BotEditorView: View {
     @State private var avatarTouched = false
     @State private var newAvatarSeed = UUID().uuidString.lowercased()
     @State private var showAdvanced: Bool
-    @AppStorage(LegacySurface.key) private var legacy = false
     init(bot: Bot?, startExpanded: Bool = false) { self.bot = bot; _showAdvanced = State(initialValue: startExpanded) }
     var body: some View {
         VStack(spacing: 0) {
@@ -16,36 +15,26 @@ struct BotEditorView: View {
             Divider(); Form {
                 Section(SimpleCopy.avatar) { AvatarPickerView(choice: Binding(get: { fields.avatar }, set: { fields.avatar = $0; avatarTouched = true }), seed: bot?.avatarSeed ?? newAvatarSeed) }
                 TextField(SimpleCopy.name, text: $fields.name)
-                if fields.backend == .openClaw {
-                    OpenClawEditorSection(status: store.openClawStatus, fields: $fields)
-                } else {
-                    Section(SimpleCopy.instructions) {
-                        TextEditor(text: $fields.persona).frame(height: 90)
-                        Text(fields.backend == .herdr ? SimpleCopy.herdrInstructionsCaption : SimpleCopy.instructionsCaption).font(.caption).foregroundStyle(.secondary)
-                    }
+                Section(SimpleCopy.instructions) {
+                    TextEditor(text: $fields.persona).frame(height: 90)
+                    Text(SimpleCopy.herdrInstructionsCaption).font(.caption).foregroundStyle(.secondary)
                 }
                 Toggle(SimpleCopy.notifyAgent, isOn: $fields.notifications)
                 Section {
-                    DisclosureGroup(isExpanded: $showAdvanced) { Text(fields.backend == .herdr ? SimpleCopy.herdrEditorAdvancedCaption : SimpleCopy.editorAdvancedCaption).font(.caption).foregroundStyle(.secondary) } label: { Text(SimpleCopy.editorAdvanced) }
+                    DisclosureGroup(isExpanded: $showAdvanced) { Text(SimpleCopy.herdrEditorAdvancedCaption).font(.caption).foregroundStyle(.secondary) } label: { Text(SimpleCopy.editorAdvanced) }
                 }
                 if showAdvanced { BotEditorAdvancedSection(bot: bot, fields: $fields) }
             }.formStyle(.grouped).padding(.horizontal, 8)
-            Divider(); HStack { Spacer(); Button(SimpleCopy.cancel) { dismiss() }; Button(SimpleCopy.save) { save() }.buttonStyle(.borderedProminent).disabled(fields.name.trimmingCharacters(in: .whitespaces).isEmpty || !fields.openClawReady) }.padding(16)
+            Divider(); HStack { Spacer(); Button(SimpleCopy.cancel) { dismiss() }; Button(SimpleCopy.save) { save() }.buttonStyle(.borderedProminent).disabled(fields.name.trimmingCharacters(in: .whitespaces).isEmpty) }.padding(16)
         }.frame(width: 560, height: 720).background(AppColor.panel).onAppear {
-            fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(hermesConfigured: store.hermesConfigured, herdr: !legacy, avatarSeed: newAvatarSeed)
-        }
-        // P17: opening the editor reads this agent's own models (cache-aware, GETs only, no skills); a pending Backend
-        // that differs from the saved one is not loaded.
-        .task(id: "\(bot?.id.uuidString ?? "new")|\(fields.backend.rawValue)") {
-            if store.botInfo.autoLoad { await store.loadEditorModels(for: bot, pendingBackend: fields.backend) }
+            fields = bot.map(BotEditorFields.init(bot:)) ?? .newAgent(avatarSeed: newAvatarSeed)
         }
     }
     private func save() {
         if let bot {
             fields.apply(to: bot, store: store, avatarTouched: avatarTouched); store.save()
         } else {
-            store.addBot(name: fields.name, persona: fields.backend == .openClaw ? "" : fields.persona, backend: fields.backend, avatarName: nil, avatar: fields.avatar, approvalMode: fields.approvalMode, approvalRules: fields.approvalRules, reviewerBotID: fields.reviewerBotID, openClaw: fields.openClawBinding)
-            if let added = store.selectedBot { fields.applyRouting(to: added) }; store.save()
+            store.addBot(name: fields.name, persona: fields.persona, backend: fields.backend, avatarName: nil, avatar: fields.avatar)
         }
         dismiss()
     }
@@ -55,24 +44,16 @@ struct BotEditorView: View {
 /// writes every Advanced field exactly as it was read.
 struct BotEditorFields {
     var name = "", title = "Personal agent", details = "", persona = "You are a thoughtful, capable assistant."
-    var backend = BackendKind.mock
+    var backend = BackendKind.herdr
     var avatar = AvatarChoice.unpicked
     var hidden = false, notifications = true
-    var approvalMode = ApprovalMode.ask, approvalRules = ApprovalRule.sensibleDefaults, reviewerBotID: UUID?
-    /// P37: the bot's routing lines (its P8 mode migrated when it has none yet) and its review-after lines.
-    var routing = ApprovalRouting(), reviewAfter: [ReviewAfterRule] = []
-    var conversationModel = ModelSetting.inherit, codingModel = ModelSetting.inherit, canManage = false
-    /// P31: the bot's own coding agent order; nil follows the SwarmHub default.
-    var codingAgent: CodingOrder?
-    /// P12: an OpenClaw agent's Gateway, agent id and session mode.
-    var openClawGatewayID: String?, openClawAgentID = "", openClawSessionMode = OpenClawBinding.SessionMode.own
+    /// The bot is its server's main bot.
+    var canManage = false
 
     init() {}
-    /// A new agent runs on Herdr (`herdr`, the app's default: `LegacySurface`). With the older backends shown it talks
-    /// to the box when one is configured; Mock stays reachable only under Advanced.
-    static func newAgent(hermesConfigured: Bool, herdr: Bool = false, avatarSeed: String = UUID().uuidString.lowercased()) -> BotEditorFields {
+    /// A new agent runs on Herdr.
+    static func newAgent(avatarSeed: String = UUID().uuidString.lowercased()) -> BotEditorFields {
         var fields = BotEditorFields()
-        fields.backend = herdr ? .herdr : hermesConfigured ? .hermes : .mock
         let mark = GrokDefaultLook.mark(for: avatarSeed)
         fields.avatar = .mark(shape: mark.shape, colour: mark.colour)
         return fields
@@ -80,36 +61,15 @@ struct BotEditorFields {
     init(bot: Bot) {
         name = bot.name; title = bot.title; details = bot.botDescription; persona = bot.persona; backend = bot.backend
         avatar = AvatarChoice(bot: bot); hidden = bot.isHidden; notifications = bot.notificationsEnabled
-        approvalMode = bot.approvalMode; approvalRules = bot.approvalRules; reviewerBotID = bot.reviewerBotID
-        routing = bot.effectiveRouting; reviewAfter = bot.reviewAfter
-        conversationModel = bot.modelSettings?.conversation ?? .inherit; codingModel = bot.modelSettings?.coding ?? .inherit; canManage = bot.canManageBots
-        codingAgent = bot.modelSettings?.codingAgent
-        openClawGatewayID = bot.openClaw?.gatewayID; openClawAgentID = bot.openClaw?.agentID ?? ""; openClawSessionMode = bot.openClaw?.sessionMode ?? .own
-    }
-
-    /// Untouched lines leave the bot on its P8 mode (so its store entry is unchanged); an edit stores the lines.
-    @MainActor func applyRouting(to bot: Bot) {
-        if routing != bot.effectiveRouting { bot.approvalRouting = routing }
-        bot.reviewAfter = reviewAfter.filter { $0.reviewerID != bot.id }
+        canManage = bot.canManageBots
     }
 
     @MainActor func apply(to bot: Bot, store: AppStore, avatarTouched: Bool) {
-        // A changed Backend clears both role pairs: no stale Hermes pair stays on another backend (P17).
-        let conversation = backend == bot.backend ? conversationModel : .inherit, coding = backend == bot.backend ? codingModel : .inherit
-        // P12: a new binding (or a move to or from OpenClaw) starts a new chat session; the transcript stays.
-        let binding = openClawBinding
-        if bot.openClaw != binding || (backend != bot.backend && (backend == .openClaw || bot.backend == .openClaw)) { bot.hermesSessionID = nil }
-        bot.openClaw = binding
-        bot.name = name; bot.title = title; bot.botDescription = details; bot.persona = persona; bot.backend = backend
+        bot.name = name; bot.title = title; bot.botDescription = details; bot.persona = persona
         if avatarTouched { avatar.apply(to: bot) }
         if bot.isHidden != hidden { store.setHidden(bot, hidden) }
-        bot.notificationsEnabled = notifications; bot.approvalMode = approvalMode; bot.approvalRules = approvalRules
-        bot.reviewerBotID = reviewerBotID == bot.id ? nil : reviewerBotID
-        applyRouting(to: bot)
-        var settings = bot.modelSettings ?? .init(); settings.conversation = conversation; settings.coding = coding
-        settings.codingAgent = backend == .hermes ? codingAgent : nil
-        bot.modelSettings = settings.isEmpty ? nil : settings
-        let manages = canManage && (store.canHoldManagerRole(bot) || bot.backend == .herdr)
+        bot.notificationsEnabled = notifications
+        let manages = canManage && bot.backend == .herdr
         if bot.canManageBots != manages { store.setCanManageBots(bot, manages) }
     }
 }

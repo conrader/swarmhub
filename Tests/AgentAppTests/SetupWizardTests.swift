@@ -8,7 +8,7 @@ import Testing
 private let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
 @MainActor private func wizardStore(_ defaults: UserDefaults = isolatedDefaults(), keys: InMemoryKeyStore = InMemoryKeyStore()) -> AppStore {
-    AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults)
+    AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: keys, defaults: defaults)
 }
 
 private let boxServer = HerdrServer(id: "box1", name: "Box", kind: .ssh, address: HerdrServer.loopback(port: 8787), sshHost: "box.example.com", sshUser: "deploy")
@@ -17,30 +17,6 @@ private func model(_ id: String, _ label: String? = nil) -> HerdrClient.Template
 private let programOne = HerdrProgram(template: "one", name: "Program One", takesModel: true, models: [model("first-model", "First"), model("second-model", "Second")])
 private let programTwo = HerdrProgram(template: "two", name: "Program Two", takesModel: true, models: [model("other-model")])
 private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running: ["someone-abc123"])
-
-@Test func theWizardGoesFromWhereToConnectToTheMainBotToMoreBots() {
-    var flow = SetupFlow()
-    #expect(flow.step == .welcome && flow.place == .local, "This Mac is selected to begin with")
-    flow.place = .ssh; flow.apply(.pickHerdr(flow.place))
-    #expect(flow.step == .herdr && flow.software == .herdr && flow.herdr.kind == .ssh && flow.canGoBack && !flow.herdrReady)
-    flow.herdr.sshHost = "box.example.com"
-    flow.apply(.herdrTest(.failed("no"))); #expect(flow.step == .herdr && flow.herdrFailure == "no" && !flow.herdrReady)
-    flow.apply(.advance); #expect(flow.step == .herdr, "Continue does nothing until Test has passed")
-    flow.apply(.herdrTest(.connected(server: boxServer, key: "k", offer: serverOffer)))
-    #expect(flow.step == .herdr && flow.herdrReady && flow.herdrServer == boxServer && flow.herdrKey == "k", "a passed Test stays on Connect and shows its result")
-    flow.herdr.sshUser = "other"; #expect(!flow.herdrReady, "a result only counts for the fields it was tested with")
-    flow.herdr.sshUser = ""; flow.apply(.advance)
-    #expect(flow.step == .mainBot && flow.mainBot.keep == nil && flow.mainBot.name == WizardCopy.suggestedName)
-    #expect(flow.mainBot.template == "one" && flow.mainBot.model.isEmpty && flow.mainBotReady, "the server's first program, on its default model")
-    #expect(flow.moreChoices.map(\.template) == ["two"] && !flow.isLastWizardStep)
-    flow.mainBot.name = "  "; #expect(flow.mainBotProblem == WizardCopy.nameMissing && !flow.mainBotReady)
-    flow.apply(.advance); #expect(flow.step == .mainBot, "a main bot without a name does not go on")
-    flow.mainBot.name = "Ada"; flow.apply(.advance)
-    #expect(flow.step == .moreBots && flow.moreBots.isEmpty && flow.moreChosen.isEmpty && flow.isLastWizardStep, "nothing is ticked, so nothing is added unasked")
-    flow.moreBots = ["two"]; #expect(flow.moreChosen == [programTwo])
-    flow.apply(.back); #expect(flow.step == .mainBot); flow.apply(.back); #expect(flow.step == .herdr && flow.herdrReady, "back on Connect the result still stands")
-    flow.apply(.back); #expect(flow.step == .welcome && flow.herdrServer == nil && !flow.canGoBack)
-}
 
 @Test func thisMacWithNothingRunningAndAServerWithNoProgramStayOnConnect() {
     var flow = SetupFlow(); flow.apply(.pickHerdr(.local)); flow.apply(.herdrTest(.nothingHere(port: 8787)))
@@ -200,11 +176,35 @@ private let serverOffer = HerdrOffer(programs: [programOne, programTwo], running
     #expect(literal.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)) == 0, "SetupHerdrSteps.swift passes a string literal to a control")
 }
 
+@Test func theWizardGoesFromWhereToConnectToTheMainBotToMoreBots() {
+    var flow = SetupFlow()
+    #expect(flow.step == .welcome && flow.place == .local, "This Mac is selected to begin with")
+    flow.place = .ssh; flow.apply(.pickHerdr(flow.place))
+    #expect(flow.step == .herdr && flow.herdr.kind == .ssh && flow.canGoBack && !flow.herdrReady)
+    flow.herdr.sshHost = "box.example.com"
+    flow.apply(.herdrTest(.failed("no"))); #expect(flow.step == .herdr && flow.herdrFailure == "no" && !flow.herdrReady)
+    flow.apply(.advance); #expect(flow.step == .herdr, "Continue does nothing until Test has passed")
+    flow.apply(.herdrTest(.connected(server: boxServer, key: "k", offer: serverOffer)))
+    #expect(flow.step == .herdr && flow.herdrReady && flow.herdrServer == boxServer && flow.herdrKey == "k", "a passed Test stays on Connect and shows its result")
+    flow.herdr.sshUser = "other"; #expect(!flow.herdrReady, "a result only counts for the fields it was tested with")
+    flow.herdr.sshUser = ""; flow.apply(.advance)
+    #expect(flow.step == .mainBot && flow.mainBot.keep == nil && flow.mainBot.name == WizardCopy.suggestedName)
+    #expect(flow.mainBot.template == "one" && flow.mainBot.model.isEmpty && flow.mainBotReady, "the server's first program, on its default model")
+    #expect(flow.moreChoices.map(\.template) == ["two"] && !flow.isLastWizardStep)
+    flow.mainBot.name = "  "; #expect(flow.mainBotProblem == WizardCopy.nameMissing && !flow.mainBotReady)
+    flow.apply(.advance); #expect(flow.step == .mainBot, "a main bot without a name does not go on")
+    flow.mainBot.name = "Ada"; flow.apply(.advance)
+    #expect(flow.step == .moreBots && flow.moreBots.isEmpty && flow.moreChosen.isEmpty && flow.isLastWizardStep, "nothing is ticked, so nothing is added unasked")
+    flow.moreBots = ["two"]; #expect(flow.moreChosen == [programTwo])
+    flow.apply(.back); #expect(flow.step == .mainBot); flow.apply(.back); #expect(flow.step == .herdr && flow.herdrReady, "back on Connect the result still stands")
+    flow.apply(.back); #expect(flow.step == .welcome && flow.herdrServer == nil && !flow.canGoBack)
+}
+
 /// Default suite: the wizard's screens render through the renderer's own environment, each differently.
 @MainActor @Test func theWizardsStepsRender() async throws {
     let store = SetupPreview.makeStore(); store.isSetupPreview = false
     let updater = AppUpdater(environment: ["SWARMHUB_DISABLE_UPDATES": "1"])
-    let flows = HeadlessHerdrShots.wizardFlows(box: boxServer, thisMac: store.herdrServers[0])
+    let flows = HeadlessHerdrShots.wizardFlows(server: boxServer, thisMac: store.herdrServers[0])
     #expect(flows.count == HeadlessHerdrShots.wizard.count - 1, "every shot but the chat is a state of the window")
     #expect(flows.map(\.step) == [.welcome, .welcome, .herdr, .herdr, .herdr, .herdr, .herdr, .herdr, .herdr, .herdr, .herdr, .herdr, .herdr, .mainBot, .mainBot, .mainBot, .mainBot, .mainBot, .moreBots, .moreBots])
     var sizes: [Int] = []

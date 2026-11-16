@@ -24,17 +24,15 @@ import Foundation
         keyStore.setKey(value, for: account)
     }
 
-    /// The bot list with each bot's profile binding and hidden flag, the selection and the ignored-prefix profiles.
+    /// The bot list with each bot's hidden flag, and the selection.
     func captureBots() {
         let store = store
-        let bots = store.bots, bindings = bots.map { ($0, $0.hermesProfile) }, hidden = bots.map { ($0, $0.isHidden) }
-        let selection = (store.selectedBot, store.selectedGroup), ignored = store.prefixIgnoredHermesProfiles
+        let bots = store.bots, hidden = bots.map { ($0, $0.isHidden) }
+        let selection = (store.selectedBot, store.selectedGroup)
         undo.append {
             store.bots = bots
-            for (bot, profile) in bindings { bot.hermesProfile = profile }
             for (bot, flag) in hidden { bot.isHidden = flag }
             (store.selectedBot, store.selectedGroup) = selection
-            store.prefixIgnoredHermesProfiles = ignored
         }
     }
 

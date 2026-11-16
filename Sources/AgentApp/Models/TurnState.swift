@@ -1,34 +1,33 @@
 import Foundation
 
-/// P16: what the Mac knows about a reply row. nil = written before P16 (the reconcile treats it as possibly truncated).
-/// `finished`: the box closed the run (a terminal event arrived). `incomplete`: the row exists and the turn has not been
-/// shown to end (a row is born this way). `stopped`: the user pressed Stop. `notSent`: the turn did not reach the box as
-/// far as the Mac knows; the row is kept, empty.
+/// What the Mac knows about a reply row. nil = written by a build that kept no state.
+/// `finished`: the agent closed the turn (a terminal event arrived). `incomplete`: the row exists and the turn has not
+/// been shown to end (a row is born this way). `stopped`: the user pressed Stop. `notSent`: the turn did not reach the
+/// server as far as the Mac knows; the row is kept, empty.
 enum TurnState: String, Codable, Sendable { case finished, incomplete, stopped, notSent }
 
-/// A stream that ended without a terminal event. `delivered`: the response headers had arrived, so the box has the turn.
-/// `requestStarted == false`: `URLSessionTaskMetrics` show the request never left the Mac.
+/// A stream that ended without a terminal event. `delivered`: the response headers had arrived, so the server has the
+/// turn. `requestStarted == false`: `URLSessionTaskMetrics` show the request never left the Mac.
 struct StreamBreak: LocalizedError {
     let delivered: Bool; let underlying: Error; var requestStarted: Bool? = nil
     /// The underlying error of a clean end of file without a terminal event.
-    struct EndOfStream: LocalizedError { var errorDescription: String? { "The connection closed before the box finished the reply." } }
+    struct EndOfStream: LocalizedError { var errorDescription: String? { "The connection closed before the agent finished the reply." } }
     var errorDescription: String? { underlying.localizedDescription }
     var isEndOfStream: Bool { underlying is EndOfStream }
 }
 
 /// How a turn ended, as the one stream consumer saw it.
 enum TurnEnd {
-    case completed, stoppedByUser, failedByBox(String), endedWithoutTerminal, error(Error)
+    case completed, stoppedByUser, failedByAgent(String), endedWithoutTerminal, error(Error)
 }
 
-/// Pure classification of a turn's end (P16 table): the row state, its reason, the footer, whether the box may have it,
-/// whether to reconcile, and what happens to the rest of a group round.
+/// Pure classification of a turn's end: the row state, its reason, the footer, whether the server may have it, and
+/// what happens to the rest of a group round.
 struct TurnOutcome: Equatable {
     enum Round: Equatable { case continues, stopsRest(why: String) }
     var state: TurnState
     var why: String? = nil
     var ambiguous = false
-    var reconcile = false
     var round: Round = .continues
     /// The reason for the persisted warning line; nil = no line (finished, stopped).
     var reason: String? = nil
@@ -41,8 +40,8 @@ struct TurnOutcome: Equatable {
         switch end {
         case .completed: return .init(state: .finished)
         case .stoppedByUser: return .init(state: .stopped, why: "stopped")
-        case .failedByBox(let text): return .init(state: .incomplete, why: "error", reconcile: true, reason: text)
-        case .endedWithoutTerminal: return .init(state: .incomplete, reconcile: true, reason: StreamBreak.EndOfStream().localizedDescription)
+        case .failedByAgent(let text): return .init(state: .incomplete, why: "error", reason: text)
+        case .endedWithoutTerminal: return .init(state: .incomplete, reason: StreamBreak.EndOfStream().localizedDescription)
         case .error(let error): return classify(error: error)
         }
     }
@@ -51,8 +50,8 @@ struct TurnOutcome: Equatable {
         let reason = error.localizedDescription
         if let streamBreak = error as? StreamBreak {
             if streamBreak.delivered {
-                if streamBreak.isEndOfStream { return .init(state: .incomplete, reconcile: true, reason: reason) }
-                return .init(state: .incomplete, why: "offline", reconcile: true, round: .stopsRest(why: "offline"), reason: reason)
+                if streamBreak.isEndOfStream { return .init(state: .incomplete, reason: reason) }
+                return .init(state: .incomplete, why: "offline", round: .stopsRest(why: "offline"), reason: reason)
             }
             if streamBreak.requestStarted == false { return .init(state: .notSent, why: "offline", round: .stopsRest(why: "offline"), reason: reason) }
             return classify(error: streamBreak.underlying)
@@ -69,7 +68,6 @@ struct TurnOutcome: Equatable {
             if refusedStatuses.contains(code) { return .init(state: .notSent, why: "refused", reason: reason) }
             if (500..<600).contains(code) { return .init(state: .notSent, why: "error", ambiguous: true, round: .stopsRest(why: "timeout"), reason: reason) }
         }
-        if error is ModelRefusal { return .init(state: .notSent, why: "refused", reason: reason) }
         return .init(state: .notSent, why: "error", reason: reason)
     }
 
@@ -78,7 +76,7 @@ struct TurnOutcome: Equatable {
         switch state {
         case .notSent?:
             let reason = why.map { " (\($0))" } ?? ""
-            return ambiguous ? "Not confirmed\(reason) — the box may have it" : "Not sent\(reason)"
+            return ambiguous ? "Not confirmed\(reason) — the agent may have it" : "Not sent\(reason)"
         case .incomplete?: return "Incomplete"
         case .stopped?: return empty ? "Stopped" : nil
         case .finished?: return empty && why == "later" ? "Delivered with a later message" : nil
@@ -87,30 +85,29 @@ struct TurnOutcome: Equatable {
     }
 }
 
-/// Metadata keys P16 writes on rows.
+/// Metadata keys on reply rows.
 enum TurnKey {
-    static let forUser = "for", run = "run", why = "why", ambiguous = "ambiguous", restored = "restored", box = "box", tone = "tone"
-    /// How the box ended a reply it holds no more of ("none" or "error"), the result of the user's Refresh, and Retry prompts.
-    static let end = "end", check = "check", retry = "retry"
-    /// P28 D5: a reply split by a delivered steer: "1" on the part before it, "2", "3"… on the parts after.
+    static let forUser = "for", why = "why", ambiguous = "ambiguous", tone = "tone"
+    /// A second tap is needed before a reply the agent may already have is sent again.
+    static let end = "end", retry = "retry"
+    /// A reply split by a delivered steer: "1" on the part before it, "2", "3"… on the parts after.
     static let part = "part"
-    /// P38 E: estimated tokens of the hidden tool and workflow-operation turns inside a reply (`ConnectedAppsChat`).
-    static let toolTokens = "toolTokens"
-    /// uxfix1: the connection dropped and the turn is reconnecting (or resending); the live line says "Reconnecting…".
+    /// The connection dropped and the turn is resending; the live line says "Reconnecting…".
     static let reconnecting = "reconnecting"
 }
 
-/// backlog7: an app-only line about how the box's history was reconciled. It is shown in the chat and never sent as
-/// history: the legacy `v1/chat/completions` path sends every history row, a `system` one included.
+/// An app-only line about a message the restart left in doubt. It is shown in the chat and never sent as history.
 enum ReconcileNote {
     static let key = "reconcileNote"
-    static let diverged = "Hermes history was not merged because it diverges from this local conversation."
-    static let uncertainQueuePrefix = "Queued message delivery is uncertain after restart. Refresh server history before sending again: "
+    static let uncertainQueuePrefix = "Queued message delivery is uncertain after restart. Check the chat before sending again: "
 
     static func line(_ text: String) -> ChatMessage { ChatMessage(role: .system, content: text, metadata: [key: "1"]) }
 
     /// Tagged rows, and untagged ones saved before the tag existed.
     static func isNote(_ row: ChatMessage) -> Bool {
-        row.metadata[key] != nil || (row.role == .system && (row.content == diverged || row.content.hasPrefix(uncertainQueuePrefix)))
+        row.metadata[key] != nil || (row.role == .system && row.content.hasPrefix(uncertainQueuePrefix))
     }
 }
+
+/// The row's status while a turn that never left the Mac waits to be sent again.
+enum TurnErrorCopy { static let reconnecting = "Reconnecting…" }

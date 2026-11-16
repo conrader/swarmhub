@@ -6,21 +6,19 @@ import Testing
 // P39: one turn slot per conversation. Chats never block each other; Stop, steer, the composer and the next-message
 // queue act on their own chat; at most 6 turns run app-wide (4 per connection). Scripted backends; no network.
 
-private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1.2.0")!,
-                                 template: "---\nname: swarmhub-chat\ndescription: \"Installed by SwarmHub, v{{VERSION}}.\"\nversion: 1.2.0\n---\n\n{{MANAGER_TEXT}}\n")
-
 @MainActor struct ConcurrentTurnsTests {
-    /// Bots with a scripted backend each; `boxes` puts bot i on connection `i % boxes`.
+    /// Bots with a scripted backend each; `boxes` puts bot i on server `i % boxes`.
     func concurrentStore(_ names: [String], boxes: Int? = nil, url: URL = temporaryStore()) -> (AppStore, [Bot], [ScriptedTurnBackend]) {
-        let bots = names.enumerated().map { index, name in
-            let bot = Bot(name: name, backend: .hermes, hermesProfile: "default", hermesSessionID: "session-\(name.lowercased())")
-            bot.hermesBaseURL = "http://box-\(index % (boxes ?? names.count)).test"; return bot
-        }
+        let bots = names.map { Bot(name: $0, backend: .herdr, sessionID: "session-\($0.lowercased())") }
         let backends = bots.map { _ in ScriptedTurnBackend() }
         let byID = Dictionary(uniqueKeysWithValues: zip(bots.map(\.id), backends))
-        let store = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { bot in byID[bot.id]! },
-                             keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: url, autoStart: false, backendFactory: { bot in byID[bot.id]! },
+                             keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         store.bots = bots
+        let count = boxes ?? names.count
+        let servers = (0..<count).map { HerdrServer(id: "server-\($0)", name: "Server \($0)", kind: .address, address: "http://127.0.0.1:\(8800 + $0)") }
+        store.saveHerdrServers(servers)
+        for (index, bot) in bots.enumerated() { store.setHerdrServer(servers[index % count].id, for: bot) }
         return (store, bots, backends)
     }
 
@@ -85,63 +83,6 @@ private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1
         try await waitUntil { !store.anyTurnRunning }
     }
 
-    @Test func managerInstallTurnRunsWhileAnotherBotIsSentToAndAnswers() async throws {
-        let (store, bots, backends) = concurrentStore(["Jarvis", "Worker"], boxes: 1)
-        let (manager, worker) = (bots[0], bots[1])
-        manager.canManageBots = true; worker.hermesProfile = "worker"
-        store.skillLibraryOverride = [skill]; store.managerTemplateOverride = "manager text"
-        #expect(store.installSkills(for: worker))
-        try await backends[0].calls.wait { $0.contains("send:Install SwarmHub’s instructions for Worker.") }
-        #expect(store.isStreaming(in: manager) && !store.managerIdle(for: worker))
-        try await send("hello", to: worker, in: store, backends[1])
-        await reply("Hi.", backends[1])
-        try await waitUntil { store.isIdle(worker) }
-        #expect(worker.messages.last?.content == "Hi." && store.isStreaming(in: manager), "the install turn is still running")
-        await reply("Installed.", backends[0])
-        try await waitUntil { !store.anyTurnRunning }
-        #expect(manager.messages.last(where: { $0.role == .assistant })?.content == "Installed.")
-    }
-
-    @Test func allBotsInstallResumesAfterAQueuedManagerMessage() async throws {
-        let (store, bots, backends) = concurrentStore(["Jarvis", "First", "Second", "Third"], boxes: 1)
-        let manager = bots[0], backend = backends[0], targets = Array(bots.dropFirst())
-        let feedback = BundledSkill(name: "swarmhub-feedback", version: SkillVersion("1.0.0")!,
-            template: "---\nname: swarmhub-feedback\nversion: 1.0.0\n---\nFeedback.\n")
-        manager.canManageBots = true; manager.installedSkills[feedback.name] = "1.0.0"
-        for bot in targets { bot.hermesProfile = bot.name.lowercased() }
-        store.skillLibraryOverride = [feedback]; store.managerTemplateOverride = "manager text"
-        store.boxInstallTransport.boxes = [:]
-        // One bot per turn, so the queued message lands between installs (batches are AllBotsSkillTests' subject).
-        store.allBotsBatchLimit = 1
-        #expect(store.installSkillsOnAllBots(manager: manager))
-        try await backend.calls.wait { $0.contains("send:\(AllBotsSkillCopy.request(1))") }
-
-        let bubble = ChatMessage(role: .user, content: "How is the install going?", metadata: [SteerKey.steer: "failed"])
-        manager.messages.append(bubble)
-        #expect(store.sendAsNextMessage(bubble))
-        #expect(store.turns.nextMessages.count == 1)
-
-        func installed(_ bot: Bot) -> String {
-            "Installed.\n```swarmhub\n{\"op\":\"skills_installed\",\"bot\":\"\(bot.hermesProfile!)\",\"skills\":[{\"name\":\"swarmhub-feedback\",\"version\":\"1.0.0\"}]}\n```"
-        }
-        await reply(installed(targets[0]), backend)
-        try await backend.calls.wait { $0.contains("send:How is the install going?") }
-        #expect(store.allBotsSkillQueue[manager.id]?.map(\.bot.id) == targets.dropFirst().map(\.id))
-        #expect(targets.dropFirst().allSatisfy { store.skillInstallResults[$0.id] == nil && $0.skillInstallFailures.isEmpty })
-        #expect(store.pendingSkillChecks[manager.id] == nil && store.pendingSkillInstalls[manager.id] == nil)
-
-        await reply("One bot installed; two to go.", backend)
-        try await backend.calls.wait { $0.filter { $0 == "send:\(AllBotsSkillCopy.request(1))" }.count == 2 }
-        await reply(installed(targets[1]), backend)
-        try await backend.calls.wait { $0.filter { $0 == "send:\(AllBotsSkillCopy.request(1))" }.count == 3 }
-        await reply(installed(targets[2]), backend)
-        try await waitUntil { !store.anyTurnRunning && store.allBotsSkillQueue.isEmpty }
-        #expect(targets.allSatisfy { $0.installedSkills[feedback.name] == "1.0.0" && $0.skillInstallFailures.isEmpty && store.skillInstallResults[$0.id]?.status == .installed })
-        #expect(manager.messages.filter { $0.metadata["skill-install-result"] != nil }.count == 3)
-        #expect(backend.calls.all.filter { $0.hasPrefix("send:") } == ["send:\(AllBotsSkillCopy.request(1))", "send:How is the install going?", "send:\(AllBotsSkillCopy.request(1))", "send:\(AllBotsSkillCopy.request(1))"])
-        #expect(bubble.metadata[SteerKey.steer] == "sentNext" && store.turns.nextMessages.isEmpty)
-    }
-
     @Test func aGroupTurnAndADirectChatToAMemberRunAtOnce() async throws {
         let (store, bots, backends) = concurrentStore(["Alpha", "Beta"])
         let group = try #require(store.createGroup(name: "Team", memberIDs: bots.map(\.id)))
@@ -191,8 +132,8 @@ private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1
         // The app quits with both turns in flight; the reopened store sees two cut replies and two queued messages.
         let fresh = [ScriptedTurnBackend(), ScriptedTurnBackend()]
         let ids = bots.map(\.id)
-        let reopened = AppStore(storeURL: url, autoConfigureHermes: false, backendFactory: { bot in fresh[ids.firstIndex(of: bot.id)!] },
-                                keyStore: InMemoryKeyStore(["hermes": "k"]), defaults: isolatedDefaults())
+        let reopened = AppStore(storeURL: url, autoStart: false, backendFactory: { bot in fresh[ids.firstIndex(of: bot.id)!] },
+                                keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         let restored = ids.map { id in reopened.bots.first { $0.id == id }! }
         for (index, bot) in restored.enumerated() {
             #expect(bot.messages.contains { $0.role == .assistant && $0.turnState == .incomplete && $0.content == "Part \(index) " })
@@ -233,7 +174,7 @@ private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1
         for index in 0..<4 { try await send("q\(index)", to: bots[index], in: store, backends[index]) }
         store.selectedBot = bots[4]
         #expect(store.send(text: "q4"))
-        #expect(bots[4].messages.last?.content == "Waiting: 4 replies are already running on this connection.")
+        #expect(bots[4].messages.last?.content == "Waiting: 4 replies are already running on this server.")
         await reply("done", backends[2])
         try await backends[4].calls.wait { $0.contains("send:q4") }
         for index in [0, 1, 3, 4] { await reply("done", backends[index]) }
@@ -258,15 +199,3 @@ private let skill = BundledSkill(name: "swarmhub-chat", version: SkillVersion("1
     }
 }
 
-@MainActor @Test func p39ShotsRenderFromASyntheticStore() async throws {
-    let directory = FileManager.default.temporaryDirectory.appending(path: "AgentAppP39-\(UUID().uuidString)")
-    defer { try? FileManager.default.removeItem(at: directory) }
-    var lines: [String] = []
-    #expect(await HeadlessSetup.render(to: directory, only: "p39", output: { lines.append($0) }) == 0, "\(lines)")
-    for name in HeadlessP39Shots.names {
-        let data = try Data(contentsOf: directory.appending(path: "\(name).png"))
-        let bitmap = try #require(NSBitmapImageRep(data: data))
-        #expect(bitmap.pixelsWide > 0 && data.count > 4_000, "\(name) looks blank")
-    }
-    #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == HeadlessP39Shots.names.count, "only the P39 shots")
-}

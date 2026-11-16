@@ -321,7 +321,7 @@ import Foundation
         row.hiddenMessages = built.statistics.hiddenMessages
         let before = store.grokArchiveLines(sourceID: id)
         do {
-            let policy = GrokImportPolicy.inApp(serverURL: store.grokSettingsServerURL, refreshIdentity: options.refreshIdentity)
+            let policy = GrokImportPolicy.inApp(refreshIdentity: options.refreshIdentity)
             let imported = try await store.importGrokBundles([GrokBotBundle(built)], policy: policy, timing: nil)
             row.archiveLines = imported.first?.historyCount ?? 0
             row.addedLines = max(0, row.archiveLines - before)

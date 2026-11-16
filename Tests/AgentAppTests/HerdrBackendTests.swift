@@ -18,14 +18,6 @@ import Testing
     #expect(HerdrClient.suffix(of: "ada-lovelace-1a2b3c") == HerdrClient.suffix(of: "renamed-1a2b3c"))
 }
 
-@Test func herdrBotsHaveNoServerSessions() async throws {
-    let id = UUID()
-    let backend = HerdrBackend(client: HerdrClient(baseURL: URL(string: "http://127.0.0.1:8787")!, token: "t"), botName: "Ada", botID: id, template: "")
-    #expect(backend.kind == .herdr && backend.template == nil && !BackendKind.herdr.hasServerSessions)
-    #expect(backend.agentName == "ada-" + id.uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(6))
-    #expect(try await backend.sessionTransport() == nil)
-}
-
 /// Claude Code's and Codex's tool calls show with the chat's own step words; a start is reported once.
 @Test func herdrToolCallsBecomeActivitySteps() {
     let running = HerdrClient.ToolCall(seq: 7, tool: "Bash", detail: "cargo test", finished: false, failed: false)

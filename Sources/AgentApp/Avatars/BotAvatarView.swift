@@ -87,7 +87,7 @@ struct GroupAvatarStack: View {
             if shown.isEmpty { Circle().fill(AppColor.raised).overlay(Image(systemName: "person.3").font(.system(size: size * 0.35))) }
             ForEach(Array(shown.enumerated()), id: \.element.id) { index, bot in
                 BotAvatar(bot: bot, size: small, motion: .list, isWorking: store.isWorking(bot, in: group), isHovered: isHovered,
-                          probe: probe.map { "\($0)#\(index)" }, facing: facing, isWaiting: store.hasPendingApproval(bot, in: group), isSelected: isSelected)
+                          probe: probe.map { "\($0)#\(index)" }, facing: facing, isSelected: isSelected)
                     .shadow(color: shown.count > 1 ? halo : .clear, radius: 0.6).shadow(color: shown.count > 1 ? halo : .clear, radius: 0.6)
                     .offset(offset(index, count: shown.count, small: small))
             }
@@ -108,11 +108,6 @@ extension AppStore {
         UISmokeProbe.forcedWorking == bot.id || turn(in: group).map { $0.botID == bot.id && !$0.stopping } == true
     }
 
-    func hasPendingApproval(_ bot: Bot) -> Bool { approvals.contains { $0.botID == bot.id } }
-    func hasPendingApproval(_ bot: Bot, in group: GroupChat) -> Bool {
-        let session = group.session(for: bot.id) ?? sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id)
-        return approvals.contains { $0.botID == bot.id && $0.sessionID == session }
-    }
 }
 
 /// A mark that belongs to no bot yet (the Grok import preview): showcase context, idling gently by default.
@@ -137,8 +132,7 @@ struct ChatWelcome: View {
     let bot: Bot
     var body: some View {
         VStack(spacing: 10) {
-            BotAvatar(bot: bot, size: 72, motion: .showcase, isWorking: store.isWorking(bot), probe: "showcase", facing: .down,
-                      isWaiting: store.hasPendingApproval(bot), isSelected: true)
+            BotAvatar(bot: bot, size: 72, motion: .showcase, isWorking: store.isWorking(bot), probe: "showcase", facing: .down, isSelected: true)
             Text(bot.name).font(.system(size: 15, weight: .semibold))
             Text("Send a message to start.").font(.caption).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity).padding(.vertical, 36)

@@ -35,9 +35,7 @@ private struct ScriptedBot: AgentBackend {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
-    func listSessions() async throws -> [BackendSession] { [] }
     func cancel(sessionID: String) async throws -> StopOutcome { .noActiveRun }
-    func resolveApproval(id: UUID, approved: Bool) async throws {}
     func testConnection() async throws -> String { "Scripted" }
 }
 
@@ -69,7 +67,7 @@ private func standard(_ bot: String, _ text: String) -> String {
 @MainActor private func exchangeStore(_ names: [String] = ["Jarvis", "Boppy", "Legal", "Tax"], reply: @escaping @Sendable (String, String) -> String = standard)
     -> (store: AppStore, script: Script, bots: [String: Bot]) {
     let script = Script()
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { bot in ScriptedBot(name: bot.name, script: script, reply: reply) },
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { bot in ScriptedBot(name: bot.name, script: script, reply: reply) },
                          keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.saveHerdrServer(store.herdrServers[0], token: "t")
     let bots = names.map { Bot(name: $0, backend: .herdr) }

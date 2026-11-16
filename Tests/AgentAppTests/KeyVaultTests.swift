@@ -107,212 +107,124 @@ private func vault(_ fake: FakeKeychain, defaults: UserDefaults = isolatedDefaul
 // MARK: Rule 2: read order memory -> v2 -> legacy (silent) -> needs re-entry
 
 @Test func keyReadsV2FirstAndNeverTouchesLegacyWhenV2Has() {
-    let fake = FakeKeychain(legacy: ["hermes.grok-dmt": "old"], v2: ["hermes.grok-dmt": "new"])
-    #expect(vault(fake).get(account: "hermes.grok-dmt") == "new")
-    #expect(fake.calls("read") == ["hermes.grok-dmt"] && fake.calls("read", legacy).isEmpty)
+    let fake = FakeKeychain(legacy: ["herdr.grok-dmt": "old"], v2: ["herdr.grok-dmt": "new"])
+    #expect(vault(fake).get(account: "herdr.grok-dmt") == "new")
+    #expect(fake.calls("read") == ["herdr.grok-dmt"] && fake.calls("read", legacy).isEmpty)
 }
 
 @Test(arguments: [errSecInteractionNotAllowed, errSecAuthFailed, errSecUserCanceled, errSecIO])
 func legacyItemThatNeedsADialogOrFailsLeavesTheKeyNeedingReentry(status: OSStatus) {
-    let fake = FakeKeychain(legacy: ["hermes.grok-dmt": "old"]); fake.answer(legacy, "hermes.grok-dmt", with: status)
+    let fake = FakeKeychain(legacy: ["herdr.grok-dmt": "old"]); fake.answer(legacy, "herdr.grok-dmt", with: status)
     let keys = vault(fake)
-    for _ in 0..<10 { #expect(keys.get(account: "hermes.grok-dmt") == "") }
-    #expect(keys.needsReentry(account: "hermes.grok-dmt") && keys.exists(account: "hermes.grok-dmt"))
+    for _ in 0..<10 { #expect(keys.get(account: "herdr.grok-dmt") == "") }
+    #expect(keys.needsReentry(account: "herdr.grok-dmt") && keys.exists(account: "herdr.grok-dmt"))
     #expect(fake.calls("read", legacy).count == 1 && fake.calls("read", v2).count == 1)
-    #expect(fake.calls("add").isEmpty && fake.legacyWrites.isEmpty && fake.stored(legacy, "hermes.grok-dmt") == "old")
+    #expect(fake.calls("add").isEmpty && fake.legacyWrites.isEmpty && fake.stored(legacy, "herdr.grok-dmt") == "old")
 }
 
 @Test func missingKeyIsNotReentry() {
     let fake = FakeKeychain(); let keys = vault(fake)
-    #expect(keys.get(account: "hermes.none") == "" && !keys.needsReentry(account: "hermes.none") && !keys.exists(account: "hermes.none"))
+    #expect(keys.get(account: "herdr.none") == "" && !keys.needsReentry(account: "herdr.none") && !keys.exists(account: "herdr.none"))
 }
 
 @Test func unreadableV2WithNoLegacyNeedsReentry() {
-    let fake = FakeKeychain(v2: ["hermes.x": "v"]); fake.answer(v2, "hermes.x", with: errSecInteractionNotAllowed)
+    let fake = FakeKeychain(v2: ["herdr.x": "v"]); fake.answer(v2, "herdr.x", with: errSecInteractionNotAllowed)
     let keys = vault(fake)
-    #expect(keys.get(account: "hermes.x") == "" && keys.needsReentry(account: "hermes.x"))
+    #expect(keys.get(account: "herdr.x") == "" && keys.needsReentry(account: "herdr.x"))
 }
 
 // MARK: Rule 3: a legacy item that reads fine is copied to v2; legacy items are never deleted
 
 @Test func readableLegacyKeyIsCopiedToV2AndLegacyIsKept() {
-    let fake = FakeKeychain(legacy: ["hermes.grok-jarvis": "jk"]); let defaults = isolatedDefaults()
-    #expect(vault(fake, defaults: defaults).get(account: "hermes.grok-jarvis") == "jk")
-    #expect(fake.stored(v2, "hermes.grok-jarvis") == "jk" && fake.stored(legacy, "hermes.grok-jarvis") == "jk" && fake.legacyWrites.isEmpty)
+    let fake = FakeKeychain(legacy: ["herdr.grok-jarvis": "jk"]); let defaults = isolatedDefaults()
+    #expect(vault(fake, defaults: defaults).get(account: "herdr.grok-jarvis") == "jk")
+    #expect(fake.stored(v2, "herdr.grok-jarvis") == "jk" && fake.stored(legacy, "herdr.grok-jarvis") == "jk" && fake.legacyWrites.isEmpty)
     // Next launch reads v2 only.
-    #expect(vault(fake, defaults: defaults).get(account: "hermes.grok-jarvis") == "jk")
+    #expect(vault(fake, defaults: defaults).get(account: "herdr.grok-jarvis") == "jk")
     #expect(fake.calls("read", legacy).count == 1 && fake.calls("read", v2).count == 2 && fake.calls("add").count == 1)
 }
 
 @Test func onlyCopyingVaultsWriteV2OnRead() {
-    let fake = FakeKeychain(legacy: ["hermes": "k"])
-    #expect(KeyVault(backend: fake, defaults: isolatedDefaults(), copiesLegacy: false).get(account: "hermes") == "k")
+    let fake = FakeKeychain(legacy: ["herdr": "k"])
+    #expect(KeyVault(backend: fake, defaults: isolatedDefaults(), copiesLegacy: false).get(account: "herdr") == "k")
     #expect(fake.calls("add").isEmpty && fake.calls("delete").isEmpty)
 }
 
 @Test func failedV2CopyStillServesTheKeyWithoutRetry() {
-    let fake = FakeKeychain(legacy: ["hermes": "k"]); fake.addStatus = errSecIO; let keys = vault(fake)
-    for _ in 0..<5 { #expect(keys.get(account: "hermes") == "k") }
-    #expect(fake.calls("add") == ["hermes"] && fake.calls("read").count == 2 && fake.legacyWrites.isEmpty)
+    let fake = FakeKeychain(legacy: ["herdr": "k"]); fake.addStatus = errSecIO; let keys = vault(fake)
+    for _ in 0..<5 { #expect(keys.get(account: "herdr") == "k") }
+    #expect(fake.calls("add") == ["herdr"] && fake.calls("read").count == 2 && fake.legacyWrites.isEmpty)
 }
 
 // MARK: Rule 4: one resolution per account per launch; set/re-enter updates cache + v2
 
 @Test func eachAccountResolvesOncePerLaunch() {
-    let fake = FakeKeychain(legacy: ["hermes": "k1"]); let keys = vault(fake)
-    for _ in 0..<50 { #expect(keys.get(account: "hermes") == "k1") }
+    let fake = FakeKeychain(legacy: ["herdr": "k1"]); let keys = vault(fake)
+    for _ in 0..<50 { #expect(keys.get(account: "herdr") == "k1") }
     #expect(fake.calls("read").count == 2)
 }
 
 @Test func setUpdatesCacheAndV2Only() {
-    let fake = FakeKeychain(legacy: ["hermes": "k1"]); let defaults = isolatedDefaults(); let keys = vault(fake, defaults: defaults)
-    _ = keys.get(account: "hermes")
-    keys.set("k2", account: "hermes")
-    #expect(keys.get(account: "hermes") == "k2" && fake.stored(v2, "hermes") == "k2" && fake.stored(legacy, "hermes") == "k1")
+    let fake = FakeKeychain(legacy: ["herdr": "k1"]); let defaults = isolatedDefaults(); let keys = vault(fake, defaults: defaults)
+    _ = keys.get(account: "herdr")
+    keys.set("k2", account: "herdr")
+    #expect(keys.get(account: "herdr") == "k2" && fake.stored(v2, "herdr") == "k2" && fake.stored(legacy, "herdr") == "k1")
     #expect(fake.calls("read").count == 2 && fake.legacyWrites.isEmpty)
     let before = fake.calls.count
-    keys.set("k2", account: "hermes")
+    keys.set("k2", account: "herdr")
     #expect(fake.calls.count == before)
 }
 
 @Test func clearingAKeyIsRememberedAcrossLaunchesWithoutDeletingLegacy() {
-    let fake = FakeKeychain(legacy: ["hermes": "k1"]); let defaults = isolatedDefaults()
-    vault(fake, defaults: defaults).set("", account: "hermes")
+    let fake = FakeKeychain(legacy: ["herdr": "k1"]); let defaults = isolatedDefaults()
+    vault(fake, defaults: defaults).set("", account: "herdr")
     let relaunched = vault(fake, defaults: defaults)
-    #expect(relaunched.get(account: "hermes") == "" && !relaunched.exists(account: "hermes") && relaunched.accounts(prefix: "hermes").isEmpty)
-    #expect(fake.calls("read", legacy).isEmpty && fake.stored(legacy, "hermes") == "k1" && fake.legacyWrites.isEmpty)
-    relaunched.set("k3", account: "hermes")
-    #expect(vault(fake, defaults: defaults).get(account: "hermes") == "k3")
+    #expect(relaunched.get(account: "herdr") == "" && !relaunched.exists(account: "herdr") && relaunched.accounts(prefix: "herdr").isEmpty)
+    #expect(fake.calls("read", legacy).isEmpty && fake.stored(legacy, "herdr") == "k1" && fake.legacyWrites.isEmpty)
+    relaunched.set("k3", account: "herdr")
+    #expect(vault(fake, defaults: defaults).get(account: "herdr") == "k3")
 }
 
 @Test func reenteringALockedKeyClearsReentryWithoutReadingAgain() {
-    let fake = FakeKeychain(legacy: ["hermes.grok-dmt": "old"]); fake.answer(legacy, "hermes.grok-dmt", with: errSecInteractionNotAllowed)
+    let fake = FakeKeychain(legacy: ["herdr.grok-dmt": "old"]); fake.answer(legacy, "herdr.grok-dmt", with: errSecInteractionNotAllowed)
     let keys = vault(fake)
-    _ = keys.get(account: "hermes.grok-dmt")
-    keys.set("fresh", account: "hermes.grok-dmt")
-    #expect(!keys.needsReentry(account: "hermes.grok-dmt") && keys.get(account: "hermes.grok-dmt") == "fresh")
-    #expect(fake.stored(v2, "hermes.grok-dmt") == "fresh" && fake.calls("read", legacy).count == 1 && fake.legacyWrites.isEmpty)
+    _ = keys.get(account: "herdr.grok-dmt")
+    keys.set("fresh", account: "herdr.grok-dmt")
+    #expect(!keys.needsReentry(account: "herdr.grok-dmt") && keys.get(account: "herdr.grok-dmt") == "fresh")
+    #expect(fake.stored(v2, "herdr.grok-dmt") == "fresh" && fake.calls("read", legacy).count == 1 && fake.legacyWrites.isEmpty)
 }
 
 @Test func concurrentReadsNeverOverlapAndResolveOnce() async {
-    let fake = FakeKeychain(v2: ["hermes": "k", "hermes.cfo": "c", "hermes.ops": "o"]); fake.readDelay = 0.02
+    let fake = FakeKeychain(v2: ["herdr": "k", "herdr.cfo": "c", "herdr.ops": "o"]); fake.readDelay = 0.02
     let keys = vault(fake)
     await withTaskGroup(of: Void.self) { group in
-        for index in 0..<30 { group.addTask { _ = keys.get(account: ["hermes", "hermes.cfo", "hermes.ops"][index % 3]) } }
+        for index in 0..<30 { group.addTask { _ = keys.get(account: ["herdr", "herdr.cfo", "herdr.ops"][index % 3]) } }
     }
     #expect(fake.maxParallelReads == 1 && fake.calls("read").count == 3)
 }
 
 @Test func existsAndAccountsNeverReadData() {
-    let fake = FakeKeychain(legacy: ["hermes": "k", "hermes.cfo": "c", "other": "o"], v2: ["hermes.ops": "o"]); let keys = vault(fake)
-    #expect(keys.exists(account: "hermes.cfo") && keys.exists(account: "hermes.ops") && !keys.exists(account: "hermes.none"))
-    #expect(keys.accounts(prefix: "hermes") == ["hermes", "hermes.cfo", "hermes.ops"])
+    let fake = FakeKeychain(legacy: ["herdr": "k", "herdr.cfo": "c", "other": "o"], v2: ["herdr.ops": "o"]); let keys = vault(fake)
+    #expect(keys.exists(account: "herdr.cfo") && keys.exists(account: "herdr.ops") && !keys.exists(account: "herdr.none"))
+    #expect(keys.accounts(prefix: "herdr") == ["herdr", "herdr.cfo", "herdr.ops"])
     #expect(fake.calls("read").isEmpty)
 }
 
 @Test func recoveryIsClaimedOncePerAccountPerLaunch() {
     let keys = vault(FakeKeychain())
-    #expect(keys.claimRecovery(account: "hermes.a") && !keys.claimRecovery(account: "hermes.a") && keys.claimRecovery(account: "hermes.b"))
+    #expect(keys.claimRecovery(account: "herdr.a") && !keys.claimRecovery(account: "herdr.a") && keys.claimRecovery(account: "herdr.b"))
 }
 
 /// The shared vault is the test-mode one: nothing is stored, and every call is reported (P28, `TestRunGuardTests`).
 @Test func testRunsNeverReachTheRealKeychain() {
     #expect(KeyVault.isTestRun)
     withKnownIssue { KeychainStore.set("synthetic", account: "agentapp-tests.\(UUID().uuidString)") }
-    withKnownIssue { #expect(!KeychainStore.exists(account: "hermes") && KeychainStore.accounts(prefix: "").isEmpty) }
+    withKnownIssue { #expect(!KeychainStore.exists(account: "herdr") && KeychainStore.accounts(prefix: "").isEmpty) }
 }
 
 // MARK: Rule 2 (derived keys) and rule 5: no dialog, no retry loop
 
 private let jarvisKey = "jarvis-manager-key-0123456789abcdef"
-
-/// A store on a synthetic Hermes whose `/p/<profile>/v1/models` answers 200 only for the P22 derived key of `served`
-/// profiles, with a fake Keychain where `grok-jarvis` (the manager) reads fine and the `locked` profiles need a dialog.
-@MainActor private func recoveryStore(locked: [String], served: Set<String>, manager: Bool = true)
-    -> (AppStore, FakeKeychain, String, [String: Bot]) {
-    let probe = MockHermesProtocol.serve { request in
-        let parts = request.url!.path.split(separator: "/").map(String.init)
-        guard parts.count == 4, parts[0] == "p", parts[2...] == ["v1", "models"], served.contains(parts[1]) else { return (404, ["error": "no route"]) }
-        let expected = "Bearer " + BotManagerText.derivedKey(managerKey: jarvisKey, botName: parts[1])
-        return request.value(forHTTPHeaderField: "Authorization") == expected ? (200, ["data": [["id": parts[1]]]]) : (401, ["error": "bad key"])
-    }
-    var legacyItems = ["hermes.grok-jarvis": jarvisKey]
-    for profile in locked { legacyItems["hermes.\(profile)"] = "old-\(profile)" }
-    let fake = FakeKeychain(legacy: legacyItems)
-    for profile in locked { fake.answer(legacy, "hermes.\(profile)", with: errSecInteractionNotAllowed) }
-    let defaults = isolatedDefaults(); defaults.set("https://\(probe.host)", forKey: "hermesBaseURL")
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: KeychainHermesKeyStore(vault: vault(fake)), defaults: defaults, hermesSession: probe.session)
-    let jarvis = Bot(name: "Jarvis", persona: "", backend: .hermes, hermesProfile: "grok-jarvis"); jarvis.canManageBots = manager
-    var bots = ["grok-jarvis": jarvis]
-    for profile in locked { bots[profile] = Bot(name: profile, persona: "", backend: .hermes, hermesProfile: profile) }
-    store.bots = [jarvis] + locked.compactMap { bots[$0] }
-    return (store, fake, probe.host, bots)
-}
-
-@MainActor @Test func lockedKeyIsDerivedFromTheManagerProbedAndSavedToV2() async throws {
-    let (store, fake, host, bots) = recoveryStore(locked: ["grok-dmt", "grok-vised"], served: ["grok-dmt", "grok-vised"])
-    await store.recoverLockedKeys()
-    for profile in ["grok-dmt", "grok-vised"] {
-        let derived = BotManagerText.derivedKey(managerKey: jarvisKey, botName: profile)
-        #expect(fake.stored(v2, "hermes.\(profile)") == derived && fake.stored(legacy, "hermes.\(profile)") == "old-\(profile)")
-        #expect(!store.keyNeedsReentry(bots[profile]!) && !store.needsKey(bots[profile]!))
-        #expect((try store.backend(for: bots[profile]!) as? HermesBackend)?.apiKey == derived)
-    }
-    #expect(MockHermesProtocol.recorded(host).map(\.url!.path).sorted() == ["/p/grok-dmt/v1/models", "/p/grok-vised/v1/models"])
-    #expect(fake.calls("read", legacy).sorted() == ["hermes.grok-dmt", "hermes.grok-jarvis", "hermes.grok-vised"] && fake.legacyWrites.isEmpty)
-    // The next launch reads the derived key from v2: no legacy read, no probe.
-    let relaunched = KeyVault(backend: fake, defaults: isolatedDefaults())
-    #expect(relaunched.get(account: "hermes.grok-dmt") == BotManagerText.derivedKey(managerKey: jarvisKey, botName: "grok-dmt"))
-    #expect(fake.calls("read", legacy).count == 3)
-}
-
-@MainActor @Test func rejectedDerivedKeyLeavesReenterAndIsNotRetried() async throws {
-    let (store, fake, host, bots) = recoveryStore(locked: ["grok-doc"], served: [])
-    await store.recoverLockedKeys(); await store.recoverLockedKeys()
-    let bot = bots["grok-doc"]!
-    #expect(store.keyNeedsReentry(bot) && store.needsKey(bot) && fake.stored(v2, "hermes.grok-doc") == nil)
-    #expect(MockHermesProtocol.recorded(host).count == 1 && fake.calls("read", legacy).filter { $0 == "hermes.grok-doc" }.count == 1)
-    for _ in 0..<5 {
-        do { _ = try store.backend(for: bot); Issue.record("expected re-entry") } catch { #expect(error.localizedDescription == KeychainStore.reenterMessage) }
-    }
-    let check = await HeadlessCommands.checkBot(bot, store: store)
-    #expect(check.key == .locked && check.problem == KeychainStore.reenterMessage)
-    #expect(fake.calls("read", legacy).filter { $0 == "hermes.grok-doc" }.count == 1 && MockHermesProtocol.recorded(host).count == 1)
-    store.saveKey("pasted", for: bot)
-    #expect(!store.keyNeedsReentry(bot) && fake.stored(v2, "hermes.grok-doc") == "pasted")
-    #expect((try store.backend(for: bot) as? HermesBackend)?.apiKey == "pasted")
-}
-
-@MainActor @Test func lockedKeyWithoutAManagerOnItsConnectionIsNotDerived() async {
-    let (store, fake, host, bots) = recoveryStore(locked: ["grok-rapper"], served: ["grok-rapper"], manager: false)
-    await store.recoverLockedKeys()
-    #expect(store.keyNeedsReentry(bots["grok-rapper"]!) && MockHermesProtocol.recorded(host).isEmpty && fake.stored(v2, "hermes.grok-rapper") == nil)
-}
-
-@MainActor @Test func lockedKeyWithAnUnreadableManagerKeyIsNotDerived() async {
-    let (store, fake, host, bots) = recoveryStore(locked: ["grok-infra"], served: ["grok-infra"])
-    fake.answer(legacy, "hermes.grok-jarvis", with: errSecInteractionNotAllowed)
-    await store.recoverLockedKeys()
-    #expect(store.keyNeedsReentry(bots["grok-infra"]!) && MockHermesProtocol.recorded(host).isEmpty)
-}
-
-@MainActor @Test func botOnAnotherConnectionIsNotDerivedFromThisManager() async {
-    let (store, _, host, bots) = recoveryStore(locked: ["grok-saldora"], served: ["grok-saldora"])
-    bots["grok-saldora"]!.hermesBaseURL = "https://other-\(UUID().uuidString.lowercased()).test"
-    await store.recoverLockedKeys()
-    #expect(store.keyNeedsReentry(bots["grok-saldora"]!) && MockHermesProtocol.recorded(host).isEmpty)
-}
-
-@MainActor @Test func storeKeyPathsResolveEachAccountOnce() throws {
-    let fake = FakeKeychain(legacy: ["hermes": "k", "hermes.cfo": "c"])
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: KeychainHermesKeyStore(vault: vault(fake)), defaults: isolatedDefaults())
-    let bot = Bot(name: "CFO", persona: "", backend: .hermes, hermesProfile: "cfo")
-    for _ in 0..<20 {
-        #expect(!store.needsKey(bot) && store.hermesConfigured)
-        #expect((try store.backend(for: bot) as? HermesBackend)?.apiKey == "c")
-    }
-    #expect(fake.calls("read", legacy).sorted() == ["hermes", "hermes.cfo"])
-}
 
 final class LockedFlag: @unchecked Sendable {
     private let lock = NSLock(); private var stored: Bool

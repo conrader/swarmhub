@@ -53,14 +53,6 @@ func strippingComments(_ source: String) -> String {
     #expect(offenders.isEmpty, "the old name in code: \(offenders)")
 }
 
-@Test @MainActor func selfTestSessionsAreRecognisedUnderBothPrefixes() {
-    #expect(AppConstants.selfTestPrefix == "\(AppConstants.name.lowercased())-selftest-")
-    #expect(HeadlessE2E.namespace == AppConstants.selfTestPrefix)
-    #expect(AppConstants.isSelfTestSession("\(AppConstants.selfTestPrefix)abc"))
-    #expect(AppConstants.isSelfTestSession("\(AppConstants.previousName.lowercased())-selftest-abc"))
-    #expect(!AppConstants.isSelfTestSession("grok-import-2026-10-13") && !AppConstants.isSelfTestSession("selftest-abc"))
-}
-
 @Test func grokExportFolderFallsBackToTheOldNameOnlyWhileTheNewOneIsMissing() throws {
     let home = FileManager.default.temporaryDirectory.appending(path: "rename-home-\(UUID().uuidString)", directoryHint: .isDirectory)
     defer { try? FileManager.default.removeItem(at: home) }
@@ -101,30 +93,30 @@ private func release() -> [String: Any] { ["tag_name": "v9.0.0", "html_url": "ht
 
 @Test func updatesWorkBeforeTheRepoRename() async {
     let newPath = "/repos/\(AppConstants.releasesRepo)/releases/latest", oldPath = "/repos/\(AppConstants.previousReleasesRepo)/releases/latest"
-    let (host, session) = MockHermesProtocol.serve { request in request.url?.path == oldPath ? (200, release()) : (404, ["message": "Not Found"]) }
+    let (host, session) = MockHTTPProtocol.serve { request in request.url?.path == oldPath ? (200, release()) : (404, ["message": "Not Found"]) }
     let status = await ReleaseChecker.check(current: "0.4.0", session: session, urls: mocked(ReleaseChecker.latestURLs, host: host))
     guard case .newer(let info) = status else { Issue.record("got \(status)"); return }
     #expect(info.tag == "v9.0.0")
-    let recorded = MockHermesProtocol.recorded(host)
+    let recorded = MockHTTPProtocol.recorded(host)
     #expect(recorded.map { $0.url!.path } == [newPath, oldPath])
     #expect(recorded.allSatisfy { $0.value(forHTTPHeaderField: "User-Agent") == AppConstants.userAgent(version: "0.4.0") && $0.httpMethod == "GET" })
 }
 
 @Test func updatesWorkAfterTheRepoRenameIncludingTheOldNamesRedirect() async {
     let newPath = "/repos/\(AppConstants.releasesRepo)/releases/latest", oldPath = "/repos/\(AppConstants.previousReleasesRepo)/releases/latest"
-    let (host, session) = MockHermesProtocol.serve { request in
+    let (host, session) = MockHTTPProtocol.serve { request in
         switch request.url?.path { case newPath: (200, release()); case oldPath: (301, ["location": newPath]); default: (404, ["message": "Not Found"]) }
     }
     let urls = mocked(ReleaseChecker.latestURLs, host: host)
     #expect(await ReleaseChecker.check(current: "0.4.0", session: session, urls: urls) == .newer(ReleaseInfo.parse(release())!))
-    #expect(MockHermesProtocol.recorded(host).map { $0.url!.path } == [newPath], "the new name answers first")
+    #expect(MockHTTPProtocol.recorded(host).map { $0.url!.path } == [newPath], "the new name answers first")
     // An old link (a build from before P18) still lands on the release through GitHub's redirect.
     #expect(await ReleaseChecker.check(current: "0.4.0", session: session, urls: [urls[1]]) == .newer(ReleaseInfo.parse(release())!))
-    #expect(MockHermesProtocol.recorded(host).map { $0.url!.path } == [newPath, oldPath, newPath])
+    #expect(MockHTTPProtocol.recorded(host).map { $0.url!.path } == [newPath, oldPath, newPath])
 }
 
 @Test func updatesReportNoReleasesOnlyWhenNeitherRepoHasOne() async {
-    let (host, session) = MockHermesProtocol.serve { _ in (404, ["message": "Not Found"]) }
+    let (host, session) = MockHTTPProtocol.serve { _ in (404, ["message": "Not Found"]) }
     #expect(await ReleaseChecker.check(current: "0.4.0", session: session, urls: mocked(ReleaseChecker.latestURLs, host: host)) == .noReleases)
-    #expect(MockHermesProtocol.recorded(host).count == 2)
+    #expect(MockHTTPProtocol.recorded(host).count == 2)
 }

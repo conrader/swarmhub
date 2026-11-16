@@ -195,14 +195,6 @@ private final class _NSGlassEffectLookalike: NSView {}
     #expect(ChromeHit.probe(window, at: CGPoint(x: 400, y: 300))["kind"] as? String == "app_content")
 }
 
-@MainActor @Test func sidebarStartsShown() {
-    let (store, _, _) = e2eStore()
-    #expect(store.sidebarHidden == false)
-    #expect(RightColumnMechanism.current.rawValue == "inspector" || RightColumnMechanism.current.rawValue == "transition")
-    #expect(UISmokeChrome.fullScreenRequested(arguments: [AppConstants.name, "--ui-smoke", "x"]) == false)
-    #expect(UISmokeChrome.fullScreenRequested(arguments: [AppConstants.name, "--ui-smoke", "x", "--ui-smoke-fullscreen"]))
-}
-
 @MainActor @Test func doubleClickSmokeAimsAtBlankTopRowSpaceInEveryPane() {
     let frames: [String: CGRect] = ["sidebar_row": CGRect(x: 0, y: 0, width: 300, height: 32), "new_bot": CGRect(x: 260, y: 4, width: 24, height: 24),
                                     "search": CGRect(x: 230, y: 4, width: 24, height: 24), "chat_header": CGRect(x: 301, y: 0, width: 600, height: 54),

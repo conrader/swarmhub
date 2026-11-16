@@ -78,23 +78,6 @@ struct MessageSelectionTests {
         #expect(MessageCopy.menuTitle(count: 1) == "Copy Message" && MessageCopy.menuTitle(count: 3) == "Copy 3 Messages")
     }
 
-    @MainActor @Test func copiedMessagesNameTheUserBotsAndSwarmHub() {
-        let defaults = isolatedDefaults(); defaults.set("Konrad", forKey: UserIdentity.key)
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: defaults)
-        let mira = Bot(name: "Mira", backend: .hermes, hermesProfile: "mira"); store.bots = [mira]
-        #expect(store.copyAuthor(ChatMessage(role: .user, content: "Hi"), botName: "Atlas") == "Konrad")
-        #expect(store.copyAuthor(ChatMessage(role: .assistant, content: "Hello"), botName: "Atlas") == "Atlas")
-        #expect(store.copyAuthor(ChatMessage(role: .assistant, content: "Hello", authorID: mira.id), botName: "Team") == "Mira", "a group reply names its member")
-        #expect(store.copyAuthor(ChatMessage(role: .assistant, content: "Hello", authorID: UUID()), botName: "Team") == "Removed bot")
-        #expect(store.copyAuthor(ChatMessage(role: .system, content: "Stopped"), botName: "Atlas") == "SwarmHub")
-        let arrival = ChatMessage(role: .system, content: "Mira wrote", presentation: .botMessage, metadata: [BotMessageKey.from: "mira"])
-        #expect(store.copyAuthor(arrival, botName: "Atlas") == "Mira", "a bot-to-bot line names its sender")
-
-        let reply = ChatMessage(role: .assistant, content: "Here it is.", createdAt: at(1),
-                                attachments: [ChatAttachment(id: UUID(), kind: .text, name: "notes.txt", mimeType: "text/plain", byteCount: 4)])
-        #expect(store.copiedMessage(reply, botName: "Atlas") == CopiedMessage(author: "Atlas", date: at(1), text: "Here it is.\n[Attachment: notes.txt]"))
-    }
-
     @MainActor @Test func selectionCopiesOnlyPickedRowsStillShownOldestFirst() {
         let messages = [ChatMessage(role: .user, content: "Question", createdAt: at(0)), ChatMessage(role: .assistant, content: "Answer", createdAt: at(1)),
                         ChatMessage(role: .user, content: "Thanks", createdAt: at(3)), ChatMessage(role: .assistant, content: "Arrival", createdAt: at(2))]
@@ -112,46 +95,6 @@ struct MessageSelectionTests {
         selection.show(rows: Array(messages.prefix(2)), describe: describe)
         #expect(selection.count == 2 && !selection.copiedText.contains("Thanks"), "a row no longer shown is not copied")
         selection.clear(); #expect(selection.count == 0 && selection.state.isEmpty)
-    }
-
-    @MainActor @Test func copiedAppRequestsMatchTheDisplayedSuccessFailurePendingAndMissingResult() throws {
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-        for (result, status) in [(Optional(#"{"data":{"login":"octo"}}"#), "ok"), (#"{"error":"denied"}"#, "failed"), (nil, "waiting for approval")] {
-            let request = ChatMessage(role: .assistant, content: appRequest)
-            let rows = [request] + (result.map { [ChatMessage(role: .user, content: ConnectedAppsChat.resultPrefix + $0)] } ?? [])
-            let layout = store.technicalLayout(rows, botName: "Atlas")
-            let fold = try #require(layout.folds[request.id])
-            let copied = store.copiedMessage(request, botName: "Atlas", fold: fold)
-            #expect(copied.text == "Atlas used GitHub · Get the authenticated user · \(status)")
-            #expect(copied.text == fold.summary && !copied.text.contains("SWARMHUB_APP_REQUEST"))
-            let selection = MessageSelection()
-            selection.show(rows: layout.visible(rows)) { store.copiedMessage($0, botName: "Atlas", fold: layout.folds[$0.id]) }
-            selection.toggle(request.id)
-            #expect(selection.count == 1 && selection.copiedText.hasSuffix("\n" + fold.summary))
-            #expect(!selection.copiedText.contains("SwarmHub app result"), "the absorbed result is represented by its request's summary")
-        }
-        let request = ChatMessage(role: .assistant, content: appRequest)
-        let rows = [request, ChatMessage(role: .assistant, content: "Moved on")]
-        let layout = store.technicalLayout(rows, botName: "Atlas")
-        #expect(store.copiedMessage(request, botName: "Atlas", fold: layout.folds[request.id]).text == "Atlas used GitHub · Get the authenticated user · no result")
-    }
-
-    @MainActor @Test func copiedSearchResultsAndGroupMemberSummariesUseTheConversationFold() throws {
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-        let mira = Bot(name: "Mira", backend: .mock); store.bots = [mira]
-        let request = ChatMessage(role: .assistant, content: appRequest.components(separatedBy: "\n")[0] + "\n" + #"{"action":"search","query":"GitHub user"}"#, authorID: mira.id)
-        let result = ChatMessage(role: .user, content: ConnectedAppsChat.resultPrefix + #"{"tools":[{"app":"github","slug":"GITHUB_GET_THE_AUTHENTICATED_USER"}]}"#)
-        let group = GroupChat(name: "Team", memberIDs: [mira.id], messages: [request, result])
-        let layout = store.technicalLayout(group.messages, in: group)
-        let copied = store.copiedMessage(request, botName: group.name, fold: layout.folds[request.id])
-        #expect(copied.author == "Mira" && copied.text == "Mira looked up GitHub tools · 1 found")
-        #expect(layout.visible(group.messages).map(\.id) == [request.id])
-        // A thread parent is rendered on its own, while the same row in the main chat has a paired result.
-        let parentLayout = store.technicalLayout([request], botName: "Mira")
-        #expect(store.copiedMessage(request, botName: "Mira", fold: parentLayout.folds[request.id]).text == "Mira looked up app tools · waiting for approval")
-        let system = ChatMessage(role: .system, content: "App used", metadata: [TechnicalKey.appRequest: appRequest, TechnicalKey.appResult: result.content])
-        let systemLayout = store.technicalLayout([system], botName: "Atlas")
-        #expect(store.copiedMessage(system, botName: "Atlas", fold: systemLayout.folds[system.id]).text == systemLayout.folds[system.id]?.summary)
     }
 
     @MainActor @Test func commandCopyDefersToFocusedTextAndFieldEditorsWithoutClearingMessages() throws {

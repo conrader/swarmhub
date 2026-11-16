@@ -27,7 +27,7 @@ refused, SQLite was read-only/immutable after sidecar checks, and nonempty WAL
 aborted the run. References to empty messages or unsupported transcript rows
 below describe that original snapshot, not the app-cache exporter.
 
-`out/index.json` and each bot bundle carry `format: "agentapp-bot-bundle/v1"`. Reject unsupported format versions in Swift. Files are UTF-8 JSON; field names use snake_case. Unknown fields can be ignored. `null` means unavailable; empty lists mean no recoverable records, not proof that the original remote bot had none. All arrays preserve order. Routine import must leave execution disabled until configured for Hermes.
+`out/index.json` and each bot bundle carry `format: "agentapp-bot-bundle/v1"`. Reject unsupported format versions in Swift. Files are UTF-8 JSON; field names use snake_case. Unknown fields can be ignored. `null` means unavailable; empty lists mean no recoverable records, not proof that the original remote bot had none. All arrays preserve order. The Mac app does not run routines.
 
 The index contains `bots: [{source_id, name, bundle, messages, events, redactions}]`, `skills: [{name, file}]` and `skill_redactions`. Bundle and skill paths are relative to the export root. Bot directories use a normalized name plus full source UUID for stable uniqueness. Use `source_id` for deduplication, not the display name.
 
@@ -70,13 +70,13 @@ Observed avatar shapes: `blob`, `cylinder`, `shield`, `gem`, `hex`, `leaf`; colo
 
 ## Additions for the Grok Bot app-cache exporter (P6, compatible)
 
-`scripts/export-grokbot.py` reads the Grok Bot Mac app cache (`~/Library/Application Support/Grok Bot/sand-client-persistence/*.blob`, base32 file names) instead of a box snapshot and writes the same layout to `~/Documents/SwarmHub Grok Export/` (or an existing export folder from before the rename; atomic replace, dirs 0700, files 0600, counts-only console output). Unlike the snapshot exporter it maps transcript rows to messages. Fields added; importers that ignore unknown fields are unaffected:
+`scripts/export-grokbot.py` reads the Grok Bot Mac app cache (`~/Library/Application Support/Grok Bot/sand-client-persistence/*.blob`, base32 file names) instead of the original snapshot and writes the same layout to `~/Documents/SwarmHub Grok Export/` (or an existing export folder from before the rename; atomic replace, dirs 0700, files 0600, counts-only console output). Unlike the snapshot exporter it maps transcript rows to messages. Fields added; importers that ignore unknown fields are unaffected:
 
 | Where | Field | Meaning |
 | --- | --- | --- |
 | index `bots[]` | `profile`, `is_group` | as in the bundle |
 | index | `generator`, `source` | `"export-grokbot.py"`, `"grok-bot-app-cache"` |
-| bundle | `profile` | String or null: Hermes profile `grok-<slug>` (roster name lowercased, spaces → `-`); null for groups |
+| bundle | `profile` | String or null: profile name `grok-<slug>` (roster name lowercased, spaces → `-`); null for groups |
 | bundle | `is_group`, `members` | Bool; `[{source_id, name, profile}]` for a group conversation, else empty |
 | bundle `source` | `hidden_from_sidebar` | Bool from the roster |
 | message | `hidden` | Bool: text carries a `[GROK_BOT_HIDDEN…]` marker; kept, but flagged |

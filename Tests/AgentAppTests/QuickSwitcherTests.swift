@@ -23,7 +23,7 @@ private func item(_ id: String, enabled: Bool = true) -> QuickSwitcherModel.Item
 }
 
 @MainActor @Test func quickSwitcherItemsFilterAgentsGroupsAndCommands() {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.bots = [Bot(name: "Atlas"), Bot(name: "Mira")]
     let all = QuickSwitcherModel.items(in: store, query: "")
     #expect(Array(all.prefix(2)).map(\.title) == ["Atlas", "Mira"] && !all[0].isCommand)

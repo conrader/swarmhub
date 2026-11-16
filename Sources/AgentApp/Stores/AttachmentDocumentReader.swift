@@ -3,8 +3,7 @@ import Foundation
 import PDFKit
 import UniformTypeIdentifiers
 
-/// Documents read on the Mac. Hermes accepts no file parts (0.20.5 through 0.22.0 answer 400
-/// `unsupported_content_type`), so a document's text goes out as ordinary text.
+/// Documents read on the Mac: a document's text goes out as ordinary text.
 enum DocumentKind: String, Sendable, CaseIterable {
     case pdf, rtf, doc, docx
     var mimeType: String {

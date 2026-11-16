@@ -221,7 +221,7 @@ struct HerdrHelperView: View {
     /// Follows the helper on its event stream until its session ends (true). Its terminal is not in the stream and is
     /// read every two seconds beside it. False when the stream could not be opened or broke: the caller polls.
     private func followStream() async -> Bool {
-        guard store.botInfo.autoLoad, let helper = listed ?? helper, let events = try? store.herdrHelperEvents(helper.ref, of: bot) else { return false }
+        guard store.launchWorkEnabled, let helper = listed ?? helper, let events = try? store.herdrHelperEvents(helper.ref, of: bot) else { return false }
         let screens = Task { @MainActor in
             while !Task.isCancelled {
                 if let screen = await store.herdrHelperScreen(helper.ref, of: bot), !Task.isCancelled { if log == nil { log = HerdrClient.HelperLog() }; log?.screen = screen }

@@ -90,7 +90,7 @@ import Testing
     }
 
     @Test @MainActor func isWorkingFollowsStoreStateAndGroupMembership() {
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         let a = Bot(name: "A"), b = Bot(name: "B")
         let group = GroupChat(name: "G", memberIDs: [a.id, b.id]), other = GroupChat(name: "H", memberIDs: [a.id])
         #expect(!store.isWorking(a))

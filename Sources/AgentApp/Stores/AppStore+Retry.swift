@@ -1,73 +1,18 @@
 import Foundation
 
-/// P16 Part 3: Retry reads the box first and sends at most once; a cut stream is followed by GET-only passes; P16 Part 5:
-/// rounds a quit interrupted are marked, never resumed.
+/// Retry sends a reply that was not sent once more, into the same row; rounds a quit interrupted are marked, never resumed.
 extension AppStore {
-    // MARK: Cut-turn schedule
-
-    /// An `incomplete` row gets passes at the schedule's offsets, each GET-only and exempt from the 15 s floor.
-    func scheduleCutTurnReconcile(_ row: ChatMessage) {
-        guard turns.schedules[row.id] == nil else { return }
-        turns.schedules[row.id] = Task { [weak self] in
-            await self?.runCutTurnSchedule(row)
-            self?.turns.schedules[row.id] = nil
-        }
-    }
-
-    private func runCutTurnSchedule(_ row: ChatMessage) async {
-        let timing = reconcileTiming, clock = ContinuousClock(), start = clock.now
-        guard !timing.schedule.isEmpty else { return }
-        var slots = timing.schedule[...], retries = timing.unreachable[...]
-        var next = start + (slots.first ?? .zero)
-        var lastText: (text: String, at: ContinuousClock.Instant)?
-        while !Task.isCancelled {
-            try? await Task.sleep(until: next, clock: clock)
-            guard !Task.isCancelled, row.turnState == .incomplete, let conversation = conversation(containing: row.id) else { return }
-            let report = await reconcile(conversation, reason: .schedule)
-            guard row.turnState == .incomplete else { return }
-            let now = clock.now
-            // A pass that could not reach the box (or found the chat busy) uses no slot.
-            if report.unreachable || report.skipped || report.read < report.total {
-                guard let delay = retries.popFirst() else { return }
-                next = now + delay; continue
-            }
-            retries = timing.unreachable[...]
-            // An active run keeps polling without using a slot, up to the cap.
-            if report.activeRun, now - start < timing.activeCap { next = now + max(.seconds(1), timing.schedule.dropFirst().first ?? .seconds(3)); continue }
-            if let last = lastText, last.text == row.content, now - last.at >= timing.unchangedStop { return }
-            if lastText?.text != row.content { lastText = (row.content, now) }
-            _ = slots.popFirst()
-            guard let offset = slots.first else { return }
-            next = start + offset
-        }
-    }
-
     // MARK: Retry
-
-    /// A legacy-transport bot has no sessions and gets no one-tap Retry.
-    func isLegacyTransport(_ bot: Bot, session: String?) -> Bool {
-        session == nil && botFeatures[bot.id].map { !$0.isEmpty && !$0.contains("session_chat_streaming") } == true
-    }
-
-    /// The owning bot of a row in a bot chat or thread.
-    func owner(of conversation: any Conversation) -> Bot? {
-        if let bot = conversation as? Bot { return bot }
-        return bots.first { $0.threads.contains { $0 === conversation } }
-    }
 
     /// Offered on a `notSent` reply row: in a bot chat any such row; in a group only a current member's newest row.
     func canRetry(_ row: ChatMessage) -> Bool {
         guard row.role == .assistant, row.turnState == .notSent, let conversation = conversation(containing: row.id) else { return false }
-        if isTeamThread(conversation) { return false }
         if let group = conversation as? GroupChat {
-            guard let id = row.authorID, group.memberIDs.contains(id), let bot = bots.first(where: { $0.id == id }), !needsKey(bot), (try? backend(for: bot)) != nil,
-                  !isLegacyTransport(bot, session: group.session(for: id)) else { return false }
+            guard let id = row.authorID, group.memberIDs.contains(id), let bot = bots.first(where: { $0.id == id }), (try? backend(for: bot)) != nil else { return false }
             return group.messages.last { $0.role == .assistant && $0.authorID == id } === row
         }
-        guard let bot = owner(of: conversation), !isRetiredWorkflowThread((conversation as? ChatThread)?.id ?? bot.id), !needsKey(bot), (try? backend(for: bot)) != nil else { return false }
-        // autoctx1: a setup row is sent again only with the text it kept (a signed install keeps none: press Install again).
-        if Self.isSetupRow(row, in: conversation, bot: bot) { return row.metadata[ContextKey.setupText] != nil }
-        return !isLegacyTransport(bot, session: conversation.hermesSessionID)
+        guard let bot = conversation as? Bot else { return false }
+        return (try? backend(for: bot)) != nil
     }
 
     /// The user row a reply row answers.
@@ -77,14 +22,12 @@ extension AppStore {
         return conversation.messages[..<index].last { $0.role == .user && !$0.isSteer && $0.presentation == .text }
     }
 
-    /// Retry on a `notSent` row. Claims the stream slot before its first await, reads the box, adopts what the box has, and
-    /// sends into the same row only when the read succeeded, reached back past the row, the box has no such turn and no
-    /// newer box turn is unmatched (`sendAnyway` overrides only that last check). An ambiguous row younger than 30 min needs
-    /// a second tap.
+    /// Retry on a `notSent` row: claims the chat's slot and sends the message it answers again, into the same row. A row
+    /// whose message may have reached the server after all (`ambiguous`) and is younger than 30 min needs a second tap.
     func retry(_ row: ChatMessage, sendAnyway: Bool = false) {
         guard canRetry(row), let conversation = conversation(containing: row.id), isIdle(conversation) else { return }
         let group = conversation as? GroupChat
-        guard let bot = group.flatMap({ _ in row.authorID.flatMap { id in bots.first { $0.id == id } } }) ?? owner(of: conversation),
+        guard let bot = group.flatMap({ _ in row.authorID.flatMap { id in bots.first { $0.id == id } } }) ?? (conversation as? Bot),
               let trigger = trigger(of: row, in: conversation) else { return }
         if row.metadata[TurnKey.ambiguous] == "1", now().timeIntervalSince(row.createdAt) < 1_800, row.metadata[TurnKey.retry] != "confirm", !sendAnyway {
             row.metadata[TurnKey.retry] = "confirm"; return
@@ -94,38 +37,19 @@ extension AppStore {
         guard turns.retryLedger.insert(ledger).inserted else { return }
         let run = group.map { GroupRun(groupID: $0.id) }
         let turn = beginTurn(in: conversation, bot: bot, assistant: row, groupRun: run), token = turn.token
-        row.metadata[TurnKey.check] = "checking"; row.metadata[TurnKey.retry] = nil
-        let content = row.content
+        row.metadata[TurnKey.retry] = nil
         objectWillChange.send()
         turn.task = Task { [weak self] in
             guard let self else { return }
-            await performRetry(row, content: content, bot: bot, trigger: trigger, conversation: conversation, group: group, run: run, token: token, sendAnyway: sendAnyway)
+            await performRetry(row, bot: bot, trigger: trigger, conversation: conversation, group: group, run: run, token: token)
             turns.retryLedger.remove(ledger)
             releaseSlot(token)
             objectWillChange.send(); save()
         }
     }
 
-    private func performRetry(_ row: ChatMessage, content: String, bot: Bot, trigger: ChatMessage, conversation: any Conversation, group: GroupChat?, run: GroupRun?, token: UUID, sendAnyway: Bool) async {
-        // autoctx1: a setup turn ran in a throwaway session, so the chat's own session cannot say whether it ran; its row
-        // is sent again as it was (its kept text, in a fresh throwaway session), never into the chat's session.
-        let setupText = group == nil && Self.isSetupRow(row, in: conversation, bot: bot) ? row.metadata[ContextKey.setupText] : nil
-        var report: ReconcileReport?
-        if setupText == nil { report = await reconcile(conversation, reason: .retry, ignoringStream: true, member: group == nil ? nil : bot.id) }
-        if row.metadata[TurnKey.check] == "checking" { row.metadata[TurnKey.check] = nil }
-        guard !Task.isCancelled, isCurrent(token), !(run?.stopped ?? false) else { return }
-        // The box had the turn (adopted, or still running): nothing is sent.
-        guard row.turnState == .notSent, row.content == content else { return }
-        if let report {
-            let covers = report.coversFrom.map { $0 <= row.createdAt.addingTimeInterval(report.skew) } ?? true
-            guard report.total == 1, report.read == 1, !report.skipped, !report.diverged, !report.unreachable, covers else {
-                addWarning("\(bot.name): Can't reach the box; nothing was sent.", in: conversation, after: row); return
-            }
-            if report.newerUnmatched && !sendAnyway {
-                row.metadata[TurnKey.retry] = "blocked"
-                addWarning("\(bot.name): Can't match the box's newest message; nothing was sent.", in: conversation, after: row); return
-            }
-        }
+    private func performRetry(_ row: ChatMessage, bot: Bot, trigger: ChatMessage, conversation: any Conversation, group: GroupChat?, run: GroupRun?, token: UUID) async {
+        guard !Task.isCancelled, isCurrent(token), !(run?.stopped ?? false), row.turnState == .notSent else { return }
         let images: [String]
         do { try validateArtifactAccess(trigger, botID: bot.id); images = try trigger.attachments.filter { $0.kind == .image }.map(attachmentEncoder.dataURL(for:)) }
         catch { addWarning("\(bot.name): \(error.localizedDescription) Nothing was sent.", in: conversation, after: row); return }
@@ -138,24 +62,19 @@ extension AppStore {
         row.turnState = .incomplete; row.isStreaming = true
         [TurnKey.why, TurnKey.ambiguous, TurnKey.retry, TurnKey.end].forEach { row.metadata[$0] = nil }
         let history = chatHistory(conversation, upTo: trigger, excluding: row)
-        let managementText = setupText ?? self.managementText(for: bot, text: trigger.content, conversation: conversation)
-        if setupText == nil { claimSetupTurn(row, in: conversation, bot: bot, text: managementText) }
-        else { restoreSkillInstallChecks(from: row, manager: bot) }
         await runChatTurn(bot: bot, conversation: conversation, assistant: row, history: history, images: images, systemPrompt: bot.outboundPersona,
-                          managementText: managementText, backend: activeBackend, token: token)
+                          backend: activeBackend, token: token)
     }
 
     func releaseSlot(_ token: UUID) {
-        guard let turn = turn(token: token) else { return }
+        guard turn(token: token) != nil else { return }
         endTurn(token)
         sendQueuedNextMessage()
-        // A retry that sent nothing never reached runChatTurn's end: resume a legacy all-bots batch waiting for this chat.
-        if let manager = turn.conversation as? Bot, allBotsSkillQueue[manager.id] != nil { sendNextAllBotsSkillInstall(manager: manager) }
     }
 
     // MARK: Launch recovery
 
-    /// Groups whose round was on disk at launch: the active member's row goes to the reconcile; everyone not asked gets
+    /// Groups whose round was on disk at launch: everyone not asked gets
     /// a `notSent` row (why `quit`) and one line. Nothing is sent. A group whose own turn already runs is left alone.
     func recoverInterruptedRounds() {
         for group in groups where turns.roundsAtLaunch.contains(group.id) && isIdle(group) {

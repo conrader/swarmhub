@@ -6,7 +6,7 @@ import Security
 extension HeadlessCommands {
     static func migrateStore() -> Int32 {
         SecKeychainSetUserInteractionAllowed(false)
-        let store = AppStore(autoConfigureHermes: false)
+        let store = AppStore(autoStart: false)
         guard store.persistenceEnabled else { print("Migration failed: \(store.errorMessage ?? "the store cannot be saved.")"); return 1 }
         store.save()
         for line in migrationReport(store) { print(line) }

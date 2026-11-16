@@ -1,9 +1,9 @@
 import Foundation
 
-/// uxfix1: network trouble that clears up by itself (a dropped or timed-out connection, the Mac offline, the box briefly
+/// Network trouble that clears up by itself (a dropped or timed-out connection, the Mac offline, the server briefly
 /// unreachable, a gateway that answered 502/503/504). It never opens the modal "Backend Error" alert: turns and installs
 /// retry it, a turn's row says "Reconnecting…" meanwhile, and what is left after the retries is one small line at the
-/// bottom of the window (`ConnectionNoticeBar`) that clears itself when the box answers again.
+/// bottom of the window (`ConnectionNoticeBar`) that clears itself when the server answers again.
 enum TransientNetwork {
     /// -1005 connection lost, -1001 timed out, -1004 cannot connect, -1009 offline, and the DNS / cellular cases.
     static let codes: Set<URLError.Code> = [.networkConnectionLost, .timedOut, .cannotConnectToHost, .notConnectedToInternet,
@@ -16,9 +16,9 @@ enum TransientNetwork {
     static let cfNetworkDomain = "kCFErrorDomainCFNetwork"
     /// uxfix3: and 1/2 (host lookup failed) and 308 (the proxy auto-config file could not be read).
     static let cfNetworkCodes: Set<Int> = [1, 2, 302, 306, 308, 310, 311]
-    /// The proxy and host codes alone: the request never reached the box.
+    /// The proxy and host codes alone: the request never reached the server.
     static let cfProxyCodes: Set<Int> = [1, 2, 306, 308, 310, 311]
-    /// A proxy in front of the box (Cloudflare, nginx) answering while the box restarts.
+    /// A proxy in front of the server answering while the server restarts.
     static let gatewayStatuses: Set<Int> = [502, 503, 504]
 
     static func isTransient(_ error: Error) -> Bool {

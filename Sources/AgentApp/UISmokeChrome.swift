@@ -257,7 +257,7 @@ enum ChromeHit {
         var steps: [[String: Any]] = [state()]
         for open in [false, true] {
             store.showInfo = open
-            _ = await HeadlessE2E.wait(budget, poll: .milliseconds(100)) { (ChromeProbes.frames(in: window)["details_header"] != nil) == open }
+            _ = await UISmoke.wait(budget, poll: .milliseconds(100)) { (ChromeProbes.frames(in: window)["details_header"] != nil) == open }
             await settle(budget) { layoutSnapshot(window) }
             steps.append(state())
         }
@@ -270,7 +270,7 @@ enum ChromeHit {
     static func hiddenSidebar(_ window: NSWindow, store: AppStore, budget: Duration) async -> [String: Any] {
         let before = store.sidebarHidden
         store.sidebarHidden = true
-        let shown = await HeadlessE2E.wait(budget, poll: .milliseconds(100)) { ChromeProbes.frames(in: window)["show_sidebar"] != nil }
+        let shown = await UISmoke.wait(budget, poll: .milliseconds(100)) { ChromeProbes.frames(in: window)["show_sidebar"] != nil }
         await settle(budget) { layoutSnapshot(window) }
         let frames = ChromeProbes.frames(in: window)
         let lights = ChromeFacts.trafficLights(window)
@@ -279,7 +279,7 @@ enum ChromeHit {
                                      "lights_max_x": lights["max_x"] ?? NSNull(),
                                      "hit": ChromeHit.facts(window, frames: frames, lightsMaxX: ChromeGeometry.number(lights["max_x"]))["show_sidebar"] ?? NSNull()]
         store.sidebarHidden = before
-        let back = await HeadlessE2E.wait(budget, poll: .milliseconds(100)) { ChromeProbes.frames(in: window)["sidebar_row"] != nil }
+        let back = await UISmoke.wait(budget, poll: .milliseconds(100)) { ChromeProbes.frames(in: window)["sidebar_row"] != nil }
         await settle(budget) { layoutSnapshot(window) }
         report["restored"] = back && store.sidebarHidden == before && ChromeProbes.frames(in: window)["show_sidebar"] == nil
         return report
@@ -289,7 +289,7 @@ enum ChromeHit {
     static func fullScreenRun(_ window: NSWindow, budget: Duration) async -> [String: Any] {
         var report: [String: Any] = [:]
         window.toggleFullScreen(nil)
-        let entered = await HeadlessE2E.wait(.seconds(10), poll: .milliseconds(100)) { window.styleMask.contains(.fullScreen) }
+        let entered = await UISmoke.wait(.seconds(10), poll: .milliseconds(100)) { window.styleMask.contains(.fullScreen) }
         report["entered"] = entered
         if entered {
             try? await Task.sleep(for: .milliseconds(800))
@@ -301,7 +301,7 @@ enum ChromeHit {
             report["errors"] = (ChromeChecks.c4(facts) + ChromeChecks.c8(facts)).map { "fullscreen \($0)" }
             report["system_windows"] = (NSApp?.windows ?? []).filter { $0 !== window && $0.isVisible }.map { NSStringFromClass(type(of: $0)) }
             window.toggleFullScreen(nil)
-            report["exited"] = await HeadlessE2E.wait(.seconds(10), poll: .milliseconds(100)) { !window.styleMask.contains(.fullScreen) }
+            report["exited"] = await UISmoke.wait(.seconds(10), poll: .milliseconds(100)) { !window.styleMask.contains(.fullScreen) }
         }
         return report
     }
@@ -309,7 +309,7 @@ enum ChromeHit {
     /// Waits until `snapshot` reads the same for two 100 ms polls in a row, or `budget` runs out.
     static func settle(_ budget: Duration, snapshot: @escaping @MainActor () -> NSDictionary) async {
         var last = snapshot(), same = 0
-        _ = await HeadlessE2E.wait(budget, poll: .milliseconds(100)) {
+        _ = await UISmoke.wait(budget, poll: .milliseconds(100)) {
             let now = snapshot()
             same = now == last ? same + 1 : 0
             last = now

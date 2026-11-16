@@ -1,6 +1,6 @@
 # Herdr workspace feature plan
 
-The SwarmHub browser companion uses the familiar three regions: agent roster, central task view, and agent details. The native app remains available for Hermes and OpenClaw. Herdr Core manages processes; the interface and optional agent integrations will need to provide higher-level product features.
+The SwarmHub browser companion uses the familiar three regions: agent roster, central task view, and agent details. The Mac app chats with the same agents through the same bridge ([setup](../HerdrWorkspace/README.md#use-the-mac-app)). Herdr Core manages processes; the interface and optional agent integrations will need to provide higher-level product features.
 
 | Grok Bot workflow | Herdr workspace |
 | --- | --- |

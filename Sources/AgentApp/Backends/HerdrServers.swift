@@ -30,7 +30,7 @@ struct HerdrServer: Codable, Equatable, Identifiable, Sendable {
     var port: Int { HerdrClient.validatedBaseURL(address)?.port ?? Self.defaultPort }
     static func loopback(port: Int) -> String { "http://127.0.0.1:\(port)" }
 
-    /// "This Mac", "deploy@box.example.com" or the typed address: where it is, under the name.
+    /// "This Mac", "deploy@studio.example.com" or the typed address: where it is, under the name.
     var place: String {
         switch kind {
         case .local: port == Self.defaultPort ? "This Mac" : "This Mac, port \(port)"

@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Settings → Account → Grok Bot (P10d 3): a status line, the last import from the archive dates, and a button that
+/// Settings → Advanced → Servers and keys → Grok Bot: a status line, the last import from the archive dates, and a button that
 /// opens the import sheet in the main window (the sheet lives in that window's scene). Hidden when Grok Bot is not on
 /// this Mac. Reads no Grok data: the status is the Tier 1 check plus this app's own store.
 struct SettingsGrokSection: View {

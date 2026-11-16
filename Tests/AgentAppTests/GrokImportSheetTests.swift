@@ -17,47 +17,6 @@ import Testing
     await coordinator.settled()
 }
 
-@MainActor @Test func theSheetReadsNothingBeforeContinueAndOnceAfterIt() async throws {
-    let world = try GrokWorld()
-    let store = world.store(server: "https://box.test/v1")
-    let coordinator = makeCoordinator(world, store)
-    await coordinator.scan()
-    #expect(coordinator.step == .found && coordinator.availability == .ready && coordinator.mode == .full)
-    #expect(coordinator.items.map(\.name) == ["Jarvis", "Finance Controller", "Plain Bot", "Konrad, Jarvis, Plain Bot"])
-    #expect(coordinator.items.map(\.profile) == ["grok-jarvis", "grok-finance-controller", "grok-plain-bot", nil])
-    #expect(coordinator.selected.count == 4 && coordinator.grokVersion == "0.70.2")
-    // One canary plus at least one page per conversation, 0.5 s apart.
-    #expect(coordinator.requestEstimate.requests == 5)
-    #expect(world.passwords.reads == 0 && world.passwords.probeCount == 1 && world.fake.requests.isEmpty)
-    await coordinator.proceed()
-    #expect(coordinator.step == .permission)
-    #expect(world.passwords.reads == 0 && world.fake.requests.isEmpty)
-    coordinator.continueToMacOS()
-    await coordinator.settled()
-    #expect(coordinator.step == .finished && world.passwords.reads == 1)
-    #expect(coordinator.progress.map(\.status) == [.done, .done, .done, .done])
-    // Counts read back from the archive files.
-    #expect(coordinator.outcomes.map(\.archiveLines) == [27, 5, 3, 4])
-    #expect(coordinator.botOutcomes.allSatisfy { $0.connection == .needsKey } && coordinator.addKeysPrefill ==
-            "grok-jarvis=\ngrok-finance-controller=\ngrok-plain-bot=")
-    #expect(await coordinator.run?.holder.lifetime == GrokSecretLifetime.none)
-    #expect(coordinator.requests == 5)
-}
-
-@MainActor @Test func recentMessagesNeedNoPermissionStepNoPromptAndNoNetwork() async throws {
-    let world = try GrokWorld()
-    let store = world.store()
-    let coordinator = makeCoordinator(world, store)
-    await coordinator.scan()
-    coordinator.mode = .recent
-    await coordinator.proceed()
-    await coordinator.settled()
-    #expect(coordinator.step == .finished && world.passwords.reads == 0 && world.fake.requests.isEmpty)
-    #expect(coordinator.outcomes.allSatisfy { $0.row.coverage == .cacheOnly })
-    // No server and no keys: every bot is history only.
-    #expect(coordinator.botOutcomes.map(\.connection) == [.historyOnly, .historyOnly, .historyOnly])
-}
-
 @MainActor @Test func aNetworkPauseAndRetryStayWithinOneReadPerSheetSession() async throws {
     let world = try GrokWorld()
     world.fake.pageCap = 10
@@ -205,7 +164,7 @@ import Testing
     for prepare in scenarios {
         let world = try GrokWorld()
         prepare(world)
-        let store = AppStore(storeURL: storeURL, autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: defaults, hermesSession: UnreachableProtocol.session)
+        let store = AppStore(storeURL: storeURL, autoStart: false, keyStore: InMemoryKeyStore([:]), defaults: defaults)
         let coordinator = makeCoordinator(world, store)
         await coordinator.scan()
         await runFull(coordinator)

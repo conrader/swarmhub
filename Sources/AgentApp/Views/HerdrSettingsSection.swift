@@ -6,10 +6,8 @@ import SwiftUI
 struct HerdrSettingsSection: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage(HerdrBackend.templateKey) private var template = ""
-    @AppStorage(LegacySurface.key) private var legacy = false
     @State private var templates: [HerdrClient.Template] = []
     @State private var draft = HerdrServerDraft(kind: .ssh); @State private var adding = false; @State private var addResult = ""
-    @State private var moveResult = ""
 
     var body: some View {
         let servers = store.herdrServers
@@ -35,21 +33,6 @@ struct HerdrSettingsSection: View {
         }
         Section("Herdr bots") {
             HerdrTemplatePicker(title: "Agent runtime for new bots", automatic: templates.first.map { "\($0.label) (first available)" } ?? "First available", selection: $template, templates: templates)
-            let movable = store.botsMovableToHerdr
-            if !movable.isEmpty {
-                HStack {
-                    Button(movable.count == 1 ? "Move the 1 Hermes or OpenClaw bot to Herdr" : "Move all \(movable.count) Hermes and OpenClaw bots to Herdr") {
-                        moveResult = "Moved \(store.moveAllToHerdr()) to \(servers[0].name). Each starts its Herdr agent with its next message."
-                    }
-                    Text(moveResult).font(.caption).foregroundStyle(.secondary)
-                }
-                Text("A moved bot keeps its name, avatar, instructions and chat history and runs on \(servers[0].name) from then on. What lived on its old server (memory, skills, routines, connected apps) does not move.").font(.caption).foregroundStyle(.secondary)
-            } else if !moveResult.isEmpty { Text(moveResult).font(.caption).foregroundStyle(.secondary) }
-            // Offered only where there is something of the older backends; a Herdr-only install does not read about them.
-            if store.offersOlderBackendsSwitch {
-                Toggle("Show Hermes and OpenClaw settings", isOn: $legacy)
-                Text("\(AppConstants.name) is moving to Herdr. The older servers' settings, their setup steps and the Backend picker stay hidden unless this is on.").font(.caption).foregroundStyle(.secondary)
-            }
         }
     }
 
@@ -251,7 +234,7 @@ struct HerdrAgentControls: View {
     }
 }
 
-/// Overview's lines for a Herdr bot, where a Hermes bot shows its memory: where its agent runs, and on which agent
+/// Overview's lines for a Herdr bot: where its agent runs, and on which agent
 /// program and model, by the server's names for them.
 struct HerdrOverviewSection: View {
     @EnvironmentObject private var store: AppStore
@@ -269,7 +252,7 @@ struct HerdrOverviewSection: View {
             }
         }
         // Only the real app reads on its own; a preview or test store shows what it was given.
-        .task(id: bot.id) { if store.botInfo.autoLoad { await store.refreshHerdrAgentReading(for: bot) } }
+        .task(id: bot.id) { if store.launchWorkEnabled { await store.refreshHerdrAgentReading(for: bot) } }
     }
 }
 

@@ -5,98 +5,67 @@
   <img src="docs/readme/hero.svg" alt="SwarmHub — your agents, all together." width="1280">
 </picture>
 
-A desktop interface for your **Hermes** and **OpenClaw** agents. Keep conversations, recurring tasks, and approvals together in one place.
+SwarmHub is a macOS app for chatting with agents that [Herdr Core](https://github.com/herdrdev/herdr-core) runs. Herdr Core runs agent programs such as Claude Code and Codex in terminals. A small service, the SwarmHub bridge (`HerdrWorkspace/`, the `swarmhub-herdr` binary), runs beside it, and the Mac app talks to that bridge. Herdr Core is the only backend.
 
-Hermes is supported; OpenClaw agents connect through their Gateway (built against OpenClaw 2026.10.3's published protocol and a test Gateway; first contact with a real Gateway is still to be checked).
+## What the Mac app does
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/readme/swarmhub-light.png">
-    <img src="docs/readme/swarmhub-dark.png" alt="Current SwarmHub interface with bot marks, chat previews, a group conversation, a draft card, and the agent Overview." width="1440">
-  </picture>
-  <br>
-  <sub>Current macOS interface · demo content.</sub>
-</p>
+- **Chat with a bot.** Each bot is one agent on a Herdr server, started on its first message and reused while it runs. The reply shows as it is written, and each tool call shows as a step under it. You can stop an answer, send a message into a running answer (steer), and retry a message that was not sent.
+- **Bots.** A bot has a name, an avatar, instructions, an agent program and a model. The agent programs and models offered are the ones the server lists.
+- **Servers.** A server is this Mac, a machine reached over SSH (the app opens the port forward itself), or an address with an access key. Access keys are kept in the Keychain.
+- **Main bot.** Each server has one main bot. It creates other bots, on its own decision or after asking you; any other bot that wants a new bot asks the main bot.
+- **Helper agents.** A bot's agent can hand parts of its work to helpers. They show under the bot in the sidebar and open read-only. The server's helper settings decide what each difficulty runs on.
+- **Bots write to each other.** A bot on a server can name another bot there and write to it. The app puts the message into that bot's chat, marked as passed on, and the answer back into the sender's chat, so you read both sides. Limits keep two bots from answering each other for ever, and a bot's settings can turn this off.
+- **Skills.** A server's skill library ([skillshare](HerdrWorkspace/README.md#manage-the-servers-skillshare-skills)) is listed in Settings and in a bot's Details, where each skill is turned on or off. The app does not install or remove skills.
+- **Group chats.** Several bots in one thread; `@Name` sends a message to the named members, and a message without a mention goes to every member.
+- **Attachments.** Images, text files and documents (PDF, RTF, DOC, DOCX). Text and document contents go to the agent as text; images stay in the chat and are not sent to the agent.
+- **Dictation.** Record a message, have it transcribed through deAPI with your own key, and review the text before sending.
+- **Import.** Bring bots and read-only history over from Grok Bot, or create a bot from a template file.
+- **Sample agents.** Look around without a server; the sample agents answer locally.
+- **Updates.** Installed builds update through Sparkle.
 
-## Benefits
+Details are in the [feature list](docs/FEATURES.md) and the [guide](docs/guide.md).
 
-- Keep agent conversations and recurring work in one place.
-- Spend less time repeating tasks by scheduling routines.
-- Stay in control by reviewing requested actions.
-- Use your own agents, server, and model choices.
+## Get started
 
-## Features
+1. Run Herdr Core and the bridge on the machine where the bots should work: [HerdrWorkspace/README.md](HerdrWorkspace/README.md#run-locally). The Mac app does not install or start them.
+2. Start the app. [Download the latest macOS build](https://github.com/conrader/swarmhub/releases/latest), or build it on a Mac with Xcode:
 
-- **Conversations:** streaming chat, threads, group chats with `@mentions`, images and files; saved reading positions and folded technical rows (0.5.7).
-- **Routines:** recurring tasks, heartbeats and standing goals, with results in the agent's chat.
-- **Your agents:** overview, models per agent, coding agents, agents that manage other agents, and import from Grok Bot.
-- **Approvals:** approve or decline requests, with a policy per agent and reviewer bots.
-- **Connected apps and voice:** fewer prompts for read-only app actions (0.5.8), recognizable account names and clearer live-voice errors (0.5.9).
-- **Hermes and OpenClaw:** Hermes 0.20.5, 0.21.7 and 0.22.0. OpenClaw connects through its Gateway but has not yet been checked against a real Gateway.
+   ```sh
+   ./scripts/run.sh
+   ```
 
-The local release record and bundle metadata cover **0.6.8**. Recent releases add
-safer skill installs and recovery, routine suggestions and steering while a bot
-answers. Off-app alerts remain disabled; eligible count-based loops can run on
-the box, while goals and `--until` loops stay in the app.
+3. The setup window opens while there is no bot. Choose where the bots run, press **Test**, then create the main bot. [Setup in detail](HerdrWorkspace/README.md#use-the-mac-app).
 
-Current main at `349db4c` contains the merged #35–#56 jobroute stack plus
-reviewed fixround3 #58 (`510c5b3`) and iOS fix #59 (`349db4c`), including coding
-skill **1.3.16**. The jobroute Mac worker stays **disabled** pending its isolated
-pilot. Merging does not establish release or deployment. Publication, installed
-versions and live acceptance were not checked in the 2026-11-11 offline docs review. Managed
-approvals, the secure key sheet and Draft Send retain the verification limits
-listed in the feature page; Draft Send here records a test action.
+The app needs macOS 14 or later.
 
-**[Features and release/source status →](docs/FEATURES.md)** ·
-[Release history](docs/CHANGELOG.md) · [Roadmap and limits](docs/ROADMAP-AND-LIMITS.md)
+## The browser workspace
 
-Available features depend on what your connected server supports. See the [Hermes versions SwarmHub works with](docs/hermes-versions.md).
+The bridge also serves a browser interface to the same agents, with features the Mac app does not have (Library, Pages, routines, approvals, connected files). See [HerdrWorkspace/README.md](HerdrWorkspace/README.md) and the [feature plan](docs/herdr-workspace.md).
 
-## Try SwarmHub
+## Repository
 
-The [Herdr workspace preview](HerdrWorkspace/README.md) uses a Rust service to connect a browser interface to Herdr Core on Linux or macOS. [Try the isolated demo](HerdrWorkspace/README.md#try-the-demo), or connect it to your own Herdr Core. The Mac app chats with those agents: its setup wizard (first run with no bot, or Settings → Set up…) asks where bots run (this Mac, a server over SSH, or one by address), tests the connection and says what is wrong when it fails, then creates the server’s main bot on an agent program and model the server offers, with optional bots for its other agent programs, and ends in the main bot’s chat ([setup](HerdrWorkspace/README.md#use-the-mac-app)). Settings → Advanced → Servers and keys and a Herdr bot’s Details → Skills show the server’s [skillshare skills](HerdrWorkspace/README.md#manage-the-servers-skillshare-skills): a switch turns a skill on or off and then syncs, so the agent programs get the change, and sharing the library with another agent program asks first. With the older backends hidden (the default), nothing of theirs is shown: no Reports inbox, box list or Grok Bot import, and an install with no bot on them asks no box for anything. It follows a turn on the workspace’s [event stream](HerdrWorkspace/README.md#follow-a-session-without-polling), so the reply shows as it is written, and polls where a server has none. Every Herdr bot is told how to [start helpers](HerdrWorkspace/README.md#let-an-agent-start-helpers), its sub-agents, unless its “Can start helper agents” switch is off; they show under the bot in the sidebar while they run, each opens read-only, and Settings → Advanced → Servers and keys edits the server’s helper settings. Each server has one main bot, the only one that creates bots: it creates a bot on its own decision, asks you, or refuses, and any other bot that wants a new bot asks it, with the app passing the request and the answer between their chats.
-
-Herdr bots on one server can also write to each other. A bot names another bot and writes a message; the app puts it into that bot’s chat, marked as passed on, and passes the answer back into the sender’s chat, so you read everything they say in both chats. A message to a bot that is answering waits its turn. A bot is written to once per exchange, an exchange passes through four bots at most, and one bot has six messages passed on in ten minutes, so two bots cannot answer each other for ever. Stop the bot that is answering to end an exchange, or turn off a bot’s “Other bots can message it” in its settings.
-
-In development for **macOS, Windows, Linux, iOS, and Android**. You can build the macOS prototype now; Windows and Linux versions are planned. The **iOS and Android apps are in development**; the first native iOS foundation is available to build, and Android is at the planning stage.
-
-[iOS specsheet and screen designs →](docs/ios/README.md)
-
-[Build the native iOS foundation →](Apps/iOS/README.md)
-
-[Download the latest macOS build →](https://github.com/conrader/swarmhub/releases/latest) · [Get started →](docs/guide.md#get-started)
-
-Installed builds update themselves through Sparkle: signed updates, checked once a day, installed now or when you quit (Settings → Check for Updates…; automatic download is in Settings → Advanced → About).
-
-The setup window (first run, or Settings → Change connection…) connects a Hermes box or an OpenClaw Gateway: pick OpenClaw, Test, approve this Mac if asked, and choose its agents, without opening Settings.
-
-[How it works](docs/guide.md#how-it-works) · [Technical reference](docs/reference.md) · [Roadmap](docs/ROADMAP-AND-LIMITS.md)
-
-## Mobile apps
-
-The **iOS and Android apps are in development**. These screenshots show the first native iOS build with sample content. Android is at the planning stage.
-
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/ios/screenshots/mobile-light.png">
-  <img src="docs/ios/screenshots/mobile-dark.png" alt="Actual native SwarmHub iOS app: Chats, Conversation, Approvals and Settings, shown in an iPhone simulator with sample content." width="1480">
-</picture>
-
-[Individual screenshots and capture details](docs/ios/screenshots/SCREENSHOTS.md) · [Build the iOS app](Apps/iOS/README.md) · [Full feature specification and drawings](docs/ios/README.md)
+| Path | What it is |
+| --- | --- |
+| `Sources/AgentApp`, `Tests/AgentAppTests` | The Mac app and its tests (`swift test` on a Mac). |
+| `HerdrWorkspace/` | The bridge and the browser workspace (Rust). |
+| `scripts/` | Build, run, packaging and update scripts for the Mac app, the Grok Bot export tools, and scripts for the iOS project. |
+| `Resources/` | The app's Info.plist, entitlements, icons and avatars. |
+| `Vendor/BotAvatarsKit` | The vendored avatar library. |
+| `docs/` | Guide, reference, feature list, limits, changelog. |
+| `Apps/iOS`, `Packages/` | An earlier iOS app and the two Swift packages it was built on. The Mac app does not use them, and they do not connect to Herdr. |
+| `scripts/release`, `Resources/Updater`, `Tests/Updater`, `docs/update-service` | Signed update-bundle tooling that those packages and the iOS project still refer to. The Mac app does not use it. |
 
 ## Docs
 
-- [`docs/`](docs/) — user guide, technical reference, feature list, update service and iOS specs.
-- [Roadmap and limits](docs/ROADMAP-AND-LIMITS.md) — current open gates, accepted limits and links to architecture decisions.
-- [Archived plans](docs/archive/plans/PLAN.md), [accepted core architecture](docs/archive/plans/CORE-PLAN.md) and [original phases](docs/archive/plans/CORE-PHASES.md) — historical context; current update-service contracts are under [`docs/update-service/`](docs/update-service/).
-- [`briefs/`](briefs/) — historical per-phase briefs, retained in place.
-- [`docs/archive/`](docs/archive/) — old job briefs, reports, reviews and superseded plans. Kept for history; not current.
+- [Guide](docs/guide.md): setup and everyday use.
+- [Features](docs/FEATURES.md): what the Mac app does, by area.
+- [Technical reference](docs/reference.md): build, files on disk, command-line flags, card syntax.
+- [Limits](docs/ROADMAP-AND-LIMITS.md): what the Mac app does not do.
+- [Automatic updates](docs/updates.md): signing key and release steps.
+- [Changelog](docs/CHANGELOG.md).
 
 ## Credits
 
 Bot avatars use [BotAvatarsKit](https://github.com/Jakubantalik/Libraries.dev/tree/a27566557b4def79bcdcedc71858c0fb28020b6d/packages/bot-avatars/ports/ios/BotAvatarsKit) by **Jakub Antalik (Libraries.dev)**, licensed under [MIT](Vendor/BotAvatarsKit/LICENSE).
 
 [Third-party notices](THIRD-PARTY-NOTICES.md) · [Project license](LICENSE)
-
-### Team coordination
-
-App-mediated peer handoffs, directed group work, recovery, task permissions and shared context are implemented in the current source tree. [Usage and boundaries](docs/team-coordination.md). New work waits when SwarmHub cannot dispatch; no additional server runtime or Hermes configuration is required.

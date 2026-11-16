@@ -5,10 +5,8 @@ import Foundation
 import PDFKit
 @testable import AgentApp
 
-/// Server limits the P19 splitter and body guard stay under, read from `~/code/hermes-ref`
-/// `gateway/platforms/api_server.py`: v2026.8.19 (= the box's 0.20.5) lines 154/156/157, v0.21.7 and v0.22.0
-/// lines 233/239/240. If upstream changes them, this is the one place to change.
-enum HermesServerLimits {
+/// The limits the document splitter and body guard stay under.
+enum DocumentServerLimits {
     /// `MAX_NORMALIZED_TEXT_LENGTH`: every text part and plain string is cut here (Python `len`, code points).
     static let maxNormalizedTextLength = 65_536
     /// `MAX_REQUEST_BYTES`: aiohttp `client_max_size`, a 413 above it.

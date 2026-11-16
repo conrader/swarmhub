@@ -63,7 +63,9 @@ import Foundation
         !NSRunningApplication.runningApplications(withBundleIdentifier: GrokProtocol.bundleIdentifier).isEmpty
     }
 
-    var serverURL: String? { store.grokSettingsServerURL }
+    /// A Herdr server is set up, and the first one's name: new bots run there.
+    var hasServer: Bool { store.herdrConfigured }
+    var serverName: String { store.herdrServers[0].name }
     var selectedItems: [GrokFoundItem] { items.filter { selected.contains($0.id) } }
     /// "At least N read requests, about T s" for the Full mode line: one canary plus the pages, 0.5 s apart.
     var requestEstimate: (requests: Int, seconds: Int) {
@@ -347,7 +349,6 @@ import Foundation
                 profile: bundle.profile, cachedMessages: bundle.messages.count, newestCachedSeq: newest,
                 hiddenInGrok: bundle.source.hiddenFromSidebar)
             if let bot = store.bots.first(where: { $0.grokSourceID == bundle.sourceID }) {
-                item.profile = bot.hermesProfile
                 item.importedLines = bot.grokHistoryCount
                 item.importedAt = store.grokHistory.lastModified(for: bot.id)
             } else if let group = store.groups.first(where: { $0.grokSourceID == bundle.sourceID }) {

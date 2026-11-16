@@ -21,15 +21,10 @@ struct ComposerView: View {
     /// P38 C: deAPI dictation. The chat this composer writes into (nil: no microphone); changing it cancels a recording,
     /// and a transcript is only appended to the draft of the chat it was recorded in.
     var dictationContext: String? = nil
-    /// P45 1: the `/` commands this chat runs (empty: no menu, e.g. groups).
-    var slashCommands: [SlashCommand] = []
     /// The setup wizard ends in a chat with the keyboard in its composer: true asks for it, and `tookFocus` says it happened.
     var wantsFocus = false; var tookFocus: () -> Void = {}
     @ObservedObject var dictation: VoiceDictation = VoiceDictation()
     @State private var importing = false; @State private var pasteMonitor: Any?; @FocusState private var focused: Bool
-    @State private var slash = SlashMenuState()
-    private var slashMatches: [SlashCommand] { slash.matches(for: text, commands: slashCommands) }
-    private var slashOpen: Bool { slash.isOpen(for: text, commands: slashCommands) }
     private var dictationBusy: Bool { dictationContext != nil && dictation.isBusy }
     private var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
     private var suggestions: [String] {
@@ -38,7 +33,6 @@ struct ComposerView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if slashOpen { SlashCommandMenu(commands: slashMatches, selected: min(slash.selected, max(slashMatches.count - 1, 0)), pick: pickSlash) }
             if !suggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(suggestions, id: \.self) { name in
@@ -93,7 +87,6 @@ struct ComposerView: View {
             .onAppear(perform: installPasteMonitor).onDisappear { removePasteMonitor(); dictation.cancel() }
             .onAppear(perform: takeFocus).onChange(of: wantsFocus) { _, _ in takeFocus() }
             .onChange(of: dictationContext) { _, _ in dictation.cancel() }
-            .onChange(of: text) { _, value in if slash.dismissedAt != nil, slash.dismissedAt != value { slash.dismissedAt = nil }; if SlashMenu.query(in: value) == nil { slash.selected = 0 } }
             .onChange(of: dictation.transcript) { _, transcript in
                 guard let transcript, let dictationContext, dictation.transcriptContext == dictationContext else { return }
                 text = VoiceDictation.appending(transcript, to: text)
@@ -123,14 +116,10 @@ struct ComposerView: View {
                     .padding(.vertical, ComposerMetrics.textInset - ComposerMetrics.editorInset).focused($focused)
                     .onKeyPress(.return, phases: .down) { press in
                         if press.modifiers.contains(.shift) { return .ignored }
-                        if slashOpen, let command = slash.current(in: slashMatches) { pickSlash(command); return .handled }
                         if let first = suggestions.first { text = GroupRouting.complete(text, with: first); return .handled }
                         if reading.isEmpty && !dictationBusy { send() }; return .handled
                     }
-                    .onKeyPress(.upArrow) { guard slashOpen else { return .ignored }; slash.move(-1, count: slashMatches.count); return .handled }
-                    .onKeyPress(.downArrow) { guard slashOpen else { return .ignored }; slash.move(1, count: slashMatches.count); return .handled }
-                    .onKeyPress(.escape) { guard slashOpen else { return .ignored }; slash.dismissedAt = text; return .handled }
-                    .onKeyPress(.tab) { if slashOpen, let command = slash.current(in: slashMatches) { text = SlashMenu.completion(for: command); return .handled }; guard let first = suggestions.first else { return .ignored }; text = GroupRouting.complete(text, with: first); return .handled }
+                    .onKeyPress(.tab) { guard let first = suggestions.first else { return .ignored }; text = GroupRouting.complete(text, with: first); return .handled }
             }
     }
 
@@ -139,12 +128,6 @@ struct ComposerView: View {
     private func takeFocus() {
         guard wantsFocus else { return }
         Task { @MainActor in try? await Task.sleep(for: .milliseconds(300)); focused = true; tookFocus() }
-    }
-
-    /// Enter or a click on a row: a command with arguments waits for them; the others run at once.
-    private func pickSlash(_ command: SlashCommand) {
-        text = SlashMenu.completion(for: command); slash.selected = 0
-        if !command.takesArguments, !isStreaming || canSteer || command == .stop { send() }
     }
 
     /// TextEditor handles text paste itself, so files/images on the pasteboard are intercepted at key-down.

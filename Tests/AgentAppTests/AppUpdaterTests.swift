@@ -29,7 +29,7 @@ private var updateInfo: [String: Any] {
 
 @Test func updatesDoNotRunDuringAutomation() {
     for environment in [["SWARMHUB_DISABLE_UPDATES": "1"], ["AGENTAPP_SNAPSHOT": "/tmp/test.png"],
-                        ["AGENTAPP_HERMES_INTEGRATION": "1"], ["AGENTAPP_BENCHMARK": "1"],
+                        ["AGENTAPP_BENCHMARK": "1"],
                         ["XCTestConfigurationFilePath": "/tmp/tests.xctestconfiguration"]] {
         #expect(UpdateConfiguration.unavailableReason(bundleURL: installedAppURL, info: updateInfo, environment: environment) != nil)
     }

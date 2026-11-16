@@ -1,6 +1,6 @@
 import Foundation
 
-/// P16: a group round and one member's turn. Members answer one after another; every member the round did not reach
+/// A group round and one member's turn. Members answer one after another; every member the round did not reach
 /// gets a `notSent` row, so nothing is skipped without a trace.
 extension AppStore {
     func runGroupRound(group: GroupChat, run: GroupRun, token: UUID, recipients: [UUID], images: [String], trigger: ChatMessage) async {
@@ -37,10 +37,9 @@ extension AppStore {
         objectWillChange.send()
     }
 
-    /// One member's turn in its own group session. `reusing` is a `notSent` row Retry sends into.
+    /// One member's turn. `reusing` is a `notSent` row Retry sends into.
     @discardableResult func groupTurn(bot: Bot, group: GroupChat, run: GroupRun, token: UUID, images: [String], trigger: ChatMessage, reusing row: ChatMessage? = nil) async -> TurnOutcome? {
-        if needsKey(bot) { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: no key for \(bot.hermesProfile ?? "its profile").")); return nil }
-        // P38: a saved document whose access was removed after the round started is never sent to this member.
+        // A saved document whose access was removed after the round started is never sent to this member.
         do { try validateArtifactAccess(trigger, botID: bot.id) } catch { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(error.localizedDescription)")); return nil }
         let activeBackend: any AgentBackend
         do { activeBackend = try backend(for: bot) } catch { group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(error.localizedDescription)")); return nil }
@@ -48,7 +47,7 @@ extension AppStore {
         let assistant: ChatMessage
         if let row {
             assistant = row; row.isStreaming = true; row.turnState = .incomplete
-            [TurnKey.why, TurnKey.ambiguous, TurnKey.check, TurnKey.retry, TurnKey.end].forEach { row.metadata[$0] = nil }
+            [TurnKey.why, TurnKey.ambiguous, TurnKey.retry, TurnKey.end].forEach { row.metadata[$0] = nil }
         } else {
             assistant = ChatMessage(role: .assistant, content: "", isStreaming: true, metadata: [TurnKey.forUser: trigger.id.uuidString], authorID: bot.id, turnState: .incomplete)
             group.messages.append(assistant)
@@ -56,49 +55,28 @@ extension AppStore {
         group.activeMemberID = bot.id
         if let turn = turn(token: token) { turn.botID = bot.id; turn.assistant = assistant }
         objectWillChange.send(); save()
-        let wanted = sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id)
-        var end: TurnEnd; var refused = false
+        let sessionID = group.session(for: bot.id) ?? sessionNamespace + GroupRouting.sessionID(group: group.id, bot: bot.id)
+        var end: TurnEnd
         do {
-            if group.session(for: bot.id) == nil, try await activeBackend.sessionTransport() == .nativeSessions {
-                let note = { [unowned self] (text: String) in insertNote(text, in: group, before: assistant) }
-                let plan = try await prepareModel(for: bot, backend: activeBackend, note: note)
-                let created = try await activeBackend.createSession(title: sessionTitle("\(group.name) · \(bot.name)", id: wanted), systemPrompt: bot.outboundPersona, id: wanted)
-                if let plan { try await applyModel(plan, bot: bot, sessionID: created, record: false, note: note) }
-                group.hermesSessionID = created
-                save()
-            }
             try Task.checkCancellation()
-            let sessionID = group.session(for: bot.id) ?? wanted
-            let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: withHeartbeatContext(bot.outboundPersona, bot: bot), messages: [(role: "user", content: context)], images: images))
+            let stream = try await activeBackend.send(.init(sessionID: sessionID, systemPrompt: bot.outboundPersona, messages: [(role: "user", content: context)], images: images))
             if isCurrent(token) { setSteerAvailable((try? await activeBackend.features())?.contains("run_steer") == true, token: token) }
-            end = try await consumeTurn(stream, assistant: assistant, bot: bot, sessionID: sessionID, backend: activeBackend, in: group) { [unowned self] task in upsertSubAgent(task, bot: bot, in: group, row: false) }
+            end = try await consumeTurn(stream, assistant: assistant, bot: bot)
         } catch is CancellationError { end = .stoppedByUser
         } catch let error as URLError where error.code == .cancelled && Task.isCancelled { end = .stoppedByUser
-        } catch let refusal as ModelRefusal {
-            group.messages.append(ChatMessage(role: .system, content: "\(bot.name) was skipped: \(refusal.text)")); end = .error(refusal); refused = true
         } catch { end = .error(error) }
         if Task.isCancelled || run.stopped, case .completed = end {} else if Task.isCancelled || run.stopped { end = .stoppedByUser }
-        let (reply, steers) = endTurnParts(assistant)
+        let reply = endTurnParts(assistant)
         if case .stoppedByUser = end, reply.turnState != .stopped { reply.turnState = .stopped; reply.metadata[TurnKey.why] = "stopped" }
-        let outcome = finishTurn(end, assistant: reply, bot: bot, in: group, backend: activeBackend, alertPrefix: "\(bot.name): ", warn: !refused, alert: !refused)
-        let cancelled = outcome.state == .stopped
-        let session = group.session(for: bot.id) ?? wanted
-        let abandoned = approvals.filter { !$0.isManaged && $0.botID == bot.id && $0.sessionID == session }
-        for approval in abandoned {
-            appendAudit(to: bot, approval: approval, outcome: .denied, decidedBy: "system", reason: cancelled ? "Run stopped; pending approval was cancelled." : "Run ended; pending approval was cancelled.")
-        }
-        approvals.removeAll { abandoned.map(\.id).contains($0.id) }
+        let outcome = finishTurn(end, assistant: reply, bot: bot, in: group, alertPrefix: "\(bot.name): ")
         group.activeMemberID = nil
         setSteerAvailable(false, token: token)
         let text = reply.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty && !reply.isSilent && (outcome.state == .finished || outcome.state == .incomplete) && selectedGroup?.id != group.id { group.unreadCount += 1 }
         if outcome.state == .finished && !text.isEmpty {
-            routeManagedApprovals(in: reply, bot: bot)
-            startReviewIfNeeded(reply, from: bot, in: group)
             AvatarReactions.shared.completed(bot)
             notifyIfNeeded(group: group, bot: bot, message: reply.finalText.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        resendReturnedSteers(steers, bot: nil)
         objectWillChange.send(); save()
         return outcome
     }

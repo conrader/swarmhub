@@ -10,7 +10,7 @@ enum SidebarChat: Identifiable {
 
     private var messageLists: [[ChatMessage]] {
         switch self {
-        case .bot(let bot): [bot.messages] + bot.threads.map(\.messages)
+        case .bot(let bot): [bot.messages]
         case .group(let group): [group.messages]
         }
     }

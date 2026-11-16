@@ -1,4 +1,4 @@
-// P38 C: deAPI dictation (client, lifecycle, composer). deAPI is served by `MockHermesProtocol`; no key, microphone or network.
+// P38 C: deAPI dictation (client, lifecycle, composer). deAPI is served by `MockHTTPProtocol`; no key, microphone or network.
 import AppKit
 import Foundation
 import SwiftUI
@@ -13,8 +13,8 @@ private func dictationAudio() throws -> URL {
     return url
 }
 
-private func dictationClient(_ handler: @escaping MockHermesProtocol.Handler) -> (DeAPIClient, String) {
-    let (host, session) = MockHermesProtocol.serve(handler)
+private func dictationClient(_ handler: @escaping MockHTTPProtocol.Handler) -> (DeAPIClient, String) {
+    let (host, session) = MockHTTPProtocol.serve(handler)
     return (DeAPIClient(apiKey: "dpn-sk-" + dictationKey, session: session,
                         baseURL: URL(string: "https://\(host)/api/v2/")!, pollInterval: .zero, sleep: { _ in }), host)
 }
@@ -56,7 +56,7 @@ private func dictationRequestBody(_ request: URLRequest) -> Data {
     }
     let audio = try dictationAudio(); defer { try? FileManager.default.removeItem(at: audio) }
     #expect(try await client.transcribe(file: audio) == "Hello, team.")
-    let requests = MockHermesProtocol.recorded(host)
+    let requests = MockHTTPProtocol.recorded(host)
     #expect(requests.count == 4)
     #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer " + dictationKey })
     #expect(requests[0].url?.query?.contains("limit=50") == true)
@@ -78,7 +78,7 @@ private func dictationRequestBody(_ request: URLRequest) -> Data {
         return (200, ["data": [["slug": "FreshWhisper", "inference_types": ["audio_file2text"]]], "meta": ["last_page": 2]])
     }
     #expect(try await client.transcriptionModel() == "FreshWhisper")
-    #expect(MockHermesProtocol.recorded(host).count == 2)
+    #expect(MockHTTPProtocol.recorded(host).count == 2)
     let (empty, _) = dictationClient { _ in (200, ["data": [], "meta": ["last_page": 1]]) }
     await #expect(throws: DeAPIError.noModel) { try await empty.transcriptionModel() }
 }
@@ -112,7 +112,7 @@ private func dictationRequestBody(_ request: URLRequest) -> Data {
         return (200, ["synthetic": "download"])
     }
     _ = try await client.transcribe(file: audio)
-    let download = try #require(MockHermesProtocol.recorded(host).last)
+    let download = try #require(MockHTTPProtocol.recorded(host).last)
     #expect(download.url?.path == "/transcript.txt" && download.value(forHTTPHeaderField: "Authorization") == nil)
 }
 
@@ -161,7 +161,10 @@ private struct DictationComposerFixture: View {
     }
 }
 
-extension VoiceSessionTests {
+/// Dictation owns the one active microphone: its suites run one after another.
+@Suite(.serialized) struct VoiceTests {}
+
+extension VoiceTests {
 @Suite(.serialized) @MainActor struct VoiceDictationLifecycleTests {
     @Test func dictationPreservesDraftAndCleansTheRecording() async throws {
         let recording = try FakeDictationRecording()
@@ -238,7 +241,7 @@ extension VoiceSessionTests {
             let text = await gate.wait(); returned.append(text); return text
         })
         let draft = DictationDraft()
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+        let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
         let host = NSHostingView(rootView: DictationComposerFixture(draft: draft, voice: voice).environmentObject(store).frame(width: 600, height: 170))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 170), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false; window.contentView = host

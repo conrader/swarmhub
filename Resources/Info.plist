@@ -22,17 +22,6 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.6.8</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.konrad.agentapp.sign-in</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>swarmhub</string>
-			</array>
-		</dict>
-	</array>
 	<key>CFBundleVersion</key>
 	<string>33</string>
 	<key>LSMinimumSystemVersion</key>
@@ -40,9 +29,9 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>SwarmHub connects to an OpenClaw Gateway on your local network only when you add one in Settings.</string>
+	<string>SwarmHub connects to a Herdr server on your local network only when you add one in Settings.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>SwarmHub uses your microphone for live voice with your connected ChatGPT account, or sends a stopped dictation recording to deAPI to create a message draft.</string>
+	<string>SwarmHub records with your microphone only while you dictate, and sends the stopped recording to deAPI to create a message draft.</string>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
 	<key>SUAutomaticallyUpdate</key>
@@ -57,7 +46,5 @@
 	<integer>86400</integer>
 	<key>SUVerifyUpdateBeforeExtraction</key>
 	<true/>
-	<key>SWComposioProvisioningURL</key>
-	<string>https://agenthut.net/swarmhub/</string>
 </dict>
 </plist>

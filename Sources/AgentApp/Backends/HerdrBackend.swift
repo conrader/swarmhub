@@ -17,7 +17,7 @@ struct HerdrBackend: AgentBackend {
     static let urlKey = "herdrBaseURL", templateKey = "herdrTemplate", keyAccount = "herdr"
     /// Used only when the Keychain has no token (`AppStore.herdrClient`).
     static let tokenEnvironment = "SWARMHUB_HERDR_TOKEN"
-    /// A bot's own template lives beside the app settings, so the bot record and its Hermes fields stay untouched.
+    /// A bot's own template lives beside the app settings, not on the bot record.
     static func botTemplateKey(_ botID: UUID) -> String { "\(templateKey).\(botID.uuidString.lowercased())" }
     static let missingToken = "This Herdr server has no access key yet. Add it in Settings → Advanced → Servers and keys."
     static let modelNote = "Choose this agent's model under Herdr agent."
@@ -30,7 +30,7 @@ struct HerdrBackend: AgentBackend {
     let template: String?
     /// nil: the agent program's own default model. Used when the bot next starts an agent.
     let model: String?
-    /// The bot's own instructions, given once to each agent it starts; the app's Hermes policy text is never sent.
+    /// The bot's own instructions, given once to each agent it starts; nothing else of the app's is sent.
     let instructions: String?
     /// A message sent while the agent answers is typed into the running agent (steer), which reads it as soon as it
     /// can. Off: the app holds the message until the answer ends.
@@ -142,8 +142,6 @@ struct HerdrBackend: AgentBackend {
         try await client.message(HerdrClient.plain(text, bytes: HerdrClient.messageBytes), to: agent)
     }
 
-    func listSessions() async throws -> [BackendSession] { [] }
-
     func cancel(sessionID: String) async throws -> StopOutcome { try await requestStop(try await stopTarget(sessionID: sessionID)) }
 
     /// The bot's running agent, as `address/created`; an agent that is not running has nothing to stop.
@@ -158,10 +156,6 @@ struct HerdrBackend: AgentBackend {
         guard let agent = try await client.workspace().agents.first(where: { "\($0.address)/\($0.createdMs)" == id && $0.isLive }) else { return .noActiveRun }
         try await client.interrupt(agent)
         return .requested
-    }
-
-    func resolveApproval(id: UUID, approved: Bool) async throws {
-        throw BackendError.unavailable("Answer this request in the agent's terminal in the Herdr workspace.")
     }
 
     /// Settings → Test: the bridge answers, Core is up, and how many templates it can start.

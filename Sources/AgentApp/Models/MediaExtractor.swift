@@ -7,19 +7,19 @@ struct MediaItem: Identifiable, Equatable {
     /// Remote/data URL for links and Markdown images; nil for stored attachments.
     let url: String?
     let attachment: ChatAttachment?
-    let messageID: UUID; let threadID: UUID?; let date: Date
+    let messageID: UUID; let date: Date
 }
 
 enum MediaExtractor {
-    /// Main chat and threads together, newest first.
+    /// The chat's media, newest first.
     static func items(in bot: Bot) -> [MediaItem] {
-        let all = items(in: bot.messages, threadID: nil) + bot.threads.flatMap { items(in: $0.messages, threadID: $0.id) }
+        let all = items(in: bot.messages)
         return all.enumerated().sorted { lhs, rhs in
             lhs.element.date != rhs.element.date ? lhs.element.date > rhs.element.date : lhs.offset > rhs.offset
         }.map(\.element)
     }
 
-    static func items(in messages: [ChatMessage], threadID: UUID?) -> [MediaItem] {
+    static func items(in messages: [ChatMessage]) -> [MediaItem] {
         messages.flatMap { message -> [MediaItem] in
             var found: [(MediaItem.Kind, String, String?, ChatAttachment?)] = []
             for attachment in message.attachments { found.append((attachment.kind == .image ? .image : .file, attachment.name, nil, attachment)) }
@@ -32,7 +32,7 @@ enum MediaExtractor {
             default: break
             }
             return found.enumerated().map { index, item in
-                MediaItem(id: "\(message.id.uuidString)-\(index)", kind: item.0, title: item.1, url: item.2, attachment: item.3, messageID: message.id, threadID: threadID, date: message.createdAt)
+                MediaItem(id: "\(message.id.uuidString)-\(index)", kind: item.0, title: item.1, url: item.2, attachment: item.3, messageID: message.id, date: message.createdAt)
             }
         }
     }

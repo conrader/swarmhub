@@ -80,7 +80,7 @@ func grokFilesText(under folder: URL) -> [String] {
     let defaults = isolatedDefaults()
     let storeURL = temporaryStore()
     func store(_ world: GrokWorld) -> AppStore {
-        AppStore(storeURL: storeURL, autoConfigureHermes: false, keyStore: InMemoryKeyStore([:]), defaults: defaults, hermesSession: UnreachableProtocol.session)
+        AppStore(storeURL: storeURL, autoStart: false, keyStore: InMemoryKeyStore([:]), defaults: defaults)
     }
     func record(_ run: GrokImportRun, _ state: GrokImportRunState) {
         texts += [String(describing: state), String(reflecting: state), String(describing: run.rows)]

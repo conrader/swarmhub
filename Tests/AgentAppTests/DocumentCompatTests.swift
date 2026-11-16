@@ -64,7 +64,7 @@ private final class PageLog: @unchecked Sendable {
     _ = try await encoder.prepareAll(fileURL: url, pageHook: { page in log.add(page, main: Thread.isMainThread) })
     #expect(log.onMain == [false], "called from the main actor, read on the generic executor")
 
-    let store = AppStore(storeURL: folder.appending(path: "store.json"), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: folder.appending(path: "store.json"), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     let note = folder.appending(path: "a.txt"); try Data("first".utf8).write(to: note)
     let blob = folder.appending(path: "blob.bin"); try Data([0, 1, 0]).write(to: blob)
     let items = await store.prepareAttachmentsAsync([note, blob, url])

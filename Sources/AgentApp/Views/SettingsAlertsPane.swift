@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Settings → Advanced → Appearance and alerts (P21): the per-bot notification switches and avatar motion, moved
-/// unchanged from the old Notifications and Appearance panes, and each server's off-app alerts. The master switch lives
-/// on the simple page.
+/// Settings → Advanced → Appearance and alerts: the per-bot notification switches and avatar motion. The master
+/// switch lives on the simple page.
 struct SettingsAlertsPane: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage("notifications") private var notifications = false
@@ -13,8 +12,6 @@ struct SettingsAlertsPane: View {
             if !notifications { Text("Notifications are off on the simple page.").font(.caption).foregroundStyle(.secondary) }
         }.disabled(!notifications)
         AvatarMotionSettingRow()
-        // Alerts from each server while SwarmHub is closed (ntfy, email), with the box's service state. rel066: switched off.
-        if store.boxAlertsOn, LegacySurface.isShown(store.defaults) { BoxAlertsSection(cache: store.boxAlerts) }
     }
 }
 

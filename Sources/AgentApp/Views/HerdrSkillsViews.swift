@@ -54,7 +54,7 @@ struct HerdrSkillsContent: View {
             }
         }
         // Only the real app reads on its own; a preview or test store stays offline until asked.
-        .task(id: server.id) { if model.phase == .idle, store.botInfo.autoLoad { await model.load() } }
+        .task(id: server.id) { if model.phase == .idle, store.launchWorkEnabled { await model.load() } }
     }
 
     @ViewBuilder private func ready(_ library: HerdrSkillLibrary) -> some View {

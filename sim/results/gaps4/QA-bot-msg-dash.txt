@@ -1,1 +1,0 @@
-SKIP: bot-msg tests under /bin/dash: permission denied opening a loopback socket

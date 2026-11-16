@@ -71,7 +71,7 @@ private func skillsRequestBody(_ request: URLRequest) -> [String: Any] {
 
 @MainActor private func scripted() -> (server: ScriptedSkills, model: HerdrSkillsModel, client: HerdrClient) {
     let server = ScriptedSkills()
-    let (host, session) = MockHermesProtocol.serve { server.answer($0) }
+    let (host, session) = MockHTTPProtocol.serve { server.answer($0) }
     let client = HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session)
     return (server, HerdrSkillsModel { client }, client)
 }
@@ -155,23 +155,23 @@ private func skillsRequestBody(_ request: URLRequest) -> [String: Any] {
 
 @MainActor @Test func aServerWithoutSkillshareSaysWhy() async throws {
     let missing = #"{"installed":false,"version":null,"problem":"skillshare is not installed on this server.","source":null,"skill_count":0,"skills":[],"targets":[]}"#
-    let (host, session) = MockHermesProtocol.serve { request in
+    let (host, session) = MockHTTPProtocol.serve { request in
         if request.url?.path == "/api/skillshare" { return (200, Data(missing.utf8)) }
         return (503, ["error": "skillshare is not installed on this server."])
     }
     let model = HerdrSkillsModel { HerdrClient(baseURL: URL(string: "http://\(host)")!, token: "t", session: session) }
     await model.load()
     #expect(model.phase == .ready && model.library?.installed == false && model.library?.problem == "skillshare is not installed on this server." && model.behind == nil)
-    #expect(MockHermesProtocol.recorded(host).count == 1, "nothing else is asked of a server without skillshare")
+    #expect(MockHTTPProtocol.recorded(host).count == 1, "nothing else is asked of a server without skillshare")
     // An older workspace has no such route.
-    let (old, oldSession) = MockHermesProtocol.serve { _ in (404, Data()) }
+    let (old, oldSession) = MockHTTPProtocol.serve { _ in (404, Data()) }
     let older = HerdrSkillsModel { HerdrClient(baseURL: URL(string: "http://\(old)")!, token: "t", session: oldSession) }
     await older.load()
     #expect(older.phase == .unavailable(HerdrSkillsCopy.olderWorkspace))
 }
 
 @MainActor @Test func aHerdrBotsDetailsShowItsServersSkills() async throws {
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     store.saveHerdrServer(store.herdrServers[0], token: "t")
     let bot = Bot(name: "Ada", backend: .herdr); store.bots = [bot]
     #expect(store.infoTabs(for: bot) == [.overview, .model, .skills, .media])

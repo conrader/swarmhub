@@ -10,22 +10,14 @@ enum SidebarFragment {
 
     /// `author` is set for group chats only: it names the bot that wrote a live reply ("<Member>: …"), and archived
     /// lines then use their own author. One-bot chats show the bot's lines bare.
-    /// `working`: the running reply's Thinking, Typing or Working line. P51: `technical` names a folded row's line (a
-    /// group's rows use their author); a technical row reads as that line, and an app result as its request's line.
+    /// `working`: the running reply's Thinking, Typing or Working line.
     static func text(messages: [ChatMessage], draft: String?, isWorking: Bool, archiveNewest: @autoclosure () -> ArchivedMessage?,
-                     author: ((UUID?) -> String?)? = nil, working: String? = nil, technical: TechnicalContext = TechnicalContext(botName: "")) -> String {
+                     author: ((UUID?) -> String?)? = nil, working: String? = nil) -> String {
         if let draft, case let value = plain(draft), !value.isEmpty { return "Draft: " + value }
         if isWorking { return working ?? ChatActivityPhase.thinking.label }
-        for index in messages.indices.reversed() {
-            let message = messages[index]
-            guard message.role != .system && !message.isSilent && !message.isSilentHeartbeat else { continue }
-            var context = technical
-            if let name = author?(message.authorID) { context.botName = name }
-            let previous = index > 0 ? messages[index - 1] : nil, next = index + 1 < messages.count ? messages[index + 1] : nil
-            if message.role == .user, TechnicalRow.isAppResult(message.content), let previous, previous.role == .assistant, TechnicalRow.isAppRequest(previous.content) { continue }
-            if let fold = TechnicalRow.classify(message, next: next, isLast: next == nil, context: context) { return plain(fold.summary) }
-            // P45: what SwarmHub sent by itself reads as its short form ("Heartbeat", "Continue toward the goal").
-            let body = plain(TechnicalRow.displayLine(message, context: context))
+        for message in messages.reversed() {
+            guard message.role != .system && !message.isSilent else { continue }
+            let body = plain(line(message))
             let value = body.isEmpty ? (message.attachments.first.map { "Attachment: " + $0.name } ?? "") : body
             guard !value.isEmpty else { continue }
             return prefixed(value, isUser: message.role == .user, author: message.role == .assistant ? author?(message.authorID) : nil)
@@ -34,6 +26,15 @@ enum SidebarFragment {
             return prefixed(value, isUser: line.role == "user", author: author == nil ? nil : line.author)
         }
         return ""
+    }
+
+    /// The text a row reads as outside its transcript: a reply without its ```swarmhub fences, or, when the reply is
+    /// only such a fence, that fence's line; any other row's own text.
+    static func line(_ message: ChatMessage) -> String {
+        guard message.role == .assistant else { return message.content }
+        let visible = SwarmhubBlock.visibleText(message.finalText)
+        if visible.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let block = SwarmhubSummary.lines(in: message.finalText).last { return block.summary }
+        return visible
     }
 
     private static func prefixed(_ value: String, isUser: Bool, author: String?) -> String {

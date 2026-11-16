@@ -3,8 +3,7 @@ import Security
 import Testing
 @testable import AgentApp
 
-// P10d: availability (Tier 1 and Tier 2) on temp folders, the binding table, and both orders end to end with
-// "Add bots from box" against a mock Hermes server (briefs/P10.md P10d 5).
+// Availability (Tier 1 and Tier 2) on temp folders, and a re-import that keeps a local rename.
 
 @MainActor private func availability(_ world: GrokWorld, store: AppStore? = nil) async -> GrokAvailability? {
     let coordinator = makeCoordinator(world, store ?? world.store())
@@ -79,120 +78,14 @@ private func cacheFile(_ world: GrokWorld, containing marker: String) throws -> 
     #expect(await availability(mismatch) == .cacheOnly(.cache(.accountMismatch)))
     // A store that cannot save.
     let world = try GrokWorld()
-    let demo = AppStore(demoMode: true, storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let demo = AppStore(demoMode: true, storeURL: temporaryStore(), autoStart: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
     #expect(await availability(world, store: demo) == .unavailable(.persistenceOff))
     #expect(world.passwords.reads == 0 && world.fake.requests.isEmpty)
 }
 
-@MainActor @Test func theBindingTableKeyOrNotServerOrNot() async throws {
-    // (server set, key for Jarvis) → expected Jarvis profile; every other bot follows the same rule without a key.
-    let cases: [(server: String?, key: Bool, jarvis: String?, plain: String?)] = [
-        (nil, false, nil, nil), (nil, true, "grok-jarvis", nil),
-        ("https://box.test/v1", false, "grok-jarvis", "grok-plain-bot"), ("https://box.test/v1", true, "grok-jarvis", "grok-plain-bot"),
-    ]
-    for entry in cases {
-        let world = try GrokWorld()
-        let defaults = isolatedDefaults()
-        if let server = entry.server { defaults.set(server, forKey: "hermesBaseURL") }
-        let keys = InMemoryKeyStore(entry.key ? ["hermes.grok-jarvis": "synthetic-key"] : [:])
-        let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: keys, defaults: defaults, hermesSession: UnreachableProtocol.session)
-        let coordinator = makeCoordinator(world, store)
-        await coordinator.scan()
-        coordinator.mode = .recent
-        await coordinator.proceed()
-        await coordinator.settled()
-        let jarvis = try #require(store.bots.first { $0.grokSourceID == GrokRunIDs.jarvis })
-        let plain = try #require(store.bots.first { $0.grokSourceID == GrokRunIDs.plain })
-        #expect(jarvis.hermesProfile == entry.jarvis && plain.hermesProfile == entry.plain, "\(entry)")
-        #expect(jarvis.isGrokHistoryOnly == (entry.jarvis == nil) && jarvis.hermesBaseURL == entry.server)
-    }
-}
-
-/// A store on a mock Hermes server that serves the named profiles (multiplexing on).
-@MainActor private func hermesStore(serving profiles: Set<String>) -> (AppStore, String) {
-    let (host, session) = MockHermesProtocol.serve(hermesModelsHandler(multiplex: true, served: profiles))
-    let defaults = isolatedDefaults()
-    defaults.set("https://\(host)", forKey: "hermesBaseURL")
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: defaults,
-                         hermesSession: session)
-    return (store, host)
-}
-
-private let servedProfiles: Set<String> = ["grok-jarvis", "grok-finance-controller"]
-
-@MainActor @Test func keysFirstThenImportEndsWithOneBotPerProfile() async throws {
-    let world = try GrokWorld()
-    let (store, _) = hermesStore(serving: servedProfiles)
-    let added = await store.addBotsFromBox("grok-jarvis=key-one\ngrok-finance-controller=key-two")
-    #expect(added.map(\.summary).allSatisfy { $0.hasPrefix("added") })
-    #expect(store.bots.filter { $0.hermesProfile?.hasPrefix("grok-") == true }.count == 2)
-    let coordinator = makeCoordinator(world, store)
-    await coordinator.scan()
-    await runFull(coordinator)
-    #expect(coordinator.step == .finished)
-    let expected = [("grok-jarvis", "Jarvis", GrokRunIDs.jarvis), ("grok-finance-controller", "Finance Controller", GrokRunIDs.finance)]
-    for (profile, name, id) in expected {
-        let bound = store.bots.filter { $0.hermesProfile == profile }
-        #expect(bound.count == 1, "\(profile)")
-        // Adopted: the identity is Grok's, the history attached, the key still present.
-        #expect(bound.first?.name == name && bound.first?.grokSourceID == id && (bound.first?.grokHistoryCount ?? 0) > 0)
-        #expect(store.keyStore.hasKey(for: "hermes.\(profile)"))
-    }
-    #expect(coordinator.botOutcomes.map(\.connection) == [.live, .live, .needsKey])
-}
-
-@MainActor @Test func importFirstThenKeysEndsWithOneBotPerProfile() async throws {
-    let world = try GrokWorld()
-    let (store, _) = hermesStore(serving: servedProfiles)
-    let coordinator = makeCoordinator(world, store)
-    await coordinator.scan()
-    await runFull(coordinator)
-    #expect(coordinator.botOutcomes.map(\.connection) == [.needsKey, .needsKey, .needsKey])
-    let results = await coordinator.addKeys("grok-jarvis=key-one\ngrok-finance-controller=key-two\ngrok-plain-bot=key-three")
-    #expect(results.count == 3)
-    for profile in ["grok-jarvis", "grok-finance-controller", "grok-plain-bot"] {
-        #expect(store.bots.filter { $0.hermesProfile == profile }.count == 1, "\(profile)")
-    }
-    #expect(store.bots.first { $0.hermesProfile == "grok-jarvis" }?.grokSourceID == GrokRunIDs.jarvis)
-    // Plain Bot's profile is not on the server: measured, not assumed.
-    #expect(coordinator.botOutcomes.map(\.connection) == [.live, .live, .profileNotOnServer])
-}
-
-@MainActor @Test func historyOnlyBotsTakeTheirPastedKeyInsteadOfGainingATwin() async throws {
-    let world = try GrokWorld()
-    let (host, session) = MockHermesProtocol.serve(hermesModelsHandler(multiplex: true, served: servedProfiles))
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, keyStore: InMemoryKeyStore(),
-                         defaults: isolatedDefaults(), hermesSession: session)
-    let coordinator = makeCoordinator(world, store)
-    await coordinator.scan()
-    #expect(coordinator.serverURL == nil)
-    coordinator.mode = .recent
-    await coordinator.proceed()
-    await coordinator.settled()
-    #expect(store.bots.first { $0.grokSourceID == GrokRunIDs.jarvis }?.isGrokHistoryOnly == true)
-    _ = await coordinator.addKeys("grok-jarvis=key-one")
-    #expect(store.bots.filter { $0.hermesProfile == "grok-jarvis" }.map(\.grokSourceID) == [GrokRunIDs.jarvis])
-    #expect(!host.isEmpty)
-}
-
-@MainActor @Test func checkAgainBindsBotsOnceAServerIsSet() async throws {
-    let world = try GrokWorld()
-    let store = world.store()
-    let coordinator = makeCoordinator(world, store)
-    await coordinator.scan()
-    coordinator.mode = .recent
-    await coordinator.proceed()
-    await coordinator.settled()
-    #expect(coordinator.botOutcomes.allSatisfy { $0.connection == .historyOnly })
-    store.defaults.set("https://box.test/v1", forKey: "hermesBaseURL")
-    await coordinator.checkConnectionsAgain()
-    #expect(coordinator.botOutcomes.map(\.profile) == ["grok-jarvis", "grok-finance-controller", "grok-plain-bot"])
-    #expect(coordinator.botOutcomes.allSatisfy { $0.connection == .needsKey })
-}
-
 @MainActor @Test func aReimportKeepsALocalRenameUnlessRefreshIsTicked() async throws {
     let world = try GrokWorld()
-    let store = world.store(server: "https://box.test/v1")
+    let store = world.store(server: "http://127.0.0.1:8787")
     func importRecent(refresh: Bool) async {
         let coordinator = makeCoordinator(world, store)
         await coordinator.scan()

@@ -2,23 +2,11 @@ import Foundation
 import Testing
 @testable import AgentApp
 
-@Test @MainActor func newBotApprovalSettingsPersist() throws {
-    let url = temporaryStore()
-    let reviewer = Bot(name: "Reviewer")
-    let rules = [ApprovalRule(name: "Only status", actionPattern: "command", commandPattern: "git status", outcome: .allow)]
-    let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-    store.bots = [reviewer]
-    store.addBot(name: "New", persona: "Review carefully", backend: .hermes, avatarName: .faceSky, approvalMode: .reviewer, approvalRules: rules, reviewerBotID: reviewer.id)
-    let restored = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-    let bot = try #require(restored.bots.first { $0.name == "New" })
-    #expect(bot.approvalMode == .reviewer); #expect(bot.approvalRules == rules); #expect(bot.reviewerBotID == reviewer.id)
-}
-
 @Test @MainActor func stopCapturesThenCancelsThenPostsOnlyOnce() async throws {
     let trace = LockedTrace()
-    let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning, stopTrace: trace)
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, didCancelLocalStream: { trace.add("cancel") }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-    let bot = Bot(name: "Stop", backend: .hermes, hermesSessionID: "session-1"); store.bots = [bot]; store.selectedBot = bot
+    let backend = TestBackend(streamMode: .longRunning, stopTrace: trace)
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, didCancelLocalStream: { trace.add("cancel") }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Stop", backend: .herdr, sessionID: "session-1"); store.bots = [bot]; store.selectedBot = bot
     store.send(text: "go"); try await backend.calls.wait { $0.contains("send") }
     store.stop(); store.stop()
     try await waitUntil { bot.messages.filter { $0.role == .system && $0.content.contains("Stop requested") }.count == 1 }
@@ -29,9 +17,9 @@ import Testing
 
 @Test @MainActor func anOlderStopRequestDoesNotBlockStoppingTheNextRun() async throws {
     let trace = LockedTrace()
-    let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning, stopTrace: trace, stopDelay: .milliseconds(400))
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, didCancelLocalStream: { trace.add("cancel") }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-    let bot = Bot(name: "Stop twice", backend: .hermes, hermesSessionID: "session-2"); store.bots = [bot]; store.selectedBot = bot
+    let backend = TestBackend(streamMode: .longRunning, stopTrace: trace, stopDelay: .milliseconds(400))
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, didCancelLocalStream: { trace.add("cancel") }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Stop twice", backend: .herdr, sessionID: "session-2"); store.bots = [bot]; store.selectedBot = bot
 
     store.send(text: "first"); try await backend.calls.wait { $0.contains("send") }; store.stop()
     try await waitUntil { !store.anyTurnRunning }
@@ -43,49 +31,49 @@ import Testing
 }
 
 @Test @MainActor func failedOldStopDoesNotClearOrReportAgainstNewerRun() async throws {
-    let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning, stopDelay: .milliseconds(300), failingStopCalls: [1])
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-    let bot = Bot(name: "Stop race", backend: .hermes, hermesSessionID: "session-race"); store.bots = [bot]; store.selectedBot = bot
+    let backend = TestBackend(streamMode: .longRunning, stopDelay: .milliseconds(300), failingStopCalls: [1])
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Stop race", backend: .herdr, sessionID: "session-race"); store.bots = [bot]; store.selectedBot = bot
 
     store.send(text: "first"); try await backend.calls.wait { $0.contains("send") }; store.stop()
     try await waitUntil { !store.anyTurnRunning }
     store.send(text: "second"); try await backend.calls.wait { $0.filter { $0 == "send" }.count == 2 }
     try await backend.calls.wait { $0.contains("post-failed") }
     // The mock records the failure before throwing it; the store reports it once the throw reaches it.
-    try await waitUntil { bot.messages.contains { $0.role == .system && $0.content.contains("Hermes Stop failed") } }
+    try await waitUntil { bot.messages.contains { $0.role == .system && $0.content.contains("Herdr Stop failed") } }
 
     #expect(store.anyTurnRunning)
     #expect(store.errorMessage == nil)
-    #expect(bot.messages.dropLast(2).contains { $0.role == .system && $0.content.contains("Hermes Stop failed") })
+    #expect(bot.messages.dropLast(2).contains { $0.role == .system && $0.content.contains("Herdr Stop failed") })
     store.stop()
     try await waitUntil { !store.anyTurnRunning }
 }
 
 @Test @MainActor func failedCurrentStopIsReportedBesideStoppedTurn() async throws {
-    let backend = TestBackend(transport: .nativeSessions, streamMode: .longRunning, failingStopCalls: [1])
-    let store = AppStore(storeURL: temporaryStore(), autoConfigureHermes: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
-    let bot = Bot(name: "Stop failure", backend: .hermes, hermesSessionID: "session-failure"); store.bots = [bot]; store.selectedBot = bot
+    let backend = TestBackend(streamMode: .longRunning, failingStopCalls: [1])
+    let store = AppStore(storeURL: temporaryStore(), autoStart: false, backendFactory: { _ in backend }, keyStore: InMemoryKeyStore(), defaults: isolatedDefaults())
+    let bot = Bot(name: "Stop failure", backend: .herdr, sessionID: "session-failure"); store.bots = [bot]; store.selectedBot = bot
 
     store.send(text: "first"); try await backend.calls.wait { $0.contains("send") }
     let stoppedAssistantID = bot.messages.last?.id
     store.stop()
     let laterMessage = ChatMessage(role: .system, content: "Later local message")
     bot.messages.append(laterMessage)
-    try await waitUntil { bot.messages.contains { $0.role == .system && $0.content.contains("Hermes Stop failed") } }
+    try await waitUntil { bot.messages.contains { $0.role == .system && $0.content.contains("Herdr Stop failed") } }
 
     let stoppedIndex = try #require(bot.messages.firstIndex { $0.id == stoppedAssistantID })
-    let noteIndex = try #require(bot.messages.firstIndex { $0.role == .system && $0.content.contains("Hermes Stop failed") })
+    let noteIndex = try #require(bot.messages.firstIndex { $0.role == .system && $0.content.contains("Herdr Stop failed") })
     let laterIndex = try #require(bot.messages.firstIndex { $0.id == laterMessage.id })
     #expect(noteIndex == stoppedIndex + 1)
     #expect(laterIndex == noteIndex + 1)
 }
 
-@Test @MainActor func legacyDemoBotsAreMigratedAndHiddenWhenHermesConfigured() throws {
-    let defaults = isolatedDefaults(); defaults.set("http://127.0.0.1:8642/v1", forKey: "hermesBaseURL")
+@Test @MainActor func legacyDemoBotsAreMigratedAndHiddenOnceAServerIsSetUp() throws {
+    let defaults = isolatedDefaults(); defaults.set("http://127.0.0.1:8787", forKey: HerdrServerList.legacyAddressKey)
     let url = temporaryStore(); try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     let bot = Bot(name: "Atlas", backend: .mock)
     var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode([bot])) as! [[String: Any]]
     json[0].removeValue(forKey: "isDemo"); try JSONSerialization.data(withJSONObject: json).write(to: url)
-    let store = AppStore(storeURL: url, autoConfigureHermes: false, keyStore: InMemoryKeyStore(), defaults: defaults)
+    let store = AppStore(storeURL: url, autoStart: false, keyStore: InMemoryKeyStore(), defaults: defaults)
     #expect(store.bots.first?.isDemo == true); #expect(store.bots.first?.isHidden == true)
 }
