@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Herdr only: the Hermes and OpenClaw backends are removed, with every feature that only worked with them: profiles and keys on a Hermes box, the bot manager and SwarmHub skills, routines, heartbeats, webhooks, off-app alerts, reports, usage, approvals and device approvals, connected apps, the ChatGPT connection and live voice, threads, workflows and team coordination, goals and loops, the box updater, QA mode and UI acceptance mode, and the Computer tab. The app now runs bots only as agents on Herdr Core, through the SwarmHub bridge.
+- A store written by an older version is first copied as it was to `store.json.before-herdr-only-<time>` beside it, once. Hermes and OpenClaw bots in it are then left out: the store is saved without them, and the app says once how many bots were removed and where the copy is. Bots on Herdr keep their name, avatar, instructions and chat.
+- Scripts, tests, fixtures and documents that only served the removed backends are deleted. Entries below describe earlier versions as they were; some of the documents they link to no longer exist.
+
 ## 0.6.8 (build 33)
 
 - No "The network connection was lost." popups: transient network errors (-1005, -1001, -1004, -1009, dropped streams, and CFNetwork host, PAC and bridged URL errors) never open the Backend Error alert. A turn that never left the Mac is sent again by itself (1, 3, 8, 15 s) with "Reconnecting…" on its row; a dropped reply reconnects as before, now without a warning line per reconnect; what is left after the retries is one small line at the bottom of the window that clears when the box answers again.

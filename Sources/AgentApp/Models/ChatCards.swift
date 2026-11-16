@@ -1,6 +1,6 @@
 import Foundation
 
-/// Inline cards parsed from assistant Markdown (syntax documented in README → "Card syntax").
+/// Inline cards parsed from assistant Markdown (syntax documented in docs/reference.md → "Card syntax").
 enum ChatBlock: Equatable {
     case markdown(String)
     case code(language: String, body: String)

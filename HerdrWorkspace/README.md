@@ -1,6 +1,6 @@
 # SwarmHub for Herdr Core
 
-This browser preview brings SwarmHub’s agent roster, task composer, and details panel to a Herdr Core workspace. The Rust service talks to the Core’s Unix socket using its generation 1 JSON-RPC protocol. The existing Swift app still uses its own backends.
+This browser preview brings SwarmHub’s agent roster, task composer, and details panel to a Herdr Core workspace. The Rust service talks to the Core’s Unix socket using its generation 1 JSON-RPC protocol. The SwarmHub Mac app talks to the same service ([Use the Mac app](#use-the-mac-app)).
 
 Agents and groups stay near the top of the roster. Open **Workspace tools** below them for Library, routines, skills, connections, approvals, and imports. Search and **Needs attention** stay visible above the roster.
 
@@ -83,7 +83,7 @@ The setup window opens on first launch; later, use **Settings → Set up…** or
 | **A server by address and access key** | The address of a port you forwarded yourself, and the access token | Connects to that address. |
 | **Get a ready-made server from us** | Not available yet | Nothing. The row is a placeholder. |
 
-**Test** checks the connection, then the app offers one starter bot for each agent program the server has (Claude Code, Codex). Each starter begins on the first model the server lists for it.
+**Test** checks the connection and says what is wrong when it fails: nothing answers, the access key is refused, the service answers without Herdr Core, or Core has no template to start an agent from. The setup window then asks for the server's main bot (a new one with a name, instructions, avatar, agent program and model, or a bot already on that server) and offers one optional bot for each other agent program the server has. Each bot begins on the first model the server lists for its agent program. In Settings, **Add starter bots** adds one bot per agent program later.
 
 The SSH choice uses the system `ssh` in batch mode:
 
@@ -103,19 +103,25 @@ ssh -L 8787:127.0.0.1:8787 your-server
 
 A new bot runs on Herdr. Open its settings and choose **Advanced → Herdr agent** to pick its agent runtime and model, and its server when you have more than one. The same controls are in the Details panel's **Model** tab.
 
-The first message starts an agent on the server, named after the bot. Later messages go to that running agent, which keeps its own context, model, tools, and permissions. A new agent gets the bot's instructions once, before your first message. A Claude Code template that ends in `run-claude --workspace-preview` shows its reply growing a few lines at a time. A Codex template that ends in `run-codex` shows its reply growing a few words at a time. For both agents, each tool call shows as a step under the reply while it runs. **Stop** presses the agent's interrupt key and leaves it open. Attachments, approvals, routines, and server history are not connected to Herdr agents yet. Use the browser workspace or `hc attach` to answer a prompt in the agent's terminal.
+The first message starts an agent on the server, named after the bot. Later messages go to that running agent, which keeps its own context, model, tools, and permissions. A new agent gets the bot's instructions once, before your first message. A Claude Code template that ends in `run-claude --workspace-preview` shows its reply growing a few lines at a time. A Codex template that ends in `run-codex` shows its reply growing a few words at a time. For both agents, each tool call shows as a step under the reply while it runs. **Stop** presses the agent's interrupt key and leaves it open. A message you send while the agent answers is typed into the running agent (steer); turn that off per bot under **Herdr agent** to hold the message until the answer ends. **Start a fresh agent** ends the running agent, so the next message starts a new one on the chosen runtime and model.
 
-### Let a bot create bots
+The app sends text only. An attached text file or document goes as text inside the message; an attached image stays in the chat and is not sent to the agent. The workspace's approvals, routines, and Library are not in the Mac app. Use the browser workspace for them, or `hc attach` to answer a prompt in the agent's terminal.
 
-Turn on **Advanced → Bot management → Can create other bots** for your main bot, then ask it for a new bot. The bot proposes a name, an avatar, and instructions. The app shows each proposal above the composer and adds the bot only when you choose **Create**. The new bot runs on the same server, with the same runtime and model as the bot that proposed it unless the proposal names another agent program.
+### Let the main bot create bots
 
-A Herdr bot is a record in the app, so nothing is created on the server until the new bot gets its first message. An agent that was already running learns how to propose a bot the next time you ask it for one.
+Each server has one main bot: the bot whose **Advanced → Main bot → Main bot of …** switch is on. Ask it for a new bot. It answers with a name, an avatar, and instructions, and either creates the bot on its own decision or asks you. A bot it asks about shows above the composer and is added only when you choose **Create**. Turn on **Ask me before creating bots** to confirm every bot. A bot the main bot created on its own decision is listed above the composer with **Remove**.
 
-### Hermes and OpenClaw
+Any other bot that wants a new bot asks the main bot. The app passes the request into the main bot's chat and the answer back into the asking bot's chat.
 
-The app is moving to Herdr. The Hermes and OpenClaw setup steps, the **Backend** picker, and the settings that only serve those servers are hidden. Existing Hermes and OpenClaw bots keep working, and the code is still in the app. To bring the controls back, turn on **Settings → Advanced → Servers and keys → Show Hermes and OpenClaw settings**.
+The new bot runs on the same server, with the same runtime and model as the main bot unless the request names another agent program. A Herdr bot is a record in the app, so nothing is created on the server until the new bot gets its first message.
 
-To move a bot to Herdr, open its settings and choose **Advanced → Move this bot to Herdr**, or use **Move all … bots to Herdr** in Servers and keys. A moved bot keeps its name, avatar, instructions, and chat history. Its memory, skills, routines, and connected apps stay on the old server.
+### Helpers in the app
+
+A bot is told how to start helpers ([Let an agent start helpers](#let-an-agent-start-helpers)) unless its **Advanced → Helper agents → Can start helper agents** switch is off. Running helpers show under the bot in the sidebar, and each opens as a read-only view of its task, tool calls, replies, and terminal. **Settings → Advanced → Servers and keys** reads and edits the server's helper settings.
+
+### Stores from older versions
+
+Older versions also ran bots on two other backends, which were removed. When the app opens a store that holds such bots, it first copies the file as it was to `store.json.before-herdr-only-<time>` beside it, then loads and saves the store without those bots and tells you once how many were left out and where the copy is.
 
 ## Install the browser workspace
 

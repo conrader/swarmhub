@@ -21,7 +21,7 @@ let package = Package(
             path: ".",
             // Output folders too: dist/ holds packaged .app bundles whose Sparkle nibs/lproj SwiftPM would treat as resources
             // (hidden .build* folders, incl. .build-release, are skipped by SwiftPM anyway). Guarded by PackageManifestTests.
-            exclude: ["Tests", "scripts", "docs", "Vendor", "dist", "briefs", "Apps", "Packages", "HerdrWorkspace", "README.md"],
+            exclude: ["Tests", "scripts", "docs", "Vendor", "dist", "Apps", "Packages", "HerdrWorkspace", "README.md"],
             sources: ["Sources/AgentApp"],
             resources: [.copy("Resources/Avatars"), .copy("Resources/AppIcon/ThemeIcons")],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",

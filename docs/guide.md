@@ -1,115 +1,106 @@
 # SwarmHub guide
 
-Setup instructions, diagrams, and development notes. [Back to the overview](../README.md).
-
-[Get started](#get-started) · [How it works](#how-it-works) · [Project status](#project-status) · [Technical reference](reference.md)
+How to set up the Mac app and use it. The app chats with agents that Herdr Core runs. It reaches them through the SwarmHub bridge, a service that runs beside Herdr Core on the same machine.
 
 ## Get started
 
-To run the current macOS prototype, you’ll need **macOS 14+**, **Xcode 16.2**, and **Swift 6**. In Terminal on your Mac:
+### 1. Run Herdr Core and the bridge
 
-```bash
-git clone https://github.com/conrader/swarmhub.git
-cd swarmhub
+Bots work on the computer that runs Herdr Core: this Mac or a server. The Mac app does not install or start Herdr Core or the bridge. Follow [Run locally](../HerdrWorkspace/README.md#run-locally) on that computer. `HerdrWorkspace/dev/start-local.sh` starts an installed bridge and keeps its access key in `~/.config/swarmhub-herdr/token`, which is where the app looks for it.
+
+Herdr Core needs at least one agent template, for example for Claude Code or Codex. Open each agent program once in the folder the agents start in, because a program that asks whether to trust a new folder gets no task.
+
+### 2. Start the app
+
+[Download the latest macOS build](https://github.com/conrader/swarmhub/releases/latest), or build and run from a checkout on a Mac with Xcode:
+
+```sh
 ./scripts/run.sh
 ```
 
-The run script builds and launches the app.
+### 3. Connect
 
-### Connect Hermes
+The setup window opens while there is no bot. Later, use **Settings → Set up…**.
 
-1. On first run the setup window asks for your Hermes server’s address and key, tests them and lets you pick its agents. Later: **Settings → Change connection…**.
-2. To enter them by hand, open **Settings → Advanced… → Servers and keys**, fill in the base URL and key, and use **Test & Discover**.
-3. For named profiles, use **Add bots from box** (same pane) with one `profile=key` per line. Each profile needs its own key.
+1. **Where.** Choose this Mac, a server you reach over SSH, or a server by address and access key.
+2. **Connect.** Fill in what the choice needs and press **Test**. For this Mac, leave the access key empty. For SSH, give the server's name and, if needed, a login name and the path of a key file; a key with a passphrase must already be in the agent (`ssh-add`). When the test fails, the window says what is wrong.
+3. **Main bot.** Create the server's main bot: a name, instructions, an avatar, an agent program and a model. Or choose a bot that is already on that server.
+4. **More bots.** Optionally tick a bot for each other agent program the server has.
 
-Need to set up the server first? Follow the [Hermes setup notes](reference.md#hermes-agent-setup). For imports, see [Grok Bot history](reference.md#feature-parity) and [bot templates](reference.md#grok-bot-template-import).
+The window ends in the main bot's chat. The first message starts the bot's agent, so the first reply takes a little longer.
 
-The sidebar puts conversations with the latest sent or received messages first. Click a bot under “On this box · not connected” to view its connection options or delete it; Delete is also in the row’s right-click menu. Deleting removes its entry from SwarmHub and keeps the bot on your box. To bring it back, use **Settings → Advanced… → Servers and keys → Add all bots from this box**.
+To look around without a server, choose **Look around with sample agents** in the setup window.
 
-### macOS shortcuts
+More detail on the three ways to connect: [Use the Mac app](../HerdrWorkspace/README.md#use-the-mac-app).
+
+## Everyday use
+
+### Chat
+
+Type a message and send it. The reply appears as the agent writes it, with each tool call as a step under it.
+
+- **Stop** (⌘.) interrupts the answer. The agent stays open.
+- A message you send while the agent answers goes into the running answer. If the bot has steer turned off, or the message has attachments, it waits and is sent when the answer ends.
+- A row marked as not sent offers **Retry**.
+
+### Change what a bot runs on
+
+Open the bot's settings (⌥⌘,) and choose **Advanced → Herdr agent**, or open the **Model** tab of the Details panel. Pick the server, the agent program and the model. A change applies to the next agent the bot starts; **Start a fresh agent** ends the running one.
+
+### Create more bots
+
+- **File → New Agent…** (⌘N) creates a bot yourself.
+- Ask the server's main bot for one. It creates the bot or asks you first; a bot it asks about shows above the composer with **Create** and **Dismiss**.
+- **Add starter bots** in **Settings → Advanced → Servers and keys** adds one bot per agent program.
+
+### Helpers
+
+A bot's agent can hand parts of its work to helper agents. They show under the bot in the sidebar while they run; select one to read its task, steps, replies and terminal. To choose what each difficulty runs on, open **Settings → Advanced → Servers and keys** and read the server's helper settings. To stop one bot from starting helpers, turn off **Can start helper agents** in its settings.
+
+### Groups
+
+**File → New Group…** (⇧⌘N) puts several bots in one thread. Write `@Name` to address one member; a message without a mention goes to every member.
+
+### Files and voice
+
+Drop or attach images, text files, PDF, RTF, DOC or DOCX files. Text and document contents reach the agent as text. Images are kept in the chat and are not sent to the agent.
+
+For dictation, save a deAPI API key under **Settings → Advanced → Voice**, then use the microphone button in a chat. The transcript is added to the draft for you to review.
+
+### Import from Grok Bot
+
+**Settings → Advanced → Servers and keys → Grok Bot → Import from Grok Bot…** reads Grok Bot's bots and history on this Mac. Each bot becomes a Herdr bot with its old history as a read-only archive.
+
+### More servers
+
+**Settings → Advanced → Servers and keys → Add a Herdr server** adds another server. Each bot runs on one server; change it under **Herdr agent**.
+
+## Keyboard shortcuts
 
 | Shortcut | Action |
-|:--|:--|
-| `⌘ K` | Open the quick switcher (↑/↓ move, Return opens, Esc closes) |
-| `⌘ N` | Create an agent |
-| `⌃ ⌘ S` | Toggle the sidebar |
-| `⇧ ⌘ I` | Toggle the info panel |
+| --- | --- |
+| ⌘, | Settings |
+| ⌘N | New Agent |
+| ⇧⌘N | New Group |
+| ⇧⌘O | Import Template |
+| ⌘K | Quick Switcher |
+| ⌃⌘S | Toggle Sidebar |
+| ⇧⌘I | Toggle Agent Info |
+| ⇧⌘H | Toggle Hidden Chats |
+| ⌘1, ⌘3, ⌘5, ⌘6 | Overview, Media, Members, Model |
+| ⌥⌘↑, ⌥⌘↓ | Previous Chat, Next Chat |
+| ⌥⌘, | Agent Settings |
+| ⌘. | Stop Response |
+| ⌘/ | Keyboard Shortcuts |
 
-## How it works
+## When something is wrong
 
-SwarmHub is the desktop workspace. Your Hermes server runs the agents, connects to configured models, and provides each profile’s tools and skills.
+- **Nothing answers on this Mac.** Herdr Core and the bridge are not running. Start both, then press **Test** again.
+- **The access key is refused.** The key in the app is not the one the bridge runs with. Leave the field empty to read it from the bridge's file again, or paste the current one.
+- **The bridge answers without Herdr Core.** Start Herdr Core on that machine.
+- **No agent program to start.** Add a template to Herdr Core.
+- **A reply never arrives.** The agent may be waiting at a prompt in its terminal. Answer it in the browser workspace or with `hc attach`.
 
-```mermaid
-flowchart TD
-    you([You]) <--> app["SwarmHub<br/>Desktop workspace"]
-    app <-->|"Messages, replies<br/>and approvals"| server["Your Hermes server<br/>Agent profiles and sessions"]
-    app --- history[("Local history<br/>and settings")]
-    app --- keys["API keys<br/>macOS Keychain today"]
-    server <--> models["Configured models<br/>Local or hosted"]
-    server --> tools["Profile tools<br/>and skills"]
+## Build and contribute
 
-    classDef workspace fill:#14253b,stroke:#8fc6ff,color:#f5f8fc
-    classDef agent fill:#e7f0ff,stroke:#6d9bd4,color:#182b49
-    classDef local fill:#e5f5ee,stroke:#74b99b,color:#183a2c
-    classDef model fill:#fff2dd,stroke:#d6a354,color:#513a16
-    class app workspace
-    class server,tools agent
-    class history,keys local
-    class models model
-```
-
-### From message to reply
-
-With the default **Ask me** policy, approval requests come to you in SwarmHub. Approved operations can proceed; declined operations are denied.
-
-```mermaid
-flowchart TD
-    send["Send a message"] --> run["Hermes runs the bot"]
-    run --> approval{"Approval requested?"}
-    approval -->|No| reply["Reply streams into SwarmHub"]
-    approval -->|Yes| review["You approve or decline"]
-    review -->|Decision returned| run
-    reply --> saved[("Local transcript updated")]
-
-    classDef workspace fill:#14253b,stroke:#8fc6ff,color:#f5f8fc
-    classDef agent fill:#e7f0ff,stroke:#6d9bd4,color:#182b49
-    classDef choice fill:#fff2dd,stroke:#d6a354,color:#513a16
-    classDef local fill:#e5f5ee,stroke:#74b99b,color:#183a2c
-    class send,review,reply workspace
-    class run agent
-    class approval choice
-    class saved local
-```
-
-### Messages waiting to be sent
-
-Typing while a bot answers never stops the answer: the message steers it, or, when the bot's server cannot steer (or the message has attachments), it waits and goes when the answer ends. A steer that could not be delivered offers **Send as next message**, and a review card offers to send its notes; both wait until the running answer ends. Waiting messages survive a quit: when SwarmHub reopens they resume in order once your server has been checked. If an earlier reply is still unconfirmed, or the waiting text changed, the message is not sent; a line says why and its button returns, so you can **Refresh** that reply and send it again. A group round the quit interrupted keeps its finished replies; members not yet asked show **Retry**.
-
-### Coordinate work across bots
-
-In a group, choose **Plan a workflow**, write the request and pick a coordinator. The coordinator proposes tasks and assignments; nothing runs until you choose **Approve plan and run**. Each task runs in its own thread, one after another, and the coordinator posts one consolidated answer in the group.
-
-While working, an agent can ask another member for help or for a review, and the coordinator can assign more work. A help request adds a helper task and then a continuation for the original agent. A review can ask for one revision followed by a second review. New tasks pause the workflow until you review the expanded plan; work already sent may finish. Expand a workflow to see each task's input, result, dependencies, review round and verdict, and the handoff history.
-
-If the second review still finds problems, the final answer waits. Read the findings, then choose **Accept review with noted limitations** or **Cancel workflow**; accepting keeps the findings and tells the final answer about your decision. A reviewer that finishes without a verdict needs the same decision. **Refresh from server** checks a task whose completion is uncertain without sending it again; a task that certainly was not sent can be sent again or given to another member.
-
-A workflow allows 12 tasks, three handoff levels, two review rounds per piece of work and 30 minutes. The token allowance limits further sending; it counts the hidden handoff and tool exchanges too, estimated where your server reports no usage, so it is not a billing cap. After a restart, unfinished tasks wait for **Refresh** and the workflow stays paused until you resume it.
-
-## Project status
-
-**This is a prototype.** Windows and Linux versions are planned. Hermes and OpenClaw are implemented; the OpenClaw connection was built against the published protocol and a test Gateway, and still needs a check against a real Gateway. Interrupted replies are recovered from your server ([how](reference.md#never-losing-a-reply)), and coding threads use each agent's coding model.
-
-Approvals default to **Ask me**. Rules and reviewer modes have known limitations, and provider-backed reviewer decisions remain unverified. Read the [known issues](reference.md#known-issues) before enabling automatic approvals.
-
-The [roadmap](ROADMAP-AND-LIMITS.md) tracks open work; [phase briefs](../briefs/) preserve historical task scope. The [technical reference](reference.md) documents feature behavior, compatibility, and verification limits.
-
-## Build & contribute
-
-```bash
-./scripts/build.sh   # Build the app
-swift test           # Run the test suite on a Mac
-```
-
-The build script includes a direct-compiler fallback for the documented Xcode 16.2 toolchain issue; that fallback does not run tests. See the [build notes](reference.md#build-and-run) for details.
-
-The current macOS implementation uses SwiftUI, atomic JSON persistence, and backend adapters under `Sources/AgentApp/`. The Swift package and executable retain the `AgentApp` codename. See [architecture](reference.md#architecture), [integration notes](hermes-integration.md), and the [historical project constraints](archive/plans/PLAN.md#standing-constraints-from-briefmd-and-spec-61).
+See the [technical reference](reference.md).
