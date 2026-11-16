@@ -79,6 +79,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
         Some("group-reply") => group_reply(),
         Some("group-handoff") => crate::group_handoffs::publish(),
         Some("helper") => crate::helpers::cli::run(),
+        Some("project") => crate::projects::cli::run(),
         Some("--help" | "-h") => {
             println!(
                 "swarmhub-herdr [(run-claude|run-codex) [--workspace-approvals] [AGENT_ARGS...] | capture-reply | publish-file PATH | group-reply TOKEN [--draft | --question | --form] [--file PATH]...]"
@@ -98,6 +99,7 @@ pub fn run(command: &OsStr) -> Result<(), Box<dyn std::error::Error>> {
             );
             println!("Pages: publish-page TITLE, read-page PAGE_ID, update-page PAGE_ID REVISION");
             println!("{}", crate::helpers::cli::USAGE);
+            println!("{}", crate::projects::cli::USAGE);
             Ok(())
         }
         _ => Err("Unknown command. Run swarmhub-herdr --help.".into()),

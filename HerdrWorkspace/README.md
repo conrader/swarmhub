@@ -267,6 +267,104 @@ A helper is an ordinary session: its replies, tool activity, terminal and histor
 - `GET /api/helper-policy` returns `policy` (the file’s four fields, or `null`), `problem` (why helpers cannot start as things are, or `null`) and `bounds` for the three numbers.
 - `POST /api/helper-policy` takes the policy as its body and saves the file. It answers like `GET`, or with status 422 and an `error` when a number is out of bounds, Herdr has no such template, or the template cannot take the model.
 
+## Work on projects on other servers
+
+Your projects may live on other machines than the one Herdr runs on. Add each such machine once as a project server, name the folders on it that matter as projects, and say for each bot which projects it may use. A bot then runs commands and changes files in a project with one command, and never needs the host or the path.
+
+Herdr Core does the connecting: a project server is a machine as in Core’s `hc machine add` (see `docs/machines.md` in Herdr Core). The workspace adds the app’s side of it, the list of projects, and the command for agents.
+
+### Add a project server
+
+1. Give the project server the Herdr server’s public key. `GET /api/machines/ssh-key` returns it; paste the line into `~/.ssh/authorized_keys` of the account to log in as on the project server. If the Herdr server has no key pair yet, `POST /api/machines/ssh-key` makes one.
+2. Add the server by the address ssh takes, such as `deploy@10.0.0.7` or `deploy@10.0.0.7:2222`, and a short name to call it.
+
+What to know:
+
+- Logging in works with a key or not at all. Nothing here takes a password or a one-time code, and nothing waits for someone to type one.
+- The first time the Herdr server connects to a host, ssh does not know the host’s key. The workspace does not trust it silently: adding answers `unknown_host_key` with the fingerprints the host shows. Compare one with the server’s own (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the project server) and add the server again with `accept_host_key` set to it. The workspace then writes that one key into the Herdr account’s known-hosts file (the first `UserKnownHostsFile` ssh names for that host, with the host’s name in the clear), and from then on ssh refuses the host if it ever shows another key. A host whose key differs from one already on file is refused, and the workspace does not replace the key.
+- Adding copies Herdr’s helper program, `herdr-core`, to `~/.local/bin` of that account on the project server when it is missing or too old, and starts it there. That is what `hc machine add --install` does. Nothing else is installed.
+- Removing a server only makes Herdr forget it. The helper program stays there, and so does anything it runs. A server that still has projects is not removed.
+- The list says for each server whether it is connected and carries Core’s warnings in words. One of them: on a Linux server without lingering, programs started there stop when the last login ends; the warning names the `sudo loginctl enable-linger` command that fixes it.
+- A key pair the workspace makes is Ed25519, has no passphrase, and is saved as `~/.ssh/id_ed25519` with the private half readable by the account alone. It gets that name because Herdr Core runs plain `ssh`, which tries that file by itself; a key under another name would need an entry in `~/.ssh/config`. The workspace makes a pair only when the account has none of the key files ssh tries by itself, never replaces one, and never returns a private key.
+- The workspace shows the keys ssh uses by default. If `~/.ssh/config` names another key for a host, ask with `?target=` to see the key for that host. Keys held only by an SSH agent are not shown.
+
+### Name projects and choose who may use them
+
+A project is a name, a server, a folder on it, and an optional note for the bots, such as “staging only”. Adding one asks the server whether the folder exists, so a project is never saved for a folder that is not there. The check needs a POSIX `test` command on the server.
+
+A bot may use the projects its launch names (`projects` in `POST /api/agents`) and nothing else; the list can be changed while it runs. A helper uses the projects of the agent that started it. An agent started with projects is told in its first task which ones it has and to run `swarmhub-herdr project list`.
+
+This is guidance and bookkeeping, not isolation. All agents run as the workspace’s account, that account can log in to every project server, and an agent with a shell that is not sandboxed can run `hc` or `ssh` itself. The list decides what the `project` command does for an agent. To keep an agent away from a server for real, do not add that server to this Herdr, or limit the agent with its own program’s permission settings.
+
+### What a bot runs
+
+| Command | What it does |
+| --- | --- |
+| `swarmhub-herdr project list` | Lists the agent’s projects with each one’s server, folder, note and whether the server is connected. |
+| `swarmhub-herdr project run NAME [--timeout SECONDS] -- COMMAND [ARG...]` | Runs a command in the project’s folder on its server, prints what it wrote, and exits with its exit code. One word after `--` is a line for that server’s shell, such as `"cd src && make test"`; several words are a program and its arguments as given. |
+| `swarmhub-herdr project read NAME PATH [--offset LINE] [--limit LINES]` | Prints a text file, or lines of it. |
+| `swarmhub-herdr project write NAME PATH` | Writes standard input as the file, making missing folders. |
+| `swarmhub-herdr project edit NAME PATH --old TEXT --new TEXT` | Replaces a text that is in the file exactly once. Repeat the pair for several replacements; all are made or none. |
+
+- A command runs for 120 seconds unless `--timeout` says otherwise, at most 600. When time is up it is ended with everything it started, and the command exits with 124. For longer work, start it in the background on the server and look at it later.
+- One answer carries 96 KB of a command’s output and 24 KB of what it wrote to standard error. Longer output keeps its start and its end and says what was left out.
+- `read` gives at most 2000 lines and 100 KB at a time and says how to continue. `write` takes up to 128 KB of text. Files that are not text are handled on the server with `run`.
+- `PATH` is inside the project’s folder: `src/main.rs`, not `/etc/hosts` and not `../x`. This keeps mistakes out; it is not a wall, since `run` can do anything the account can.
+- After a command, a line on standard error says where it ran and how it ended: `[project shop on box: exit 0 after 0.4 s]`. When the `project` command itself could not do its work, it says why and exits with 125.
+
+The command reaches the workspace the same way `helper` does ([How the command reaches the workspace](#how-the-command-reaches-the-workspace)), so it works in Claude Code and in Codex’s sandbox alike. Herdr’s own `hc run --on` does not work in Codex’s sandbox, which refuses the connection to Herdr Core. What an agent runs with `project run` runs on the project server, outside that sandbox and without the agent program’s permission prompts.
+
+### For apps
+
+Every route needs the access token. A refused request answers with `error`, words to show as they are, and for the cases in the tables below with `kind`, a word to act on. A failure of Herdr Core itself, such as Core not running, answers as on every other route, with `error` alone.
+
+Servers:
+
+- `GET /api/machines` returns `machines`, `can_add`, `problem` (why a server cannot be added from this workspace, or `null`) and `adding` (a sentence about the helper program). Each machine has `name`, `target`, `host` (what it calls itself), `version` (its helper’s), `state` (`connecting`, `connected`, `needs_login`, `needs_update` or `unreachable`), `reachable`, `since_ms`, `why`, `keeps_running_after_logout`, `warnings` (sentences) and `projects` (names), plus Core’s own `session`, `via` and `temporary` for machines that were added with `hc` on the server.
+- `POST /api/machines` takes `{"target": "deploy@10.0.0.7", "name": "box"}`; `name` may be left out, and `accept_host_key` takes a fingerprint this route offered. It answers 201 with `machine`, `helper_installed` and `message`. It can take a few minutes when the helper is copied.
+- `POST /api/machines/remove` and `POST /api/machines/connect` take `{"name": "box"}`. Remove answers like the `GET` plus `removed`. Connect has Herdr try the server now, for after the key was pasted, and answers with `machine`.
+- `GET /api/machines/ssh-key` returns `keys`, `can_create`, `where_to_paste` and `problem`. Each key has `public_key` (the line to paste), `type`, `fingerprint`, `comment` and `file`. With `?target=deploy@10.0.0.7` it gives the keys ssh would use for that server.
+- `POST /api/machines/ssh-key` makes the key pair when `can_create` is true and answers 201 like the `GET`.
+
+| Status | `kind` | Meaning |
+| --- | --- | --- |
+| 409 | `unknown_host_key` | ssh has not seen this host. `host_keys` lists `type` and `fingerprint` of each key it shows; send one back as `accept_host_key`. The list is empty when the workspace could not read the key, and `error` says what to do by hand. |
+| 409 | `host_key_changed` | The host shows another key than the one on file. Nothing is changed. |
+| 409 | `login_refused` | The server refused the Herdr server’s key. |
+| 409 | `name_taken`, `already_added`, `has_projects`, `key_exists` | The name is in use; this server is already added; the server still has projects; the Herdr server already has a key pair. |
+| 404 | `machine_unknown` | Herdr has no machine by this name. |
+| 422 | `invalid` | The body is not the expected one. |
+| 502 | `unreachable` | ssh could not connect; `error` carries what ssh said. |
+| 502 | `helper_not_installed` | The login worked, and the helper program could not be installed or started there. |
+| 502 | `failed` | Herdr Core refused for another reason; `error` carries what it said. |
+| 503 | `unavailable` | The workspace cannot find `hc` or `ssh` on its `PATH`. |
+| 504 | `timeout` | Adding took more than 300 seconds and was stopped. |
+
+Projects:
+
+- `GET /api/projects` returns `projects`. Each has `id`, `name`, `machine`, `folder`, `note`, `created_ms`, `machine_state` (the server’s state, `missing` when Herdr no longer has a machine by that name, `unknown` when Herdr Core could not be asked) and `reachable`.
+- `POST /api/projects` takes `{"name": "shop", "machine": "box", "folder": "/srv/shop", "note": "…"}` and answers 201 with `project`.
+- `POST /api/projects/{id}` takes any of the four fields and answers with `project`. `POST /api/projects/{id}/remove` answers with `removed` and the remaining `projects`.
+- `POST /api/agents` takes `projects`, a list of project ids, for the new agent.
+- `GET /api/agents/{address}/{created_ms}/projects` returns `projects` and `inherited` (true for a helper). `POST` there takes `{"projects": [1, 2]}`, replaces the agent’s list and answers like the `GET`; an empty list takes all projects away.
+
+| Status | `kind` | Meaning |
+| --- | --- | --- |
+| 404 | `project_unknown` | No project has this id. |
+| 409 | `name_taken` | Another project has this name. |
+| 409 | `machine_unreachable` | The server is not connected, so the folder could not be checked. Nothing was saved. |
+| 409 | `helper` | A helper’s projects are changed at the agent that started it. |
+| 422 | `invalid`, `machine_unknown`, `folder_missing`, `project_unknown` | The body is not the expected one; Herdr has no machine by this name; the folder is not on the server; a project id in a list does not exist. |
+| 502 | `check_failed` | The server could not say whether the folder exists. |
+
+### Known limits
+
+- A project names its server by Herdr’s name for it. After `hc machine rename`, change the project’s `machine`.
+- Projects on the Herdr server itself are not offered: an agent there works in its own folders, and the `project` command would let a sandboxed agent run commands outside its sandbox on that server.
+- A server reached through a jump host or a custom command can be added with `hc machine add` on the Herdr server and then shows in the list. The workspace cannot read such a host’s key, so it cannot offer `accept_host_key` for it.
+- A Windows server can be a machine in Herdr Core, and the folder check here does not work for it.
+- Changing a running agent’s projects does not tell the agent. Send it a message.
+
 ## Keep an agent profile
 
 Choose **New agent**, enter a name, and save to open an empty conversation. You can create the profile and draft its first task while Herdr Core is offline. The draft stays in the current browser tab, including after a reload. When a template is available, choose **Choose runtime** to review the template and model before sending the task. Use **Start from template** if you prefer to choose the runtime before creating the profile.

@@ -18,10 +18,10 @@ pub(crate) const USAGE: &str = "Helpers (another agent for one task; the workspa
   swarmhub-herdr helper send NAME TEXT            give it a follow-up
   swarmhub-herdr helper stop NAME                 end it when you no longer need it";
 
-pub(super) const OFFLINE: &str = "The SwarmHub workspace server is not running, so helpers are unavailable. Nothing was started or changed.";
-const BLOCKED: &str = "A sandbox stopped this command from reaching the SwarmHub workspace, and it found no .swarmhub-helpers folder it may write to. Nothing was started or changed. Run the command from the folder this agent was started in.";
-pub(super) const SILENT: &str = "The workspace did not answer in time. Run `swarmhub-herdr helper list` to see what happened before trying again.";
-pub(super) const TOO_LONG: &str = "That is too long. Use up to 12 KB of plain text; put longer material in a file and name the file.";
+pub(crate) const OFFLINE: &str = "The SwarmHub workspace server is not running, so helpers are unavailable. Nothing was started or changed.";
+pub(crate) const BLOCKED: &str = "A sandbox stopped this command from reaching the SwarmHub workspace, and it found no .swarmhub-helpers folder it may write to. Nothing was started or changed. Run the command from the folder this agent was started in.";
+pub(crate) const SILENT: &str = "The workspace did not answer in time. Run `swarmhub-herdr helper list` to see what happened before trying again.";
+pub(crate) const TOO_LONG: &str = "That is too long. Use up to 12 KB of plain text; put longer material in a file and name the file.";
 const ANSWERED: &str = "This is the workspace's answer, not a sandbox failure: running the command outside the sandbox would give the same answer.";
 /// Starting an agent can take more than a minute on a busy machine.
 const PATIENCE: Duration = Duration::from_secs(170);
@@ -178,6 +178,34 @@ fn parse(
 }
 
 fn call(journal: &Path, launch: &str, action: Action) -> Result<Reply, String> {
+    call_within(journal, launch, action, PATIENCE)
+}
+
+/// What the workspace answered a `swarmhub-herdr project …` command.
+pub(crate) struct Said {
+    pub(crate) text: String,
+    pub(crate) stderr: Option<String>,
+    pub(crate) exit: Option<i32>,
+}
+
+/// Asks the running workspace for this agent session and waits up to `patience` for the answer. An error is the
+/// workspace's refusal or one of `OFFLINE`, `BLOCKED` and `SILENT`.
+pub(crate) fn ask(action: Action, patience: Duration) -> Result<Said, String> {
+    let (journal, launch) = crate::agent::session().map_err(|_| super::UNREGISTERED)?;
+    let reply = call_within(&journal, &launch, action, patience)?;
+    Ok(Said {
+        text: reply.text,
+        stderr: reply.stderr,
+        exit: reply.exit,
+    })
+}
+
+fn call_within(
+    journal: &Path,
+    launch: &str,
+    action: Action,
+    patience: Duration,
+) -> Result<Reply, String> {
     let request = Request {
         launch: launch.to_owned(),
         action,
@@ -196,7 +224,7 @@ fn call(journal: &Path, launch: &str, action: Action) -> Result<Reply, String> {
             let named = std::env::var_os(spool::ENV).map(Into::into);
             let reply = spool::find(named, cwd.as_deref())
                 .ok_or(None)
-                .and_then(|dir| spool::ask(&dir, launch, request.action, spool::PICKUP, PATIENCE))
+                .and_then(|dir| spool::ask(&dir, launch, request.action, spool::PICKUP, patience))
                 .map_err(|why| why.unwrap_or(BLOCKED))?;
             return match reply.error {
                 // A Codex helper took a refusal for a sandbox failure and asked to run the command unsandboxed.
@@ -207,7 +235,7 @@ fn call(journal: &Path, launch: &str, action: Action) -> Result<Reply, String> {
         Err(_) => return Err(OFFLINE.into()),
     };
     stream
-        .set_read_timeout(Some(PATIENCE))
+        .set_read_timeout(Some(patience))
         .and_then(|()| stream.set_write_timeout(Some(Duration::from_secs(5))))
         .and_then(|()| stream.write_all(&bytes))
         .map_err(|_| SILENT)?;

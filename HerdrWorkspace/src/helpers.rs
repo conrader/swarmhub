@@ -43,8 +43,9 @@ use record::{Admitted, View, Wanted, admit, list_text, one_line, read_text, view
 pub(crate) use record::{ParentRef, parents};
 pub(crate) use spool::{ENV as SPOOL_ENV, directory as spool_directory};
 
-const REQUEST_LIMIT: usize = 48 * 1024;
-const REPLY_LIMIT: usize = 256 * 1024;
+/// Room for a file an agent writes on a project's machine (`projects`); a helper's task is held to `TASK_LIMIT`.
+pub(crate) const REQUEST_LIMIT: usize = 256 * 1024;
+pub(crate) const REPLY_LIMIT: usize = 256 * 1024;
 const TASK_LIMIT: usize = 12 * 1024;
 const NAME_LIMIT: usize = 20;
 /// How much of a saved reply the HTTP list carries; the history route has all of it.
@@ -53,7 +54,7 @@ const READ_REPLY_CHARS: usize = 48_000;
 const SCREEN_LINES: usize = 200;
 /// How often the workspace looks for helpers that answered long enough ago to be stopped.
 const SWEEP: Duration = Duration::from_secs(5);
-const UNREGISTERED: &str =
+pub(crate) const UNREGISTERED: &str =
     "This terminal is not a SwarmHub agent session, so it has no helpers. Do the task yourself.";
 const NESTED: &str = "Helpers cannot start helpers. Do the task yourself, or say in your answer that it should be split.";
 const STORAGE: &str = "The workspace could not use its saved history. Nothing was changed.";
@@ -90,6 +91,8 @@ pub(crate) enum Action {
     Stop {
         name: String,
     },
+    /// `swarmhub-herdr project …` (`projects`): the same road to the workspace, another desk.
+    Project(crate::projects::Ask),
 }
 
 /// The workspace's answer: text for the agent to read, or why nothing was done.
@@ -100,6 +103,11 @@ pub(crate) struct Reply {
     error: Option<String>,
     /// The named helper has not answered its task yet (`helper wait` asks again).
     working: bool,
+    /// For a command run on a project's machine: what it wrote to standard error, and its exit code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stderr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    exit: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -323,6 +331,17 @@ async fn perform(
             let wanted = (difficulty.as_str(), name, task, cwd);
             return start(w, request.launch, wanted, defer).await;
         }
+        Action::Project(ask) => {
+            let core_id = registered(w, &request.launch).await;
+            let said = crate::projects::answer(w, core_id, &request.launch, ask).await?;
+            let reply = Reply {
+                text: said.text,
+                stderr: said.stderr,
+                exit: said.exit,
+                ..Reply::default()
+            };
+            return Ok((reply, None));
+        }
         action => action,
     };
     manage(w, request.launch, action)
@@ -367,7 +386,7 @@ async fn manage(w: &Workspace, key: String, action: Action) -> Result<Reply, Str
             })
     };
     match action {
-        Action::Start { .. } => unreachable!("handled above"),
+        Action::Start { .. } | Action::Project(_) => unreachable!("handled above"),
         Action::List => Ok(Reply {
             text: list_text(
                 &helpers,
@@ -402,7 +421,7 @@ async fn manage(w: &Workspace, key: String, action: Action) -> Result<Reply, Str
                     Policy::delays(w.history.file()).1,
                 ),
                 working: helper.working(),
-                error: None,
+                ..Reply::default()
             })
         }
         Action::Send { name, text } => {

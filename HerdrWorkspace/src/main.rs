@@ -23,6 +23,7 @@ mod groups;
 mod helpers;
 mod history;
 mod live_reply;
+mod machines;
 mod markdown;
 mod memory_proposals;
 mod opencode_agent;
@@ -32,6 +33,7 @@ mod pdf_assets;
 mod portable_profiles;
 mod profile_avatars;
 mod profiles;
+mod projects;
 mod pwa;
 mod reactions;
 mod results;
@@ -264,6 +266,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(group_routes::routes())
         .merge(group_handoffs::routes())
         .merge(helpers::routes())
+        .merge(machines::routes())
+        .merge(projects::routes())
         .merge(events::routes())
         .merge(reactions::routes())
         .merge(grok_import::routes())
@@ -621,6 +625,9 @@ struct Launch {
     instructions_revision: Option<i64>,
     #[serde(default)]
     collect_results: bool,
+    /// Ids of the projects on other machines this agent may use (`projects`).
+    #[serde(default)]
+    projects: Vec<i64>,
 }
 
 #[derive(serde::Serialize)]
@@ -719,6 +726,10 @@ async fn launch(
         (runtime, None)
     };
     let runtime = serde_json::to_string(&runtime).map_err(|_| StoreError)?;
+    let project_hint = projects::launch_hint(
+        &projects::wanted(&w.history, &body.projects)?
+            .ok_or(Failure::Input(projects::LAUNCH_SHAPE))?,
+    );
     // No awaits between checking the saved revision and recording the launch.
     let instructions = if let Some((id, revision)) = body.profile_id.zip(body.instructions_revision)
     {
@@ -728,21 +739,30 @@ async fn launch(
     } else {
         first_instructions.to_owned()
     };
-    let message = if body.collect_results {
-        const HINT: &str = "To share a finished file, move it into the folder named by the SWARMHUB_RESULTS environment variable after writing it. SwarmHub will add it to this conversation.";
-        if instructions.is_empty() {
-            let message = format!("{} | {HINT}", body.task);
-            core::validate_task(&message).map_err(|_| {
-                Failure::Input(
-                    "Leave a little room in the first task for the results folder instructions.",
-                )
-            })?;
-            message
-        } else {
-            profiles::launch_message(&body.task, &format!("{instructions}\n\n{HINT}"))?
-        }
-    } else {
+    const HINT: &str = "To share a finished file, move it into the folder named by the SWARMHUB_RESULTS environment variable after writing it. SwarmHub will add it to this conversation.";
+    let hints: Vec<&str> = body
+        .collect_results
+        .then_some(HINT)
+        .into_iter()
+        .chain(project_hint.as_deref())
+        .collect();
+    let message = if hints.is_empty() {
         profiles::launch_message(&body.task, &instructions)?
+    } else if instructions.is_empty() {
+        let message = format!("{} | {}", body.task, hints.join(" "));
+        core::validate_task(&message).map_err(|_| {
+            Failure::Input(if body.collect_results {
+                "Leave a little room in the first task for the results folder instructions."
+            } else {
+                "Leave a little room in the first task for the note about this agent's projects."
+            })
+        })?;
+        message
+    } else {
+        profiles::launch_message(
+            &body.task,
+            &format!("{instructions}\n\n{}", hints.join("\n\n")),
+        )?
     };
     let (record, key) = w
         .history
@@ -757,6 +777,15 @@ async fn launch(
         .ok_or(ApiError::Conflict(
             "A session for this profile is already starting.",
         ))?;
+    if !body.projects.is_empty() && !projects::grant_launch(&w.history, &key, &body.projects)? {
+        w.history.finish(
+            record,
+            DeliveryState::NotSent,
+            Some("A project for this session was removed while it was starting."),
+            None,
+        )?;
+        return Err(Failure::Input(projects::LAUNCH_SHAPE).into());
+    }
     let results = if body.collect_results {
         match results::enable(&w.history, record) {
             Ok(path) => Some(path),

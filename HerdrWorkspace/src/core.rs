@@ -132,6 +132,68 @@ pub(crate) struct ModelProbeOutput {
     pub timed_out: bool,
 }
 
+/// Another machine this Core added (`hc machine add`), with its connection as it is now.
+#[derive(Clone, Deserialize)]
+pub(crate) struct Machine {
+    pub name: String,
+    pub target: String,
+    #[serde(default)]
+    pub via: bool,
+    #[serde(default)]
+    pub temporary: bool,
+    #[serde(default)]
+    pub session: Option<String>,
+    #[serde(default)]
+    pub host: String,
+    #[serde(default)]
+    pub version: String,
+    /// connecting, connected, needs_login or unreachable. Empty in the answer to adding one.
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub since_ms: Option<u64>,
+    #[serde(default)]
+    pub why: Option<String>,
+    #[serde(default)]
+    pub keeps_running_after_logout: Option<bool>,
+    #[serde(default)]
+    pub logout_linger_user: Option<String>,
+}
+
+/// One program run on a machine without a terminal (`machine.exec`). The output is base64.
+#[derive(Deserialize)]
+pub(crate) struct Ran {
+    pub code: Option<i32>,
+    #[serde(default)]
+    pub signal: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+    pub truncated: bool,
+    pub timed_out: bool,
+    pub ms: u64,
+}
+
+/// What a machine runs: a program and its arguments as given, or one line for its shell.
+pub(crate) enum Program<'a> {
+    Argv(&'a [String]),
+    Line(&'a str),
+}
+
+/// Lines of a text file on a machine (`file.read`).
+#[derive(Deserialize)]
+pub(crate) struct FileLines {
+    pub text: String,
+    pub first: usize,
+    pub last: usize,
+    pub lines: usize,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct Written {
+    pub path: String,
+    pub bytes: usize,
+}
+
 #[derive(Deserialize)]
 struct RpcError {
     message: String,
@@ -298,6 +360,101 @@ impl Core {
                 _ => return,
             }
         }
+    }
+
+    pub(crate) async fn machines(&self) -> Result<Vec<Machine>, Failure> {
+        #[derive(Deserialize)]
+        struct List {
+            machines: Vec<Machine>,
+        }
+        Ok(self
+            .rpc::<List>("machine.list", json!({}), 5, false)
+            .await?
+            .machines)
+    }
+
+    /// Dials a machine now instead of at Core's next retry, and gives its connection afterwards.
+    pub(crate) async fn dial_machine(&self, name: &str) -> Result<Machine, Failure> {
+        self.rpc("machine.connect", json!({"machine":name}), 40, false)
+            .await
+    }
+
+    /// Forgets a machine here. Its programs keep running there.
+    pub(crate) async fn forget_machine(&self, name: &str) -> Result<(), Failure> {
+        self.rpc::<serde::de::IgnoredAny>("machine.rm", json!({"machine":name}), 15, true)
+            .await
+            .map(|_| ())
+    }
+
+    /// Runs one program in `cwd` on the machine `on`, with no terminal, for at most `seconds`.
+    pub(crate) async fn run_on(
+        &self,
+        on: &str,
+        cwd: &str,
+        program: Program<'_>,
+        seconds: u64,
+    ) -> Result<Ran, Failure> {
+        let mut params = json!({"on":on,"cwd":cwd,"timeout":seconds});
+        match program {
+            Program::Argv(argv) => params["argv"] = json!(argv),
+            Program::Line(line) => params["line"] = line.into(),
+        }
+        // Core ends the program at `seconds`; the rest is for the answer to travel back.
+        self.rpc("machine.exec", params, seconds + 20, true).await
+    }
+
+    pub(crate) async fn read_on(
+        &self,
+        on: &str,
+        cwd: &str,
+        path: &str,
+        offset: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<FileLines, Failure> {
+        self.rpc(
+            "file.read",
+            json!({"on":on,"cwd":cwd,"path":path,"offset":offset,"limit":limit}),
+            40,
+            false,
+        )
+        .await
+    }
+
+    pub(crate) async fn write_on(
+        &self,
+        on: &str,
+        cwd: &str,
+        path: &str,
+        text: &str,
+    ) -> Result<Written, Failure> {
+        self.rpc(
+            "file.write",
+            json!({"on":on,"cwd":cwd,"path":path,"data":STANDARD.encode(text)}),
+            40,
+            true,
+        )
+        .await
+    }
+
+    /// Replaces each `old` text, found exactly once, with its `new`; all of them or none.
+    pub(crate) async fn edit_on(
+        &self,
+        on: &str,
+        cwd: &str,
+        path: &str,
+        edits: &[(String, String)],
+    ) -> Result<Written, Failure> {
+        let edits: Vec<Value> = edits
+            .iter()
+            .map(|(old, new)| json!({"old":old,"new":new}))
+            .collect();
+        self.rpc(
+            "file.edit",
+            json!({"on":on,"cwd":cwd,"path":path,"edits":edits}),
+            40,
+            true,
+        )
+        .await
     }
 
     pub async fn agents(&self) -> Result<Vec<Terminal>, Failure> {

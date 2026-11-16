@@ -91,10 +91,10 @@ fn program() -> Result<PathBuf, String> {
 }
 
 /// A skillshare command that ran to its end.
-struct Ran {
-    ok: bool,
-    out: String,
-    err: String,
+pub(crate) struct Ran {
+    pub(crate) ok: bool,
+    pub(crate) out: String,
+    pub(crate) err: String,
 }
 
 impl Ran {
@@ -116,7 +116,7 @@ impl Ran {
 }
 
 /// Why a skillshare command has no answer.
-enum Trouble {
+pub(crate) enum Trouble {
     Start,
     Slow(Duration),
     Flood,
@@ -169,13 +169,25 @@ fn collect(mut pipe: impl Read + Send + 'static) -> mpsc::Receiver<Vec<u8>> {
 
 /// Runs skillshare with exactly `arguments`, no shell and no input, and waits at most `limit` for it.
 fn run_blocking(program: &Path, arguments: &[String], limit: Duration) -> Result<Ran, Trouble> {
+    // The second one: no call home for a newer version on the way.
+    let quiet = [("NO_COLOR", "1"), ("SKILLSHARE_AUTO_UPDATE_CHECK", "false")];
+    run_program(program, arguments, &quiet, limit)
+}
+
+/// Runs a program the way skillshare is run, for the other server tools the workspace asks (`machines`): exactly
+/// `arguments`, no shell, no input, `env` on top of the workspace's own, at most `limit`, and killed with
+/// everything it started when it passes it.
+pub(crate) fn run_program(
+    program: &Path,
+    arguments: &[String],
+    env: &[(&str, &str)],
+    limit: Duration,
+) -> Result<Ran, Trouble> {
     let mut child = Command::new(program)
         .args(arguments)
         // Away from any folder with a project setup of its own: these routes are about the user's global one.
         .current_dir("/")
-        .env("NO_COLOR", "1")
-        // No call home for a newer version on the way.
-        .env("SKILLSHARE_AUTO_UPDATE_CHECK", "false")
+        .envs(env.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
