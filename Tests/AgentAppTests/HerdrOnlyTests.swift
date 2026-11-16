@@ -63,4 +63,9 @@ private let waitingReport = #"{"reports":[{"source":"agent","id":"r1","title":"I
     let polling = try source("Stores/AppStore+Routines.swift")
     #expect(polling.contains("if store.olderBackendsInUse {\n                    await store.pollRoutinesOnce()"))
     #expect(LegacySurface.panes.contains(.reports) && LegacySurface.panes.contains(.account) && !LegacySurface.panes(showingLegacy: false).contains(.reports))
+    // Settings says "access key" wherever a person reads the server's secret.
+    for file in ["Views/HerdrSettingsSection.swift", "Views/HerdrServerFields.swift", "Views/HerdrSkillsViews.swift", "Views/HerdrHelperPolicySection.swift"] {
+        #expect(!(try source(file)).localizedCaseInsensitiveContains("access token"), "\(file) says access token")
+    }
+    #expect(!(HerdrClient.Failure.unauthorized.errorDescription ?? "").localizedCaseInsensitiveContains("token") && !HerdrBackend.missingToken.localizedCaseInsensitiveContains("token"))
 }

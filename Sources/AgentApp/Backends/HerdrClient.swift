@@ -75,7 +75,7 @@ struct HerdrClient: Sendable {
         var errorDescription: String? {
             switch self {
             case .invalidURL: "The Herdr workspace address is invalid. Use http://127.0.0.1:8787 or the port you forwarded."
-            case .unauthorized: "The Herdr workspace did not accept the access token. Paste it again in Settings."
+            case .unauthorized: "The Herdr workspace did not accept the access key. Paste it again in Settings."
             case .refusedHost: "The Herdr workspace only answers on 127.0.0.1 or localhost with its own port. Forward that same port to this Mac."
             case .http(_, let message): message
             case .noTemplate: "Choose an agent runtime for this bot. Herdr Core has no template the workspace can start."
@@ -336,15 +336,19 @@ struct HerdrClient: Sendable {
 
     // MARK: Transport
 
-    func get<T: Decodable>(_ path: String) async throws -> T { try await send(request(path, method: "GET", body: nil)) }
+    /// `timeout`: how long the bridge may take to answer. Most routes answer at once; one that runs a program on the
+    /// server (`HerdrSkills.swift`) says how long that may take, and the client waits a little longer.
+    func get<T: Decodable>(_ path: String, timeout: TimeInterval = Self.requestSeconds) async throws -> T { try await send(request(path, method: "GET", body: nil, timeout: timeout)) }
 
-    func post<T: Decodable>(_ path: String, _ body: [String: Any]) async throws -> T {
-        try await send(request(path, method: "POST", body: try JSONSerialization.data(withJSONObject: body)))
+    func post<T: Decodable>(_ path: String, _ body: [String: Any], timeout: TimeInterval = Self.requestSeconds) async throws -> T {
+        try await send(request(path, method: "POST", body: try JSONSerialization.data(withJSONObject: body), timeout: timeout))
     }
 
-    func request(_ path: String, method: String, body: Data?) throws -> URLRequest {
+    static let requestSeconds: TimeInterval = 100
+
+    func request(_ path: String, method: String, body: Data?, timeout: TimeInterval = Self.requestSeconds) throws -> URLRequest {
         guard let url = URL(string: baseURL.absoluteString + path), let host = baseURL.host else { throw Failure.invalidURL }
-        var request = URLRequest(url: url, timeoutInterval: 100)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         // The bridge compares Origin with Host on every POST (its browser page sends both).

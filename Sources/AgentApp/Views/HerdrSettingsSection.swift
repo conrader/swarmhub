@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings → Advanced → Servers and keys: the Herdr servers. Each has its access token (Keychain), a Test, starter
+/// Settings → Advanced → Servers and keys: the Herdr servers. Each has its access key (Keychain), a Test, starter
 /// bots and Remove, and under it the server's helper settings (`HerdrHelperPolicySection`); below them a new server is added the same three ways the setup window offers, and a ready-made
 /// server is only announced. The template new bots start from applies to every server.
 struct HerdrSettingsSection: View {
@@ -16,6 +16,7 @@ struct HerdrSettingsSection: View {
         ForEach(servers) { server in
             HerdrServerSection(server: server, canRemove: servers.count > 1) { templates = $0 }
             HerdrHelperPolicySection(server: server, named: servers.count > 1)
+            HerdrSkillsSection(server: server, named: servers.count > 1)
         }
         Section("Add a Herdr server") {
             Picker("Where it runs", selection: $draft.kind) {
@@ -82,7 +83,7 @@ struct HerdrServerSection: View {
         Section("Herdr server") {
             TextField("Name", text: $name).onSubmit(rename)
             LabeledContent("Where") { Text(server.place).foregroundStyle(.secondary).textSelection(.enabled) }
-            SecureField("Access token", text: $token, prompt: Text(tokenPrompt)).onChange(of: token) { _, value in
+            SecureField(SetupCopy.herdrAccessKeyLabel, text: $token, prompt: Text(tokenPrompt)).onChange(of: token) { _, value in
                 let typed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if typed != store.keyStore.key(for: server.keyAccount) { store.setHerdrToken(typed, for: server) }
             }

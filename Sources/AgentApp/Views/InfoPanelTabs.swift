@@ -30,8 +30,9 @@ extension AppStore {
     /// for it: Model unless it is a read-only archive, Skills when it carries imported skills, Activity when it has an
     /// approval audit, Routines when it has local routines (its automations live on the Gateway).
     func infoTabs(for bot: Bot) -> [AgentInfoTab] {
-        // A Herdr agent has no box behind it: no skills, routines or computer to show, and its Model tab is its own.
-        if bot.backend == .herdr { return [.overview, .model] + (bot.approvalAudit.isEmpty ? [] : [.activity]) + [.media] }
+        // A Herdr agent has no box behind it: no routines or computer to show, its Model tab is its own, and its
+        // Skills tab is its server's skill library.
+        if bot.backend == .herdr { return [.overview, .model, .skills] + (bot.approvalAudit.isEmpty ? [] : [.activity]) + [.media] }
         guard bot.backend == .openClaw else { return AgentInfoTab.allCases }
         return AgentInfoTab.allCases.filter { tab in
             switch tab {

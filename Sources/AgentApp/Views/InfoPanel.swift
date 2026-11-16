@@ -32,7 +32,7 @@ struct InfoPanel: View {
         case .model:
             if bot.backend == .herdr { VStack(alignment: .leading, spacing: 12) { HerdrAgentControls(bot: bot) } }
             else if hasModel { ModelSectionView(bot: bot, cache: store.botInfo) } else { Text("This agent has no model to show.").foregroundStyle(.secondary) }
-        case .skills: BotCapabilitiesView(bot: bot, cache: store.botInfo)
+        case .skills: if bot.backend == .herdr { HerdrSkillsPanel(bot: bot) } else { BotCapabilitiesView(bot: bot, cache: store.botInfo) }
         case .activity:
             VStack(alignment: .leading, spacing: 18) {
                 if bot.backend == .hermes && !bot.isReadOnlyArchive { BotUsageView(bot: bot) }

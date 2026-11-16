@@ -19,7 +19,7 @@ struct HerdrBackend: AgentBackend {
     static let tokenEnvironment = "SWARMHUB_HERDR_TOKEN"
     /// A bot's own template lives beside the app settings, so the bot record and its Hermes fields stay untouched.
     static func botTemplateKey(_ botID: UUID) -> String { "\(templateKey).\(botID.uuidString.lowercased())" }
-    static let missingToken = "This Herdr server has no access token yet. Add it in Settings → Advanced → Servers and keys."
+    static let missingToken = "This Herdr server has no access key yet. Add it in Settings → Advanced → Servers and keys."
     static let modelNote = "Choose this agent's model under Herdr agent."
     static func botModelKey(_ botID: UUID) -> String { "herdrModel.\(botID.uuidString.lowercased())" }
 
